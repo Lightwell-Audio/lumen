@@ -85,6 +85,10 @@ pub struct Project {
     /// How the project was last viewed (format v2). Not part of undo.
     #[serde(default)]
     pub view: ViewState,
+    /// Which control each MIDI controller number moves (format v23). Part of
+    /// undo. Written only when there are some.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mappings: Vec<crate::mapping::Mapping>,
 }
 
 /// A named locator (format v4).

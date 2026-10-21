@@ -287,6 +287,40 @@ impl App {
         self.arrangement.auto.set_mode(track, mode);
     }
 
+    /// The control waiting for a controller to move, to be mapped (M7 slice A5).
+    pub fn controller_learning(&self) -> Option<(Id, lumen_project::automation::Target)> {
+        self.controllers.learning
+    }
+
+    /// Maps controller `number` on `channel` to `track`'s `target`, as learning
+    /// it would.
+    pub fn give_mapping(
+        &mut self,
+        track: Id,
+        target: lumen_project::automation::Target,
+        channel: u8,
+        number: u8,
+    ) -> Result<(), &'static str> {
+        self.document
+            .set_mapping(track, target, channel, number)
+            .map_err(|refusal| refusal.reason())
+    }
+
+    /// Makes `track`'s `target` wait for a controller, as its menu would.
+    pub fn begin_learning(&mut self, track: Id, target: lumen_project::automation::Target) {
+        self.start_learning(track, target);
+    }
+
+    /// Whether the Mappings window is open.
+    pub fn mappings_window_open(&self) -> bool {
+        self.controllers.window
+    }
+
+    /// How many controller messages there was no room for.
+    pub fn controllers_dropped(&self) -> u64 {
+        self.controllers.dropped()
+    }
+
     /// What a track does with the controls that move while the song plays.
     pub fn automation_mode(&self, track: Id) -> &'static str {
         self.arrangement.auto.mode_of(track).name()

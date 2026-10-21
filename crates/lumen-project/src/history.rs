@@ -186,6 +186,7 @@ fn unchanged(a: &Project, b: &Project) -> bool {
         markers,
         transport,
         view,
+        mappings,
     } = a;
     *name == b.name
         && *sample_rate == b.sample_rate
@@ -196,6 +197,7 @@ fn unchanged(a: &Project, b: &Project) -> bool {
         && *markers == b.markers
         && *transport == b.transport
         && *view == b.view
+        && *mappings == b.mappings
         && same_track(master, &b.master)
         && tracks.len() == b.tracks.len()
         && tracks.iter().zip(&b.tracks).all(|(x, y)| same_track(x, y))

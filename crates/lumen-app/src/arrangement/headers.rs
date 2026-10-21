@@ -9,6 +9,7 @@ use eframe::emath::GuiRounding as _;
 use lumen_project::automation::Target;
 use lumen_project::model::{Id, TrackKind};
 
+use super::control_menu::{control_menu_for, waiting_ring};
 use super::follow;
 use super::header_row::HeaderRow;
 use super::nesting::Arm;
@@ -466,6 +467,15 @@ impl Arrangement {
         if self.taken_over(doc, track, Target::Volume) {
             follow::ring(ui, volume_rect);
         }
+        control_menu_for(
+            ui,
+            id.with("volume"),
+            doc,
+            &mut self.auto,
+            track.id,
+            Target::Volume,
+        );
+        waiting_ring(ui, &self.auto, volume_rect, track.id, Target::Volume);
         // The level under the value that sets it (the owner's H2).
         self.slider_meter(ui, volume_rect, track, id);
         let shown_pan = self.shown(doc, track, Target::Pan, track.pan);
@@ -484,6 +494,15 @@ impl Arrangement {
         if self.taken_over(doc, track, Target::Pan) {
             follow::ring(ui, pan_rect);
         }
+        control_menu_for(
+            ui,
+            id.with("pan"),
+            doc,
+            &mut self.auto,
+            track.id,
+            Target::Pan,
+        );
+        waiting_ring(ui, &self.auto, pan_rect, track.id, Target::Pan);
         self.auto_button(ui, doc, track, auto_rect, id, look);
     }
 }

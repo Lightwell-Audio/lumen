@@ -155,6 +155,7 @@ impl App {
             arrangement,
             recorder: Default::default(),
             gestures_open: Default::default(),
+            controllers: Default::default(),
             toast: None,
             dialog: None,
             dialog_answers: launch.scripted_dialogs.then(Default::default),

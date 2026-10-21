@@ -127,6 +127,7 @@ fn golden_v1_expected() -> Project {
         markers: Vec::new(),
         transport: Default::default(),
         view: Default::default(),
+        mappings: Vec::new(),
     }
 }
 

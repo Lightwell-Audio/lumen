@@ -272,6 +272,8 @@ mod tests {
             read_only: false,
             choices: vec![],
             over: false,
+            mapped: None,
+            waiting: false,
         }
     }
 

@@ -186,12 +186,13 @@ impl App {
         // The live feed (inputs and the computer keyboard) goes to the
         // engine once; it plays on the audio thread from then on.
         if self.live_keys.is_none() {
-            let (feed, keys) = crate::live::live(
+            let (feed, keys, tap) = crate::live::live(
                 self.midi.take_input(),
                 Arc::clone(&self.transport.audio.clock),
             );
             if self.transport.audio.midi.set_live(Box::new(feed)).is_ok() {
                 self.live_keys = Some(keys);
+                self.controllers.tap = Some(tap);
             }
         }
         if std::mem::take(&mut self.transport.panic_midi) {

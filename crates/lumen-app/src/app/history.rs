@@ -35,6 +35,7 @@ impl App {
             && !ctx.input(|i| i.pointer.any_down())
             && !crate::widgets::wheel::adjusting(ctx)
             && !self.hosting.gesture_open()
+            && !self.controllers.holding()
         {
             self.document.seal();
         }

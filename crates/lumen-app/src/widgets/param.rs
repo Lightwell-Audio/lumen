@@ -316,6 +316,8 @@ pub fn param_knob(
         selected: look.selected,
         live_value: false,
         name: look.name,
+        mapped: None,
+        waiting: false,
     };
     draw(ui.painter(), rect, &knob, shown as f32, hot);
     if response.has_focus() {

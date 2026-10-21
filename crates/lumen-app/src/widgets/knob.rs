@@ -78,6 +78,10 @@ pub struct SendKnob<'a> {
     pub live_value: bool,
     /// The accessible name: "Send Vocal to A Reverb".
     pub name: &'a str,
+    /// The controller that moves it (channel, number), if one is mapped.
+    pub mapped: Option<(u8, u8)>,
+    /// It waits for a controller to move, to be mapped.
+    pub waiting: bool,
 }
 
 /// What happened to a knob this frame.
@@ -90,6 +94,8 @@ pub struct KnobOut {
     pub hovered: bool,
     /// Being set right now: dragged, focused or typed into.
     pub active: bool,
+    /// What the menu's rows about lanes and controllers asked.
+    pub ask: Option<super::Ask>,
 }
 
 /// A send knob in `rect` (square). Returns what the user changed.
@@ -233,6 +239,8 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
         if super::menu_item(ui, "Silence the send", None, true).clicked() {
             out.db = Some(f32::NEG_INFINITY);
         }
+        ui.separator();
+        out.ask = super::control_items(ui, knob.mapped, knob.waiting);
     });
 
     let shown = out.db.map_or(at, position);

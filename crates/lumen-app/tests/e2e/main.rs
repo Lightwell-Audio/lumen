@@ -21,6 +21,7 @@ mod clips;
 mod clock;
 mod commands;
 mod compensation;
+mod controllers;
 mod cue;
 mod devices;
 mod dropdown;

@@ -57,6 +57,7 @@ impl App {
         self.shortcuts.open
             || self.transport.settings_window.open
             || self.show_history
+            || self.controllers.window
             || self.prompt.is_some()
     }
 
@@ -413,6 +414,16 @@ impl App {
                 !self.document.overrides().is_empty(),
                 "No lane is taken over",
             ),
+            Command::ControllerLearn => need(
+                self.auto_chosen().is_some(),
+                "Show a lane first (A): it names the control to map",
+            ),
+            Command::ControllerClear => need(
+                self.auto_chosen()
+                    .is_some_and(|(t, target)| self.document.mapping_of(t, target).is_some()),
+                "No controller moves the shown lane's control",
+            ),
+            Command::ControllerMappings => Ok(()),
             Command::AutomationToggleLane | Command::AutomationRemoveLane => need(
                 self.auto_chosen_has_lane(),
                 "The shown lane has no points yet: click it to add one",
@@ -614,6 +625,23 @@ impl App {
             Command::AutomationModeTouch => self.auto_set_mode(crate::auto_record::Mode::Touch),
             Command::AutomationModeLatch => self.auto_set_mode(crate::auto_record::Mode::Latch),
             Command::AutomationModeWrite => self.auto_set_mode(crate::auto_record::Mode::Write),
+            Command::ControllerLearn => {
+                if let Some((track, target)) = self.auto_chosen() {
+                    if self.controllers.learning == Some((track, target)) {
+                        self.stop_learning();
+                    } else {
+                        self.start_learning(track, target);
+                    }
+                }
+            }
+            Command::ControllerClear => {
+                if let Some((track, target)) = self.auto_chosen() {
+                    self.clear_controller(track, target);
+                }
+            }
+            Command::ControllerMappings => {
+                self.controllers.window = !self.controllers.window;
+            }
             Command::AutomationToggleLane => self.auto_toggle_lane(),
             Command::AutomationRemoveLane => self.auto_remove_lane(),
             Command::AutomationSegmentLinear => self.auto_shape_segments(Shape::Linear),

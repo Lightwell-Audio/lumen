@@ -199,6 +199,7 @@ pub fn synthetic(
         markers: Vec::new(),
         transport: Default::default(),
         view: Default::default(),
+        mappings: Vec::new(),
     }
 }
 
@@ -223,6 +224,7 @@ pub fn project_of(name: &str, tracks: Vec<Track>) -> Project {
         markers: Vec::new(),
         transport: Default::default(),
         view: Default::default(),
+        mappings: Vec::new(),
     }
 }
 
