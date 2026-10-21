@@ -8016,3 +8016,12 @@ in the clip, the sweep in the lane, Latch during the take and Read after; mutati
 `empty_takes_and_ranges_change_only_what_they_must` now expects the clips, not the whole track, back.
 **Not run:** a real controller while recording.
 
+**Amendment 2 (2026-10-21, the owner's first try of recording a take with a knob).** The owner learned a
+controller on a track's volume, armed, recorded, moved the knob and found no automation afterwards, and
+the lane chip on Read. Cause: Touch and Latch only began for a control that had a lane or whose lane the
+track showed (`World::armed`), and a freshly learned volume had neither, so nothing was written (the
+earlier E2E gave the track a lane first). A control a controller is mapped to now counts as armed
+(`app/auto_recording.rs`), and a lane a pass makes is shown on its track if the track shows none, so it can
+be seen and edited. The track's mode goes back to Read when the take ends, as decided: the lane stays and
+plays. E2E `a_take_with_a_controller_writes_a_lane_that_did_not_exist_yet` (fails without the change).
+

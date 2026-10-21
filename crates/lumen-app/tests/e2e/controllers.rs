@@ -349,3 +349,40 @@ fn recording_leaves_a_mode_the_user_chose_and_a_track_with_no_mapped_control_alo
     stop(&mut lumen);
     assert_eq!(lumen.app().automation_mode(id), "Touch");
 }
+
+#[test]
+fn a_take_with_a_controller_writes_a_lane_that_did_not_exist_yet() {
+    use super::record::{Keys, beats, clips_of, keyboard, launch, reach, record, stop, track};
+
+    let fake = keyboard();
+    let project = lumen_project::testing::project_of("NewLane", vec![track(None, true)]);
+    let mut lumen = launch("new-lane", &project, &fake);
+    let keys = Keys::new(&fake);
+    let id = Id(1);
+    // Learned, but the track has no volume lane and none is shown.
+    lumen
+        .app_mut()
+        .give_mapping(id, Target::Volume, 0, 7)
+        .unwrap();
+    assert!(points(&lumen, id, Target::Volume).is_empty());
+    record(&mut lumen);
+    reach(&mut lumen, beats(1.0));
+    keys.on(60, 90);
+    for step in 0..10_u8 {
+        keys.controller(7, 30 + step * 10);
+        std::thread::sleep(Duration::from_millis(30));
+        lumen.frames(2);
+    }
+    keys.off(60);
+    reach(&mut lumen, beats(2.0));
+    let_go(&mut lumen);
+    stop(&mut lumen);
+    assert_eq!(clips_of(&lumen).len(), 1, "the take");
+    let written = points(&lumen, id, Target::Volume);
+    assert!(written.len() > 2, "the sweep made a lane: {written:?}");
+    assert_eq!(
+        lumen.app().automation_shown(id),
+        Some(Target::Volume),
+        "the new lane is shown, so it can be seen"
+    );
+}
