@@ -149,16 +149,11 @@ fn create_add_import_arrange_edit_save_close_and_reopen_the_same_song() {
     assert_eq!(
         (
             &opened.tempo,
-            &opened.time_signature,
+            &opened.meter,
             &opened.markers,
             &opened.transport
         ),
-        (
-            &saved.tempo,
-            &saved.time_signature,
-            &saved.markers,
-            &saved.transport
-        )
+        (&saved.tempo, &saved.meter, &saved.markers, &saved.transport)
     );
     assert_eq!(opened.view, saved.view);
     // The same audio, now copied into the project folder (the project is

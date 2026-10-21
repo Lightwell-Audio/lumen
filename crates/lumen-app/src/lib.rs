@@ -89,6 +89,7 @@ mod recorder;
 mod routing;
 mod ruler;
 mod settings;
+mod song_lanes;
 pub mod testing;
 mod theme;
 mod timefmt;
@@ -208,6 +209,8 @@ pub struct App {
     midi_writing: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
     /// A MIDI file's tempo and meter, offered in a banner (M5 slice 7, F2).
     tempo_offer: Option<app::midi_files::TempoOffer>,
+    /// The tempo and meter lanes under the bar ruler (M7 slice A6).
+    song: song_lanes::SongLanes,
     /// Where the pointer is while files are dragged in from the system.
     /// egui does not know: on Windows the window gets no pointer moves
     /// during the drag, and the window integration drops the position the
@@ -313,11 +316,9 @@ pub(crate) fn empty_project() -> Project {
         tempo: vec![TempoPoint {
             at: Ticks::ZERO,
             bpm: 120.0,
+            ramp: false,
         }],
-        time_signature: TimeSignature {
-            numerator: 4,
-            denominator: 4,
-        },
+        meter: lumen_project::model::constant_meter(TimeSignature::FOUR_FOUR),
         tracks: Vec::new(),
         // Id 0: a new project's other ids count on from 1 (`fresh_id`);
         // older projects got the next free id when they were migrated.

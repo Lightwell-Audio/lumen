@@ -587,14 +587,15 @@ mod tests {
                 .at
         };
         assert_eq!(last(&doc), 192_000);
-        doc.set_tempo(240.0, None);
+        doc.set_tempo_at(lumen_core::time::Ticks::ZERO, 240.0, None);
         assert_eq!(last(&doc), 96_000);
         // A change of tempo partway along: four quarters at 120, four at 240.
-        doc.set_tempo(120.0, None);
+        doc.set_tempo_at(lumen_core::time::Ticks::ZERO, 120.0, None);
         doc.apply("tempo", None, |p| {
             p.tempo.push(lumen_core::time::TempoPoint {
                 at: lumen_core::time::Ticks::quarters(4),
                 bpm: 240.0,
+                ramp: false,
             })
         });
         assert_eq!(last(&doc), 96_000 + 48_000);
@@ -708,6 +709,15 @@ mod tests {
 
     #[test]
     fn the_engine_form_of_a_lane_agrees_with_the_model_everywhere() {
+        agrees(false);
+    }
+
+    #[test]
+    fn the_engine_form_of_a_lane_agrees_with_the_model_along_a_tempo_ramp() {
+        agrees(true);
+    }
+
+    fn agrees(ramp: bool) {
         use lumen_core::automation::{Lane, Point, Shape};
         use lumen_core::curve::Curve;
         use lumen_core::time::{TempoMap, TempoPoint, Ticks};
@@ -716,10 +726,12 @@ mod tests {
             TempoPoint {
                 at: Ticks::ZERO,
                 bpm: 93.0,
+                ramp,
             },
             TempoPoint {
                 at: Ticks::quarters(6),
                 bpm: 141.5,
+                ramp: false,
             },
         ])
         .unwrap();

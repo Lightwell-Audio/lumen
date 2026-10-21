@@ -892,6 +892,7 @@ mod tests {
                 .map(|(beat, micros)| TempoPoint {
                     at: Ticks::quarters(beat),
                     bpm: 60_000_000.0 / f64::from(micros),
+                    ramp: false,
                 })
                 .collect(),
             )

@@ -9,7 +9,7 @@ use lumen_core::time::{PPQ, TempoPoint, Ticks};
 
 use crate::model::{
     Clip, ClipContent, Color, Device, DeviceKind, Id, Media, Note, PluginRef, Project,
-    TimeSignature, Track, TrackKind,
+    TimeSignature, Track, TrackKind, constant_meter,
 };
 
 /// A temporary folder removed on drop.
@@ -182,16 +182,15 @@ pub fn synthetic(
             TempoPoint {
                 at: Ticks::ZERO,
                 bpm: 120.0,
+                ramp: false,
             },
             TempoPoint {
                 at: Ticks::quarters(64),
                 bpm: 128.0,
+                ramp: false,
             },
         ],
-        time_signature: TimeSignature {
-            numerator: 4,
-            denominator: 4,
-        },
+        meter: constant_meter(TimeSignature::FOUR_FOUR),
         tracks: all_tracks,
         master,
         pan_law: Default::default(),
@@ -212,11 +211,9 @@ pub fn project_of(name: &str, tracks: Vec<Track>) -> Project {
         tempo: vec![TempoPoint {
             at: Ticks::ZERO,
             bpm: 120.0,
+            ramp: false,
         }],
-        time_signature: TimeSignature {
-            numerator: 4,
-            denominator: 4,
-        },
+        meter: constant_meter(TimeSignature::FOUR_FOUR),
         tracks: tracks.into_iter().map(Arc::new).collect(),
         master: Arc::new(Track::master(Id(999))),
         pan_law: Default::default(),

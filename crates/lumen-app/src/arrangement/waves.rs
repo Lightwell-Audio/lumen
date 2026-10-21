@@ -4,7 +4,7 @@
 //! to what is heard (`lanes::engine_clips`).
 
 use eframe::egui::Color32;
-use lumen_core::time::{TempoMap, Ticks};
+use lumen_core::time::{PPQ, TempoMap, Ticks};
 use lumen_project::model::{Clip, ClipContent, Project, Track};
 use lumen_render::{WaveInstance, beats, rgba};
 
@@ -32,8 +32,9 @@ pub(super) struct Wave {
 
 /// The waves for every audio clip whose peaks are loaded (`source` gives
 /// them by media id), with frames at the device `rate` as the audio is
-/// held. A clip spanning tempo changes gets one wave per constant tempo,
-/// since audio plays at its own speed while beats stretch.
+/// held. A clip spanning tempo changes gets one wave per constant tempo
+/// (and one per quarter note over a ramp), since audio plays at its own
+/// speed while beats stretch.
 pub(super) fn wave_instances(
     project: &Project,
     rate: u32,
@@ -67,6 +68,21 @@ pub(super) fn wave_instances(
                 .map(|p| p.at)
                 .filter(|&at| at > start && at < end)
                 .collect();
+            // Over a ramp the audio stretches a little more or less each beat:
+            // one wave per quarter note there, exact where each begins.
+            for pair in tempo.points().windows(2) {
+                if !pair[0].ramp || pair[0].bpm == pair[1].bpm {
+                    continue;
+                }
+                let (from, to) = (pair[0].at.max(start), pair[1].at.min(end));
+                let mut at = Ticks((from.0 / PPQ + 1) * PPQ);
+                while at < to && cuts.len() < MAX_REPEATS {
+                    cuts.push(at);
+                    at = at + Ticks(PPQ);
+                }
+            }
+            cuts.sort_unstable();
+            cuts.dedup();
             // A looping clip draws its content again from each repeat
             // (slice 6c), as the engine plays it.
             let period = clip.loop_length.filter(|p| *p > Ticks::ZERO);
@@ -187,6 +203,7 @@ mod tests {
         TempoPoint {
             at: Ticks::quarters(at),
             bpm,
+            ramp: false,
         }
     }
 
@@ -235,6 +252,26 @@ mod tests {
         assert_eq!(waves[0].frames_per_beat, 24_000.0);
         assert_eq!(waves[1].first_frame, 48_000.0);
         assert_eq!(waves[1].frames_per_beat, 48_000.0);
+    }
+
+    #[test]
+    fn a_clip_over_a_tempo_ramp_has_a_wave_a_beat_and_the_audio_runs_on() {
+        // 120 BPM gliding to 60 over beats 0 to 8; the clip is beats 4 to 8.
+        let ramp = TempoPoint {
+            ramp: true,
+            ..bpm(0, 120.0)
+        };
+        let p = project(vec![ramp, bpm(8, 60.0)], 0);
+        let waves = waves(&p, 48_000);
+        let starts: Vec<f32> = waves.iter().map(|w| w.start[0]).collect();
+        assert_eq!(starts, [4.0, 5.0, 6.0, 7.0]);
+        // Each beat is longer than the one before, and the audio of a wave
+        // begins where the one before it ended.
+        for pair in waves.windows(2) {
+            assert!(pair[1].frames_per_beat > pair[0].frames_per_beat);
+            let drawn = pair[0].frames_per_beat * (pair[0].end[0] - pair[0].start[0]);
+            assert!((pair[0].first_frame + drawn - pair[1].first_frame).abs() < 1.0);
+        }
     }
 
     #[test]

@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use lumen_core::meter::Meter;
 use lumen_core::time::Ticks;
 use lumen_project::edit::{self, MIN_LENGTH};
 use lumen_project::model::{Clip, ClipContent, Id, TrackKind};
@@ -39,14 +38,11 @@ impl Document {
                 (a, (b - a).max(MIN_LENGTH))
             }
             NewClip::Bar(at) => {
-                let signature = project.time_signature;
-                let bar = Meter {
-                    numerator: u32::from(signature.numerator),
-                    denominator: u32::from(signature.denominator),
-                }
-                .bar();
-                let start = Ticks(at.0.max(0) / bar.0 * bar.0);
-                (start, bar)
+                // The bar the time falls in, whatever the meter is there.
+                let map = project.meter_map();
+                let bar = map.bbt_at(at.max(Ticks::ZERO)).bar;
+                let start = map.bar_start(bar);
+                (start, map.bar_start(bar + 1) - start)
             }
         };
         let end = start + length;
@@ -127,7 +123,7 @@ mod tests {
     #[test]
     fn a_bar_follows_the_time_signature() {
         let (mut doc, track) = doc_with_midi_track();
-        doc.set_time_signature(6, 8, None);
+        doc.set_time_signature_at(Ticks::ZERO, 6, 8, None);
         doc.create_midi_clip(track, NewClip::Bar(q(4)));
         // A 6/8 bar is three quarters.
         assert_eq!(clips(&doc), [(q(3), q(3))]);

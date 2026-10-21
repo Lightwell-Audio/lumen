@@ -325,6 +325,7 @@ report: {}",
         // on top, the time ruler at the bottom; track headers on the left
         // between their corners; the lanes in the middle.
         let header = self.arrangement.header_width();
+        let band = self.song_band_height(ui.ctx());
         let top = rulers::STRIP_HEIGHT + rulers::RULER_HEIGHT;
         let corner = egui::Rect::from_min_size(whole.min, vec2(header, top));
         let time_corner = egui::Rect::from_min_max(
@@ -332,7 +333,7 @@ report: {}",
             pos2(whole.left() + header, whole.bottom()),
         );
         let headers = egui::Rect::from_min_max(
-            pos2(whole.left(), corner.bottom()),
+            pos2(whole.left(), corner.bottom() + band),
             pos2(corner.right(), time_corner.top()),
         );
         let full = egui::Rect::from_min_max(pos2(corner.right(), whole.top()), whole.max);
@@ -345,7 +346,8 @@ report: {}",
             pos2(full.left(), full.bottom() - rulers::TIME_HEIGHT),
             full.max,
         );
-        let canvas = egui::Rect::from_min_max(pos2(full.left(), ruler.bottom()), time.right_top());
+        let canvas =
+            egui::Rect::from_min_max(pos2(full.left(), ruler.bottom() + band), time.right_top());
 
         self.canvas = canvas;
         // Across the headers and the lanes: the pinned returns and master.
@@ -361,12 +363,18 @@ report: {}",
             egui::Rect::from_min_size(corner.min, vec2(header, rulers::STRIP_HEIGHT));
         ui.painter().rect_filled(strip_corner, 0.0, palette.app);
         self.locator_buttons(ui, strip_corner);
+        let row = egui::Rect::from_min_max(
+            pos2(corner.left(), corner.top() + rulers::STRIP_HEIGHT),
+            corner.max,
+        );
+        let split = row.right() - theme::size::SONG_BUTTON;
         self.grid_button(
             ui,
-            egui::Rect::from_min_max(
-                pos2(corner.left(), corner.top() + rulers::STRIP_HEIGHT),
-                corner.max,
-            ),
+            egui::Rect::from_min_max(row.min, pos2(split, row.bottom())),
+        );
+        self.song_lanes_button(
+            ui,
+            egui::Rect::from_min_max(pos2(split, row.top()), row.max),
         );
         self.time_format_button(ui, time_corner);
         self.arrangement.additive_solo = self.settings.mixing.additive_solo;
@@ -558,6 +566,7 @@ report: {}",
         self.bar_ruler(ui, &painter, &at);
         self.time_ruler(&painter, &at);
         self.time_ruler_input(ui, &painter, &at);
+        self.song_band(ui, &at, band);
 
         // The start marker: where Play starts. A neutral arrow on the ruler
         // only, at its bottom edge, so it stays visible when the playhead

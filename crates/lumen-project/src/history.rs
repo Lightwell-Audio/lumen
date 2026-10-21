@@ -178,7 +178,7 @@ fn unchanged(a: &Project, b: &Project) -> bool {
         name,
         sample_rate,
         tempo,
-        time_signature,
+        meter,
         tracks,
         master,
         pan_law,
@@ -191,7 +191,7 @@ fn unchanged(a: &Project, b: &Project) -> bool {
     *name == b.name
         && *sample_rate == b.sample_rate
         && *tempo == b.tempo
-        && *time_signature == b.time_signature
+        && *meter == b.meter
         && *pan_law == b.pan_law
         && *media == b.media
         && *markers == b.markers

@@ -16,7 +16,6 @@ mod status;
 
 use std::time::{Duration, Instant};
 
-use lumen_core::meter::{Meter, MeterMap};
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_engine::{Command, MetronomeSettings, Region, Timeline, TransportSnapshot};
 use lumen_project::model::Project;
@@ -103,13 +102,7 @@ pub struct Transport {
 fn timeline_of(project: &Project) -> Timeline {
     let tempo = TempoMap::new(project.tempo.clone())
         .unwrap_or_else(|_| TempoMap::constant(120.0).expect("120 BPM is valid"));
-    let sig = project.time_signature;
-    let meter = MeterMap::constant(Meter {
-        numerator: sig.numerator.into(),
-        denominator: sig.denominator.into(),
-    })
-    .unwrap_or_else(|_| MeterMap::constant(Meter::FOUR_FOUR).expect("4/4 is valid"));
-    Timeline::new(tempo, meter)
+    Timeline::new(tempo, project.meter_map())
 }
 
 impl Transport {

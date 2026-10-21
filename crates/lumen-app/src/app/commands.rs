@@ -176,6 +176,7 @@ impl App {
                     || tracks
                     || locator
                     || notes
+                    || self.song_keys_picked()
                     || self.lane_keys_picked()
                     || self.auto_keys_picked()
                     || self.chain.live,
@@ -424,6 +425,11 @@ impl App {
                 "No controller moves the shown lane's control",
             ),
             Command::ControllerMappings => Ok(()),
+            Command::SongLanesShow | Command::TempoChangeAdd | Command::MeterChangeAdd => Ok(()),
+            Command::TempoRamp => need(
+                self.song_ramp_target().is_some(),
+                "Pick a tempo change that has another after it",
+            ),
             Command::AutomationToggleLane | Command::AutomationRemoveLane => need(
                 self.auto_chosen_has_lane(),
                 "The shown lane has no points yet: click it to add one",
@@ -490,6 +496,7 @@ impl App {
         let notes = self.note_keys_picked();
         let lane_points = self.lane_keys_picked();
         let auto_point = self.auto_keys_picked();
+        let song_point = self.song_keys_picked();
         let auto_lane = self.auto_keys_lane();
         let auto_paste = self.auto_can_paste();
         let auto_draw = self.auto_chosen().is_some();
@@ -576,6 +583,7 @@ impl App {
             Command::Paste => self.edit(Edit::Paste),
             // With the clip editor holding the keyboard and notes picked,
             // the keys that act on a selection act on them.
+            Command::Delete if song_point => self.song_delete(),
             Command::Delete if lane_points => self.lane_delete(),
             Command::Delete if auto_point && !notes => self.auto_delete(),
             Command::Delete if notes => self.note_op(NoteOp::Delete),
@@ -642,6 +650,10 @@ impl App {
             Command::ControllerMappings => {
                 self.controllers.window = !self.controllers.window;
             }
+            Command::SongLanesShow => self.song_lanes_toggle(),
+            Command::TempoChangeAdd => self.song_add_tempo_at_playhead(),
+            Command::MeterChangeAdd => self.song_add_meter_at_playhead(),
+            Command::TempoRamp => self.song_toggle_ramp(),
             Command::AutomationToggleLane => self.auto_toggle_lane(),
             Command::AutomationRemoveLane => self.auto_remove_lane(),
             Command::AutomationSegmentLinear => self.auto_shape_segments(Shape::Linear),

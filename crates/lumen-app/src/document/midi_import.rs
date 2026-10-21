@@ -6,11 +6,11 @@
 
 use std::sync::Arc;
 
-use lumen_core::meter::Meter;
+use lumen_core::meter::{Meter, MeterPoint, tidy};
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
 use lumen_project::edit;
 use lumen_project::model::{
-    Clip, ClipContent, ClipEvent, Device, Id, Note, Project, TimeSignature, Track, TrackKind,
+    Clip, ClipContent, ClipEvent, Device, Id, Note, Project, Track, TrackKind,
 };
 use lumen_project::smf::{FileTrack, MidiFile};
 
@@ -31,14 +31,9 @@ fn merged<'a>(parts: impl IntoIterator<Item = &'a FileTrack>) -> (Vec<Note>, Vec
 }
 
 /// A clip's length for content ending at `end`: whole bars of the
-/// project's meter, one at least.
-fn bars_for(project: &Project, end: Ticks) -> Ticks {
-    let signature = project.time_signature;
-    let bar = Meter {
-        numerator: u32::from(signature.numerator),
-        denominator: u32::from(signature.denominator),
-    }
-    .bar();
+/// project's meter where the clip begins at `at`, one at least.
+fn bars_for(project: &Project, at: Ticks, end: Ticks) -> Ticks {
+    let bar = project.meter_map().meter_at(at).bar();
     Ticks(((end.0 + bar.0 - 1) / bar.0).max(1) * bar.0)
 }
 
@@ -109,7 +104,7 @@ impl Document {
             .iter()
             .find(|t| t.id == track && t.kind == TrackKind::Midi)?;
         let at = at.max(Ticks::ZERO);
-        let length = bars_for(project, file.end());
+        let length = bars_for(project, at, file.end());
         let end = at + length;
         if target
             .clips
@@ -182,7 +177,7 @@ impl Document {
             let added = parts.iter().zip(&names).zip(&ids);
             for (k, ((part, track_name), &(track, synth, clip_id))) in added.enumerate() {
                 let (notes, events) = merged([*part]);
-                let length = bars_for(project, part.end());
+                let length = bars_for(project, at, part.end());
                 let color = track_color(project.tracks.len());
                 project.tracks.insert(
                     first + k,
@@ -200,16 +195,23 @@ impl Document {
     }
 
     /// Takes a MIDI file's tempo map and time signature (F2's "Use them"),
-    /// as one undo step. A tempo map Lumen cannot hold is left out; so is a
-    /// meter, when `None`. Clips stay where they are in beats.
-    pub fn use_file_tempo(&mut self, tempo: &[TempoPoint], meter: Option<TimeSignature>) {
+    /// as one undo step. A tempo map Lumen cannot hold is left out; so is
+    /// the meter, when there is none. Clips stay where they are in beats.
+    pub fn use_file_tempo(&mut self, tempo: &[TempoPoint], meter: &[MeterPoint]) {
         let tempo = TempoMap::new(tempo.to_vec())
             .ok()
             .map(|map| map.points().to_vec());
-        let meter = meter.map(|m| TimeSignature {
-            numerator: u32::from(m.numerator).clamp(1, MAX_BEATS_PER_BAR) as u8,
-            denominator: m.denominator,
-        });
+        let meter: Vec<MeterPoint> = meter
+            .iter()
+            .map(|p| MeterPoint {
+                at: p.at,
+                meter: Meter {
+                    numerator: p.meter.numerator.clamp(1, MAX_BEATS_PER_BAR),
+                    denominator: p.meter.denominator,
+                },
+            })
+            .collect();
+        let meter = (!meter.is_empty()).then(|| tidy(&meter));
         if tempo.is_none() && meter.is_none() {
             return;
         }
@@ -218,7 +220,7 @@ impl Document {
                 project.tempo = tempo;
             }
             if let Some(meter) = meter {
-                project.time_signature = meter;
+                project.meter = meter;
             }
         });
     }
@@ -264,16 +266,21 @@ mod tests {
                 TempoPoint {
                     at: Ticks::ZERO,
                     bpm: 96.0,
+                    ramp: false,
                 },
                 TempoPoint {
                     at: q(8),
                     bpm: 140.0,
+                    ramp: false,
                 },
             ],
-            meter: Some(TimeSignature {
-                numerator: 6,
-                denominator: 8,
-            }),
+            meter: vec![MeterPoint {
+                at: Ticks::ZERO,
+                meter: Meter {
+                    numerator: 6,
+                    denominator: 8,
+                },
+            }],
         }
     }
 
@@ -356,10 +363,10 @@ mod tests {
     fn the_files_tempo_and_meter_come_in_as_one_step() {
         let mut doc = Document::new(crate::empty_project());
         let file = song();
-        doc.use_file_tempo(&file.tempo, file.meter);
+        doc.use_file_tempo(&file.tempo, &file.meter);
         let project = doc.project();
         assert_eq!(project.tempo, file.tempo);
-        assert_eq!(project.time_signature, file.meter.unwrap());
+        assert_eq!(project.meter, file.meter);
         doc.undo();
         assert_eq!(doc.project().tempo.len(), 1);
         // A map Lumen cannot hold is left out; the meter still comes.
@@ -367,13 +374,38 @@ mod tests {
             &[TempoPoint {
                 at: q(1),
                 bpm: 90.0,
+                ramp: false,
             }],
-            Some(TimeSignature {
-                numerator: 200,
-                denominator: 4,
-            }),
+            &[MeterPoint {
+                at: Ticks::ZERO,
+                meter: Meter {
+                    numerator: 200,
+                    denominator: 4,
+                },
+            }],
         );
         assert_eq!(doc.project().tempo.len(), 1);
-        assert_eq!(doc.project().time_signature.numerator, 64);
+        assert_eq!(doc.project().meter[0].meter.numerator, 64);
+    }
+
+    #[test]
+    fn a_file_with_changes_of_meter_brings_them_along() {
+        let mut doc = Document::new(crate::empty_project());
+        let changes = [
+            MeterPoint {
+                at: Ticks::ZERO,
+                meter: Meter::FOUR_FOUR,
+            },
+            MeterPoint {
+                at: q(8),
+                meter: Meter {
+                    numerator: 7,
+                    denominator: 8,
+                },
+            },
+        ];
+        doc.use_file_tempo(&[], &changes);
+        assert_eq!(doc.project().meter, changes);
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
     }
 }

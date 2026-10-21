@@ -40,6 +40,7 @@ pub(crate) mod rulers;
 pub(crate) mod safe_mode;
 pub(crate) mod scrub;
 pub(crate) mod shortcuts;
+mod song_lanes;
 mod startup;
 pub(crate) mod test_modes;
 pub(crate) mod view;

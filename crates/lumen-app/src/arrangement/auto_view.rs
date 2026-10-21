@@ -605,7 +605,7 @@ impl Arrangement {
 
 /// A point: hollow at rest, solid when picked, and a little larger under
 /// the pointer. Picked is also a ring, so it never rests on colour alone.
-fn draw_point(painter: &Painter, at: Pos2, ink: Color32, picked: bool, hot: bool) {
+pub(crate) fn draw_point(painter: &Painter, at: Pos2, ink: Color32, picked: bool, hot: bool) {
     let palette = theme::p();
     let radius = theme::size::AUTO_POINT + if hot || picked { 1.0 } else { 0.0 };
     let fill = if picked { ink } else { palette.canvas };

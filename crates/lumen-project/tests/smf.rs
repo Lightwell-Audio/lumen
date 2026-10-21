@@ -5,8 +5,9 @@
 use std::fs;
 use std::path::PathBuf;
 
+use lumen_core::meter::{Meter, MeterPoint};
 use lumen_core::time::{PPQ, TempoPoint, Ticks};
-use lumen_project::model::{ClipEvent, EventKind, Note, TimeSignature};
+use lumen_project::model::{ClipEvent, EventKind, Note};
 use lumen_project::smf::{self, FileTrack, Layout, MidiFile, ReadError};
 
 fn file(name: &str) -> PathBuf {
@@ -48,13 +49,7 @@ fn a_type_0_file_splits_by_channel_with_running_status_and_odd_note_endings() {
     assert_eq!(file.tempo.len(), 2);
     bpm_near(&file.tempo[0], Ticks::ZERO, 100.0);
     bpm_near(&file.tempo[1], q(8, 1), 140.0);
-    assert_eq!(
-        file.meter,
-        Some(TimeSignature {
-            numerator: 3,
-            denominator: 4
-        })
-    );
+    assert_eq!(file.meter, vec![meter_at(Ticks::ZERO, 3, 4)]);
     assert_eq!(file.tracks.len(), 2, "channels 1 and 10");
     let keys = &file.tracks[0];
     assert_eq!((keys.channel, keys.source), (0, 0));
@@ -109,7 +104,7 @@ fn an_smpte_file_is_placed_through_its_own_tempo() {
     assert_eq!(file.tempo.len(), 2);
     bpm_near(&file.tempo[0], Ticks::ZERO, 120.0);
     bpm_near(&file.tempo[1], q(2, 1), 60.0);
-    assert_eq!(file.meter, None);
+    assert!(file.meter.is_empty());
     assert_eq!(file.tracks.len(), 1, "the conductor track has no notes");
     let lead = &file.tracks[0];
     assert_eq!((lead.channel, lead.source), (0, 1));
@@ -204,17 +199,56 @@ fn golden() -> MidiFile {
             TempoPoint {
                 at: Ticks::ZERO,
                 bpm: 125.0,
+                ramp: false,
             },
             TempoPoint {
                 at: q(4, 1),
                 bpm: 80.0,
+                ramp: false,
             },
         ],
-        meter: Some(TimeSignature {
-            numerator: 7,
-            denominator: 8,
-        }),
+        meter: vec![meter_at(Ticks::ZERO, 7, 8)],
     }
+}
+
+fn meter_at(at: Ticks, numerator: u32, denominator: u32) -> MeterPoint {
+    MeterPoint {
+        at,
+        meter: Meter {
+            numerator,
+            denominator,
+        },
+    }
+}
+
+#[test]
+fn a_song_that_changes_meter_round_trips_and_a_change_mid_bar_moves_to_a_bar_line() {
+    // 4/4 for two bars, 7/8 for two bars (3.5 quarters each), then 3/4.
+    let map = vec![
+        meter_at(Ticks::ZERO, 4, 4),
+        meter_at(q(8, 1), 7, 8),
+        meter_at(q(15, 1), 3, 4),
+    ];
+    let song = MidiFile {
+        tracks: vec![],
+        tempo: vec![],
+        meter: map.clone(),
+    };
+    for layout in [Layout::Single, Layout::Parallel] {
+        let bytes = smf::write(&song, layout).unwrap();
+        assert_eq!(smf::read(&bytes).unwrap().meter, map, "{layout:?}");
+    }
+    // A change placed in the middle of a bar lands on a bar line of the
+    // meter before it: 9.5 quarters is nearer 8 than 12.
+    let crooked = MidiFile {
+        meter: vec![meter_at(Ticks::ZERO, 4, 4), meter_at(q(19, 2), 3, 4)],
+        ..song
+    };
+    let bytes = smf::write(&crooked, Layout::Parallel).unwrap();
+    assert_eq!(
+        smf::read(&bytes).unwrap().meter,
+        vec![meter_at(Ticks::ZERO, 4, 4), meter_at(q(8, 1), 3, 4)]
+    );
 }
 
 #[test]
@@ -325,4 +359,35 @@ fn a_gap_too_long_for_a_delta_time_is_an_error_not_a_wrong_position() {
         let far = with_gap(1 << 40);
         assert_eq!(smf::write(&far, layout), Err(smf::WriteError::TooSparse));
     }
+}
+
+#[test]
+fn a_tempo_ramp_is_written_as_steps_that_keep_the_time() {
+    use lumen_core::time::TempoMap;
+    let ramp = vec![
+        TempoPoint {
+            at: Ticks::ZERO,
+            bpm: 120.0,
+            ramp: true,
+        },
+        TempoPoint {
+            at: q(8, 1),
+            bpm: 60.0,
+            ramp: false,
+        },
+    ];
+    let song = MidiFile {
+        tracks: vec![],
+        tempo: ramp.clone(),
+        meter: vec![meter_at(Ticks::ZERO, 4, 4)],
+    };
+    let bytes = smf::write(&song, Layout::Parallel).unwrap();
+    let back = smf::read(&bytes).unwrap().tempo;
+    assert!(back.len() > 8, "a run of steps, not one: {}", back.len());
+    assert!(back.iter().all(|p| !p.ramp), "a file holds steps only");
+    let (original, stepped) = (TempoMap::new(ramp).unwrap(), TempoMap::new(back).unwrap());
+    // A file keeps whole microseconds a quarter, so the time at the end of the
+    // ramp agrees to a few thousandths of a second.
+    let end = q(8, 1);
+    assert!((original.seconds_at(end) - stepped.seconds_at(end)).abs() < 0.005);
 }

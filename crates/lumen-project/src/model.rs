@@ -15,6 +15,7 @@ use std::sync::Arc;
 use crate::automation::AutomationLane;
 use lumen_core::fade::Fade;
 use lumen_core::grid::Grid;
+use lumen_core::meter::{Meter, MeterMap, MeterPoint};
 use lumen_core::pan::PanLaw;
 use lumen_core::time::{TempoPoint, Ticks};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -65,7 +66,10 @@ pub struct Project {
     pub name: String,
     pub sample_rate: u32,
     pub tempo: Vec<TempoPoint>,
-    pub time_signature: TimeSignature,
+    /// The time signature along the song (format v24; one `time_signature`
+    /// before): the first change at zero, each later one on a bar line of
+    /// the meter before it. Part of undo.
+    pub meter: Vec<MeterPoint>,
     /// The arrangement's tracks, in order. Never holds the master.
     pub tracks: Vec<Arc<Track>>,
     /// Where every track ends up (format v7): one per project, kept apart
@@ -196,6 +200,51 @@ impl Default for ViewState {
 pub struct TimeSignature {
     pub numerator: u8,
     pub denominator: u8,
+}
+
+impl TimeSignature {
+    pub const FOUR_FOUR: TimeSignature = TimeSignature {
+        numerator: 4,
+        denominator: 4,
+    };
+
+    pub fn meter(self) -> Meter {
+        Meter {
+            numerator: self.numerator.into(),
+            denominator: self.denominator.into(),
+        }
+    }
+
+    /// The signature of `meter`, if a project can hold it (at most 64
+    /// beats to a bar).
+    pub fn of(meter: Meter) -> Option<TimeSignature> {
+        Some(TimeSignature {
+            numerator: u8::try_from(meter.numerator).ok().filter(|&n| n <= 64)?,
+            denominator: u8::try_from(meter.denominator).ok()?,
+        })
+    }
+}
+
+impl Project {
+    /// The time-signature map. A project that passed validation always has
+    /// a valid one; a damaged one reads as 4/4 throughout.
+    pub fn meter_map(&self) -> MeterMap {
+        MeterMap::new(self.meter.clone())
+            .unwrap_or_else(|_| MeterMap::constant(Meter::FOUR_FOUR).expect("4/4 is valid"))
+    }
+
+    /// The time signature in force at `at`.
+    pub fn signature_at(&self, at: Ticks) -> TimeSignature {
+        TimeSignature::of(self.meter_map().meter_at(at)).unwrap_or(TimeSignature::FOUR_FOUR)
+    }
+}
+
+/// One time signature for the whole song, as a project's `meter`.
+pub fn constant_meter(signature: TimeSignature) -> Vec<MeterPoint> {
+    vec![MeterPoint {
+        at: Ticks::ZERO,
+        meter: signature.meter(),
+    }]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

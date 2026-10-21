@@ -467,7 +467,10 @@ impl Transport {
         // Tempo, in a 30 pt well: the value in Martian Mono, its unit in
         // `text_hint` (the Transport card).
         let project = doc.project();
-        let mut bpm = project.tempo.first().map_or(120.0, |p| p.bpm);
+        // The tempo and the time signature in force at the playhead: with
+        // changes along the song, the fields show and edit the segment the
+        // playhead is in (M7 slice A6, the owner's choice).
+        let mut bpm = lumen_project::edit::maps::tempo_in(&project.tempo, state.ticks);
         let pad = well_pad(plan.compact);
         let unit = (!plan.compact).then_some("BPM");
         let value_w = fit::text_width(ui, "999.00", value_font());
@@ -528,22 +531,19 @@ impl Transport {
         }
         if tempo.changed() {
             // A drag is one undo step (merged until the pointer is released).
-            doc.set_tempo(bpm, Some("tempo"));
+            doc.set_tempo_at(state.ticks, bpm, Some("tempo"));
         }
-        let project = doc.project();
 
         // Time signature: one field (the interface audit's S7).
-        let current = (
-            u32::from(project.time_signature.numerator),
-            u32::from(project.time_signature.denominator),
-        );
+        let here = self.timeline.meter.meter_at(state.ticks);
+        let current = (here.numerator, here.denominator);
         if let Some((beats, unit)) = widgets::time_signature(
             ui,
             ui.id().with("time signature"),
             current,
             crate::document::MAX_BEATS_PER_BAR,
         ) {
-            doc.set_time_signature(beats, unit, Some("meter"));
+            doc.set_time_signature_at(state.ticks, beats, unit, Some("meter"));
         }
         fit::divider(ui);
 

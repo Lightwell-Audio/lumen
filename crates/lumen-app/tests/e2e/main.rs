@@ -81,6 +81,7 @@ mod shortcuts;
 mod sidechain;
 mod smf;
 mod solo;
+mod song_lanes;
 mod stepped;
 mod walkthrough;
 mod walkthrough_mix;

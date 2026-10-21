@@ -8025,3 +8025,120 @@ earlier E2E gave the track a lane first). A control a controller is mapped to no
 be seen and edited. The track's mode goes back to Read when the take ends, as decided: the lane stays and
 plays. E2E `a_take_with_a_controller_writes_a_lane_that_did_not_exist_yet` (fails without the change).
 
+
+## ADR-0089 — Tempo and meter lanes, and the time-signature map (M7 slice A6)
+
+**Context.** The plan (D9) makes the tempo and time-signature lanes views over the model. The model
+held one `time_signature` scalar; the engine's `Timeline`, the grid, the rulers and the metronome
+already took a `MeterMap`. The owner chose, from rendered specimens and the recommendations: the lanes
+sit **under the bar ruler** (two slim lanes, tempo 44 pt and meter 20 pt, shown with T) and add no
+track row; the transport bar's tempo and signature fields **edit the segment at the playhead**; a
+tempo is added by a **click**, moved by a **drag** and typed with a **double-click**; and a
+time-signature change **moves the later changes to the nearest bar line** when it changes the length
+of the bars before them.
+
+**Decisions.**
+1. **The model** (format **v24**; the migration turns the one `time_signature` into `meter`, a list of
+   `lumen_core::meter::MeterPoint`, with the old signature first at zero; frozen golden
+   `v24/golden.lumen`, and every older golden is still loaded by its test). `Project.meter` is part of
+   undo (`history::unchanged`). `validate` refuses a map that is not a valid `MeterMap` (first at zero,
+   increasing, each on a bar line of the meter before it), a bar of more than 64 beats, a position out of
+   range, and more than 4,096 tempo or meter changes. `Project::meter_map` and `signature_at` read it.
+   M7b's crossfade flag becomes v25.
+2. **`lumen_core::meter::tidy`** makes any list of changes a valid map moving as little as it can: sorted,
+   the last of two at one place wins, a first change after zero leaves 4/4 before it, each later change
+   goes to the **nearest bar line** of the meter before it (half a bar goes to the later line), and a
+   change that lands on the bar of the one before it or repeats its meter is dropped. One function is
+   what an edit, a file import and a migration end up with. `MeterMap::nearest_bar_start` is the bar line
+   an added change lands on.
+3. **Pure edits** (`lumen_project::edit::maps`): `set_tempo_in`, `put_tempo`, `move_tempo`,
+   `remove_tempo`, `set_meter_in`, `set_meter_of`, `put_meter`, `move_meter`, `remove_meter`. Tempos clamp
+   to 20 to 999 BPM; the first change of either map stays at zero and cannot be removed; a moved tempo
+   stays between its neighbours (one tick apart at the least); a moved meter goes to a bar line of the
+   meter before it, between its neighbours. Content never moves with a change: ticks are the music, so a
+   tempo change moves where a tick falls in time and a meter change moves where the bars fall. A random
+   walk of 2,000 edits keeps both maps valid.
+4. **Document methods** (`document/song_maps.rs`, one undo step each, a drag one in all):
+   `set_tempo_at`, `put_tempo_change`, `move_tempo_change`, `remove_tempo_change`,
+   `set_time_signature_at`, `put_meter_change`, `set_meter_change`, `move_meter_change`,
+   `remove_meter_change`. `set_tempo` and `set_time_signature` (the first point only) are gone: the bar
+   fields and the palette's tempo entry act on the segment at the playhead (`transport/bar.rs`).
+5. **Readers moved to the map**: the transport's `Timeline` (so the engine, metronome, rulers, grid and
+   count-in all see every change), the length of a count-in (the beats of the meter where recording
+   starts), a new MIDI clip's bar (`NewClip::Bar`: the bar the time falls in), an imported file's clip
+   length (the meter where it begins), MIDI export of a project (the whole map) and of a clip (the map
+   from its start, moved to zero), and the recording look's bar. The engine needed no change; tests
+   added: accents follow a change of meter at every block size, and a loop across a change keeps every
+   bar accented.
+6. **Standard MIDI Files** carry the map both ways (`MidiFile.meter` is a `Vec<MeterPoint>`, empty when
+   the file names none). Reading collects every time-signature event, places it through the file's tempo
+   map and tidies it, so a change in the middle of a bar moves to the nearest bar line; writing puts a
+   time-signature event for each change. The golden `lumen-960.mid` is byte-identical. The import
+   banner says "…, with N time-signature changes" and "Use its tempo and meter" takes the whole map.
+7. **The interface** (`song_lanes/`, `app/song_lanes.rs`): the lanes are drawn between the bar ruler and
+   the tracks (the band glides open and shut; its height is added to the lanes' top, so every row,
+   hit test and drop keeps working from the canvas). The tempo lane scales to the song's own tempos with
+   room above and below and at least a 30 BPM span, and **keeps the scale it had at the press for the
+   length of a drag**. Whole BPM and the grid by default; Alt for tenths and off the grid. The meter lane
+   draws a chip at each change; a click on empty lane asks for a signature (typed as 7/8) on the nearest
+   bar line, a drag moves the chip to another bar line, a double-click types its signature. A box to type
+   in opens beside the change (Enter or leaving applies, Esc cancels). Right-click menus; Delete takes a
+   picked change away (not the first). Three commands at the end of `Command` and `ALL`:
+   `view.song_lanes` (T), `edit.tempo_change` and `edit.meter_change` (at the playhead, so the keyboard
+   reaches all of it). The name column shows what is in force at the playhead.
+8. **Not built here, and where:** (tempo ramps were built here after all: see the amendment); a time-signature change off a
+   bar line (a deliberate rule); a tempo or meter lane that is recorded or automated like a parameter;
+   moving several changes together; copy and paste of a span of the maps (the owner's note on
+   automation lanes applies). Which lanes are shown is not saved, as for automation lanes.
+
+**Consequences.** A project file now holds `meter`, so an older Lumen cannot open a v24 file (the
+version check says so). The lanes cost nothing when hidden; shown, they draw at most 600 bar lines and
+the points in view. **Verified:** pure and Document tests, the v24 golden and every older one, the
+SMF round trip, engine tests, 10 E2E scenarios, a shot (`song_lanes`, both themes at 100, 150 and 200%).
+**Not verified:** a long song of hundreds of changes at scale, real playback by ear (MT-AUTO-8), macOS
+and Linux runs.
+
+**Amendment, 2026-10-21 (the owner, after looking at the lanes): tempo ramps are part of A6, and the lanes
+can be found without the key.** T1 deferred ramps; the owner reversed it ("it should be done as part of
+this slice"). Not yet committed or released, so this stays **format v24** (a field added to the tempo
+point, no new version):
+
+1. **The model.** `TempoPoint.ramp` (`bool`, written only when true, so every older file and the v24
+   golden's other points read as before). A point that ramps moves the tempo in a **straight line in
+   music time** (the tempo is `b0 + (b1 - b0) f`, `f` the fraction of the way to the next point) from its
+   own tempo to the next point's, arriving as that point begins; a step holds. The last point has nothing
+   to glide to, so its `ramp` is ignored and the edits keep it false (`maps::settle`). Linear in music
+   time was chosen over linear in seconds because the tempo lane is drawn against bars, and because it
+   has a closed form both ways.
+2. **The conversion** (`lumen_core::time`, the one place). A quarter at tempo `b` lasts `60 / b` s, so the
+   seconds up to `f` are `60 L / (b1 - b0) ln(b / b0)` (`L` the ramp's length in quarters, `ln_1p` for
+   precision) and back, `b = b0 e^(k s)` (`exp_m1`). `TempoMap::{seconds_at, sample_at, ticks_at_seconds,
+   ticks_at_sample}` keep their signatures and one rounding rule, so the engine, the metronome, the MIDI
+   clock, clips, loops and recording read ramps with no change. New: `TempoMap::{bpm_at, ramps_between,
+   stepped}` and `bpm_at(points, t)`. Before zero the first tempo goes on, ramp or not. Tests: the
+   closed form, round trip of 10,000 random ticks, every sample addressable at 192 kHz along a 999 to 20 BPM
+   ramp, monotonic samples, and an engine loop that wraps on the sample the ramp puts the bar line.
+3. **Readers that assumed constant segments.** The lane bake (`lane_bake.rs`) cuts a segment that runs
+   over a ramp every 256 frames (1,024 over a plain curve), so a lane's value stays within 0.01 of the
+   model along a ramp (the same property test, run twice). The waveform drawing (`waves.rs`) draws one
+   wave a quarter note over a ramp, exact where each begins. A Standard MIDI File holds steps only, so a
+   ramp is written as a step a sixteenth note (at most 256 per ramp) holding the tempo that takes exactly
+   as long as the ramp does over that step: the time at every step is the ramp's, and the file keeps whole
+   microseconds, so the end of the ramp agrees to a few thousandths of a second (a file read back has
+   steps, not ramps).
+4. **Editing.** `maps::set_ramp`, `Document::set_tempo_ramp` ("Ramp tempo" or "Step tempo", one undo
+   step). A point added inside a ramp is on its line and the ramp goes on from it; removing a point makes
+   the one before glide to the one after. A ramp is set from the point's right-click menu ("Ramp to the next
+   change", "Hold until the next change") or the command `edit.tempo_ramp` (at the end of `Command` and
+   `ALL`, no shortcut), which acts on the picked change. The lane draws a ramp as a slope instead of a
+   hold and a jump. The tempo field in the transport bar and the name column show the tempo playing at the
+   playhead, so they move through a ramp; **typing into the field changes the start of the segment the
+   playhead is in** (a ramp's first point), which is a known limit (KNOWN_ISSUES).
+5. **Discoverability.** The lanes had only T and the palette. Now a **Tempo** button in the ruler's
+   corner, beside Grid (`size::SONG_BUTTON`; lit with `Tone::On` while shown; tooltip with the T keycap;
+   accessible name "Tempo and meter lanes"), and a toggle **Tempo and meter lanes** in the bar ruler's
+   right-click menu with the keycap. **Verified:** units for each piece above, 4 more E2E scenarios (button,
+   menu, a ramp from its menu with the bar field reading the middle of the glide, the palette command),
+   a shot (`song_lanes`, with the lanes hidden and shown, both themes at 100, 150 and 200%; the ramp and
+   the lit button looked at), the workspace tests and 6 smoke. **Not verified:** a ramp heard by ear
+   (MT-AUTO-8 steps 16 and 17), a long audio clip across a long ramp drawn exactly, macOS and Linux runs.

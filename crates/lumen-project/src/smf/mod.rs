@@ -4,8 +4,8 @@
 //!
 //! What a file holds that the model has no place for is dropped on reading:
 //! release velocities, polyphonic aftertouch, system exclusive and meta text
-//! other than track names. Only the first time signature is kept until M7's
-//! time-signature lane.
+//! other than track names. A time-signature change in the middle of a bar
+//! moves to the nearest bar line (`lumen_core::meter::tidy`).
 
 mod read;
 mod write;
@@ -13,9 +13,10 @@ mod write;
 pub use read::{ReadError, read};
 pub use write::{DIVISION, Layout, WriteError, write};
 
+use lumen_core::meter::MeterPoint;
 use lumen_core::time::{TempoPoint, Ticks};
 
-use crate::model::{ClipEvent, Note, TimeSignature};
+use crate::model::{ClipEvent, Note};
 
 /// What Lumen reads from, or writes to, a MIDI file.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -26,8 +27,9 @@ pub struct MidiFile {
     /// The tempo map, first point at zero; empty when the file sets no
     /// tempo (players then assume 120 BPM).
     pub tempo: Vec<TempoPoint>,
-    /// The first time signature, if the file names one.
-    pub meter: Option<TimeSignature>,
+    /// The time-signature changes, a valid map (first at zero, each on a bar
+    /// line); empty when the file names none (players then assume 4/4).
+    pub meter: Vec<MeterPoint>,
 }
 
 /// One part of a file: the notes and events of one channel of one track.

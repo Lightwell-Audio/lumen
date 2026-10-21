@@ -13,7 +13,7 @@ use lumen_project::migrate::CURRENT_VERSION;
 use lumen_project::model::{
     Clip, ClipContent, ClipEvent, Color, Device, DeviceKind, EventKind, FromSource, Id, Level,
     Media, MidiFrom, MidiTo, Monitor, Note, Output, PluginRef, Project, Send, TimeSignature, Track,
-    TrackKind,
+    TrackKind, constant_meter,
 };
 use lumen_project::model::{Marker, TransportState, ViewState};
 use lumen_project::testing::{TempDir, small_project, synthetic};
@@ -99,16 +99,18 @@ fn golden_v1_expected() -> Project {
             TempoPoint {
                 at: Ticks::ZERO,
                 bpm: 120.0,
+                ramp: false,
             },
             TempoPoint {
                 at: Ticks::quarters(16),
                 bpm: 90.0,
+                ramp: false,
             },
         ],
-        time_signature: TimeSignature {
+        meter: constant_meter(TimeSignature {
             numerator: 4,
             denominator: 4,
-        },
+        }),
         tracks: vec![
             Arc::new(track(1, "Drums", TrackKind::Group, 0xC0504D)),
             Arc::new(kick),
