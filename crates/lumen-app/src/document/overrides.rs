@@ -4,7 +4,7 @@
 //! state, not part of the project: it is not saved, not undone, and a project
 //! that is opened or made starts without any.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use lumen_project::automation::{AutomationLane, Target};
 use lumen_project::model::{Id, Track};
@@ -54,7 +54,22 @@ impl Document {
         if self.touched.len() < MAX_TOUCHED {
             self.touched.push((track, target));
         }
+        // The setters call this before they change the control, so the
+        // project still holds the value it was resting at.
+        if !self.rests.contains_key(&(track, target)) {
+            let rest = lumen_project::routing::all_tracks(self.project())
+                .find(|t| t.id == track)
+                .map(|t| crate::arrangement::auto_scale::own_value(t, target));
+            if let Some(rest) = rest.filter(|r| r.is_finite()) {
+                self.rests.insert((track, target), rest);
+            }
+        }
         self.override_lane(track, target);
+    }
+
+    /// What the controls moved since the last call held before they moved.
+    pub fn take_rests(&mut self) -> BTreeMap<(Id, Target), f32> {
+        std::mem::take(&mut self.rests)
     }
 
     /// The controls moved since the last call, oldest first.

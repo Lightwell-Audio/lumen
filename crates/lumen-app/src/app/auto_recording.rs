@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 
 use eframe::egui;
-use lumen_core::automation::Lane;
+use lumen_core::automation::{Lane, Point, Shape};
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_hosting::{Edit, EditKind};
 use lumen_project::automation::Target;
@@ -87,6 +87,7 @@ impl App {
     /// so the moves made in it are this frame's.
     pub(crate) fn record_automation(&mut self, ctx: &egui::Context, rate: u32) {
         let touched = self.document.take_touched();
+        let rests = self.document.take_rests();
         let at = self.transport.position();
         let frame = Frame {
             playing: self.transport.state().playing,
@@ -94,6 +95,7 @@ impl App {
             pointer_down: ctx.input(|i| i.pointer.any_down()),
             touched: &touched,
             open: &self.gestures_open,
+            rests: &rests,
         };
         let world = Looking {
             doc: &self.document,
@@ -110,7 +112,18 @@ impl App {
                     target,
                     raw,
                     end,
-                } => self.write_pass(track, target, &raw, end, at, rate),
+                    rest,
+                } => self.write_pass(
+                    Pass {
+                        track,
+                        target,
+                        raw: &raw,
+                        end,
+                        rest,
+                    },
+                    at,
+                    rate,
+                ),
             }
         }
         let active: BTreeSet<(Id, Target)> = self.recorder.active().collect();
@@ -120,23 +133,35 @@ impl App {
     }
 
     /// Writes a finished pass into its lane as one undo step.
-    fn write_pass(
-        &mut self,
-        track: Id,
-        target: Target,
-        raw: &[(Ticks, f32)],
-        end: End,
-        at: Ticks,
-        rate: u32,
-    ) {
+    fn write_pass(&mut self, pass: Pass<'_>, at: Ticks, rate: u32) {
+        let Pass {
+            track,
+            target,
+            raw,
+            end,
+            rest,
+        } = pass;
         let project = self.document.project();
-        let base = lumen_project::routing::all_tracks(project)
+        let mut base = lumen_project::routing::all_tracks(project)
             .find(|t| t.id == track)
             .and_then(|t| t.lane(target))
             .map_or_else(
                 || Lane::new(Vec::new()).expect("an empty lane"),
                 |l| l.lane.clone(),
             );
+        // A lane the pass makes says what the control held until it was
+        // touched, and a Touch returns to that.
+        if base.points().is_empty()
+            && let Some(value) = rest
+        {
+            let first = Point::new(Ticks::ZERO, value);
+            let first = if target == Target::Mute {
+                first.with_shape(Shape::Step)
+            } else {
+                first
+            };
+            base = Lane::new(vec![first]).expect("one point");
+        }
         let release = match end {
             End::Stopped => Release::Hold,
             End::Released => Release::Glide(glide(project, at, rate)),
@@ -189,6 +214,15 @@ impl App {
             }
         }
     }
+}
+
+/// A finished pass, to be written into a lane.
+struct Pass<'a> {
+    track: Id,
+    target: Target,
+    raw: &'a [(Ticks, f32)],
+    end: End,
+    rest: Option<f32>,
 }
 
 /// A Touch's return to the lane, in ticks at the tempo where it ends.

@@ -79,6 +79,9 @@ pub enum Action {
         target: Target,
         raw: Vec<(Ticks, f32)>,
         end: End,
+        /// What the control held before the pass began: what a lane that did
+        /// not exist yet says before and after the pass.
+        rest: Option<f32>,
     },
 }
 
@@ -106,12 +109,21 @@ pub struct Frame<'a> {
     pub touched: &'a [(Id, Target)],
     /// The plugin gestures that are open (begun, not ended).
     pub open: &'a BTreeSet<(Id, Target)>,
+    /// What the controls moved this frame held before they moved.
+    pub rests: &'a BTreeMap<(Id, Target), f32>,
+}
+
+/// A pass under way: what was played, and what the control held before.
+#[derive(Debug, Default)]
+struct Pass {
+    raw: Vec<(Ticks, f32)>,
+    rest: Option<f32>,
 }
 
 /// The passes being recorded.
 #[derive(Debug, Default)]
 pub struct Recorder {
-    passes: BTreeMap<(Id, Target), Vec<(Ticks, f32)>>,
+    passes: BTreeMap<(Id, Target), Pass>,
     last: Option<Ticks>,
 }
 
@@ -150,19 +162,19 @@ impl Recorder {
             self.finish_all(End::Stopped, &mut out);
         }
         for key in again {
-            self.begin(key, &mut out);
+            self.begin(key, f, world, &mut out);
         }
         for &(track, target) in f.touched {
             if matches!(world.mode(track), Mode::Touch | Mode::Latch)
                 && world.armed(track, target)
                 && !self.passes.contains_key(&(track, target))
             {
-                self.begin((track, target), &mut out);
+                self.begin((track, target), f, world, &mut out);
             }
         }
         for key in world.write_targets() {
             if !self.passes.contains_key(&key) {
-                self.begin(key, &mut out);
+                self.begin(key, f, world, &mut out);
             }
         }
         let keys: Vec<_> = self.passes.keys().copied().collect();
@@ -180,21 +192,40 @@ impl Recorder {
                 continue;
             }
             if let Some(value) = world.value(track, target)
-                && let Some(raw) = self.passes.get_mut(&key)
+                && let Some(pass) = self.passes.get_mut(&key)
             {
-                raw.push((f.at, value));
+                pass.raw.push((f.at, value));
             }
         }
         out
     }
 
-    fn begin(&mut self, key: (Id, Target), out: &mut Vec<Action>) {
-        self.passes.insert(key, Vec::new());
+    fn begin(
+        &mut self,
+        key: (Id, Target),
+        f: &Frame<'_>,
+        world: &dyn World,
+        out: &mut Vec<Action>,
+    ) {
+        // A control moved this frame was resting at its earlier value; one that
+        // did not move rests where it is.
+        let rest = f
+            .rests
+            .get(&key)
+            .copied()
+            .or_else(|| world.value(key.0, key.1));
+        self.passes.insert(
+            key,
+            Pass {
+                raw: Vec::new(),
+                rest,
+            },
+        );
         out.push(Action::TakeOver(key.0, key.1));
     }
 
     fn finish(&mut self, key: (Id, Target), end: End, out: &mut Vec<Action>) {
-        if let Some(raw) = self.passes.remove(&key)
+        if let Some(Pass { raw, rest }) = self.passes.remove(&key)
             && !raw.is_empty()
         {
             out.push(Action::Write {
@@ -202,6 +233,7 @@ impl Recorder {
                 target: key.1,
                 raw,
                 end,
+                rest,
             });
         }
     }
@@ -273,6 +305,7 @@ mod tests {
                 pointer_down: down,
                 touched,
                 open: &BTreeSet::new(),
+                rests: &BTreeMap::new(),
             },
             w,
         )
@@ -286,6 +319,7 @@ mod tests {
                 pointer_down: false,
                 touched: &[],
                 open: &BTreeSet::new(),
+                rests: &BTreeMap::new(),
             },
             w,
         )
@@ -330,6 +364,39 @@ mod tests {
     }
 
     #[test]
+    fn a_pass_keeps_what_the_control_held_before_it_moved() {
+        let w = world(Mode::Touch);
+        let mut r = Recorder::default();
+        let rests: BTreeMap<_, _> = [((T, VOL), -12.0)].into();
+        r.frame(
+            &Frame {
+                playing: true,
+                at: Ticks(10),
+                pointer_down: true,
+                touched: &[(T, VOL)],
+                open: &BTreeSet::new(),
+                rests: &rests,
+            },
+            &w,
+        );
+        let a = step(&mut r, &w, 20, false, &[]);
+        assert!(matches!(
+            a.as_slice(),
+            [Action::Write {
+                rest: Some(rest), ..
+            }] if *rest == -12.0
+        ));
+        // A control that did not move this frame rests where it is.
+        let mut r = Recorder::default();
+        step(&mut r, &world(Mode::Write), 0, false, &[]);
+        let a = stop(&mut r, &w);
+        assert!(
+            a.iter()
+                .all(|a| matches!(a, Action::Write { rest: Some(_), .. }))
+        );
+    }
+
+    #[test]
     fn a_wheel_move_is_a_touch_of_one_frame() {
         let w = world(Mode::Touch);
         let mut r = Recorder::default();
@@ -360,6 +427,7 @@ mod tests {
                     pointer_down: false,
                     touched,
                     open,
+                    rests: &BTreeMap::new(),
                 },
                 &w,
             )

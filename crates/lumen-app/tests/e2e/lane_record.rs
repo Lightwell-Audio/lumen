@@ -331,3 +331,38 @@ fn the_playhead_that_stamps_the_points_follows_the_clock_to_within_a_frame() {
     );
     assert!(worst < 20.0, "worst {worst} ms");
 }
+
+#[test]
+fn a_touch_on_a_control_with_no_lane_yet_returns_to_where_the_control_rested() {
+    let (mut lumen, track) = tone("record-first");
+    lumen.app_mut().set_automation_mode(track, "touch");
+    lumen.key(Modifiers::NONE, Key::A);
+    lumen.click("Fold tone");
+    lumen.frames(40);
+    assert!(lane_points(&lumen, track).is_empty());
+    play(&mut lumen);
+    let rest = peak(&mut lumen);
+    let slider = volume_slider(&lumen);
+    let at = grab(&mut lumen, slider);
+    let held = peak(&mut lumen);
+    assert!(held > rest * 1.2, "the hand is heard: {held} over {rest}");
+    let_go(&mut lumen, at);
+    lumen.frames(20);
+    assert!(!lumen.app().recording_automation(track, Target::Volume));
+    let written = lane_points(&lumen, track);
+    assert_eq!(
+        written.first(),
+        Some(&(Ticks::ZERO, 0.0)),
+        "the new lane says what the fader held before: {written:?}"
+    );
+    assert_eq!(
+        written.last().map(|p| p.1),
+        Some(0.0),
+        "and the pass hands back to it: {written:?}"
+    );
+    let back = peak(&mut lumen);
+    assert!(
+        near(back, rest),
+        "not left where it was let go: {back} against {rest}"
+    );
+}

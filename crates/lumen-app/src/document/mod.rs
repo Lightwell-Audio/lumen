@@ -6,7 +6,7 @@
 //! project in a closure of its own (M3 review M2). The loop and punch are edits too (slice 5c);
 //! view state is not: it is stamped into the project when it is saved.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -73,6 +73,9 @@ pub struct Document {
     overrides: Overrides,
     /// The controls the user moved since the recorder last looked (A4b).
     touched: Vec<(Id, Target)>,
+    /// What each of those controls held before its first move (A4b): the
+    /// value a Touch returns to when no lane says otherwise.
+    rests: BTreeMap<(Id, Target), f32>,
 }
 
 impl Document {
@@ -92,6 +95,7 @@ impl Document {
             session: SESSIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             overrides: Overrides::default(),
             touched: Vec::new(),
+            rests: BTreeMap::new(),
         }
     }
 
