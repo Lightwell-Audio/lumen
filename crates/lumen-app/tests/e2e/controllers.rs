@@ -255,3 +255,63 @@ fn a_track_in_touch_writes_a_controller_sweep_into_its_lane() {
         "and they rise with the controller: {written:?}"
     );
 }
+
+#[test]
+fn a_take_and_a_controller_sweep_are_recorded_together() {
+    use super::record::{
+        Keys, beats, clips_of, keyboard, launch, placed, reach, record, stop, track,
+    };
+    use lumen_project::model::ClipContent;
+
+    let fake = keyboard();
+    let project = lumen_project::testing::project_of("Together", vec![track(None, true)]);
+    let mut lumen = launch("together", &project, &fake);
+    let keys = Keys::new(&fake);
+    let id = Id(1);
+    // The controller moves the track's volume, which Touch writes.
+    let lane = Lane::new(vec![
+        Point::new(Ticks::ZERO, -6.0).with_shape(Shape::Linear),
+    ])
+    .unwrap();
+    lumen.app_mut().give_lane(id, Target::Volume, lane).unwrap();
+    lumen
+        .app_mut()
+        .give_mapping(id, Target::Volume, 0, 7)
+        .unwrap();
+    lumen.app_mut().set_automation_mode(id, "touch");
+    lumen.frames(5);
+    let before = points(&lumen, id, Target::Volume);
+
+    record(&mut lumen);
+    reach(&mut lumen, beats(1.0));
+    keys.on(60, 90);
+    for step in 0..10_u8 {
+        keys.controller(7, 30 + step * 10);
+        std::thread::sleep(Duration::from_millis(30));
+        lumen.frames(2);
+    }
+    keys.off(60);
+    keys.on(64, 100);
+    reach(&mut lumen, beats(2.5));
+    keys.off(64);
+    // Let the controller's hold run out before stopping.
+    let_go(&mut lumen);
+    stop(&mut lumen);
+
+    let clips = clips_of(&lumen);
+    assert_eq!(clips.len(), 1, "one clip for the take");
+    let pitches: Vec<u8> = placed(&clips[0]).iter().map(|n| n.pitch).collect();
+    assert_eq!(pitches, [60, 64], "the notes were recorded");
+    let ClipContent::Midi { events, .. } = &clips[0].content else {
+        panic!("a MIDI clip");
+    };
+    assert!(
+        events.is_empty(),
+        "the mapped controller moved the volume and was not recorded as MIDI: {events:?}"
+    );
+    let written = points(&lumen, id, Target::Volume);
+    assert!(
+        written.len() > before.len() + 2,
+        "the sweep became automation: {written:?}"
+    );
+}
