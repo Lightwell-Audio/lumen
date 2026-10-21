@@ -7859,7 +7859,7 @@ pass (L1b).
    pass at the first move of an armed control (it has a lane, or it is the lane the track shows) and
    writes the control's value each frame while the pointer is down or a plugin gesture is open; a
    wheel or arrow move is a touch of one frame. **Latch** begins at the first touch and goes on until
-   Stop. **Write** begins where playing begins, for every lane the track has and the lane it shows,
+   Stop. **Write** begins where playing begins, for the lane the track shows (amendment 2),
    with the control's own value, moved or not (so the sound can jump at the start of the pass: the
    control, not the lane, is heard). Nothing is written while the song is stopped, and a control
    moved then is only taken over, as in Read.
@@ -7913,3 +7913,5 @@ pass (L1b).
 - Gates run on Windows: fmt, workspace clippy, the workspace tests (all pass except the one fixture check that fails only because of the owner's unrelated uncommitted edit to the demo project file, as in ADR-0086), 6 smoke tests, the product-name scan, macOS cross-clippy. **Not run:** the Linux (WSL) mirror and the performance gate (no engine or project crate changed beyond a pure edit), RealtimeSanitizer, macOS runs, any real plugin, any real device or controller; **MT-AUTO-6 is the owner's**.
 
 **Amendment (2026-10-20, the owner's first run of Touch).** The owner saw the first Touch on a control behave like Latch and later ones behave as expected. Cause, reproduced in `lane_record.rs`: a control with no lane yet has nothing to return to, so the first pass ended holding its last value and the new lane started at the first move (the fader's level before it was never written). Now `Document::moved` notes what the control held before its first move (the setters call it before they change the control; `take_rests`), the recorder carries it with the pass (`Action::Write.rest`), and a pass written into an empty lane starts from a point at the beginning of the song at that value, so a Touch hands back to it, a Latch or Write holds from where the pass began, and the song before the pass sounds as it did. A plugin's own window reports a move before the project holds it, so the same applies there. E2E `a_touch_on_a_control_with_no_lane_yet_returns_to_where_the_control_rested` (fails without it) and a unit test for the recorder.
+
+**Amendment 2 (2026-10-20, the owner's second report).** Write overwrote every lane the track had, so writing the volume lane also overwrote the pan lane that was already written. Write now writes only the lane the track's chip shows (`Looking::write_targets`); Touch and Latch were never affected, as they begin from the control that was touched. A track with no lane shown writes nothing in Write. E2E `write_overwrites_the_lane_with_the_control_from_where_playing_began` now has a second, unshown lane and checks it is unchanged (fails without the change).

@@ -147,6 +147,19 @@ fn latch_goes_on_writing_after_the_hand_is_gone_until_stop() {
 #[test]
 fn write_overwrites_the_lane_with_the_control_from_where_playing_began() {
     let (mut lumen, track) = recording("record-write", "write");
+    // A pan lane the track also has, not the one its chip shows.
+    let pan = Lane::new(vec![
+        Point::new(Ticks::ZERO, -0.5),
+        Point::new(Ticks::quarters(8), 0.5),
+    ])
+    .unwrap();
+    lumen
+        .app_mut()
+        .give_lane(track, Target::Pan, pan.clone())
+        .unwrap();
+    lumen.key(Modifiers::NONE, Key::A);
+    lumen.frames(40);
+    assert_eq!(lumen.app().automation_shown(track), Some(Target::Volume));
     let before = lane_points(&lumen, track);
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(2));
@@ -176,6 +189,12 @@ fn write_overwrites_the_lane_with_the_control_from_where_playing_began() {
         lane.value_at(Ticks::quarters(q))
     };
     assert_eq!(value_at(1), Some(0.0), "overwritten");
+    let pan_points: Vec<_> = pan.points().iter().map(|p| (p.at, p.value)).collect();
+    assert_eq!(
+        points(&lumen, track, Target::Pan),
+        pan_points,
+        "the lane the chip does not show is left alone"
+    );
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(3);
     assert_eq!(lane_points(&lumen, track), before, "one undo step");

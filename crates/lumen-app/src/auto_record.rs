@@ -47,7 +47,7 @@ impl Mode {
             Mode::Read => "The lane plays; moving a control takes it over",
             Mode::Touch => "Writes while you hold a control, then returns to the lane",
             Mode::Latch => "Writes from your first touch until Stop",
-            Mode::Write => "Overwrites the lanes from where playing starts until Stop",
+            Mode::Write => "Overwrites the shown lane from where playing starts until Stop",
         }
     }
 
@@ -92,7 +92,7 @@ pub trait World {
     /// Whether a move of `target` on `track` can be written: it has a lane or
     /// it is the lane the track shows.
     fn armed(&self, track: Id, target: Target) -> bool;
-    /// Every lane a track in Write mode writes.
+    /// The lane each track in Write mode writes: the one it shows.
     fn write_targets(&self) -> Vec<(Id, Target)>;
     /// The value the control has now.
     fn value(&self, track: Id, target: Target) -> Option<f32>;

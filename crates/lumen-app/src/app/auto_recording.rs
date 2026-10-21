@@ -60,19 +60,13 @@ impl World for Looking<'_> {
             let Some(track) = self.track(id) else {
                 continue;
             };
-            let mut targets: Vec<Target> = track
-                .automation
-                .iter()
-                .filter(|l| l.enabled && track.has_target(l.target))
-                .map(|l| l.target)
-                .collect();
+            // Only the lane the chip shows: a track's other lanes keep what
+            // was written to them.
             if let Some(&shown) = self.auto.shown.get(&id)
-                && !targets.contains(&shown)
                 && track.has_target(shown)
             {
-                targets.push(shown);
+                out.push((id, shown));
             }
-            out.extend(targets.into_iter().map(|t| (id, t)));
         }
         out
     }
