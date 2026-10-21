@@ -7988,3 +7988,31 @@ engine; sealing every frame; the teaching message moving the control; an allocat
 shot `controller_mappings` (both themes, 100/150/200%, looked at). **Not run:** any real controller or
 device (MT-AUTO-7 is the owner's), the Linux (WSL) mirror, RealtimeSanitizer, macOS runs.
 
+**Amendment (2026-10-20, the owner's idea: recording with a mapped controller).** Two changes so a
+take and a controller sweep can be recorded together.
+
+1. **Record switches a track to Latch when a controller is mapped to one of its controls.** The owner
+   proposed switching the mode when a controller is learned; the alternative chosen (recommended) is to
+   do it when recording starts, so mapping a knob for live mixing never leaves a hidden mode behind.
+   When Record starts, every track it records on that is in Read and has a mapping whose `track` is that
+   track goes to Latch for the take (`app/record.rs` `latch_mapped`; a note says so), and goes back to
+   Read when the take ends or is abandoned (`unlatch`), unless the user chose another mode meanwhile.
+   A track in Touch, Latch or Write by the user's own choice is left as it is, and a track with no
+   mapping is untouched. Only mappings on the recorded track count: a mapping to another track's
+   control or the master needs that track's mode set as before. Latch is the default because a new
+   take wants the last value held to the stop; Touch would return to the old value. Not built: Touch
+   by default when the control already has a lane.
+2. **A take's commit no longer puts the whole track back** (`lumen_project::edit::record::place`). It
+   reset the recording track to its state when recording began at every commit (about once a second),
+   so a fader move, an automation lane or a plugin's values written on that track during the take were
+   lost at the next commit. Only the track's clips are put back now. Edits made to the recording
+   track's clips during a take are still replaced (KNOWN_ISSUES), and an edit between two commits is
+   a step of its own, so the take's undo is in pieces (KNOWN_ISSUES).
+
+**Verified.** E2E `a_take_and_a_controller_sweep_are_recorded_together` (the notes, no controller data
+in the clip, the sweep in the lane, Latch during the take and Read after; mutation checked) and
+`recording_leaves_a_mode_the_user_chose_and_a_track_with_no_mapped_control_alone`; the project test
+`what_else_changed_on_the_track_while_it_recorded_is_kept` (fails without the change). The older
+`empty_takes_and_ranges_change_only_what_they_must` now expects the clips, not the whole track, back.
+**Not run:** a real controller while recording.
+

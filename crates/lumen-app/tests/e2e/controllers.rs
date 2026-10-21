@@ -278,11 +278,16 @@ fn a_take_and_a_controller_sweep_are_recorded_together() {
         .app_mut()
         .give_mapping(id, Target::Volume, 0, 7)
         .unwrap();
-    lumen.app_mut().set_automation_mode(id, "touch");
+    assert_eq!(lumen.app().automation_mode(id), "Read");
     lumen.frames(5);
     let before = points(&lumen, id, Target::Volume);
 
     record(&mut lumen);
+    assert_eq!(
+        lumen.app().automation_mode(id),
+        "Latch",
+        "recording a track with a mapped control writes its moves"
+    );
     reach(&mut lumen, beats(1.0));
     keys.on(60, 90);
     for step in 0..10_u8 {
@@ -297,6 +302,11 @@ fn a_take_and_a_controller_sweep_are_recorded_together() {
     // Let the controller's hold run out before stopping.
     let_go(&mut lumen);
     stop(&mut lumen);
+    assert_eq!(
+        lumen.app().automation_mode(id),
+        "Read",
+        "and the mode goes back when the take ends"
+    );
 
     let clips = clips_of(&lumen);
     assert_eq!(clips.len(), 1, "one clip for the take");
@@ -314,4 +324,28 @@ fn a_take_and_a_controller_sweep_are_recorded_together() {
         written.len() > before.len() + 2,
         "the sweep became automation: {written:?}"
     );
+}
+
+#[test]
+fn recording_leaves_a_mode_the_user_chose_and_a_track_with_no_mapped_control_alone() {
+    use super::record::{keyboard, launch, record, stop, track};
+
+    let fake = keyboard();
+    let project = lumen_project::testing::project_of("Modes", vec![track(None, true)]);
+    let mut lumen = launch("modes", &project, &fake);
+    let id = Id(1);
+    // Armed, but nothing is mapped to it: Read stays Read.
+    record(&mut lumen);
+    assert_eq!(lumen.app().automation_mode(id), "Read");
+    stop(&mut lumen);
+    // Mapped, and the user chose Touch: it stays Touch, before and after.
+    lumen
+        .app_mut()
+        .give_mapping(id, Target::Volume, 0, 7)
+        .unwrap();
+    lumen.app_mut().set_automation_mode(id, "touch");
+    record(&mut lumen);
+    assert_eq!(lumen.app().automation_mode(id), "Touch");
+    stop(&mut lumen);
+    assert_eq!(lumen.app().automation_mode(id), "Touch");
 }

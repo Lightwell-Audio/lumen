@@ -26,6 +26,7 @@ use lumen_project::model::{Id, TrackKind};
 
 use crate::App;
 use crate::arrangement::recording_look::RecordingLook;
+use crate::auto_record::Mode as AutoMode;
 use crate::document::Recording;
 use crate::recorder::Capture;
 
@@ -61,6 +62,9 @@ struct Session {
     document: u64,
     /// The armed MIDI tracks it records on.
     tracks: Vec<Id>,
+    /// The tracks it put in Latch because a controller is mapped to one of
+    /// their controls, which go back to Read when it ends (M7 slice A5).
+    latched: Vec<Id>,
     /// Where recording began: the playhead (or the play marker).
     start: Ticks,
     /// The loop region, when the take layers its passes.
@@ -266,6 +270,7 @@ impl App {
         };
         let now = Instant::now();
         let rec = self.document.begin_recording(&tracks);
+        let latched = self.latch_mapped(&tracks);
         self.record.session = Some(Session {
             rec,
             capture: Capture::recording(looped, start),
@@ -276,6 +281,7 @@ impl App {
             },
             document: self.document.session(),
             tracks,
+            latched,
             start,
             looped,
             punch,
@@ -427,6 +433,7 @@ impl App {
     /// The engine has stopped recording: closes held notes at the stop and
     /// commits the last take.
     fn finish(&mut self, mut session: Session, head: Ticks) {
+        self.unlatch(&session.latched);
         let end = session.end(head);
         // Notes still held end where the playhead is, in the pass it is in.
         // The visible loop window is a snapshot, but Loop can be switched
@@ -443,6 +450,7 @@ impl App {
 
     /// A locked clip stopped the recording: it ends, and says why.
     fn finish_blocked(&mut self, session: Session) {
+        self.unlatch(&session.latched);
         self.file_notice = Some(
             "Recording stopped: a locked clip is in the way. Unlock it, or record elsewhere."
                 .into(),
@@ -453,9 +461,56 @@ impl App {
 
     /// Drops a recording without a last commit (what was committed stays).
     fn abandon(&mut self, session: Session) {
+        self.unlatch(&session.latched);
         drop(session);
         self.transport.end_record();
         self.restore_autosave();
+    }
+
+    /// A track that records and has a controller mapped to one of its
+    /// controls writes that control's moves as automation for the take: a
+    /// track in Read goes to Latch (it starts at the first move and holds the
+    /// last value to the stop). A track the user put in another mode is left
+    /// as it is. Returns the tracks it changed.
+    fn latch_mapped(&mut self, tracks: &[Id]) -> Vec<Id> {
+        let mappings = &self.document.project().mappings;
+        let changed: Vec<Id> = tracks
+            .iter()
+            .copied()
+            .filter(|id| mappings.iter().any(|m| m.track == *id))
+            .filter(|id| self.arrangement.auto.mode_of(*id) == AutoMode::Read)
+            .collect();
+        for &id in &changed {
+            self.arrangement.auto.set_mode(id, AutoMode::Latch);
+        }
+        if !changed.is_empty() {
+            let names: Vec<String> = changed
+                .iter()
+                .filter_map(|id| {
+                    self.document
+                        .project()
+                        .tracks
+                        .iter()
+                        .find(|t| t.id == *id)
+                        .map(|t| t.name.clone())
+                })
+                .collect();
+            self.say(format!(
+                "Automation is on for {} while you record (Latch)",
+                names.join(", ")
+            ));
+        }
+        changed
+    }
+
+    /// Puts the tracks [`Self::latch_mapped`] changed back in Read, unless the
+    /// user chose another mode meanwhile.
+    fn unlatch(&mut self, latched: &[Id]) {
+        for &id in latched {
+            if self.arrangement.auto.mode_of(id) == AutoMode::Latch {
+                self.arrangement.auto.set_mode(id, AutoMode::Read);
+            }
+        }
     }
 
     fn restore_autosave(&mut self) {
@@ -478,6 +533,7 @@ mod tests {
             mode: Mode::Overdub,
             document: doc.session(),
             tracks: vec![Id(1)],
+            latched: Vec::new(),
             start,
             looped,
             punch: None,
