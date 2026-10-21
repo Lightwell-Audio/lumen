@@ -133,10 +133,11 @@ struct Rig {
     log: Log,
     live: Script,
     output: rtrb::Consumer<MidiOut>,
+    clips: lumen_engine::ClipsHandle,
 }
 
 fn rig(tracks: Vec<MidiTrack>, log: &Log) -> Rig {
-    let (_clips, players) = clip_player();
+    let (clips, players) = clip_player();
     let (mut midi, player) = midi_player();
     midi.set(tracks).ok().unwrap();
     let live = Script::default();
@@ -166,6 +167,7 @@ fn rig(tracks: Vec<MidiTrack>, log: &Log) -> Rig {
         log: Arc::clone(log),
         live,
         output,
+        clips,
     }
 }
 
@@ -618,4 +620,27 @@ fn a_new_live_input_replaces_the_old_and_the_old_comes_back_to_be_freed() {
     assert!(rig.midi.collect_garbage() >= 1);
     next.send(300, KEYS, Msg::note_on(0, 60, 100));
     assert_eq!(impulses(&rig.run(256, 128)), vec![(300 - 256, 1)]);
+}
+
+#[test]
+fn clip_lists_sent_while_a_live_note_rings_are_still_taken() {
+    // Stopped with a note sounding, the engine renders its tail instead of
+    // idling. The lists the interface sends meanwhile (every edit sends one)
+    // must still be taken, or the queue fills, the interface holds its routing
+    // back, and a volume change does nothing until the note ends.
+    let log: Log = Arc::default();
+    let mut rig = rig(vec![track(A, &log, keys_on(None), Vec::new())], &log);
+    rig.live.send(0, KEYS, Msg::note_on(0, 60, 100));
+    rig.run(512, 128);
+    assert_eq!(rig.held_live(A), 1, "the note is held and rings");
+    let mut refused = 0;
+    for _ in 0..40 {
+        if rig.clips.set(Vec::new()).is_err() {
+            refused += 1;
+        }
+        rig.run(128, 128);
+        rig.clips.collect_garbage();
+    }
+    assert_eq!(refused, 0, "{refused} lists found the queue full");
+    assert_eq!(rig.held_live(A), 1, "and the note still rings");
 }

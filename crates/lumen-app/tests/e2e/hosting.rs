@@ -931,3 +931,39 @@ fn a_plugin_that_cannot_be_read_is_saved_with_the_values_the_project_holds_and_t
         lumen.app().note()
     );
 }
+
+#[test]
+fn a_held_live_note_does_not_hold_back_the_next_edits_to_the_mix() {
+    // Stopped with a note sounding, the engine renders its tail instead of
+    // idling: the lists the interface sends meanwhile must still be taken, or
+    // after a few edits (a drag makes dozens) the queues fill, the routing is
+    // held back and a volume change does nothing until the note ends.
+    let song = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("volume-held-note", &song, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    lumen.app_mut().select_tracks(&[KEYS]);
+    lumen.frames(10);
+    assert!(
+        lumen
+            .app_mut()
+            .play_live(lumen_core::midi::Msg::note_on(0, 60, 100))
+    );
+    let loud = level(&mut lumen);
+    assert!(loud > 0.01, "the note is silent");
+    for round in 0..3 {
+        let to = if round % 2 == 0 { -40.0 } else { -3.0 };
+        let from = if round % 2 == 0 { -3.0 } else { -40.0 };
+        for step in 0..30 {
+            let db = from + (to - from) * step as f32 / 29.0;
+            lumen.app_mut().set_track_volume(KEYS, db);
+            lumen.frames(1);
+        }
+        lumen.frames(5);
+        let now = level(&mut lumen);
+        if to < -20.0 {
+            assert!(now < loud * 0.1, "round {round}: down, {now} vs {loud}");
+        } else {
+            assert!(now > loud * 0.5, "round {round}: up, {now} vs {loud}");
+        }
+    }
+}
