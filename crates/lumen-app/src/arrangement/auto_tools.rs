@@ -19,6 +19,9 @@ use crate::note_editor::glyphs;
 use crate::theme;
 use crate::widgets::{self, Choice};
 
+/// The Re-enable button's label.
+const REENABLE: &str = "Re-enable";
+
 /// A segment narrower than this on screen has no bend dot: it could not be
 /// grabbed apart from its points.
 const BEND_MIN_WIDTH: f32 = 3.0 * theme::size::AUTO_GRAB;
@@ -31,6 +34,45 @@ pub(crate) const WAVES: [Wave; 5] = [
     Wave::Saw,
     Wave::Square,
 ];
+
+impl Arrangement {
+    /// The filled amber button beside the chip of a lane taken over: it lets
+    /// the lane play again (M7 slice A4a).
+    pub(super) fn reenable_button(
+        &mut self,
+        ui: &mut Ui,
+        doc: &mut crate::document::Document,
+        rect: Rect,
+        (track, target): (&lumen_project::model::Track, Target),
+        lane: &str,
+    ) {
+        let palette = *theme::p();
+        let id = egui::Id::new(("automation reenable", track.id));
+        let response = ui
+            .interact(rect, id, egui::Sense::click())
+            .on_hover_text("Let the lane play again; the control follows it");
+        let name = format!("Re-enable {lane} of {}", track.name);
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+        let fill = if response.hovered() {
+            palette.warning.gamma_multiply(0.88)
+        } else {
+            palette.warning
+        };
+        let radius = f32::from(theme::radius::for_height(rect.height()));
+        ui.painter().rect_filled(rect, radius, fill);
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            REENABLE,
+            crate::fonts::medium(theme::size::CAPTION),
+            theme::text_on(fill),
+        );
+        crate::widgets::raised::focus_ring(ui.painter(), &response, rect);
+        if response.clicked() {
+            doc.reenable_lane(track.id, target);
+        }
+    }
+}
 
 impl Frame {
     /// The height (0 to 1) of the lane at screen `y`.

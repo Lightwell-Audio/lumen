@@ -6,6 +6,7 @@ use std::time::Instant;
 
 use eframe::egui::{self, Align2, FontId, Key, Rect, Sense, Ui, pos2, vec2};
 use lumen_hosting::{ParamInfo, UnitInfo};
+use lumen_project::automation::Target;
 use lumen_project::model::{Device, Id};
 
 use super::strip::{self, SLOTS, Slot};
@@ -173,17 +174,51 @@ impl App {
             } else {
                 Vec::new()
             },
+            over: self.parameter_taken_over(d, p),
         }
     }
 
     /// A parameter's value now: what the project holds, else what the plugin
     /// has as far as Lumen knows, else its default.
     fn parameter_value(&self, d: &Device, p: &ParamInfo) -> f64 {
+        // A lane that plays drives it: the control shows the lane's value at
+        // the playhead (M7 slice A4a, D5).
+        if let Some(track) = self.track_of_device(d.id)
+            && let Some(v) = self.arrangement.auto.following(
+                self.document.overrides(),
+                track,
+                Target::Device {
+                    device: d.id,
+                    param: p.id,
+                },
+            )
+        {
+            return f64::from(v);
+        }
         d.params
             .get(&p.id)
             .copied()
             .or_else(|| self.hosting.value(d.id, p.id))
             .unwrap_or(p.default)
+    }
+
+    /// The track that holds `device`.
+    fn track_of_device(&self, device: Id) -> Option<&lumen_project::model::Track> {
+        let (id, _) = crate::document::find_device(self.document.project(), device)?;
+        lumen_project::routing::all_tracks(self.document.project()).find(|t| t.id == id)
+    }
+
+    /// Whether the user has taken over the lane that drives `p`.
+    fn parameter_taken_over(&self, d: &Device, p: &ParamInfo) -> bool {
+        self.track_of_device(d.id).is_some_and(|t| {
+            self.document.overrides().contains(
+                t.id,
+                Target::Device {
+                    device: d.id,
+                    param: p.id,
+                },
+            )
+        })
     }
 
     /// The plugin's own words for a value. The plugin is asked when the value
@@ -229,6 +264,7 @@ impl App {
                     .iter()
                     .find(|p| p.id == id)
                     .map_or_else(|| "parameter".to_owned(), |p| p.title.clone());
+                self.document.override_param(device, id);
                 let _ = self.document.set_device_params(
                     device,
                     &[(id, value)],
@@ -267,6 +303,8 @@ impl App {
             .iter()
             .find(|p| p.id == id)
             .map_or_else(|| "parameter".to_owned(), |p| p.title.clone());
+        // Moving a control a lane drives takes the lane over (M7 slice A4a).
+        self.document.override_param(device, id);
         let _ = self.document.set_device_params(
             device,
             &[(id, value)],
@@ -537,6 +575,10 @@ impl App {
                 selected: false,
             },
         );
+        // A lane the user has taken over (M7 slice A4a), as on the strip's knob.
+        if self.parameter_taken_over(device, p) {
+            crate::arrangement::follow::ring(ui, bar);
+        }
         if let Some(v) = out.value {
             act.set = Some((p.id, v));
         }

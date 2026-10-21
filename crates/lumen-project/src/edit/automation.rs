@@ -382,6 +382,41 @@ pub fn stroke(base: &Lane, raw: &[(Ticks, f32)], steps: bool, tolerance: f32) ->
     replace_span(base, first, last, stroked.points())
 }
 
+/// How a recorded pass ends (M7 slice A4b).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Release {
+    /// Nothing is added: the lane keeps the last value written until its next
+    /// point (a pass that ends at Stop).
+    Hold,
+    /// A control was let go of: the lane returns to what it said before over
+    /// this long, straight, so there is no click (a steps lane, a mute, jumps
+    /// back at the next tick instead).
+    Glide(Ticks),
+}
+
+/// A recorded pass written into `base` (M7 slice A4b): `raw` are the values
+/// the control had, one for each frame, in time order. They replace the lane
+/// from the first to the last (and, with a glide, to where it has returned),
+/// thinned to within `tolerance` of what was played, as a freehand stroke is.
+/// `None` for an empty pass or one that would leave too many points.
+pub fn recorded(
+    base: &Lane,
+    raw: &[(Ticks, f32)],
+    release: Release,
+    steps: bool,
+    tolerance: f32,
+) -> Option<Lane> {
+    let &(last, _) = raw.last()?;
+    let mut samples = raw.to_vec();
+    if let Release::Glide(over) = release {
+        let back = if steps { last + Ticks(1) } else { last + over };
+        if let Some(value) = base.value_at(back) {
+            samples.push((back, value));
+        }
+    }
+    stroke(base, &samples, steps, tolerance)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -749,5 +784,75 @@ mod tests {
                 (4, 4.0, Shape::Linear),
             ])
         );
+    }
+
+    #[test]
+    fn a_recorded_pass_replaces_the_lane_where_it_ran_and_leaves_the_rest() {
+        let base = lane(&[
+            (0, 0.0, Shape::Linear),
+            (4, 4.0, Shape::Linear),
+            (8, 8.0, Shape::Linear),
+        ]);
+        let raw: Vec<_> = (0..=8).map(|i| (Ticks(PPQ * 2 + i * 10), 9.0)).collect();
+        let lane = recorded(&base, &raw, Release::Hold, false, 0.01).unwrap();
+        // A held value is thinned to its two ends.
+        assert_eq!(
+            positions(&lane),
+            [q(0), q(2), Ticks(PPQ * 2 + 80), q(4), q(8)]
+        );
+        assert_eq!(values(&lane), [0.0, 9.0, 9.0, 4.0, 8.0]);
+    }
+
+    #[test]
+    fn a_touch_glides_back_to_what_the_lane_said_and_the_lane_after_it_is_untouched() {
+        let base = lane(&[(0, 0.0, Shape::Linear), (8, 8.0, Shape::Linear)]);
+        let raw = [(q(2), 9.0), (q(3), 9.0)];
+        let over = Ticks(PPQ / 5);
+        let lane = recorded(&base, &raw, Release::Glide(over), false, 0.01).unwrap();
+        let end = q(3) + over;
+        assert_eq!(positions(&lane), [q(0), q(2), q(3), end, q(8)]);
+        // The glide ends on the old lane's value there, straight from the held one.
+        assert_eq!(lane.value_at(q(3)), Some(9.0));
+        assert!((lane.value_at(end).unwrap() - base.value_at(end).unwrap()).abs() < 1e-6);
+        assert_eq!(lane.value_at(q(8)), Some(8.0));
+    }
+
+    #[test]
+    fn a_steps_lane_jumps_back_on_the_next_tick() {
+        let base = lane(&[(0, 0.0, Shape::Step), (8, 1.0, Shape::Step)]);
+        let raw = [(q(2), 1.0), (q(3), 1.0)];
+        let lane = recorded(&base, &raw, Release::Glide(Ticks(PPQ)), true, 0.01).unwrap();
+        assert_eq!(lane.value_at(q(3)), Some(1.0));
+        assert_eq!(lane.value_at(q(3) + Ticks(1)), Some(0.0));
+        assert!(lane.points().iter().all(|p| p.shape == Shape::Step));
+    }
+
+    #[test]
+    fn a_pass_on_a_new_lane_just_writes_it_and_an_empty_pass_writes_nothing() {
+        let empty = Lane::new(vec![]).unwrap();
+        let raw = [(q(1), 0.2), (q(2), 0.9)];
+        let lane = recorded(&empty, &raw, Release::Glide(Ticks(PPQ)), false, 0.01).unwrap();
+        assert_eq!(values(&lane), [0.2, 0.9], "nothing to glide back to");
+        assert!(recorded(&empty, &[], Release::Hold, false, 0.01).is_none());
+    }
+
+    #[test]
+    fn a_recorded_move_stays_within_the_tolerance_of_what_was_played() {
+        let base = Lane::new(vec![]).unwrap();
+        // A wobbling fader, 60 frames a second for two seconds at 120 BPM.
+        let raw: Vec<_> = (0..120)
+            .map(|i| (Ticks(i * PPQ / 30), ((i as f32) * 0.2).sin()))
+            .collect();
+        let tolerance = 0.02;
+        let lane = recorded(&base, &raw, Release::Hold, false, tolerance).unwrap();
+        assert!(
+            lane.len() < raw.len() / 2,
+            "thinned: {} of {}",
+            lane.len(),
+            raw.len()
+        );
+        for &(at, v) in &raw {
+            assert!((lane.value_at(at).unwrap() - v).abs() <= tolerance + 1e-4);
+        }
     }
 }

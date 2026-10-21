@@ -465,6 +465,9 @@ pub struct Hosting {
     /// Safe mode: no plugin is loaded, except those asked for one at a time.
     safe: bool,
     allowed: std::collections::HashSet<u64>,
+    /// The lanes the user has taken over (M7 slice A4a): a parameter whose
+    /// lane is taken over is the user's, not the lane's.
+    overridden: crate::document::Overrides,
 }
 
 /// The host's stand-in for an editor window, as a test asks for it in the
@@ -553,6 +556,14 @@ impl Hosting {
             checkpoint_every: CHECKPOINT,
             safe: false,
             allowed: Default::default(),
+            overridden: Default::default(),
+        }
+    }
+
+    /// Tells the bridge which lanes are taken over. Call it before `update`.
+    pub fn set_overridden(&mut self, overridden: &crate::document::Overrides) {
+        if self.overridden != *overridden {
+            self.overridden = overridden.clone();
         }
     }
 

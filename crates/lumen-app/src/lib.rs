@@ -44,6 +44,7 @@ mod arrangement;
 mod audio;
 mod audio_settings;
 mod audition;
+mod auto_record;
 mod autosave;
 mod bench;
 mod brand;
@@ -121,6 +122,12 @@ pub struct App {
     show_history: bool,
     /// Track headers, heights, folding and selection (M3 slice 4).
     arrangement: arrangement::Arrangement,
+    /// The lane passes being recorded (M7 slice A4b).
+    recorder: auto_record::Recorder,
+    /// The plugin gestures that are open: a control held in a plugin's own
+    /// window, by track and parameter (A4b).
+    gestures_open:
+        std::collections::BTreeSet<(lumen_project::model::Id, lumen_project::automation::Target)>,
     /// The note shown after undo, redo or save, and since when.
     toast: Option<(String, Instant)>,
     /// File work in progress (slice 3c): a dialog, a save or an open.
@@ -456,6 +463,12 @@ impl eframe::App for App {
             .info
             .as_ref()
             .map_or(0, |info| info.buffer_frames);
+        // The controls whose lanes play follow the playhead (M7 slice A4a).
+        self.arrangement.auto.at = self.transport.position();
+        self.hosting.set_overridden(self.document.overrides());
+        if self.lanes.devices.overridden != *self.document.overrides() {
+            self.lanes.devices.overridden = self.document.overrides().clone();
+        }
         let hosts = self.hosting.update(
             self.document.project(),
             self.plugins.catalog(),
@@ -662,6 +675,8 @@ impl eframe::App for App {
         // Every frame while playing or settling after a command; otherwise
         // once a second for device events, so idle CPU stays near zero.
         // Meters draw until they come to rest (risk R5).
+        // After the controls were drawn: what moved in them is this frame's.
+        self.record_automation(&ctx, rate);
         if self.transport.animating() || meters_moving {
             ctx.request_repaint();
         } else {

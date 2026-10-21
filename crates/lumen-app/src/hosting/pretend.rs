@@ -47,6 +47,12 @@ impl Hosting {
     /// Gives a tracked device a parameter list, as if its plugin had listed
     /// it: for screenshots of the card's strip. `(title, value, text)`; ids
     /// count from 1.
+    pub fn pretend_edits(&mut self, device: Id, edits: Vec<(Edit, bool)>) {
+        if let Some(t) = self.tracked.get_mut(&device.0) {
+            t.params.edits.extend(edits);
+        }
+    }
+
     pub fn pretend_parameters(&mut self, device: Id, list: &[(&str, f64, &str)]) {
         let Some(t) = self.tracked.get_mut(&device.0) else {
             return;

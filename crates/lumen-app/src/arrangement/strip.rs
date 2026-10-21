@@ -14,9 +14,11 @@ use eframe::egui::{
     vec2,
 };
 use eframe::emath::GuiRounding as _;
+use lumen_project::automation::Target;
 use lumen_project::model::{Track, TrackKind};
 use lumen_project::solo::Heard;
 
+use super::follow;
 use super::sends::{Knob, returns};
 use super::{Arrangement, color_of, headers, nesting, pinned};
 use crate::commands::Keymap;
@@ -291,17 +293,21 @@ impl Arrangement {
 
         // Pan.
         let pan_rect = Rect::from_x_y_ranges(x, y..=y + ROW);
+        let shown_pan = self.shown(doc, &track, Target::Pan, track.pan);
         let pan = widgets::value_slider(
             ui,
             pan_rect,
             id.with("pan"),
-            track.pan,
+            shown_pan,
             SliderKind::Pan,
             &format!("{} pan in the mixer", track.name),
             controls,
         );
-        if pan != track.pan {
+        if pan != shown_pan {
             doc.set_pan(track.id, pan);
+        }
+        if self.taken_over(doc, &track, Target::Pan) {
+            follow::ring(ui, pan_rect);
         }
         y += ROW + GAP;
 
@@ -397,11 +403,12 @@ impl Arrangement {
         // The fader, its scale and the meter (the owner's S1).
         let travel = Rangef::new(y + TRAVEL_PAD, y + TRAVEL_PAD + travel_height);
         let fader_x = rect.left() + INSET + fader::CAP.x / 2.0 - 2.0;
+        let gain = self.shown(doc, track, Target::Volume, track.gain_db);
         if let Some(db) = fader::fader(
             ui,
             (fader_x, travel),
             id.with("fader"),
-            track.gain_db,
+            gain,
             &format!("{} fader in the mixer", track.name),
             controls,
         ) {
@@ -442,13 +449,16 @@ impl Arrangement {
             ui,
             volume,
             id.with("volume"),
-            track.gain_db,
+            gain,
             SliderKind::Volume,
             &format!("{} volume in the mixer", track.name),
             controls,
         );
-        if db != track.gain_db {
+        if db != gain {
             doc.set_volume(track.id, db);
+        }
+        if self.taken_over(doc, track, Target::Volume) {
+            follow::ring(ui, volume);
         }
         // The held peak is a readout: a click clears it.
         let peak = Rect::from_x_y_ranges(x.max - half..=x.max, y..=y + ROW);
@@ -620,17 +630,21 @@ impl Arrangement {
         );
         raised::focus_ring(ui.painter(), &response, flip);
         let trim = Rect::from_min_max(pos2(flip.right() + GAP, row.top()), row.max);
+        let shown_trim = self.shown(doc, track, Target::Trim, track.trim_db);
         let db = widgets::value_slider(
             ui,
             trim,
             id.with("trim"),
-            track.trim_db,
+            shown_trim,
             SliderKind::Trim,
             &format!("{} trim in the mixer", track.name),
             controls,
         );
-        if db != track.trim_db {
+        if db != shown_trim {
             doc.set_trim(track.id, db);
+        }
+        if self.taken_over(doc, track, Target::Trim) {
+            follow::ring(ui, trim);
         }
     }
 
@@ -689,6 +703,8 @@ impl Arrangement {
         rect: Rect,
         (id, controls): (EguiId, theme::Controls),
     ) {
+        let muted =
+            follow::muted(self.shown(doc, master, Target::Mute, f32::from(u8::from(master.mute))));
         let response = ui
             .interact(rect, id.with("mute"), Sense::click())
             .on_hover_text("Mute the master: silences the main output");
@@ -696,15 +712,15 @@ impl Arrangement {
             egui::WidgetInfo::selected(
                 egui::WidgetType::Checkbox,
                 true,
-                master.mute,
+                muted,
                 "Mute Master in the mixer",
             )
         });
         if response.clicked() {
-            doc.set_mute(&[master.id], !master.mute);
+            doc.set_mute(&[master.id], !muted);
         }
         let hover = motion::hover(ui.ctx(), id.with("mute hover"), response.hovered());
-        let lit = motion::hover(ui.ctx(), id.with("mute lit"), master.mute);
+        let lit = motion::hover(ui.ctx(), id.with("mute lit"), muted);
         // As every track's M (ADR-0052): raised, `mute` when on.
         let face = raised::Face::new(controls)
             .hover(hover)
@@ -717,6 +733,9 @@ impl Arrangement {
             theme::radius::for_height(rect.height()),
             &face,
         );
+        if self.taken_over(doc, master, Target::Mute) {
+            follow::ring(ui, rect);
+        }
         ui.painter().text(
             body.center(),
             Align2::CENTER_CENTER,

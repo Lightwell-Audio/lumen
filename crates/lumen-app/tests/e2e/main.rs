@@ -36,6 +36,8 @@ mod info;
 mod keyboard;
 mod keys;
 mod lane_edit;
+mod lane_override;
+mod lane_record;
 mod lane_view;
 mod lanes;
 mod light;

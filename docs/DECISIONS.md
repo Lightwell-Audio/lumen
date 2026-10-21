@@ -97,6 +97,8 @@ irreversible or external) · *Superseded*.
 | [0083](#adr-0083--editing-an-automation-lane-m7-slice-a2) | Editing an automation lane (M7 slice A2) | Accepted 2026-10-20 (MT-AUTO-3 passed, owner); choice 4 (points, not ranges) to be revisited after the core product | Claude |
 | [0084](#adr-0084--plugin-parameter-lanes-m7-slice-a3) | Plugin parameter lanes (M7 slice A3) | Accepted 2026-10-20 (MT-AUTO-4 passed, owner; no step detail) | Claude |
 | [0085](#adr-0085--native-vst3-hosting-on-macos) | Native VST3 hosting on macOS | Accepted scope 2026-10-19; verification in progress | Owner approved native workflow |
+| [0086](#adr-0086--controls-that-follow-a-lane-and-taking-a-lane-over-m7-slice-a4a) | Controls that follow a lane, and taking a lane over (M7 slice A4a) | Accepted 2026-10-20 (MT-AUTO-5 passed, owner; no step detail) | Claude |
+| [0087](#adr-0087--recording-a-lane-m7-slice-a4b) | Recording a lane (M7 slice A4b) | Accepted 2026-10-20 (MT-AUTO-6 passed, owner) | Claude |
 
 ---
 
@@ -7760,3 +7762,156 @@ the implementation. Final commands, measurements and remaining checks are
 recorded in [the slice report](milestones/macOS-VST3.md) and
 [MT-VST-MAC](manual-tests/macOS-VST3.md).
 
+
+
+## ADR-0086 — Controls that follow a lane, and taking a lane over (M7 slice A4a)
+
+**Context.** A0 to A3 made lanes play, drew them, edited them and let them drive plugin
+parameters. Two things were left open, both about the controls a lane drives: a fader whose
+lane plays did not move with it (D5), and moving one did nothing audible (a mixer value) or was
+put back at the next block (a plugin parameter). The owner split A4 in two on 2026-10-20: this
+slice is following and overriding; recording (Read, Write, Touch, Latch) is A4b.
+
+**Decisions.**
+1. **A control shows the lane's value at the playhead** (D5) when the lane plays (on, and not
+   taken over), stopped or playing: `AutoView::following` asks `Lane::value_at` with the
+   playhead the app sets each frame (`arrangement.auto.at`), never the engine. Every control
+   a lane can drive reads through `Arrangement::shown`: the header's volume and pan, the strip's
+   fader, value box, pan and trim, the send knobs, the M button (a mute lane's value from one
+   half up), the master's M, the device card's strip and the All parameters window
+   (`App::parameter_value`). A control reports a change only against the value it showed, so
+   touching without moving takes nothing over.
+2. **Moving a control takes its lane over** (D7). `Overrides` (`document/overrides.rs`) is a set
+   of (track, target) kept in the `Document` beside, not in, the history: it is session state, not
+   saved, not an undo step, and a new document starts empty. The setters a person's move reaches
+   (`set_volume`, `set_pan`, `set_trim`, `set_send`, `set_mute`) call `override_lane`; the plugin
+   controls do at their call sites (the card's strip, the panel, a typed value, a gesture in the
+   plugin's own window: `override_param`). A program or a patch the user chose goes through the same
+   edit but does not take a lane over (it is not the user moving that control). A lane that is off
+   or absent is never taken over.
+3. **A taken-over lane plays nothing.** It is not a change to the project: `Overrides::plays` is
+   the one rule, read by `routing::automation` and `mute_lane` (the engine's lanes), by
+   `lane_bake::device_lanes` (a plugin effect's and a plugin instrument's lanes) and by the
+   hosting bridge (`Hosting::set_overridden`: a parameter whose lane is taken over is no longer
+   "driven", so the project's value at rest, the user's, reaches the plugin as it does when a lane
+   is switched off, ADR-0084 amendments). The routing and the MIDI list are rebuilt when the set
+   changes (it is part of `routing::Devices`, the key of the routing, and of the MIDI list's key). No
+   engine change: the lane is simply not in the plan, as when it is off.
+4. **A lane's end is the override's end.** Editing a lane (it was already switched on by an edit),
+   switching it off or on, and removing it all clear its override; so does Re-enable. A mute lane
+   taken over leaves the track's own switch to decide, solo included, which settles the A0 known
+   issue for that case.
+5. **Re-enable.** The chip's button, the command `edit.automation_reenable` (Ctrl+Shift+R, the
+   shown lane) and `edit.automation_reenable_all`. One click, not an undo step.
+6. **The look is the owner's A** (chosen from rendered specimens, 2026-10-20): an amber ring on the
+   control moved (slider, field, knob, M), the track's A button filled amber while any of its lanes
+   is taken over, the chip outlined amber and reading "Name · Overridden" with a filled amber
+   **Re-enable** button beside it, the curve and its points dashed in grey, and a dotted amber line
+   across the lane at the control's own value. The dotted marker on the fader that showed where
+   the lane is (look B) was offered as an addition and not chosen, so it is not built.
+
+**Deviations from the plan, for the owner's information.**
+- The master and the returns have no lane view, so no chip and no Re-enable button (the command
+  gives the lane back): in KNOWN_ISSUES.
+- Controls follow the playhead the transport reports, not a value read back from the plugin.
+
+**Consequences.**
+- No format change (still v22), no engine change, no host change; ADR-0084's choice 6 now ends
+  with the override ("a knob moved under an enabled lane does nothing audible" is gone, and so is
+  the put-back of a parameter moved in the plugin's window).
+- `Command` and `ALL` end with `AutomationReenable` and `AutomationReenableAll`; new token
+  `size::AUTO_REENABLE`; new test seams `lane_taken_over`, `take_over_lane`, `reenable_lane`,
+  `set_track_volume`, `set_device_param_at_rest` (a value set without moving a control).
+- Tests: 8 unit tests for `Overrides` and `follow`; a routing test (volume, mute and plugin lanes
+  taken over, then back), a MIDI-list test and a plugin-edit test (a gesture takes a lane over, a
+  program does not); 6 E2E scenarios in `tests/e2e/lane_override.rs` that read the fader at the
+  playhead and listen (taking a lane over, then back) and a seventh in `plugin_lanes.rs`; one E2E of
+  A3 was rewritten (its knob move is now a take-over). Mutation checked: ignoring the override in
+  the bridge, in the routing rule, or in the fader's setter each fails a test. A shot,
+  `automation_override` and, for the plugin controls (the card's knobs and the All parameters
+  window's bars), `automation_override_parameters` (dark and light, 100, 150 and 200%), were looked at.
+- Gates run on Windows: fmt, workspace clippy, the workspace tests (all pass except one fixture
+  check that fails only because of an unrelated uncommitted edit to the demo project file in the
+  working tree; it passes against the committed file), 6 smoke tests, macOS cross-clippy. **Not
+  run:** the Linux (WSL) mirror and the performance gate (no engine or project crate changed),
+  RealtimeSanitizer, macOS runs, any real plugin; **MT-AUTO-5 is the owner's**.
+
+
+## ADR-0087 — Recording a lane (M7 slice A4b)
+
+**Context.** A4a made controls follow their lanes and let a moved control take its lane over. A4b
+writes lanes from what the user does: Touch, Latch and Write, from Lumen's controls and from a
+plugin's own window. The owner chose per-track modes in the lane chip (M1), a 100 ms glide back at
+the end of a Touch (R1 B) and the chip with a red-tinted lane (K1 B), and took the proposals that
+modes are not saved (M2), that Write starts where playing starts (W1) and that a loop wrap ends a
+pass (L1b).
+
+**Decisions.**
+1. **Modes are session state, per track** (`AutoView.modes`, Read by default, a project always opens
+   in Read). Nothing is saved, so no format change (v23 stays the time-signature map's). The chip
+   reads "Volume · Touch" with a record-red dot, the lane is tinted record red while the mode can
+   write, and the chip is outlined in red while a pass is being written. Chosen from the chip's menu
+   ("While the song plays") and four commands, `edit.automation_mode_{read,touch,latch,write}` (on the
+   selected tracks), at the end of `Command` and `ALL`.
+2. **The rules are a pure state machine** (`auto_record.rs`: `Recorder::frame`), told each frame where
+   the playhead is, which controls were touched, whether the pointer is down and which plugin
+   gestures are open, and answering with `TakeOver` and finished passes (`Write`). **Touch** begins a
+   pass at the first move of an armed control (it has a lane, or it is the lane the track shows) and
+   writes the control's value each frame while the pointer is down or a plugin gesture is open; a
+   wheel or arrow move is a touch of one frame. **Latch** begins at the first touch and goes on until
+   Stop. **Write** begins where playing begins, for the lane the track shows (amendment 2),
+   with the control's own value, moved or not (so the sound can jump at the start of the pass: the
+   control, not the lane, is heard). Nothing is written while the song is stopped, and a control
+   moved then is only taken over, as in Read.
+3. **A pass is written once, as one undo step** ("Record automation", `Document::record_lane`, which
+   seals around it and, like any lane edit, lets the lane play again): at the release in Touch and at
+   Stop or a loop wrap in Latch and Write. The wrap ends the pass and Latch and Write begin the next at
+   once. Reuse: the pass goes through `lumen_project::edit::automation::recorded`, which is the
+   freehand `stroke` (replace the lane from the first to the last position, thinned with
+   `Lane::simplify`) with the end of the pass: **Touch glides back** over 100 ms (in ticks at the
+   tempo there) to what the lane said before, straight, so there is no click; a mute lane (steps)
+   jumps back on the next tick; a pass that ends at Stop holds. The tolerance is half a percent of the
+   target's range.
+4. **Recording is taking over.** A moved control already takes its lane over (A4a); the recorder
+   takes over the lanes it writes in Write and Latch, and the write ends the override. While a pass
+   runs the lane is shown as being written, not as overridden (`Arrangement::taken_over` leaves out
+   the lanes in `AutoView.recording`), so there is no amber and no Re-enable then.
+5. **What a move is.** `Document::moved` (called by the setters and by the plugin controls) notes
+   (track, target) in a queue the app drains each frame after the interface was drawn
+   (`App::record_automation`), so the moves made in a frame are that frame's. A plugin gesture is
+   held from its begin to its end (`App::note_gestures`, from the host's edits), and its value is the
+   one the project holds after the edit. Mapped controllers join in A5.
+6. **Stamps and their accuracy.** A point is stamped with the playhead the app has in the frame that
+   sees the move: late by at most one frame of the interface (16.7 ms at 60 Hz) behind the move, plus
+   how true the playhead is. The second is measured (E2E
+   `the_playhead_that_stamps_the_points_follows_the_clock_to_within_a_frame`): over 150 frames the
+   playhead is within 11 to 12 ms of a straight line against the clock on the silent test device,
+   which publishes a block every 10 ms. **Not measured:** a real device, where blocks are shorter.
+
+**Deviations from the plan, for the owner's information.**
+- A Touch begins at the first move of a control, not at the press (the interface sees moves, not
+  presses): a press that does not move writes nothing.
+- A pass that would make the lane too long to keep is refused with a note, and the lane is left as it
+  was.
+- The master has no lane view, so its modes are set by the commands only; mapped controllers wait for
+  A5.
+
+**Consequences.**
+- No format change, no engine or host change. New `auto_record.rs` (the state machine and `Mode`),
+  `app/auto_recording.rs` (the app's side), `Document::{moved, take_touched, record_lane}`,
+  `AutoView::{modes, recording, mode_of, set_mode}`, `edit::automation::{recorded, Release}`; new
+  tokens `size::AUTO_REC_DOT`; new test seams `set_automation_mode`, `automation_mode`,
+  `recording_automation`, `shows_lane_overridden`, `pretend_plugin_edits` (and `Hosting::pretend_edits`).
+- Tests: 5 units for `recorded` (replace, glide, steps, a new lane, tolerance), 10 for the state
+  machine (every mode, a held plugin gesture, a wheel move, a loop wrap, a switch to Read), 8 E2E
+  scenarios in `tests/e2e/lane_record.rs` that hold a fader against a playing song and listen (Touch
+  hands the lane back and is one undo step; Latch goes on to Stop; Write overwrites from the start;
+  a stopped move is not recorded; Read is unchanged; the chip's menu and the palette set the mode; a
+  plugin gesture is recorded from its begin to its end; the playhead's accuracy). Mutation checked:
+  writing a Touch with no glide, and not noting the moves, each fail tests. A shot, `automation_modes`
+  (dark and light, 100, 150 and 200%), was looked at.
+- Gates run on Windows: fmt, workspace clippy, the workspace tests (all pass except the one fixture check that fails only because of the owner's unrelated uncommitted edit to the demo project file, as in ADR-0086), 6 smoke tests, the product-name scan, macOS cross-clippy. **Not run:** the Linux (WSL) mirror and the performance gate (no engine or project crate changed beyond a pure edit), RealtimeSanitizer, macOS runs, any real plugin, any real device or controller; **MT-AUTO-6 is the owner's**.
+
+**Amendment (2026-10-20, the owner's first run of Touch).** The owner saw the first Touch on a control behave like Latch and later ones behave as expected. Cause, reproduced in `lane_record.rs`: a control with no lane yet has nothing to return to, so the first pass ended holding its last value and the new lane started at the first move (the fader's level before it was never written). Now `Document::moved` notes what the control held before its first move (the setters call it before they change the control; `take_rests`), the recorder carries it with the pass (`Action::Write.rest`), and a pass written into an empty lane starts from a point at the beginning of the song at that value, so a Touch hands back to it, a Latch or Write holds from where the pass began, and the song before the pass sounds as it did. A plugin's own window reports a move before the project holds it, so the same applies there. E2E `a_touch_on_a_control_with_no_lane_yet_returns_to_where_the_control_rested` (fails without it) and a unit test for the recorder.
+
+**Amendment 2 (2026-10-20, the owner's second report).** Write overwrote every lane the track had, so writing the volume lane also overwrote the pan lane that was already written. Write now writes only the lane the track's chip shows (`Looking::write_targets`); Touch and Latch were never affected, as they begin from the control that was touched. A track with no lane shown writes nothing in Write. E2E `write_overwrites_the_lane_with_the_control_from_where_playing_began` now has a second, unshown lane and checks it is unchanged (fails without the change).

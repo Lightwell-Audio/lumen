@@ -6,8 +6,10 @@
 
 use eframe::egui::{self, Align2, FontId, Id as EguiId, Key, Rect, Sense, Stroke, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
+use lumen_project::automation::Target;
 use lumen_project::model::{Id, TrackKind};
 
+use super::follow;
 use super::header_row::HeaderRow;
 use super::nesting::Arm;
 use super::{Arrangement, BUTTON, FOLDED, RowKind, STEP, Zone};
@@ -444,11 +446,12 @@ impl Arrangement {
             pos2(left, center_y - 10.0),
             pos2(pan_rect.left() - 6.0, center_y + 10.0),
         );
+        let gain = self.shown(doc, track, Target::Volume, track.gain_db);
         let db = widgets::value_slider_styled(
             ui,
             volume_rect,
             id.with("volume"),
-            track.gain_db,
+            gain,
             SliderKind::Volume,
             &format!("Volume {}", track.name),
             widgets::SliderStyle {
@@ -457,22 +460,29 @@ impl Arrangement {
                 comet: false,
             },
         );
-        if db != track.gain_db {
+        if db != gain {
             doc.set_volume(track.id, db);
+        }
+        if self.taken_over(doc, track, Target::Volume) {
+            follow::ring(ui, volume_rect);
         }
         // The level under the value that sets it (the owner's H2).
         self.slider_meter(ui, volume_rect, track, id);
+        let shown_pan = self.shown(doc, track, Target::Pan, track.pan);
         let pan = value_slider(
             ui,
             pan_rect,
             id.with("pan"),
-            track.pan,
+            shown_pan,
             SliderKind::Pan,
             &format!("Pan {}", track.name),
             look,
         );
-        if pan != track.pan {
+        if pan != shown_pan {
             doc.set_pan(track.id, pan);
+        }
+        if self.taken_over(doc, track, Target::Pan) {
+            follow::ring(ui, pan_rect);
         }
         self.auto_button(ui, doc, track, auto_rect, id, look);
     }

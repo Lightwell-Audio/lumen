@@ -264,6 +264,84 @@ impl App {
             .map_err(|refusal| refusal.reason())
     }
 
+    /// Whether the user has taken `track`'s lane for `target` over by moving
+    /// the control it drives.
+    pub fn lane_taken_over(&self, track: Id, target: lumen_project::automation::Target) -> bool {
+        self.document.overrides().contains(track, target)
+    }
+
+    /// Moves a track's fader, as a drag does: a lane that drives it is taken
+    /// over.
+    pub fn set_track_volume(&mut self, track: Id, db: f32) {
+        self.document.set_volume(track, db);
+    }
+
+    /// Sets what a track does with the controls that move while the song plays:
+    /// "read", "touch", "latch" or "write".
+    pub fn set_automation_mode(&mut self, track: Id, mode: &str) {
+        use crate::auto_record::Mode;
+        let mode = Mode::ALL
+            .into_iter()
+            .find(|m| m.name().eq_ignore_ascii_case(mode))
+            .expect("a mode: read, touch, latch or write");
+        self.arrangement.auto.set_mode(track, mode);
+    }
+
+    /// What a track does with the controls that move while the song plays.
+    pub fn automation_mode(&self, track: Id) -> &'static str {
+        self.arrangement.auto.mode_of(track).name()
+    }
+
+    /// Whether the controls and the chip show a lane as overridden: taken over
+    /// and not being written.
+    pub fn shows_lane_overridden(
+        &self,
+        track: Id,
+        target: lumen_project::automation::Target,
+    ) -> bool {
+        lumen_project::routing::all_tracks(self.document.project())
+            .find(|t| t.id == track)
+            .is_some_and(|t| self.arrangement.taken_over(&self.document, t, target))
+    }
+
+    /// Whether a lane is being written now.
+    pub fn recording_automation(
+        &self,
+        track: Id,
+        target: lumen_project::automation::Target,
+    ) -> bool {
+        self.arrangement.auto.recording.contains(&(track, target))
+    }
+
+    /// Gives a plugin's parameter edits as if its own window made them:
+    /// `(parameter, value, "begin" | "perform" | "end")` each, in order.
+    pub fn pretend_plugin_edits(&mut self, device: Id, edits: &[(u32, f64, &str)]) {
+        use lumen_hosting::{Edit, EditKind};
+        let edits = edits
+            .iter()
+            .map(|&(id, value, kind)| {
+                let kind = match kind {
+                    "begin" => EditKind::Begin,
+                    "perform" => EditKind::Perform,
+                    "end" => EditKind::End,
+                    other => panic!("an edit: begin, perform or end, not {other}"),
+                };
+                (Edit { id, value, kind }, true)
+            })
+            .collect();
+        self.hosting.pretend_edits(device, edits);
+    }
+
+    /// Takes a lane over, as moving the control it drives does.
+    pub fn take_over_lane(&mut self, track: Id, target: lumen_project::automation::Target) {
+        self.document.override_lane(track, target);
+    }
+
+    /// Lets a lane taken over play again, as the chip's Re-enable does.
+    pub fn reenable_lane(&mut self, track: Id, target: lumen_project::automation::Target) {
+        self.document.reenable_lane(track, target);
+    }
+
     /// Takes a lane away, as the lane chip's menu does.
     pub fn take_lane_away(
         &mut self,
@@ -698,6 +776,14 @@ impl App {
     /// Sets a plugin's parameter (normalized) as the interface's controls will:
     /// the project holds the value, and one drag is one undo step.
     pub fn set_device_param(&mut self, device: Id, id: u32, value: f64) {
+        self.document.override_param(device, id);
+        self.set_device_param_at_rest(device, id, value);
+    }
+
+    /// Sets the value the project holds for a plugin's parameter without
+    /// moving a control: what a loaded program or a patch does. A lane that
+    /// drives the parameter is not taken over.
+    pub fn set_device_param_at_rest(&mut self, device: Id, id: u32, value: f64) {
         let _ = self.document.set_device_params(
             device,
             &[(id, value)],

@@ -21,6 +21,28 @@ const SILENCE_BAND: f32 = 0.04;
 const LEVEL_LOW: f32 = -60.0;
 const LEVEL_HIGH: f32 = 6.0;
 
+/// The value `track` holds for `target` itself: what the control is set to
+/// when no lane plays, and what a lane taken over leaves to be heard.
+pub(crate) fn own_value(track: &Track, target: Target) -> f32 {
+    match target {
+        Target::Volume => track.gain_db,
+        Target::Pan => track.pan,
+        Target::Trim => track.trim_db,
+        Target::Mute => f32::from(u8::from(track.mute)),
+        Target::Send { to } => track
+            .sends
+            .iter()
+            .find(|s| s.to == to)
+            .map_or(f32::NEG_INFINITY, |s| s.level.0),
+        Target::Device { device, param } => track
+            .devices
+            .iter()
+            .find(|d| d.id == device)
+            .and_then(|d| d.params.get(&param))
+            .map_or_else(|| default_value(target), |&v| v as f32),
+    }
+}
+
 /// The slider that shows `target`'s values, if one fits.
 fn slider(target: Target) -> Option<SliderKind> {
     match target {

@@ -6,12 +6,13 @@
 //! project in a closure of its own (M3 review M2). The loop and punch are edits too (slice 5c);
 //! view state is not: it is stamped into the project when it is saved.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
 use lumen_project::History;
+use lumen_project::automation::Target;
 use lumen_project::model::{Color, Device, Id, Marker, Project, TimeSignature, Track, TrackKind};
 
 /// The most beats a bar may have (`lumen_project::validate`).
@@ -29,6 +30,7 @@ mod midi_import;
 mod mixer;
 mod notes;
 mod outputs;
+mod overrides;
 mod record;
 pub use automation::LaneRefusal;
 pub use clips::{CLIP_GAIN, ClipMove};
@@ -40,6 +42,7 @@ pub use midi_clips::NewClip;
 pub use mixer::{MAX_RETURNS, Refused};
 pub use notes::Resize;
 pub use outputs::{Leave, OutputEdit};
+pub use overrides::Overrides;
 pub use record::Recording;
 
 /// Track colours, cycled for new tracks (`theme::CLIP_COLORS`, as `#RRGGBB`).
@@ -66,6 +69,13 @@ pub struct Document {
     /// Which document this is: a new one (another project, opened or new)
     /// has another, though its history counts from the start again.
     session: u64,
+    /// The lanes the user has taken over (M7 slice A4a): session state.
+    overrides: Overrides,
+    /// The controls the user moved since the recorder last looked (A4b).
+    touched: Vec<(Id, Target)>,
+    /// What each of those controls held before its first move (A4b): the
+    /// value a Touch returns to when no lane says otherwise.
+    rests: BTreeMap<(Id, Target), f32>,
 }
 
 impl Document {
@@ -83,6 +93,9 @@ impl Document {
             next_id,
             media_files: HashMap::new(),
             session: SESSIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            overrides: Overrides::default(),
+            touched: Vec::new(),
+            rests: BTreeMap::new(),
         }
     }
 
@@ -372,6 +385,9 @@ impl Document {
     }
 
     pub fn set_mute(&mut self, ids: &[Id], mute: bool) {
+        for &id in ids {
+            self.moved(id, Target::Mute);
+        }
         let label = if mute { "Mute" } else { "Unmute" };
         self.edit_tracks(label, ids, |t| t.mute = mute);
     }
@@ -449,6 +465,7 @@ impl Document {
     /// into one undo step per track.
     pub fn set_volume(&mut self, id: Id, db: f32) {
         let db = db.clamp(-60.0, 6.0);
+        self.moved(id, Target::Volume);
         self.history
             .apply("Change volume", Some(&format!("volume {:x}", id.0)), |p| {
                 if let Some(t) = mixer::tracks_mut(p).find(|t| t.id == id) {
@@ -461,6 +478,7 @@ impl Document {
     /// into one undo step per track.
     pub fn set_pan(&mut self, id: Id, pan: f32) {
         let pan = pan.clamp(-1.0, 1.0);
+        self.moved(id, Target::Pan);
         self.history
             .apply("Change pan", Some(&format!("pan {:x}", id.0)), |p| {
                 if let Some(t) = mixer::tracks_mut(p).find(|t| t.id == id) {

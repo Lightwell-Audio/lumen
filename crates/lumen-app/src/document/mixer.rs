@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use lumen_core::pan::PanLaw;
+use lumen_project::automation::Target;
 use lumen_project::model::{Id, Level, Output, Project, Send, Track, TrackKind};
 
 use super::Document;
@@ -79,6 +80,7 @@ impl Document {
             Level(level.0.min(SEND_MAX_DB))
         };
         let merge = format!("send {:x} {:x}", id.0, to.0);
+        self.moved(id, Target::Send { to });
         self.routed("Change send", Some(&merge), id, |t| {
             match t.sends.iter_mut().find(|s| s.to == to) {
                 Some(send) => send.level = level,
@@ -133,6 +135,7 @@ impl Document {
             return;
         }
         let db = db.clamp(-TRIM_RANGE_DB, TRIM_RANGE_DB);
+        self.moved(id, Target::Trim);
         let merge = format!("trim {:x}", id.0);
         let _ = self.routed("Change input trim", Some(&merge), id, |t| t.trim_db = db);
     }

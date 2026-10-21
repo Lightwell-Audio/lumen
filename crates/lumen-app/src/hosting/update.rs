@@ -606,8 +606,20 @@ impl Hosting {
             // and Lumen is not told, so when the lane lets go (it is switched
             // off or removed) what Lumen knew is stale: the value at rest is
             // sent again, even when it is the one Lumen last knew.
-            let driven: std::collections::BTreeSet<u32> =
-                w.track.driven_params(w.device.id).collect();
+            // A lane the user has taken over drives nothing (M7 slice A4a).
+            let driven: std::collections::BTreeSet<u32> = w
+                .track
+                .driven_params(w.device.id)
+                .filter(|&param| {
+                    !self.overridden.contains(
+                        w.track.id,
+                        lumen_project::automation::Target::Device {
+                            device: w.device.id,
+                            param,
+                        },
+                    )
+                })
+                .collect();
             let now = std::time::Instant::now();
             for id in t.params.driven.difference(&driven) {
                 t.params.values.insert(*id, f64::NAN);

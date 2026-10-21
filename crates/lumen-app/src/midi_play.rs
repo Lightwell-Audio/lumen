@@ -283,7 +283,12 @@ pub fn engine_midi(
 /// Gives each of `tracks` the lanes that drive the parameters of its plugin
 /// instrument, baked for a device at `rate` (M7 slice A3). Built-in
 /// instruments have no parameters to automate yet (M8).
-pub fn with_lanes(tracks: &mut [MidiTrack], project: &Project, rate: u32) {
+pub fn with_lanes(
+    tracks: &mut [MidiTrack],
+    project: &Project,
+    over: &crate::document::Overrides,
+    rate: u32,
+) {
     let Ok(tempo) = lumen_core::time::TempoMap::new(project.tempo.clone()) else {
         return;
     };
@@ -291,7 +296,7 @@ pub fn with_lanes(tracks: &mut [MidiTrack], project: &Project, rate: u32) {
         let Some(held) = project.tracks.iter().find(|t| t.id.0 == track.id) else {
             continue;
         };
-        let lanes = crate::lane_bake::device_lanes(held, &tempo, rate, |d| {
+        let lanes = crate::lane_bake::device_lanes(held, over, &tempo, rate, |d| {
             d.is_vst3() && d.is_instrument()
         });
         track.set_automation(lanes.into_iter().map(|(_, lane)| lane).collect());
@@ -521,14 +526,21 @@ mod tests {
             &mut Cache::default(),
         );
         assert!(tracks[0].automation.is_empty(), "not until they are baked");
-        with_lanes(&mut tracks, doc.project(), 48_000);
+        with_lanes(&mut tracks, doc.project(), &Default::default(), 48_000);
         assert_eq!(tracks[0].automation.len(), 1);
         assert_eq!(tracks[0].automation[0].param, 6);
         // 120 BPM: four quarters are two seconds.
         assert_eq!(tracks[0].automation[0].lane.points()[1].at, 96_000);
         // At another rate, other samples.
-        with_lanes(&mut tracks, doc.project(), 44_100);
+        with_lanes(&mut tracks, doc.project(), &Default::default(), 44_100);
         assert_eq!(tracks[0].automation[0].lane.points()[1].at, 88_200);
+        // The user moves that knob: the lane lets go of the instrument.
+        doc.override_param(synth, 6);
+        with_lanes(&mut tracks, doc.project(), doc.overrides(), 48_000);
+        assert!(tracks[0].automation.is_empty(), "taken over");
+        doc.reenable_all();
+        with_lanes(&mut tracks, doc.project(), doc.overrides(), 48_000);
+        assert_eq!(tracks[0].automation.len(), 1, "re-enabled");
     }
 
     #[test]

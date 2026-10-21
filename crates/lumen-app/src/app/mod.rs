@@ -6,6 +6,7 @@ pub(crate) mod auto_editing;
 mod auto_gestures;
 mod auto_keys;
 mod auto_params;
+mod auto_recording;
 mod bench_callback;
 pub(crate) mod clip_card;
 pub(crate) mod clipboard_keys;
