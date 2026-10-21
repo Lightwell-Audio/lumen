@@ -204,9 +204,29 @@ impl ParamChooser {
     }
 }
 
+/// What a control's menu asks of the app about controller mappings (M7 slice
+/// A5): the controls are drawn where the app's state is not at hand, so they
+/// ask and the app answers after the frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MapRequest {
+    /// Wait for a controller to move, to map it to this control.
+    Learn(Id, Target),
+    /// Stop waiting.
+    StopLearning,
+    /// Take away the controller that moves this control.
+    Clear(Id, Target),
+    /// Open the Mappings window.
+    Window,
+}
+
 /// What the arrangement knows of the lanes it shows.
 #[derive(Debug, Default)]
 pub(crate) struct AutoView {
+    /// The control waiting for a controller to move (set by the app every
+    /// frame), which draws with an accent ring.
+    pub learning: Option<(Id, Target)>,
+    /// What the controls' menus asked for this frame.
+    pub requests: Vec<MapRequest>,
     /// The plugin parameter chooser, when open.
     pub chooser: Option<ParamChooser>,
     /// What the plugins call the parameters lanes drive, by device and the

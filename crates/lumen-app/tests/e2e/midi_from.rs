@@ -98,7 +98,7 @@ fn eventually(lumen: &mut Lumen, mut measure: impl FnMut(&mut Lumen) -> f32) -> 
 }
 
 /// Opens the settings' MIDI page and switches the input on for tracks.
-fn switch_on_for_tracks(lumen: &mut Lumen, fake: &FakeControl, port: &str) {
+pub(super) fn switch_on_for_tracks(lumen: &mut Lumen, fake: &FakeControl, port: &str) {
     lumen.click("Lumen");
     lumen.click("Audio and MIDI settings\u{2026}");
     lumen.click("MIDI tab");

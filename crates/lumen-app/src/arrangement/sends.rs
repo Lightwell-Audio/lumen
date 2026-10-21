@@ -221,8 +221,18 @@ impl Arrangement {
                 selected,
                 name: &name,
                 live_value: place == "header",
+                mapped: doc
+                    .mapping_of(track.id, target)
+                    .map(|m| (m.channel, m.number)),
+                waiting: self.auto.learning == Some((track.id, target)),
             },
         );
+        if let Some(asked) = out.ask {
+            super::control_menu::ask(&mut self.auto, asked, track.id, target);
+        }
+        if self.auto.learning == Some((track.id, target)) {
+            super::follow::ring_round_with(ui, rect, crate::theme::p().accent);
+        }
         if out.hovered {
             self.hot_return_next = Some(to.id);
         }

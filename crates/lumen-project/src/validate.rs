@@ -115,6 +115,8 @@ pub fn validate(project: &Project) -> Result<(), String> {
         ));
     }
 
+    crate::mapping::check(&project.mappings)?;
+
     let media: HashSet<Id> = project.media.iter().map(|m| m.id).collect();
     if media.len() != project.media.len() {
         return Err("two media entries share an id".into());

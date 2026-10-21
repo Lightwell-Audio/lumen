@@ -727,3 +727,83 @@ fn a_lane_out_of_time_order_is_a_damaged_file() {
     let error = from_bytes(damaged.as_bytes()).expect_err("must be refused");
     assert!(error.to_string().contains("not after"), "{error}");
 }
+
+// Format v23 (M7 slice A5): the project holds controller mappings.
+
+/// The model the v23 golden file must always load as. Never change it.
+fn golden_v23_expected() -> Project {
+    use lumen_project::automation::Target;
+    use lumen_project::mapping::Mapping;
+    let mut project = golden_v22_expected();
+    project.name = "Golden v23".into();
+    project.mappings = vec![
+        Mapping {
+            channel: 0,
+            number: 7,
+            track: Id(1000),
+            target: Target::Volume,
+        },
+        Mapping {
+            channel: 9,
+            number: 74,
+            track: Id(1010),
+            target: Target::Device {
+                device: Id(1011),
+                param: 7,
+            },
+        },
+        Mapping {
+            channel: 0,
+            number: 10,
+            track: Id(1010),
+            target: Target::Send { to: Id(1040) },
+        },
+    ];
+    project
+}
+
+#[test]
+fn golden_v23_file_loads_forever() {
+    let path = fixture("v23/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v23_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v23 golden file must load");
+    assert_eq!(project, golden_v23_expected());
+}
+
+#[test]
+fn older_projects_have_no_mappings_and_none_are_written_when_there_are_none() {
+    for old in ["v16/golden.lumen", "v21/golden.lumen", "v22/golden.lumen"] {
+        let project = load(&fixture(old)).expect("an older golden file loads");
+        assert!(project.mappings.is_empty(), "{old}");
+    }
+    let text = String::from_utf8(to_bytes(&golden_v22_expected()).unwrap()).unwrap();
+    assert!(!text.contains("mappings"));
+    let text = String::from_utf8(to_bytes(&golden_v23_expected()).unwrap()).unwrap();
+    assert!(text.contains("\"mappings\""));
+}
+
+#[test]
+fn mappings_that_cannot_work_are_refused_with_a_reason() {
+    let refused = |edit: &dyn Fn(&mut Project)| {
+        let mut project = golden_v23_expected();
+        edit(&mut project);
+        to_bytes(&project)
+            .expect_err("must be refused when saved")
+            .to_string()
+    };
+    let why = refused(&|p| {
+        p.mappings[1].channel = 0;
+        p.mappings[1].number = 7;
+    });
+    assert!(why.contains("share a controller"), "{why}");
+    let why = refused(&|p| p.mappings[0].number = 130);
+    assert!(why.contains("range"), "{why}");
+    let why = refused(&|p| {
+        p.mappings[1].track = Id(1000);
+        p.mappings[1].target = lumen_project::automation::Target::Volume;
+    });
+    assert!(why.contains("same control"), "{why}");
+}

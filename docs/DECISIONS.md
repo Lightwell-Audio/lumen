@@ -7915,3 +7915,113 @@ pass (L1b).
 **Amendment (2026-10-20, the owner's first run of Touch).** The owner saw the first Touch on a control behave like Latch and later ones behave as expected. Cause, reproduced in `lane_record.rs`: a control with no lane yet has nothing to return to, so the first pass ended holding its last value and the new lane started at the first move (the fader's level before it was never written). Now `Document::moved` notes what the control held before its first move (the setters call it before they change the control; `take_rests`), the recorder carries it with the pass (`Action::Write.rest`), and a pass written into an empty lane starts from a point at the beginning of the song at that value, so a Touch hands back to it, a Latch or Write holds from where the pass began, and the song before the pass sounds as it did. A plugin's own window reports a move before the project holds it, so the same applies there. E2E `a_touch_on_a_control_with_no_lane_yet_returns_to_where_the_control_rested` (fails without it) and a unit test for the recorder.
 
 **Amendment 2 (2026-10-20, the owner's second report).** Write overwrote every lane the track had, so writing the volume lane also overwrote the pan lane that was already written. Write now writes only the lane the track's chip shows (`Looking::write_targets`); Touch and Latch were never affected, as they begin from the control that was touched. A track with no lane shown writes nothing in Write. E2E `write_overwrites_the_lane_with_the_control_from_where_playing_began` now has a second, unshown lane and checks it is unchanged (fails without the change).
+
+## ADR-0088 — MIDI learn: controllers moving controls (M7 slice A5)
+
+**Context.** The plan (D8) taps the live feed for controller messages and maps them in the app. The
+owner chose, from the recommendations (N1 to N4): a mapping binds a controller number and a channel
+from any input; a controller's value is absolute and the control jumps to it; a mapped move acts as a
+hand on the control; mappings are made from a control's right-click menu and listed in a Mappings
+window, and are saved with the project.
+
+**Decisions.**
+1. **The tap** (`live_tap.rs`, `LiveFeed::pull`). Each controller message the feed takes from an input
+   is copied, with the input's slot and the device frame it was played at (the clock's, before the
+   feed's block of delay), into a bounded `rtrb` queue of 1,024 (`Tap`, drained by the interface each
+   frame). A message with no room is counted (`Tap::dropped`) and never waited for; the Mappings
+   window says so. The tap allocates nothing (a guarded unit test, mutation checked: the lib test
+   binary now installs the guarded allocator; it only counts inside `rt_section`).
+2. **Taken controllers.** The audio thread knows no mappings, only a 2,048-bit set of the channel and
+   number pairs the interface says are taken (`Taken`, relaxed atomics). A taken controller is told to
+   the interface and **not given to the engine**: it is not a controller for a track to record or a
+   plugin to play, or a mapped mod wheel would also move the synth. While a control waits to learn,
+   its controller is not yet taken, so the message that teaches it reaches the engine once.
+3. **The model** (format **v23**, identity migration, frozen golden `v23/golden.lumen`):
+   `Project.mappings: Vec<Mapping { channel, number, track, target }>`, written only when there are
+   some, at most 1,024; a controller moves one control and a control has one controller (`mapping::with`
+   replaces either); validation refuses out-of-range numbers and duplicates. A mapping to a track,
+   send or device that is gone is **kept** (as a lane for a gone device is) and the window says "A
+   control that is gone"; the user clears it. Mappings are part of undo (`Document::set_mapping`,
+   `clear_mapping`, `clear_all_mappings`, one step each). **A6's time-signature map becomes v24 and
+   M7b's crossfade flag v25** (the plans are updated).
+4. **A mapped move is a hand on the control** (`Document::move_control`, `app/controllers.rs`). The
+   value is `auto_scale::value(target, raw / 127)`, the same curve as the lane (a fader's taper, a mute
+   at the half), and goes through the control's own setter (`set_volume`, `set_pan`, `set_trim`,
+   `set_mute`, `set_send`, `override_param` and `set_device_params` for a plugin), so it takes a playing
+   lane over, is noted for the recorder, reaches the engine and the plugin bridge as any move, and is
+   one undo step per sweep. A value the control already holds is no move. Only the last value for a
+   control in a frame is applied.
+5. **A controller is held while its messages come.** It counts as held until 300 ms after the last
+   (`HOLD`): that is the gesture Touch needs (the same set as a plugin's open gestures,
+   `gestures_open`), and the undo gesture is not sealed until the hold ends
+   (`Controllers::holding`, read by `sync_document`). So a Touch track writes a controller sweep as it
+   writes a hand's, and a sweep is one undo step.
+6. **Recording uses the playhead of the frame that applies the move**, not the message's own
+   timestamp: the recorder samples a control once a frame, at the playhead, which is within a frame
+   (about 16 ms) of when the controller moved. The tap carries the message's device frame
+   (`Heard::played`) for a recorder that places points on exact ticks; that is not built
+   (KNOWN_ISSUES). The accuracy of recorded points on real hardware is still due from MT-AUTO-6.
+7. **The interface.** Every automatable control's right-click menu ends with the same rows
+   (`widgets::control_items`: Automate, Learn a controller / Stop waiting, Clear controller N on
+   channel M, Controller mappings...). Controls reached: the header's volume, pan and mute, the mixer
+   strip's fader, pan, trim and the master's mute, send knobs, plugin knobs on a card's strip and the
+   rows of All parameters. A control waiting for a controller has an accent ring and a note stays up
+   ("Move a controller to map Bass · Volume · Esc to stop", Esc ends the wait). The Mappings window
+   (`app/mappings_window.rs`, a `Dialog`) lists each mapping with a Clear button named for its control,
+   Clear all, the last message heard and the lost-message count. Commands at the end of `Command` and
+   `ALL`: `midi.learn` and `midi.clear_mapping` (for the shown lane's control, so the keyboard can do
+   it all: A, then the command) and `midi.mappings`. Controls ask (`MapRequest`) and the app answers
+   after the frame.
+8. **Not built here:** pickup and relative encoders (N2), mapping the transport or tempo, MIDI
+   channel-wide messages (pitch bend, pressure) as sources, mapping a clip envelope, and a mapping
+   follows a control that is copied (a copied device does not bring its mappings, as it does not
+   bring them for lanes of other tracks).
+
+**Consequences.** One format version (v23) and no engine, host or protocol change; rebuild only the
+app. The A6 and M7b plans renumber their versions.
+
+**Verified.** Project: v23 golden, refusals, mapping tests. App: 14 unit tests in `live` (the tap, the
+taken set, overflow, the allocation guard), 7 for `Document` mappings, 9 E2E (`controllers.rs`:
+learn, the learning message is not a move, a sweep is one undo step, clear, Esc, save and load, the
+right-click menu, the window, Touch writing a sweep), mutation checks (taken controllers reaching the
+engine; sealing every frame; the teaching message moving the control; an allocation in the tap), a
+shot `controller_mappings` (both themes, 100/150/200%, looked at). **Not run:** any real controller or
+device (MT-AUTO-7 is the owner's), the Linux (WSL) mirror, RealtimeSanitizer, macOS runs.
+
+**Amendment (2026-10-20, the owner's idea: recording with a mapped controller).** Two changes so a
+take and a controller sweep can be recorded together.
+
+1. **Record switches a track to Latch when a controller is mapped to one of its controls.** The owner
+   proposed switching the mode when a controller is learned; the alternative chosen (recommended) is to
+   do it when recording starts, so mapping a knob for live mixing never leaves a hidden mode behind.
+   When Record starts, every track it records on that is in Read and has a mapping whose `track` is that
+   track goes to Latch for the take (`app/record.rs` `latch_mapped`; a note says so), and goes back to
+   Read when the take ends or is abandoned (`unlatch`), unless the user chose another mode meanwhile.
+   A track in Touch, Latch or Write by the user's own choice is left as it is, and a track with no
+   mapping is untouched. Only mappings on the recorded track count: a mapping to another track's
+   control or the master needs that track's mode set as before. Latch is the default because a new
+   take wants the last value held to the stop; Touch would return to the old value. Not built: Touch
+   by default when the control already has a lane.
+2. **A take's commit no longer puts the whole track back** (`lumen_project::edit::record::place`). It
+   reset the recording track to its state when recording began at every commit (about once a second),
+   so a fader move, an automation lane or a plugin's values written on that track during the take were
+   lost at the next commit. Only the track's clips are put back now. Edits made to the recording
+   track's clips during a take are still replaced (KNOWN_ISSUES), and an edit between two commits is
+   a step of its own, so the take's undo is in pieces (KNOWN_ISSUES).
+
+**Verified.** E2E `a_take_and_a_controller_sweep_are_recorded_together` (the notes, no controller data
+in the clip, the sweep in the lane, Latch during the take and Read after; mutation checked) and
+`recording_leaves_a_mode_the_user_chose_and_a_track_with_no_mapped_control_alone`; the project test
+`what_else_changed_on_the_track_while_it_recorded_is_kept` (fails without the change). The older
+`empty_takes_and_ranges_change_only_what_they_must` now expects the clips, not the whole track, back.
+**Not run:** a real controller while recording.
+
+**Amendment 2 (2026-10-21, the owner's first try of recording a take with a knob).** The owner learned a
+controller on a track's volume, armed, recorded, moved the knob and found no automation afterwards, and
+the lane chip on Read. Cause: Touch and Latch only began for a control that had a lane or whose lane the
+track showed (`World::armed`), and a freshly learned volume had neither, so nothing was written (the
+earlier E2E gave the track a lane first). A control a controller is mapped to now counts as armed
+(`app/auto_recording.rs`), and a lane a pass makes is shown on its track if the track shows none, so it can
+be seen and edited. The track's mode goes back to Read when the take ends, as decided: the lane stays and
+plays. E2E `a_take_with_a_controller_writes_a_lane_that_did_not_exist_yet` (fails without the change).
+

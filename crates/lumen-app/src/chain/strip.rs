@@ -41,6 +41,11 @@ pub(super) struct Slot {
     pub choices: Vec<String>,
     /// The user has taken over the lane that drives it (M7 slice A4a).
     pub over: bool,
+    /// The controller that moves it (channel, number), if one is mapped
+    /// (M7 slice A5).
+    pub mapped: Option<(u8, u8)>,
+    /// It waits for a controller to move, to be mapped.
+    pub waiting: bool,
 }
 
 /// What the strip asked for.
@@ -63,6 +68,8 @@ pub(super) enum Output {
     /// Learn: touch a control in the plugin's window and it takes the next
     /// free slot.
     Learn,
+    /// A parameter's menu asked about its lane or its controller.
+    Ask(u32, widgets::Ask),
     /// End a plugin whose window stopped answering.
     End,
 }
@@ -220,6 +227,13 @@ pub(super) fn paint(
                         response
                     }
                 };
+                if slot.waiting {
+                    if kind == Kind::Knob {
+                        crate::arrangement::follow::ring_round_with(ui, knob, palette.accent);
+                    } else {
+                        crate::arrangement::follow::ring_with(ui, knob, palette.accent);
+                    }
+                }
                 if slot.over {
                     if kind == Kind::Knob {
                         crate::arrangement::follow::ring_round(ui, knob);
@@ -265,6 +279,10 @@ pub(super) fn paint(
                     if widgets::menu_item(ui, "Remove from strip", None, true).clicked() {
                         out.push(Output::Remove(slot_id_param));
                         ui.close();
+                    }
+                    ui.separator();
+                    if let Some(ask) = widgets::control_items(ui, slot.mapped, slot.waiting) {
+                        out.push(Output::Ask(slot_id_param, ask));
                     }
                 });
             }

@@ -180,6 +180,9 @@ pub(crate) enum Command {
     AutomationModeTouch,
     AutomationModeLatch,
     AutomationModeWrite,
+    ControllerLearn,
+    ControllerClear,
+    ControllerMappings,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -425,6 +428,9 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AutomationModeTouch, "edit.automation_mode_touch", "Automation mode: Touch", Area::Edit, &[], "The selected tracks write their lanes while you hold a control during playback, and return to the lane when you let go."),
     info(Command::AutomationModeLatch, "edit.automation_mode_latch", "Automation mode: Latch", Area::Edit, &[], "The selected tracks start writing at your first touch during playback and go on until Stop."),
     info(Command::AutomationModeWrite, "edit.automation_mode_write", "Automation mode: Write", Area::Edit, &[], "The selected tracks overwrite their lanes with the controls' values from where playing starts until Stop. Show the lane you want to write (A) first, or use one that exists."),
+    info(Command::ControllerLearn, "midi.learn", "Learn a controller for the shown lane's control", Area::Midi, &[], "Waits for you to move a knob or fader on a MIDI controller, then maps it to the control the shown automation lane draws (show it with A). Run it again, or press Esc, to stop waiting."),
+    info(Command::ControllerClear, "midi.clear_mapping", "Clear the controller mapping of the shown lane's control", Area::Midi, &[], "Takes away the controller that moves the control the shown automation lane draws."),
+    info(Command::ControllerMappings, "midi.mappings", "Controller mappings", Area::Midi, &[], "Opens the list of controller mappings in the project: which knob moves which control. Each can be cleared there."),
 ];
 
 const fn info(
@@ -474,7 +480,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::AutomationModeWrite as usize + 1,
+            Command::ControllerMappings as usize + 1,
             ALL.len(),
             "a command is missing"
         );

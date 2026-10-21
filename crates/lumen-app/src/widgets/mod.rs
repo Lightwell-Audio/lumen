@@ -11,6 +11,7 @@ use eframe::emath::GuiRounding as _;
 
 use crate::{light, theme};
 
+mod control_items;
 mod dialog;
 mod dropdown;
 mod empty;
@@ -31,6 +32,7 @@ mod slider;
 mod toggle;
 pub mod wheel;
 
+pub use control_items::{Ask, control_items};
 pub use dialog::{Dialog, title_row, window_lip};
 pub use dropdown::Dropdown;
 pub use empty::{Action as EmptyAction, EmptyState, empty_state};
