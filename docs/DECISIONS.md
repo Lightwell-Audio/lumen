@@ -98,7 +98,7 @@ irreversible or external) · *Superseded*.
 | [0084](#adr-0084--plugin-parameter-lanes-m7-slice-a3) | Plugin parameter lanes (M7 slice A3) | Accepted 2026-10-20 (MT-AUTO-4 passed, owner; no step detail) | Claude |
 | [0085](#adr-0085--native-vst3-hosting-on-macos) | Native VST3 hosting on macOS | Accepted scope 2026-10-19; verification in progress | Owner approved native workflow |
 | [0086](#adr-0086--controls-that-follow-a-lane-and-taking-a-lane-over-m7-slice-a4a) | Controls that follow a lane, and taking a lane over (M7 slice A4a) | Accepted 2026-10-20 (MT-AUTO-5 passed, owner; no step detail) | Claude |
-| [0087](#adr-0087--recording-a-lane-m7-slice-a4b) | Recording a lane (M7 slice A4b) | Proposed 2026-10-20 (MT-AUTO-6 waits for the owner) | Claude |
+| [0087](#adr-0087--recording-a-lane-m7-slice-a4b) | Recording a lane (M7 slice A4b) | Accepted 2026-10-20 (MT-AUTO-6 passed, owner) | Claude |
 
 ---
 
