@@ -589,7 +589,11 @@ impl ClipPlayer {
 impl TrackSource for ClipPlayer {
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Buses<'_>) {
         if cx.mode == Mode::Ring {
-            // Stopped, and only instrument and effect tails ring.
+            // Stopped, and only instrument and effect tails ring. The engine
+            // renders instead of idling while a note rings, so lists sent
+            // meanwhile are taken here, or a held live note would fill the
+            // queue and the interface would hold its next edits back.
+            self.idle();
             return;
         }
         if !cx.tail {

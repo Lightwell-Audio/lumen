@@ -139,6 +139,10 @@ impl Keys {
     pub(super) fn off(&self, pitch: u8) {
         self.send(&[0x80, pitch, 0]);
     }
+
+    pub(super) fn controller(&self, number: u8, value: u8) {
+        self.send(&[0xB0, number, value]);
+    }
 }
 
 /// A fake keyboard with one input, plugged in before Lumen starts.

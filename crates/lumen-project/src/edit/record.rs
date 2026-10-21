@@ -126,8 +126,14 @@ pub fn place(
     let Some(source) = base.tracks.iter().find(|t| t.id == track) else {
         return Ok(Vec::new());
     };
-    if let Some(slot) = project.tracks.iter_mut().find(|t| t.id == track) {
-        *slot = Arc::clone(source);
+    // Only the track's clips go back to what they were when recording began,
+    // for the take to be placed on them. Everything else on the track is the
+    // user's to change while it records (a fader, an automation lane, a
+    // plugin's knob) and stays as it is now.
+    if let Some(slot) = project.tracks.iter_mut().find(|t| t.id == track)
+        && slot.clips != source.clips
+    {
+        Arc::make_mut(slot).clips = source.clips.clone();
     }
     let Some(range) = range_of(take, punch) else {
         return Ok(Vec::new());

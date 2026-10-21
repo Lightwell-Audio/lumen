@@ -23,6 +23,7 @@ use lumen_core::midi::{Kind, Msg};
 use lumen_engine::{AUDITION, INPUT_SLOTS, KEYBOARD, LIVE_SOURCES, LiveIn, LiveInput};
 use lumen_midi::Timed;
 
+use crate::live_tap::{Heard, Shared, TAP_QUEUE, Tap};
 use crate::midi_out::{StreamClock, frame_ns};
 
 /// How many recent blocks frame 0's time is taken over.
@@ -186,11 +187,20 @@ pub struct LiveFeed {
     /// Sorted by frame; `len` used.
     pending: [LiveIn; PENDING],
     len: usize,
+    /// Controller messages for the interface (M7 slice A5).
+    tap: rtrb::Producer<Heard>,
+    shared: Arc<Shared>,
 }
 
-/// The pair: the feed for the engine, and the keyboard's sender.
-pub fn live(input: Option<rtrb::Consumer<Timed>>, clock: Arc<StreamClock>) -> (LiveFeed, LiveKeys) {
+/// The three ends: the feed for the engine, the keyboard's sender, and the
+/// interface's tap on the controllers.
+pub fn live(
+    input: Option<rtrb::Consumer<Timed>>,
+    clock: Arc<StreamClock>,
+) -> (LiveFeed, LiveKeys, Tap) {
     let (tx, keys) = rtrb::RingBuffer::new(KEYS_QUEUE);
+    let (tap_tx, tap_rx) = rtrb::RingBuffer::new(TAP_QUEUE);
+    let shared = Shared::new();
     let empty = LiveIn {
         frame: 0,
         played: 0,
@@ -208,6 +218,8 @@ pub fn live(input: Option<rtrb::Consumer<Timed>>, clock: Arc<StreamClock>) -> (L
             floor: [(0, 0); LIVE_SOURCES as usize],
             pending: [empty; PENDING],
             len: 0,
+            tap: tap_tx,
+            shared: Arc::clone(&shared),
         },
         LiveKeys {
             tx,
@@ -215,6 +227,7 @@ pub fn live(input: Option<rtrb::Consumer<Timed>>, clock: Arc<StreamClock>) -> (L
             sent: 0,
             held: 0,
         },
+        Tap { rx: tap_rx, shared },
     )
 }
 
@@ -234,6 +247,23 @@ impl LiveFeed {
                 played,
             ),
             None => (start, start),
+        }
+    }
+
+    /// Tells the interface a controller moved, or counts it if the queue is
+    /// full: nothing here waits.
+    fn tell(&mut self, source: u8, channel: u8, number: u8, value: u8, played: u64) {
+        let heard = Heard {
+            source,
+            channel,
+            number,
+            value,
+            played,
+        };
+        if self.tap.push(heard).is_err() {
+            self.shared
+                .dropped
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
@@ -300,6 +330,13 @@ impl LiveInput for LiveFeed {
                     continue;
                 }
                 let (frame, at) = self.place(played, block, start);
+                if let Kind::Controller { number, value } = msg.kind() {
+                    self.tell(source, msg.channel(), number, value, at);
+                    // A controller a mapping moves is not the engine's.
+                    if self.shared.taken.contains(msg.channel(), number) {
+                        continue;
+                    }
+                }
                 self.queue(
                     LiveIn {
                         frame,
@@ -383,7 +420,7 @@ mod tests {
     fn played_notes_keep_their_spacing_one_block_later_whatever_the_blocks() {
         let clock = StreamClock::new();
         let (mut tx, rx) = rtrb::RingBuffer::new(64);
-        let (mut feed, _keys) = live(Some(rx), Arc::clone(&clock));
+        let (mut feed, _keys, _tap) = live(Some(rx), Arc::clone(&clock));
         // Blocks every 128 frames, each callback up to 0.9 ms late.
         let late = [
             0, 900_000, 300_000, 0, 700_000, 100_000, 0, 0, 500_000, 0, 0, 0,
@@ -426,7 +463,7 @@ mod tests {
     fn a_message_is_never_placed_before_the_part_nor_far_after_its_block() {
         let clock = StreamClock::new();
         let (mut tx, rx) = rtrb::RingBuffer::new(8);
-        let (mut feed, _keys) = live(Some(rx), Arc::clone(&clock));
+        let (mut feed, _keys, _tap) = live(Some(rx), Arc::clone(&clock));
         block(&mut feed, &clock, 0, 0);
         // Frame 0 was at 0 ns; the next callback is 37 ms late, and takes a
         // note played at 39 ms (frame 1,872).
@@ -448,7 +485,7 @@ mod tests {
     fn after_the_audio_stood_still_note_ons_are_dropped_and_note_offs_kept() {
         let clock = StreamClock::new();
         let (mut tx, rx) = rtrb::RingBuffer::new(8);
-        let (mut feed, _keys) = live(Some(rx), Arc::clone(&clock));
+        let (mut feed, _keys, _tap) = live(Some(rx), Arc::clone(&clock));
         let then = clock.now();
         tx.push(timed(&clock, 0, 0, then, Msg::note_on(0, 60, 100)))
             .unwrap();
@@ -478,7 +515,7 @@ mod tests {
     fn a_sources_messages_keep_their_order_when_the_frame_map_moves() {
         let clock = StreamClock::new();
         let (mut tx, rx) = rtrb::RingBuffer::new(8);
-        let (mut feed, _keys) = live(Some(rx), Arc::clone(&clock));
+        let (mut feed, _keys, _tap) = live(Some(rx), Arc::clone(&clock));
         block(&mut feed, &clock, 0, 0);
         // A note-off played at 20 ms is taken by block 1 and waits for its
         // frame, two blocks on.
@@ -506,7 +543,7 @@ mod tests {
     fn a_full_queue_gives_what_waits_before_the_newest_message() {
         let clock = StreamClock::new();
         let (mut tx, rx) = rtrb::RingBuffer::new(1_024);
-        let (mut feed, _keys) = live(Some(rx), Arc::clone(&clock));
+        let (mut feed, _keys, _tap) = live(Some(rx), Arc::clone(&clock));
         block(&mut feed, &clock, 0, 0);
         clock.publish_at(128, 128, 48_000, 11 * MS);
         // A note-on and its note-off, over and over: more than the queue
@@ -537,10 +574,144 @@ mod tests {
     fn inputs_past_the_last_source_are_ignored() {
         let clock = StreamClock::new();
         let (mut tx, rx) = rtrb::RingBuffer::new(8);
-        let (mut feed, _keys) = live(Some(rx), Arc::clone(&clock));
+        let (mut feed, _keys, _tap) = live(Some(rx), Arc::clone(&clock));
         let now = clock.now();
         tx.push(timed(&clock, 200, 0, now, Msg::note_on(0, 60, 100)))
             .unwrap();
         assert!(block(&mut feed, &clock, 0, now).is_empty());
+    }
+
+    // M7 slice A5: the interface's tap on the controllers.
+
+    fn heard_by_the_tap(tap: &mut Tap) -> Vec<Heard> {
+        let mut got = Vec::new();
+        tap.drain(|h| got.push(h));
+        got
+    }
+
+    #[test]
+    fn a_controller_is_told_to_the_interface_at_the_frame_it_was_played_and_still_plays() {
+        let clock = StreamClock::new();
+        let (mut tx, rx) = rtrb::RingBuffer::new(16);
+        let (mut feed, _keys, mut tap) = live(Some(rx), Arc::clone(&clock));
+        block(&mut feed, &clock, 0, 0);
+        // Controller 7 on channel 3, value 99, played at frame 200; a note
+        // and a pitch bend beside it.
+        let stamp = (at(200) + 5_000 * MS) / 1_000;
+        let arrives = at(200);
+        tx.push(timed(
+            &clock,
+            2,
+            stamp as u64,
+            arrives,
+            Msg::controller(2, 7, 99),
+        ))
+        .unwrap();
+        tx.push(timed(
+            &clock,
+            2,
+            stamp as u64 + 1,
+            arrives,
+            Msg::note_on(0, 60, 9),
+        ))
+        .unwrap();
+        let mut played = block(&mut feed, &clock, 1, at(256));
+        played.extend(block(&mut feed, &clock, 2, at(384)));
+        let heard = heard_by_the_tap(&mut tap);
+        assert_eq!(
+            heard,
+            vec![Heard {
+                source: 2,
+                channel: 2,
+                number: 7,
+                value: 99,
+                played: 200,
+            }],
+            "only the controller is told"
+        );
+        let kinds: Vec<_> = played.iter().map(|m| m.msg).collect();
+        assert!(kinds.contains(&Msg::controller(2, 7, 99)), "{kinds:?}");
+        assert!(kinds.contains(&Msg::note_on(0, 60, 9)), "{kinds:?}");
+    }
+
+    #[test]
+    fn a_controller_a_mapping_takes_is_told_but_not_given_to_the_engine() {
+        let clock = StreamClock::new();
+        let (mut tx, rx) = rtrb::RingBuffer::new(16);
+        let (mut feed, _keys, mut tap) = live(Some(rx), Arc::clone(&clock));
+        tap.take([(2, 7)]);
+        block(&mut feed, &clock, 0, 0);
+        let arrives = at(200);
+        tx.push(timed(&clock, 2, 1, arrives, Msg::controller(2, 7, 10)))
+            .unwrap();
+        // The same number on another channel, and another number: not taken.
+        tx.push(timed(&clock, 2, 2, arrives, Msg::controller(3, 7, 11)))
+            .unwrap();
+        tx.push(timed(&clock, 2, 3, arrives, Msg::controller(2, 8, 12)))
+            .unwrap();
+        let mut played = block(&mut feed, &clock, 1, at(256));
+        played.extend(block(&mut feed, &clock, 2, at(384)));
+        assert_eq!(heard_by_the_tap(&mut tap).len(), 3);
+        let kinds: Vec<_> = played.iter().map(|m| m.msg).collect();
+        assert_eq!(
+            kinds,
+            vec![Msg::controller(3, 7, 11), Msg::controller(2, 8, 12)]
+        );
+        // Letting go of the mapping gives the controller back to the engine.
+        tap.take([]);
+        tx.push(timed(&clock, 2, 4, at(300), Msg::controller(2, 7, 13)))
+            .unwrap();
+        let mut played = block(&mut feed, &clock, 3, at(512));
+        played.extend(block(&mut feed, &clock, 4, at(640)));
+        assert!(played.iter().any(|m| m.msg == Msg::controller(2, 7, 13)));
+    }
+
+    #[test]
+    fn controllers_there_is_no_room_to_tell_are_counted_and_never_waited_for() {
+        let clock = StreamClock::new();
+        let (mut tx, rx) = rtrb::RingBuffer::new(TAP_QUEUE + 64);
+        let (mut feed, _keys, mut tap) = live(Some(rx), Arc::clone(&clock));
+        block(&mut feed, &clock, 0, 0);
+        let sent = TAP_QUEUE + 40;
+        for i in 0..sent {
+            tx.push(timed(
+                &clock,
+                1,
+                i as u64,
+                at(10),
+                Msg::controller(0, 1, (i % 128) as u8),
+            ))
+            .unwrap();
+        }
+        block(&mut feed, &clock, 1, at(256));
+        assert_eq!(heard_by_the_tap(&mut tap).len(), TAP_QUEUE);
+        assert_eq!(tap.dropped(), 40);
+    }
+
+    #[test]
+    fn telling_and_taking_controllers_allocates_nothing_on_the_audio_thread() {
+        assert!(lumen_rt::guard_is_active());
+        let clock = StreamClock::new();
+        let (mut tx, rx) = rtrb::RingBuffer::new(TAP_QUEUE + 64);
+        let (mut feed, _keys, tap) = live(Some(rx), Arc::clone(&clock));
+        tap.take([(0, 1)]);
+        block(&mut feed, &clock, 0, 0);
+        // Enough controllers to fill the tap and overflow it, some of them
+        // taken, with notes between them.
+        for i in 0..TAP_QUEUE + 40 {
+            let msg = if i % 50 == 49 {
+                Msg::note_on(0, 60, 9)
+            } else {
+                Msg::controller(0, (i % 2) as u8, (i % 128) as u8)
+            };
+            tx.push(timed(&clock, 1, i as u64, at(10), msg)).unwrap();
+        }
+        clock.publish_at(128, 128, 48_000, at(256));
+        let mut taken = 0_usize;
+        let ((), seen) = lumen_rt::count_rt_violations(|| {
+            feed.pull(128, 256, &mut |_| taken += 1);
+        });
+        assert_eq!(seen, 0, "the tap allocates or frees on the audio thread");
+        assert!(tap.dropped() > 0, "the overflow was met");
     }
 }

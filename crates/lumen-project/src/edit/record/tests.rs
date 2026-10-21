@@ -1033,21 +1033,23 @@ fn empty_takes_and_ranges_change_only_what_they_must() {
     assert_eq!(clip_of(&p, 50).content, midi(vec![]));
     assert_eq!(clip_of(&p, 50).length, q(2));
 
-    // An empty range puts the track back as base has it.
+    // An empty range puts the track's clips back as base has them, and
+    // leaves the rest of the track as it is.
     let mut dirty = base.clone();
     dirty.tracks[0] = Arc::new(Track::new(Id(1), "x", TrackKind::Midi, Color(0)));
     let t = take(3, 3, vec![]);
     assert_eq!(put(&mut dirty, &base, &t, Mode::Replace), Ok(vec![]));
-    assert_eq!(dirty.tracks[0], base.tracks[0]);
+    assert_eq!(dirty.tracks[0].clips, base.tracks[0].clips);
+    assert_eq!(dirty.tracks[0].name, "x");
 
-    // An audio track takes nothing and is put back as base has it.
+    // An audio track takes nothing and its clips are put back as base has them.
     let mut audio_base = base.clone();
     Arc::make_mut(&mut audio_base.tracks[0]).kind = TrackKind::Audio;
     let mut p = audio_base.clone();
     p.tracks[0] = Arc::new(Track::new(Id(1), "x", TrackKind::Audio, Color(0)));
     let t = take(0, 4, vec![tn(0, 1, 60)]);
     assert_eq!(put(&mut p, &audio_base, &t, Mode::Replace), Ok(vec![]));
-    assert_eq!(p.tracks[0], audio_base.tracks[0]);
+    assert_eq!(p.tracks[0].clips, audio_base.tracks[0].clips);
 
     // A track base does not have changes nothing.
     let mut p = base.clone();
@@ -1065,4 +1067,53 @@ fn empty_takes_and_ranges_change_only_what_they_must() {
     );
     assert_eq!(placed, Ok(vec![]));
     assert_eq!(p, base);
+}
+
+#[test]
+fn what_else_changed_on_the_track_while_it_recorded_is_kept() {
+    // The fader, an automation lane and a device's values are the user's to
+    // change during a take: each commit re-places the take on the clips the
+    // track had at the start, and nothing else of the track goes back.
+    use crate::automation::{AutomationLane, Target};
+    use lumen_core::automation::{Lane, Point};
+    let base = base(vec![clip(10, 0, 4, vec![note(0, 1, 60)])]);
+    let mut p = base.clone();
+    {
+        let keys = Arc::make_mut(&mut p.tracks[0]);
+        keys.gain_db = -9.0;
+        keys.pan = 0.25;
+        keys.mute = true;
+        keys.automation = vec![AutomationLane::new(
+            Target::Volume,
+            Lane::new(vec![Point::new(q(0), -6.0), Point::new(q(2), -12.0)]).unwrap(),
+        )];
+    }
+    put(
+        &mut p,
+        &base,
+        &take(1, 3, vec![tn(1, 1, 64)]),
+        Mode::Replace,
+    )
+    .unwrap();
+    let keys = &p.tracks[0];
+    assert_eq!(keys.gain_db, -9.0);
+    assert_eq!(keys.pan, 0.25);
+    assert!(keys.mute);
+    assert_eq!(keys.automation.len(), 1);
+    assert_eq!(keys.automation[0].lane.points().len(), 2);
+    assert!(
+        keys.clips.iter().any(|c| c.start == q(1)),
+        "and the take was placed"
+    );
+    // A second commit of the same take, from the same snapshot, does not
+    // stack a second take on the first.
+    let first = p.tracks[0].clips.clone();
+    put(
+        &mut p,
+        &base,
+        &take(1, 3, vec![tn(1, 1, 64)]),
+        Mode::Replace,
+    )
+    .unwrap();
+    assert_eq!(p.tracks[0].clips.len(), first.len());
 }

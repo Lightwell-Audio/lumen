@@ -3188,3 +3188,92 @@ fn automation_plugin_chooser() {
         }
     }
 }
+
+/// Controller mappings (M7 slice A5): the right-click menu of a mapped control
+/// and the Mappings window with a control waiting for a controller. Dark and
+/// light at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn controller_mappings() {
+    use eframe::egui::{Event, PointerButton};
+    use egui_kittest::kittest::Queryable as _;
+    use lumen_project::automation::Target;
+    use lumen_project::model::{Color, Id, Track, TrackKind};
+    use lumen_project::testing::project_of;
+
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-mappings-{appearance}-{scale}"));
+            let project = project_of(
+                "Mappings",
+                vec![
+                    Track::new(Id(1), "Drums", TrackKind::Audio, Color(0x4F81BD)),
+                    Track::new(Id(2), "Bass", TrackKind::Audio, Color(0xC0504D)),
+                    Track::new(
+                        Id(3),
+                        "A very long vocal track name",
+                        TrackKind::Audio,
+                        Color(0x9BBB59),
+                    ),
+                ],
+            );
+            let path = dir.path().join("song.lumen");
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 760.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(40);
+            {
+                let app = h.state_mut();
+                app.give_mapping(Id(1), Target::Volume, 0, 7).unwrap();
+                app.give_mapping(Id(2), Target::Pan, 0, 10).unwrap();
+                app.give_mapping(Id(3), Target::Volume, 9, 74).unwrap();
+                app.select_tracks(&[Id(1)]);
+            }
+            h.run_steps(30);
+            h.get_by_label("Fold Drums").click();
+            h.run_steps(40);
+            // The menu of a mapped control.
+            let slider = h.get_by_label_contains("Volume Drums:").rect();
+            h.hover_at(slider.center());
+            h.run_steps(2);
+            for pressed in [true, false] {
+                h.event(Event::PointerButton {
+                    pos: slider.center(),
+                    button: PointerButton::Secondary,
+                    pressed,
+                    modifiers: Default::default(),
+                });
+                h.run_steps(2);
+            }
+            h.run_steps(15);
+            save(&mut h, &format!("mappings-menu-{appearance}-{scale}"));
+            h.key_press(Key::Escape);
+            h.run_steps(15);
+            // The window, with the bass pan waiting for another controller.
+            h.state_mut().begin_learning(Id(2), Target::Volume);
+            h.run_steps(5);
+            h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+            h.run_steps(5);
+            h.event(Event::Text("Controller mappings".into()));
+            h.run_steps(5);
+            h.key_press(Key::Enter);
+            h.run_steps(30);
+            save(&mut h, &format!("mappings-window-{appearance}-{scale}"));
+        }
+    }
+}

@@ -73,6 +73,15 @@ pub(crate) fn ring_round(ui: &Ui, rect: Rect) {
     );
 }
 
+/// [`ring_round`] in `color`.
+pub(crate) fn ring_round_with(ui: &Ui, rect: Rect, color: Color32) {
+    ui.painter().circle_stroke(
+        rect.center(),
+        rect.width().min(rect.height()) / 2.0 + 1.5,
+        Stroke::new(theme::stroke::LIT, color),
+    );
+}
+
 /// A mute lane's value as the button shows it: muted from one half up.
 pub(crate) fn muted(value: f32) -> bool {
     value >= 0.5

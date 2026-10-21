@@ -45,7 +45,10 @@ impl World for Looking<'_> {
     }
 
     fn armed(&self, track: Id, target: Target) -> bool {
-        self.auto.shown.get(&track) == Some(&target)
+        // A control a controller is mapped to is meant to be recorded, with
+        // or without a lane yet.
+        self.doc.mapping_of(track, target).is_some()
+            || self.auto.shown.get(&track) == Some(&target)
             || self
                 .track(track)
                 .is_some_and(|t| t.lane(target).is_some_and(|l| l.enabled))
@@ -172,6 +175,11 @@ impl App {
             return;
         };
         let result = self.document.record_lane(track, target, lane);
+        // A lane the pass made is shown, if the track shows none, so it can be
+        // seen and edited.
+        if result.is_ok() {
+            self.arrangement.auto.shown.entry(track).or_insert(target);
+        }
         self.arrangement.note_lane(result);
     }
 

@@ -64,6 +64,7 @@ mod lanes;
 mod launch;
 mod light;
 mod live;
+mod live_tap;
 mod media;
 mod meters;
 mod midi;
@@ -122,6 +123,8 @@ pub struct App {
     show_history: bool,
     /// Track headers, heights, folding and selection (M3 slice 4).
     arrangement: arrangement::Arrangement,
+    /// MIDI learn and the controllers that move controls (M7 slice A5).
+    controllers: app::controllers::Controllers,
     /// The lane passes being recorded (M7 slice A4b).
     recorder: auto_record::Recorder,
     /// The plugin gestures that are open: a control held in a plugin's own
@@ -326,6 +329,7 @@ pub(crate) fn empty_project() -> Project {
         markers: Vec::new(),
         transport: Default::default(),
         view: Default::default(),
+        mappings: Vec::new(),
     }
 }
 
@@ -584,6 +588,7 @@ impl eframe::App for App {
         self.update_recording();
         self.update_audition(&ctx);
         self.history_window(&ctx);
+        self.mappings_window(&ctx);
         self.parameters_panel(&ctx);
         self.lane_parameters(&ctx);
         self.prompt_window(&ctx);
@@ -676,6 +681,9 @@ impl eframe::App for App {
         // once a second for device events, so idle CPU stays near zero.
         // Meters draw until they come to rest (risk R5).
         // After the controls were drawn: what moved in them is this frame's.
+        self.update_controllers(&ctx);
+        self.answer_map_requests();
+        self.keep_learning_note(&ctx);
         self.record_automation(&ctx, rate);
         if self.transport.animating() || meters_moving {
             ctx.request_repaint();
@@ -775,3 +783,7 @@ mod tests {
         assert!(display_name().starts_with(PRODUCT_NAME));
     }
 }
+
+// The unit tests that check the audio thread's code count heap use in it.
+#[cfg(test)]
+lumen_rt::install_guarded_allocator!();

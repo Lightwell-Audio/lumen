@@ -18,6 +18,7 @@ use lumen_project::automation::Target;
 use lumen_project::model::{Track, TrackKind};
 use lumen_project::solo::Heard;
 
+use super::control_menu::{control_menu_for, waiting_ring};
 use super::follow;
 use super::sends::{Knob, returns};
 use super::{Arrangement, color_of, headers, nesting, pinned};
@@ -309,6 +310,15 @@ impl Arrangement {
         if self.taken_over(doc, &track, Target::Pan) {
             follow::ring(ui, pan_rect);
         }
+        control_menu_for(
+            ui,
+            id.with("pan"),
+            doc,
+            &mut self.auto,
+            track.id,
+            Target::Pan,
+        );
+        waiting_ring(ui, &self.auto, pan_rect, track.id, Target::Pan);
         y += ROW + GAP;
 
         y = self.strip_levels(
@@ -414,6 +424,14 @@ impl Arrangement {
         ) {
             doc.set_volume(track.id, db);
         }
+        control_menu_for(
+            ui,
+            id.with("fader"),
+            doc,
+            &mut self.auto,
+            track.id,
+            Target::Volume,
+        );
         let meter_rect =
             Rect::from_x_y_ranges(rect.right() - INSET - 12.0..=rect.right() - INSET, travel);
         meter::scale(&painter, meter_rect.left() - 4.0, travel, &MARKS);
@@ -646,6 +664,15 @@ impl Arrangement {
         if self.taken_over(doc, track, Target::Trim) {
             follow::ring(ui, trim);
         }
+        control_menu_for(
+            ui,
+            id.with("trim"),
+            doc,
+            &mut self.auto,
+            track.id,
+            Target::Trim,
+        );
+        waiting_ring(ui, &self.auto, trim, track.id, Target::Trim);
     }
 
     /// The owner's O2: the first two returns' knobs, then "+N ▾" listing
@@ -744,6 +771,14 @@ impl Arrangement {
             face.text(),
         );
         raised::focus_ring(ui.painter(), &response, rect);
+        control_menu_for(
+            ui,
+            id.with("mute"),
+            doc,
+            &mut self.auto,
+            master.id,
+            Target::Mute,
+        );
     }
 
     /// A click on a clip light or a held peak clears it; Alt+click clears

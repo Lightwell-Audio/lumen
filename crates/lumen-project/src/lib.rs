@@ -11,6 +11,7 @@ pub mod groups;
 pub mod history;
 mod io;
 mod json;
+pub mod mapping;
 pub mod migrate;
 pub mod model;
 pub mod routing;

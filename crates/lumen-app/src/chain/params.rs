@@ -32,6 +32,8 @@ struct RowOut {
     set: Option<(u32, f64)>,
     /// Text typed for a parameter, for the plugin to read.
     typed: Option<(u32, String)>,
+    /// What a row's menu asked about its lane or controller.
+    ask: Option<(u32, widgets::Ask)>,
 }
 
 #[derive(Debug, Clone)]
@@ -175,6 +177,8 @@ impl App {
                 Vec::new()
             },
             over: self.parameter_taken_over(d, p),
+            mapped: self.parameter_mapping(d, p),
+            waiting: self.parameter_waiting(d, p),
         }
     }
 
@@ -206,6 +210,53 @@ impl App {
     fn track_of_device(&self, device: Id) -> Option<&lumen_project::model::Track> {
         let (id, _) = crate::document::find_device(self.document.project(), device)?;
         lumen_project::routing::all_tracks(self.document.project()).find(|t| t.id == id)
+    }
+
+    /// The controller (channel, number) mapped to `p`, if one is.
+    fn parameter_mapping(&self, d: &Device, p: &ParamInfo) -> Option<(u8, u8)> {
+        let track = self.track_of_device(d.id)?.id;
+        self.document
+            .mapping_of(
+                track,
+                Target::Device {
+                    device: d.id,
+                    param: p.id,
+                },
+            )
+            .map(|m| (m.channel, m.number))
+    }
+
+    /// Whether `p` waits for a controller to move, to be mapped.
+    fn parameter_waiting(&self, d: &Device, p: &ParamInfo) -> bool {
+        self.track_of_device(d.id).is_some_and(|t| {
+            self.controllers.learning
+                == Some((
+                    t.id,
+                    Target::Device {
+                        device: d.id,
+                        param: p.id,
+                    },
+                ))
+        })
+    }
+
+    /// Does what a parameter's menu asked about its lane or controller.
+    pub(super) fn answer_ask(&mut self, device: Id, param: u32, ask: widgets::Ask) {
+        let Some((track, _)) = crate::document::find_device(self.document.project(), device) else {
+            return;
+        };
+        let target = Target::Device { device, param };
+        match ask {
+            widgets::Ask::Automate => {
+                self.arrangement.auto.shown.insert(track, target);
+            }
+            widgets::Ask::Learn => self.start_learning(track, target),
+            widgets::Ask::StopLearning => {
+                self.stop_learning();
+            }
+            widgets::Ask::Clear => self.clear_controller(track, target),
+            widgets::Ask::Window => self.controllers.window = true,
+        }
     }
 
     /// Whether the user has taken over the lane that drives `p`.
@@ -275,6 +326,7 @@ impl App {
             strip::Output::Type(id, text) => self.hosting.ask_value(device, id, text),
             strip::Output::Editor => self.toggle_editor(device),
             strip::Output::Learn => self.toggle_learn(device),
+            strip::Output::Ask(id, ask) => self.answer_ask(device, id, ask),
             strip::Output::End => self.end_editor_plugin(device),
             strip::Output::Remove(id) => {
                 let mut ids = self.strip_ids(device);
@@ -472,6 +524,9 @@ impl App {
         if let Some((id, text)) = act.typed {
             self.hosting.ask_value(device.id, id, text);
         }
+        if let Some((id, ask)) = act.ask {
+            self.answer_ask(device.id, id, ask);
+        }
         for id in starred {
             self.star(device.id, id);
         }
@@ -561,7 +616,7 @@ impl App {
         }
         let value = self.parameter_value(device, p);
         let text = self.parameter_text(device.id, p, value);
-        let (_, out) = param_bar(
+        let (response, out) = param_bar(
             ui,
             bar,
             id.with("bar"),
@@ -579,6 +634,18 @@ impl App {
         if self.parameter_taken_over(device, p) {
             crate::arrangement::follow::ring(ui, bar);
         }
+        let (mapped, waiting) = (
+            self.parameter_mapping(device, p),
+            self.parameter_waiting(device, p),
+        );
+        if waiting {
+            crate::arrangement::follow::ring_with(ui, bar, palette.accent);
+        }
+        widgets::Menu::context(&response).show(|ui| {
+            if let Some(ask) = widgets::control_items(ui, mapped, waiting) {
+                act.ask = Some((p.id, ask));
+            }
+        });
         if let Some(v) = out.value {
             act.set = Some((p.id, v));
         }

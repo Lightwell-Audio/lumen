@@ -11,6 +11,7 @@ use lumen_project::model::Track;
 use lumen_project::solo::Hearing;
 
 use super::Arrangement;
+use super::control_menu::{control_menu_for, waiting_ring};
 use crate::document::Document;
 use crate::theme::{self, Tone};
 use crate::widgets::raised;
@@ -151,6 +152,15 @@ impl Arrangement {
         if toggle(ui, mute_rect, Toggle::Mute, Tone::Mute) {
             doc.set_mute(&self.targets(track.id), !muted);
         }
+        control_menu_for(
+            ui,
+            id.with("mute"),
+            doc,
+            &mut self.auto,
+            track.id,
+            Target::Mute,
+        );
+        waiting_ring(ui, &self.auto, mute_rect, track.id, Target::Mute);
         // Exclusive by default: a click solos (or cues) this track
         // alone, Ctrl+click adds it; the additive preference swaps them.
         let exclusive = modifiers.command == additive;
