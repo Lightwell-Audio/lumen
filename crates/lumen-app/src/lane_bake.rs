@@ -15,6 +15,9 @@ use crate::document::Overrides;
 /// Frames between the points a curved segment is resampled to when the tempo
 /// changes along it (about 21 ms at 48 kHz).
 const RESAMPLE: i64 = 1024;
+/// The same along a tempo ramp, where the tick is a different number of frames
+/// at each point of the segment (about 5 ms at 48 kHz).
+const RAMP_RESAMPLE: i64 = 256;
 
 /// `lane` on the sample clock of a device at `rate`, tempo as `tempo`: each
 /// point at the sample the tempo puts it at. A segment is straight in music
@@ -36,8 +39,13 @@ pub(crate) fn bake(lane: &Lane, tempo: &TempoMap, rate: u32) -> Option<AutoLane>
                 .collect(),
             _ => Vec::new(),
         };
+        // Along a ramp a tick is not a fixed number of samples either, so a
+        // segment that runs over one is cut every so often as well.
+        let ramped = next.is_some_and(|next| {
+            point.shape != Shape::Step && tempo.ramps_between(point.at, next.at)
+        });
         let shape = match point.shape {
-            Shape::Curve(_) if !changes.is_empty() => Shape::Linear,
+            Shape::Curve(_) if !changes.is_empty() || ramped => Shape::Linear,
             shape => shape,
         };
         baked.push(AutoPoint {
@@ -45,14 +53,15 @@ pub(crate) fn bake(lane: &Lane, tempo: &TempoMap, rate: u32) -> Option<AutoLane>
             value: point.value,
             shape,
         });
-        if let (Some(next), false) = (next, changes.is_empty()) {
+        if let (Some(next), false) = (next, changes.is_empty() && !ramped) {
             let (from, to) = (at(point.at), at(next.at));
             // The parts are cut at each change of tempo, where the shape of the
-            // segment in samples has a corner; a curve is cut every so often as
-            // well.
+            // segment in samples has a corner; a curve, or any segment over a
+            // ramp, is cut every so often as well.
             let mut inside: Vec<i64> = changes.iter().map(|&t| at(t)).collect();
-            if matches!(point.shape, Shape::Curve(_)) {
-                inside.extend((1..).map(|k| from + k * RESAMPLE).take_while(|&s| s < to));
+            if matches!(point.shape, Shape::Curve(_)) || ramped {
+                let every = if ramped { RAMP_RESAMPLE } else { RESAMPLE };
+                inside.extend((1..).map(|k| from + k * every).take_while(|&s| s < to));
                 inside.sort_unstable();
                 inside.dedup();
             }

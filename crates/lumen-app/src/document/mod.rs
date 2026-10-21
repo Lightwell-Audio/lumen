@@ -13,7 +13,7 @@ use std::sync::Arc;
 use lumen_core::time::Ticks;
 use lumen_project::History;
 use lumen_project::automation::Target;
-use lumen_project::model::{Color, Device, Id, Marker, Project, TimeSignature, Track, TrackKind};
+use lumen_project::model::{Color, Device, Id, Marker, Project, Track, TrackKind};
 
 /// The most beats a bar may have (`lumen_project::validate`).
 pub const MAX_BEATS_PER_BAR: u32 = 64;
@@ -33,6 +33,7 @@ mod notes;
 mod outputs;
 mod overrides;
 mod record;
+mod song_maps;
 pub use automation::LaneRefusal;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use devices::{Refusal, Slot, find_device, name_of as device_name};
@@ -510,37 +511,6 @@ impl Document {
         });
     }
 
-    /// Sets the song's tempo, clamped to 20–999 BPM (`merge` joins the
-    /// changes of one drag into one step).
-    pub fn set_tempo(&mut self, bpm: f64, merge: Option<&str>) {
-        let bpm = bpm.clamp(20.0, 999.0);
-        self.history.apply("Change tempo", merge, |project| {
-            if let Some(first) = project.tempo.first_mut() {
-                first.bpm = bpm;
-            }
-        });
-    }
-
-    /// Sets the time signature (M3 review M2): beats per bar clamped to
-    /// 1–64 and a beat unit that is a power of two up to 64, the range a
-    /// project may hold (`lumen_project::validate`); another unit keeps
-    /// the current one. `merge` joins the changes of one drag.
-    pub fn set_time_signature(&mut self, numerator: u32, denominator: u32, merge: Option<&str>) {
-        let numerator = numerator.clamp(1, MAX_BEATS_PER_BAR) as u8;
-        let current = self.project().time_signature.denominator;
-        let denominator = u8::try_from(denominator)
-            .ok()
-            .filter(|d| d.is_power_of_two() && *d <= 64)
-            .unwrap_or(current);
-        self.history
-            .apply("Change time signature", merge, |project| {
-                project.time_signature = TimeSignature {
-                    numerator,
-                    denominator,
-                };
-            });
-    }
-
     /// Turns looping on or off.
     pub fn set_loop_enabled(&mut self, enabled: bool) {
         let label = if enabled { "Loop on" } else { "Loop off" };
@@ -714,39 +684,6 @@ mod tests {
                 group: None,
             },
         }
-    }
-
-    #[test]
-    fn the_tempo_is_clamped_and_a_drag_is_one_step() {
-        let mut doc = Document::new(crate::empty_project());
-        doc.set_tempo(140.0, None);
-        for bpm in [141.0, 142.0, 2000.0] {
-            doc.set_tempo(bpm, Some("drag"));
-        }
-        assert_eq!(doc.project().tempo[0].bpm, 999.0);
-        doc.undo();
-        assert_eq!(doc.project().tempo[0].bpm, 140.0, "the drag was one step");
-        doc.set_tempo(1.0, None);
-        assert_eq!(doc.project().tempo[0].bpm, 20.0);
-    }
-
-    #[test]
-    fn the_time_signature_stays_one_a_project_can_hold() {
-        let mut doc = Document::new(crate::empty_project());
-        let meter = |doc: &Document| {
-            let t = doc.project().time_signature;
-            (t.numerator, t.denominator)
-        };
-        doc.set_time_signature(7, 8, None);
-        assert_eq!(meter(&doc), (7, 8));
-        // Past what a project may hold, a saved song would not open again.
-        doc.set_time_signature(99, 4, Some("drag"));
-        assert_eq!(meter(&doc), (64, 4));
-        doc.set_time_signature(0, 3, Some("drag"));
-        assert_eq!(meter(&doc), (1, 4), "3 is no beat unit: 4 stays");
-        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
-        doc.undo();
-        assert_eq!(meter(&doc), (7, 8), "the drag was one step");
     }
 
     #[test]

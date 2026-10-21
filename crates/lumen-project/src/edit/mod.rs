@@ -24,6 +24,7 @@ use crate::model::{Clip, ClipContent, ClipEvent, Id, Note, Project};
 pub mod automation;
 mod clipboard;
 pub mod events;
+pub mod maps;
 mod note_selection;
 mod note_time;
 pub mod note_tools;
@@ -427,6 +428,7 @@ mod tests {
         project.tempo = vec![lumen_core::time::TempoPoint {
             at: Ticks::ZERO,
             bpm: 120.0,
+            ramp: false,
         }];
         project.media = vec![Media {
             id: Id(900),

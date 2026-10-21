@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 
+use lumen_core::meter::MeterPoint;
 use lumen_core::time::{MAX_BPM, MIN_BPM, PPQ, TempoPoint, Ticks};
 use midly::{Format, MetaMessage, MidiMessage, Smf, Timing, TrackEventKind};
 
@@ -65,7 +66,7 @@ pub fn read(bytes: &[u8]) -> Result<MidiFile, ReadError> {
         .collect();
 
     let mut changes: Vec<(u64, u32)> = Vec::new();
-    let mut meter: Option<(u64, TimeSignature)> = None;
+    let mut signatures: Vec<(u64, TimeSignature)> = Vec::new();
     for track in &tracks {
         for &(at, kind) in track {
             match kind {
@@ -73,16 +74,16 @@ pub fn read(bytes: &[u8]) -> Result<MidiFile, ReadError> {
                     changes.push((at, micros.as_int()));
                 }
                 TrackEventKind::Meta(MetaMessage::TimeSignature(n, d, _, _)) => {
-                    if let Some(sig) = signature(n, d)
-                        && meter.is_none_or(|(first, _)| at < first)
-                    {
-                        meter = Some((at, sig));
+                    if let Some(sig) = signature(n, d) {
+                        signatures.push((at, sig));
                     }
                 }
                 _ => {}
             }
         }
     }
+    // Stable, so of two at one tick the later in the file wins.
+    signatures.sort_by_key(|&(at, _)| at);
     // Sorted by tick, the file's order kept at the same tick; the last wins.
     changes.sort_by_key(|&(at, _)| at);
     changes.dedup_by(|later, earlier| {
@@ -109,6 +110,7 @@ pub fn read(bytes: &[u8]) -> Result<MidiFile, ReadError> {
         .map(|&(at, micros)| TempoPoint {
             at: base.at(at),
             bpm: bpm(micros),
+            ramp: false,
         })
         .collect();
     tempo.dedup_by(|later, earlier| {
@@ -125,6 +127,7 @@ pub fn read(bytes: &[u8]) -> Result<MidiFile, ReadError> {
             TempoPoint {
                 at: Ticks::ZERO,
                 bpm: bpm(DEFAULT_MICROS),
+                ramp: false,
             },
         );
     }
@@ -133,10 +136,22 @@ pub fn read(bytes: &[u8]) -> Result<MidiFile, ReadError> {
     for (source, track) in tracks.iter().enumerate() {
         parts.extend(read_track(source, track, &base));
     }
+    let meter = if signatures.is_empty() {
+        Vec::new()
+    } else {
+        let points: Vec<MeterPoint> = signatures
+            .iter()
+            .map(|&(at, sig)| MeterPoint {
+                at: base.at(at),
+                meter: sig.meter(),
+            })
+            .collect();
+        lumen_core::meter::tidy(&points)
+    };
     Ok(MidiFile {
         tracks: parts,
         tempo,
-        meter: meter.map(|(_, sig)| sig),
+        meter,
     })
 }
 

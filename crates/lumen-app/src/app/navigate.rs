@@ -174,6 +174,12 @@ impl App {
         if crate::widgets::menu_toggle(ui, "Follow playhead", keys.as_ref(), following).clicked() {
             self.transport.toggle_follow();
         }
+        let keys = self.keymap.keys(Command::SongLanesShow);
+        if crate::widgets::menu_toggle(ui, "Tempo and meter lanes", keys.as_ref(), self.song.shown)
+            .clicked()
+        {
+            self.song_lanes_toggle();
+        }
     }
 
     /// How far the view may zoom and scroll: out to the song, in to single

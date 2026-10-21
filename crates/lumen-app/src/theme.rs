@@ -581,6 +581,15 @@ pub mod size {
     pub const AUTO_REC_DOT: f32 = 3.5;
     /// The chooser's least width.
     pub const AUTO_MENU: f32 = 220.0;
+    /// The tempo and meter lanes under the bar ruler (M7 slice A6): their
+    /// heights, the room a meter chip keeps around its text, and the width
+    /// of the box a value is typed in.
+    pub const SONG_TEMPO: f32 = 44.0;
+    pub const SONG_METER: f32 = 20.0;
+    pub const SONG_CHIP_PAD: f32 = 6.0;
+    pub const SONG_TYPE: f32 = 88.0;
+    /// The width of the button in the ruler's corner that shows the lanes.
+    pub const SONG_BUTTON: f32 = 68.0;
 }
 
 /// Which theme the user asked for.

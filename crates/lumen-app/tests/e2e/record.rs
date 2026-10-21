@@ -231,6 +231,7 @@ pub(super) fn slowly(project: &mut Project) {
     project.tempo = vec![TempoPoint {
         at: Ticks::ZERO,
         bpm: 30.0,
+        ramp: false,
     }];
 }
 

@@ -231,10 +231,12 @@ fn notes_follow_a_tempo_change() {
         TempoPoint {
             at: Ticks::ZERO,
             bpm: 120.0,
+            ramp: false,
         },
         TempoPoint {
             at: Ticks::quarters(4),
             bpm: 75.0,
+            ramp: false,
         },
     ])
     .unwrap();

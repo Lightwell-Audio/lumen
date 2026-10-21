@@ -1153,6 +1153,32 @@ went over the last second.
   rows, and then the whole panel scrolls.
 - Mock-ups of it use generic device names (the owner, 2026-10-17).
 
+## 7i. Tempo and meter lanes (M7 slice A6, ADR-0089)
+
+Two slim lanes sit between the bar ruler and the tracks, a tempo lane (`size::SONG_TEMPO`,
+44 pt) over a meter lane (`size::SONG_METER`, 20 pt), shown with **T**; the band glides open and
+shut and adds no track row. They are tinted like automation lanes (an accent wash at 5% and
+3%, accent hairlines), with a faint line at each bar. The **tempo lane** draws a step line in
+the accent at `stroke::LIT`, a point (`draw_point`, as in automation lanes) at each change with
+its value in the monospace beside it, hollow at rest, larger under the pointer, solid with a ring
+when picked. Its scale fits the song's own tempos with room above and below and at least a 30 BPM
+span, and is held for the length of a drag. The **meter lane** draws a chip per change, starting
+at its bar line and as wide as its text: `control` with a hairline, `control_hover` under the
+pointer, `accent_muted` with an accent hairline when picked; the meter in force at the left edge
+is a quiet hint when its chip has scrolled away. The **name column** over the track headers reads
+"Tempo" and "Meter" with the tempo and meter in force at the playhead. A value is typed in a
+small overlay box beside the change (monospace, `size::SONG_TYPE` wide): Enter or leaving applies,
+Esc cancels. While a change is dragged a `draw_hint` chip says the bar and the value. The info
+line says what a click, drag and double-click do over each lane, and each lane has an accessible
+name ("Tempo lane: click to add a tempo change, drag a point to move it, double-click a point to
+type its tempo").
+
+A **ramp** (a change that glides to the next) is drawn as a slope between the two points, in the same
+line; a step holds and jumps. The tempo and the name column show the tempo playing at the playhead.
+The lanes are found with the **Tempo** button in the ruler's corner, the right of the Grid row
+(`size::SONG_BUTTON` wide, a raised toggle lit with `Tone::On` while shown), and with a toggle in the
+bar ruler's right-click menu, as well as T.
+
 ## 7h. Automation lanes (M7 slice A1, ADR-0082, the owner's L1 B)
 
 A lane is drawn over its track's clip lane, not in a row of its own. While a track shows

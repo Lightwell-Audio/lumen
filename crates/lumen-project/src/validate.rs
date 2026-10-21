@@ -4,8 +4,10 @@
 
 use std::collections::{HashMap, HashSet};
 
+use lumen_core::meter::MeterMap;
 use lumen_core::time::{TempoMap, Ticks};
 
+use crate::edit::maps::MOST_CHANGES;
 use crate::model::{
     ClipContent, Device, Id, MAX_DEVICE_STATE, Output, PluginRef, Project, Track, TrackKind,
 };
@@ -104,14 +106,21 @@ pub fn validate(project: &Project) -> Result<(), String> {
         ));
     }
     TempoMap::new(project.tempo.clone()).map_err(|e| format!("tempo: {e}"))?;
-    let signature = project.time_signature;
-    if !(1..=64).contains(&signature.numerator)
-        || !signature.denominator.is_power_of_two()
-        || signature.denominator > 64
+    MeterMap::new(project.meter.clone()).map_err(|e| format!("meter: {e}"))?;
+    if project.tempo.len() > MOST_CHANGES || project.meter.len() > MOST_CHANGES {
+        return Err("the song has too many tempo or time-signature changes".into());
+    }
+    if project.tempo.iter().any(|p| !within(p.at)) {
+        return Err("a tempo change is out of range".into());
+    }
+    if let Some(point) = project
+        .meter
+        .iter()
+        .find(|p| !(1..=64).contains(&p.meter.numerator) || !within(p.at))
     {
         return Err(format!(
-            "time signature {}/{} is invalid",
-            signature.numerator, signature.denominator
+            "time signature {} at {} is out of range",
+            point.meter, point.at.0
         ));
     }
 

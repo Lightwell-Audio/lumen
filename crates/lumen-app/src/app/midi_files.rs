@@ -7,8 +7,9 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use eframe::egui;
+use lumen_core::meter::MeterPoint;
 use lumen_core::time::{TempoPoint, Ticks};
-use lumen_project::model::{TimeSignature, TrackKind};
+use lumen_project::model::TrackKind;
 use lumen_project::smf::MidiFile;
 
 use super::projects::{FileDialog, documents_folder};
@@ -23,7 +24,7 @@ pub(crate) struct TempoOffer {
     /// What the banner says.
     pub(crate) text: String,
     pub(crate) tempo: Vec<TempoPoint>,
-    pub(crate) meter: Option<TimeSignature>,
+    pub(crate) meter: Vec<MeterPoint>,
 }
 
 /// A tempo as the banner writes it: whole BPM, or to two places.
@@ -38,7 +39,7 @@ pub(crate) fn tempo_offer(
     name: &str,
     file: &MidiFile,
     tempo: &[TempoPoint],
-    meter: TimeSignature,
+    meter: &[MeterPoint],
 ) -> Option<TempoOffer> {
     let new_tempo = !file.tempo.is_empty()
         && (file.tempo.len() != tempo.len()
@@ -47,8 +48,8 @@ pub(crate) fn tempo_offer(
                 .iter()
                 .zip(tempo)
                 .any(|(a, b)| a.at != b.at || (a.bpm - b.bpm).abs() > 0.005));
-    let new_meter = file.meter.filter(|m| *m != meter);
-    if !new_tempo && new_meter.is_none() {
+    let new_meter = !file.meter.is_empty() && file.meter != meter;
+    if !new_tempo && !new_meter {
         return None;
     }
     let mut text = format!("{name} is");
@@ -60,11 +61,17 @@ pub(crate) fn tempo_offer(
             n => text += &format!(", with {} tempo changes", n - 1),
         }
     }
-    if let Some(m) = new_meter {
+    if let Some(first) = file.meter.first().filter(|_| new_meter) {
         if new_tempo {
             text += ",";
         }
+        let m = first.meter;
         text += &format!(" in {}/{}", m.numerator, m.denominator);
+        match file.meter.len() {
+            1 => {}
+            2 => text += ", with one time-signature change",
+            n => text += &format!(", with {} time-signature changes", n - 1),
+        }
     }
     text += ". Its notes follow this project's tempo.";
     Some(TempoOffer {
@@ -74,7 +81,11 @@ pub(crate) fn tempo_offer(
         } else {
             Vec::new()
         },
-        meter: new_meter,
+        meter: if new_meter {
+            file.meter.clone()
+        } else {
+            Vec::new()
+        },
     })
 }
 
@@ -180,8 +191,7 @@ impl App {
                 continue;
             }
             let project = self.document.project();
-            if let Some(offer) = tempo_offer(&shown, &file, &project.tempo, project.time_signature)
-            {
+            if let Some(offer) = tempo_offer(&shown, &file, &project.tempo, &project.meter) {
                 self.tempo_offer = Some(offer);
             }
         }
@@ -261,13 +271,13 @@ impl App {
             .show(ui, |ui| {
                 super::view::notice_card(ui, |ui| {
                     ui.label(&offer.text);
-                    let what = match (offer.tempo.is_empty(), offer.meter.is_some()) {
+                    let what = match (offer.tempo.is_empty(), !offer.meter.is_empty()) {
                         (false, true) => "Use its tempo and meter",
                         (false, false) => "Use its tempo",
                         _ => "Use its meter",
                     };
                     if raised::primary_button(ui, what).clicked() {
-                        self.document.use_file_tempo(&offer.tempo, offer.meter);
+                        self.document.use_file_tempo(&offer.tempo, &offer.meter);
                         self.tempo_offer = None;
                     }
                     if raised::button(ui, "Dismiss").clicked() {
@@ -286,45 +296,49 @@ mod tests {
         TempoPoint {
             at: Ticks::quarters(at),
             bpm,
+            ramp: false,
         }
     }
 
-    const FOUR: TimeSignature = TimeSignature {
-        numerator: 4,
-        denominator: 4,
-    };
+    fn meter(at: i64, numerator: u32, denominator: u32) -> MeterPoint {
+        MeterPoint {
+            at: Ticks::quarters(at),
+            meter: lumen_core::meter::Meter {
+                numerator,
+                denominator,
+            },
+        }
+    }
 
     #[test]
     fn a_file_offers_only_what_differs_from_the_project() {
         let project = [point(0, 120.0)];
+        let four = [meter(0, 4, 4)];
         let mut file = MidiFile {
             tempo: vec![point(0, 120.0)],
-            meter: Some(FOUR),
+            meter: four.to_vec(),
             ..MidiFile::default()
         };
-        assert_eq!(tempo_offer("a.mid", &file, &project, FOUR), None);
+        assert_eq!(tempo_offer("a.mid", &file, &project, &four), None);
         file.tempo = Vec::new();
-        file.meter = None;
+        file.meter = Vec::new();
         assert_eq!(
-            tempo_offer("a.mid", &file, &project, FOUR),
+            tempo_offer("a.mid", &file, &project, &four),
             None,
             "none set"
         );
 
         file.tempo = vec![point(0, 98.5), point(16, 140.0)];
-        let offer = tempo_offer("a.mid", &file, &project, FOUR).unwrap();
+        let offer = tempo_offer("a.mid", &file, &project, &four).unwrap();
         assert_eq!(
             offer.text,
             "a.mid is at 98.5 BPM, with one tempo change. Its notes follow this project's tempo."
         );
-        assert_eq!((offer.tempo.len(), offer.meter), (2, None));
+        assert_eq!((offer.tempo.len(), offer.meter.len()), (2, 0));
 
         file.tempo = vec![point(0, 120.0)];
-        file.meter = Some(TimeSignature {
-            numerator: 6,
-            denominator: 8,
-        });
-        let offer = tempo_offer("b.mid", &file, &project, FOUR).unwrap();
+        file.meter = vec![meter(0, 6, 8)];
+        let offer = tempo_offer("b.mid", &file, &project, &four).unwrap();
         assert_eq!(
             offer.text,
             "b.mid is in 6/8. Its notes follow this project's tempo."
@@ -332,10 +346,19 @@ mod tests {
         assert!(offer.tempo.is_empty(), "the same tempo is not offered");
 
         file.tempo = vec![point(0, 100.0)];
-        let offer = tempo_offer("c.mid", &file, &project, FOUR).unwrap();
+        let offer = tempo_offer("c.mid", &file, &project, &four).unwrap();
         assert_eq!(
             offer.text,
             "c.mid is at 100 BPM, in 6/8. Its notes follow this project's tempo."
         );
+
+        file.meter = vec![meter(0, 6, 8), meter(12, 4, 4), meter(24, 3, 4)];
+        let offer = tempo_offer("d.mid", &file, &project, &four).unwrap();
+        assert!(
+            offer.text.contains("in 6/8, with 2 time-signature changes"),
+            "{}",
+            offer.text
+        );
+        assert_eq!(offer.meter.len(), 3);
     }
 }

@@ -87,7 +87,7 @@ fn a_file_dropped_on_empty_lanes_makes_a_track_per_part_and_offers_its_tempo() {
     lumen.click("Use its tempo and meter");
     let project = lumen.app().project();
     assert_eq!(project.tempo, source.tempo);
-    assert_eq!(project.time_signature, source.meter.unwrap());
+    assert_eq!(project.meter, source.meter);
     assert_eq!(lumen.app().undo_label(), Some("Use the file's tempo"));
     assert!(
         !lumen.shows("Use its tempo and meter"),

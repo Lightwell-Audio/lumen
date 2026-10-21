@@ -259,10 +259,12 @@ fn loop_and_punch_follow_a_tempo_change() {
                 TempoPoint {
                     at: Ticks::ZERO,
                     bpm: 120.0,
+                    ramp: false,
                 },
                 TempoPoint {
                     at: bars(1),
                     bpm: 60.0,
+                    ramp: false,
                 },
             ])
             .unwrap(),
@@ -369,4 +371,40 @@ fn scrubbing_while_stopped_plays_the_step_and_moves_the_markers() {
         .unwrap();
     run(&mut engine, 128, 128, RATE);
     assert_eq!(handle.transport().sample, at + 128);
+}
+
+#[test]
+fn a_loop_across_a_tempo_ramp_ends_on_the_sample_the_ramp_puts_it() {
+    // 120 BPM gliding to 60 over the first bar (4 quarters), then 60 BPM:
+    // the bar takes 60 * 4 / (60 - 120) * ln(0.5) = 2.7726 s.
+    let map = TempoMap::new(vec![
+        TempoPoint {
+            at: Ticks::ZERO,
+            bpm: 120.0,
+            ramp: true,
+        },
+        TempoPoint {
+            at: bars(1),
+            bpm: 60.0,
+            ramp: false,
+        },
+    ])
+    .unwrap();
+    let end = map.sample_at(bars(1), RATE);
+    assert!((end - 133_084).abs() <= 1, "{end}");
+    let (mut handle, mut engine) = setup(Timeline::default());
+    handle
+        .send(Command::SetLoop(Region::new(Ticks::ZERO, bars(1), true)))
+        .unwrap();
+    handle
+        .set_timeline(Timeline::new(
+            map,
+            lumen_core::meter::MeterMap::constant(Meter::FOUR_FOUR).unwrap(),
+        ))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    run(&mut engine, end as usize + 1_000, 1_000, RATE);
+    let played = &engine.source().played;
+    assert_eq!(played[end as usize - 1], end - 1);
+    assert_eq!(played[end as usize], 0, "back to the start of the loop");
 }

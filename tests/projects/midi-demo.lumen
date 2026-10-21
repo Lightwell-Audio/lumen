@@ -1,6 +1,6 @@
 {
   "format": "lumen-project",
-  "version": 21,
+  "version": 24,
   "generator": "Lumen 0.0.1",
   "project": {
     "name": "MIDI demo",
@@ -11,10 +11,15 @@
         "bpm": 120.0
       }
     ],
-    "time_signature": {
-      "numerator": 4,
-      "denominator": 4
-    },
+    "meter": [
+      {
+        "at": 0,
+        "meter": {
+          "numerator": 4,
+          "denominator": 4
+        }
+      }
+    ],
     "tracks": [
       {
         "id": "0000000000000001",

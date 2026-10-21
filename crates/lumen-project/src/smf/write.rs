@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use lumen_core::time::{PPQ, Ticks};
+use lumen_core::time::{PPQ, TempoMap, Ticks};
 use midly::num::{u4, u7, u15, u24, u28};
 use midly::{
     Format, Header, MetaMessage, MidiMessage, PitchBend, Smf, Timing, TrackEvent, TrackEventKind,
@@ -65,7 +65,13 @@ type Timed<'a> = (u64, Rank, TrackEventKind<'a>);
 /// cannot be made.
 pub fn write(file: &MidiFile, layout: Layout) -> Result<Vec<u8>, WriteError> {
     let mut conductor: Vec<Timed<'static>> = Vec::new();
-    for point in &file.tempo {
+    // A file holds steps only: a ramp is written as a run of short steps.
+    let steps = if file.tempo.iter().any(|p| p.ramp) {
+        TempoMap::new(file.tempo.clone()).map_or_else(|_| file.tempo.clone(), |map| map.stepped())
+    } else {
+        file.tempo.clone()
+    };
+    for point in &steps {
         let micros = (60_000_000.0 / point.bpm)
             .round()
             .clamp(1.0, f64::from(0xFF_FFFF_u32));
@@ -75,12 +81,13 @@ pub fn write(file: &MidiFile, layout: Layout) -> Result<Vec<u8>, WriteError> {
             TrackEventKind::Meta(MetaMessage::Tempo(u24::new(micros as u32))),
         ));
     }
-    if let Some(sig) = file.meter {
-        let power = sig.denominator.max(1).trailing_zeros() as u8;
+    for point in &file.meter {
+        let power = point.meter.denominator.max(1).trailing_zeros() as u8;
+        let numerator = point.meter.numerator.min(u32::from(u8::MAX)) as u8;
         conductor.push((
-            0,
+            tick(point.at),
             Rank::Meta,
-            TrackEventKind::Meta(MetaMessage::TimeSignature(sig.numerator, power, 24, 8)),
+            TrackEventKind::Meta(MetaMessage::TimeSignature(numerator, power, 24, 8)),
         ));
     }
     let tracks: Vec<Vec<TrackEvent<'_>>> = match layout {

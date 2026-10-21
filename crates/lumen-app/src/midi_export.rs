@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use lumen_core::meter::MeterPoint;
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
 use lumen_project::edit::{content_length, in_window, repeats, to_arrangement};
 use lumen_project::model::{Clip, ClipContent, ClipEvent, Id, Note, Project, TrackKind};
@@ -89,20 +90,39 @@ fn tempo_from(project: &Project, from: Ticks) -> Vec<TempoPoint> {
     let Ok(map) = TempoMap::new(project.tempo.clone()) else {
         return project.tempo.clone();
     };
-    let points = map.points();
+    // A file holds steps only: a ramp comes out as a run of short steps.
+    let points = map.stepped();
     let first = points
         .iter()
         .rev()
         .find(|p| p.at <= from)
         .map_or(120.0, |p| p.bpm);
-    let mut out = vec![TempoPoint {
+    let mut out = vec![TempoPoint::step(Ticks::ZERO, first)];
+    out.extend(
+        points
+            .iter()
+            .filter(|p| p.at > from)
+            .map(|p| TempoPoint::step(p.at - from, p.bpm)),
+    );
+    out
+}
+
+/// The time-signature changes from `from` on, moved to start at zero.
+fn meter_from(project: &Project, from: Ticks) -> Vec<MeterPoint> {
+    let mut out = vec![MeterPoint {
         at: Ticks::ZERO,
-        bpm: first,
+        meter: project.meter_map().meter_at(from),
     }];
-    out.extend(points.iter().filter(|p| p.at > from).map(|p| TempoPoint {
-        at: p.at - from,
-        bpm: p.bpm,
-    }));
+    out.extend(
+        project
+            .meter
+            .iter()
+            .filter(|p| p.at > from)
+            .map(|p| MeterPoint {
+                at: p.at - from,
+                meter: p.meter,
+            }),
+    );
     out
 }
 
@@ -157,7 +177,7 @@ pub fn clips_file(project: &Project, ids: &[Id]) -> Option<MidiFile> {
             events,
         }],
         tempo: tempo_from(project, from),
-        meter: Some(project.time_signature),
+        meter: meter_from(project, from),
     })
 }
 
@@ -185,7 +205,7 @@ pub fn project_file(project: &Project) -> Option<MidiFile> {
     (!tracks.is_empty()).then(|| MidiFile {
         tracks,
         tempo: project.tempo.clone(),
-        meter: Some(project.time_signature),
+        meter: project.meter.clone(),
     })
 }
 
@@ -325,14 +345,17 @@ mod tests {
             TempoPoint {
                 at: q(0),
                 bpm: 100.0,
+                ramp: false,
             },
             TempoPoint {
                 at: q(4),
                 bpm: 110.0,
+                ramp: false,
             },
             TempoPoint {
                 at: q(12),
                 bpm: 90.0,
+                ramp: false,
             },
         ];
         let file = clips_file(&p, &[Id(1), Id(2), Id(99)]).unwrap();
@@ -345,11 +368,13 @@ mod tests {
             [
                 TempoPoint {
                     at: q(0),
-                    bpm: 110.0
+                    bpm: 110.0,
+                    ramp: false
                 },
                 TempoPoint {
                     at: q(4),
-                    bpm: 90.0
+                    bpm: 90.0,
+                    ramp: false
                 },
             ]
         );
@@ -392,7 +417,7 @@ mod tests {
             .collect();
         assert_eq!(parts, [(Some("Keys"), 0), (Some("Hardware"), 4)]);
         assert_eq!(file.tempo, p.tempo);
-        assert_eq!(file.meter, Some(p.time_signature));
+        assert_eq!(file.meter, p.meter);
         assert_eq!(project_file(&project(Vec::new())), None);
     }
 }

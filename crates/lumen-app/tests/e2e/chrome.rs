@@ -42,7 +42,7 @@ fn the_time_signature_is_one_field_that_takes_a_typed_meter() {
     lumen.key(Modifiers::COMMAND, Key::A);
     lumen.harness.event(Event::Text("7/8".into()));
     lumen.key(Modifiers::NONE, Key::Enter);
-    let meter = lumen.app().project().time_signature;
+    let meter = lumen.app().project().meter[0].meter;
     assert_eq!((meter.numerator, meter.denominator), (7, 8));
     assert!(lumen.shows("Time signature: 7/8"));
     // Not a meter Lumen has: nothing changes.
@@ -54,7 +54,7 @@ fn the_time_signature_is_one_field_that_takes_a_typed_meter() {
     lumen.key(Modifiers::COMMAND, Key::A);
     lumen.harness.event(Event::Text("7/7".into()));
     lumen.key(Modifiers::NONE, Key::Enter);
-    let meter = lumen.app().project().time_signature;
+    let meter = lumen.app().project().meter[0].meter;
     assert_eq!((meter.numerator, meter.denominator), (7, 8));
 }
 

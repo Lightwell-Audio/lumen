@@ -385,7 +385,10 @@ impl App {
                 self.settings_changed = Some(std::time::Instant::now());
                 self.run(ctx, command);
             }
-            Entry::Tempo(bpm) => self.document.set_tempo(bpm, None),
+            Entry::Tempo(bpm) => {
+                let at = self.transport.playhead();
+                self.document.set_tempo_at(at, bpm, None);
+            }
             Entry::Bar(bar) => {
                 let at = self.transport.timeline.meter.bar_start(bar - 1);
                 self.transport.locate(at);

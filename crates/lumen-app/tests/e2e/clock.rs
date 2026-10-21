@@ -72,10 +72,12 @@ fn a_synced_port_follows_play_the_tempo_map_loops_jumps_and_stop() {
         TempoPoint {
             at: Ticks::ZERO,
             bpm: 480.0,
+            ramp: false,
         },
         TempoPoint {
             at: Ticks::quarters(4),
             bpm: 960.0,
+            ramp: false,
         },
     ];
     project.transport.loop_start = Ticks::quarters(2);

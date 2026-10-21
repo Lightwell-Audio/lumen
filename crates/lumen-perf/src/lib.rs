@@ -572,6 +572,7 @@ fn busy_tempo_map() -> TempoMap {
             .map(|i| TempoPoint {
                 at: Ticks::quarters(i * 8),
                 bpm: 80.0 + (i % 16) as f64 * 7.5,
+                ramp: false,
             })
             .collect(),
     )

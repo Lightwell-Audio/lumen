@@ -266,7 +266,7 @@ impl App {
         } else {
             settings
                 .count_in
-                .beats(u32::from(project.time_signature.numerator))
+                .beats(project.meter_map().meter_at(start).numerator)
         };
         let now = Instant::now();
         let rec = self.document.begin_recording(&tracks);
@@ -302,12 +302,7 @@ impl App {
     pub(crate) fn update_recording(&mut self) {
         self.step_recording();
         let head = self.transport.state().ticks;
-        let signature = self.document.project().time_signature;
-        let bar = lumen_core::meter::Meter {
-            numerator: u32::from(signature.numerator),
-            denominator: u32::from(signature.denominator),
-        }
-        .bar();
+        let bar = self.document.project().meter_map().meter_at(head).bar();
         self.arrangement.recording = self
             .record
             .session

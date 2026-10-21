@@ -225,10 +225,12 @@ mod tests {
             TempoPoint {
                 at: Ticks::ZERO,
                 bpm: 120.0,
+                ramp: false,
             },
             TempoPoint {
                 at: Ticks::quarters(4),
                 bpm: 90.0,
+                ramp: false,
             },
         ])
         .unwrap();

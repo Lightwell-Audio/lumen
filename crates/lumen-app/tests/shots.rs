@@ -3277,3 +3277,47 @@ fn controller_mappings() {
         }
     }
 }
+
+/// The tempo and meter lanes (M7 slice A6): three tempos with their values,
+/// a picked change, time signatures 4/4, 7/8 and 3/4 as chips, the playhead
+/// in the second segment so the name column reads that tempo and meter, and
+/// the box a tempo is typed in. Dark and light at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn song_lanes() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-song-{appearance}-{scale}"));
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
+            h.state_mut()
+                .give_song_maps(&[(8, 96.5), (20, 140.0)], &[(8, 7, 8), (15, 3, 4)]);
+            // The corner button, with the lanes hidden and then lit.
+            h.run_steps(30);
+            save(&mut h, &format!("song-lanes-hidden-{appearance}-{scale}"));
+            h.state_mut().ramp_song_tempo(1);
+            h.state_mut().show_song_lanes(true);
+            h.run_steps(60);
+            // Pick the second tempo change, as a click would, and put the
+            // playhead past it with a click on the bar ruler.
+            let p = h.state().song_tempo_spot(8.0, 96.5).expect("drawn");
+            click(&mut h, p);
+            h.run_steps(10);
+            save(&mut h, &format!("song-lanes-{appearance}-{scale}"));
+            // Type its tempo.
+            h.event(Event::PointerButton {
+                pos: p,
+                button: eframe::egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            });
+            h.event(Event::PointerButton {
+                pos: p,
+                button: eframe::egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::NONE,
+            });
+            h.run_steps(30);
+            save(&mut h, &format!("song-lanes-typing-{appearance}-{scale}"));
+        }
+    }
+}

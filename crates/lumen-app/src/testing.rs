@@ -1787,3 +1787,82 @@ impl PianoRollDemo {
         crate::piano_roll::demo::show(ui, &self.boxes, points_per_beat, row_height);
     }
 }
+
+/// The tempo and meter lanes (M7 slice A6), for pressing and reading them.
+impl App {
+    /// Whether the lanes are shown (fully, once they have settled).
+    pub fn song_lanes_shown(&self) -> bool {
+        self.song.shown
+    }
+
+    /// Where a tempo of `bpm` at `quarters` is drawn in the tempo lane.
+    pub fn song_tempo_spot(&self, quarters: f64, bpm: f64) -> Option<egui::Pos2> {
+        let (band, scale) = self.song.drawn?;
+        Some(egui::pos2(
+            band.tempo.x(crate::ruler::ticks_at(quarters)),
+            band.tempo.y(scale, bpm),
+        ))
+    }
+
+    /// The middle of the chip of time-signature change `index`.
+    pub fn song_chip_spot(&self, index: usize) -> Option<egui::Pos2> {
+        let (band, _) = self.song.drawn?;
+        let point = self.document.project().meter.get(index).copied()?;
+        Some(crate::song_lanes::scale::chip(&band.meter, &point).center())
+    }
+
+    /// An empty place in the meter lane at `quarters`.
+    pub fn song_meter_spot(&self, quarters: f64) -> Option<egui::Pos2> {
+        let (band, _) = self.song.drawn?;
+        Some(egui::pos2(
+            band.meter.x(crate::ruler::ticks_at(quarters)),
+            band.meter.rect.center().y,
+        ))
+    }
+
+    /// The change picked in the lanes: which lane (`"tempo"` or `"meter"`)
+    /// and its index.
+    pub fn song_picked(&self) -> Option<(&'static str, usize)> {
+        let p = self.song.picked?;
+        Some((
+            match p.which {
+                crate::song_lanes::Which::Tempo => "tempo",
+                crate::song_lanes::Which::Meter => "meter",
+            },
+            p.index,
+        ))
+    }
+
+    /// Whether a box to type a tempo or a time signature is open.
+    pub fn song_typing_open(&self) -> bool {
+        self.song.typing.is_some()
+    }
+}
+
+impl App {
+    /// Gives the song tempo changes `(quarters, bpm)` and time-signature
+    /// changes `(quarters, beats, unit)`, as the lanes would make them. The
+    /// maps are tidied, so a change off a bar line moves to one.
+    pub fn give_song_maps(&mut self, tempos: &[(i64, f64)], meters: &[(i64, u32, u32)]) {
+        for &(quarters, bpm) in tempos {
+            self.document
+                .put_tempo_change(Ticks::quarters(quarters), bpm, None);
+        }
+        for &(quarters, beats, unit) in meters {
+            self.document
+                .put_meter_change(Ticks::quarters(quarters), beats, unit);
+        }
+    }
+
+    /// Makes tempo change `index` ramp to the next, as its menu does.
+    pub fn ramp_song_tempo(&mut self, index: usize) {
+        self.document.set_tempo_ramp(index, true);
+    }
+
+    /// Shows or hides the tempo and meter lanes, as T does.
+    pub fn show_song_lanes(&mut self, shown: bool) {
+        if self.song.shown != shown {
+            self.song_lanes_toggle();
+        }
+    }
+}

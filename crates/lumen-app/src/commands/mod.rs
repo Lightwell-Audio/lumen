@@ -183,6 +183,10 @@ pub(crate) enum Command {
     ControllerLearn,
     ControllerClear,
     ControllerMappings,
+    SongLanesShow,
+    TempoChangeAdd,
+    MeterChangeAdd,
+    TempoRamp,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -431,6 +435,10 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::ControllerLearn, "midi.learn", "Learn a controller for the shown lane's control", Area::Midi, &[], "Waits for you to move a knob or fader on a MIDI controller, then maps it to the control the shown automation lane draws (show it with A). Run it again, or press Esc, to stop waiting."),
     info(Command::ControllerClear, "midi.clear_mapping", "Clear the controller mapping of the shown lane's control", Area::Midi, &[], "Takes away the controller that moves the control the shown automation lane draws."),
     info(Command::ControllerMappings, "midi.mappings", "Controller mappings", Area::Midi, &[], "Opens the list of controller mappings in the project: which knob moves which control. Each can be cleared there."),
+    info(Command::SongLanesShow, "view.song_lanes", "Show or hide the tempo and meter lanes", Area::View, &[plain(Key::T)], "Shows or hides the tempo and time-signature lanes under the bar ruler. Click the tempo lane to add a change, drag a point to move it, double-click it to type a tempo; click the meter lane to add a time signature on a bar line."),
+    info(Command::TempoChangeAdd, "edit.tempo_change", "Add a tempo change at the playhead", Area::Edit, &[], "Adds a tempo change at the playhead, at the tempo already playing there, and asks for the new tempo. The tempo lane is shown if it is hidden."),
+    info(Command::MeterChangeAdd, "edit.meter_change", "Add a time signature change at the playhead", Area::Edit, &[], "Adds a time signature change on the bar line nearest the playhead and asks for it, as 7/8. The meter lane is shown if it is hidden."),
+    info(Command::TempoRamp, "edit.tempo_ramp", "Ramp or hold the picked tempo change", Area::Edit, &[], "Makes the picked tempo change glide to the tempo of the next change in a straight line, or hold its own tempo until the next change again. The last change has no next change to glide to."),
 ];
 
 const fn info(
@@ -480,7 +488,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::ControllerMappings as usize + 1,
+            Command::TempoRamp as usize + 1,
             ALL.len(),
             "a command is missing"
         );

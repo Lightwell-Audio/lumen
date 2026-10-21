@@ -1,7 +1,7 @@
 //! The metronome, the test tone and panic (M2 slice 7).
 
-use lumen_core::meter::Meter;
-use lumen_core::time::Ticks;
+use lumen_core::meter::{Meter, MeterMap, MeterPoint};
+use lumen_core::time::{TempoMap, Ticks};
 use lumen_engine::{
     ClickSound, Command, Engine, EngineHandle, MetronomeSettings, Region, Timeline, engine,
 };
@@ -106,6 +106,56 @@ fn accents_follow_the_time_signature() {
         .filter(|&b| peak(&out[b * 12_000..b * 12_000 + 2_400]) > 0.4)
         .collect();
     assert_eq!(loud, vec![0, 7, 14]);
+}
+
+/// Two bars of 4 quarters, then 3/4: the bars begin at beats 0, 4, 8, 11, 14.
+fn four_then_three() -> Timeline {
+    let at = |quarters, numerator, denominator| MeterPoint {
+        at: Ticks::quarters(quarters),
+        meter: Meter {
+            numerator,
+            denominator,
+        },
+    };
+    Timeline::new(
+        TempoMap::constant(120.0).unwrap(),
+        MeterMap::new(vec![at(0, 4, 4), at(8, 3, 4)]).unwrap(),
+    )
+}
+
+/// The beats whose click is accented, of the first `beats` beats of `out`.
+fn accented(out: &[f32], beats: usize) -> Vec<usize> {
+    (0..beats)
+        .filter(|&b| peak(&out[b * BEAT..b * BEAT + 2_400]) > 0.4)
+        .collect()
+}
+
+#[test]
+fn accents_follow_a_change_of_time_signature_along_the_song() {
+    for block in [64, 333] {
+        let (mut handle, mut engine) = metronome(four_then_three(), 0.5, ClickSound::Wood);
+        handle.send(Command::Play).unwrap();
+        let out = run(&mut engine, 16 * BEAT, block);
+        assert_eq!(accented(&out, 16), vec![0, 4, 8, 11, 14], "block {block}");
+    }
+}
+
+#[test]
+fn a_loop_across_a_change_of_time_signature_keeps_every_bar_accented() {
+    let (mut handle, mut engine) = metronome(four_then_three(), 0.5, ClickSound::Wood);
+    // Loop the second 4/4 bar and the first 3/4 bar: quarters 4 to 11.
+    handle
+        .send(Command::SetLoop(Region::new(
+            Ticks::quarters(4),
+            Ticks::quarters(11),
+            true,
+        )))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 18 * BEAT, 300);
+    // Beats 0 to 3 are the first bar; then the loop: 4 and 8 begin its two
+    // bars; the wrap at 11 begins the first again, and 15 the second.
+    assert_eq!(accented(&out, 18), vec![0, 4, 8, 11, 15]);
 }
 
 #[test]
