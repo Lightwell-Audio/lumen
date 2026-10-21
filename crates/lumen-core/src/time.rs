@@ -132,6 +132,8 @@ pub struct TempoMap {
     seconds: Vec<f64>,
     /// How each segment runs, so a lookup reads one entry.
     runs: Vec<Run>,
+    /// Whether any segment ramps: a map of steps takes the short way.
+    ramps: bool,
 }
 
 impl TempoMap {
@@ -161,10 +163,12 @@ impl TempoMap {
             seconds.push(elapsed);
             runs.push(Run::of(&points, index));
         }
+        let ramps = runs.iter().any(|run| run.ramp.is_some());
         Ok(Self {
             points,
             seconds,
             runs,
+            ramps,
         })
     }
 
@@ -176,7 +180,11 @@ impl TempoMap {
     /// is extrapolated.
     pub fn seconds_at(&self, t: Ticks) -> f64 {
         let i = self.points.partition_point(|p| p.at <= t).saturating_sub(1);
-        self.seconds[i] + self.runs[i].seconds(t - self.points[i].at)
+        let point = self.points[i];
+        if !self.ramps {
+            return self.seconds[i] + segment_seconds(t - point.at, point.bpm);
+        }
+        self.seconds[i] + self.runs[i].seconds(t - point.at)
     }
 
     /// The sample at `t`: nearest sample, ties away from zero.
@@ -190,8 +198,13 @@ impl TempoMap {
             .seconds
             .partition_point(|&s| s <= seconds)
             .saturating_sub(1);
-        let ticks = self.runs[i].ticks(seconds - self.seconds[i]);
-        self.points[i].at + Ticks(ticks.round() as i64)
+        let point = self.points[i];
+        let ticks = if self.ramps {
+            self.runs[i].ticks(seconds - self.seconds[i])
+        } else {
+            (seconds - self.seconds[i]) * point.bpm / 60.0 * PPQ as f64
+        };
+        point.at + Ticks(ticks.round() as i64)
     }
 
     /// The tick nearest to the start of `sample`.
@@ -256,6 +269,10 @@ pub fn bpm_at(points: &[TempoPoint], t: Ticks) -> f64 {
     }
     let i = points.partition_point(|p| p.at <= t).saturating_sub(1);
     Run::of(points, i).bpm(t - points[i].at)
+}
+
+fn segment_seconds(duration: Ticks, bpm: f64) -> f64 {
+    duration.0 as f64 / PPQ as f64 * 60.0 / bpm
 }
 
 /// The most steps one ramp is written as.
