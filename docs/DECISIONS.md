@@ -8137,7 +8137,8 @@ point, no new version):
 5. **Discoverability.** The lanes had only T and the palette. Now a **Tempo** button in the ruler's
    corner, beside Grid (`size::SONG_BUTTON`; lit with `Tone::On` while shown; tooltip with the T keycap;
    accessible name "Tempo and meter lanes"), and a toggle **Tempo and meter lanes** in the bar ruler's
-   right-click menu with the keycap. **Verified:** units for each piece above, 4 more E2E scenarios (button,
+   right-click menu with the keycap. **Performance gate:** the ramp conversion first read `tempo_conversions` +8%; each segment's run is now worked out once and a map of steps takes the old short path (+1.85%). `engine_hosted_64` reads +1.86% on `main` already (drift from earlier slices; this branch +2.03%), so its baseline was moved to this machine's count (688,565,420) from WSL, the other scenarios left as they were.
+**Verified:** units for each piece above, 4 more E2E scenarios (button,
    menu, a ramp from its menu with the bar field reading the middle of the glide, the palette command),
    a shot (`song_lanes`, with the lanes hidden and shown, both themes at 100, 150 and 200%; the ramp and
    the lit button looked at), the workspace tests and 6 smoke. **Not verified:** a ramp heard by ear
