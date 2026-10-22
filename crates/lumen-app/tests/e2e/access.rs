@@ -184,6 +184,85 @@ fn every_control_in_every_m4_view_has_a_name() {
     );
 }
 
+#[test]
+fn every_control_in_every_m7_view_has_a_name() {
+    use lumen_project::automation::Target;
+
+    use super::lane_view::{click_at, run_command, spot, tone};
+
+    let (mut lumen, track) = tone("access-m7");
+    let mut problems = Vec::new();
+
+    // The lane over the clips, with its chip, tool strip and a point.
+    lumen.key(Modifiers::NONE, Key::A);
+    lumen.frames(40);
+    let at = spot(&lumen, track, 4.0, -12.0);
+    click_at(&mut lumen, at);
+    check(&lumen, "lane, tool strip and a point", &mut problems);
+
+    // The chip's menu: parameters, the modes, the plugin list.
+    lumen.click("Automation lane of tone: Volume");
+    check(&lumen, "lane chip menu", &mut problems);
+    lumen.key(Modifiers::NONE, Key::Escape);
+
+    // A control the lane drives, moved: the override state and its button.
+    lumen.app_mut().set_track_volume(track, -3.0);
+    lumen.frames(10);
+    assert!(lumen.app().shows_lane_overridden(track, Target::Volume));
+    check(&lumen, "lane taken over, with Re-enable", &mut problems);
+    lumen.app_mut().reenable_lane(track, Target::Volume);
+    lumen.frames(10);
+
+    // The right-click menu every automatable control ends with.
+    lumen.click("Fold tone");
+    lumen.frames(40);
+    let slider = lumen.harness.get_by_label_contains("Volume tone:").rect();
+    lumen.right_click(slider.center());
+    lumen.frames(5);
+    assert!(lumen.shows("Learn a controller"), "the control's menu is open");
+    check(&lumen, "control menu", &mut problems);
+    lumen.key(Modifiers::NONE, Key::Escape);
+
+    // The mapping list, empty and with one mapping.
+    run_command(&mut lumen, "Controller mappings");
+    assert!(lumen.app().mappings_window_open());
+    check(&lumen, "mappings window, empty", &mut problems);
+    lumen
+        .app_mut()
+        .give_mapping(track, Target::Volume, 0, 7)
+        .unwrap();
+    lumen.frames(5);
+    check(&lumen, "mappings window, one mapping", &mut problems);
+    lumen.key(Modifiers::NONE, Key::Escape);
+
+    // The tempo and meter lanes, with a change in each.
+    lumen.key(Modifiers::NONE, Key::T);
+    lumen.frames(40);
+    let tempo = lumen.app().song_tempo_spot(8.0, 100.0).unwrap();
+    click_at(&mut lumen, tempo);
+    let meter = lumen.app().song_meter_spot(8.0).unwrap();
+    click_at(&mut lumen, meter);
+    check(&lumen, "tempo and meter lanes", &mut problems);
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.key(Modifiers::NONE, Key::T);
+    lumen.frames(40);
+
+    // A clip's envelope, with its chip.
+    let clip = lumen.app().project().tracks[0].clips[0].id;
+    lumen.app_mut().select_clip(clip);
+    lumen.frames(5);
+    lumen.key(Modifiers::NONE, Key::E);
+    lumen.frames(40);
+    assert!(lumen.app().automation_shown(track).is_some_and(|t| t.clip().is_some()));
+    check(&lumen, "clip envelope", &mut problems);
+
+    assert!(
+        problems.is_empty(),
+        "unnamed controls:\n{}",
+        problems.join("\n")
+    );
+}
+
 /// What a screen reader says for the control with the keyboard focus:
 /// its name, or its text.
 pub(super) fn focused(lumen: &Lumen) -> Option<String> {

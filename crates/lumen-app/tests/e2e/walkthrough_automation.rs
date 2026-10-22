@@ -92,7 +92,10 @@ fn draw_volume(lumen: &mut Lumen) {
     }
     let drawn = volume(lumen);
     assert_eq!(drawn.len(), 2, "two points drawn: {drawn:?}");
-    assert!(drawn[0].0 < drawn[1].0 && drawn[0].1 < drawn[1].1, "{drawn:?}");
+    assert!(
+        drawn[0].0 < drawn[1].0 && drawn[0].1 < drawn[1].1,
+        "{drawn:?}"
+    );
 }
 
 /// Chooses the effect's gain from the chip's plugin list and draws it: shut
