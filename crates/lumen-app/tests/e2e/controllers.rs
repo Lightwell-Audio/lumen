@@ -43,7 +43,7 @@ fn launch(name: &str) -> (Lumen, FakeControl, Id) {
 }
 
 /// Sends controller `number` on `channel` (0 to 15) at `value`.
-fn cc(fake: &FakeControl, channel: u8, number: u8, value: u8) {
+pub(super) fn cc(fake: &FakeControl, channel: u8, number: u8, value: u8) {
     let stamp = STAMP.fetch_add(5_000, Ordering::Relaxed);
     assert!(fake.send_to_input("Pad", stamp, &[0xB0 | channel, number, value]));
 }
@@ -68,7 +68,7 @@ fn learn_volume(lumen: &mut Lumen, fake: &FakeControl, track: Id, channel: u8, n
 }
 
 /// Lets a controller's hold run out, so its moves are sealed into one step.
-fn let_go(lumen: &mut Lumen) {
+pub(super) fn let_go(lumen: &mut Lumen) {
     for _ in 0..8 {
         lumen.frames(2);
         std::thread::sleep(Duration::from_millis(60));

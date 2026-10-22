@@ -48,7 +48,7 @@ fn volume_slider(lumen: &Lumen) -> Rect {
 
 /// Presses the fader and moves it right in steps a frame apart, as a hand
 /// would, and keeps holding it.
-fn grab(lumen: &mut Lumen, slider: Rect) -> Pos2 {
+pub(super) fn grab(lumen: &mut Lumen, slider: Rect) -> Pos2 {
     let from = slider.center();
     lumen.harness.hover_at(from);
     lumen.harness.drag_at(from);
@@ -63,7 +63,7 @@ fn grab(lumen: &mut Lumen, slider: Rect) -> Pos2 {
     at
 }
 
-fn let_go(lumen: &mut Lumen, at: Pos2) {
+pub(super) fn let_go(lumen: &mut Lumen, at: Pos2) {
     lumen.harness.drop_at(at);
     lumen.frames(3);
 }
