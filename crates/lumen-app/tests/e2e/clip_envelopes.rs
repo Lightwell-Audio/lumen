@@ -217,3 +217,89 @@ fn delete_takes_the_picked_point_and_the_last_one_takes_the_envelope() {
         "no empty envelope is kept"
     );
 }
+
+// ---- Lock envelopes (the owner's E3): the track's automation and its clips ----
+
+use lumen_core::automation::{Lane, Point};
+
+fn volume_lane(points: &[(i64, f32)]) -> Lane {
+    Lane::new(
+        points
+            .iter()
+            .map(|&(q, v)| Point::new(Ticks::quarters(q), v))
+            .collect(),
+    )
+    .unwrap()
+}
+
+/// A track whose one clip is eight quarters long, with a volume lane that has
+/// points at 2 and 6 (under the clip) and 12 (past it).
+fn automated(name: &str) -> (Lumen, Id, Id) {
+    let (mut lumen, _) = tone(name);
+    let (track, clip) = picked(&mut lumen);
+    lumen.app_mut().trim_clip_end_to(clip, Ticks::quarters(8));
+    lumen
+        .app_mut()
+        .give_lane(
+            track,
+            Target::Volume,
+            volume_lane(&[(2, -6.0), (6, -12.0), (12, 0.0)]),
+        )
+        .unwrap();
+    lumen.frames(5);
+    (lumen, track, clip)
+}
+
+fn volume_points(lumen: &Lumen) -> Vec<i64> {
+    lumen.app().project().tracks[0]
+        .lane(Target::Volume)
+        .map(|l| l.lane.points().iter().map(|p| p.at.0 / Ticks::quarters(1).0).collect())
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_moved_clip_takes_the_automation_under_it_and_undo_gives_it_back() {
+    let (mut lumen, _, clip) = automated("lock-move");
+    lumen.app_mut().move_clip_to(clip, Ticks::quarters(16));
+    lumen.frames(3);
+    assert_eq!(volume_points(&lumen), vec![12, 18, 22], "2 and 6 went with it");
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(volume_points(&lumen), vec![2, 6, 12], "one undo step");
+}
+
+#[test]
+fn with_envelopes_locked_the_automation_stays_where_it_is() {
+    let (mut lumen, _, clip) = automated("lock-on");
+    super::lane_view::run_command(&mut lumen, "Lock envelopes");
+    lumen.app_mut().move_clip_to(clip, Ticks::quarters(16));
+    lumen.frames(3);
+    assert_eq!(volume_points(&lumen), vec![2, 6, 12]);
+    // The choice is the user's, kept in the settings.
+    assert!(lumen.app().lock_envelopes());
+    super::lane_view::run_command(&mut lumen, "Lock envelopes");
+    assert!(!lumen.app().lock_envelopes());
+}
+
+#[test]
+fn deleting_a_clip_removes_the_automation_under_it() {
+    let (mut lumen, _, clip) = automated("lock-delete");
+    lumen.app_mut().select_clip(clip);
+    lumen.key(Modifiers::NONE, Key::Delete);
+    lumen.frames(3);
+    assert_eq!(volume_points(&lumen), vec![12]);
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(volume_points(&lumen), vec![2, 6, 12]);
+}
+
+#[test]
+fn duplicating_a_clip_duplicates_the_automation_under_it() {
+    let (mut lumen, _, clip) = automated("lock-duplicate");
+    lumen.app_mut().select_clip(clip);
+    lumen.key(Modifiers::COMMAND, Key::D);
+    lumen.frames(5);
+    // The copy lands right after the clip, eight quarters on: its points are
+    // 8 later, and the point at 12 is under it, so it is replaced by the copy.
+    assert_eq!(volume_points(&lumen), vec![2, 6, 10, 14]);
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(volume_points(&lumen), vec![2, 6, 12]);
+}

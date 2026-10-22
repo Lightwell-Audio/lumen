@@ -5,8 +5,25 @@ use std::sync::Arc;
 
 use lumen_core::time::Ticks;
 
-use super::{clear, slice, sort_clips, tempo_of};
+use lumen_core::automation::{Lane, Point};
+
+use super::{carry, clear, slice, sort_clips, tempo_of};
+use crate::automation::{AutomationLane, MAX_LANES, Target};
 use crate::model::{Clip, ClipContent, Id, Project, TrackKind};
+
+/// The points of one lane of a copied clip's track that lay under the copied
+/// clips (M7 slice A7, the owner's E3), measured from the copy's start.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LanePart {
+    /// The track the lane was on.
+    pub source: Id,
+    /// Its row, counted from the topmost copied track.
+    pub row: usize,
+    pub target: Target,
+    /// The copied clips' footprints on that track.
+    pub spans: Vec<(Ticks, Ticks)>,
+    pub points: Vec<Point>,
+}
 
 /// Copied clips, ready to paste: each with its track counted from the
 /// topmost copied track, and its start from the copy's start.
@@ -27,6 +44,9 @@ pub struct Clipboard {
     /// The topmost track it was copied from (index), where it pastes back
     /// when nothing else is chosen.
     pub from_track: usize,
+    /// The automation under copied clips, which pastes with them unless the
+    /// song locks envelopes. Empty for a copied range.
+    pub lanes: Vec<LanePart>,
 }
 
 /// The selected clips `ids`, copied (locked ones too: copying changes
@@ -43,6 +63,7 @@ pub fn copy_clips(project: &Project, ids: &[Id]) -> Option<Clipboard> {
     let bottom = found.iter().map(|(i, _)| *i).max()?;
     let origin = found.iter().map(|(_, c)| c.start).min()?;
     let end = found.iter().map(|(_, c)| c.start + c.length).max()?;
+    let lanes = lane_parts(project, &found, origin, top);
     let clips = found
         .into_iter()
         .map(|(i, c)| {
@@ -59,7 +80,100 @@ pub fn copy_clips(project: &Project, ids: &[Id]) -> Option<Clipboard> {
         rows: Vec::new(),
         range: false,
         from_track: top,
+        lanes,
     })
+}
+
+/// The points of each lane of the copied clips' tracks that lie under them.
+fn lane_parts(
+    project: &Project,
+    found: &[(usize, &Clip)],
+    origin: Ticks,
+    top: usize,
+) -> Vec<LanePart> {
+    let mut parts = Vec::new();
+    let mut rows: Vec<usize> = found.iter().map(|(i, _)| *i).collect();
+    rows.sort_unstable();
+    rows.dedup();
+    for i in rows {
+        let spans: Vec<(Ticks, Ticks)> = found
+            .iter()
+            .filter(|(r, _)| *r == i)
+            .map(|(_, c)| (c.start, c.start + c.length))
+            .collect();
+        let track = &project.tracks[i];
+        for entry in &track.automation {
+            let points: Vec<Point> = entry
+                .lane
+                .points()
+                .iter()
+                .filter(|p| spans.iter().any(|(a, b)| p.at >= *a && p.at < *b))
+                .map(|p| Point {
+                    at: p.at - origin,
+                    ..*p
+                })
+                .collect();
+            if points.is_empty() {
+                continue;
+            }
+            parts.push(LanePart {
+                source: track.id,
+                row: i - top,
+                target: entry.target,
+                spans: spans.iter().map(|(a, b)| (*a - origin, *b - origin)).collect(),
+                points,
+            });
+        }
+    }
+    parts
+}
+
+/// Puts the automation `clipboard` took from under its clips under the clips
+/// `paste` landed at `at`, from the track with index `track`: each lane's
+/// points go to the same lane of the track their clip landed on (made if it
+/// has none), clearing what the pasted clips cover. A plugin's parameters
+/// land only on the track they came from.
+pub fn paste_lanes(project: &mut Project, clipboard: &Clipboard, at: Ticks, track: usize) {
+    let at = at.max(Ticks::ZERO);
+    for part in &clipboard.lanes {
+        let Some(dest) = project.tracks.get_mut(track + part.row) else {
+            continue;
+        };
+        if dest.id != part.source && !carry::goes_between(part.target, dest) {
+            continue;
+        }
+        let dest = Arc::make_mut(dest);
+        for &(a, b) in &part.spans {
+            let landing = (a + at, b + at);
+            let moved: Vec<Point> = part
+                .points
+                .iter()
+                .filter(|p| p.at >= a && p.at < b)
+                .map(|p| Point {
+                    at: p.at + at,
+                    ..*p
+                })
+                .collect();
+            if moved.is_empty() {
+                continue;
+            }
+            let room = dest.automation.len() < MAX_LANES;
+            match dest.automation.iter_mut().find(|l| l.target == part.target) {
+                Some(entry) => {
+                    if let Some(lane) = carry::lay(&entry.lane, landing, &moved) {
+                        entry.lane = lane;
+                    }
+                }
+                None if room => {
+                    if let Ok(lane) = Lane::new(moved) {
+                        dest.automation
+                            .push(AutomationLane::new(part.target, lane));
+                    }
+                }
+                None => {}
+            }
+        }
+    }
 }
 
 /// The time range `[a, b)` on `tracks`, copied: clips cut at its edges.
@@ -90,6 +204,7 @@ pub fn copy_range(project: &Project, tracks: &[Id], a: Ticks, b: Ticks) -> Optio
         rows: rows.iter().map(|i| i - top).collect(),
         range: true,
         from_track: top,
+        lanes: Vec::new(),
     })
 }
 
@@ -182,6 +297,37 @@ mod tests {
             "track 1's part of the copy lands on track 2"
         );
         assert_eq!(crate::validate(&p), Ok(()));
+    }
+
+    #[test]
+    fn copied_clips_bring_the_automation_under_them_and_a_paste_lays_it_down() {
+        use crate::automation::AutomationLane;
+        use lumen_core::automation::{Lane, Point};
+        let mut p = song();
+        // Track 1 holds clip 10 from quarter 4 to 12; its volume lane has
+        // points inside it (5, 9) and outside (1, 20).
+        let points = [(1, -1.0), (5, -5.0), (9, -9.0), (20, -20.0)];
+        Arc::make_mut(&mut p.tracks[0]).automation = vec![AutomationLane::new(
+            crate::automation::Target::Volume,
+            Lane::new(points.iter().map(|&(t, v)| Point::new(q(t), v)).collect()).unwrap(),
+        )];
+        let copy = copy_clips(&p, &[Id(10)]).unwrap();
+        assert_eq!(copy.lanes.len(), 1);
+        assert_eq!(copy.lanes[0].points.len(), 2, "only what lies under the clip");
+        assert_eq!(copy.lanes[0].points[0].at, q(1), "from the copy's start");
+        // Paste it at quarter 20 onto track 3, which has no lane yet.
+        paste(&mut p, &copy, q(20), 2, &mut ids());
+        paste_lanes(&mut p, &copy, q(20), 2);
+        let lane = p.tracks[2]
+            .lane(crate::automation::Target::Volume)
+            .expect("a lane is made");
+        let at: Vec<_> = lane.lane.points().iter().map(|x| x.at).collect();
+        assert_eq!(at, vec![q(21), q(25)]);
+        // The source track's lane is as it was.
+        assert_eq!(
+            p.tracks[0].lane(crate::automation::Target::Volume).unwrap().lane.len(),
+            4
+        );
     }
 
     #[test]

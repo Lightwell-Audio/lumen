@@ -22,6 +22,7 @@ use crate::model::EventKind;
 use crate::model::{Clip, ClipContent, ClipEvent, Id, Note, Project};
 
 pub mod automation;
+pub mod carry;
 mod clipboard;
 pub mod events;
 pub mod maps;
@@ -34,7 +35,9 @@ pub mod record;
 pub mod seams;
 pub mod velocity;
 
-pub use clipboard::{Clipboard, copy_clips, copy_range, landing_tracks, paste};
+pub use clipboard::{
+    Clipboard, LanePart, copy_clips, copy_range, landing_tracks, paste, paste_lanes,
+};
 pub use note_selection::NoteSelection;
 pub use note_time::{
     content_length, in_window, repeats, shown, shown_notes, to_arrangement, to_clip_time,

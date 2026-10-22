@@ -430,6 +430,7 @@ impl App {
                 self.song_ramp_target().is_some(),
                 "Pick a tempo change that has another after it",
             ),
+            Command::LockEnvelopes => Ok(()),
             Command::ClipEnvelope => need(
                 self.selected_audio_clip().is_some(),
                 "Select one audio clip first",
@@ -659,6 +660,11 @@ impl App {
             Command::MeterChangeAdd => self.song_add_meter_at_playhead(),
             Command::TempoRamp => self.song_toggle_ramp(),
             Command::ClipEnvelope => self.clip_envelope_toggle(),
+            Command::LockEnvelopes => {
+                let lock = &mut self.settings.editing.lock_envelopes;
+                *lock = !*lock;
+                self.settings_changed = Some(std::time::Instant::now());
+            }
             Command::AutomationToggleLane => self.auto_toggle_lane(),
             Command::AutomationRemoveLane => self.auto_remove_lane(),
             Command::AutomationSegmentLinear => self.auto_shape_segments(Shape::Linear),

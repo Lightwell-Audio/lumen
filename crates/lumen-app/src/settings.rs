@@ -283,6 +283,19 @@ pub struct Settings {
     /// Plugin folders, favorites and recents (M6 slice 1): an added section
     /// with defaults, so older files read as before (no version change).
     pub plugins: crate::plugins::PluginSettings,
+    /// How clip edits treat automation (M7 slice A7): an added section with
+    /// defaults, so older files read as before (no version change).
+    pub editing: Editing,
+}
+
+/// How clip edits treat automation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Editing {
+    /// A clip that moves, is copied or is deleted leaves the track's
+    /// automation where it is (the owner's E3: off by default, so the points
+    /// under a clip go with it).
+    pub lock_envelopes: bool,
 }
 
 impl Default for Settings {
@@ -300,6 +313,7 @@ impl Default for Settings {
             midi: Midi::default(),
             record: RecordSettings::default(),
             plugins: Default::default(),
+            editing: Editing::default(),
         }
     }
 }
@@ -548,6 +562,9 @@ mod tests {
                 )]
                 .into_iter()
                 .collect(),
+            },
+            editing: Editing {
+                lock_envelopes: true,
             },
         };
         save(&path, &settings).unwrap();

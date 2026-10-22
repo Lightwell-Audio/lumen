@@ -188,6 +188,7 @@ pub(crate) enum Command {
     MeterChangeAdd,
     TempoRamp,
     ClipEnvelope,
+    LockEnvelopes,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -441,6 +442,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::MeterChangeAdd, "edit.meter_change", "Add a time signature change at the playhead", Area::Edit, &[], "Adds a time signature change on the bar line nearest the playhead and asks for it, as 7/8. The meter lane is shown if it is hidden."),
     info(Command::TempoRamp, "edit.tempo_ramp", "Ramp or hold the picked tempo change", Area::Edit, &[], "Makes the picked tempo change glide to the tempo of the next change in a straight line, or hold its own tempo until the next change again. The last change has no next change to glide to."),
     info(Command::ClipEnvelope, "view.clip_envelope", "Show or hide the clip's envelope", Area::View, &[plain(Key::E)], "Shows the gain envelope of the selected audio clip over it, or hides it. Click the clip to add a point, drag a point to move it; the chip at the envelope's corner switches between gain and pan. Points move with the clip."),
+    info(Command::LockEnvelopes, "edit.lock_envelopes", "Lock envelopes", Area::Edit, &[], "With this off, moving, copying or deleting a clip also moves, copies or removes the track's automation under it. With it on, automation stays where it is on the timeline."),
 ];
 
 const fn info(
@@ -490,7 +492,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::ClipEnvelope as usize + 1,
+            Command::LockEnvelopes as usize + 1,
             ALL.len(),
             "a command is missing"
         );

@@ -1581,6 +1581,11 @@ impl App {
         self.arrangement.selected = ids.to_vec();
     }
 
+    /// Whether the song locks envelopes: clip edits leave automation alone.
+    pub fn lock_envelopes(&self) -> bool {
+        self.settings.editing.lock_envelopes
+    }
+
     /// Selects this one clip, as clicking it would.
     pub fn select_clip(&mut self, id: Id) {
         self.arrangement.selected.clear();

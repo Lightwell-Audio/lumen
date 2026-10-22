@@ -78,6 +78,10 @@ pub struct Document {
     /// What each of those controls held before its first move (A4b): the
     /// value a Touch returns to when no lane says otherwise.
     rests: BTreeMap<(Id, Target), f32>,
+    /// Track automation stays where it is when clips move, are copied or are
+    /// deleted (M7 slice A7, the owner's E3: off by default, so automation
+    /// follows its clip). The app sets it from the settings.
+    lock_envelopes: bool,
 }
 
 impl Document {
@@ -98,7 +102,13 @@ impl Document {
             overrides: Overrides::default(),
             touched: Vec::new(),
             rests: BTreeMap::new(),
+            lock_envelopes: false,
         }
+    }
+
+    /// Whether clip edits leave the track's automation where it is.
+    pub fn set_lock_envelopes(&mut self, lock: bool) {
+        self.lock_envelopes = lock;
     }
 
     /// Which document this is (see `state` for which version of it).
