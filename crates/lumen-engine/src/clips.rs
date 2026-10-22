@@ -39,6 +39,7 @@ use std::collections::HashMap;
 use lumen_core::curve::Curve;
 use lumen_core::time::Ticks;
 
+use crate::envelope::{ClipEnvelope, EnvelopeGains};
 use crate::mixer::{BUS_CHANNELS, Buses, TrackSource};
 use crate::source::{Jump, Mode, RenderContext};
 use crate::timeline::Timeline;
@@ -95,6 +96,8 @@ pub struct Clip {
     pub audio: Arc<ClipAudio>,
     /// Fades and repeats.
     pub shape: ClipShape,
+    /// Gain and pan envelopes, on the clip's own clock (M7 slice A7).
+    pub envelope: ClipEnvelope,
 }
 
 /// A clip's fades and repeats, in frames at the device rate.
@@ -246,6 +249,7 @@ impl Clip {
             && self.offset == other.offset
             && self.length == other.length
             && self.shape == other.shape
+            && self.envelope == other.envelope
             && Arc::ptr_eq(&self.audio, &other.audio)
     }
 }
@@ -286,6 +290,8 @@ pub struct ClipPlayer {
     current: Box<ClipSet>,
     /// The list `current` replaced, while its moved clips fade out.
     swap: Option<Swap>,
+    /// The envelope gains of the clip being played.
+    gains: EnvelopeGains,
 }
 
 /// A crossfade from one clip list to the next.
@@ -313,6 +319,7 @@ pub fn clip_player() -> (ClipsHandle, ClipPlayer) {
             stash: None,
             current: Box::new(ClipSet::new(Vec::new(), &mut HashMap::new())),
             swap: None,
+            gains: EnvelopeGains::new(),
         },
     )
 }
@@ -330,6 +337,12 @@ struct Block {
     edge: i64,
     /// How far a level moves in one frame.
     glide: f32,
+}
+
+/// The block being rendered and the room to work out its envelope gains.
+struct Work<'a> {
+    block: Block,
+    gains: &'a mut EnvelopeGains,
 }
 
 /// How a clip fades across a clip list change, on top of its level.
@@ -380,10 +393,11 @@ fn play(
     fades: &Fades,
     kept: &mut f32,
     cx: &RenderContext<'_>,
-    block: &Block,
+    work: &mut Work<'_>,
     ramp: Ramp,
     buses: &mut Buses<'_>,
 ) {
+    let Work { block, gains } = work;
     let rate = cx.sample_rate;
     if clip.audio.sample_rate != rate || clip.length <= 0 {
         return;
@@ -421,15 +435,30 @@ fn play(
         // A clip with no channels has nothing to play (and no side to pick).
         return;
     }
-    let at = Placement {
-        start,
-        from: block.from,
-        edge: block.edge,
-        fades,
+    let enveloped = !clip.envelope.is_empty();
+    if enveloped {
+        gains.fill(
+            &clip.envelope,
+            (start, clip.shape.period.filter(|p| *p > 0)),
+            (block.from, a, b),
+            rate,
+        );
+    }
+    let gains: &EnvelopeGains = gains;
+    let mix = if clip.shape.plain() && !enveloped {
+        mix
+    } else {
+        mix_shaped
     };
-    let mix = if clip.shape.plain() { mix } else { mix_shaped };
     let mut gain = *level;
     for side in 0..BUS_CHANNELS {
+        let at = Placement {
+            start,
+            from: block.from,
+            edge: block.edge,
+            fades,
+            env: enveloped.then(|| gains.side(side)),
+        };
         // Mono plays on both sides; extra channels are ignored.
         let samples = &clip.audio.channels[side.min(sources - 1)];
         let target = bus.channel(side);
@@ -462,6 +491,9 @@ struct Placement<'a> {
     edge: i64,
     /// The clip's fade tables.
     fades: &'a Fades,
+    /// The envelope gains for this side, indexed by the frame's place in the
+    /// block; none for a clip without an envelope.
+    env: Option<&'a [f32]>,
 }
 
 /// Adds `clip`'s audio at `gain` for the timeline samples `frames` into
@@ -515,7 +547,9 @@ fn mix_shaped(
             continue;
         };
         let shaped = edge_gain(inner, span, at.edge) * shape.fade_gain(at.fades, pos, clip.length);
-        target[(t - at.from) as usize] += sample * gain * shaped;
+        let slot = (t - at.from) as usize;
+        let env = at.env.map_or(1.0, |e| e[slot]);
+        target[slot] += sample * gain * shaped * env;
     }
 }
 
@@ -616,6 +650,10 @@ impl TrackSource for ClipPlayer {
                 length: swap.length,
             }
         });
+        let mut work = Work {
+            block,
+            gains: &mut self.gains,
+        };
         let set = &mut *self.current;
         for i in 0..set.clips.len() {
             let ramp = match crossfade {
@@ -623,7 +661,7 @@ impl TrackSource for ClipPlayer {
                 _ => Ramp::Steady,
             };
             let (clip, fades) = (&set.clips[i], &set.fades[i]);
-            play(clip, fades, &mut set.levels[i], cx, &block, ramp, out);
+            play(clip, fades, &mut set.levels[i], cx, &mut work, ramp, out);
         }
         if let (Some(swap), Some(x)) = (self.swap.as_mut(), crossfade) {
             let old = &mut *swap.old;
@@ -634,7 +672,7 @@ impl TrackSource for ClipPlayer {
                     fades,
                     &mut old.levels[i],
                     cx,
-                    &block,
+                    &mut work,
                     Ramp::Out(x),
                     out,
                 );

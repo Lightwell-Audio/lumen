@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use crate::automation::AutomationLane;
+use crate::envelope::ClipEnvelopes;
 use lumen_core::fade::Fade;
 use lumen_core::grid::Grid;
 use lumen_core::meter::{Meter, MeterMap, MeterPoint};
@@ -760,6 +761,10 @@ pub struct Clip {
     /// start, for as long as the clip lasts (loop-extend).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loop_length: Option<Ticks>,
+    /// Gain and pan envelopes of an audio clip (format v25), measured from
+    /// the clip's start. Written only when there are some.
+    #[serde(default, skip_serializing_if = "ClipEnvelopes::is_empty")]
+    pub envelopes: ClipEnvelopes,
     pub content: ClipContent,
 }
 

@@ -43,7 +43,7 @@ impl App {
             .tracks
             .iter()
             .find(|t| t.id == track)
-            .and_then(|t| t.lane(target))
+            .and_then(|t| t.lane_view(target))
             .map(|l| l.lane.clone())
     }
 

@@ -420,8 +420,87 @@ mod tests {
             fade_in: Default::default(),
             fade_out: Default::default(),
             loop_length: None,
+            envelopes: Default::default(),
             content: ClipContent::Midi { notes, events },
         }
+    }
+
+    #[test]
+    fn controller_envelopes_survive_a_move_and_a_loop_extend() {
+        // A MIDI clip's controller events are its envelope (M7 slice A7): they
+        // move with the clip and repeat when it is loop-extended.
+        let q = Ticks::quarters;
+        let mut clip = midi_clip(
+            vec![Note::new(q(0), q(1), 60, 100)],
+            vec![
+                ClipEvent {
+                    at: q(0),
+                    kind: EventKind::Controller {
+                        number: 1,
+                        value: 20,
+                    },
+                },
+                ClipEvent {
+                    at: q(1),
+                    kind: EventKind::Controller {
+                        number: 1,
+                        value: 90,
+                    },
+                },
+            ],
+        );
+        clip.length = q(2);
+        let (project, track) = project_with(clip);
+        let mut doc = Document::new(project);
+        // Move it to quarter 8, then extend its end to quarter 14 by looping.
+        let base = doc.project().clone();
+        doc.move_clips(
+            &base,
+            &[crate::document::ClipMove {
+                clip: Id(900),
+                track,
+                start: q(8),
+            }],
+            None,
+        );
+        let base = doc.project().clone();
+        doc.trim_clip(
+            &base,
+            Id(900),
+            lumen_project::edit::Edge::End,
+            q(14),
+            true,
+            None,
+        );
+        let tracks = engine_midi(
+            doc.project(),
+            &Inputs::default(),
+            &mut PortTable::default(),
+            &mut Cache::default(),
+        );
+        let c = &tracks[0].clips[0];
+        assert_eq!((c.start, c.length, c.period), (q(8), q(6), Some(q(2))));
+        let controls: Vec<_> = c.controls.iter().map(|m| (m.at, m.msg.kind())).collect();
+        assert_eq!(
+            controls,
+            vec![
+                (
+                    q(0),
+                    Kind::Controller {
+                        number: 1,
+                        value: 20
+                    }
+                ),
+                (
+                    q(1),
+                    Kind::Controller {
+                        number: 1,
+                        value: 90
+                    }
+                ),
+            ],
+            "one repeat's worth, which the engine plays again every period"
+        );
     }
 
     #[test]

@@ -26,9 +26,14 @@ impl Document {
     /// that do not exist, are left out.
     pub fn move_clips(&mut self, base: &Project, moves: &[ClipMove], merge: Option<&str>) {
         let label = plural(moves.len(), "Move clip", "Move {} clips");
+        let follow = !self.lock_envelopes;
         let next = &mut self.next_id;
         self.history.apply(&label, merge, |project| {
             *project = base.clone();
+            if follow {
+                let carries = carries_of(base, moves.iter().map(|m| (m.clip, m.track, m.start)));
+                edit::carry::carry(project, &carries, false);
+            }
             place_clips(project, moves);
             let placed: Vec<Id> = moves.iter().map(|m| m.clip).collect();
             edit::overwrite(project, &placed, &mut fresh_ids(next));
@@ -46,9 +51,14 @@ impl Document {
         merge: Option<&str>,
     ) {
         let label = plural(moves.len(), "Copy clip", "Copy {} clips");
+        let follow = !self.lock_envelopes;
         let next = &mut self.next_id;
         self.history.apply(&label, merge, |project| {
             *project = base.clone();
+            if follow {
+                let carries = carries_of(base, moves.iter().map(|m| (m.clip, m.track, m.start)));
+                edit::carry::carry(project, &carries, true);
+            }
             let copies: Vec<(Clip, ClipMove)> = moves
                 .iter()
                 .zip(ids)
@@ -228,7 +238,18 @@ impl Document {
     /// (the media pool, M9).
     pub fn delete_clips(&mut self, ids: &[Id]) {
         let label = plural(ids.len(), "Delete clip", "Delete {} clips");
+        let follow = !self.lock_envelopes;
         self.history.apply(&label, None, |project| {
+            if follow {
+                let spans: Vec<(Id, Ticks, Ticks)> = project
+                    .tracks
+                    .iter()
+                    .flat_map(|t| t.clips.iter().map(move |c| (t.id, c)))
+                    .filter(|(_, c)| ids.contains(&c.id) && !c.locked)
+                    .map(|(track, c)| (track, c.start, c.start + c.length))
+                    .collect();
+                edit::carry::remove(project, &spans);
+            }
             for track in &mut project.tracks {
                 if track.clips.iter().any(|c| ids.contains(&c.id) && !c.locked) {
                     Arc::make_mut(track)
@@ -274,10 +295,14 @@ impl Document {
         at: Ticks,
         track: usize,
     ) -> Vec<Id> {
+        let follow = !self.lock_envelopes;
         let next = &mut self.next_id;
         let mut pasted = Vec::new();
         self.history.apply(label, None, |project| {
             pasted = edit::paste(project, clipboard, at, track, &mut fresh_ids(next));
+            if follow {
+                edit::paste_lanes(project, clipboard, at, track);
+            }
         });
         pasted
     }
@@ -285,7 +310,18 @@ impl Document {
     /// Deletes clips as a Cut (the clipboard holds them).
     pub fn cut_clips(&mut self, ids: &[Id]) {
         let label = plural(ids.len(), "Cut clip", "Cut {} clips");
+        let follow = !self.lock_envelopes;
         self.history.apply(&label, None, |project| {
+            if follow {
+                let spans: Vec<(Id, Ticks, Ticks)> = project
+                    .tracks
+                    .iter()
+                    .flat_map(|t| t.clips.iter().map(move |c| (t.id, c)))
+                    .filter(|(_, c)| ids.contains(&c.id) && !c.locked)
+                    .map(|(track, c)| (track, c.start, c.start + c.length))
+                    .collect();
+                edit::carry::remove(project, &spans);
+            }
             for track in &mut project.tracks {
                 if track.clips.iter().any(|c| ids.contains(&c.id) && !c.locked) {
                     Arc::make_mut(track)
@@ -307,6 +343,33 @@ fn replace_clip(project: &mut Project, id: Id, change: impl FnOnce(&Clip) -> Cli
             return;
         }
     }
+}
+
+/// What each clip that moves or is copied takes of its track's automation:
+/// from where it is in `base` to the track and start it is going to. A clip
+/// that does not move, is locked or goes to a track that is not there takes
+/// nothing.
+fn carries_of(
+    base: &Project,
+    goes: impl Iterator<Item = (Id, Id, Ticks)>,
+) -> Vec<edit::carry::Carry> {
+    goes.filter_map(|(clip, to, start)| {
+        let (from, clip) = base
+            .tracks
+            .iter()
+            .find_map(|t| t.clips.iter().find(|c| c.id == clip).map(|c| (t.id, c)))?;
+        if clip.locked || base.tracks.iter().all(|t| t.id != to) {
+            return None;
+        }
+        let by = start.max(Ticks::ZERO) - clip.start;
+        (by != Ticks::ZERO || from != to).then_some(edit::carry::Carry {
+            from,
+            span: (clip.start, clip.start + clip.length),
+            to,
+            by,
+        })
+    })
+    .collect()
 }
 
 /// Where a clip goes: a track and a start.

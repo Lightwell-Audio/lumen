@@ -177,6 +177,7 @@ fn playing_clips_routed(clips: usize, mix: Mix) -> (MixerHandle, Player) {
         .set(
             (0..clips)
                 .map(|i| Clip {
+                    envelope: Default::default(),
                     id: i as u64,
                     start: Ticks::ZERO,
                     offset: 0,

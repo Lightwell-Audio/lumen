@@ -66,6 +66,7 @@ impl World for Looking<'_> {
             // Only the lane the chip shows: a track's other lanes keep what
             // was written to them.
             if let Some(&shown) = self.auto.shown.get(&id)
+                && shown.clip().is_none()
                 && track.has_target(shown)
             {
                 out.push((id, shown));

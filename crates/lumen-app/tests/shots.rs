@@ -2800,6 +2800,61 @@ fn automation_lanes() {
 
 /// Editing a lane (M7 slice A2): the tool strip, a picked point's bend dot,
 /// two points picked by a box, a sine being drawn with its live value.
+/// A clip's gain envelope over the clip (M7 slice A7, the owner's E1 A): the
+/// envelope of a looping clip with its repeat dashed, and its pan. Dark and
+/// light at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn clip_envelope() {
+    use lumen_core::automation::{Lane, Point};
+    use lumen_core::time::Ticks;
+    use lumen_project::automation::Target;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-env-{appearance}-{scale}"));
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
+            let track = h.state().project().tracks[0].id;
+            let clip = h.state().project().tracks[0].clips[0].id;
+            let q = Ticks::quarters;
+            // The clip repeats every three quarters for eleven.
+            h.state_mut().trim_clip_end_to(clip, q(11), true);
+            h.state_mut().select_clip(clip);
+            h.run_steps(4);
+            h.key_press(Key::E);
+            h.run_steps(60);
+            let start = h.state().project().tracks[0].clips[0].start;
+            let gain = Lane::new(vec![
+                Point::new(start, 0.0),
+                Point::new(start + q(1), -18.0),
+                Point::new(start + q(2), -6.0),
+                Point::new(start + q(3), -30.0),
+            ])
+            .unwrap();
+            h.state_mut()
+                .give_lane(track, Target::ClipGain { clip }, gain)
+                .unwrap();
+            h.run_steps(10);
+            let p = h
+                .state()
+                .automation_point_pos(&h.ctx, track, 1)
+                .expect("in view");
+            click(&mut h, p);
+            h.run_steps(10);
+            save(&mut h, &format!("clip-envelope-gain-{appearance}-{scale}"));
+            let pan =
+                Lane::new(vec![Point::new(start, -1.0), Point::new(start + q(2), 1.0)]).unwrap();
+            h.state_mut()
+                .give_lane(track, Target::ClipPan { clip }, pan)
+                .unwrap();
+            h.run_steps(5);
+            h.state_mut()
+                .show_clip_envelope(track, Target::ClipPan { clip });
+            h.run_steps(30);
+            save(&mut h, &format!("clip-envelope-pan-{appearance}-{scale}"));
+        }
+    }
+}
+
 /// Dark and light at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]

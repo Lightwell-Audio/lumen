@@ -338,6 +338,14 @@ impl App {
             ui.close();
         }
         self.fade_menu(ui);
+        if let Some((track, clip)) = self.selected_audio_clip() {
+            let label = if self.envelope_shown(track, clip) {
+                "Hide the envelope"
+            } else {
+                "Show the envelope"
+            };
+            self.menu_command(ui, Command::ClipEnvelope, label);
+        }
         if self.availability(ui.ctx(), Command::ExportMidiClip).is_ok() {
             let export = if several {
                 "Export MIDI clips\u{2026}"
@@ -649,6 +657,7 @@ mod tests {
             fade_in: Fade::default(),
             fade_out: Fade::default(),
             loop_length: None,
+            envelopes: Default::default(),
             content: ClipContent::midi(),
         }
     }

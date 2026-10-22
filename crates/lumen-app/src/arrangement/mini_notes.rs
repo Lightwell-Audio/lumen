@@ -111,6 +111,7 @@ mod tests {
             fade_in: Default::default(),
             fade_out: Default::default(),
             loop_length: None,
+            envelopes: Default::default(),
             content: ClipContent::Midi {
                 notes,
                 events: Vec::new(),

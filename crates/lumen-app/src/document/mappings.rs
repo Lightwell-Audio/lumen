@@ -138,6 +138,8 @@ impl Document {
                     return false;
                 }
             }
+            // An envelope is not a control a controller can move.
+            Target::ClipGain { .. } | Target::ClipPan { .. } => return false,
             Target::Device { device, param } => {
                 self.override_param(device, param);
                 let merge = format!("mapped {:x} {param}", device.0);

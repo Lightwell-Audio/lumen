@@ -9,6 +9,7 @@ mod auto_params;
 mod auto_recording;
 mod bench_callback;
 pub(crate) mod clip_card;
+mod clip_envelopes;
 pub(crate) mod clipboard_keys;
 mod commands;
 mod controller_requests;

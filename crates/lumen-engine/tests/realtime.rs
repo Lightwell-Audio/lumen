@@ -119,6 +119,7 @@ fn delay_compensation_never_touches_the_heap() {
     });
     let clips: Vec<Clip> = (0..64)
         .map(|i| Clip {
+            envelope: Default::default(),
             id: i,
             start: Ticks(i as i64 * 997),
             offset: 0,
@@ -179,6 +180,7 @@ fn automated_lanes_never_touch_the_heap() {
     });
     let clips: Vec<Clip> = (0..64)
         .map(|i| Clip {
+            envelope: Default::default(),
             id: i,
             start: Ticks(i as i64 * 997),
             offset: 0,
@@ -241,6 +243,7 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
     let clips = |offset: i64| -> Vec<Clip> {
         (0..64)
             .map(|i| Clip {
+                envelope: Default::default(),
                 id: i as u64,
                 start: Ticks((i * 7_919 + offset) % (lumen_core::time::PPQ * 8)),
                 offset: 0,

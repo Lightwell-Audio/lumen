@@ -166,6 +166,38 @@ impl AutoLane {
     }
 }
 
+impl AutoLane {
+    /// Writes the gains of `kind` for the `frames` frames from sample `start`
+    /// of the lane's clock: the first output into `out[0]` and, for a pan,
+    /// the second into `out[1]`. Each slice is at least `frames` long.
+    pub(crate) fn fill(
+        &self,
+        start: i64,
+        frames: usize,
+        rate: u32,
+        kind: Kind,
+        out: [&mut [f32]; 2],
+    ) {
+        let outputs = kind.outputs();
+        let [a, b] = out;
+        self.runs(start, frames, rate, |run| {
+            let (g0, g1) = (kind.gains(run.v0), kind.gains(run.v1));
+            let span = (run.k1 - run.k0) as f32;
+            for f in run.frames {
+                let x = if run.k0 == run.k1 {
+                    0.0
+                } else {
+                    (start + f as i64 - run.k0) as f32 / span
+                };
+                a[f] = g0[0] + (g1[0] - g0[0]) * x;
+                if outputs == 2 {
+                    b[f] = g0[1] + (g1[1] - g0[1]) * x;
+                }
+            }
+        });
+    }
+}
+
 /// A stretch of frames inside one chunk, between two knots.
 struct Run {
     frames: Range<usize>,
@@ -189,7 +221,7 @@ impl Run {
 
 /// What a lane's value becomes in the audio.
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Kind {
+pub(crate) enum Kind {
     /// A level in dB, silent at [`FLOOR_DB`].
     Db,
     /// Mute, 0 (heard) to 1 (muted): the gain is what is left.
@@ -268,23 +300,13 @@ impl Stage {
         let kind = self.kind;
         let outputs = kind.outputs();
         let (first, second) = self.out.split_at_mut(CHUNK);
-        let sides = [&mut first[..frames], &mut second[..frames]];
-        let [a, b] = sides;
-        self.lane.runs(start, frames, rate, |run| {
-            let (g0, g1) = (kind.gains(run.v0), kind.gains(run.v1));
-            let span = (run.k1 - run.k0) as f32;
-            for f in run.frames {
-                let x = if run.k0 == run.k1 {
-                    0.0
-                } else {
-                    (start + f as i64 - run.k0) as f32 / span
-                };
-                a[f] = g0[0] + (g1[0] - g0[0]) * x;
-                if outputs == 2 {
-                    b[f] = g0[1] + (g1[1] - g0[1]) * x;
-                }
-            }
-        });
+        self.lane.fill(
+            start,
+            frames,
+            rate,
+            kind,
+            [&mut first[..frames], &mut second[..frames]],
+        );
         // A lane that changed under the playhead glides from where the old
         // one was to where this one is, compared at the frame before.
         let (mut offset, mut left) = (self.offset, self.left);

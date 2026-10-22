@@ -8143,3 +8143,79 @@ point, no new version):
    a shot (`song_lanes`, with the lanes hidden and shown, both themes at 100, 150 and 200%; the ramp and
    the lit button looked at), the workspace tests and 6 smoke. **Not verified:** a ramp heard by ear
    (MT-AUTO-8 steps 16 and 17), a long audio clip across a long ramp drawn exactly, macOS and Linux runs.
+
+## ADR-0090 — Clip envelopes, and automation that follows clips (M7 slice A7)
+
+**Status:** Accepted · **Date:** 2026-10-21 (M7 slice A7, branch `m7-sa7-clip-envelopes`). Owner choices E1 to E3
+(rendered specimens of three places for the envelope; the other two as recommended).
+
+**Context.** An audio clip needs its own gain and pan that move, loop and trim with it, and the track's
+automation needs a rule for what a clip edit does to it. MIDI clips already carry controller events that loop
+with the clip (M5); they are checked here, not rebuilt.
+
+**Choices (the owner's).** **E1 A:** the envelope is drawn and edited on the clip itself, with the lane look and
+every gesture of A1 and A2; the track's clips do not step back, a repeat of a looping clip shows the envelope
+again, dashed and not editable. **E2:** points are measured from the clip's start, as MIDI notes are
+(ADR-0056): a move carries them, trimming the start moves them with it so they stay where they were on the
+timeline (those outside the clip are kept, hidden, and come back when the edge is dragged out), a cut divides
+them, and a slip leaves them. **E3:** *Lock envelopes* is off by default, so the track's automation under a clip
+goes with it; on, automation stays where it is on the timeline.
+
+**Decisions.**
+
+1. **The model (format v25, identity migration, golden `v25/golden.lumen`).** `Clip.envelopes`
+   (`lumen_project::envelope::ClipEnvelopes`: an optional gain `Lane` in dB, −100 to +6, and an optional pan
+   `Lane`, −1 to 1), written only when present; audio clips only (`validate` refuses an envelope on a MIDI clip,
+   a value out of range or a point past `LONGEST`). A kind with no points is `None`. A clip's envelope is
+   windowed to one repeat (`envelope::window`: the loop, else the clip's length): `envelope::windowed` cuts a
+   lane to that window with a point at each cut holding the lane's value there, and turns a curved segment
+   that a cut crosses into 16 straight pieces. `edit::slice` and `edit::trim` (start edge) move the points
+   with `ClipEnvelopes::shift`.
+2. **The engine.** `lumen_engine::ClipEnvelope { gain: Option<AutoLane>, pan: Option<(AutoLane, PanLaw)> }` on
+   each `Clip`, baked by the app on the clip's own sample clock (frame 0 is the clip's first frame) with the
+   tempo map (`lane_bake::bake_from`, through the same `bake` a track's lanes use, so a tempo change inside the
+   clip splits or resamples a segment the same way). The clip player multiplies in per-side gains worked out
+   by `AutoLane::fill`, the function `Stage::render` already used (knots every 32 frames, a 1 ms ramp at a
+   step, the same numbers at any block size); a looping clip reads the lane again from frame 0 at each repeat.
+   Pan is the project's law for a mono file and a balance for a stereo one, as a track pans (`routing.rs`). The
+   clip's gain, edge fades, fade curves and the track's own gain and pan all still apply. `placed_as` compares
+   the envelope, so an edit under the playhead crossfades over 5 ms like a moved clip (no step: a test). Mono
+   clips fed to both sides. No allocation on the audio thread (guarded test, 16 looping clips with curves).
+3. **The lane editor addresses an envelope as a target.** `Target::ClipGain { clip }` and
+   `Target::ClipPan { clip }` name an envelope the lane editor can show, pick, move, draw and copy like a track's
+   lane; a track's `automation` never holds one (`validate` refuses it, `mapping` ignores it). `Track::lane_view`
+   gives the points on the song's clock (the clip's start added) so every gesture works in song time unchanged;
+   `Document::set_lane`, `remove_lane` write through `write_envelope`, which subtracts the start, clamps to the
+   range and is one undo step (a drag one). `Target::scale` says a clip gain reads like a fader and a clip pan
+   like a pan.
+4. **The interface.** The **E** key (`view.clip_envelope`) or the clip's right-click menu shows the selected audio
+   clip's gain envelope, or hides it; the lane chip (at the clip's top-left, "Clip gain · name") switches
+   between the clip's gain and pan and back to the track's lanes, and the track lane's chip lists the selected
+   clips' envelopes. The envelope answers the pointer only over the first repeat of its clip; the rest of the
+   track belongs to the clips (Ctrl still reaches the clip under it). The lane's wash and line are cut to the
+   clip, and `draw_repeats` shows the repeats dashed at 55%. The modes (Touch, Latch, Write) are not offered for
+   an envelope and the recorder never writes to one.
+5. **Lock envelopes** (`settings.editing.lock_envelopes`, an added section, no settings version change; command
+   `edit.lock_envelopes`, no shortcut, last in `Command` and `ALL`). With it off the pure edits in
+   `lumen_project::edit::carry` run in the same undo step as the clip edit: `move_clips` lifts the track's
+   points under each moving clip's footprint and lays them under its new place (a re-run of a drag from its
+   base state is the same edit), `copy_clips` copies them, `delete_clips` and `cut_clips` remove them, and a
+   copied clip carries them on the clipboard (`Clipboard.lanes`, `LanePart`) so Duplicate and Paste lay them
+   under the pasted clips (`paste_lanes`). A destination footprint is cleared first, as a clip put down cuts
+   away what it covers; a lane its points leave empty is taken away; across tracks only volume, pan, trim, mute
+   and the sends the destination makes go, a plugin's parameters only with a clip that stays on its track. **Not
+   carried:** time-range copies and edits (delete time, insert time, range paste), which already left
+   automation alone.
+6. **Known limits** (KNOWN_ISSUES). A clip's envelope is hidden under the clip's header text of a short clip; a
+   point dragged past the clip's window hides itself; repeats drawn are capped at 512 in view; a loop's phase
+   after a cut mid-repeat restarts (the existing limit for audio loops); the pitch envelope and the static
+   clip pitch stay deferred (owner, 2026-10-19).
+
+**Verified.** Units: the window function (cuts, wholly outside, curves), the shift on trim and cut, the carry
+edits (move, across tracks, copy, delete, swap, empty lanes), the clipboard's lanes, the app's bake (clock,
+law, loop window, tempo change), the engine's gains (straight in dB, block-size invariance, repeats, pan law);
+engine tests of whole renders at five block sizes, a pan and a crossfaded edit; the allocation guard; the v25
+golden, the older goldens and the refusals; 12 E2E scenarios (`tests/e2e/clip_envelopes.rs`; the audio ones
+fail without the bake: mutation checked); a shot (`clip_envelope`, both themes at 100, 150 and 200%, looked
+at). **Not run:** the WSL gate and performance gate, RealtimeSanitizer, macOS and Linux runs, any real
+playback by ear (MT-AUTO-9 is the owner's).

@@ -69,6 +69,7 @@ impl Document {
                     fade_in: Default::default(),
                     fade_out: Default::default(),
                     loop_length: None,
+                    envelopes: Default::default(),
                     content: ClipContent::midi(),
                 }));
                 t.clips.sort_by_key(|c| c.start);

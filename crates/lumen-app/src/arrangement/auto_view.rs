@@ -17,6 +17,7 @@ use lumen_core::time::Ticks;
 use lumen_project::automation::{AutomationLane, Target};
 use lumen_project::model::{Id, Project, Track};
 
+use super::auto_envelope::envelope_span;
 use super::auto_scale as scale;
 use super::auto_state::{ParamChooser, Picked};
 use super::clips::INSET;
@@ -137,7 +138,12 @@ impl Frame {
 /// The line a lane draws across `[left, right]`, as screen points: flat
 /// before the first point and after the last, a straight run, a step or
 /// samples along a curve between. Only the part in view is made.
-fn polyline(frame: &Frame, target: Target, lane: &Lane, (left, right): (f32, f32)) -> Vec<Pos2> {
+pub(super) fn polyline(
+    frame: &Frame,
+    target: Target,
+    lane: &Lane,
+    (left, right): (f32, f32),
+) -> Vec<Pos2> {
     let points = lane.points();
     let mut line = Vec::new();
     let (Some(first), Some(last)) = (points.first(), points.last()) else {
@@ -256,6 +262,14 @@ impl Arrangement {
         }
         let track = self.track_at(ctx, project, pending, pointer.y - canvas.top())?;
         let (target, frame) = self.lane_frame(ctx, canvas, project, pending, view, track)?;
+        if target.clip().is_some() {
+            // Only over the clip, and its first repeat: the rest of the track
+            // belongs to the clips.
+            let (left, right) = envelope_span(project, track, target, &frame)?;
+            if pointer.x < left || pointer.x > right {
+                return None;
+            }
+        }
         Some((track, target, frame))
     }
 
@@ -301,15 +315,31 @@ impl Arrangement {
             if !visible.intersects(rect) {
                 continue;
             }
-            let painter = painter.with_clip_rect(visible.intersect(painter.clip_rect()));
-            let frame = Frame {
+            let zone_painter = painter.with_clip_rect(visible.intersect(painter.clip_rect()));
+            let mut painter = zone_painter.clone();
+            let mut frame = Frame {
                 row: rect,
                 canvas_left: canvas.left(),
                 view,
             };
-            let entry = track.lane(target);
+            if target.clip().is_some() {
+                // A clip's envelope is drawn over its clip alone, as much of it
+                // as is in view.
+                let Some((left, right)) = envelope_span(&project, id, target, &frame) else {
+                    continue;
+                };
+                let (left, right) = (left.max(canvas.left()), right.min(canvas.right()));
+                if right <= left {
+                    continue;
+                }
+                frame.row = Rect::from_x_y_ranges(left..=right, rect.y_range());
+                painter = painter.with_clip_rect(frame.row.intersect(painter.clip_rect()));
+            }
+            let shown_lane = track.lane_view(target);
+            let entry = shown_lane.as_deref();
             let taken = self.taken_over(doc, track, target);
             self.draw_lane(&painter, &frame, (track, target, entry), taken);
+            self.draw_repeats(&zone_painter, &frame, track, target, visible);
             self.draw_marks(&painter, &frame, id, target, entry);
             if let Some(chip) = self.lane_chip(ui, doc, &visible, &frame, track, target) {
                 self.lane_tools(ui, &frame, chip, &track.name);
@@ -431,7 +461,13 @@ impl Arrangement {
         let mut text = self.auto.name_of(project, target);
         let base = text.clone();
         let taken = self.taken_over(doc, track, target);
-        let mode = self.auto.mode_of(track.id);
+        // What a track does while the song plays is about its controls, not
+        // about a clip's envelope.
+        let mode = if target.clip().is_some() {
+            crate::auto_record::Mode::Read
+        } else {
+            self.auto.mode_of(track.id)
+        };
         let writing = self.auto.recording.contains(&(track.id, target));
         if mode.records() {
             text.push_str(" \u{00B7} ");
@@ -517,6 +553,10 @@ impl Arrangement {
         let Some(held) = project.tracks.iter().find(|t| t.id == track) else {
             return;
         };
+        if target.clip().is_some() {
+            self.envelope_menu(ui, doc, held, target);
+            return;
+        }
         for option in scale::offered(held) {
             let count = held.lane(option).map_or(0, |l| l.lane.len());
             let name = self.auto.name_of(&project, option);
@@ -531,6 +571,8 @@ impl Arrangement {
                 ui.close();
             }
         }
+        // The envelopes of the selected audio clips on this track.
+        self.envelope_entries(ui, held, target);
         // What the track does with the controls that move while it plays.
         ui.separator();
         crate::widgets::menu_caption(ui, "While the song plays");

@@ -1204,6 +1204,14 @@ are hollow, larger when held. A point resting on a control's rest value draws a 
 the lane in the accent at 50%. The live value is `widgets::draw_hint` beside the point, on the
 tooltip layer, below the point when above it would cover the strip.
 
+### A clip's envelope (M7 slice A7, ADR-0090, the owner's E1 A)
+
+A clip's gain or pan envelope is drawn over its clip and nothing else, with the look of a lane (§7h): the
+wash, the accent line, hollow points, the chip at the top-left naming it ("Clip gain · name") with its menu.
+The track's clips do not step back, so the waveform shows through for placing points. A looping clip shows the
+envelope again on each repeat as a dashed line at 55% accent, which the pointer ignores. The E key and the clip's
+menu show and hide it; the chip's menu switches between gain and pan and goes back to the track's lanes.
+
 ## 8. Key flows
 
 Each flow lists its steps, its keyboard path and its feedback. Flows marked

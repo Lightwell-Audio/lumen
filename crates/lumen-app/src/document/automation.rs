@@ -93,6 +93,9 @@ impl Document {
         if lane.points().first().is_some_and(|p| p.at < Ticks::ZERO) {
             return Err(LaneRefusal::BeforeStart);
         }
+        if let Some((clip, kind)) = target.clip() {
+            return self.write_envelope(track, (clip, kind), lane, gesture.is_some());
+        }
         let exists = held.lane(target).is_some();
         if lane.is_empty() {
             return self.remove_lane(track, target);
@@ -134,6 +137,56 @@ impl Document {
         Ok(())
     }
 
+    /// Makes the envelope of `kind` of the audio clip `clip` hold `lane`,
+    /// which is in song time (the lane editor's clock); it is kept from the
+    /// clip's start. Values are brought into the kind's range and an empty lane
+    /// takes the envelope away. A drag's moves are one undo step.
+    fn write_envelope(
+        &mut self,
+        track: Id,
+        (clip, kind): (Id, lumen_project::envelope::Kind),
+        lane: Lane,
+        gesture: bool,
+    ) -> Result<(), LaneRefusal> {
+        let held = super::mixer::find(self.project(), track).ok_or(LaneRefusal::NoTrack)?;
+        let start = held
+            .clips
+            .iter()
+            .find(|c| c.id == clip)
+            .ok_or(LaneRefusal::NoTarget)?
+            .start;
+        let (low, high) = kind.range();
+        let points = lane
+            .points()
+            .iter()
+            .map(|p| Point {
+                at: p.at - start,
+                value: p.value.clamp(low, high),
+                ..*p
+            })
+            .collect();
+        let lane = Lane::new(points).expect("the same points in the same order");
+        let exists = held
+            .clips
+            .iter()
+            .find(|c| c.id == clip)
+            .is_some_and(|c| c.envelopes.get(kind).is_some());
+        let label = match (lane.is_empty(), exists) {
+            (true, _) => "Remove clip envelope",
+            (false, true) => "Edit clip envelope",
+            (false, false) => "Add clip envelope",
+        };
+        let merge = gesture.then(|| format!("envelope {:x} {kind:?}", clip.0));
+        self.history.apply(label, merge.as_deref(), |project| {
+            if let Some(held) = tracks_mut(project).find(|t| t.id == track)
+                && let Some(c) = Arc::make_mut(held).clips.iter_mut().find(|c| c.id == clip)
+            {
+                Arc::make_mut(c).envelopes.set(kind, lane.clone());
+            }
+        });
+        Ok(())
+    }
+
     /// Switches `track`'s lane for `target` on or off, keeping its points. A
     /// lane that is off plays nothing, and the control it drives keeps the
     /// value it was set to. The lane already so records nothing.
@@ -167,6 +220,9 @@ impl Document {
     /// Takes `track`'s lane for `target` away, points and all.
     pub fn remove_lane(&mut self, track: Id, target: Target) -> Result<(), LaneRefusal> {
         let held = super::mixer::find(self.project(), track).ok_or(LaneRefusal::NoTrack)?;
+        if let Some((clip, kind)) = target.clip() {
+            return self.write_envelope(track, (clip, kind), Lane::default(), false);
+        }
         if held.lane(target).is_none() {
             return Err(LaneRefusal::NoTarget);
         }

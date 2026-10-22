@@ -30,15 +30,23 @@ pub enum Target {
     Send { to: Id },
     /// A parameter of one of the track's devices, normalised 0 to 1.
     Device { device: Id, param: u32 },
+    /// The gain envelope of the audio clip `clip` of the track, in dB (M7
+    /// slice A7). Not a lane of the track: it names an envelope the clip holds
+    /// so the lane editor can address it, and is never saved in `automation`.
+    ClipGain { clip: Id },
+    /// The pan envelope of the audio clip `clip`, −1 to +1.
+    ClipPan { clip: Id },
 }
 
 impl Target {
     /// The lowest and highest value a lane for this target may hold.
     pub fn range(self) -> (f32, f32) {
         match self {
-            Target::Volume | Target::Send { .. } => (FLOOR_DB, LEVEL_MAX_DB),
+            Target::Volume | Target::Send { .. } | Target::ClipGain { .. } => {
+                (FLOOR_DB, LEVEL_MAX_DB)
+            }
             Target::Trim => (-TRIM_RANGE_DB, TRIM_RANGE_DB),
-            Target::Pan => (-1.0, 1.0),
+            Target::Pan | Target::ClipPan { .. } => (-1.0, 1.0),
             Target::Mute | Target::Device { .. } => (0.0, 1.0),
         }
     }
@@ -46,7 +54,37 @@ impl Target {
     /// Whether the value is a level in dB, which the engine turns into a
     /// gain (silent at the floor).
     pub fn is_level(self) -> bool {
-        matches!(self, Target::Volume | Target::Trim | Target::Send { .. })
+        matches!(
+            self,
+            Target::Volume | Target::Trim | Target::Send { .. } | Target::ClipGain { .. }
+        )
+    }
+
+    /// The target whose scale this one shares on screen: a clip's gain is
+    /// drawn and read like a fader, its pan like a pan.
+    pub fn scale(self) -> Target {
+        match self {
+            Target::ClipGain { .. } => Target::Volume,
+            Target::ClipPan { .. } => Target::Pan,
+            other => other,
+        }
+    }
+
+    /// The clip and kind of envelope this names, if it names one.
+    pub fn clip(self) -> Option<(Id, crate::envelope::Kind)> {
+        match self {
+            Target::ClipGain { clip } => Some((clip, crate::envelope::Kind::Gain)),
+            Target::ClipPan { clip } => Some((clip, crate::envelope::Kind::Pan)),
+            _ => None,
+        }
+    }
+
+    /// The target of `clip`'s envelope of `kind`.
+    pub fn envelope(clip: Id, kind: crate::envelope::Kind) -> Target {
+        match kind {
+            crate::envelope::Kind::Gain => Target::ClipGain { clip },
+            crate::envelope::Kind::Pan => Target::ClipPan { clip },
+        }
     }
 
     /// The device this target belongs to, if it is a device's.
@@ -99,6 +137,28 @@ impl Track {
         self.automation.iter().find(|l| l.target == target)
     }
 
+    /// The lane to show for `target`: the track's own, or for a clip's
+    /// envelope a lane of its points on the song's clock (the clip's start
+    /// added), as the lane editor works in song time. `None` when there is
+    /// none.
+    pub fn lane_view(&self, target: Target) -> Option<std::borrow::Cow<'_, AutomationLane>> {
+        let Some((id, kind)) = target.clip() else {
+            return self.lane(target).map(std::borrow::Cow::Borrowed);
+        };
+        let clip = self.clips.iter().find(|c| c.id == id)?;
+        let lane = clip.envelopes.get(kind)?;
+        let points = lane
+            .points()
+            .iter()
+            .map(|p| lumen_core::automation::Point {
+                at: p.at + clip.start,
+                ..*p
+            })
+            .collect();
+        let lane = Lane::new(points).ok()?;
+        Some(std::borrow::Cow::Owned(AutomationLane::new(target, lane)))
+    }
+
     /// Whether `target` is something this track has: its own values always,
     /// a send it makes, a device it holds.
     pub fn has_target(&self, target: Target) -> bool {
@@ -106,6 +166,9 @@ impl Track {
             Target::Volume | Target::Pan | Target::Trim | Target::Mute => true,
             Target::Send { to } => self.sends.iter().any(|s| s.to == to),
             Target::Device { device, .. } => self.devices.iter().any(|d| d.id == device),
+            Target::ClipGain { clip } | Target::ClipPan { clip } => self.clips.iter().any(|c| {
+                c.id == clip && matches!(c.content, crate::model::ClipContent::Audio { .. })
+            }),
         }
     }
 
@@ -162,6 +225,9 @@ pub(crate) fn check(track: &Track) -> Result<(), String> {
             .any(|e| e.target == entry.target)
         {
             return Err(format!("two lanes drive the same {:?}", entry.target));
+        }
+        if entry.target.clip().is_some() {
+            return Err("a lane drives a clip's envelope".to_owned());
         }
         let (low, high) = entry.target.range();
         for point in entry.lane.points() {

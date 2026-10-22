@@ -40,6 +40,7 @@ fn audio(samples: Vec<f32>) -> Arc<ClipAudio> {
 
 fn clip(id: u64, track: u64, audio: &Arc<ClipAudio>) -> Clip {
     Clip {
+        envelope: Default::default(),
         id,
         track,
         start: Ticks::ZERO,

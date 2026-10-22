@@ -289,6 +289,19 @@ impl AutoView {
         super::auto_scale::name(project, target)
     }
 
+    /// Whether `track`'s clips step back for the lane it shows. A clip's own
+    /// envelope is drawn over its clip, which stays as it is.
+    pub fn dims(&self, track: Id) -> bool {
+        self.shown.get(&track).is_some_and(|t| t.clip().is_none())
+    }
+
+    /// Shows `track`'s `target` lane.
+    pub fn show(&mut self, track: Id, target: Target) {
+        if self.shown.insert(track, target) != Some(target) {
+            self.picks = None;
+        }
+    }
+
     /// Shows the lanes of `tracks`, or hides them when every one already
     /// shows one. A track opens on the first lane it has, else volume.
     pub fn toggle(&mut self, project: &Project, tracks: &[Id]) {
@@ -327,7 +340,7 @@ impl AutoView {
                 .tracks
                 .iter()
                 .find(|t| t.id == track)
-                .and_then(|t| t.lane(target))
+                .and_then(|t| t.lane_view(target))
                 .map(|l| l.lane.len())
         };
         let shown = |track: Id, target: Target, shown: &BTreeMap<Id, Target>| {

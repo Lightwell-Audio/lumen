@@ -40,6 +40,7 @@ fn steady(level: f32, frames: usize) -> Arc<ClipAudio> {
 
 fn clip(track: u64, audio: &Arc<ClipAudio>) -> Clip {
     Clip {
+        envelope: Default::default(),
         id: track,
         track,
         start: Ticks::ZERO,

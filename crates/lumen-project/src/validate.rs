@@ -295,6 +295,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
             {
                 return Err(format!("{}: invalid loop length", at()));
             }
+            crate::envelope::check(clip).map_err(|e| format!("{}: {e}", at()))?;
             match &clip.content {
                 ClipContent::Audio {
                     media: id,

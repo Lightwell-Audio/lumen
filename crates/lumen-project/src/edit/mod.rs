@@ -22,6 +22,7 @@ use crate::model::EventKind;
 use crate::model::{Clip, ClipContent, ClipEvent, Id, Note, Project};
 
 pub mod automation;
+pub mod carry;
 mod clipboard;
 pub mod events;
 pub mod maps;
@@ -34,7 +35,9 @@ pub mod record;
 pub mod seams;
 pub mod velocity;
 
-pub use clipboard::{Clipboard, copy_clips, copy_range, landing_tracks, paste};
+pub use clipboard::{
+    Clipboard, LanePart, copy_clips, copy_range, landing_tracks, paste, paste_lanes,
+};
 pub use note_selection::NoteSelection;
 pub use note_time::{
     content_length, in_window, repeats, shown, shown_notes, to_arrangement, to_clip_time,
@@ -80,6 +83,9 @@ pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Tick
             shift_events(events, cut);
         }
     }
+    // An envelope stays where it was on the timeline: the points the part
+    // loses from its front are before its start now, hidden.
+    part.envelopes.shift(Ticks::ZERO - cut);
     if start != clip.start {
         part.fade_in = Default::default();
     }
@@ -220,6 +226,7 @@ pub fn trim(
             let moved = start - clip.start;
             c.start = start;
             c.length = end - start;
+            c.envelopes.shift(Ticks::ZERO - moved);
             match &mut c.content {
                 ClipContent::Audio { offset, .. } => {
                     let rate = audio.map_or(project.sample_rate, |a| a.0);
@@ -457,6 +464,7 @@ mod tests {
                     curve: FadeShape::Fast.curve(),
                 },
                 loop_length: None,
+                envelopes: Default::default(),
                 content: ClipContent::Audio {
                     media: Id(900),
                     offset: 1_000,
@@ -500,6 +508,57 @@ mod tests {
                 (c.id.0, c.start.0 / Q, c.length.0 / Q, offset)
             })
             .collect()
+    }
+
+    #[test]
+    fn a_cut_or_a_start_trim_keeps_the_envelope_where_it_was_on_the_timeline() {
+        use crate::envelope::Kind;
+        use lumen_core::automation::{Lane, Point};
+        let p = song();
+        let tempo = tempo_of(&p);
+        // The clip runs from quarter 4; its envelope has points at 1 and 5
+        // quarters in, so at timeline quarters 5 and 9.
+        let mut clip = (*p.tracks[0].clips[0]).clone();
+        clip.envelopes.set(
+            Kind::Gain,
+            Lane::new(vec![Point::new(q(1), -6.0), Point::new(q(5), 0.0)]).unwrap(),
+        );
+        let places = |c: &Clip| -> Vec<Ticks> {
+            c.envelopes
+                .gain
+                .as_ref()
+                .map_or_else(Vec::new, |l| l.points().iter().map(|x| x.at).collect())
+        };
+        // A part cut at quarter 6 starts there: the first point is now one
+        // quarter before its start, hidden, and the second is 3 quarters in.
+        let right = slice(&p, &tempo, &clip, q(6), q(100)).unwrap();
+        assert_eq!(places(&right), vec![q(-1), q(3)]);
+        // The part before the cut starts where the clip did.
+        let left = slice(&p, &tempo, &clip, q(0), q(6)).unwrap();
+        assert_eq!(places(&left), vec![q(1), q(5)]);
+        // The two points have the values they had.
+        let values: Vec<f32> = right
+            .envelopes
+            .gain
+            .as_ref()
+            .unwrap()
+            .points()
+            .iter()
+            .map(|x| x.value)
+            .collect();
+        assert_eq!(values, vec![-6.0, 0.0]);
+        // Trimming the start to quarter 7 moves it three quarters.
+        let trimmed = trim(&p, &tempo, &clip, Edge::Start, q(7), false);
+        assert_eq!(places(&trimmed), vec![q(-2), q(2)]);
+        // And dragging it back out brings the points back.
+        let again = trim(&p, &tempo, &trimmed, Edge::Start, q(4), false);
+        assert_eq!(places(&again), vec![q(1), q(5)]);
+        // The end, a slip and a move leave the points alone.
+        assert_eq!(
+            places(&trim(&p, &tempo, &clip, Edge::End, q(8), false)),
+            vec![q(1), q(5)]
+        );
+        assert_eq!(places(&slip(&p, &tempo, &clip, q(1))), vec![q(1), q(5)]);
     }
 
     #[test]

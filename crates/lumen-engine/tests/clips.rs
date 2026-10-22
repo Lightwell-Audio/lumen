@@ -79,6 +79,7 @@ fn a_clip_plays_on_its_exact_samples_at_every_block_size() {
     let audio = ramp(20_000, RATE);
     let (offset, length) = (100, 10_000);
     let clip = Clip {
+        envelope: Default::default(),
         id: 1,
         start: bars(1), // sample 96,000 at 120 BPM
         offset,
@@ -113,6 +114,7 @@ fn a_clip_plays_on_its_exact_samples_at_every_block_size() {
 fn the_loop_wrap_crossfades_and_stays_on_the_exact_sample() {
     let audio = ramp(400_000, RATE);
     let clip = Clip {
+        envelope: Default::default(),
         id: 1,
         start: Ticks::ZERO,
         offset: 0,
@@ -153,6 +155,7 @@ fn the_loop_wrap_crossfades_and_stays_on_the_exact_sample() {
 fn stopping_fades_out_instead_of_cutting() {
     let audio = ramp(400_000, RATE);
     let clip = Clip {
+        envelope: Default::default(),
         id: 1,
         start: Ticks::ZERO,
         offset: 0,
@@ -189,6 +192,7 @@ fn stopping_fades_out_instead_of_cutting() {
 fn a_locate_lands_on_the_exact_sample_and_fades_in() {
     let audio = ramp(400_000, RATE);
     let clip = Clip {
+        envelope: Default::default(),
         id: 1,
         start: Ticks::ZERO,
         offset: 0,
@@ -218,6 +222,7 @@ fn mono_plays_on_both_sides_and_gain_applies() {
         channels: vec![vec![0.5; 10_000]],
     });
     let clip = Clip {
+        envelope: Default::default(),
         id: 1,
         start: Ticks::ZERO,
         offset: 0,
@@ -236,6 +241,7 @@ fn mono_plays_on_both_sides_and_gain_applies() {
 #[test]
 fn clips_at_another_sample_rate_stay_silent() {
     let clip = Clip {
+        envelope: Default::default(),
         id: 1,
         start: Ticks::ZERO,
         offset: 0,
@@ -255,6 +261,7 @@ fn clips_at_another_sample_rate_stay_silent() {
 fn clips_follow_tempo_changes() {
     let audio = ramp(20_000, RATE);
     let clip = Clip {
+        envelope: Default::default(),
         id: 1,
         start: bars(1),
         offset: 0,
@@ -279,6 +286,7 @@ fn clips_follow_tempo_changes() {
 fn a_new_clip_list_replaces_the_old_and_the_old_is_handed_back() {
     let audio = ramp(10_000, RATE);
     let clip = |start| Clip {
+        envelope: Default::default(),
         id: 1,
         start,
         offset: 0,
@@ -312,6 +320,7 @@ fn resending_the_same_timeline_while_playing_changes_nothing() {
     // dragging pan crackled, from a fade-in on every resend).
     let audio = ramp(20_000, RATE);
     let clip = Clip {
+        envelope: Default::default(),
         id: 1,
         start: Ticks::ZERO,
         offset: 0,
@@ -341,6 +350,7 @@ fn a_tempo_change_while_playing_crossfades() {
     // the audio jumps; like every jump, it crossfades rather than cutting.
     let audio = ramp(40_000, RATE);
     let clip = Clip {
+        envelope: Default::default(),
         id: 1,
         start: Ticks::ZERO,
         offset: 0,
@@ -377,6 +387,7 @@ fn steady(frames: usize) -> Arc<ClipAudio> {
 
 fn steady_clip(audio: &Arc<ClipAudio>, gain: f32) -> Clip {
     Clip {
+        envelope: Default::default(),
         id: 7,
         start: Ticks::ZERO,
         offset: 0,
@@ -480,6 +491,7 @@ fn dragging_a_playing_clip_crossfades_instead_of_clicking() {
     // point of the file, once per screen frame.
     let audio = tone(200_000);
     let clip = |start: Ticks| Clip {
+        envelope: Default::default(),
         id: 3,
         start,
         offset: 0,
@@ -538,6 +550,7 @@ fn lists_sent_while_stopped_never_play_late() {
     // crossfade each, so the clip played without its new fade at first.
     let audio = tone(48_000);
     let clip = |fade: i64| Clip {
+        envelope: Default::default(),
         id: 3,
         start: Ticks::ZERO,
         offset: 0,
@@ -572,6 +585,7 @@ fn a_list_that_moves_no_clip_does_not_crossfade() {
     // Volume drags resend every frame; those must not cost a crossfade.
     let audio = tone(48_000);
     let clip = Clip {
+        envelope: Default::default(),
         id: 3,
         start: Ticks::ZERO,
         offset: 0,
@@ -635,6 +649,7 @@ fn fades_sound_as_drawn_in_every_shape_and_free_curve() {
     ] {
         let (length, fade_in, fade_out) = (20_000, 4_800, 9_600);
         let clip = Clip {
+            envelope: Default::default(),
             id: 1,
             start: bars(1),
             offset: 0,
@@ -689,6 +704,7 @@ fn a_looping_clip_repeats_its_content_with_clean_seams() {
     let audio = ramp(30_000, RATE);
     let (offset, period, length) = (100, 3_000, 10_000);
     let clip = Clip {
+        envelope: Default::default(),
         id: 1,
         start: bars(1),
         offset,
@@ -713,6 +729,7 @@ fn a_looping_clip_repeats_its_content_with_clean_seams() {
 fn a_clip_with_no_channels_plays_silence_and_does_not_stop_the_others() {
     let audio = ramp(1_000, RATE);
     let make = |id, track, audio: Arc<ClipAudio>| Clip {
+        envelope: Default::default(),
         id,
         start: Ticks::ZERO,
         offset: 0,
