@@ -80,6 +80,9 @@ pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Tick
             shift_events(events, cut);
         }
     }
+    // An envelope stays where it was on the timeline: the points the part
+    // loses from its front are before its start now, hidden.
+    part.envelopes.shift(Ticks::ZERO - cut);
     if start != clip.start {
         part.fade_in = Default::default();
     }
@@ -220,6 +223,7 @@ pub fn trim(
             let moved = start - clip.start;
             c.start = start;
             c.length = end - start;
+            c.envelopes.shift(Ticks::ZERO - moved);
             match &mut c.content {
                 ClipContent::Audio { offset, .. } => {
                     let rate = audio.map_or(project.sample_rate, |a| a.0);
@@ -457,6 +461,7 @@ mod tests {
                     curve: FadeShape::Fast.curve(),
                 },
                 loop_length: None,
+                envelopes: Default::default(),
                 content: ClipContent::Audio {
                     media: Id(900),
                     offset: 1_000,

@@ -7,6 +7,7 @@
 
 pub mod automation;
 pub mod edit;
+pub mod envelope;
 pub mod groups;
 pub mod history;
 mod io;

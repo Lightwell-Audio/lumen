@@ -97,6 +97,7 @@ mod tests {
             fade_in: Default::default(),
             fade_out: Default::default(),
             loop_length: looping.map(Ticks::quarters),
+            envelopes: Default::default(),
             content: ClipContent::midi(),
         }
     }

@@ -649,6 +649,7 @@ mod tests {
             fade_in: Fade::default(),
             fade_out: Fade::default(),
             loop_length: None,
+            envelopes: Default::default(),
             content: ClipContent::midi(),
         }
     }

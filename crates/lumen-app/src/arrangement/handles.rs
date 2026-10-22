@@ -398,6 +398,7 @@ mod tests {
             fade_in,
             fade_out,
             loop_length: None,
+            envelopes: Default::default(),
             content: ClipContent::Audio {
                 media: Id(2),
                 offset: 0,
@@ -542,6 +543,7 @@ mod tests {
             fade_in: Fade::default(),
             fade_out: Fade::default(),
             loop_length: None,
+            envelopes: Default::default(),
             content: ClipContent::Audio {
                 media: Id(2),
                 offset: 0,

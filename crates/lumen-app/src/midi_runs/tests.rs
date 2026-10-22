@@ -20,6 +20,7 @@ fn clip(id: u64, start: i64, length: i64, notes: Vec<Note>) -> Arc<Clip> {
         fade_in: Default::default(),
         fade_out: Default::default(),
         loop_length: None,
+        envelopes: Default::default(),
         content: ClipContent::Midi {
             notes,
             events: Vec::new(),
@@ -245,6 +246,7 @@ fn a_huge_looping_clip_stays_constant_size_during_a_narrow_replace() {
         fade_in: Default::default(),
         fade_out: Default::default(),
         loop_length: Some(Ticks(1)),
+        envelopes: Default::default(),
         content: ClipContent::Midi {
             notes: vec![Note::new(Ticks::ZERO, Ticks(1), 60, 100)],
             events: Vec::new(),

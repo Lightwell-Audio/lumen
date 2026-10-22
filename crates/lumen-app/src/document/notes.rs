@@ -617,6 +617,7 @@ mod tests {
                     fade_in: Default::default(),
                     fade_out: Default::default(),
                     loop_length: None,
+                    envelopes: Default::default(),
                     content: ClipContent::Audio {
                         media: Id(0),
                         offset: 0,

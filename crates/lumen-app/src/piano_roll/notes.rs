@@ -274,6 +274,7 @@ mod tests {
             start: q(8),
             length: q(4),
             loop_length: None,
+            envelopes: Default::default(),
             notes,
             carried: &[],
             outside: false,
