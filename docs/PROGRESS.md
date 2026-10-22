@@ -488,7 +488,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 ### Milestone 7 — report (2026-10-22)
 **Status:** Built, not signed off. Every slice (A0 to A8) is built; A0 to A7 are merged into `main`, A8 is on its branch
-(`claude/jolly-turing-2uvvtj`). The owner's MT-AUTO-1 to 7 and 9 passed (most reported without step detail);
+(`m7-sa8-close-m7`). The owner's MT-AUTO-1 to 7 and 9 passed (most reported without step detail);
 MT-AUTO-8 (tempo and meter lanes, steps 16 and 17 for ramps and the lane button) and MT-AUTO-10 (below) wait. The
 owner's approval is required before M7b or M8.
 

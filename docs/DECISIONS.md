@@ -8226,7 +8226,7 @@ playback by ear (MT-AUTO-9 is the owner's).
 
 ## ADR-0091 — The end-of-M7 review's fixes: a project swap forgets, a pass is written in parts (M7 slice A8)
 
-**Status:** Accepted · **Date:** 2026-10-22 (M7 slice A8, branch `claude/jolly-turing-2uvvtj`). The owner approved
+**Status:** Accepted · **Date:** 2026-10-22 (M7 slice A8, branch `m7-sa8-close-m7`). The owner approved
 each fix in the review's terms (H1: fix it in the swap, whatever else prevents two windows; M1: commit the pass so
 far; M2: split the files now if it makes sense). Report: `docs/audits/2026-10-22-m7.md`.
 
