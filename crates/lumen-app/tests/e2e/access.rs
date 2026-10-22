@@ -218,8 +218,10 @@ fn every_control_in_every_m7_view_has_a_name() {
     lumen.frames(40);
     let slider = lumen.harness.get_by_label_contains("Volume tone:").rect();
     lumen.right_click(slider.center());
-    lumen.frames(5);
-    assert!(lumen.shows("Learn a controller"), "the control's menu is open");
+    assert!(
+        lumen.shows("Learn a controller\u{2026}"),
+        "the control's menu is open"
+    );
     check(&lumen, "control menu", &mut problems);
     lumen.key(Modifiers::NONE, Key::Escape);
 
@@ -253,7 +255,12 @@ fn every_control_in_every_m7_view_has_a_name() {
     lumen.frames(5);
     lumen.key(Modifiers::NONE, Key::E);
     lumen.frames(40);
-    assert!(lumen.app().automation_shown(track).is_some_and(|t| t.clip().is_some()));
+    assert!(
+        lumen
+            .app()
+            .automation_shown(track)
+            .is_some_and(|t| t.clip().is_some())
+    );
     check(&lumen, "clip envelope", &mut problems);
 
     assert!(
