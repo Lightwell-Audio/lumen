@@ -29,6 +29,7 @@ fn playing(clips: usize, routed_mix: bool) -> Engine<Mixer<ClipPlayer>> {
         .set(
             (0..clips)
                 .map(|i| Clip {
+                    envelope: Default::default(),
                     id: i as u64,
                     start: Ticks::ZERO,
                     offset: 0,

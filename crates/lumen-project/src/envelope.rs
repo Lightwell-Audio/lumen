@@ -11,7 +11,8 @@
 //! Gain is in dB and adds to the clip's own gain; pan is −1 to 1 and pans
 //! the clip before its track does.
 
-use lumen_core::automation::{FLOOR_DB, Lane, Point};
+use lumen_core::automation::{FLOOR_DB, Lane, Point, Shape};
+use lumen_core::time::Ticks;
 use serde::{Deserialize, Serialize};
 
 use crate::automation::LEVEL_MAX_DB;
@@ -90,7 +91,7 @@ impl ClipEnvelopes {
 
     /// Moves every point by `by` (earlier when negative), as a trim of the
     /// clip's start does.
-    pub fn shift(&mut self, by: lumen_core::time::Ticks) {
+    pub fn shift(&mut self, by: Ticks) {
         for lane in [&mut self.gain, &mut self.pan].into_iter().flatten() {
             let points = lane
                 .points()
@@ -106,6 +107,77 @@ impl ClipEnvelopes {
             }
         }
     }
+}
+
+/// How many straight pieces a curved segment is cut into where a window
+/// cuts it (a curve cannot start or end partway along itself).
+const CURVE_PIECES: i64 = 16;
+
+/// The part of `lane` from clip time 0 to `end`, for what plays: the points
+/// inside the window, and where the window cuts a segment, a point at the cut
+/// with the value the lane has there. A curved segment that is cut becomes a
+/// run of straight ones. A lane that lies wholly outside holds one value.
+/// `None` when the lane has no points.
+pub fn windowed(lane: &Lane, end: Ticks) -> Option<Lane> {
+    let points = lane.points();
+    if points.is_empty() {
+        return None;
+    }
+    let end = end.max(Ticks::ZERO);
+    let mut out: Vec<Point> = Vec::new();
+    fn put(out: &mut Vec<Point>, at: Ticks, value: f32, shape: Shape) {
+        if out.last().is_none_or(|last| last.at < at) {
+            out.push(Point { at, value, shape });
+        }
+    }
+    let value_at = |t: Ticks| lane.value_at(t).unwrap_or(0.0);
+    // Holds the first value before the first point and the last after it.
+    if points[0].at >= Ticks::ZERO {
+        // Nothing is cut at the start.
+    } else {
+        let next = points.iter().find(|p| p.at >= Ticks::ZERO);
+        let before = points.iter().rev().find(|p| p.at < Ticks::ZERO);
+        match (before, next) {
+            (Some(a), Some(b)) => {
+                let (from, to) = (Ticks::ZERO, b.at.min(end));
+                if matches!(a.shape, Shape::Curve(_)) {
+                    for k in 0..CURVE_PIECES {
+                        let t = from + Ticks((to - from).0 * k / CURVE_PIECES);
+                        put(&mut out, t, value_at(t), Shape::Linear);
+                    }
+                } else {
+                    put(&mut out, from, value_at(from), a.shape);
+                }
+            }
+            (Some(a), None) => put(&mut out, Ticks::ZERO, a.value, Shape::Linear),
+            _ => {}
+        }
+    }
+    for (i, a) in points.iter().enumerate() {
+        if a.at < Ticks::ZERO || a.at > end {
+            continue;
+        }
+        let next = points.get(i + 1);
+        match next {
+            Some(b) if b.at > end && matches!(a.shape, Shape::Curve(_)) => {
+                for k in 0..CURVE_PIECES {
+                    let t = a.at + Ticks((end - a.at).0 * k / CURVE_PIECES);
+                    put(&mut out, t, value_at(t), Shape::Linear);
+                }
+                put(&mut out, end, value_at(end), Shape::Linear);
+            }
+            Some(b) if b.at > end => {
+                put(&mut out, a.at, a.value, a.shape);
+                put(&mut out, end, value_at(end), Shape::Linear);
+            }
+            _ => put(&mut out, a.at, a.value, a.shape),
+        }
+    }
+    if out.is_empty() {
+        // Every point is past the window: the first value is held.
+        put(&mut out, Ticks::ZERO, value_at(Ticks::ZERO), Shape::Linear);
+    }
+    Lane::new(out).ok()
 }
 
 /// Why a clip's envelopes cannot be kept.
@@ -147,6 +219,51 @@ mod tests {
                 .collect(),
         )
         .unwrap()
+    }
+
+    fn values(lane: &Lane) -> Vec<(i64, f32)> {
+        lane.points()
+            .iter()
+            .map(|p| (p.at.0 / Ticks::quarters(1).0, p.value))
+            .collect()
+    }
+
+    #[test]
+    fn the_window_keeps_the_points_inside_and_the_value_at_each_cut() {
+        // Points at −2 (−10) and 2 (0) and 6 (10): the window 0 to 4 cuts the
+        // first segment at 0 (value −5) and the second at 4 (value 5).
+        let l = lane(&[(-2, -10.0), (2, 0.0), (6, 10.0)]);
+        let w = windowed(&l, Ticks::quarters(4)).unwrap();
+        assert_eq!(values(&w), vec![(0, -5.0), (2, 0.0), (4, 5.0)]);
+    }
+
+    #[test]
+    fn a_lane_wholly_outside_the_window_holds_one_value() {
+        let before = lane(&[(-4, 3.0), (-1, -3.0)]);
+        let w = windowed(&before, Ticks::quarters(4)).unwrap();
+        assert_eq!(values(&w), vec![(0, -3.0)]);
+        let after = lane(&[(8, 2.0), (9, 4.0)]);
+        let w = windowed(&after, Ticks::quarters(4)).unwrap();
+        assert_eq!(values(&w), vec![(0, 2.0)]);
+        assert!(windowed(&Lane::default(), Ticks::quarters(4)).is_none());
+    }
+
+    #[test]
+    fn a_curved_segment_that_a_window_cuts_becomes_straight_pieces() {
+        let curve = lumen_core::curve::Curve::default();
+        let l = Lane::new(vec![
+            Point::new(Ticks::quarters(-4), 0.0).with_shape(Shape::Curve(curve)),
+            Point::new(Ticks::quarters(4), 8.0),
+        ])
+        .unwrap();
+        let w = windowed(&l, Ticks::quarters(2)).unwrap();
+        assert!(w.len() >= 16, "cut into pieces");
+        assert!(w.points().iter().all(|p| p.shape == Shape::Linear));
+        // Each piece's value is the lane's own value there.
+        for p in w.points() {
+            assert!((p.value - l.value_at(p.at).unwrap()).abs() < 1e-5);
+        }
+        assert_eq!(w.points()[0].at, Ticks::ZERO);
     }
 
     #[test]

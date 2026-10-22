@@ -80,6 +80,37 @@ pub(crate) fn bake(lane: &Lane, tempo: &TempoMap, rate: u32) -> Option<AutoLane>
     AutoLane::new(baked)
 }
 
+/// `lane`, whose points are measured from `origin` (a clip's start), on the
+/// sample clock that starts at `origin`: its first frame is frame 0.
+pub(crate) fn bake_from(
+    lane: &Lane,
+    origin: Ticks,
+    tempo: &TempoMap,
+    rate: u32,
+) -> Option<AutoLane> {
+    let points = lane
+        .points()
+        .iter()
+        .map(|p| lumen_core::automation::Point {
+            at: p.at + origin,
+            ..*p
+        })
+        .collect();
+    let absolute = Lane::new(points).ok()?;
+    let base = tempo.sample_at(origin, rate);
+    let baked = bake(&absolute, tempo, rate)?;
+    AutoLane::new(
+        baked
+            .points()
+            .iter()
+            .map(|p| AutoPoint {
+                at: p.at - base,
+                ..*p
+            })
+            .collect(),
+    )
+}
+
 /// The lanes of the parameters of `track`'s devices that `wanted` picks,
 /// baked: the device's id and the lane of one of its parameters. Only lanes
 /// that play (are on and not taken over), for a device the track has.

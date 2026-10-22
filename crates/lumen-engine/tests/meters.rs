@@ -39,6 +39,7 @@ fn sine(frequency: f64, dbfs: f64, seconds: f64) -> Arc<ClipAudio> {
 
 fn clip(track: u64, audio: &Arc<ClipAudio>) -> Clip {
     Clip {
+        envelope: Default::default(),
         id: track,
         track,
         start: Ticks::ZERO,

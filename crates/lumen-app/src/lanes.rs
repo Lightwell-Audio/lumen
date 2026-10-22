@@ -162,6 +162,13 @@ pub fn engine_clips(
                     } else {
                         crate::routing::db_to_gain(*gain_db)
                     },
+                    envelope: envelope_of(
+                        clip,
+                        project,
+                        tempo.as_ref(),
+                        rate,
+                        samples.channels.len(),
+                    ),
                     audio: samples,
                     shape,
                 });
@@ -169,6 +176,37 @@ pub fn engine_clips(
         }
     }
     list
+}
+
+/// A clip's envelopes on its own sample clock (M7 slice A7): each lane cut to
+/// the window the clip plays (its loop, or its length) and baked with the
+/// tempo map, so frame 0 is the clip's first frame. A mono clip pans by the
+/// project's law and a stereo one balances, as a track does (`routing.rs`).
+fn envelope_of(
+    clip: &lumen_project::model::Clip,
+    project: &Project,
+    tempo: Option<&lumen_core::time::TempoMap>,
+    rate: u32,
+    channels: usize,
+) -> lumen_engine::ClipEnvelope {
+    let Some(tempo) = tempo.filter(|_| !clip.envelopes.is_empty()) else {
+        return Default::default();
+    };
+    let window = clip.loop_length.filter(|l| l.0 > 0).unwrap_or(clip.length);
+    let bake = |kind| {
+        let lane = clip.envelopes.get(kind)?;
+        let cut = lumen_project::envelope::windowed(lane, window)?;
+        crate::lane_bake::bake_from(&cut, clip.start, tempo, rate)
+    };
+    let law = if channels == 1 {
+        project.pan_law
+    } else {
+        lumen_core::pan::PanLaw::Balance
+    };
+    lumen_engine::ClipEnvelope {
+        gain: bake(lumen_project::envelope::Kind::Gain),
+        pan: bake(lumen_project::envelope::Kind::Pan).map(|lane| (lane, law)),
+    }
 }
 
 impl Lanes {
@@ -772,6 +810,95 @@ mod tests {
             Arc::make_mut(&mut track.clips[0]).loop_length = None;
         });
         assert_eq!(played(&doc, &audio, 48_000)[0].length, 96_000);
+    }
+
+    fn with_envelopes(doc: &mut Document, edit: impl FnOnce(&mut lumen_project::model::Clip)) {
+        doc.apply("envelope", None, |p| {
+            let track = Arc::make_mut(&mut p.tracks[0]);
+            edit(Arc::make_mut(&mut track.clips[0]));
+        });
+    }
+
+    fn lane(points: &[(i64, f32)]) -> lumen_core::automation::Lane {
+        lumen_core::automation::Lane::new(
+            points
+                .iter()
+                .map(|&(q, v)| lumen_core::automation::Point::new(Ticks::quarters(q), v))
+                .collect(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn envelopes_reach_the_engine_on_the_clips_own_clock() {
+        use lumen_project::envelope::Kind;
+        let (mut doc, audio) = setup(1);
+        // A clip from quarter 2 with a gain envelope from 0 to −12 dB over its
+        // first two quarters (a second at 120 BPM), and a pan to the right.
+        with_envelopes(&mut doc, |clip| {
+            clip.start = Ticks::quarters(2);
+            clip.envelopes
+                .set(Kind::Gain, lane(&[(0, 0.0), (2, -12.0)]));
+            clip.envelopes.set(Kind::Pan, lane(&[(0, 1.0)]));
+        });
+        let clip = &played(&doc, &audio, 48_000)[0];
+        let gain = clip.envelope.gain.as_ref().unwrap();
+        assert_eq!(gain.points()[0].at, 0, "frame 0 is the clip's first frame");
+        assert_eq!(gain.value_at(48_000), -12.0);
+        assert_eq!(gain.value_at(24_000), -6.0);
+        // A stereo file balances.
+        let (_, law) = clip.envelope.pan.as_ref().unwrap();
+        assert_eq!(*law, lumen_core::pan::PanLaw::Balance);
+        // A clip without envelopes plays the plain path.
+        with_envelopes(&mut doc, |clip| clip.envelopes = Default::default());
+        assert!(played(&doc, &audio, 48_000)[0].envelope.is_empty());
+    }
+
+    #[test]
+    fn a_mono_clip_pans_by_the_projects_law() {
+        use lumen_project::envelope::Kind;
+        let (mut doc, _) = setup(1);
+        with_envelopes(&mut doc, |clip| {
+            clip.envelopes.set(Kind::Pan, lane(&[(0, -0.5)]));
+        });
+        let mono = Arc::new(ClipAudio {
+            sample_rate: 48_000,
+            channels: vec![vec![0.5; 96_000]],
+        });
+        let clip = &played(&doc, &mono, 48_000)[0];
+        let (_, law) = clip.envelope.pan.as_ref().unwrap();
+        assert_eq!(*law, doc.project().pan_law);
+    }
+
+    #[test]
+    fn a_looping_clips_envelope_is_cut_to_one_repeat_and_a_tempo_change_keeps_its_shape() {
+        use lumen_project::envelope::Kind;
+        let (mut doc, audio) = setup(1);
+        // Looped every two quarters, with points past the repeat.
+        with_envelopes(&mut doc, |clip| {
+            clip.length = Ticks::quarters(8);
+            clip.loop_length = Some(Ticks::quarters(2));
+            clip.envelopes
+                .set(Kind::Gain, lane(&[(0, 0.0), (1, -20.0), (6, 0.0)]));
+        });
+        let gain = played(&doc, &audio, 48_000)[0]
+            .envelope
+            .gain
+            .clone()
+            .unwrap();
+        // The window ends at 48,000 (two quarters at 120 BPM): no point
+        // lies past it.
+        assert!(gain.points().iter().all(|p| p.at <= 48_000));
+        assert_eq!(gain.value_at(24_000), -20.0);
+        // The same envelope under a slower tempo from the start of the clip
+        // is twice as long in frames, and still passes through its points.
+        doc.apply("slow", None, |p| p.tempo[0].bpm = 60.0);
+        let slow = played(&doc, &audio, 48_000)[0]
+            .envelope
+            .gain
+            .clone()
+            .unwrap();
+        assert_eq!(slow.value_at(48_000), -20.0);
     }
 
     #[test]
