@@ -258,8 +258,15 @@ Implement:
 - Freehand automation
 - Point simplification
 
-Deferred by the owner (2026-10-19): tempo ramps (the tempo lane edits steps) and the
-audio pitch envelope (it needs a time-stretch and pitch engine).
+Deferred by the owner (2026-10-19): the audio pitch envelope (it needs a time-stretch and
+pitch engine). Tempo ramps were deferred too and then built at the owner's word during A6
+(2026-10-21, ADR-0089). Built-in devices have no engine lanes until M8, which adds the
+devices; lanes for hosted plugins work now.
+
+Status: built and every manual test passed (owner, 2026-10-22); the milestone report is in
+`docs/PROGRESS.md` and the approval is the owner's. Two findings are in `docs/KNOWN_ISSUES.md`
+for after the core milestones (a plugin parameter does not follow its lane on a locate while
+stopped; a recorded fade leaves 10 to 15 points).
 
 ### Exit criteria
 
