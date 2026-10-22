@@ -33,7 +33,7 @@ use crate::recorder::Capture;
 /// How often a growing take is committed to the document.
 const COMMIT_EVERY: Duration = Duration::from_secs(1);
 /// Autosave's delay while recording: a crash costs seconds, not a minute.
-const AUTOSAVE_DELAY: Duration = Duration::from_secs(10);
+pub(crate) const AUTOSAVE_DELAY: Duration = Duration::from_secs(10);
 /// How long the engine has to start after Record before it is given up on
 /// (it is not running).
 const ENGINE_WAIT: Duration = Duration::from_secs(2);

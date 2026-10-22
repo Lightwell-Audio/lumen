@@ -8,6 +8,12 @@ use lumen_project::model::Id;
 use crate::App;
 
 impl App {
+    /// How often a lane pass under way is written into the project and how
+    /// soon the autosave follows (M7 review M1); the real ones are seconds.
+    pub fn set_pass_pacing(&mut self, every: std::time::Duration, autosave: std::time::Duration) {
+        self.lane_commits.set_pacing(every, autosave);
+    }
+
     /// Gives track `track` a lane for `target` (M7 slice A0: the lane
     /// interface arrives in slice A1, so end-to-end tests make lanes here).
     /// Returns why not when the lane is refused.

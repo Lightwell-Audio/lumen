@@ -51,6 +51,15 @@ impl Controllers {
         !self.held.is_empty()
     }
 
+    /// Lets go of what belongs to the project that was open: a control waiting
+    /// for a controller, the last one heard and the controls held. The tap and
+    /// the open Mappings window stay.
+    pub(crate) fn forget_project(&mut self) {
+        self.learning = None;
+        self.last = None;
+        self.held.clear();
+    }
+
     /// How many messages the tap had no room for.
     pub(crate) fn dropped(&self) -> u64 {
         self.tap.as_ref().map_or(0, Tap::dropped)

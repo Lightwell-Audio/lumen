@@ -12,9 +12,9 @@ use lumen_core::time::Ticks;
 use lumen_project::automation::Target;
 use lumen_project::model::Id;
 
-use super::Lumen;
 use super::hosting::{PLUGIN, effect_device, instrument_device, launch, project, wait_for_state};
 use super::lane_view::{near, peak, points, run_command, tone};
+use super::{Lumen, TempDir};
 
 /// The test tone's peak (`wav`): 3,000 of 32,768.
 const TONE: f32 = 3_000.0 / 32_768.0;
@@ -383,5 +383,175 @@ fn a_touch_on_a_control_with_no_lane_yet_returns_to_where_the_control_rested() {
     assert!(
         near(back, rest),
         "not left where it was let go: {back} against {rest}"
+    );
+}
+
+/// The volume lane of `track` as the project holds it.
+fn volume_of(app: &lumen_app::App, track: Id) -> Vec<(Ticks, f32)> {
+    app.project()
+        .tracks
+        .iter()
+        .find(|t| t.id == track)
+        .and_then(|t| t.lane(Target::Volume))
+        .map(|l| l.lane.points().iter().map(|p| (p.at, p.value)).collect())
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_long_pass_is_kept_in_the_project_as_it_goes_and_is_still_one_undo_step() {
+    let (mut lumen, track) = recording("record-parts", "write");
+    lumen
+        .app_mut()
+        .set_pass_pacing(Duration::from_millis(200), Duration::from_millis(50));
+    lumen.key(Modifiers::NONE, Key::A);
+    lumen.frames(40);
+    let before = lane_points(&lumen, track);
+    play(&mut lumen);
+    lumen.wait_for("a part of the pass in the project", move |app| {
+        volume_of(app, track) != before
+    });
+    // Still under way: the lane is being written and not played against the
+    // hand, though the project already holds what was heard.
+    assert!(lumen.app().recording_automation(track, Target::Volume));
+    assert!(lumen.app().lane_taken_over(track, Target::Volume));
+    let heard = peak(&mut lumen);
+    assert!(near(heard, TONE), "the control's own level: {heard}");
+    assert!(
+        lumen.app().is_dirty(),
+        "the part counts as an unsaved change"
+    );
+
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.frames(5);
+    assert!(!lumen.app().recording_automation(track, Target::Volume));
+    assert!(
+        !lumen.app().lane_taken_over(track, Target::Volume),
+        "the finished pass hands the lane back"
+    );
+    // However many parts were written, undo takes the pass back in one step.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    assert_eq!(lane_points(&lumen, track), vec![(Ticks::ZERO, -20.0)]);
+}
+
+#[test]
+fn a_pass_under_way_when_the_app_stops_is_found_in_the_autosave() {
+    let mut lumen = Lumen::start_with(TempDir::new("e2e-record-crash"), |launch| {
+        launch.autosaving_after(Duration::from_secs(60))
+    });
+    let file = super::wav(&lumen.dir().join("tone.wav"), 20.0);
+    lumen.drop_files(&[file]);
+    lumen.frames(5);
+    let track = lumen.app().project().tracks[0].id;
+    lumen.app_mut().select_tracks(&[track]);
+    lumen.frames(40);
+    let lane = Lane::new(vec![
+        Point::new(Ticks::ZERO, -20.0).with_shape(Shape::Linear),
+    ])
+    .unwrap();
+    lumen
+        .app_mut()
+        .give_lane(track, Target::Volume, lane)
+        .unwrap();
+    lumen.app_mut().set_automation_mode(track, "write");
+    lumen
+        .app_mut()
+        .set_pass_pacing(Duration::from_millis(200), Duration::from_millis(50));
+    lumen.key(Modifiers::NONE, Key::A);
+    lumen.frames(40);
+    let autosaves = lumen.dir().join("autosave");
+    play(&mut lumen);
+    // An autosave written while the pass is still under way holds its first
+    // part.
+    lumen.wait_for("an autosave of the pass so far", |app| {
+        app.playhead() > Ticks::quarters(1)
+            && std::fs::read_dir(&autosaves).is_ok_and(|entries| {
+                entries.flatten().any(|e| {
+                    lumen_project::load(&e.path()).is_ok_and(|p| {
+                        p.tracks[0]
+                            .lane(Target::Volume)
+                            .is_some_and(|l| l.lane.points().iter().any(|pt| pt.value == 0.0))
+                    })
+                })
+            })
+    });
+    assert!(lumen.app().recording_automation(track, Target::Volume));
+
+    // The app stops without closing: recovery offers the pass so far.
+    let dir = lumen.crash();
+    let mut again = Lumen::start_with(dir, |launch| launch);
+    again.click("Recover");
+    again.wait_for("the recovered project", |app| {
+        !app.is_busy() && app.project().tracks.len() == 1
+    });
+    let recovered = volume_of(again.app(), track);
+    assert!(
+        recovered.iter().any(|p| p.1 == 0.0),
+        "the pass so far came back: {recovered:?}"
+    );
+}
+
+#[test]
+fn opening_another_project_leaves_a_pass_under_way_behind() {
+    // The M7 review's H1: a pass under way, then another project opens. The
+    // pass belongs to the old project's track ids; the new project has a
+    // track with the same id and must not be given a lane it never had.
+    let (mut lumen, track) = recording("record-open", "write");
+    lumen.key(Modifiers::NONE, Key::A);
+    lumen.frames(40);
+    play(&mut lumen);
+    lumen.wait_for("the pass", |app| {
+        app.playhead() > Ticks::quarters(2) && app.recording_automation(track, Target::Volume)
+    });
+    let other = lumen_project::testing::project_of(
+        "Other",
+        vec![lumen_project::model::Track::new(
+            track,
+            "Other",
+            lumen_project::model::TrackKind::Audio,
+            lumen_project::model::Color(0x5FA89A),
+        )],
+    );
+    let path = lumen.dir().join("other.lumen");
+    lumen_project::save(&other, &path, &Default::default()).unwrap();
+    lumen.app_mut().open_project_file(path);
+    lumen.wait_for("the other project", |app| app.project().name == "Other");
+    lumen.frames(60);
+    assert!(
+        lumen.app().project().tracks[0].automation.is_empty(),
+        "the old project's pass was written into the new one"
+    );
+    assert!(
+        !lumen.app().is_dirty(),
+        "and the new project is as it was saved"
+    );
+    assert_eq!(lumen.app().undo_label(), None);
+}
+
+#[test]
+fn opening_another_project_ends_a_control_waiting_for_a_controller() {
+    let (mut lumen, track) = recording("record-open-learn", "read");
+    lumen.app_mut().begin_learning(track, Target::Volume);
+    assert_eq!(
+        lumen.app().controller_learning(),
+        Some((track, Target::Volume))
+    );
+    let other = lumen_project::testing::project_of(
+        "Other",
+        vec![lumen_project::model::Track::new(
+            track,
+            "Other",
+            lumen_project::model::TrackKind::Audio,
+            lumen_project::model::Color(0x5FA89A),
+        )],
+    );
+    let path = lumen.dir().join("other.lumen");
+    lumen_project::save(&other, &path, &Default::default()).unwrap();
+    lumen.app_mut().open_project_file(path);
+    lumen.wait_for("the other project", |app| app.project().name == "Other");
+    assert_eq!(
+        lumen.app().controller_learning(),
+        None,
+        "the next controller moved must not map the other project's control"
     );
 }

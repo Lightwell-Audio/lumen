@@ -15,10 +15,31 @@ use lumen_project::model::Id;
 use super::Document;
 use super::mixer::tracks_mut;
 
-/// A lane edit that is one move of a drag.
+/// A lane edit that joins others into one undo step.
 #[derive(Debug, Clone, Copy)]
-enum Gesture {
+enum Gesture<'a> {
+    /// One move of a drag.
     Drag,
+    /// One part of a recorded pass, merged by the pass's own key.
+    Pass(&'a str),
+}
+
+/// How a lane write is named and whether it lets the lane play.
+#[derive(Debug, Clone, Copy)]
+struct Write<'a> {
+    /// The undo step's name, where the default does not fit.
+    named: Option<&'a str>,
+    /// Whether the write ends a take-over of the lane.
+    hear: bool,
+}
+
+impl Default for Write<'_> {
+    fn default() -> Self {
+        Self {
+            named: None,
+            hear: true,
+        }
+    }
 }
 
 /// Why a lane edit was refused.
@@ -59,21 +80,60 @@ impl Document {
         lane: Lane,
         gesture: bool,
     ) -> Result<(), LaneRefusal> {
-        self.write_lane(track, target, lane, gesture.then_some(Gesture::Drag), None)
+        self.write_lane(
+            track,
+            target,
+            lane,
+            gesture.then_some(Gesture::Drag),
+            Write::default(),
+        )
     }
 
-    /// Writes a recorded pass as `lane` (M7 slice A4b): one undo step named
-    /// "Record automation", never merged with the step before it. As any
-    /// edit of a lane, it lets the lane play again if the user had taken it
-    /// over.
+    /// Writes the part of a recorded pass heard so far (M7 review M1), so a
+    /// crash or a quit does not lose a long pass. Every part of the pass is
+    /// merged by `key` into one undo step named "Record automation", and the
+    /// lane stays taken over: it is still being written, so it must not play
+    /// against the hand.
+    pub fn record_lane_so_far(
+        &mut self,
+        track: Id,
+        target: Target,
+        lane: Lane,
+        key: &str,
+    ) -> Result<(), LaneRefusal> {
+        self.write_lane(
+            track,
+            target,
+            lane,
+            Some(Gesture::Pass(key)),
+            Write {
+                named: Some("Record automation"),
+                hear: false,
+            },
+        )
+    }
+
+    /// Writes a finished pass as `lane` (M7 slice A4b), joining the parts
+    /// already written under `key`: one undo step named "Record automation",
+    /// never merged with the step before it. As any edit of a lane, it lets
+    /// the lane play again if the user had taken it over.
     pub fn record_lane(
         &mut self,
         track: Id,
         target: Target,
         lane: Lane,
+        key: &str,
     ) -> Result<(), LaneRefusal> {
-        self.seal();
-        let done = self.write_lane(track, target, lane, None, Some("Record automation"));
+        let done = self.write_lane(
+            track,
+            target,
+            lane,
+            Some(Gesture::Pass(key)),
+            Write {
+                named: Some("Record automation"),
+                hear: true,
+            },
+        );
         self.seal();
         done
     }
@@ -83,9 +143,10 @@ impl Document {
         track: Id,
         target: Target,
         lane: Lane,
-        gesture: Option<Gesture>,
-        named: Option<&str>,
+        gesture: Option<Gesture<'_>>,
+        write: Write<'_>,
     ) -> Result<(), LaneRefusal> {
+        let Write { named, hear } = write;
         let held = super::mixer::find(self.project(), track).ok_or(LaneRefusal::NoTrack)?;
         if !held.has_target(target) {
             return Err(LaneRefusal::NoTarget);
@@ -117,9 +178,15 @@ impl Document {
         } else {
             "Add automation lane"
         });
-        // Drawing on a lane is asking to hear it.
-        self.reenable_lane(track, target);
-        let merge = gesture.map(|_| format!("automation {:x} {target:?}", track.0));
+        // Drawing on a lane is asking to hear it; a pass still being written
+        // is not.
+        if hear {
+            self.reenable_lane(track, target);
+        }
+        let merge = gesture.map(|g| match g {
+            Gesture::Drag => format!("automation {:x} {target:?}", track.0),
+            Gesture::Pass(key) => key.to_owned(),
+        });
         self.history.apply(label, merge.as_deref(), |project| {
             if let Some(held) = tracks_mut(project).find(|t| t.id == track) {
                 let held = Arc::make_mut(held);
@@ -540,5 +607,69 @@ mod tests {
         let bytes = lumen_project::to_bytes(doc.project()).unwrap();
         let again = lumen_project::from_bytes(&bytes).unwrap();
         assert_eq!(&again, doc.project());
+    }
+
+    #[test]
+    fn a_pass_written_in_parts_is_one_undo_step_and_stays_taken_over_until_it_ends() {
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio]);
+        let track = ids[0];
+        doc.set_lane(track, Target::Volume, lane(&[(0, 0.0)]), false)
+            .unwrap();
+        let before = lanes(&doc, track);
+        let steps = doc.history().undo_label().map(str::to_owned);
+        doc.override_lane(track, Target::Volume);
+
+        doc.record_lane_so_far(track, Target::Volume, lane(&[(0, 0.0), (1, -3.0)]), "pass")
+            .unwrap();
+        doc.record_lane_so_far(
+            track,
+            Target::Volume,
+            lane(&[(0, 0.0), (1, -3.0), (2, -6.0)]),
+            "pass",
+        )
+        .unwrap();
+        assert_eq!(
+            lanes(&doc, track)[0].lane.len(),
+            3,
+            "the part is in the project"
+        );
+        assert!(
+            doc.overrides().contains(track, Target::Volume),
+            "a lane still being written does not play against the hand"
+        );
+
+        doc.record_lane(
+            track,
+            Target::Volume,
+            lane(&[(0, 0.0), (1, -3.0), (2, -6.0), (3, -9.0)]),
+            "pass",
+        )
+        .unwrap();
+        assert!(
+            !doc.overrides().contains(track, Target::Volume),
+            "the finished pass hands the lane back"
+        );
+        assert_eq!(lanes(&doc, track)[0].lane.len(), 4);
+
+        doc.undo();
+        assert_eq!(lanes(&doc, track), before, "the whole pass is one step");
+        assert_eq!(doc.history().undo_label().map(str::to_owned), steps);
+    }
+
+    #[test]
+    fn a_second_pass_on_the_same_lane_is_a_step_of_its_own() {
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio]);
+        let track = ids[0];
+        doc.record_lane(track, Target::Volume, lane(&[(0, -1.0)]), "first")
+            .unwrap();
+        let one = lanes(&doc, track);
+        doc.record_lane(track, Target::Volume, lane(&[(0, -2.0)]), "second")
+            .unwrap();
+        doc.undo();
+        assert_eq!(
+            lanes(&doc, track),
+            one,
+            "one undo takes back the second only"
+        );
     }
 }

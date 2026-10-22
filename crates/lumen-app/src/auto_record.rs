@@ -120,6 +120,14 @@ struct Pass {
     rest: Option<f32>,
 }
 
+/// What a pass under way has heard: the control's value at each frame, and
+/// what it held before the pass began.
+#[derive(Debug, Clone, Copy)]
+pub struct HeardSoFar<'a> {
+    pub raw: &'a [(Ticks, f32)],
+    pub rest: Option<f32>,
+}
+
 /// The passes being recorded.
 #[derive(Debug, Default)]
 pub struct Recorder {
@@ -131,6 +139,15 @@ impl Recorder {
     /// The lanes being written now.
     pub fn active(&self) -> impl Iterator<Item = (Id, Target)> + '_ {
         self.passes.keys().copied()
+    }
+
+    /// What a pass under way has heard so far, and what its control held
+    /// before it began.
+    pub fn heard(&self, key: (Id, Target)) -> Option<HeardSoFar<'_>> {
+        self.passes.get(&key).map(|p| HeardSoFar {
+            raw: &p.raw,
+            rest: p.rest,
+        })
     }
 
     /// Whether a pass is under way.
@@ -514,5 +531,23 @@ mod tests {
         let mut r = Recorder::default();
         assert!(stop(&mut r, &w).is_empty());
         assert!(r.is_empty(), "a stopped song starts nothing");
+    }
+
+    #[test]
+    fn a_pass_under_way_says_what_it_has_heard_so_far() {
+        let w = world(Mode::Write);
+        let mut r = Recorder::default();
+        assert!(r.heard((T, VOL)).is_none(), "no pass yet");
+        step(&mut r, &w, 10, false, &[]);
+        step(&mut r, &w, 20, false, &[]);
+        step(&mut r, &w, 30, false, &[]);
+        let heard = r.heard((T, VOL)).expect("a pass under way");
+        assert_eq!(
+            heard.raw.iter().map(|p| p.0.0).collect::<Vec<_>>(),
+            [10, 20, 30]
+        );
+        assert_eq!(heard.rest, Some(-6.0));
+        stop(&mut r, &w);
+        assert!(r.heard((T, VOL)).is_none(), "ended");
     }
 }

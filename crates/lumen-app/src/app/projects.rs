@@ -293,6 +293,7 @@ impl App {
         self.chain.selected = None;
         self.synced = None;
         self.show_history = false;
+        self.forget_passes();
         self.transport.locate(Ticks::ZERO);
     }
 

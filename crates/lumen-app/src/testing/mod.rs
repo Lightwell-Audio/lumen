@@ -234,6 +234,11 @@ pub struct MeterShown {
 pub const PROJECT_EXTENSION: &str = files::EXTENSION;
 
 impl App {
+    /// Opens a project file as the Open command does after its dialog.
+    pub fn open_project_file(&mut self, path: PathBuf) {
+        self.opening = Some(files::open(path));
+    }
+
     /// The open project.
     pub fn project(&self) -> &Project {
         self.document.project()

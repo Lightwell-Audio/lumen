@@ -30,8 +30,10 @@ impl App {
     /// transport follows tempo and meter changes from edits, undo and redo.
     pub(crate) fn sync_document(&mut self, ctx: &egui::Context) {
         // A recording commits its growing take as one step, so the gesture
-        // stays open while it runs (it is sealed the frame it ends).
+        // stays open while it runs (it is sealed the frame it ends); so does a
+        // lane pass written in parts.
         if !self.is_recording()
+            && !self.lane_commits.writing()
             && !ctx.input(|i| i.pointer.any_down())
             && !crate::widgets::wheel::adjusting(ctx)
             && !self.hosting.gesture_open()
