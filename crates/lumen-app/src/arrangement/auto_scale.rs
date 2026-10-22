@@ -40,21 +40,24 @@ pub(crate) fn own_value(track: &Track, target: Target) -> f32 {
             .find(|d| d.id == device)
             .and_then(|d| d.params.get(&param))
             .map_or_else(|| default_value(target), |&v| v as f32),
+        // An envelope has no control of its own: it rests at nothing.
+        Target::ClipGain { .. } | Target::ClipPan { .. } => 0.0,
     }
 }
 
 /// The slider that shows `target`'s values, if one fits.
 fn slider(target: Target) -> Option<SliderKind> {
-    match target {
+    match target.scale() {
         Target::Volume | Target::Send { .. } => Some(SliderKind::Volume),
         Target::Trim => Some(SliderKind::Trim),
         Target::Pan => Some(SliderKind::Pan),
-        Target::Mute | Target::Device { .. } => None,
+        _ => None,
     }
 }
 
 /// How high `value` sits in a lane, 0 at the floor and 1 at the top.
 pub(crate) fn fraction(target: Target, value: f32) -> f32 {
+    let target = target.scale();
     match target {
         Target::Volume | Target::Send { .. } => {
             let v = value.clamp(FLOOR_DB, LEVEL_HIGH);
@@ -76,6 +79,7 @@ pub(crate) fn fraction(target: Target, value: f32) -> f32 {
 /// floor band is silence.
 pub(crate) fn value(target: Target, fraction: f32) -> f32 {
     let f = fraction.clamp(0.0, 1.0);
+    let target = target.scale();
     match target {
         Target::Volume | Target::Send { .. } => {
             if f <= SILENCE_BAND {
@@ -106,8 +110,8 @@ pub(crate) fn value(target: Target, fraction: f32) -> f32 {
 /// continue: the control's own rest value.
 pub(crate) fn default_value(target: Target) -> f32 {
     match target {
-        Target::Volume | Target::Send { .. } | Target::Trim | Target::Pan | Target::Mute => 0.0,
         Target::Device { .. } => 0.5,
+        _ => 0.0,
     }
 }
 
@@ -116,12 +120,12 @@ pub(crate) fn default_value(target: Target) -> f32 {
 /// one lands on it. Few, because every one makes the lane stickier. Mute has
 /// only its two ends, which it already snaps to.
 fn detents(target: Target) -> Vec<f32> {
-    let values: &[f32] = match target {
+    let values: &[f32] = match target.scale() {
         Target::Volume | Target::Send { .. } => &[FLOOR_DB, 0.0, LEVEL_HIGH],
         Target::Trim => &[-24.0, 0.0, 24.0],
         Target::Pan => &[-1.0, 0.0, 1.0],
         Target::Device { .. } => &[0.0, 0.5, 1.0],
-        Target::Mute => &[],
+        _ => &[],
     };
     values.iter().map(|&v| fraction(target, v)).collect()
 }
@@ -169,7 +173,22 @@ pub(crate) fn name(project: &Project, target: Target) -> String {
             );
             format!("{plugin} \u{00B7} parameter {param}")
         }
+        Target::ClipGain { clip } | Target::ClipPan { clip } => {
+            let kind = target
+                .clip()
+                .map_or("Clip envelope", |(_, kind)| kind.name());
+            format!("{kind} \u{00B7} {}", clip_name(project, clip))
+        }
     }
+}
+
+fn clip_name(project: &Project, id: Id) -> String {
+    project
+        .tracks
+        .iter()
+        .flat_map(|t| t.clips.iter())
+        .find(|c| c.id == id)
+        .map_or_else(|| "a clip".to_owned(), |c| c.name.clone())
 }
 
 fn track_name(project: &Project, id: Id) -> String {

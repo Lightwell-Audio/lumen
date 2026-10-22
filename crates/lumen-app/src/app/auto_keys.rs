@@ -35,7 +35,9 @@ fn control_value(track: &Track, target: Target) -> f32 {
             .iter()
             .find(|s| s.to == to)
             .map_or(0.0, |s| s.level.0),
-        Target::Device { .. } => scale::default_value(target),
+        Target::Device { .. } | Target::ClipGain { .. } | Target::ClipPan { .. } => {
+            scale::default_value(target)
+        }
     }
 }
 
@@ -126,7 +128,7 @@ impl App {
             return;
         };
         let value = held
-            .lane(target)
+            .lane_view(target)
             .and_then(|l| l.lane.value_at(at))
             .unwrap_or_else(|| control_value(held, target));
         self.add_auto_point(track, target, at, value, false);
@@ -137,6 +139,10 @@ impl App {
         let Some((track, target)) = self.auto_chosen() else {
             return;
         };
+        // A clip's envelope is always on: it has no switch.
+        if target.clip().is_some() {
+            return;
+        }
         let on = self
             .document
             .project()

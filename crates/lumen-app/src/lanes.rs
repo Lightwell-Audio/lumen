@@ -192,7 +192,7 @@ fn envelope_of(
     let Some(tempo) = tempo.filter(|_| !clip.envelopes.is_empty()) else {
         return Default::default();
     };
-    let window = clip.loop_length.filter(|l| l.0 > 0).unwrap_or(clip.length);
+    let window = lumen_project::envelope::window(clip);
     let bake = |kind| {
         let lane = clip.envelopes.get(kind)?;
         let cut = lumen_project::envelope::windowed(lane, window)?;

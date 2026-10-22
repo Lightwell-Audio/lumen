@@ -430,6 +430,10 @@ impl App {
                 self.song_ramp_target().is_some(),
                 "Pick a tempo change that has another after it",
             ),
+            Command::ClipEnvelope => need(
+                self.selected_audio_clip().is_some(),
+                "Select one audio clip first",
+            ),
             Command::AutomationToggleLane | Command::AutomationRemoveLane => need(
                 self.auto_chosen_has_lane(),
                 "The shown lane has no points yet: click it to add one",
@@ -654,6 +658,7 @@ impl App {
             Command::TempoChangeAdd => self.song_add_tempo_at_playhead(),
             Command::MeterChangeAdd => self.song_add_meter_at_playhead(),
             Command::TempoRamp => self.song_toggle_ramp(),
+            Command::ClipEnvelope => self.clip_envelope_toggle(),
             Command::AutomationToggleLane => self.auto_toggle_lane(),
             Command::AutomationRemoveLane => self.auto_remove_lane(),
             Command::AutomationSegmentLinear => self.auto_shape_segments(Shape::Linear),

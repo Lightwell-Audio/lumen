@@ -1315,7 +1315,7 @@ impl App {
             .tracks
             .iter()
             .find(|t| t.id == track)?;
-        let point = held.lane(target)?.lane.points().get(index).copied()?;
+        let point = held.lane_view(target)?.lane.points().get(index).copied()?;
         Some(frame.pos(target, &point))
     }
 
@@ -1358,7 +1358,7 @@ impl App {
             .tracks
             .iter()
             .find(|t| t.id == track)?;
-        frame.bend_dot(target, &held.lane(target)?.lane, index)
+        frame.bend_dot(target, &held.lane_view(target)?.lane, index)
     }
 
     fn lane_frame_of(
@@ -1579,6 +1579,43 @@ impl App {
     /// Selects these tracks, as clicking their headers would.
     pub fn select_tracks(&mut self, ids: &[Id]) {
         self.arrangement.selected = ids.to_vec();
+    }
+
+    /// Selects this one clip, as clicking it would.
+    pub fn select_clip(&mut self, id: Id) {
+        self.arrangement.selected.clear();
+        self.arrangement.clips = std::iter::once(id).collect();
+    }
+
+    /// Trims the end of a clip to `to`, as dragging its right edge would.
+    pub fn trim_clip_end_to(&mut self, clip: Id, to: lumen_core::time::Ticks) {
+        let base = self.document.project().clone();
+        self.document.trim_clip(
+            &base,
+            clip,
+            lumen_project::edit::Edge::End,
+            to,
+            false,
+            None,
+        );
+    }
+
+    /// Moves a clip to `start` on its own track, as dragging it would.
+    pub fn move_clip_to(&mut self, clip: Id, start: lumen_core::time::Ticks) {
+        let base = self.document.project().clone();
+        let Some(track) = base
+            .tracks
+            .iter()
+            .find(|t| t.clips.iter().any(|c| c.id == clip))
+        else {
+            return;
+        };
+        let moves = [crate::document::ClipMove {
+            clip,
+            track: track.id,
+            start,
+        }];
+        self.document.move_clips(&base, &moves, None);
     }
 
     /// Chooses a card in the Devices tab, as clicking it would.

@@ -254,7 +254,7 @@ impl Arrangement {
                 } else {
                     DIMMED
                 };
-                if self.auto.shown.contains_key(&project.tracks[index].id) {
+                if self.auto.dims(project.tracks[index].id) {
                     alpha *= UNDER_LANE;
                 }
                 slots[index] = RowSlot::new(row.y * ppp, row.height * ppp, alpha);
@@ -363,7 +363,7 @@ impl Arrangement {
                         if !heard {
                             look.alpha *= DIMMED;
                         }
-                        if self.auto.shown.contains_key(&track.id) {
+                        if self.auto.dims(track.id) {
                             look.alpha *= UNDER_LANE;
                         }
                         if row.clipped {

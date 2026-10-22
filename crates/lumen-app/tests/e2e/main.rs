@@ -25,6 +25,7 @@ mod controllers;
 mod cue;
 mod devices;
 mod dropdown;
+mod clip_envelopes;
 mod editing;
 mod editors;
 mod fades;

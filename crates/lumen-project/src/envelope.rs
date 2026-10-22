@@ -109,6 +109,15 @@ impl ClipEnvelopes {
     }
 }
 
+/// How long an envelope plays before it repeats or the clip ends: the clip's
+/// loop, or its length.
+pub fn window(clip: &Clip) -> Ticks {
+    clip.loop_length
+        .filter(|l| l.0 > 0)
+        .unwrap_or(clip.length)
+        .min(clip.length)
+}
+
 /// How many straight pieces a curved segment is cut into where a window
 /// cuts it (a curve cannot start or end partway along itself).
 const CURVE_PIECES: i64 = 16;

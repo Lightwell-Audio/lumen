@@ -69,6 +69,27 @@ pub(crate) fn without(lane: &Lane, picks: &[usize]) -> Lane {
     Lane::new(points).unwrap_or_else(|_| lane.clone())
 }
 
+/// Where a clip's envelope is drawn across the canvas: the left and right edge
+/// of the first repeat of the clip, in screen points. `None` when `target` names
+/// no clip of the track.
+pub(crate) fn envelope_span(
+    project: &Project,
+    track: Id,
+    target: Target,
+    frame: &Frame,
+) -> Option<(f32, f32)> {
+    let (id, _) = target.clip()?;
+    let clip = project
+        .tracks
+        .iter()
+        .find(|t| t.id == track)?
+        .clips
+        .iter()
+        .find(|c| c.id == id)?;
+    let end = clip.start + lumen_project::envelope::window(clip);
+    Some((frame.x(clip.start), frame.x(end)))
+}
+
 /// What the lanes are drawn against: the canvas, the view of time across
 /// it, how many clip lists are still being built, and the song's timeline.
 pub(crate) struct Scene<'a> {
@@ -256,6 +277,14 @@ impl Arrangement {
         }
         let track = self.track_at(ctx, project, pending, pointer.y - canvas.top())?;
         let (target, frame) = self.lane_frame(ctx, canvas, project, pending, view, track)?;
+        if target.clip().is_some() {
+            // Only over the clip, and its first repeat: the rest of the track
+            // belongs to the clips.
+            let (left, right) = envelope_span(project, track, target, &frame)?;
+            if pointer.x < left || pointer.x > right {
+                return None;
+            }
+        }
         Some((track, target, frame))
     }
 
@@ -301,15 +330,30 @@ impl Arrangement {
             if !visible.intersects(rect) {
                 continue;
             }
-            let painter = painter.with_clip_rect(visible.intersect(painter.clip_rect()));
-            let frame = Frame {
+            let mut painter = painter.with_clip_rect(visible.intersect(painter.clip_rect()));
+            let mut frame = Frame {
                 row: rect,
                 canvas_left: canvas.left(),
                 view,
             };
-            let entry = track.lane(target);
+            if target.clip().is_some() {
+                // A clip's envelope is drawn over its clip alone, as much of it
+                // as is in view.
+                let Some((left, right)) = envelope_span(&project, id, target, &frame) else {
+                    continue;
+                };
+                let (left, right) = (left.max(canvas.left()), right.min(canvas.right()));
+                if right <= left {
+                    continue;
+                }
+                frame.row = Rect::from_x_y_ranges(left..=right, rect.y_range());
+                painter = painter.with_clip_rect(frame.row.intersect(painter.clip_rect()));
+            }
+            let shown_lane = track.lane_view(target);
+            let entry = shown_lane.as_deref();
             let taken = self.taken_over(doc, track, target);
             self.draw_lane(&painter, &frame, (track, target, entry), taken);
+            self.draw_repeats(&painter, &frame, track, target, visible);
             self.draw_marks(&painter, &frame, id, target, entry);
             if let Some(chip) = self.lane_chip(ui, doc, &visible, &frame, track, target) {
                 self.lane_tools(ui, &frame, chip, &track.name);
@@ -431,7 +475,13 @@ impl Arrangement {
         let mut text = self.auto.name_of(project, target);
         let base = text.clone();
         let taken = self.taken_over(doc, track, target);
-        let mode = self.auto.mode_of(track.id);
+        // What a track does while the song plays is about its controls, not
+        // about a clip's envelope.
+        let mode = if target.clip().is_some() {
+            crate::auto_record::Mode::Read
+        } else {
+            self.auto.mode_of(track.id)
+        };
         let writing = self.auto.recording.contains(&(track.id, target));
         if mode.records() {
             text.push_str(" \u{00B7} ");
@@ -517,6 +567,10 @@ impl Arrangement {
         let Some(held) = project.tracks.iter().find(|t| t.id == track) else {
             return;
         };
+        if target.clip().is_some() {
+            self.envelope_menu(ui, doc, held, target);
+            return;
+        }
         for option in scale::offered(held) {
             let count = held.lane(option).map_or(0, |l| l.lane.len());
             let name = self.auto.name_of(&project, option);
@@ -531,6 +585,8 @@ impl Arrangement {
                 ui.close();
             }
         }
+        // The envelopes of the selected audio clips on this track.
+        self.envelope_entries(ui, held, target);
         // What the track does with the controls that move while it plays.
         ui.separator();
         crate::widgets::menu_caption(ui, "While the song plays");
@@ -582,6 +638,146 @@ impl Arrangement {
             self.auto.shown.remove(&track);
             self.auto.picks = None;
             ui.close();
+        }
+    }
+
+    /// The rows of the selected audio clips' envelopes, for `track`'s menu.
+    fn envelope_entries(&mut self, ui: &mut Ui, track: &Track, target: Target) {
+        let picked: Vec<&lumen_project::model::Clip> = track
+            .clips
+            .iter()
+            .filter(|c| self.clips.contains(&c.id))
+            .filter(|c| matches!(c.content, lumen_project::model::ClipContent::Audio { .. }))
+            .map(|c| &**c)
+            .collect();
+        if picked.is_empty() {
+            return;
+        }
+        ui.separator();
+        crate::widgets::menu_caption(ui, "Clip envelopes");
+        for clip in picked {
+            for kind in lumen_project::envelope::Kind::ALL {
+                let option = Target::envelope(clip.id, kind);
+                let count = clip.envelopes.get(kind).map_or(0, |l| l.len());
+                let label = match count {
+                    0 => format!("{} \u{00B7} {}", kind.name(), clip.name),
+                    1 => format!("{} \u{00B7} {}  \u{00B7}  1 point", kind.name(), clip.name),
+                    n => format!("{} \u{00B7} {}  \u{00B7}  {n} points", kind.name(), clip.name),
+                };
+                if ui.selectable_label(option == target, label).clicked() {
+                    self.auto.show(track.id, option);
+                    ui.close();
+                }
+            }
+        }
+    }
+
+    /// The menu of a clip's envelope: which envelope, taking it away, and the
+    /// way back to the track's own lanes.
+    fn envelope_menu(&mut self, ui: &mut Ui, doc: &mut Document, track: &Track, target: Target) {
+        let Some((clip_id, shown_kind)) = target.clip() else {
+            return;
+        };
+        let Some(clip) = track.clips.iter().find(|c| c.id == clip_id) else {
+            return;
+        };
+        for kind in lumen_project::envelope::Kind::ALL {
+            let option = Target::envelope(clip_id, kind);
+            let label = match clip.envelopes.get(kind).map_or(0, |l| l.len()) {
+                0 => kind.name().to_owned(),
+                1 => format!("{}  \u{00B7}  1 point", kind.name()),
+                n => format!("{}  \u{00B7}  {n} points", kind.name()),
+            };
+            if ui.selectable_label(option == target, label).clicked() {
+                self.auto.show(track.id, option);
+                ui.close();
+            }
+        }
+        ui.separator();
+        if clip.envelopes.get(shown_kind).is_some() && ui.button("Remove the envelope").clicked() {
+            self.note_lane(doc.remove_lane(track.id, target));
+            self.auto.picks = None;
+            ui.close();
+        }
+        if ui.button("Show the track's lanes").clicked() {
+            let first = track
+                .automation
+                .first()
+                .map_or(Target::Volume, |l| l.target);
+            self.auto.show(track.id, first);
+            ui.close();
+        }
+        if ui.button("Hide automation").clicked() {
+            self.auto.shown.remove(&track.id);
+            self.auto.picks = None;
+            ui.close();
+        }
+    }
+
+    /// The repeats of a looping clip's envelope, dashed and faint: they play
+    /// what the first repeat holds, and are not edited.
+    fn draw_repeats(
+        &self,
+        painter: &Painter,
+        frame: &Frame,
+        track: &Track,
+        target: Target,
+        visible: Rect,
+    ) {
+        let Some((id, kind)) = target.clip() else {
+            return;
+        };
+        let Some(clip) = track.clips.iter().find(|c| c.id == id) else {
+            return;
+        };
+        let window = lumen_project::envelope::window(clip);
+        let Some(lane) = clip.envelopes.get(kind) else {
+            return;
+        };
+        if clip.loop_length.is_none() || window.0 <= 0 || window >= clip.length {
+            return;
+        }
+        let Some(cut) = lumen_project::envelope::windowed(lane, window) else {
+            return;
+        };
+        let palette = *theme::p();
+        let end = clip.start + clip.length;
+        let left = frame.ticks_at(visible.left());
+        // The first repeat in view, and no more than a screenful of them.
+        let first = ((left - clip.start).0 / window.0).max(1);
+        for k in first..first + 512 {
+            let from = clip.start + Ticks(window.0 * k);
+            if from >= end || frame.x(from) > visible.right() {
+                break;
+            }
+            let to = (from + window).min(end);
+            let (xa, xb) = (frame.x(from), frame.x(to));
+            if xb < visible.left() {
+                continue;
+            }
+            let points = cut
+                .points()
+                .iter()
+                .map(|p| Point {
+                    at: p.at + from,
+                    ..*p
+                })
+                .collect();
+            let Ok(shifted) = Lane::new(points) else {
+                continue;
+            };
+            let line = polyline(frame, target, &shifted, (xa, xb));
+            if line.len() >= 2 {
+                let span = Rect::from_x_y_ranges(xa..=xb, frame.row.y_range());
+                painter
+                    .with_clip_rect(span.intersect(painter.clip_rect()))
+                    .extend(egui::Shape::dashed_line(
+                        &line,
+                        Stroke::new(theme::stroke::LIT, palette.accent.gamma_multiply(0.55)),
+                        4.0,
+                        4.0,
+                    ));
+            }
         }
     }
 
