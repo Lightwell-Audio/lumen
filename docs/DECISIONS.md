@@ -99,6 +99,10 @@ irreversible or external) · *Superseded*.
 | [0085](#adr-0085--native-vst3-hosting-on-macos) | Native VST3 hosting on macOS | Accepted scope 2026-10-19; verification in progress | Owner approved native workflow |
 | [0086](#adr-0086--controls-that-follow-a-lane-and-taking-a-lane-over-m7-slice-a4a) | Controls that follow a lane, and taking a lane over (M7 slice A4a) | Accepted 2026-10-20 (MT-AUTO-5 passed, owner; no step detail) | Claude |
 | [0087](#adr-0087--recording-a-lane-m7-slice-a4b) | Recording a lane (M7 slice A4b) | Accepted 2026-10-20 (MT-AUTO-6 passed, owner) | Claude |
+| [0088](#adr-0088--midi-learn-controllers-moving-controls-m7-slice-a5) | MIDI learn: controllers moving controls (M7 slice A5) | Accepted 2026-10-20 | — |
+| [0089](#adr-0089--tempo-and-meter-lanes-and-the-time-signature-map-m7-slice-a6) | Tempo and meter lanes, and the time-signature map (M7 slice A6) | Accepted 2026-10-21 | — |
+| [0090](#adr-0090--clip-envelopes-and-automation-that-follows-clips-m7-slice-a7) | Clip envelopes, and automation that follows clips (M7 slice A7) | Accepted 2026-10-21 | — |
+| [0091](#adr-0091--the-end-of-m7-reviews-fixes-a-project-swap-forgets-a-pass-is-written-in-parts-m7-slice-a8) | The end-of-M7 review's fixes: a project swap forgets, a pass is written in parts (M7 slice A8) | Accepted 2026-10-22 | — |
 
 ---
 
@@ -8219,3 +8223,51 @@ golden, the older goldens and the refusals; 12 E2E scenarios (`tests/e2e/clip_en
 fail without the bake: mutation checked); a shot (`clip_envelope`, both themes at 100, 150 and 200%, looked
 at). **Not run:** the WSL gate and performance gate, RealtimeSanitizer, macOS and Linux runs, any real
 playback by ear (MT-AUTO-9 is the owner's).
+
+## ADR-0091 — The end-of-M7 review's fixes: a project swap forgets, a pass is written in parts (M7 slice A8)
+
+**Status:** Accepted · **Date:** 2026-10-22 (M7 slice A8, branch `m7-sa8-close-m7`). The owner approved
+each fix in the review's terms (H1: fix it in the swap, whatever else prevents two windows; M1: commit the pass so
+far; M2: split the files now if it makes sense). Report: `docs/audits/2026-10-22-m7.md`.
+
+**Context.** The review found that opening another project while a lane pass was under way wrote the pass into
+the new project (H1, reproduced), and that a pass lived only in the recorder until Stop or release, so a crash or
+a quit lost all of a long one (M1). Three files had outgrown one concern (M2).
+
+**Decisions.**
+1. **H1: a swap forgets.** `App::replace_document` calls `forget_passes`, which drops the recorder's passes, the
+   open plugin gestures, the parts written (`Commits`) and the controller state that belongs to the project
+   (`Controllers::forget_project`: a control waiting to learn, the last controller heard, the controls held).
+   The tap and the Mappings window stay. It is fixed where the state crosses the boundary, not by stopping a
+   second window from opening: single instance is an M9 item, and the same swap happens inside one window with
+   File, Open or New.
+2. **M1: a pass is written in parts.** Every `COMMIT_EVERY` (5 s) a pass under way writes what it has heard so far
+   into its lane, over the lane as it was when the pass began (`Committing.base`, kept at the take-over), so a
+   part replaces the last and none piles on another. The parts and the final write share one merge key per pass
+   (`record automation <track> <target> <n>`), so they are one undo step named "Record automation"
+   (`Document::record_lane_so_far`, `record_lane`). A part does not end the take-over (`Write.hear` is false): the
+   lane is still being written and must not play against the hand; the final write does. The undo history is not
+   sealed each frame while a pass has parts in the project (`Commits::writing`, read in `sync_document`, as it is
+   for a MIDI take). While any pass is under way the autosave runs on the MIDI take's 10 s delay and goes back
+   after (`pace_autosave`). A part that is refused or would make the lane too long stops the parts for that pass
+   (the final write still tries) and says so.
+3. **M2: three splits, no behaviour change.** `app/testing.rs` into `testing/{mod, automation, devices, midi,
+   editor}.rs` (224 seam methods, moved by name); `app/commands.rs` into `commands/{mod, availability, run}.rs`
+   (what can run, and what it does); `lumen-project`'s `model.rs` into `model/{mod, track, device, clip}.rs`,
+   re-exported from `model`, so no path changed. Each is a pure move checked by the whole suite.
+
+**Consequences.** A crash or quit during a pass costs at most the last 5 s of it (and the autosave delay behind
+that). Undo of a pass stays one step unless an edit with another merge key lands between two parts (a fader
+dragged in Lumen, a plugin's own gesture): then the pass is more than one step, as a MIDI take is (KNOWN_ISSUES).
+A manual Save during a pass saves the parts already in the project. Each part re-simplifies the whole pass
+(linear in its length; a five-minute Write is about 18,000 samples at the interface's frame rate) and re-bakes
+the lane for the engine, which plays nothing of it while taken over.
+
+**Verified.** Units: the recorder says what a pass has heard (`heard`), a pass written in parts is one undo step
+and stays taken over until it ends, a second pass is a step of its own. E2E (`tests/e2e/lane_record.rs`): a Write
+pass is in the project while it runs and is one undo step after; a pass under way when the app stops is in the
+autosave and comes back through Recover; opening another project leaves no lane and no unsaved mark behind, and
+ends a control waiting to learn. Mutation checked: without `forget_passes` the two H1 scenarios fail; without
+`commit_passes` the two M1 scenarios fail; without the history exemption the undo scenario fails. The splits:
+the workspace tests and the 598 E2E pass unchanged. **Not run:** the WSL and performance gates (the audio path is
+untouched), RealtimeSanitizer, a real device or controller (MT-AUTO-10 is the owner's).

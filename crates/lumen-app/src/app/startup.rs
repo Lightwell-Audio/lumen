@@ -155,6 +155,7 @@ impl App {
             show_history: false,
             arrangement,
             recorder: Default::default(),
+            lane_commits: Default::default(),
             gestures_open: Default::default(),
             controllers: Default::default(),
             toast: None,

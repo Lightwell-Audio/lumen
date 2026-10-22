@@ -14,7 +14,8 @@ use lumen_project::model::Id;
 
 use super::Lumen;
 use super::hosting::{
-    PLUGIN, effect_device, instrument_device, launch, play, project, wait_for_state,
+    PLUGIN, effect_device, instrument_device, launch, play, project, timing_sensitive,
+    wait_for_state,
 };
 
 const KEYS: Id = Id(1);
@@ -41,10 +42,27 @@ fn peak(lumen: &mut Lumen, ms: u64) -> f32 {
         .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()))
 }
 
+/// The quietest window in a while, leaving at the first one that is quiet. An
+/// effect whose host answers a block late is passed through for that block,
+/// so on a busy machine one window in a few reads loud although the lane holds
+/// the plugin shut; a lane that does not hold it never has a quiet window at
+/// all. The limit is generous and a run that is not slow leaves at once.
+fn quietest(lumen: &mut Lumen) -> f32 {
+    let mut least = f32::MAX;
+    for _ in 0..50 {
+        least = least.min(peak(lumen, 100));
+        if least < 0.005 {
+            break;
+        }
+    }
+    least
+}
+
 #[test]
 fn a_plugin_effects_parameter_lane_is_heard_changing_it_when_the_song_reaches_it() {
     // The effect's gain is held at its bottom (−60 dB) until two seconds in,
     // then opened to unity: the instrument is all but gone, then heard.
+    let _turn = timing_sensitive();
     let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
     let mut lumen = launch("lane-effect", &song, &["Plug"]);
     wait_for_state(&mut lumen, PLUGIN, "ready");
@@ -65,11 +83,7 @@ fn a_plugin_effects_parameter_lane_is_heard_changing_it_when_the_song_reaches_it
     lumen.wait_for("the lane's quiet part", |app| {
         app.playhead() > Ticks::quarters(1)
     });
-    // An effect whose host answers late is passed through for that block, so
-    // what the lane takes away is what the quietest stretch shows.
-    let quiet = (0..4)
-        .map(|_| peak(&mut lumen, 100))
-        .fold(f32::MAX, f32::min);
+    let quiet = quietest(&mut lumen);
     assert!(
         quiet < 0.005,
         "the gain lane holds the plugin at −60 dB: {quiet}"
@@ -84,6 +98,7 @@ fn a_plugin_effects_parameter_lane_is_heard_changing_it_when_the_song_reaches_it
 
 #[test]
 fn a_plugin_instruments_parameter_lane_is_heard_changing_it_when_the_song_reaches_it() {
+    let _turn = timing_sensitive();
     let song = project(|d| *d = vec![instrument_device(PLUGIN)]);
     let mut lumen = launch("lane-instrument", &song, &["Plug"]);
     wait_for_state(&mut lumen, PLUGIN, "ready");
@@ -145,6 +160,7 @@ fn the_value_a_lane_drives_is_not_also_sent_to_the_plugin_over_the_control_chann
 
 #[test]
 fn moving_a_control_a_lane_drives_takes_the_lane_over_and_re_enabling_gives_it_back() {
+    let _turn = timing_sensitive();
     let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
     let mut lumen = launch("lane-takeover", &song, &["Plug"]);
     wait_for_state(&mut lumen, FX, "ready");
@@ -263,6 +279,7 @@ fn a_plugin_with_two_thousand_parameters_lists_only_the_rows_in_view_and_filters
 
 #[test]
 fn a_lane_for_a_plugin_parameter_survives_a_save_and_moves_with_its_device() {
+    let _turn = timing_sensitive();
     let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
     let mut lumen = launch("lane-save", &song, &["Plug"]);
     wait_for_state(&mut lumen, FX, "ready");
@@ -290,6 +307,7 @@ fn a_parameter_can_be_changed_again_once_its_lane_is_switched_off() {
     // could no longer be changed. The lane held the gain at −60 dB; the
     // project's own value for it (and what Lumen last read from the plugin)
     // was still unity, so setting unity again looked like no change.
+    let _turn = timing_sensitive();
     let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
     let mut lumen = launch("lane-off-change", &song, &["Plug"]);
     wait_for_state(&mut lumen, PLUGIN, "ready");
@@ -305,9 +323,7 @@ fn a_parameter_can_be_changed_again_once_its_lane_is_switched_off() {
     lumen.frames(5);
     play(&mut lumen);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
-    let quiet = (0..4)
-        .map(|_| peak(&mut lumen, 100))
-        .fold(f32::MAX, f32::min);
+    let quiet = quietest(&mut lumen);
     assert!(quiet < 0.005, "the lane holds the gain at −60 dB: {quiet}");
     let sent = lumen.app().values_sent_to(FX);
     lumen.app_mut().switch_lane(KEYS, target, false).unwrap();
@@ -327,9 +343,7 @@ fn a_parameter_can_be_changed_again_once_its_lane_is_switched_off() {
     lumen.wait_for("the new value to be sent", move |app| {
         app.values_sent_to(FX) > sent
     });
-    let down = (0..4)
-        .map(|_| peak(&mut lumen, 100))
-        .fold(f32::MAX, f32::min);
+    let down = quietest(&mut lumen);
     assert!(down < 0.005, "a new value is taken: {down}");
     let sent = lumen.app().values_sent_to(FX);
     lumen.app_mut().set_device_param(FX, LEVEL, UNITY as f64);

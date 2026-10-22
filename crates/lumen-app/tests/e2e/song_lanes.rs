@@ -24,14 +24,14 @@ fn start(name: &str) -> Lumen {
     lumen
 }
 
-fn click_tempo(lumen: &mut Lumen, quarters: f64, bpm: f64) {
+pub(super) fn click_tempo(lumen: &mut Lumen, quarters: f64, bpm: f64) {
     // A point at the start sits on the lane's edge: press a little inside it.
     let nudge = if quarters == 0.0 { 3.0 } else { 0.0 };
     let at = lumen.app().song_tempo_spot(quarters, bpm).unwrap() + vec2(nudge, 0.0);
     click_at(lumen, at);
 }
 
-fn click_meter(lumen: &mut Lumen, quarters: f64) {
+pub(super) fn click_meter(lumen: &mut Lumen, quarters: f64) {
     let at = lumen.app().song_meter_spot(quarters).unwrap();
     click_at(lumen, at);
 }
@@ -52,7 +52,7 @@ fn tempos(lumen: &Lumen) -> Vec<(Ticks, f64)> {
 }
 
 /// Types `text` into the box that is open and applies it.
-fn type_in(lumen: &mut Lumen, text: &str) {
+pub(super) fn type_in(lumen: &mut Lumen, text: &str) {
     assert!(lumen.app().song_typing_open(), "a box to type in is open");
     lumen.key(Modifiers::COMMAND, Key::A);
     lumen.harness.event(Event::Text(text.into()));

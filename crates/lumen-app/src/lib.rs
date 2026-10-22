@@ -128,6 +128,8 @@ pub struct App {
     controllers: app::controllers::Controllers,
     /// The lane passes being recorded (M7 slice A4b).
     recorder: auto_record::Recorder,
+    /// The passes written into the project in parts as they go (M7 review M1).
+    lane_commits: app::auto_recording::Commits,
     /// The plugin gestures that are open: a control held in a plugin's own
     /// window, by track and parameter (A4b).
     gestures_open:
