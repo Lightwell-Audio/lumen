@@ -516,7 +516,7 @@ owner's approval is required before M7b or M8.
 
 **Verified.**
 - Gates on Linux in the cloud container (2026-10-22): fmt, workspace clippy `-D warnings`, the workspace tests
-  (800+ unit tests and 600 E2E in `lumen-app`), 6 of 6 smoke tests, macOS cross-clippy. The earlier slices ran
+  (2,635 tests across the workspace: 801 unit and 602 E2E in `lumen-app`), 6 of 6 smoke tests, macOS cross-clippy. Four timing-sensitive hosted-plugin and playhead scenarios failed under load in an earlier full run; they now hold the plugin turn, wait for what the engine answers and discard a playhead read the test thread was held up across, and pass four times beside four busy loops. The earlier slices ran
   the WSL performance gate: largest change +0.69% (`engine_routed_64`, A7), none over +2%.
 - New in A8: the walkthrough (mutation checked: a gain lane kept shut makes it fail), the accessibility test for
   lane, chip menu, taken-over lane, control menu, Mappings window, tempo and meter lanes and clip envelope (no

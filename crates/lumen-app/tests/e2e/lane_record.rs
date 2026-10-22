@@ -12,7 +12,9 @@ use lumen_core::time::Ticks;
 use lumen_project::automation::Target;
 use lumen_project::model::Id;
 
-use super::hosting::{PLUGIN, effect_device, instrument_device, launch, project, wait_for_state};
+use super::hosting::{
+    PLUGIN, effect_device, instrument_device, launch, project, timing_sensitive, wait_for_state,
+};
 use super::lane_view::{near, peak, points, run_command, tone};
 use super::{Lumen, TempDir};
 
@@ -257,6 +259,7 @@ fn a_plugin_gesture_is_recorded_from_its_begin_to_its_end() {
     const KEYS: Id = Id(1);
     const FX: Id = Id(21);
     const LEVEL: u32 = 0;
+    let _turn = timing_sensitive();
     let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
     let mut lumen = launch("record-gesture", &song, &["Plug"]);
     wait_for_state(&mut lumen, PLUGIN, "ready");
@@ -319,13 +322,22 @@ fn the_playhead_that_stamps_the_points_follows_the_clock_to_within_a_frame() {
     play(&mut lumen);
     let start = std::time::Instant::now();
     let mut samples: Vec<(f64, f64)> = Vec::new();
-    for _ in 0..150 {
+    while samples.len() < 150 {
         lumen.frames(1);
         std::thread::sleep(Duration::from_millis(16));
-        samples.push((
-            start.elapsed().as_secs_f64() * 1000.0,
-            lumen.app().playhead().0 as f64,
-        ));
+        // A sample is a playhead read and the clock at the same moment: when
+        // this thread was held up between the two reads (a busy machine) the
+        // pair says nothing about the playhead, so it is not kept.
+        let before = start.elapsed();
+        let at = lumen.app().playhead().0 as f64;
+        let after = start.elapsed();
+        if after - before < Duration::from_millis(2) {
+            samples.push(((before + after).as_secs_f64() * 500.0, at));
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "no steady reads in a minute"
+        );
     }
     lumen.key(Modifiers::NONE, Key::Space);
     // The best straight line through the playhead against the clock.
