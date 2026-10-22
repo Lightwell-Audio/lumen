@@ -97,7 +97,7 @@ are retained. The rule is in the repository instructions and
 `.agents/skills/lumen-documentation/SKILL.md`; this editorial pass changes
 no implementation or feature status.
 
-**Current milestone:** 7 - Automation and envelopes (plan: [milestones/M7.md](milestones/M7.md)), all slices built; the report is under "Milestone reports" and waits for the owner's MT-AUTO-8 and MT-AUTO-10 and approval. M7b (advanced editing and render, [milestones/M7b.md](milestones/M7b.md)) is planned and not started.
+**Current milestone:** 7 - Automation and envelopes (plan: [milestones/M7.md](milestones/M7.md)), all slices built and every manual test passed; the report is under "Milestone reports" and waits for the owner's approval. M7b (advanced editing and render, [milestones/M7b.md](milestones/M7b.md)) is planned and not started.
 **2026-10-14 playback fix:** imported notes (and controllers) that round
 to a block's first sample are now scheduled reliably, including Play at
 their onset. The owner's ocarina file exposed a two-tick search margin
@@ -139,7 +139,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 4.5 | Polish pass (mid milestone: the interface audit's fixes) | 🟡 Built 2026-10-10; MT-POL-5 and 6 wait | Plan: `docs/milestones/M4.5.md`; audit: `docs/audits/2026-10-10-design.md` |
 | 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway (review done); MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md`; report written 2026-10-19 (below), awaiting the owner's approval |
 | 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 complete 2026-10-16 (report below; ADR-0069 accepted, the callback's wait on trial) and slice 1 built (MT-VST-1 passed on Windows, owner-reported); slice 2 built and its walkthrough passed (owner-reported; ADR-0069 measurements outstanding); slices 3 to 6 built; slice 7 (compatibility and closeout) under way: the probe, the fault soak, the callback benchmark and the combined walkthrough are built (branch `m6-s7-compatibility-closeout`), the review is done and its seven High findings fixed (`docs/audits/2026-10-18-m6.md`); the owner's MT-VST-7 runs, the Medium and Low findings and the M6 report remain | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
-| 7 | Automation & Envelopes | 🟡 Built 2026-10-22 (slices A0 to A8; ADRs 0081 to 0091; formats v22 to v25). MT-AUTO-1 to 7 and 9 passed (owner; MT-AUTO-2 but for step 12); MT-AUTO-8 and MT-AUTO-10 wait for the owner, who also approves the milestone. Report below; review `docs/audits/2026-10-22-m7.md`; plan: `docs/milestones/M7.md` |
+| 7 | Automation & Envelopes | 🟡 Built 2026-10-22 (slices A0 to A8; ADRs 0081 to 0091; formats v22 to v25). MT-AUTO-1 to 10 passed (owner; MT-AUTO-2 but for step 12; MT-AUTO-8 and MT-AUTO-10 on 2026-10-22, no step detail, two findings logged in KNOWN_ISSUES); the owner's approval of the milestone is still to come. Report below; review `docs/audits/2026-10-22-m7.md`; plan: `docs/milestones/M7.md` |
 | 7b | Advanced Editing & Render | 🔲 Plan written 2026-10-19 for the owner's review, not started. Slices E0 to E6: tool model and split, clip commands, crossfades, consolidate, bounce, freeze. Chosen 2026-10-19: a crossfade at a join (X1 A), the press-aim-release cut and the Ctrl+E edit cursor, keys per the CLAUDE.md §5 convention (K1). Open: the static clip pitch (Y1) | Plan: `docs/milestones/M7b.md` |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | |
@@ -488,9 +488,10 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 ### Milestone 7 — report (2026-10-22)
 **Status:** Built, not signed off. Every slice (A0 to A8) is built; A0 to A7 are merged into `main`, A8 is on its branch
-(`m7-sa8-close-m7`). The owner's MT-AUTO-1 to 7 and 9 passed (most reported without step detail);
-MT-AUTO-8 (tempo and meter lanes, steps 16 and 17 for ramps and the lane button) and MT-AUTO-10 (below) wait. The
-owner's approval is required before M7b or M8.
+(`m7-sa8-close-m7`). The owner's MT-AUTO-1 to 10 passed (most reported without step detail; MT-AUTO-8 and MT-AUTO-10 on 2026-10-22).
+The owner's run found two things, logged in KNOWN_ISSUES for after the core milestones: a plugin parameter does not
+follow its lane when the playhead is moved while stopped, and a recorded fade leaves 10 to 15 points. The owner's
+approval is required before M7b or M8.
 
 **Shipped** (ADRs 0081 to 0091; formats v22 to v25; no host protocol change).
 - **A0 hear a lane.** `lumen_core::automation` (points, segment shapes, `value_at`, simplification), lanes on a
@@ -532,8 +533,8 @@ split by concern. The documents drifted (this file's §6.5, the architecture pag
 and are brought up to date. Each fix has a test that fails without it.
 
 **Not verified, and where it goes.**
-- **MT-AUTO-8 and MT-AUTO-10** are the owner's. MT-AUTO-10 includes the release frame times with 200 tracks and
-  visible lanes at 100% and 200% (still unmeasured since A1) and a long Write pass with the app ended mid-pass.
+- **MT-AUTO-8 and MT-AUTO-10 passed** (owner, 2026-10-22, no step detail). The release frame times with 200 tracks
+  and visible lanes at 100% and 200% were not reported as numbers, so they stay unmeasured here (KNOWN_ISSUES, A1).
 - **Real hardware controllers:** MIDI learn was tried with a virtual cable and an on-screen keyboard only.
 - **Recorded accuracy** (the playhead within 12 ms of a straight line) is measured on the silent test device,
   not a real one.
@@ -551,7 +552,7 @@ and are brought up to date. Each fix has a test that fails without it.
 3. Accuracy of recorded points on a real device and with a real controller is unknown.
 4. Windows is the only system with the owner's results; Linux and macOS have the automated ones.
 
-**Next.** The owner runs MT-AUTO-8 and MT-AUTO-10 and approves or rejects M7. Then M7b (advanced editing and
+**Next.** The owner approves or rejects M7. Then M7b (advanced editing and
 render, `docs/milestones/M7b.md`, not started) or M8, at the owner's choice.
 
 ### Milestone 6 — report (2026-10-19)
