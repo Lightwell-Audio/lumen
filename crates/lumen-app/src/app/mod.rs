@@ -44,4 +44,5 @@ pub(crate) mod shortcuts;
 mod song_lanes;
 mod startup;
 pub(crate) mod test_modes;
+pub(crate) mod tools;
 pub(crate) mod view;

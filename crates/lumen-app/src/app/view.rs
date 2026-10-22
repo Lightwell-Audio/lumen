@@ -367,15 +367,16 @@ report: {}",
             pos2(corner.left(), corner.top() + rulers::STRIP_HEIGHT),
             corner.max,
         );
-        let split = row.right() - theme::size::SONG_BUTTON;
+        let tool_width = theme::size::CONTROL_LARGE * 2.4;
+        let song_left = row.right() - theme::size::SONG_BUTTON;
+        let tool_left = song_left - tool_width;
+        let split = tool_left;
         self.grid_button(
             ui,
             egui::Rect::from_min_max(row.min, pos2(split, row.bottom())),
         );
-        self.song_lanes_button(
-            ui,
-            egui::Rect::from_min_max(pos2(split, row.top()), row.max),
-        );
+        self.arrangement_tool_switch(ui, egui::Rect::from_min_max(pos2(tool_left, row.top()), pos2(song_left, row.bottom())));
+        self.song_lanes_button(ui, egui::Rect::from_min_max(pos2(song_left, row.top()), row.max));
         self.time_format_button(ui, time_corner);
         self.arrangement.additive_solo = self.settings.mixing.additive_solo;
         self.lend_live_input();

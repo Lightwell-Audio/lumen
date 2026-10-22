@@ -174,6 +174,12 @@ struct ClipSet {
     swapped: Vec<bool>,
     /// Per clip, its fade tables.
     fades: Vec<Fades>,
+    /// Candidate touching pairs, ordered by track and timeline start. Built
+    /// with the list off the audio thread; `seams` is resolved per block as
+    /// tempo changes can alter the sample distance between clip starts.
+    adjacent: Vec<(usize, usize)>,
+    /// Whether the artificial clip-edge dip is suppressed at each edge.
+    seams: Vec<[bool; 2]>,
 }
 
 impl ClipSet {
@@ -203,10 +209,33 @@ impl ClipSet {
             .iter()
             .map(|c| Fades([table(&c.shape.fade_in), table(&c.shape.fade_out)]))
             .collect();
+        let mut order: Vec<usize> = (0..clips.len()).collect();
+        order.sort_unstable_by_key(|&i| (clips[i].track, clips[i].start));
+        let adjacent = order
+            .windows(2)
+            .filter_map(|pair| {
+                let (a, b) = (pair[0], pair[1]);
+                let left = &clips[a];
+                let right = &clips[b];
+                (left.track == right.track
+                    && Arc::ptr_eq(&left.audio, &right.audio)
+                    && left.offset.checked_add(left.length) == Some(right.offset)
+                    && left.gain == right.gain
+                    && left.envelope.is_empty()
+                    && right.envelope.is_empty()
+                    && left.shape.period.is_none()
+                    && right.shape.period.is_none()
+                    && left.shape.fade_out.frames <= 0
+                    && right.shape.fade_in.frames <= 0)
+                    .then_some((a, b))
+            })
+            .collect();
         Self {
             levels: vec![f32::NAN; clips.len()],
             swapped: vec![false; clips.len()],
             fades,
+            adjacent,
+            seams: vec![[false; 2]; clips.len()],
             clips,
             by_id,
         }
@@ -395,6 +424,7 @@ fn play(
     cx: &RenderContext<'_>,
     work: &mut Work<'_>,
     ramp: Ramp,
+    seams: [bool; 2],
     buses: &mut Buses<'_>,
 ) {
     let Work { block, gains } = work;
@@ -458,6 +488,7 @@ fn play(
             edge: block.edge,
             fades,
             env: enveloped.then(|| gains.side(side)),
+            seamless: seams,
         };
         // Mono plays on both sides; extra channels are ignored.
         let samples = &clip.audio.channels[side.min(sources - 1)];
@@ -494,6 +525,8 @@ struct Placement<'a> {
     /// The envelope gains for this side, indexed by the frame's place in the
     /// block; none for a clip without an envelope.
     env: Option<&'a [f32]>,
+    /// Suppress only the artificial 2 ms edge dip at verified split seams.
+    seamless: [bool; 2],
 }
 
 /// Adds `clip`'s audio at `gain` for the timeline samples `frames` into
@@ -515,7 +548,8 @@ fn mix(
         else {
             continue;
         };
-        target[(t - at.from) as usize] += sample * gain * edge_gain(pos, clip.length, at.edge);
+        target[(t - at.from) as usize] +=
+            sample * gain * edge_gain(pos, clip.length, at.edge, at.seamless);
     }
 }
 
@@ -546,7 +580,8 @@ fn mix_shaped(
         else {
             continue;
         };
-        let shaped = edge_gain(inner, span, at.edge) * shape.fade_gain(at.fades, pos, clip.length);
+        let shaped = edge_gain(inner, span, at.edge, at.seamless)
+            * shape.fade_gain(at.fades, pos, clip.length);
         let slot = (t - at.from) as usize;
         let env = at.env.map_or(1.0, |e| e[slot]);
         target[slot] += sample * gain * shaped * env;
@@ -554,11 +589,36 @@ fn mix_shaped(
 }
 
 /// The edge fade for frame `pos` of a clip `length` frames long.
-fn edge_gain(pos: i64, length: i64, edge: i64) -> f32 {
+fn edge_gain(pos: i64, length: i64, edge: i64, seamless: [bool; 2]) -> f32 {
     let edge = edge.min(length / 2).max(1);
-    let from_start = (pos + 1).min(edge);
-    let to_end = (length - pos).min(edge);
+    let from_start = if seamless[0] {
+        edge
+    } else {
+        (pos + 1).min(edge)
+    };
+    let to_end = if seamless[1] {
+        edge
+    } else {
+        (length - pos).min(edge)
+    };
     (from_start.min(to_end) as f32 / edge as f32).min(1.0)
+}
+
+/// Resolves candidate split seams against this block's tempo map. This is a
+/// bounded linear pass over metadata built off the audio thread and allocates
+/// nothing. Locate and loop declick remain owned by the engine transport.
+fn set_seams(set: &mut ClipSet, cx: &RenderContext<'_>) {
+    set.seams.fill([false; 2]);
+    for &(left, right) in &set.adjacent {
+        let a = &set.clips[left];
+        let b = &set.clips[right];
+        let a_start = cx.timeline.sample_at(a.start, cx.sample_rate);
+        let b_start = cx.timeline.sample_at(b.start, cx.sample_rate);
+        if a_start.checked_add(a.length) == Some(b_start) {
+            set.seams[left][1] = true;
+            set.seams[right][0] = true;
+        }
+    }
 }
 
 impl ClipPlayer {
@@ -641,6 +701,7 @@ impl TrackSource for ClipPlayer {
             edge: i64::from(fade_length(rate)),
             glide: GLIDE_PER_SECOND / rate as f32,
         };
+        set_seams(&mut self.current, cx);
         let crossfade = self.swap.as_mut().map(|swap| {
             if swap.length == 0 {
                 swap.length = i64::from((rate / SWAP_PER_SECOND).max(1));
@@ -661,9 +722,19 @@ impl TrackSource for ClipPlayer {
                 _ => Ramp::Steady,
             };
             let (clip, fades) = (&set.clips[i], &set.fades[i]);
-            play(clip, fades, &mut set.levels[i], cx, &mut work, ramp, out);
+            play(
+                clip,
+                fades,
+                &mut set.levels[i],
+                cx,
+                &mut work,
+                ramp,
+                set.seams[i],
+                out,
+            );
         }
         if let (Some(swap), Some(x)) = (self.swap.as_mut(), crossfade) {
+            set_seams(&mut swap.old, cx);
             let old = &mut *swap.old;
             for i in (0..old.clips.len()).filter(|&i| old.swapped[i]) {
                 let (clip, fades) = (&old.clips[i], &old.fades[i]);
@@ -674,6 +745,7 @@ impl TrackSource for ClipPlayer {
                     cx,
                     &mut work,
                     Ramp::Out(x),
+                    old.seams[i],
                     out,
                 );
             }
@@ -707,12 +779,14 @@ mod tests {
 
     #[test]
     fn edges_fade_over_the_edge_length() {
-        assert_eq!(edge_gain(0, 1_000, 10), 0.1);
-        assert_eq!(edge_gain(9, 1_000, 10), 1.0);
-        assert_eq!(edge_gain(500, 1_000, 10), 1.0);
-        assert_eq!(edge_gain(999, 1_000, 10), 0.1);
+        assert_eq!(edge_gain(0, 1_000, 10, [false; 2]), 0.1);
+        assert_eq!(edge_gain(9, 1_000, 10, [false; 2]), 1.0);
+        assert_eq!(edge_gain(500, 1_000, 10, [false; 2]), 1.0);
+        assert_eq!(edge_gain(999, 1_000, 10, [false; 2]), 0.1);
         // Short clips use half their length.
-        assert_eq!(edge_gain(1, 4, 10), 1.0);
-        assert_eq!(edge_gain(0, 4, 10), 0.5);
+        assert_eq!(edge_gain(1, 4, 10, [false; 2]), 1.0);
+        assert_eq!(edge_gain(0, 4, 10, [false; 2]), 0.5);
+        assert_eq!(edge_gain(0, 1_000, 10, [true, false]), 1.0);
+        assert_eq!(edge_gain(999, 1_000, 10, [false, true]), 1.0);
     }
 }

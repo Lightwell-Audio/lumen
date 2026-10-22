@@ -83,6 +83,7 @@ mod sidechain;
 mod smf;
 mod solo;
 mod song_lanes;
+mod tools;
 mod stepped;
 mod walkthrough;
 mod walkthrough_automation;

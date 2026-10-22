@@ -33,6 +33,7 @@ pub mod notes;
 pub mod quantize;
 pub mod record;
 pub mod seams;
+pub mod split;
 pub mod velocity;
 
 pub use clipboard::{

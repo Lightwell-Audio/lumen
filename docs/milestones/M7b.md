@@ -1,7 +1,8 @@
 # Milestone 7b — Advanced Editing & Render: plan
 
-**Status:** Plan for the owner's review, 2026-10-19. **Not approved and not
-started.** No code has been written. This is the second half of the roadmap's
+**Status:** Approved to start by the owner, 2026-10-22. E0 is in progress on
+`m7b-s0-tools-split`, cut from `origin/main` after M7 merged (PR #50).
+The behavior choices below remain the owner's accepted choices. This is the second half of the roadmap's
 milestone 7, split off at the owner's decision of 2026-10-19 (S1 A). The
 automation half is [M7](M7.md). M8 keeps its number.
 
@@ -113,6 +114,28 @@ Sizes are rough (S/M/L).
 | E6 (S) | Close M7b | Walkthrough (split, crossfade, consolidate, bounce, freeze, save, reopen), `lumen-review`, report, manual tests | The owner's MT-EDIT series passes; review findings fixed or tracked |
 
 ## 6. Validation and records
+
+### E0 implementation plan (2026-10-22)
+
+1. Add pure clip splitting over one or several cut positions, wrapped in a
+   named Document method. Preserve source windows, hidden MIDI, envelopes,
+   locked clips, and exact undo. A range cuts its two edges in one step.
+2. Remove artificial edge dips only at contiguous audio seams, retaining
+   the outside edge fades and the transport's locate and loop declicking.
+   Compare rendered split and unsplit material sample for sample and exercise
+   the allocation guard.
+3. Add the approved six-tool switch above the track headers, palette entries,
+   contextual B and Escape behavior, and the press-aim-release split gesture.
+   Widen Ctrl+E to clips and ranges while retaining note-editor behavior.
+4. Cover the workflows through the real app's accessible controls and keys;
+   inspect both themes at 100%, 150% and 200%; run the slice gates and record
+   the owner's MT-EDIT-1 steps. General join/glue remains E1; E0 verifies
+   preserved source continuity and undo, with the join-command round trip
+   verified when E1 supplies that command.
+
+Bounded implementation work is delegated under the repository's delegation
+policy; the parent integrates and runs the final checks. No project-format
+change is planned for E0.
 
 - Gates before each commit: `cargo fmt --all`, workspace clippy with
   `-D warnings`, `cargo test --workspace`. Before pushing: the macOS

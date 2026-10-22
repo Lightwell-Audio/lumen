@@ -42,6 +42,16 @@ impl App {
         }
         let doc = &mut self.document;
         match command {
+            Command::ToolPointer => self.choose_arrangement_tool(crate::app::tools::ArrangementTool::Pointer),
+            Command::ToolDraw => {
+                if auto_draw && !note_keys { self.auto_toggle_draw(); }
+                else if self.note_editor.clip.is_some() { self.note_editor.tool = match self.note_editor.tool { Tool::Pointer => Tool::Draw, Tool::Draw => Tool::Pointer }; }
+                else { self.choose_arrangement_tool(crate::app::tools::ArrangementTool::Draw); }
+            }
+            Command::ToolErase => self.choose_arrangement_tool(crate::app::tools::ArrangementTool::Erase),
+            Command::ToolSplit => self.choose_arrangement_tool(crate::app::tools::ArrangementTool::Split),
+            Command::ToolMute => self.choose_arrangement_tool(crate::app::tools::ArrangementTool::Mute),
+            Command::ToolZoom => self.choose_arrangement_tool(crate::app::tools::ArrangementTool::Zoom),
             Command::PlayStop => self.transport.play_stop(),
             Command::PauseContinue => self.transport.pause_continue(),
             Command::GoToStart => self.transport.locate(Ticks::ZERO),
@@ -244,11 +254,12 @@ impl App {
             Command::LaneCurve => self.note_editor.lane.use_tool(LaneTool::Curve),
             Command::GlueNotes => self.note_op(NoteOp::Glue),
             Command::LegatoNotes => self.note_op(NoteOp::Legato),
-            Command::SplitNotes => {
+            Command::SplitNotes if notes => {
                 if let Some(at) = self.split_point() {
                     self.note_op(NoteOp::Split(at));
                 }
             }
+            Command::SplitNotes => self.split_at(self.transport.position()),
             Command::CreateMidiClip => self.create_midi_clip_here(),
             Command::OpenClipEditor => {
                 if let Some(clip) = self.selected_midi_clip() {
@@ -257,10 +268,13 @@ impl App {
             }
             Command::PopOutEditor => self.note_editor.popped = !self.note_editor.popped,
             Command::DrawTool => {
-                self.note_editor.tool = match self.note_editor.tool {
-                    Tool::Pointer => Tool::Draw,
-                    Tool::Draw => Tool::Pointer,
-                };
+                if auto_draw && !note_keys { self.auto_toggle_draw(); }
+                else if self.note_editor.live && self.note_editor.clip.is_some() {
+                    self.note_editor.tool = match self.note_editor.tool { Tool::Pointer => Tool::Draw, Tool::Draw => Tool::Pointer };
+                } else {
+                    let next = if self.arrangement.tool == crate::app::tools::ArrangementTool::Draw { crate::app::tools::ArrangementTool::Pointer } else { crate::app::tools::ArrangementTool::Draw };
+                    self.choose_arrangement_tool(next);
+                }
             }
             Command::Duplicate if clips => self.edit(Edit::Duplicate),
             Command::Duplicate => self.arrangement.duplicate_selected(doc),
@@ -272,6 +286,9 @@ impl App {
             Command::DeleteTime => self.edit(Edit::DeleteTime),
             Command::InsertTime => self.edit(Edit::InsertTime),
             Command::Deselect => {
+                if self.arrangement.tool != crate::app::tools::ArrangementTool::Pointer && !note_keys && !auto_lane {
+                    self.choose_arrangement_tool(crate::app::tools::ArrangementTool::Pointer);
+                }
                 self.arrangement.auto.picks = None;
                 self.arrangement.clips.clear();
                 self.arrangement.range = None;

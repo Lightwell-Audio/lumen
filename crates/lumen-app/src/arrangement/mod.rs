@@ -217,6 +217,8 @@ pub struct OutputNote {
 
 #[derive(Debug, Default)]
 pub struct Arrangement {
+    /// The global arrangement tool (M7b E0).
+    pub(crate) tool: crate::app::tools::ArrangementTool,
     /// Vertical scroll, in points.
     pub top: f32,
     /// What each track that plays a plugin's output says of it, by track

@@ -123,14 +123,29 @@ impl App {
         {
             // A drag shows its own hover (a trim rail, a handle), if any.
             self.arrangement.hover = None;
-            self.arrangement.gesture = self.start_gesture(&ctx, origin, canvas, modifiers);
+            self.arrangement.gesture = if self.arrangement.tool == super::tools::ArrangementTool::Split {
+                let at = self.snapped(self.ticks_at(canvas, origin.x), modifiers.alt);
+                Some(Gesture::Split { from: at, to: at })
+            } else {
+                self.start_gesture(&ctx, origin, canvas, modifiers)
+            };
         }
         if response.dragged_by(egui::PointerButton::Primary)
             && let Some(p) = response.interact_pointer_pos()
         {
-            self.continue_gesture(&ctx, p, canvas, modifiers.alt, painter);
+            if let Some(Gesture::Split { from, .. }) = self.arrangement.gesture {
+                let to = self.snapped(self.ticks_at(canvas, p.x), modifiers.alt);
+                self.arrangement.gesture = Some(Gesture::Split { from, to });
+                draw_snap_guide(painter, self.nav.view.x(canvas.left(), to.as_quarters()), canvas);
+                ctx.set_cursor_icon(CursorIcon::Crosshair);
+            } else {
+                self.continue_gesture(&ctx, p, canvas, modifiers.alt, painter);
+            }
         }
         if response.drag_stopped() {
+            if let Some(Gesture::Split { to, .. }) = self.arrangement.gesture {
+                self.split_at(to);
+            }
             if let Some(Gesture::Move {
                 copies: Some(ids), ..
             }) = &self.arrangement.gesture
@@ -163,6 +178,10 @@ impl App {
         if response.clicked()
             && let Some(p) = response.interact_pointer_pos()
         {
+            if self.arrangement.tool == super::tools::ArrangementTool::Split {
+                self.split_at(self.snapped(self.ticks_at(canvas, p.x), modifiers.alt));
+                return;
+            }
             let hit = self.hit(&ctx, p, canvas);
             // A click on a clip's header (its title strip) locates to the
             // clip's start rather than to the clicked spot.
@@ -509,6 +528,10 @@ impl App {
         let x = |t: Ticks| self.nav.view.x(canvas.left(), t.as_quarters());
         let guides = Rect::from_x_y_ranges(canvas.x_range(), canvas.y_range());
         match gesture {
+            Gesture::Split { from, .. } => {
+                let to = self.snapped(self.ticks_at(canvas, p.x), free);
+                self.arrangement.gesture = Some(Gesture::Split { from, to });
+            }
             Gesture::Move {
                 base,
                 grabbed,
@@ -617,6 +640,22 @@ impl App {
                 self.locators.selected = None;
             }
         }
+    }
+
+    /// Splits selected clips at `at`, or clips in the selected range at both edges.
+    pub(crate) fn split_at(&mut self, at: Ticks) {
+        let (clips, points) = if let Some(range) = &self.arrangement.range {
+            let clips = self.document.project().tracks.iter()
+                .filter(|t| range.tracks.contains(&t.id))
+                .flat_map(|t| t.clips.iter())
+                .filter(|c| c.start < range.end && c.start + c.length > range.start)
+                .map(|c| c.id).collect::<Vec<_>>();
+            (clips, vec![range.start, range.end])
+        } else {
+            (self.arrangement.clips.iter().copied().collect(), vec![at])
+        };
+        if clips.is_empty() { return; }
+        self.arrangement.clips = self.document.split_clips(&clips, &points).into_iter().collect();
     }
 
     /// Clips (or a range) were just selected: tracks and locators are not.

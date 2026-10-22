@@ -222,6 +222,8 @@ pub enum Gesture {
         y: f32,
         per_point: f32,
     },
+    /// The Split tool's press-and-aim gesture; the document changes on release.
+    Split { from: Ticks, to: Ticks },
 }
 
 /// A time range across neighbouring tracks, independent of clips (slice

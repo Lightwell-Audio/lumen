@@ -3,14 +3,15 @@
 
 use std::sync::Arc;
 
+use lumen_core::automation::Shape;
 use lumen_core::curve::{Curve, Handle};
 use lumen_core::fade::FadeShape;
 use lumen_core::meter::Meter;
 use lumen_core::time::Ticks;
 use lumen_engine::{
-    Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, Command, Destination, Engine,
-    EngineHandle, FadeFrames, Mixer, NodeSpec, Region, Routing, Timeline, clip_player, engine,
-    mixer,
+    AutoLane, AutoPoint, Clip, ClipAudio, ClipEnvelope, ClipPlayer, ClipShape, ClipsHandle,
+    Command, Destination, Engine, EngineHandle, FadeFrames, Mixer, NodeSpec, Region, Routing,
+    Timeline, clip_player, engine, mixer,
 };
 
 const RATE: u32 = 48_000;
@@ -108,6 +109,90 @@ fn a_clip_plays_on_its_exact_samples_at_every_block_size() {
             Some(r) => assert!(r == &out, "block {block} differs"),
         }
     }
+}
+
+#[test]
+fn splitting_contiguous_source_is_a_null_render_at_every_block_size() {
+    let audio = ramp(60_000, RATE);
+    let whole = Clip {
+        envelope: Default::default(),
+        id: 1,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 48_000,
+        gain: 0.75,
+        track: 0,
+        audio: Arc::clone(&audio),
+        shape: Default::default(),
+    };
+    let mut left = whole.clone();
+    left.length = 24_000;
+    let mut right = whole.clone();
+    right.id = 2;
+    right.start = Ticks::quarters(1);
+    right.offset = 24_000;
+    right.length = 24_000;
+    for block in [1, 64, 128, 333, 4_096] {
+        let (mut handle, _, mut original) = setup(vec![whole.clone()]);
+        handle.send(Command::Play).unwrap();
+        let expected = run(&mut original, 50_000, block);
+        let (mut handle, _, mut split) = setup(vec![left.clone(), right.clone()]);
+        handle.send(Command::Play).unwrap();
+        let actual = run(&mut split, 50_000, block);
+        assert_eq!(actual, expected, "block {block}");
+    }
+}
+
+#[test]
+fn unrelated_join_and_intentional_seam_fades_keep_the_edge_dip() {
+    let audio = steady(60_000);
+    let mut left = steady_clip(&audio, 1.0);
+    left.length = 24_000;
+    let mut right = left.clone();
+    right.id = 8;
+    right.start = Ticks::quarters(1);
+    right.offset = 25_000; // source discontinuity
+    let (mut handle, _, mut engine) = setup(vec![left, right]);
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 25_000, 128);
+    assert_eq!(out[24_000].0, 0.5 * (1.0 / 96.0), "unrelated join dips");
+
+    let mut continuous = steady_clip(&audio, 1.0);
+    continuous.length = 24_000;
+    let mut faded = continuous.clone();
+    faded.id = 9;
+    faded.start = Ticks::quarters(1);
+    faded.offset = 24_000;
+    faded.shape.fade_in = FadeFrames {
+        frames: 1_000,
+        curve: Curve::LINEAR,
+    };
+    let (mut handle, _, mut engine) = setup(vec![continuous, faded]);
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 25_000, 128);
+    assert!(out[24_000].0 < 1e-5, "explicit fade remains in force");
+
+    let mut enveloped_left = steady_clip(&audio, 1.0);
+    enveloped_left.length = 24_000;
+    enveloped_left.envelope = ClipEnvelope {
+        gain: Some(
+            AutoLane::new(vec![AutoPoint {
+                at: 0,
+                value: -6.0,
+                shape: Shape::Linear,
+            }])
+            .unwrap(),
+        ),
+        pan: None,
+    };
+    let mut enveloped_right = enveloped_left.clone();
+    enveloped_right.id = 10;
+    enveloped_right.start = Ticks::quarters(1);
+    enveloped_right.offset = 24_000;
+    let (mut handle, _, mut engine) = setup(vec![enveloped_left, enveloped_right]);
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 25_000, 128);
+    assert!(out[24_000].0 < 0.01, "enveloped seam stays conservative");
 }
 
 #[test]
