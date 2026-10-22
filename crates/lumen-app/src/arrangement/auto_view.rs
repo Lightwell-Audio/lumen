@@ -330,7 +330,8 @@ impl Arrangement {
             if !visible.intersects(rect) {
                 continue;
             }
-            let mut painter = painter.with_clip_rect(visible.intersect(painter.clip_rect()));
+            let zone_painter = painter.with_clip_rect(visible.intersect(painter.clip_rect()));
+            let mut painter = zone_painter.clone();
             let mut frame = Frame {
                 row: rect,
                 canvas_left: canvas.left(),
@@ -353,7 +354,7 @@ impl Arrangement {
             let entry = shown_lane.as_deref();
             let taken = self.taken_over(doc, track, target);
             self.draw_lane(&painter, &frame, (track, target, entry), taken);
-            self.draw_repeats(&painter, &frame, track, target, visible);
+            self.draw_repeats(&zone_painter, &frame, track, target, visible);
             self.draw_marks(&painter, &frame, id, target, entry);
             if let Some(chip) = self.lane_chip(ui, doc, &visible, &frame, track, target) {
                 self.lane_tools(ui, &frame, chip, &track.name);
@@ -662,7 +663,11 @@ impl Arrangement {
                 let label = match count {
                     0 => format!("{} \u{00B7} {}", kind.name(), clip.name),
                     1 => format!("{} \u{00B7} {}  \u{00B7}  1 point", kind.name(), clip.name),
-                    n => format!("{} \u{00B7} {}  \u{00B7}  {n} points", kind.name(), clip.name),
+                    n => format!(
+                        "{} \u{00B7} {}  \u{00B7}  {n} points",
+                        kind.name(),
+                        clip.name
+                    ),
                 };
                 if ui.selectable_label(option == target, label).clicked() {
                     self.auto.show(track.id, option);

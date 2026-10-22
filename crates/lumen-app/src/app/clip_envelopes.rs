@@ -17,18 +17,14 @@ impl App {
         let (first, None) = (selected.next()?, selected.next()) else {
             return None;
         };
-        self.document
-            .project()
-            .tracks
-            .iter()
-            .find_map(|track| {
-                track
-                    .clips
-                    .iter()
-                    .find(|c| c.id == *first)
-                    .filter(|c| matches!(c.content, ClipContent::Audio { .. }))
-                    .map(|c| (track.id, c.id))
-            })
+        self.document.project().tracks.iter().find_map(|track| {
+            track
+                .clips
+                .iter()
+                .find(|c| c.id == *first)
+                .filter(|c| matches!(c.content, ClipContent::Audio { .. }))
+                .map(|c| (track.id, c.id))
+        })
     }
 
     /// Whether the envelope of `clip` is the lane its track shows.

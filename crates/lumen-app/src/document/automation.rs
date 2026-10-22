@@ -179,10 +179,7 @@ impl Document {
         let merge = gesture.then(|| format!("envelope {:x} {kind:?}", clip.0));
         self.history.apply(label, merge.as_deref(), |project| {
             if let Some(held) = tracks_mut(project).find(|t| t.id == track)
-                && let Some(c) = Arc::make_mut(held)
-                    .clips
-                    .iter_mut()
-                    .find(|c| c.id == clip)
+                && let Some(c) = Arc::make_mut(held).clips.iter_mut().find(|c| c.id == clip)
             {
                 Arc::make_mut(c).envelopes.set(kind, lane.clone());
             }

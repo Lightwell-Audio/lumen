@@ -76,7 +76,9 @@ fn track_mut(project: &mut Project, id: Id) -> Option<&mut Track> {
 
 /// What a carry takes: for each lane of `from` that can go, its points in the
 /// span.
-fn gather(project: &Project, c: &Carry) -> Vec<(Target, Vec<Point>)> {
+type Taken = Vec<(Target, Vec<Point>)>;
+
+fn gather(project: &Project, c: &Carry) -> Taken {
     let (Some(from), Some(to)) = (
         project.tracks.iter().find(|t| t.id == c.from),
         project.tracks.iter().find(|t| t.id == c.to),
@@ -98,8 +100,7 @@ fn gather(project: &Project, c: &Carry) -> Vec<(Target, Vec<Point>)> {
 /// span to where the clip goes. Every carry reads the lanes as they were, so
 /// moving clips past one another loses nothing.
 pub fn carry(project: &mut Project, carries: &[Carry], keep: bool) {
-    let taken: Vec<(Carry, Vec<(Target, Vec<Point>)>)> =
-        carries.iter().map(|c| (*c, gather(project, c))).collect();
+    let taken: Vec<(Carry, Taken)> = carries.iter().map(|c| (*c, gather(project, c))).collect();
     if !keep {
         for (c, lanes) in &taken {
             let Some(track) = track_mut(project, c.from) else {

@@ -54,7 +54,11 @@ fn the_e_key_shows_and_hides_the_selected_clips_envelope() {
     );
     lumen.key(Modifiers::NONE, Key::E);
     lumen.frames(5);
-    assert_eq!(lumen.app().automation_shown(track), None, "E again hides it");
+    assert_eq!(
+        lumen.app().automation_shown(track),
+        None,
+        "E again hides it"
+    );
 }
 
 #[test]
@@ -70,8 +74,16 @@ fn a_click_over_the_clip_adds_a_point_and_it_is_kept_from_the_clips_start() {
     click_at(&mut lumen, at);
     let held = envelope(&lumen, Kind::Gain);
     assert_eq!(held.len(), 1, "one point: {held:?}");
-    assert_eq!(held[0].0, Ticks::quarters(3), "three quarters in, on the beat");
-    assert!((held[0].1 + 20.0).abs() < 1.5, "about −20 dB: {}", held[0].1);
+    assert_eq!(
+        held[0].0,
+        Ticks::quarters(3),
+        "three quarters in, on the beat"
+    );
+    assert!(
+        (held[0].1 + 20.0).abs() < 1.5,
+        "about −20 dB: {}",
+        held[0].1
+    );
     assert_eq!(lumen.app().automation_picked(), Some((track, vec![0])));
     assert!(lumen.app().is_dirty());
     // The track has no lane of its own for it.
@@ -88,7 +100,9 @@ fn a_click_beside_the_clip_is_not_the_envelopes() {
     let (mut lumen, _) = tone("env-beside");
     let (track, clip) = picked(&mut lumen);
     // Shorten the clip to two quarters so there is track beside it.
-    lumen.app_mut().trim_clip_end_to(clip, Ticks::quarters(2));
+    lumen
+        .app_mut()
+        .trim_clip_end_to(clip, Ticks::quarters(2), false);
     lumen.frames(5);
     lumen.key(Modifiers::NONE, Key::E);
     lumen.frames(40);
@@ -195,7 +209,11 @@ fn the_envelope_moves_with_its_clip_and_survives_a_save_and_a_reopen() {
     again.frames(5);
     assert_eq!(again.app().project().tracks, saved);
     assert_eq!(
-        again.app().project().tracks[0].clips[0].envelopes.gain.as_ref().map(|l| l.len()),
+        again.app().project().tracks[0].clips[0]
+            .envelopes
+            .gain
+            .as_ref()
+            .map(|l| l.len()),
         Some(1)
     );
 }
@@ -213,7 +231,9 @@ fn delete_takes_the_picked_point_and_the_last_one_takes_the_envelope() {
     lumen.frames(3);
     assert!(envelope(&lumen, Kind::Gain).is_empty());
     assert!(
-        lumen.app().project().tracks[0].clips[0].envelopes.is_empty(),
+        lumen.app().project().tracks[0].clips[0]
+            .envelopes
+            .is_empty(),
         "no empty envelope is kept"
     );
 }
@@ -237,7 +257,9 @@ fn volume_lane(points: &[(i64, f32)]) -> Lane {
 fn automated(name: &str) -> (Lumen, Id, Id) {
     let (mut lumen, _) = tone(name);
     let (track, clip) = picked(&mut lumen);
-    lumen.app_mut().trim_clip_end_to(clip, Ticks::quarters(8));
+    lumen
+        .app_mut()
+        .trim_clip_end_to(clip, Ticks::quarters(8), false);
     lumen
         .app_mut()
         .give_lane(
@@ -253,7 +275,13 @@ fn automated(name: &str) -> (Lumen, Id, Id) {
 fn volume_points(lumen: &Lumen) -> Vec<i64> {
     lumen.app().project().tracks[0]
         .lane(Target::Volume)
-        .map(|l| l.lane.points().iter().map(|p| p.at.0 / Ticks::quarters(1).0).collect())
+        .map(|l| {
+            l.lane
+                .points()
+                .iter()
+                .map(|p| p.at.0 / Ticks::quarters(1).0)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -262,7 +290,11 @@ fn a_moved_clip_takes_the_automation_under_it_and_undo_gives_it_back() {
     let (mut lumen, _, clip) = automated("lock-move");
     lumen.app_mut().move_clip_to(clip, Ticks::quarters(16));
     lumen.frames(3);
-    assert_eq!(volume_points(&lumen), vec![12, 18, 22], "2 and 6 went with it");
+    assert_eq!(
+        volume_points(&lumen),
+        vec![12, 18, 22],
+        "2 and 6 went with it"
+    );
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(volume_points(&lumen), vec![2, 6, 12], "one undo step");
 }

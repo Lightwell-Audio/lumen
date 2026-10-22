@@ -120,7 +120,10 @@ fn lane_parts(
                 source: track.id,
                 row: i - top,
                 target: entry.target,
-                spans: spans.iter().map(|(a, b)| (*a - origin, *b - origin)).collect(),
+                spans: spans
+                    .iter()
+                    .map(|(a, b)| (*a - origin, *b - origin))
+                    .collect(),
                 points,
             });
         }
@@ -166,8 +169,7 @@ pub fn paste_lanes(project: &mut Project, clipboard: &Clipboard, at: Ticks, trac
                 }
                 None if room => {
                     if let Ok(lane) = Lane::new(moved) {
-                        dest.automation
-                            .push(AutomationLane::new(part.target, lane));
+                        dest.automation.push(AutomationLane::new(part.target, lane));
                     }
                 }
                 None => {}
@@ -313,7 +315,11 @@ mod tests {
         )];
         let copy = copy_clips(&p, &[Id(10)]).unwrap();
         assert_eq!(copy.lanes.len(), 1);
-        assert_eq!(copy.lanes[0].points.len(), 2, "only what lies under the clip");
+        assert_eq!(
+            copy.lanes[0].points.len(),
+            2,
+            "only what lies under the clip"
+        );
         assert_eq!(copy.lanes[0].points[0].at, q(1), "from the copy's start");
         // Paste it at quarter 20 onto track 3, which has no lane yet.
         paste(&mut p, &copy, q(20), 2, &mut ids());
@@ -325,7 +331,11 @@ mod tests {
         assert_eq!(at, vec![q(21), q(25)]);
         // The source track's lane is as it was.
         assert_eq!(
-            p.tracks[0].lane(crate::automation::Target::Volume).unwrap().lane.len(),
+            p.tracks[0]
+                .lane(crate::automation::Target::Volume)
+                .unwrap()
+                .lane
+                .len(),
             4
         );
     }

@@ -1581,6 +1581,11 @@ impl App {
         self.arrangement.selected = ids.to_vec();
     }
 
+    /// Shows `target` as the lane `track` draws, as the chip's menu would.
+    pub fn show_clip_envelope(&mut self, track: Id, target: lumen_project::automation::Target) {
+        self.arrangement.auto.show(track, target);
+    }
+
     /// Whether the song locks envelopes: clip edits leave automation alone.
     pub fn lock_envelopes(&self) -> bool {
         self.settings.editing.lock_envelopes
@@ -1592,15 +1597,16 @@ impl App {
         self.arrangement.clips = std::iter::once(id).collect();
     }
 
-    /// Trims the end of a clip to `to`, as dragging its right edge would.
-    pub fn trim_clip_end_to(&mut self, clip: Id, to: lumen_core::time::Ticks) {
+    /// Trims the end of a clip to `to`, as dragging its right edge would;
+    /// with `looping` the clip repeats to fill the new length.
+    pub fn trim_clip_end_to(&mut self, clip: Id, to: lumen_core::time::Ticks, looping: bool) {
         let base = self.document.project().clone();
         self.document.trim_clip(
             &base,
             clip,
             lumen_project::edit::Edge::End,
             to,
-            false,
+            looping,
             None,
         );
     }
