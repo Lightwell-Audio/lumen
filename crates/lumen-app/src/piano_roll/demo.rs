@@ -48,7 +48,6 @@ pub(crate) fn sample_boxes(color: egui::Color32) -> Vec<BoxInstance> {
             start: q(0),
             length: q(32),
             loop_length: Some(q(8)),
-            envelopes: Default::default(),
             notes: &notes,
             carried: &[],
             outside: false,

@@ -148,7 +148,6 @@ impl NoteEditor {
                 start: clip.start,
                 length: clip.length,
                 loop_length: clip.loop_length,
-                envelopes: Default::default(),
                 notes: notes_of(clip),
                 carried: &[],
                 outside: true,

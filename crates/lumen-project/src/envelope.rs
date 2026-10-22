@@ -95,7 +95,10 @@ impl ClipEnvelopes {
             let points = lane
                 .points()
                 .iter()
-                .map(|p| Point { at: p.at + by, ..*p })
+                .map(|p| Point {
+                    at: p.at + by,
+                    ..*p
+                })
                 .collect();
             // Every point moves by the same amount, so the order holds.
             if let Ok(moved) = Lane::new(points) {

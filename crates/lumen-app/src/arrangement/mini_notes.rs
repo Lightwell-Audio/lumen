@@ -63,7 +63,6 @@ pub(super) fn build(
                     start: clip.start,
                     length: clip.length,
                     loop_length: clip.loop_length,
-                    envelopes: Default::default(),
                     notes,
                     carried,
                     outside: false,

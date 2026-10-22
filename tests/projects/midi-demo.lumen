@@ -1,6 +1,6 @@
 {
   "format": "lumen-project",
-  "version": 24,
+  "version": 25,
   "generator": "Lumen 0.0.1",
   "project": {
     "name": "MIDI demo",

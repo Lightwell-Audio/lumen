@@ -39,6 +39,7 @@ mod plan;
 mod smooth;
 mod spec;
 
+pub(crate) use auto::Kind as LaneKind;
 pub use auto::{AutoLane, AutoPoint, KNOT, NodeAutomation, db_gain};
 pub use compile::compile;
 pub use delay::MAX_DEVICE_LATENCY;
