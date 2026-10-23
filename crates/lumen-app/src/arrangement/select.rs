@@ -223,7 +223,13 @@ pub enum Gesture {
         per_point: f32,
     },
     /// The Split tool's press-and-aim gesture; the document changes on release.
-    Split { from: Ticks, to: Ticks },
+    Split {
+        from: Ticks,
+        to: Ticks,
+        clips: Vec<Id>,
+    },
+    /// Zoom tool's drag selection.
+    Zoom { from: Ticks, to: Ticks },
 }
 
 /// A time range across neighbouring tracks, independent of clips (slice
@@ -575,7 +581,9 @@ mod tests {
                     fade_in: Default::default(),
                     fade_out: Default::default(),
                     loop_length: None,
+                    loop_phase: Default::default(),
                     envelopes: Default::default(),
+                    audio_phase_seconds: 0.0,
                     content: ClipContent::midi(),
                 }));
             }

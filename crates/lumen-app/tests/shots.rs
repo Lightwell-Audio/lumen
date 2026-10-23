@@ -7,6 +7,31 @@
 //! SHOTS=<folder> cargo test -p lumen-app --test shots -- --ignored --test-threads=1
 //! ```
 
+/// M7b E0: the chosen tool switch and its menu in both themes and scales.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn arrangement_tools() {
+    use egui_kittest::kittest::Queryable;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-tools-{appearance}-{scale}"));
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(960.0, 540.0));
+            h.run_steps(30);
+            save(&mut h, &format!("tools-rest-{appearance}-{scale}"));
+            h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+            h.run_steps(3);
+            h.event(Event::Text("Split tool".into()));
+            h.run_steps(3);
+            h.key_press(Key::Enter);
+            h.run_steps(30);
+            save(&mut h, &format!("tools-{appearance}-{scale}"));
+            h.get_by_label("Arrangement tool: Split").click();
+            h.run_steps(30);
+            save(&mut h, &format!("tools-menu-{appearance}-{scale}"));
+        }
+    }
+}
+
 use std::path::PathBuf;
 
 use eframe::egui::{Event, Key, Modifiers, Pos2, Rect, pos2, vec2};

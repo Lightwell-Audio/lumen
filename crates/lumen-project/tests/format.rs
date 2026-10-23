@@ -49,6 +49,8 @@ fn golden_v1_expected() -> Project {
         fade_in: Default::default(),
         fade_out: Default::default(),
         loop_length: None,
+        loop_phase: Default::default(),
+        audio_phase_seconds: 0.0,
         envelopes: Default::default(),
         content: ClipContent::Audio {
             media: Id(0x30),
@@ -82,6 +84,8 @@ fn golden_v1_expected() -> Project {
         fade_in: Default::default(),
         fade_out: Default::default(),
         loop_length: None,
+        loop_phase: Default::default(),
+        audio_phase_seconds: 0.0,
         envelopes: Default::default(),
         content: ClipContent::Midi {
             notes: vec![
@@ -223,10 +227,12 @@ fn golden_v5_expected() -> Project {
     clip.fade_in = Fade {
         length: Ticks(PPQ / 4),
         curve: FadeShape::SCurve.curve(),
+        ..Fade::default()
     };
     clip.fade_out = Fade {
         length: Ticks(PPQ / 2),
         curve: FadeShape::Fast.curve(),
+        ..Fade::default()
     };
     clip.loop_length = Some(Ticks::quarters(1));
     project

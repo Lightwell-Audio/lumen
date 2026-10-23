@@ -2,7 +2,7 @@
 
 use eframe::egui::{self, Rect, Sense};
 
-use crate::{App, commands::Command, theme, widgets};
+use crate::{App, commands::Command, motion, theme, widgets};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum ArrangementTool {
@@ -17,7 +17,12 @@ pub(crate) enum ArrangementTool {
 
 impl ArrangementTool {
     pub(crate) const ALL: [Self; 6] = [
-        Self::Pointer, Self::Draw, Self::Erase, Self::Split, Self::Mute, Self::Zoom,
+        Self::Pointer,
+        Self::Draw,
+        Self::Erase,
+        Self::Split,
+        Self::Mute,
+        Self::Zoom,
     ];
 
     pub(crate) const fn name(self) -> &'static str {
@@ -46,37 +51,75 @@ impl ArrangementTool {
 impl App {
     pub(crate) fn choose_arrangement_tool(&mut self, tool: ArrangementTool) {
         self.arrangement.tool = tool;
+        self.arrangement.gesture = None;
+        self.arrangement.tool_keys = true;
     }
 
-    pub(crate) fn arrangement_tool_name(&self) -> &'static str {
+    pub(crate) fn active_arrangement_tool_name(&self) -> &'static str {
         self.arrangement.tool.name()
     }
 
     /// Compact tool switch in the header corner, directly above track names.
     pub(crate) fn arrangement_tool_switch(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let tool = self.arrangement.tool;
-        let label = format!("{} tool ▾", tool.name());
-        let response = ui.interact(rect, ui.id().with("arrangement tool switch"), Sense::click());
+        let current = tool;
+        let label = format!("Arrangement tool: {}", tool.name());
+        let switch_id = ui.id().with("arrangement tool switch");
+        let response = ui.interact(rect, switch_id, Sense::click());
         let keys = self.keymap.keys(tool.command());
-        let response = widgets::tip(response, &label, keys.as_ref(), Some("Choose an arrangement tool"));
-        if response.clicked() {
-            widgets::Menu::open_for(ui.ctx(), response.id);
-        }
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone()));
-        let face = widgets::raised::face_of(ui, &response).lit(true, theme::Tone::On);
-        let body = widgets::raised::paint(ui.painter(), rect, theme::radius::for_height(rect.height()), &face);
-        let galley = ui.painter().layout_no_wrap(label, egui::FontId::proportional(theme::size::CAPTION), face.text());
-        widgets::raised::centre_galley(ui.painter(), body, galley, face.text());
+        let response = widgets::tip(
+            response,
+            &label,
+            keys.as_ref(),
+            Some("Choose an arrangement tool"),
+        );
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone())
+        });
+        // Quiet at rest: only a tool other than Pointer is a mode worth
+        // lighting.
+        let lit = motion::glide(
+            ui.ctx(),
+            response.id.with("lit"),
+            f32::from(tool != ArrangementTool::Pointer),
+            true,
+        );
+        let face = widgets::raised::face_of(ui, &response).lit(lit, theme::Tone::Accent);
+        let body = widgets::raised::paint(
+            ui.painter(),
+            rect,
+            theme::radius::for_height(rect.height()),
+            &face,
+        );
+        let galley = ui.painter().layout_no_wrap(
+            tool.name().to_owned(),
+            egui::FontId::proportional(theme::size::CAPTION),
+            face.text(),
+        );
+        let text_body = Rect::from_min_max(body.min, body.max - egui::vec2(theme::space::S, 0.0));
+        let painter = ui.painter().with_clip_rect(rect);
+        widgets::raised::centre_galley(&painter, text_body, galley, face.text());
+        widgets::draw_arrow(
+            &painter,
+            egui::pos2(body.right() - theme::space::S, body.center().y),
+            1.0,
+            face.text(),
+        );
         widgets::raised::focus_ring(ui.painter(), &response, rect);
 
+        // One click picks and closes; the chosen tool is marked while open.
+        let mut picked = None;
         widgets::Menu::below(&response).show(|ui| {
             for tool in ArrangementTool::ALL {
-                let command = tool.command();
-                let keys = self.keymap.keys(command);
-                if widgets::menu_item(ui, tool.name(), keys.as_ref(), true).clicked() {
-                    self.choose_arrangement_tool(tool);
+                let keys = self.keymap.keys(tool.command());
+                if widgets::menu_toggle(ui, tool.name(), keys.as_ref(), tool == current).clicked() {
+                    picked = Some(tool);
                 }
             }
         });
+        if let Some(tool) = picked {
+            self.choose_arrangement_tool(tool);
+            widgets::Menu::close_for(ui.ctx(), switch_id);
+        }
     }
 }

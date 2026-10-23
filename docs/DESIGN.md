@@ -1214,6 +1214,23 @@ menu show and hide it; the chip's menu switches between gain and pan and goes ba
 
 ## 8. Key flows
 
+### Arrangement tools (M7b E0, owner's K1)
+
+The compact tool switch sits between the grid and tempo buttons above the
+track headers. It uses the existing raised material, the selected tool's
+accent face, and a vector fold arrow. Its menu names Pointer, Draw, Erase,
+Split, Mute and Zoom; the palette exposes each tool too. Narrow grid space
+shows the magnet and division, with the full accessible name and tooltip.
+
+B toggles Pointer/Draw in the arrangement and retains the active editor's
+existing behavior. Escape cancels a cut preview and returns to Pointer.
+Split shows a snapped guide; a press and aim is a preview until release,
+and Alt bypasses snapping. Ctrl+E cuts at the stopped edit position or
+moving playhead, or at both edges of the selected range. Locked clips show
+the unavailable cursor. Erase and Mute act on the clicked unlocked clip;
+Draw adds a MIDI clip in an empty MIDI lane. Zoom clicks in (Alt clicks out)
+and drags to fit a span; X returns to the previous view.
+
 Each flow lists its steps, its keyboard path and its feedback. Flows marked
 (M3) are designed here and built in later slices.
 

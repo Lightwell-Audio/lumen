@@ -96,7 +96,9 @@ pub fn add_dense_midi(project: &mut lumen_project::model::Project) {
         fade_in: Default::default(),
         fade_out: Default::default(),
         loop_length: None,
+        loop_phase: Default::default(),
         envelopes: Default::default(),
+        audio_phase_seconds: 0.0,
         content: ClipContent::Midi {
             notes,
             events: Vec::new(),

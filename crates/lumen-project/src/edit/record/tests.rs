@@ -59,6 +59,8 @@ fn clip(id: u64, start: i64, length: i64, notes: Vec<Note>) -> Clip {
         fade_in: Default::default(),
         fade_out: Default::default(),
         loop_length: None,
+        loop_phase: Default::default(),
+        audio_phase_seconds: 0.0,
         envelopes: Default::default(),
         content: midi(notes),
     }
@@ -546,6 +548,8 @@ fn overdub_over_empty_lane_keeps_captured_content_outside_its_window() {
 fn overdub_before_a_looping_clip_leaves_its_loop_alone() {
     let looped = Clip {
         loop_length: Some(q(2)),
+        loop_phase: Default::default(),
+        audio_phase_seconds: 0.0,
         envelopes: Default::default(),
         ..clip(10, 4, 4, vec![note(0, 1, 48)])
     };
@@ -566,6 +570,8 @@ fn overdub_before_a_looping_clip_leaves_its_loop_alone() {
 fn overdub_in_a_looping_clip_is_a_new_clip_carrying_its_repeats() {
     let looped = Clip {
         loop_length: Some(q(2)),
+        loop_phase: Default::default(),
+        audio_phase_seconds: 0.0,
         envelopes: Default::default(),
         ..clip(10, 0, 8, vec![note(1, 1, 48)])
     };

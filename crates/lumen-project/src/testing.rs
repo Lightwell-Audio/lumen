@@ -135,6 +135,8 @@ pub fn synthetic(
                         fade_in: Default::default(),
                         fade_out: Default::default(),
                         loop_length: None,
+                        loop_phase: Default::default(),
+                        audio_phase_seconds: 0.0,
                         envelopes: Default::default(),
                         content: match source {
                             Some(media) => ClipContent::Audio {
@@ -253,6 +255,8 @@ pub fn midi_track(
         fade_in: Default::default(),
         fade_out: Default::default(),
         loop_length: repeat.map(Ticks::quarters),
+        loop_phase: Default::default(),
+        audio_phase_seconds: 0.0,
         envelopes: Default::default(),
         content: ClipContent::Midi { notes, events },
     })];

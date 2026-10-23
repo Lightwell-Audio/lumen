@@ -308,12 +308,15 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
                         fade_in: lumen_engine::FadeFrames {
                             frames: 4_800,
                             curve: lumen_core::curve::Curve::SLOW,
+                            ..Default::default()
                         },
                         fade_out: lumen_engine::FadeFrames {
                             frames: 9_600,
                             curve: lumen_core::curve::Curve::S_CURVE,
+                            ..Default::default()
                         },
                         period: None,
+                        phase: 0,
                     }
                 } else {
                     Default::default()

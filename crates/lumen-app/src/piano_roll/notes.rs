@@ -35,6 +35,8 @@ pub(crate) struct ClipNotes<'a> {
     pub start: Ticks,
     pub length: Ticks,
     pub loop_length: Option<Ticks>,
+    /// Source loop position playing at the clip's timeline start.
+    pub loop_phase: Ticks,
     pub notes: &'a [Note],
     /// Notes (by index) that carry on into the clip across a seam with the
     /// clip before it (`edit::seams`): they start before the clip and are
@@ -83,7 +85,6 @@ impl ClipNotes<'_> {
             return;
         }
         let period = self.period();
-        let count = ((self.length.0 + period - 1) / period).min(MAX_REPEATS);
         let mut made = 0;
         for &index in self.carried {
             let Some(&note) = self.notes.get(index) else {
@@ -120,9 +121,51 @@ impl ClipNotes<'_> {
                 made += 1;
             }
         }
-        for rep in 0..count {
-            let base = self.start.0 + rep * period;
-            let span = period.min(self.length.0 - rep * period);
+        let phase = self.loop_phase.0.rem_euclid(period);
+        let mut elapsed = 0;
+        if phase > 0 {
+            let span = (period - phase).min(self.length.0);
+            for (index, &note) in self.notes.iter().enumerate() {
+                let at = note.start().0;
+                let source_end = (at + note.length().0).min(period);
+                let (placed_at, end) = if at < phase && source_end > phase {
+                    (0, (source_end - phase).min(span))
+                } else if at >= phase && at < period {
+                    let placed_at = at - phase;
+                    if placed_at >= span {
+                        continue;
+                    }
+                    (
+                        placed_at,
+                        (placed_at + note.length().0.min(period - at)).min(span),
+                    )
+                } else {
+                    continue;
+                };
+                f(
+                    Placed {
+                        index,
+                        rep: 0,
+                        start: Ticks(self.start.0 + placed_at).as_quarters(),
+                        end: Ticks(self.start.0 + end.max(placed_at + 1)).as_quarters(),
+                    },
+                    note,
+                );
+                made += 1;
+                if made >= MAX_BOXES {
+                    return;
+                }
+            }
+            elapsed = span;
+        }
+        let mut repeats = 0;
+        while elapsed < self.length.0 && made < MAX_BOXES {
+            if repeats >= MAX_REPEATS {
+                return;
+            }
+            let base = self.start.0 + elapsed;
+            let span = period.min(self.length.0 - elapsed);
+            let rep = elapsed / period;
             for (index, &note) in self.notes.iter().enumerate() {
                 let at = note.start().0;
                 if at < 0 || at >= span {
@@ -138,7 +181,7 @@ impl ClipNotes<'_> {
                 f(
                     Placed {
                         index,
-                        rep: rep as u32,
+                        rep: rep.min(u32::MAX as i64) as u32,
                         start: Ticks(base + at).as_quarters(),
                         end: Ticks(base + end).as_quarters(),
                     },
@@ -149,6 +192,8 @@ impl ClipNotes<'_> {
                     return;
                 }
             }
+            elapsed += span;
+            repeats += 1;
         }
     }
 }
@@ -274,6 +319,7 @@ mod tests {
             start: q(8),
             length: q(4),
             loop_length: None,
+            loop_phase: Default::default(),
             notes,
             carried: &[],
             outside: false,
@@ -383,6 +429,28 @@ mod tests {
             .find(|b| b.row == 64 && start_of(b) == 11.0)
             .unwrap();
         assert_eq!(end_of(second_cut), 12.0, "cut at the end of its repeat");
+    }
+
+    #[test]
+    fn a_split_loop_draws_from_its_source_phase() {
+        let notes = [
+            Note::new(q(0), q(1), 60, 127),
+            Note::new(q(2), q(2), 62, 127),
+        ];
+        let mut c = clip(&notes);
+        c.start = q(8);
+        c.length = q(5);
+        c.loop_length = Some(q(4));
+        c.loop_phase = q(3);
+        let built = note_instances(&c, &BTreeSet::new(), &colors());
+        let positions: Vec<_> = built
+            .iter()
+            .map(|b| (b.row, start_of(b), end_of(b)))
+            .collect();
+        assert_eq!(
+            positions,
+            [(62, 8.0, 9.0), (60, 9.0, 10.0), (62, 11.0, 13.0)]
+        );
     }
 
     #[test]

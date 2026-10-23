@@ -131,8 +131,16 @@ impl Document {
                 let mut c = c.clone();
                 let room = |other: Ticks| length.clamp(Ticks::ZERO, c.length - other);
                 match edge {
-                    Edge::Start => c.fade_in.length = room(c.fade_out.length),
-                    Edge::End => c.fade_out.length = room(c.fade_in.length),
+                    Edge::Start => {
+                        c.fade_in.length = room(c.fade_out.length);
+                        c.fade_in.offset = Ticks::ZERO;
+                        c.fade_in.span = Ticks::ZERO;
+                    }
+                    Edge::End => {
+                        c.fade_out.length = room(c.fade_in.length);
+                        c.fade_out.offset = Ticks::ZERO;
+                        c.fade_out.span = Ticks::ZERO;
+                    }
                 }
                 c
             });
@@ -151,8 +159,16 @@ impl Document {
                 replace_clip(project, id, |c| {
                     let mut c = c.clone();
                     match edge {
-                        Edge::Start => c.fade_in.curve = curve,
-                        Edge::End => c.fade_out.curve = curve,
+                        Edge::Start => {
+                            c.fade_in.curve = curve;
+                            c.fade_in.offset = Ticks::ZERO;
+                            c.fade_in.span = Ticks::ZERO;
+                        }
+                        Edge::End => {
+                            c.fade_out.curve = curve;
+                            c.fade_out.offset = Ticks::ZERO;
+                            c.fade_out.span = Ticks::ZERO;
+                        }
                     }
                     c
                 });

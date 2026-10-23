@@ -375,8 +375,14 @@ report: {}",
             ui,
             egui::Rect::from_min_max(row.min, pos2(split, row.bottom())),
         );
-        self.arrangement_tool_switch(ui, egui::Rect::from_min_max(pos2(tool_left, row.top()), pos2(song_left, row.bottom())));
-        self.song_lanes_button(ui, egui::Rect::from_min_max(pos2(song_left, row.top()), row.max));
+        self.arrangement_tool_switch(
+            ui,
+            egui::Rect::from_min_max(pos2(tool_left, row.top()), pos2(song_left, row.bottom())),
+        );
+        self.song_lanes_button(
+            ui,
+            egui::Rect::from_min_max(pos2(song_left, row.top()), row.max),
+        );
         self.time_format_button(ui, time_corner);
         self.arrangement.additive_solo = self.settings.mixing.additive_solo;
         self.lend_live_input();

@@ -144,6 +144,132 @@ fn splitting_contiguous_source_is_a_null_render_at_every_block_size() {
 }
 
 #[test]
+fn splitting_inside_the_outer_edge_fade_keeps_its_remaining_ramp() {
+    let audio = ramp(60_000, RATE);
+    let whole = Clip {
+        envelope: Default::default(),
+        id: 1,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 48_000,
+        gain: 0.75,
+        track: 0,
+        audio: Arc::clone(&audio),
+        shape: Default::default(),
+    };
+    let mut left = whole.clone();
+    left.length = 24;
+    let mut right = whole.clone();
+    right.id = 2;
+    right.start = Ticks(lumen_core::time::PPQ * 24 / 24_000);
+    right.offset = 24;
+    right.length -= 24;
+    assert_eq!(Timeline::default().sample_at(right.start, RATE), 24);
+    for block in [1, 64, 128, 333] {
+        let (mut handle, _, mut original) = setup(vec![whole.clone()]);
+        handle.send(Command::Play).unwrap();
+        let expected = run(&mut original, 50_000, block);
+        let (mut handle, _, mut split) = setup(vec![left.clone(), right.clone()]);
+        handle.send(Command::Play).unwrap();
+        assert_eq!(run(&mut split, 50_000, block), expected, "block {block}");
+    }
+}
+
+#[test]
+fn split_fade_windows_continue_the_original_curve_without_a_seam_dip() {
+    let audio = ramp(60_000, RATE);
+    let whole = Clip {
+        envelope: Default::default(),
+        id: 1,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 48_000,
+        gain: 0.75,
+        track: 0,
+        audio: Arc::clone(&audio),
+        shape: ClipShape {
+            fade_in: FadeFrames {
+                frames: 30_000,
+                span: 30_000,
+                curve: Curve::S_CURVE,
+                ..Default::default()
+            },
+            fade_out: FadeFrames {
+                frames: 12_000,
+                span: 12_000,
+                curve: Curve::S_CURVE,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    };
+    let mut left = whole.clone();
+    left.length = 24_000;
+    left.shape.fade_in.frames = 24_000;
+    left.shape.fade_out = FadeFrames::default();
+    let mut right = whole.clone();
+    right.id = 2;
+    right.start = Ticks::quarters(1);
+    right.offset = 24_000;
+    right.length = 24_000;
+    right.shape.fade_in = FadeFrames {
+        frames: 6_000,
+        offset: 24_000,
+        span: 30_000,
+        curve: Curve::S_CURVE,
+    };
+    for block in [1, 64, 128, 333, 4_096] {
+        let (mut handle, _, mut original) = setup(vec![whole.clone()]);
+        handle.send(Command::Play).unwrap();
+        let expected = run(&mut original, 50_000, block);
+        let (mut handle, _, mut split) = setup(vec![left.clone(), right.clone()]);
+        handle.send(Command::Play).unwrap();
+        let actual = run(&mut split, 50_000, block);
+        assert_eq!(actual, expected, "block {block}");
+    }
+}
+
+#[test]
+fn splitting_at_the_end_of_a_fade_in_keeps_its_full_level() {
+    let audio = ramp(60_000, RATE);
+    let whole = Clip {
+        envelope: Default::default(),
+        id: 1,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 48_000,
+        gain: 0.75,
+        track: 0,
+        audio: Arc::clone(&audio),
+        shape: ClipShape {
+            fade_in: FadeFrames {
+                frames: 24_000,
+                span: 24_000,
+                curve: Curve::S_CURVE,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    };
+    let mut left = whole.clone();
+    left.length = 24_000;
+    let mut right = whole.clone();
+    right.id = 2;
+    right.start = Ticks::quarters(1);
+    right.offset = 24_000;
+    right.length = 24_000;
+    right.shape.fade_in = FadeFrames::default();
+    for block in [1, 64, 128, 333, 4_096] {
+        let (mut handle, _, mut original) = setup(vec![whole.clone()]);
+        handle.send(Command::Play).unwrap();
+        let expected = run(&mut original, 50_000, block);
+        let (mut handle, _, mut split) = setup(vec![left.clone(), right.clone()]);
+        handle.send(Command::Play).unwrap();
+        assert_eq!(run(&mut split, 50_000, block), expected, "block {block}");
+    }
+}
+
+#[test]
 fn unrelated_join_and_intentional_seam_fades_keep_the_edge_dip() {
     let audio = steady(60_000);
     let mut left = steady_clip(&audio, 1.0);
@@ -166,33 +292,73 @@ fn unrelated_join_and_intentional_seam_fades_keep_the_edge_dip() {
     faded.shape.fade_in = FadeFrames {
         frames: 1_000,
         curve: Curve::LINEAR,
+        ..Default::default()
     };
     let (mut handle, _, mut engine) = setup(vec![continuous, faded]);
     handle.send(Command::Play).unwrap();
     let out = run(&mut engine, 25_000, 128);
     assert!(out[24_000].0 < 1e-5, "explicit fade remains in force");
 
-    let mut enveloped_left = steady_clip(&audio, 1.0);
-    enveloped_left.length = 24_000;
-    enveloped_left.envelope = ClipEnvelope {
-        gain: Some(
-            AutoLane::new(vec![AutoPoint {
-                at: 0,
-                value: -6.0,
-                shape: Shape::Linear,
-            }])
-            .unwrap(),
-        ),
-        pan: None,
+    let lane = |points: &[(i64, f32, Shape)]| {
+        AutoLane::new(
+            points
+                .iter()
+                .map(|&(at, value, shape)| AutoPoint { at, value, shape })
+                .collect(),
+        )
+        .unwrap()
     };
-    let mut enveloped_right = enveloped_left.clone();
+    let mut whole = steady_clip(&audio, 1.0);
+    whole.length = 48_000;
+    whole.envelope = ClipEnvelope {
+        gain: Some(lane(&[
+            (0, -6.0, Shape::Curve(Curve::S_CURVE)),
+            (24_000, -3.0, Shape::Curve(Curve::S_CURVE)),
+            (48_000, 0.0, Shape::Linear),
+        ])),
+        pan: Some((
+            lane(&[(0, -1.0, Shape::Linear), (24_000, 0.0, Shape::Linear)]),
+            lumen_core::pan::PanLaw::Balance,
+        )),
+    };
+    let mut enveloped_left = whole.clone();
+    enveloped_left.length = 24_000;
+    let mut enveloped_right = whole.clone();
     enveloped_right.id = 10;
     enveloped_right.start = Ticks::quarters(1);
     enveloped_right.offset = 24_000;
+    enveloped_right.length = 24_000;
+    enveloped_right.envelope = ClipEnvelope {
+        gain: Some(lane(&[
+            (-24_000, -6.0, Shape::Curve(Curve::S_CURVE)),
+            (0, -3.0, Shape::Curve(Curve::S_CURVE)),
+            (24_000, 0.0, Shape::Linear),
+        ])),
+        pan: Some((
+            lane(&[(-24_000, -1.0, Shape::Linear), (0, 0.0, Shape::Linear)]),
+            lumen_core::pan::PanLaw::Balance,
+        )),
+    };
+    for block in [1, 64, 128, 333, 4_096] {
+        let (mut handle, _, mut original) = setup(vec![whole.clone()]);
+        handle.send(Command::Play).unwrap();
+        let expected = run(&mut original, 50_000, block);
+        let (mut handle, _, mut split) =
+            setup(vec![enveloped_left.clone(), enveloped_right.clone()]);
+        handle.send(Command::Play).unwrap();
+        let actual = run(&mut split, 50_000, block);
+        assert_eq!(actual, expected, "enveloped split, block {block}");
+    }
+
+    // A discontinuity in the baked gain envelope is an intentional edge.
+    enveloped_right.envelope.gain = Some(lane(&[(0, -30.0, Shape::Step)]));
     let (mut handle, _, mut engine) = setup(vec![enveloped_left, enveloped_right]);
     handle.send(Command::Play).unwrap();
     let out = run(&mut engine, 25_000, 128);
-    assert!(out[24_000].0 < 0.01, "enveloped seam stays conservative");
+    assert!(
+        out[24_000].0.abs() < 0.001,
+        "envelope jump retains edge dip"
+    );
 }
 
 #[test]
@@ -647,6 +813,7 @@ fn lists_sent_while_stopped_never_play_late() {
             fade_in: FadeFrames {
                 frames: fade,
                 curve: Curve::LINEAR,
+                ..Default::default()
             },
             ..Default::default()
         },
@@ -746,12 +913,15 @@ fn fades_sound_as_drawn_in_every_shape_and_free_curve() {
                 fade_in: FadeFrames {
                     frames: fade_in,
                     curve: fade_in_curve,
+                    ..Default::default()
                 },
                 fade_out: FadeFrames {
                     frames: fade_out,
                     curve: fade_out_curve,
+                    ..Default::default()
                 },
                 period: None,
+                phase: 0,
             },
         };
         // The curve the arrangement draws (`Curve::at`), heard to within
@@ -808,6 +978,75 @@ fn a_looping_clip_repeats_its_content_with_clean_seams() {
         let repeat = pos / period * period;
         expected(&audio, offset, period.min(length - repeat), pos - repeat)
     });
+}
+
+#[test]
+fn splitting_inside_a_loop_preserves_source_and_envelope_phase() {
+    let audio = ramp(12_000, RATE);
+    let envelope = ClipEnvelope {
+        gain: Some(
+            AutoLane::new(vec![
+                AutoPoint {
+                    at: 0,
+                    value: -12.0,
+                    shape: Shape::Curve(Curve::S_CURVE),
+                },
+                AutoPoint {
+                    at: 3_000,
+                    value: 0.0,
+                    shape: Shape::Linear,
+                },
+            ])
+            .unwrap(),
+        ),
+        pan: None,
+    };
+    let period_ticks = Ticks(lumen_core::time::PPQ * 3_000 / 24_000);
+    let split_ticks = Ticks(lumen_core::time::PPQ * 1_000 / 24_000);
+    let whole = Clip {
+        envelope,
+        id: 1,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 12_000,
+        gain: 1.0,
+        track: 0,
+        audio: Arc::clone(&audio),
+        shape: ClipShape {
+            period: Some(3_000),
+            ..Default::default()
+        },
+    };
+    let mut left = whole.clone();
+    left.length = 1_000;
+    let mut right = whole.clone();
+    right.id = 2;
+    right.start = split_ticks;
+    right.length = 11_000;
+    right.shape.phase = 1_000;
+    for block in [1, 64, 128, 333, 4_096] {
+        let (mut handle, _, mut original) = setup(vec![whole.clone()]);
+        handle
+            .set_timeline(Timeline::constant(120.0, Meter::FOUR_FOUR))
+            .unwrap();
+        handle.send(Command::Play).unwrap();
+        let expected = run(&mut original, 16_000, block);
+        let (mut handle, _, mut split) = setup(vec![left.clone(), right.clone()]);
+        handle
+            .set_timeline(Timeline::constant(120.0, Meter::FOUR_FOUR))
+            .unwrap();
+        handle.send(Command::Play).unwrap();
+        let actual = run(&mut split, 16_000, block);
+        assert!(
+            actual == expected,
+            "loop phase, period {period_ticks:?}, block {block}, first mismatch {:?}",
+            actual
+                .iter()
+                .zip(&expected)
+                .position(|(a, b)| a != b)
+                .map(|i| (i, actual[i], expected[i]))
+        );
+    }
 }
 
 #[test]

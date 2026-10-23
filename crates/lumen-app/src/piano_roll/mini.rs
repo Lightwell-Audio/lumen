@@ -158,6 +158,7 @@ mod tests {
             start: q(0),
             length: q(4),
             loop_length: None,
+            loop_phase: Default::default(),
             notes,
             carried: &[],
             outside: false,
@@ -179,7 +180,9 @@ mod tests {
                 fade_in: Default::default(),
                 fade_out: Default::default(),
                 loop_length: None,
+                loop_phase: Default::default(),
                 envelopes: Default::default(),
+                audio_phase_seconds: 0.0,
                 content: ClipContent::Midi {
                     notes,
                     events: Vec::new(),

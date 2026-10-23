@@ -113,8 +113,20 @@ pub fn engine_clips(
             };
             // The offset is in the file's frames; the audio is at the
             // device rate.
-            let offset =
+            let base_offset =
                 (*offset as f64 * f64::from(samples.sample_rate) / f64::from(native.max(1))) as i64;
+            let source_origin = if clip.loop_length.is_some() {
+                clip.start - clip.loop_phase
+            } else {
+                clip.start
+            };
+            let offset = tempo.as_ref().map_or(base_offset, |tempo| {
+                let timeline_sample = tempo.sample_at(source_origin, rate);
+                let source_anchor = ((tempo.seconds_at(source_origin) - clip.audio_phase_seconds)
+                    * f64::from(rate))
+                .round() as i64;
+                base_offset + timeline_sample - source_anchor
+            });
             // Frames between two musical positions at the device rate.
             let frames = |a: Ticks, b: Ticks| {
                 tempo
@@ -135,18 +147,24 @@ pub fn engine_clips(
                 (samples.frames() as i64 - offset).min(region)
             };
             let shape = lumen_engine::ClipShape {
-                fade_in: lumen_engine::FadeFrames {
-                    frames: frames(clip.start, clip.start + clip.fade_in.length),
-                    curve: clip.fade_in.curve,
-                },
-                fade_out: lumen_engine::FadeFrames {
-                    frames: frames(end - clip.fade_out.length, end),
-                    curve: clip.fade_out.curve,
-                },
+                fade_in: fade_frames(clip, tempo.as_ref(), rate, true),
+                fade_out: fade_frames(clip, tempo.as_ref(), rate, false),
                 period: clip
                     .loop_length
-                    .map(|l| frames(clip.start, clip.start + l))
+                    .map(|period| {
+                        let origin = clip.start - clip.loop_phase;
+                        frames(origin, origin + period)
+                    })
                     .filter(|p| *p > 0),
+                phase: clip.loop_length.map_or(0, |period| {
+                    let origin = clip.start - clip.loop_phase;
+                    let period_frames = frames(origin, origin + period);
+                    if period_frames > 0 {
+                        frames(origin, clip.start).rem_euclid(period_frames)
+                    } else {
+                        0
+                    }
+                }),
             };
             if length > 0 {
                 list.push(Clip {
@@ -178,6 +196,48 @@ pub fn engine_clips(
     list
 }
 
+/// Converts a visible fade slice to the sample window of its original curve.
+fn fade_frames(
+    clip: &lumen_project::model::Clip,
+    tempo: Option<&lumen_core::time::TempoMap>,
+    rate: u32,
+    fade_in: bool,
+) -> lumen_engine::FadeFrames {
+    let fade = if fade_in { clip.fade_in } else { clip.fade_out };
+    let end = clip.start + clip.length;
+    let frames = |a, b| {
+        tempo.map_or(0, |tempo| {
+            tempo.sample_at(b, rate) - tempo.sample_at(a, rate)
+        })
+    };
+    let visible = if fade_in {
+        frames(clip.start, clip.start + fade.length)
+    } else {
+        frames(end - fade.length, end)
+    };
+    let (offset, span) = if fade.span == Ticks::ZERO {
+        (0, 0)
+    } else if fade_in {
+        let origin = clip.start - fade.offset;
+        (
+            frames(origin, clip.start),
+            frames(origin, origin + fade.span),
+        )
+    } else {
+        let origin_end = end + fade.offset;
+        (
+            frames(end, origin_end),
+            frames(origin_end - fade.span, origin_end),
+        )
+    };
+    lumen_engine::FadeFrames {
+        frames: visible,
+        offset,
+        span,
+        curve: fade.curve,
+    }
+}
+
 /// A clip's envelopes on its own sample clock (M7 slice A7): each lane cut to
 /// the window the clip plays (its loop, or its length) and baked with the
 /// tempo map, so frame 0 is the clip's first frame. A mono clip pans by the
@@ -192,11 +252,14 @@ fn envelope_of(
     let Some(tempo) = tempo.filter(|_| !clip.envelopes.is_empty()) else {
         return Default::default();
     };
-    let window = lumen_project::envelope::window(clip);
+    let origin = if clip.loop_length.is_some() {
+        clip.start - clip.loop_phase
+    } else {
+        clip.start
+    };
     let bake = |kind| {
         let lane = clip.envelopes.get(kind)?;
-        let cut = lumen_project::envelope::windowed(lane, window)?;
-        crate::lane_bake::bake_from(&cut, clip.start, tempo, rate)
+        crate::lane_bake::bake_from(lane, origin, tempo, rate)
     };
     let law = if channels == 1 {
         project.pan_law
@@ -738,6 +801,9 @@ mod tests {
     use super::*;
     use crate::document::{Document, Imported};
     use lumen_engine::ClipAudio;
+    use lumen_engine::{
+        Command, Destination, NodeSpec, Routing, Timeline, clip_player, engine, mixer,
+    };
     use lumen_project::model::TrackKind;
 
     /// A document with one two-second clip on each of `n` tracks, and the
@@ -794,15 +860,25 @@ mod tests {
             let clip = Arc::make_mut(&mut track.clips[0]);
             clip.length = Ticks::quarters(8);
             clip.loop_length = Some(Ticks::quarters(1));
+            clip.loop_phase = Ticks(lumen_core::time::PPQ / 2);
             clip.fade_in.length = Ticks(lumen_core::time::PPQ / 2);
+            clip.fade_in.offset = Ticks(lumen_core::time::PPQ / 4);
+            clip.fade_in.span = Ticks::quarters(1);
             clip.fade_out.length = Ticks::quarters(1);
+            clip.fade_out.offset = Ticks(lumen_core::time::PPQ / 4);
+            clip.fade_out.span = Ticks::quarters(1);
             clip.fade_out.curve = lumen_core::curve::Curve::S_CURVE;
         });
         let clip = &played(&doc, &audio, 48_000)[0];
         assert_eq!(clip.length, 192_000, "repeats past the file's end");
         assert_eq!(clip.shape.period, Some(24_000));
+        assert_eq!(clip.shape.phase, 12_000);
         assert_eq!(clip.shape.fade_in.frames, 12_000);
+        assert_eq!(clip.shape.fade_in.offset, 6_000);
+        assert_eq!(clip.shape.fade_in.span, 24_000);
         assert_eq!(clip.shape.fade_out.frames, 24_000);
+        assert_eq!(clip.shape.fade_out.offset, 6_000);
+        assert_eq!(clip.shape.fade_out.span, 24_000);
         assert_eq!(clip.shape.fade_out.curve, lumen_core::curve::Curve::S_CURVE);
         // Without the loop it stops where the file does.
         doc.apply("unloop", None, |p| {
@@ -810,6 +886,309 @@ mod tests {
             Arc::make_mut(&mut track.clips[0]).loop_length = None;
         });
         assert_eq!(played(&doc, &audio, 48_000)[0].length, 96_000);
+    }
+
+    #[test]
+    fn split_loop_phase_uses_its_original_tempo_origin() {
+        let (mut doc, audio) = setup(1);
+        doc.apply("tempo and split", None, |p| {
+            p.tempo = vec![
+                lumen_core::time::TempoPoint {
+                    at: Ticks::ZERO,
+                    bpm: 120.0,
+                    ramp: false,
+                },
+                lumen_core::time::TempoPoint {
+                    at: Ticks::quarters(4),
+                    bpm: 60.0,
+                    ramp: false,
+                },
+            ];
+            let clip = Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]);
+            clip.start = Ticks::quarters(5);
+            clip.length = Ticks::quarters(8);
+            clip.loop_length = Some(Ticks::quarters(4));
+            clip.loop_phase = Ticks::quarters(5);
+        });
+        let played = played(&doc, &audio, 48_000);
+        assert_eq!(played[0].shape.period, Some(96_000));
+        assert_eq!(played[0].shape.phase, 48_000);
+    }
+
+    #[test]
+    fn a_split_loop_after_a_tempo_change_nulls_with_fades_and_envelopes() {
+        let (mut doc, audio) = setup(1);
+        let tempo_points = vec![
+            lumen_core::time::TempoPoint {
+                at: Ticks::ZERO,
+                bpm: 120.0,
+                ramp: false,
+            },
+            lumen_core::time::TempoPoint {
+                at: Ticks::quarters(4),
+                bpm: 60.0,
+                ramp: false,
+            },
+        ];
+        doc.apply("prepare loop", None, |p| {
+            p.tempo = tempo_points.clone();
+            let clip = Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]);
+            clip.length = Ticks::quarters(12);
+            clip.loop_length = Some(Ticks::quarters(4));
+            clip.fade_in.length = Ticks::quarters(1);
+            clip.fade_out.length = Ticks::quarters(1);
+            clip.fade_out.curve = lumen_core::curve::Curve::S_CURVE;
+            clip.envelopes.set(
+                lumen_project::envelope::Kind::Gain,
+                lumen_core::automation::Lane::new(vec![
+                    lumen_core::automation::Point::new(Ticks::ZERO, -9.0),
+                    lumen_core::automation::Point::new(Ticks::quarters(2), -1.0).with_shape(
+                        lumen_core::automation::Shape::Curve(lumen_core::curve::Curve::S_CURVE),
+                    ),
+                    lumen_core::automation::Point::new(Ticks::quarters(4), -6.0),
+                ])
+                .unwrap(),
+            );
+            clip.envelopes.set(
+                lumen_project::envelope::Kind::Pan,
+                lumen_core::automation::Lane::new(vec![
+                    lumen_core::automation::Point::new(Ticks::ZERO, -0.8),
+                    lumen_core::automation::Point::new(Ticks::quarters(4), 0.7).with_shape(
+                        lumen_core::automation::Shape::Curve(lumen_core::curve::Curve::FAST),
+                    ),
+                ])
+                .unwrap(),
+            );
+        });
+        let original = doc.project().clone();
+        let tempo = lumen_core::time::TempoMap::new(original.tempo.clone()).unwrap();
+        let cut = Ticks::quarters(5);
+        let source = original.tracks[0].clips[0].as_ref();
+        let left =
+            lumen_project::edit::slice(&original, &tempo, source, source.start, cut).unwrap();
+        let mut right = lumen_project::edit::slice(
+            &original,
+            &tempo,
+            source,
+            cut,
+            source.start + source.length,
+        )
+        .unwrap();
+        right.id = Id(99_999);
+        let mut split = original.clone();
+        Arc::make_mut(&mut split.tracks[0]).clips = vec![Arc::new(left.clone()), Arc::new(right)];
+        let timeline = Timeline::new(tempo, original.meter_map());
+        let render = |project: &Project, frames: usize, block: usize| {
+            let list = engine_clips(project, 48_000, |_| Some((audio.clone(), 48_000)));
+            let (mut clips, player) = clip_player();
+            clips.set(list).unwrap();
+            let (mut routing, source) = mixer(player);
+            assert!(
+                routing
+                    .set(&Routing {
+                        nodes: vec![NodeSpec::unity(
+                            project.tracks[0].id.0,
+                            Destination::Hardware(0)
+                        )],
+                        cue: None,
+                        measure: None,
+                    })
+                    .unwrap()
+            );
+            let (mut handle, mut engine) = engine(timeline.clone(), source, 48_000);
+            handle.send(Command::Play).unwrap();
+            let mut data = vec![0.0; block * 2];
+            let mut out = Vec::with_capacity(frames * 2);
+            let mut done = 0;
+            while done < frames {
+                let n = block.min(frames - done);
+                engine.process(48_000, &mut data[..2 * n], 2, n);
+                out.extend_from_slice(&data[..2 * n]);
+                done += n;
+            }
+            out
+        };
+        for block in [64, 128, 333, 4_096] {
+            let frames = 500_000;
+            let expected = render(&original, frames, block);
+            let actual = render(&split, frames, block);
+            if let Some(at) = actual.iter().zip(&expected).position(|(a, b)| a != b) {
+                panic!(
+                    "block {block} differs at interleaved sample {at}: {} != {}",
+                    actual[at], expected[at]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_non_loop_split_keeps_curved_envelopes_exact() {
+        use lumen_core::automation::{Point, Shape};
+        use lumen_project::envelope::Kind;
+
+        let (mut doc, audio) = setup(1);
+        doc.apply("curved source envelope", None, |p| {
+            let track = Arc::make_mut(&mut p.tracks[0]);
+            let clip = Arc::make_mut(&mut track.clips[0]);
+            clip.length = Ticks::quarters(8);
+            clip.envelopes.set(
+                Kind::Gain,
+                lumen_core::automation::Lane::new(vec![
+                    Point::new(Ticks::ZERO, -12.0)
+                        .with_shape(Shape::Curve(lumen_core::curve::Curve::S_CURVE)),
+                    Point::new(Ticks::quarters(4), -1.0),
+                    Point::new(Ticks::quarters(8), -8.0),
+                ])
+                .unwrap(),
+            );
+            clip.envelopes.set(
+                Kind::Pan,
+                lumen_core::automation::Lane::new(vec![
+                    Point::new(Ticks::ZERO, -0.9)
+                        .with_shape(Shape::Curve(lumen_core::curve::Curve::FAST)),
+                    Point::new(Ticks::quarters(8), 0.8),
+                ])
+                .unwrap(),
+            );
+        });
+        let original = doc.project().clone();
+        let tempo = lumen_core::time::TempoMap::new(original.tempo.clone()).unwrap();
+        let source = original.tracks[0].clips[0].as_ref();
+        let cut = Ticks::quarters(2);
+        let left =
+            lumen_project::edit::slice(&original, &tempo, source, source.start, cut).unwrap();
+        let mut right = lumen_project::edit::slice(
+            &original,
+            &tempo,
+            source,
+            cut,
+            source.start + source.length,
+        )
+        .unwrap();
+        right.id = Id(99_998);
+        let mut split = original.clone();
+        Arc::make_mut(&mut split.tracks[0]).clips = vec![Arc::new(left), Arc::new(right)];
+        let timeline = Timeline::new(tempo, original.meter_map());
+        let render = |project: &Project, frames: usize, block: usize| {
+            let list = engine_clips(project, 48_000, |_| Some((audio.clone(), 48_000)));
+            let (mut clips, player) = clip_player();
+            clips.set(list).unwrap();
+            let (mut routing, source) = mixer(player);
+            routing
+                .set(&Routing {
+                    nodes: vec![NodeSpec::unity(
+                        project.tracks[0].id.0,
+                        Destination::Hardware(0),
+                    )],
+                    cue: None,
+                    measure: None,
+                })
+                .unwrap();
+            let (mut handle, mut engine) = engine(timeline.clone(), source, 48_000);
+            handle.send(Command::Play).unwrap();
+            let mut data = vec![0.0; block * 2];
+            let mut out = Vec::with_capacity(frames * 2);
+            let mut done = 0;
+            while done < frames {
+                let n = block.min(frames - done);
+                engine.process(48_000, &mut data[..2 * n], 2, n);
+                out.extend_from_slice(&data[..2 * n]);
+                done += n;
+            }
+            out
+        };
+        for block in [64, 128, 333, 4_096] {
+            assert_eq!(
+                render(&original, 100_000, block),
+                render(&split, 100_000, block),
+                "block {block}"
+            );
+        }
+    }
+
+    #[test]
+    fn split_audio_keeps_the_exact_source_sample_at_44100_to_48000() {
+        let (mut doc, _) = setup(1);
+        let tempo_points = vec![lumen_core::time::TempoPoint {
+            at: Ticks::ZERO,
+            bpm: 123.0,
+            ramp: false,
+        }];
+        for (device_rate, native_rate) in [(48_000, 44_100), (44_100, 48_000)] {
+            let samples: Vec<f32> = (0..520_000)
+                .map(|i| ((i * 37 % 4_093) as f32 / 4_093.0) * 0.5)
+                .collect();
+            let audio = Arc::new(ClipAudio {
+                sample_rate: device_rate,
+                channels: vec![samples.clone(), samples],
+            });
+            for origin in [Ticks::ZERO, Ticks::quarters(3)] {
+                doc.apply("prepare exact source split", None, |project| {
+                    project.tempo = tempo_points.clone();
+                    let clip = Arc::make_mut(&mut Arc::make_mut(&mut project.tracks[0]).clips[0]);
+                    clip.start = origin;
+                    clip.length = Ticks::quarters(15);
+                    if let ClipContent::Audio { offset, .. } = &mut clip.content {
+                        *offset = 37;
+                    }
+                });
+                let original = doc.project().clone();
+                let tempo = lumen_core::time::TempoMap::new(original.tempo.clone()).unwrap();
+                let source = original.tracks[0].clips[0].as_ref();
+                let cut = origin + Ticks::quarters(7);
+                let left =
+                    lumen_project::edit::slice(&original, &tempo, source, origin, cut).unwrap();
+                let mut right = lumen_project::edit::slice(
+                    &original,
+                    &tempo,
+                    source,
+                    cut,
+                    origin + source.length,
+                )
+                .unwrap();
+                right.id = Id(88_000 + origin.0 as u64);
+                let mut split = original.clone();
+                Arc::make_mut(&mut split.tracks[0]).clips = vec![Arc::new(left), Arc::new(right)];
+                let render = |project: &Project, block: usize| {
+                    let timeline = Timeline::new(
+                        lumen_core::time::TempoMap::new(project.tempo.clone()).unwrap(),
+                        project.meter_map(),
+                    );
+                    let list =
+                        engine_clips(project, device_rate, |_| Some((audio.clone(), native_rate)));
+                    let (mut clips, player) = clip_player();
+                    clips.set(list).unwrap();
+                    let (mut routing, source) = mixer(player);
+                    routing
+                        .set(&Routing {
+                            nodes: vec![NodeSpec::unity(
+                                project.tracks[0].id.0,
+                                Destination::Hardware(0),
+                            )],
+                            cue: None,
+                            measure: None,
+                        })
+                        .unwrap();
+                    let (mut handle, mut engine) = engine(timeline, source, device_rate);
+                    handle.send(Command::Play).unwrap();
+                    let mut data = vec![0.0; block * 2];
+                    let mut out = Vec::new();
+                    for _ in 0..(480_000 / block) {
+                        engine.process(device_rate, &mut data, 2, block);
+                        out.extend_from_slice(&data);
+                    }
+                    out
+                };
+                for block in [64, 128, 333, 4_096] {
+                    assert_eq!(
+                        render(&original, block),
+                        render(&split, block),
+                        "origin {} block {block}",
+                        origin.0
+                    );
+                }
+            }
+        }
     }
 
     fn with_envelopes(doc: &mut Document, edit: impl FnOnce(&mut lumen_project::model::Clip)) {
@@ -871,7 +1250,7 @@ mod tests {
     }
 
     #[test]
-    fn a_looping_clips_envelope_is_cut_to_one_repeat_and_a_tempo_change_keeps_its_shape() {
+    fn a_looping_clips_envelope_keeps_hidden_source_knots_and_tempo_shape() {
         use lumen_project::envelope::Kind;
         let (mut doc, audio) = setup(1);
         // Looped every two quarters, with points past the repeat.
@@ -886,10 +1265,11 @@ mod tests {
             .gain
             .clone()
             .unwrap();
-        // The window ends at 48,000 (two quarters at 120 BPM): no point
-        // lies past it.
-        assert!(gain.points().iter().all(|p| p.at <= 48_000));
+        // The engine repeats every 48,000 frames, while the baked source lane
+        // keeps its hidden later knot so slices can preserve curve identity.
+        assert!(gain.points().iter().any(|p| p.at == 144_000));
         assert_eq!(gain.value_at(24_000), -20.0);
+        assert_eq!(gain.value_at(144_000), 0.0);
         // The same envelope under a slower tempo from the start of the clip
         // is twice as long in frames, and still passes through its points.
         doc.apply("slow", None, |p| p.tempo[0].bpm = 60.0);

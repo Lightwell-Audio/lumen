@@ -63,6 +63,8 @@ pub struct FadeLook {
     pub from: f32,
     pub to: f32,
     pub curve: Curve,
+    offset: f32,
+    portion: f32,
 }
 
 impl FadeLook {
@@ -76,6 +78,8 @@ impl FadeLook {
             from,
             to,
             curve: fade.curve,
+            offset: fade.offset.0 as f32 / fade.span.0.max(fade.length.0).max(1) as f32,
+            portion: fade.length.0 as f32 / fade.span.0.max(fade.length.0).max(1) as f32,
         }
     }
 
@@ -90,14 +94,15 @@ impl FadeLook {
         }
         let t = ((x - self.from) / self.width()).clamp(0.0, 1.0);
         match self.edge {
-            Edge::Start => self.curve.at(t),
-            Edge::End => self.curve.at(1.0 - t),
+            Edge::Start => self.curve.at(self.offset + t * self.portion),
+            Edge::End => self.curve.at(self.offset + (1.0 - t) * self.portion),
         }
     }
 
     /// Where the point `[u, v]` of the curve (u along it from silence, v
     /// its level) is across: a fade out runs backwards.
     fn x_of(&self, u: f32) -> f32 {
+        let u = (u - self.offset) / self.portion.max(f32::EPSILON);
         match self.edge {
             Edge::Start => self.from + u * self.width(),
             Edge::End => self.to - u * self.width(),
@@ -233,6 +238,9 @@ impl ClipHandles {
             return None;
         }
         let [u, v] = fade.curve.handle().dot;
+        if u < fade.offset || u > fade.offset + fade.portion {
+            return None;
+        }
         Some(pos2(fade.x_of(u), self.y_of(v)))
     }
 
@@ -398,7 +406,9 @@ mod tests {
             fade_in,
             fade_out,
             loop_length: None,
+            loop_phase: Default::default(),
             envelopes: Default::default(),
+            audio_phase_seconds: 0.0,
             content: ClipContent::Audio {
                 media: Id(2),
                 offset: 0,
@@ -413,6 +423,7 @@ mod tests {
         Fade {
             length: Ticks::quarters(beats),
             curve,
+            ..Default::default()
         }
     }
 
@@ -543,7 +554,9 @@ mod tests {
             fade_in: Fade::default(),
             fade_out: Fade::default(),
             loop_length: None,
+            loop_phase: Default::default(),
             envelopes: Default::default(),
+            audio_phase_seconds: 0.0,
             content: ClipContent::Audio {
                 media: Id(2),
                 offset: 0,

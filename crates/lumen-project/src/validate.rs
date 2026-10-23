@@ -278,6 +278,9 @@ pub fn validate(project: &Project) -> Result<(), String> {
             {
                 return Err(format!("{}: invalid position or length", at()));
             }
+            if !clip.audio_phase_seconds.is_finite() {
+                return Err(format!("{}: invalid audio source phase", at()));
+            }
             if clip.fade_in.length < Ticks::ZERO
                 || clip.fade_out.length < Ticks::ZERO
                 || !within(clip.fade_in.length)
@@ -285,6 +288,20 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 || clip.fade_in.length + clip.fade_out.length > clip.length
             {
                 return Err(format!("{}: fades are longer than the clip", at()));
+            }
+            for (edge, fade) in [("fade in", &clip.fade_in), ("fade out", &clip.fade_out)] {
+                let Some(end) = fade.offset.0.checked_add(fade.length.0) else {
+                    return Err(format!("{}: {edge} window overflows", at()));
+                };
+                if fade.offset < Ticks::ZERO
+                    || fade.span < Ticks::ZERO
+                    || !within(fade.offset)
+                    || !within(fade.span)
+                    || (fade.span == Ticks::ZERO && fade.offset != Ticks::ZERO)
+                    || (fade.span > Ticks::ZERO && end > fade.span.0)
+                {
+                    return Err(format!("{}: invalid {edge} window", at()));
+                }
             }
             if !clip.fade_in.curve.is_valid() || !clip.fade_out.curve.is_valid() {
                 return Err(format!("{}: a fade curve leaves its square", at()));
@@ -294,6 +311,15 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 .is_some_and(|l| l <= Ticks::ZERO || !within(l))
             {
                 return Err(format!("{}: invalid loop length", at()));
+            }
+            match clip.loop_length {
+                Some(_) if clip.loop_phase < Ticks::ZERO || !within(clip.loop_phase) => {
+                    return Err(format!("{}: invalid loop phase", at()));
+                }
+                None if clip.loop_phase != Ticks::ZERO => {
+                    return Err(format!("{}: loop phase without a loop", at()));
+                }
+                _ => {}
             }
             crate::envelope::check(clip).map_err(|e| format!("{}: {e}", at()))?;
             match &clip.content {
@@ -311,8 +337,28 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     if *offset < 0 {
                         return Err(format!("{}: negative media offset", at()));
                     }
+                    let source_rate = project
+                        .media
+                        .iter()
+                        .find(|m| m.id == *id)
+                        .map_or(project.sample_rate, |m| m.sample_rate)
+                        .max(1);
+                    let source_seconds =
+                        *offset as f64 / f64::from(source_rate) + clip.audio_phase_seconds;
+                    if source_seconds < 0.0 {
+                        return Err(format!("{}: audio source phase precedes the file", at()));
+                    }
+                    if clip.audio_phase_seconds != 0.0
+                        && let Some(file) = project.media.iter().find(|m| m.id == *id)
+                        && source_seconds > file.frames as f64 / f64::from(source_rate)
+                    {
+                        return Err(format!("{}: audio source phase exceeds the file", at()));
+                    }
                 }
                 ClipContent::Midi { notes, events } => {
+                    if clip.audio_phase_seconds != 0.0 {
+                        return Err(format!("{}: audio source phase on MIDI clip", at()));
+                    }
                     // Notes and events may lie outside the clip's window,
                     // before its start or past its end (format v15).
                     for (n, event) in events.iter().enumerate() {

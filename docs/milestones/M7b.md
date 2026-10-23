@@ -80,7 +80,7 @@ overwrite rule), so a crossfade needs a design:
 
 | Option | What it is | Cost |
 |---|---|---|
-| **A (recommended): a crossfade at a join.** The later clip's fade-in can be marked as crossing. While it plays, the clip before it keeps playing past its end, from its own source, fading out with the mirrored curve. It needs source material beyond the earlier clip's end; where there is none, the crossfade shortens or is skipped. No clips overlap in the model; the overwrite rule is untouched. A project setting turns on an automatic short crossfade (default 5 ms) at every join of clips that were not cut from contiguous material, and a handle at the join lengthens it | One flag on `Clip` (format v26, after M7 A7 took v25), engine reads the earlier clip's tail, one handle in the arrangement |
+| **A (recommended): a crossfade at a join.** The later clip's fade-in can be marked as crossing. While it plays, the clip before it keeps playing past its end, from its own source, fading out with the mirrored curve. It needs source material beyond the earlier clip's end; where there is none, the crossfade shortens or is skipped. No clips overlap in the model; the overwrite rule is untouched. A project setting turns on an automatic short crossfade (default 5 ms) at every join of clips that were not cut from contiguous material, and a handle at the join lengthens it | One flag on `Clip` (format v27, after E0 source windows took v26), engine reads the earlier clip's tail, one handle in the arrangement |
 | B | Allow a bounded overlap only inside a crossfade pair, stored as an overlap | Clips overlap in the model in one case; hit testing, selection and the overwrite rule need exceptions |
 | C | Full overlap with the later clip on top and an automatic crossfade over the overlap | Reverses the owner's overwrite rule (M3) and touches every edit function |
 
@@ -107,7 +107,7 @@ Sizes are rough (S/M/L).
 |---|---|---|---|
 | E0 (M) | Tools and split | K1 as chosen: the global tool state and its switch, the keys above, split at playhead, edit cursor, grid and range edges (click-free), the press-aim-release cut gesture, Ctrl+E widened to clips, seamless joins | Split then join returns the original; playback across a split equals the unsplit clip (null test); the keymap has no conflict; every tool and command is in the palette |
 | E1 (M) | Clip commands | Join (glue), crop to selection, unloop into copies, nudge by grid and finely, reverse (engine clip flag and reversed peaks), normalize (peak scan off the UI thread), polarity (clip flag), select invert, in track, to start, to end | Each is one undo step; reverse and normalize are golden renders; undo restores exactly |
-| E2 (M) | Crossfades | X1 as chosen: format v26 (A7 took v25), the engine tail read, the handle, the project setting, equal-power default curve | A crossfade is click-free and null-tests against an equal-power reference; an edit that breaks the join clears or ignores it; golden render |
+| E2 (M) | Crossfades | X1 as chosen: format v27 (E0 took v26), the engine tail read, the handle, the project setting, equal-power default curve | A crossfade is click-free and null-tests against an equal-power reference; an edit that breaks the join clears or ignores it; golden render |
 | E3 (L) | Render core and consolidate | R1: the worker render driver, WAV writer with atomic writes, registration as media, Ctrl+J widened to clips, consolidate for audio (gain, fades, envelopes, gaps as silence) and MIDI (merge and bake loops), originals kept in the media pool; the R2 spike runs first and its result is recorded | Consolidating unprocessed audio is identical to the original (null test); render equals real-time playback in a golden render; progress and cancel |
 | E4 (M) | Bounce | Bounce in place and render selection to a new track, with or without effects and tails | Bounce equals playback; a tail setting is honoured; the new track is one undo step |
 | E5 (L) | Freeze family | Freeze, unfreeze and flatten, including hosted plugins by the R2 route | A frozen track runs no plugin processes; a plugin crash during freeze is a result, not an exit; F1 only if the spike failed |
@@ -134,8 +134,8 @@ Sizes are rough (S/M/L).
    verified when E1 supplies that command.
 
 Bounded implementation work is delegated under the repository's delegation
-policy; the parent integrates and runs the final checks. No project-format
-change is planned for E0.
+policy; the parent integrates and runs the final checks. E0 now uses format v26: null checks exposed the need to persist loop phase
+and partial fade windows. E2 consequently uses v27. See ADR-0092.
 
 - Gates before each commit: `cargo fmt --all`, workspace clippy with
   `-D warnings`, `cargo test --workspace`. Before pushing: the macOS
