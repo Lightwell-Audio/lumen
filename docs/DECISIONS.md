@@ -8395,3 +8395,9 @@ has no waveform until its twin is ready. A clip that reaches past the end
 of its file cannot be reversed (the mirror would start before the file).
 Normalize reads the audio at the device rate, so the peak between samples of
 the original can differ slightly.
+
+**Performance baseline (E1).** The WSL gate read `project_serialize` +5.74%
+(the 200-track, 20,000-clip project now checks two optional flags per clip
+when it writes) and `project_parse` +1.61%; the engine scenarios moved by
+under 1% except `engine_clips_64` at -2.03% (no engine code changed: code
+layout). `perf/baseline.json` was regenerated from WSL for all scenarios.
