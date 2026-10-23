@@ -363,11 +363,12 @@ Each step must end with something usable and tested. Reorder or split as you see
 5. **MIDI:** devices, recording, piano roll, quantize, SMF.
 6. **VST3 hosting:** scanning, instruments, effects, editors, state, presets, delay compensation, sidechain, multi-out.
 7. **Automation and envelopes.**
-8. **Editing power tools:** split, consolidate, fades, crossfades, warp, bounce, freeze, takes.
-9. **Drum maps, drum editor, step sequencer.**
-10. **Built-in devices.**
-11. **Projects, recording polish, export, preferences, first-run experience.**
-12. **Hardening and release:** plugin isolation, performance tuning to the quality bar, long-session soak testing, accessibility, installers, documentation.
+8. **Editing power tools** (M7b in `docs/ROADMAP.md`): split, consolidate, fades, crossfades, warp, bounce, freeze, takes.
+9. **Recording, media and export** (existing M9 in `docs/ROADMAP.md`): prioritize audio recording ahead of drum-map work, per the owner's 2026-10-23 sequence decision.
+10. **Drum maps, drum editor and step sequencer** (existing M8 in `docs/ROADMAP.md`).
+11. **Built-in devices** (also in existing M8).
+12. **Projects, recording polish, preferences, first-run experience.**
+13. **Hardening and release:** plugin isolation, performance tuning to the quality bar, long-session soak testing, accessibility, installers, documentation.
 
 ---
 
