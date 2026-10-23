@@ -427,6 +427,12 @@ impl App {
             .is_some_and(|item| item.peaks.is_some())
     }
 
+    /// Whether the reversed copy of the audio file `media` is ready, with
+    /// its waveform (M7b slice E1).
+    pub fn has_reversed_waveform(&self, media: Id) -> bool {
+        self.has_waveform(Id(crate::media::reversed_key(media.0)))
+    }
+
     /// The selected tracks.
     pub fn selected_tracks(&self) -> &[Id] {
         &self.arrangement.selected
@@ -543,6 +549,11 @@ impl App {
     /// The short note shown after undo, save, open or a refused edit.
     pub fn note(&self) -> Option<&str> {
         self.toast.as_ref().map(|(text, _)| text.as_str())
+    }
+
+    /// Shows `words` as the short note (the toast), as a command would.
+    pub fn say_note(&mut self, words: &str) {
+        self.say(words.to_owned());
     }
 
     /// What Undo would undo.

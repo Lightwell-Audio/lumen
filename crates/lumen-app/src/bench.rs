@@ -99,6 +99,8 @@ pub fn add_dense_midi(project: &mut lumen_project::model::Project) {
         loop_phase: Default::default(),
         envelopes: Default::default(),
         audio_phase_seconds: 0.0,
+        reversed: false,
+        inverted: false,
         content: ClipContent::Midi {
             notes,
             events: Vec::new(),

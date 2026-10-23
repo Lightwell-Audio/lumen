@@ -81,3 +81,48 @@ step detail). Findings made during the run, both fixed in the same branch:
 
 Automated verification is recorded in the slice report; it does not establish
 playback by ear or physical-device behavior beyond what the owner reported.
+
+## MT-EDIT-2 — Clip commands (E1)
+
+**State:** Waiting for the owner. Branch: `m7b-s1-clip-commands`.
+Consolidate for audio with gaps is E3; here Join is seamless only.
+
+```powershell
+cargo build --release -p lumen-plugin-host
+cargo run --release -p lumen-app
+```
+
+Use a scratch project and two or three audio files, one of them a rising or
+falling sound (a fade-in, a drum hit, a spoken word) so reverse is obvious.
+
+1. Import an audio file. Split it twice (Ctrl+E). Select the three parts and
+   press Ctrl+J: one clip returns and it sounds the same. Undo gives three
+   parts; redo joins them. Change one part's colour before joining: it still
+   joins.
+2. Move one part away so there is a gap and press Ctrl+J: a note says to use
+   Consolidate and nothing changes (audio with gaps is E3). Select two MIDI
+   clips with a gap and press Ctrl+J: they merge.
+3. Select a looping clip and choose Unloop in the clip menu: real clips, one
+   per repeat, sound the same; undo gives the loop back.
+4. Make a time range over part of two clips on one track and choose Crop to
+   selection (Ctrl+K): only the range remains; undo restores everything.
+5. Select a clip and press Alt+Right: it moves one grid step; Alt+Shift+Right
+   moves it a 128th note; Alt+Left goes back. Each press is one undo step.
+6. Select a clip and choose Reverse (clip menu or Ctrl+K). The waveform
+   mirrors (after a moment for a long file) and the clip plays backwards.
+   Reverse again: it returns. Trim it, split it, slip it and loop-extend it
+   while reversed: each acts as it does on a forward clip. Undo each.
+7. Choose Invert polarity on one of two copies of the same clip on two
+   tracks and play: they cancel (silence or a thin sound). Undo restores.
+8. Select a quiet clip and choose Normalize. Progress shows as a note; the
+   clip gets louder and its gain reads as the amount needed (clip card:
+   Alt+Enter); with other tracks off the loudest part reaches 0 dB on the
+   master. Normalize a second time: nothing changes. Undo gives the old
+   gain. Normalize a clip of silence: a note says so. Normalize a long file
+   and press Esc: it stops and says so.
+9. Use Invert selection, All in track, Select to start and Select to end from
+   the clip menu's Select submenu (and Ctrl+K).
+10. Check the clip menu in both themes at 100, 150 and 200% scaling: the new
+    rows match the others and the menu fits your window.
+11. Save, close and reopen: reversed, inverted and normalized clips come back
+    as they were.

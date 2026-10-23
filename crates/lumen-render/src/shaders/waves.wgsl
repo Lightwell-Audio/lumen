@@ -193,7 +193,7 @@ fn fs_main(i: Out) -> @location(0) vec4<f32> {
             hi = max(hi, v);
         }
         let env = envelope(i);
-        return shade(i, lo * env, hi * env);
+        return shade(i, min(lo * env, hi * env), max(lo * env, hi * env));
     }
     // The frames under this pixel: columns are counted from the clip's
     // pixel edge, so column k always shows the same frames at this zoom,
@@ -223,7 +223,7 @@ fn fs_main(i: Out) -> @location(0) vec4<f32> {
         hi = max(hi, t.yw);
     }
     let env = envelope(i);
-    return shade(i, lo * env, hi * env);
+    return shade(i, min(lo * env, hi * env), max(lo * env, hi * env));
 }
 
 // The pixel's colour for a waveform spanning `lo` to `hi` (left, right).

@@ -142,6 +142,7 @@ impl App {
             midi_reader: Default::default(),
             midi_exporting: None,
             midi_writing: None,
+            normalizing: None,
             tempo_offer: None,
             song: Default::default(),
             drag_pointer: None,

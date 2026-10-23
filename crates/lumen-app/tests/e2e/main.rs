@@ -17,6 +17,7 @@ mod automation;
 mod barfit;
 mod bench_callback;
 mod chrome;
+mod clip_commands;
 mod clip_envelopes;
 mod clips;
 mod clock;

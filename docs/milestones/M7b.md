@@ -1,7 +1,7 @@
 # Milestone 7b — Advanced Editing & Render: plan
 
-**Status:** Approved to start by the owner, 2026-10-22. E0 is in progress on
-`m7b-s0-tools-split`, cut from `origin/main` after M7 merged (PR #50).
+**Status:** Approved to start by the owner, 2026-10-22. E0 merged (PR #51).
+E1 is in progress on `m7b-s1-clip-commands`, cut from `origin/main` after it.
 The behavior choices below remain the owner's accepted choices. This is the second half of the roadmap's
 milestone 7, split off at the owner's decision of 2026-10-19 (S1 A). The
 automation half is [M7](M7.md). M8 keeps its number.
@@ -80,7 +80,7 @@ overwrite rule), so a crossfade needs a design:
 
 | Option | What it is | Cost |
 |---|---|---|
-| **A (recommended): a crossfade at a join.** The later clip's fade-in can be marked as crossing. While it plays, the clip before it keeps playing past its end, from its own source, fading out with the mirrored curve. It needs source material beyond the earlier clip's end; where there is none, the crossfade shortens or is skipped. No clips overlap in the model; the overwrite rule is untouched. A project setting turns on an automatic short crossfade (default 5 ms) at every join of clips that were not cut from contiguous material, and a handle at the join lengthens it | One flag on `Clip` (format v27, after E0 source windows took v26), engine reads the earlier clip's tail, one handle in the arrangement |
+| **A (recommended): a crossfade at a join.** The later clip's fade-in can be marked as crossing. While it plays, the clip before it keeps playing past its end, from its own source, fading out with the mirrored curve. It needs source material beyond the earlier clip's end; where there is none, the crossfade shortens or is skipped. No clips overlap in the model; the overwrite rule is untouched. A project setting turns on an automatic short crossfade (default 5 ms) at every join of clips that were not cut from contiguous material, and a handle at the join lengthens it | One flag on `Clip` (format v28, after E0 took v26 and E1's reverse and polarity flags v27), engine reads the earlier clip's tail, one handle in the arrangement |
 | B | Allow a bounded overlap only inside a crossfade pair, stored as an overlap | Clips overlap in the model in one case; hit testing, selection and the overwrite rule need exceptions |
 | C | Full overlap with the later clip on top and an automatic crossfade over the overlap | Reverses the owner's overwrite rule (M3) and touches every edit function |
 
@@ -107,7 +107,7 @@ Sizes are rough (S/M/L).
 |---|---|---|---|
 | E0 (M) | Tools and split | K1 as chosen: the global tool state and its switch, the keys above, split at playhead, edit cursor, grid and range edges (click-free), the press-aim-release cut gesture, Ctrl+E widened to clips, seamless joins | Split then join returns the original; playback across a split equals the unsplit clip (null test); the keymap has no conflict; every tool and command is in the palette |
 | E1 (M) | Clip commands | Join (glue), crop to selection, unloop into copies, nudge by grid and finely, reverse (engine clip flag and reversed peaks), normalize (peak scan off the UI thread), polarity (clip flag), select invert, in track, to start, to end | Each is one undo step; reverse and normalize are golden renders; undo restores exactly |
-| E2 (M) | Crossfades | X1 as chosen: format v27 (E0 took v26), the engine tail read, the handle, the project setting, equal-power default curve | A crossfade is click-free and null-tests against an equal-power reference; an edit that breaks the join clears or ignores it; golden render |
+| E2 (M) | Crossfades | X1 as chosen: format v28 (E0 took v26, E1 v27), the engine tail read, the handle, the project setting, equal-power default curve | A crossfade is click-free and null-tests against an equal-power reference; an edit that breaks the join clears or ignores it; golden render |
 | E3 (L) | Render core and consolidate | R1: the worker render driver, WAV writer with atomic writes, registration as media, Ctrl+J widened to clips, consolidate for audio (gain, fades, envelopes, gaps as silence) and MIDI (merge and bake loops), originals kept in the media pool; the R2 spike runs first and its result is recorded | Consolidating unprocessed audio is identical to the original (null test); render equals real-time playback in a golden render; progress and cancel |
 | E4 (M) | Bounce | Bounce in place and render selection to a new track, with or without effects and tails | Bounce equals playback; a tail setting is honoured; the new track is one undo step |
 | E5 (L) | Freeze family | Freeze, unfreeze and flatten, including hosted plugins by the R2 route | A frozen track runs no plugin processes; a plugin crash during freeze is a result, not an exit; F1 only if the spike failed |
@@ -133,9 +133,53 @@ Sizes are rough (S/M/L).
    preserved source continuity and undo, with the join-command round trip
    verified when E1 supplies that command.
 
+### E1 implementation plan (2026-10-23)
+
+Owner choices (2026-10-23, all recommendations): **J1** Ctrl+J joins selected
+clips, seamless only now (MIDI clips merge; audio clips merge only when
+contiguous in the same source, which undoes a split exactly; any other audio
+says "Use Consolidate", and E3 gives the same key that behaviour). **N1** Alt+Left/Right
+nudges selected clips by a grid step, Alt+Shift+Left/Right by a 128th note;
+the clip editor keeps Alt+arrows for notes (focus decides). **G1** Normalize sets the
+clip gain so the loudest sample of the clip's source window reaches 0 dBFS;
+non-destructive, per clip, scanned off the UI thread. **K2** Reverse,
+polarity, crop, unloop and the select variants have commands, clip-menu rows
+and palette entries but no default keys.
+
+Parts (commits on this branch):
+
+1. **1a, pure edits and commands, no format change.** `lumen_project::edit::
+   clip_ops`: `join`, `crop` (to a time range, clips cut to it and the rest of
+   each affected clip removed), `unloop` (a looping clip becomes real clips,
+   one per repeat, content baked for MIDI, source windows for audio), `nudge`.
+   `Document::{join_clips, crop_clips, unloop_clips, nudge_clips}`, one undo
+   step each, refused with a reason on locked clips. Select invert, all in
+   track, to start, to end as commands. Ctrl+J widens `GlueNotes` to clips as
+   Ctrl+E did for split.
+2. **1b, polarity and reverse, format v27.** `Clip.inverted` and
+   `Clip.reversed` (written only when set; identity migration; frozen golden).
+   A reversed clip's `offset` is a position in the reversed file, so every
+   existing edit (trim, split, slip, loops) works unchanged; the toggle
+   converts offset, `audio_phase_seconds` and `loop_phase` once, and a second
+   toggle returns them. The engine clip carries `reversed` and reads frame
+   `frames - 1 - (offset + inner)`; polarity is the sign of the engine gain.
+   The waveform shader mirrors the pyramid lookup. Golden renders cover both.
+3. **1c, normalize.** A peak scan of the clip's source window on a worker
+   (cancelable, progress), then `Document::set_clip_gain` for all scanned
+   clips in one step.
+4. **1d, interface and close.** Clip menu rows, palette entries, E2E scenarios
+   for each command (by names and keys), shots in both themes at 100, 150 and
+   200%, MT-EDIT-2 in `docs/manual-tests/M7b.md`, PROGRESS, ADR, handoff.
+
+Progress (2026-10-23): 1a to 1c are built and 1d is in the docs (ADR-0093, MT-EDIT-2). The plan changed in two ways: reverse uses reversed copies of files made on a worker (no engine change), and Join does not close audio gaps until E3 (the owner asked for it on 2026-10-23; KNOWN_ISSUES).
+
+Known cost: at a device rate other than the file's, a reversed clip can sit
+one frame off the forward clip (the file length and the offset are rounded
+separately); recorded in KNOWN_ISSUES if it shows in the golden render.
+
 Bounded implementation work is delegated under the repository's delegation
 policy; the parent integrates and runs the final checks. E0 now uses format v26: null checks exposed the need to persist loop phase
-and partial fade windows. E2 consequently uses v27. See ADR-0092.
+and partial fade windows. E2 consequently uses v27 (now v28, see the E1 plan). See ADR-0092.
 
 - Gates before each commit: `cargo fmt --all`, workspace clippy with
   `-D warnings`, `cargo test --workspace`. Before pushing: the macOS

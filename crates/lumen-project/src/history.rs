@@ -326,6 +326,8 @@ mod tests {
                         loop_length: None,
                         loop_phase: Default::default(),
                         audio_phase_seconds: 0.0,
+                        reversed: false,
+                        inverted: false,
                         envelopes: Default::default(),
                         content: ClipContent::midi(),
                     });

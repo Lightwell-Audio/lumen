@@ -61,6 +61,8 @@ fn clip(id: u64, start: i64, length: i64, notes: Vec<Note>) -> Clip {
         loop_length: None,
         loop_phase: Default::default(),
         audio_phase_seconds: 0.0,
+        reversed: false,
+        inverted: false,
         envelopes: Default::default(),
         content: midi(notes),
     }
@@ -550,6 +552,8 @@ fn overdub_before_a_looping_clip_leaves_its_loop_alone() {
         loop_length: Some(q(2)),
         loop_phase: Default::default(),
         audio_phase_seconds: 0.0,
+        reversed: false,
+        inverted: false,
         envelopes: Default::default(),
         ..clip(10, 4, 4, vec![note(0, 1, 48)])
     };
@@ -572,6 +576,8 @@ fn overdub_in_a_looping_clip_is_a_new_clip_carrying_its_repeats() {
         loop_length: Some(q(2)),
         loop_phase: Default::default(),
         audio_phase_seconds: 0.0,
+        reversed: false,
+        inverted: false,
         envelopes: Default::default(),
         ..clip(10, 0, 8, vec![note(1, 1, 48)])
     };

@@ -292,6 +292,7 @@ impl App {
         self.chain.panel = None;
         self.chain.selected = None;
         self.synced = None;
+        self.normalizing = None;
         self.show_history = false;
         self.forget_passes();
         self.transport.locate(Ticks::ZERO);

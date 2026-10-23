@@ -82,6 +82,9 @@ pub struct Lanes {
     /// Counts changes to what media is loaded, so drawings built from it
     /// know when to rebuild.
     revision: u64,
+    /// The project state and media revision the reversed twins were last
+    /// matched to.
+    reversed_built: Option<(u64, u64)>,
     /// The device rate at the last update: the rate audio is held at.
     rate: u32,
 }
@@ -108,7 +111,13 @@ pub fn engine_clips(
             else {
                 continue;
             };
-            let Some((samples, native)) = audio(*media) else {
+            // A reversed clip plays the reversed twin of its file.
+            let key = if clip.reversed {
+                Id(crate::media::reversed_key(media.0))
+            } else {
+                *media
+            };
+            let Some((samples, native)) = audio(key) else {
                 continue;
             };
             // The offset is in the file's frames; the audio is at the
@@ -177,6 +186,8 @@ pub fn engine_clips(
                     // back in rather than clicking.
                     gain: if clip.muted {
                         0.0
+                    } else if clip.inverted {
+                        -crate::routing::db_to_gain(*gain_db)
                     } else {
                         crate::routing::db_to_gain(*gain_db)
                     },
@@ -194,6 +205,23 @@ pub fn engine_clips(
         }
     }
     list
+}
+
+/// The media ids of the files a reversed clip plays, each once.
+fn reversed_media(project: &Project) -> Vec<u64> {
+    let mut wanted: Vec<u64> = project
+        .tracks
+        .iter()
+        .flat_map(|t| &t.clips)
+        .filter(|c| c.reversed)
+        .filter_map(|c| match &c.content {
+            ClipContent::Audio { media, .. } => Some(media.0),
+            ClipContent::Midi { .. } => None,
+        })
+        .collect();
+    wanted.sort_unstable();
+    wanted.dedup();
+    wanted
 }
 
 /// Converts a visible fade slice to the sample window of its original curve.
@@ -395,6 +423,14 @@ impl Lanes {
         }
 
         self.join_loaded(doc);
+
+        if self.reversed_built != Some((doc.state(), self.revision)) {
+            let wanted = reversed_media(doc.project());
+            if self.library.keep_reversed(&wanted, ctx) {
+                self.dirty = true;
+            }
+            self.reversed_built = Some((doc.state(), self.revision));
+        }
 
         // Media the project refers to but that is not loaded (an opened
         // project, slice 3c).

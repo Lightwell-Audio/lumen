@@ -37,6 +37,18 @@ pub struct Clip {
     /// use `loop_phase` for their repeated source position.
     #[serde(default, skip_serializing_if = "seconds_are_zero")]
     pub audio_phase_seconds: f64,
+    /// An audio clip plays its file backwards (format v27). Everything else
+    /// about the clip (`offset`, `audio_phase_seconds`, `loop_phase`, trims,
+    /// slips, splits) is then measured in the *reversed* file, where frame `j`
+    /// is frame `frames - 1 - j` of the original, so those edits work as they
+    /// do for a clip played forwards. Fades and envelopes stay on the clip's
+    /// edges. Written only when set.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub reversed: bool,
+    /// An audio clip plays with its polarity inverted (format v27). Written
+    /// only when set.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub inverted: bool,
     /// Gain and pan envelopes of an audio clip (format v25), measured from
     /// the clip's start. Written only when there are some.
     #[serde(default, skip_serializing_if = "ClipEnvelopes::is_empty")]

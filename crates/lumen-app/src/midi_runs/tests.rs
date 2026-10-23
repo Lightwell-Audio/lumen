@@ -23,6 +23,8 @@ fn clip(id: u64, start: i64, length: i64, notes: Vec<Note>) -> Arc<Clip> {
         loop_phase: Default::default(),
         envelopes: Default::default(),
         audio_phase_seconds: 0.0,
+        reversed: false,
+        inverted: false,
         content: ClipContent::Midi {
             notes,
             events: Vec::new(),
@@ -370,6 +372,8 @@ fn a_huge_looping_clip_stays_constant_size_during_a_narrow_replace() {
         loop_phase: Default::default(),
         envelopes: Default::default(),
         audio_phase_seconds: 0.0,
+        reversed: false,
+        inverted: false,
         content: ClipContent::Midi {
             notes: vec![Note::new(Ticks::ZERO, Ticks(1), 60, 100)],
             events: Vec::new(),

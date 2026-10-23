@@ -56,7 +56,13 @@ pub(super) fn wave_instances(
             else {
                 continue;
             };
-            let Some(source) = source(media.0) else {
+            // A reversed clip draws the reversed twin of its file.
+            let key = if clip.reversed {
+                crate::media::reversed_key(media.0)
+            } else {
+                media.0
+            };
+            let Some(source) = source(key) else {
                 continue;
             };
             // The file offset in the device-rate frames the peaks index.
@@ -117,7 +123,8 @@ pub(super) fn wave_instances(
             cuts.push(end);
             // Drawn at the clip's gain and through its fades (slice 6d),
             // as the engine plays it.
-            let gain = 10f32.powf(gain_db / 20.0);
+            // A polarity-inverted clip is drawn with a negative gain, upside down.
+            let gain = 10f32.powf(gain_db / 20.0) * if clip.inverted { -1.0 } else { 1.0 };
             let (curve_in, curve_out) = (clip.fade_in.curve.into(), clip.fade_out.curve.into());
             let fade_start = start - clip.fade_in.offset;
             let fade_end = end + clip.fade_out.offset;
@@ -159,7 +166,7 @@ pub(super) fn wave_instances(
                         fade_out,
                     },
                     geometry: Geometry {
-                        media: media.0,
+                        media: key,
                         row: row as u32,
                         start: from.as_quarters(),
                         first_frame,
@@ -199,6 +206,8 @@ mod tests {
                 loop_phase: Default::default(),
                 envelopes: Default::default(),
                 audio_phase_seconds: 0.0,
+                reversed: false,
+                inverted: false,
                 content: ClipContent::Audio {
                     media: Id(3),
                     offset,

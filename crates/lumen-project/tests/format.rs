@@ -51,6 +51,8 @@ fn golden_v1_expected() -> Project {
         loop_length: None,
         loop_phase: Default::default(),
         audio_phase_seconds: 0.0,
+        reversed: false,
+        inverted: false,
         envelopes: Default::default(),
         content: ClipContent::Audio {
             media: Id(0x30),
@@ -86,6 +88,8 @@ fn golden_v1_expected() -> Project {
         loop_length: None,
         loop_phase: Default::default(),
         audio_phase_seconds: 0.0,
+        reversed: false,
+        inverted: false,
         envelopes: Default::default(),
         content: ClipContent::Midi {
             notes: vec![

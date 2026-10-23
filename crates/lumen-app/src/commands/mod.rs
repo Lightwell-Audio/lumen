@@ -195,6 +195,19 @@ pub(crate) enum Command {
     ToolSplit,
     ToolMute,
     ToolZoom,
+    CropToSelection,
+    UnloopClips,
+    NudgeClipsEarlier,
+    NudgeClipsLater,
+    NudgeClipsEarlierFine,
+    NudgeClipsLaterFine,
+    InvertSelection,
+    SelectAllInTrack,
+    SelectToStart,
+    SelectToEnd,
+    ReverseClips,
+    InvertPolarity,
+    NormalizeClips,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -267,7 +280,7 @@ pub(crate) struct Info {
 }
 
 use eframe::egui::Key;
-use keys::{alt, ctrl, ctrl_shift, plain, shift};
+use keys::{alt, alt_shift, ctrl, ctrl_shift, plain, shift};
 
 /// Every command, in the order of [`Command`]. Kept as a table, one line
 /// per command, so it reads as one.
@@ -372,7 +385,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::PopOutEditor, "midi.pop_out_editor", "Pop out clip editor", Area::Midi, &[ctrl_shift(Key::E)], "Moves the clip editor into its own window, or docks it back into the detail panel."),
     info(Command::DrawTool, "midi.draw_tool", "Draw tool", Area::Midi, &[plain(Key::B)], "Toggles Pointer and Draw in the arrangement or active editor. In the note editor, click to add a note and drag to set its length."),
     info(Command::SplitNotes, "midi.split_notes", "Split", Area::Midi, &[ctrl(Key::E)], "Splits selected clips or a time range at the edit cursor; in the clip editor, splits selected notes."),
-    info(Command::GlueNotes, "midi.glue_notes", "Glue notes", Area::Midi, &[ctrl(Key::J)], "Joins selected notes of one pitch that touch or overlap into one."),
+    info(Command::GlueNotes, "midi.glue_notes", "Glue notes", Area::Midi, &[ctrl(Key::J)], "Joins selected notes of one pitch that touch or overlap into one. With clips selected, joins them: MIDI clips merge, audio clips that continue one another in their source become one."),
     info(Command::LegatoNotes, "midi.legato", "Legato", Area::Midi, &[plain(Key::L)], "Lengthens each selected note to the start of the next one."),
     info(Command::TransposeUp, "midi.transpose_up", "Transpose up", Area::Midi, &[], "Moves the selected notes up a semitone. In the clip editor the Up arrow does it."),
     info(Command::TransposeDown, "midi.transpose_down", "Transpose down", Area::Midi, &[], "Moves the selected notes down a semitone. In the clip editor the Down arrow does it."),
@@ -380,8 +393,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::OctaveDown, "midi.octave_down", "Transpose down an octave", Area::Midi, &[], "Moves the selected notes down an octave. In the clip editor Shift+Down does it."),
     info(Command::NudgeEarlier, "midi.nudge_earlier", "Nudge notes earlier", Area::Midi, &[], "Moves the selected notes one grid step earlier. In the clip editor the Left arrow does it."),
     info(Command::NudgeLater, "midi.nudge_later", "Nudge notes later", Area::Midi, &[], "Moves the selected notes one grid step later. In the clip editor the Right arrow does it."),
-    info(Command::NudgeEarlierFine, "midi.nudge_earlier_fine", "Nudge notes earlier, finely", Area::Midi, &[alt(Key::ArrowLeft)], "Moves the selected notes earlier by the shortest note, a 128th."),
-    info(Command::NudgeLaterFine, "midi.nudge_later_fine", "Nudge notes later, finely", Area::Midi, &[alt(Key::ArrowRight)], "Moves the selected notes later by the shortest note, a 128th."),
+    info(Command::NudgeEarlierFine, "midi.nudge_earlier_fine", "Nudge notes earlier, finely", Area::Midi, &[alt(Key::ArrowLeft)], "Moves the selected notes earlier by the shortest note, a 128th. With clips selected in the arrangement it moves them one grid step."),
+    info(Command::NudgeLaterFine, "midi.nudge_later_fine", "Nudge notes later, finely", Area::Midi, &[alt(Key::ArrowRight)], "Moves the selected notes later by the shortest note, a 128th. With clips selected in the arrangement it moves them one grid step."),
     info(Command::ToggleLane, "midi.toggle_lane", "Velocity and controller lane", Area::Midi, &[], "Shows or hides the lane under the notes in the clip editor, where velocities and controllers are drawn."),
     info(Command::LaneVelocity, "midi.lane_velocity", "Velocity lane", Area::Midi, &[], "Shows the notes' velocities in the lane under the clip editor."),
     info(Command::LaneModWheel, "midi.lane_mod_wheel", "Mod wheel lane", Area::Midi, &[], "Shows the mod wheel (controller 1) in the lane under the clip editor."),
@@ -455,6 +468,19 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::ToolSplit, "view.tool_split", "Split tool", Area::View, &[], "Cuts clips at the pointer or at the edit cursor."),
     info(Command::ToolMute, "view.tool_mute", "Mute tool", Area::View, &[], "Toggles mute on the clip under the pointer."),
     info(Command::ToolZoom, "view.tool_zoom", "Zoom tool", Area::View, &[], "Zooms to a time range dragged in the arrangement."),
+    info(Command::CropToSelection, "edit.crop", "Crop to selection", Area::Edit, &[], "Keeps the selected time range and removes the rest of the selected tracks' clips."),
+    info(Command::UnloopClips, "clip.unloop", "Unloop", Area::Clip, &[], "Turns the selected looping clips into real clips, one for each repeat."),
+    info(Command::NudgeClipsEarlier, "clip.nudge_earlier", "Nudge clips earlier", Area::Clip, &[], "Moves the selected clips one grid step earlier. Alt+Left does it when clips are selected in the arrangement."),
+    info(Command::NudgeClipsLater, "clip.nudge_later", "Nudge clips later", Area::Clip, &[], "Moves the selected clips one grid step later. Alt+Right does it when clips are selected in the arrangement."),
+    info(Command::NudgeClipsEarlierFine, "clip.nudge_earlier_fine", "Nudge clips earlier, finely", Area::Clip, &[alt_shift(Key::ArrowLeft)], "Moves the selected clips earlier by the shortest note, a 128th."),
+    info(Command::NudgeClipsLaterFine, "clip.nudge_later_fine", "Nudge clips later, finely", Area::Clip, &[alt_shift(Key::ArrowRight)], "Moves the selected clips later by the shortest note, a 128th."),
+    info(Command::InvertSelection, "edit.select_invert", "Invert selection", Area::Edit, &[], "Selects the clips that are not selected and deselects the rest."),
+    info(Command::SelectAllInTrack, "edit.select_in_track", "Select all in track", Area::Edit, &[], "Selects every clip on the tracks that hold a selected clip, or on the selected tracks."),
+    info(Command::SelectToStart, "edit.select_to_start", "Select to start", Area::Edit, &[], "Adds the clips from the start of the song up to the latest selected clip, on the selected clips' tracks."),
+    info(Command::SelectToEnd, "edit.select_to_end", "Select to end", Area::Edit, &[], "Adds the clips from the earliest selected clip to the end of the song, on the selected clips' tracks."),
+    info(Command::ReverseClips, "clip.reverse", "Reverse", Area::Clip, &[], "Plays the selected audio clips backwards, or forwards again. Each keeps its place and plays the same stretch of its file the other way round."),
+    info(Command::InvertPolarity, "clip.polarity", "Invert polarity", Area::Clip, &[], "Inverts the polarity of the selected audio clips, or puts it back."),
+    info(Command::NormalizeClips, "clip.normalize", "Normalize", Area::Clip, &[], "Sets the gain of the selected audio clips so the loudest sample of the stretch each plays reaches full scale. The audio file is not changed."),
 ];
 
 const fn info(
@@ -504,7 +530,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::ToolZoom as usize + 1,
+            Command::NormalizeClips as usize + 1,
             ALL.len(),
             "a command is missing"
         );

@@ -116,7 +116,7 @@ impl GpuClips {
         lanes: &Lanes,
     ) -> Vec<super::waves::Wave> {
         let mut sources = HashMap::new();
-        for item in lanes.library.items() {
+        for item in lanes.library.with_twins() {
             let (State::Ready(audio), Some(peaks)) = (&item.state, &item.peaks) else {
                 continue;
             };

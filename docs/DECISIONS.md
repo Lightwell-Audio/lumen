@@ -8332,3 +8332,72 @@ material and permit later join/glue without baking it.
 the join-command round trip is verified when that command is delivered.
 The owner verifies playback by ear and device behavior in
 [MT-EDIT-1](manual-tests/M7b.md#mt-edit-1--tools-and-split-e0).
+
+## ADR-0093 — Clip commands: join, reverse, polarity and normalize (M7b E1)
+
+**Status:** Accepted · **Date:** 2026-10-23. Branch: `m7b-s1-clip-commands`,
+from `origin/main` after E0 merged. Owner choices J1, N1, G1, K2 (all the
+recommendations).
+
+**Context.** The clip editing list lacked join, crop, unloop, nudge, reverse,
+polarity and normalize, and selection variants. Reverse and normalize must
+keep every earlier edit (trim, split, slip, loops) working, must not change
+the audio on disk, and must not add work to the audio thread.
+
+**Choice.**
+
+- **Join (Ctrl+J), crop, unloop, nudge** are pure edits in
+  `lumen_project::edit::clip_ops`, each wrapped in one `Document` step. Join
+  is seamless only (J1): MIDI clips merge; audio clips merge only when
+  cutting the joined clip back at the seam gives exactly the two originals
+  (colour and name are not part of that proof; the joined clip keeps the
+  first clip's). Audio with a gap or from another source says to use
+  Consolidate, which E3 builds with the render core. Nudge is a grid step
+  (Alt+arrows) or a 128th note (Alt+Shift+arrows).
+- **Reverse and polarity** are flags on the clip (`reversed`, `inverted`,
+  written only when set; format **v27**, identity migration, frozen
+  golden; MIDI clips with either flag are refused). A reversed clip's place
+  in its file (`offset`, `audio_phase_seconds`, and a loop's `loop_phase`)
+  is measured in the *reversed* file, so toggling mirrors that place about
+  the file's end once (`edit::reverse`) and every other edit works
+  unchanged. Polarity is the sign of the engine clip's gain; the waveform
+  shader accepts a negative gain and flips the wave.
+- **Reversed twins.** The app keeps a reversed copy of a file's audio (and
+  its peaks) while a reversed clip needs it (`media/twins.rs`), made on a
+  worker, named by `media::reversed_key` and read by the clip player, the
+  waveform and the sample view like any file. The engine, the host and the
+  protocol are untouched. A twin goes when nobody needs it or the file is
+  converted again.
+- **Normalize (G1)** sets the clip gain so the loudest absolute sample over
+  all channels of the stretch the clip plays reaches 0 dBFS. The stretch is
+  `edit::normalize::window` (the clip's, or one repeat of its loop; the
+  reversed twin for a reversed clip); fades and envelopes are ignored (they
+  only lower it). The scan runs on a worker (`normalize.rs`) with progress
+  in the toast and Esc to stop; the gains are written together as one undo
+  step. Silent stretches (at or below -100 dBFS) are left alone, and a gain
+  beyond the +12 dB range is clamped and said so. It is a clip gain, not a
+  rewrite of the file, so it is undone by undo and reversed by setting the
+  gain.
+- Reverse, polarity, crop, unloop and the selection variants have commands,
+  clip-menu rows and palette entries but no default keys (K2).
+
+**Alternatives.** Reading the file backwards in the engine would add a flag
+and a second read path to the real-time code for no sound the twin does not
+give. Rewriting files for reverse or normalize would destroy the source and
+add disk work to an immediate edit. Normalizing the clip's rendered output
+(fades included) would make the result depend on edits made afterwards.
+
+**Consequences and limits.** Looped clips mirror their phase exactly only at
+a constant tempo. A file whose rate differs from the device's can be off by
+under one device frame between a clip and its reverse. A twin duplicates
+the file's audio in memory while it exists. A reversed clip is silent and
+has no waveform until its twin is ready. A clip that reaches past the end
+of its file cannot be reversed (the mirror would start before the file).
+Normalize reads the audio at the device rate, so the peak between samples of
+the original can differ slightly.
+
+**Performance baseline (E1).** The WSL gate read `project_serialize` +5.74%
+(the 200-track, 20,000-clip project now checks two optional flags per clip
+when it writes) and `project_parse` +1.61%; the engine scenarios moved by
+under 1% except `engine_clips_64` at -2.03% (no engine code changed: code
+layout). `perf/baseline.json` was regenerated from WSL for all scenarios.

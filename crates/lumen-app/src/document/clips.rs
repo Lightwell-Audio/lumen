@@ -26,9 +26,20 @@ impl Document {
     /// that do not exist, are left out.
     pub fn move_clips(&mut self, base: &Project, moves: &[ClipMove], merge: Option<&str>) {
         let label = plural(moves.len(), "Move clip", "Move {} clips");
+        self.place_moves(&label, base, moves, merge);
+    }
+
+    /// [`Document::move_clips`] under another step name (Nudge).
+    pub(super) fn place_moves(
+        &mut self,
+        label: &str,
+        base: &Project,
+        moves: &[ClipMove],
+        merge: Option<&str>,
+    ) {
         let follow = !self.lock_envelopes;
         let next = &mut self.next_id;
-        self.history.apply(&label, merge, |project| {
+        self.history.apply(label, merge, |project| {
             *project = base.clone();
             if follow {
                 let carries = carries_of(base, moves.iter().map(|m| (m.clip, m.track, m.start)));

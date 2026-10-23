@@ -20,15 +20,18 @@ use crate::model::{Clip, ClipContent, ClipEvent, Id, Note, Project};
 
 pub mod automation;
 pub mod carry;
+pub mod clip_ops;
 mod clipboard;
 pub mod events;
 pub mod maps;
+pub mod normalize;
 mod note_selection;
 mod note_time;
 pub mod note_tools;
 pub mod notes;
 pub mod quantize;
 pub mod record;
+pub mod reverse;
 pub mod seams;
 pub mod split;
 pub mod velocity;
@@ -463,6 +466,8 @@ mod tests {
                 loop_length: None,
                 loop_phase: Ticks::ZERO,
                 audio_phase_seconds: 0.0,
+                reversed: false,
+                inverted: false,
                 envelopes: Default::default(),
                 content: ClipContent::Audio {
                     media: Id(900),
