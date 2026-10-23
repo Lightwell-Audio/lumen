@@ -355,8 +355,16 @@ fn file_drops() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn lanes_menus() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0, 1.5, 2.0] {
+            lanes_menus_looking(appearance, scale);
+        }
+    }
+}
+
+fn lanes_menus_looking(appearance: &str, scale: f32) {
     let dir = TempDir::new("shots-menus");
-    let mut h = lumen(&dir);
+    let mut h = lumen_looking(&dir, appearance, scale);
     h.run_steps(20);
     let a = clip(&h, 0);
     for (name, p) in [
@@ -374,7 +382,10 @@ fn lanes_menus() {
             });
             h.run_steps(1);
         }
-        save(&mut h, name);
+        save(
+            &mut h,
+            &format!("{name}-{appearance}-{}", (scale * 100.0) as u32),
+        );
         h.key_press(Key::Escape);
         h.run_steps(3);
     }
