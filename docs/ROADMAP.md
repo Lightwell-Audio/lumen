@@ -14,6 +14,12 @@ Each milestone must end with:
 
 Do not begin the next milestone until the current milestone is stable.
 
+**Owner-approved sequence adjustment (2026-10-23):** after M7 and M7b,
+deliver the existing M9 (Recording, Media, Export & Production Workflow)
+before the existing M8 (Drum Maps, Drum Editor & Built-In Devices). Audio
+recording takes priority over drum-map work. The milestone identifiers and
+scope stay unchanged; this changes execution order only.
+
 ---
 
 ## 1. Foundations & Architecture
