@@ -3412,3 +3412,48 @@ fn song_lanes() {
         }
     }
 }
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn draw_clip_aim() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0, 1.5, 2.0] {
+            draw_clip_aim_looking(appearance, scale);
+        }
+    }
+}
+
+fn draw_clip_aim_looking(appearance: &str, scale: f32) {
+    use egui_kittest::kittest::Queryable;
+    let dir = TempDir::new("shots-draw");
+    let mut h = lumen_looking(&dir, appearance, scale);
+    h.run_steps(20);
+    h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::T);
+    h.run_steps(40);
+    let last = h.state().project().tracks.len() - 1;
+    let name = h.state().project().tracks[last].name.clone();
+    let y = h
+        .get_by_label_contains(&format!("Track {name},"))
+        .rect()
+        .center()
+        .y;
+    h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    h.event(Event::Text("Arrangement draw tool".into()));
+    h.run_steps(2);
+    h.key_press(Key::Enter);
+    h.run_steps(3);
+    let a = clip(&h, 0);
+    let from = Pos2::new(a.left() + a.width() * 0.5, y);
+    let to = Pos2::new(a.left() + a.width() * 2.0, y);
+    h.hover_at(from);
+    h.drag_at(from);
+    h.run_steps(2);
+    h.hover_at(to);
+    h.run_steps(3);
+    save(
+        &mut h,
+        &format!("draw-aim-{appearance}-{}", (scale * 100.0) as u32),
+    );
+    h.key_press(Key::Escape);
+    h.drop_at(to);
+}

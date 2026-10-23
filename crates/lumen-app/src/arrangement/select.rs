@@ -230,6 +230,9 @@ pub enum Gesture {
     },
     /// Zoom tool's drag selection.
     Zoom { from: Ticks, to: Ticks },
+    /// The Draw tool's press-and-drag on an empty MIDI lane: the clip's
+    /// length being aimed. The document changes on release.
+    Draw { track: Id, from: Ticks, to: Ticks },
 }
 
 /// A time range across neighbouring tracks, independent of clips (slice
@@ -457,6 +460,26 @@ impl Arrangement {
         rows.iter()
             .find(|(_, r)| (r.y..r.y + r.height).contains(&y))
             .map_or(Some(last.0), |(i, _)| Some(*i))
+    }
+
+    /// Where track `id`'s clip lane is on screen: the top and bottom of its
+    /// clips' height, if the track has a row in view.
+    pub(crate) fn lane_span(
+        &self,
+        ctx: &egui::Context,
+        project: &Project,
+        pending: usize,
+        canvas: Rect,
+        id: Id,
+    ) -> Option<(f32, f32)> {
+        let index = project.tracks.iter().position(|t| t.id == id)?;
+        self.rows(ctx, project, pending)
+            .into_iter()
+            .find(|r| r.zone == Zone::Main && r.kind == RowKind::Track(index))
+            .map(|row| {
+                let top = canvas.top() + row.y - self.top;
+                (top + INSET, top + row.height - INSET)
+            })
     }
 
     /// What `clips` are, picked up for a drag.

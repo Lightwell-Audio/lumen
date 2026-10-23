@@ -53,8 +53,12 @@ Use a scratch project and a copy of an audio file.
    Ctrl+E still splits picked notes rather than arrangement clips.
 9. Lock a clip from its menu. Split, Erase and Mute leave it untouched.
    Unlock it; Mute toggles the clicked clip and Erase removes it, each one
-   Undo step. Draw on an empty MIDI lane creates a clip; it does not create
-   MIDI on an audio lane.
+   Undo step. Draw on an empty MIDI lane: a click makes a one-bar clip; press,
+   drag and release makes a clip of the dragged length on the grid (Alt for
+   off the grid). While aiming, an outline and its length show on the lane and
+   nothing is in the project; Escape before release leaves no clip, and one
+   Undo removes a drawn clip. Dragging leftwards works too. Draw does not
+   create MIDI on an audio lane.
 10. With Zoom, click to zoom in, Alt-click out, and drag to fit a time span.
     X returns to the previous view. With Pointer, the existing move, trim,
     slip, range and marquee gestures still work.

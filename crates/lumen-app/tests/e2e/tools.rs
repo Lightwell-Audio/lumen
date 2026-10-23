@@ -330,3 +330,81 @@ fn draw_tool_creates_a_midi_clip_on_an_empty_midi_lane_in_one_step() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert!(lumen.app().project().tracks[1].clips.is_empty());
 }
+
+/// A fresh MIDI track under the imported audio track, the Draw tool chosen,
+/// and the height of the new track's lane.
+fn midi_lane_with_draw(name: &str) -> (Lumen, f32) {
+    let mut lumen = audio(name);
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::T);
+    lumen.frames(40);
+    let track = lumen.track_names()[1].clone();
+    let y = lumen
+        .harness
+        .get_by_label_contains(&format!("Track {track},"))
+        .rect()
+        .center()
+        .y;
+    command(&mut lumen, "Arrangement draw tool");
+    (lumen, y)
+}
+
+#[test]
+fn dragging_the_draw_tool_sets_the_clip_length_and_undo_removes_it() {
+    let (mut lumen, y) = midi_lane_with_draw("tools-draw-drag");
+    let from = Pos2::new(spot(&lumen, 4.0).x, y);
+    let to = Pos2::new(spot(&lumen, 12.0).x, y);
+    lumen.drag(from, to, Modifiers::NONE);
+    lumen.frames(3);
+    let clips = &lumen.app().project().tracks[1].clips;
+    assert_eq!(clips.len(), 1);
+    assert_eq!(clips[0].start, Ticks::quarters(4));
+    assert_eq!(clips[0].length, Ticks::quarters(8));
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert!(lumen.app().project().tracks[1].clips.is_empty());
+}
+
+#[test]
+fn dragging_the_draw_tool_leftwards_makes_the_same_clip() {
+    let (mut lumen, y) = midi_lane_with_draw("tools-draw-left");
+    let from = Pos2::new(spot(&lumen, 12.0).x, y);
+    let to = Pos2::new(spot(&lumen, 4.0).x, y);
+    lumen.drag(from, to, Modifiers::NONE);
+    lumen.frames(3);
+    let clips = &lumen.app().project().tracks[1].clips;
+    assert_eq!(clips.len(), 1);
+    assert_eq!(clips[0].start, Ticks::quarters(4));
+    assert_eq!(clips[0].length, Ticks::quarters(8));
+}
+
+#[test]
+fn escape_cancels_a_drawn_clip_before_the_pointer_is_released() {
+    let (mut lumen, y) = midi_lane_with_draw("tools-draw-cancel");
+    let from = Pos2::new(spot(&lumen, 4.0).x, y);
+    let to = Pos2::new(spot(&lumen, 12.0).x, y);
+    lumen.harness.hover_at(from);
+    lumen.harness.drag_at(from);
+    lumen.frames(2);
+    lumen.harness.hover_at(to);
+    lumen.frames(2);
+    assert!(
+        lumen.app().project().tracks[1].clips.is_empty(),
+        "nothing is made while aiming"
+    );
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.harness.drop_at(to);
+    lumen.frames(3);
+    assert!(lumen.app().project().tracks[1].clips.is_empty());
+    assert_eq!(lumen.app().arrangement_tool_name(), "Pointer");
+}
+
+#[test]
+fn the_draw_tool_does_not_draw_on_an_audio_lane() {
+    let mut lumen = audio("tools-draw-audio");
+    command(&mut lumen, "Arrangement draw tool");
+    let y = clip_rect(&lumen).center().y;
+    let from = Pos2::new(spot(&lumen, 12.0).x, y);
+    let to = Pos2::new(spot(&lumen, 20.0).x, y);
+    lumen.drag(from, to, Modifiers::NONE);
+    lumen.frames(3);
+    assert_eq!(lumen.app().project().tracks[0].clips.len(), 1);
+}

@@ -16,6 +16,7 @@ mod controller_requests;
 pub(crate) mod controllers;
 mod cue;
 pub(crate) mod detail;
+mod draw_clip;
 pub(crate) mod editing;
 pub(crate) mod grid;
 mod handles;

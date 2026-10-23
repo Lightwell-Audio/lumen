@@ -291,6 +291,8 @@ impl App {
                 let to = self.ticks_at(canvas, p.x);
                 self.arrangement.gesture = Some(Gesture::Zoom { from, to });
             }
+            // Aimed and painted by `aim_draw`, which `clip_editing` calls.
+            Gesture::Draw { .. } => {}
             Gesture::Move {
                 base,
                 grabbed,

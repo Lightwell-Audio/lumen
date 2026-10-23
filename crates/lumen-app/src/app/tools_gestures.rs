@@ -58,6 +58,8 @@ impl App {
                         to: at,
                         clips: ids,
                     })
+                } else if self.arrangement.tool == super::tools::ArrangementTool::Draw {
+                    self.begin_draw(&ctx, origin, canvas, modifiers.alt)
                 } else if self.arrangement.tool == super::tools::ArrangementTool::Zoom {
                     let at = self.ticks_at(canvas, origin.x);
                     Some(Gesture::Zoom { from: at, to: at })
@@ -79,6 +81,8 @@ impl App {
                     canvas,
                 );
                 ctx.set_cursor_icon(CursorIcon::Crosshair);
+            } else if matches!(self.arrangement.gesture, Some(Gesture::Draw { .. })) {
+                self.aim_draw(&ctx, p, canvas, modifiers.alt, painter);
             } else if let Some(Gesture::Zoom { from, .. }) = self.arrangement.gesture {
                 let to = self.ticks_at(canvas, p.x);
                 self.arrangement.gesture = Some(Gesture::Zoom { from, to });
@@ -95,6 +99,9 @@ impl App {
         if response.drag_stopped() {
             if let Some(Gesture::Split { to, clips, .. }) = self.arrangement.gesture.clone() {
                 self.split_ids_at(&clips, to);
+            }
+            if let Some(Gesture::Draw { track, from, to }) = self.arrangement.gesture.clone() {
+                self.finish_draw(track, from, to);
             }
             if let Some(Gesture::Zoom { from, to }) = self.arrangement.gesture
                 && from != to
@@ -269,7 +276,10 @@ impl App {
                 Tool::Pointer => (CursorIcon::Default, Info::new("Pointer tool")),
                 Tool::Draw => (
                     CursorIcon::Crosshair,
-                    Info::new("Draw tool").on(Held::NONE, Mouse::Click, "draw a MIDI clip"),
+                    Info::new("Draw tool")
+                        .on(Held::NONE, Mouse::Click, "draw a one-bar MIDI clip")
+                        .on(Held::NONE, Mouse::Drag, "aim its length, then release")
+                        .on(Held::ALT, Mouse::Drag, "off the grid"),
                 ),
                 Tool::Erase => (
                     CursorIcon::Crosshair,
