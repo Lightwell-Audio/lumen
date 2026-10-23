@@ -462,6 +462,8 @@ impl App {
                 if self.availability(ui.ctx(), Command::UnloopClips).is_ok() {
                     self.menu_command(ui, Command::UnloopClips, "Unloop");
                 }
+                self.menu_command(ui, Command::ReverseClips, "Reverse");
+                self.menu_command(ui, Command::InvertPolarity, "Invert polarity");
                 self.menu_command(ui, Command::NudgeClipsEarlier, "Nudge earlier");
                 self.menu_command(ui, Command::NudgeClipsLater, "Nudge later");
                 widgets::submenu(ui, "Select", |ui| {

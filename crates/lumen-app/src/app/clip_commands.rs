@@ -58,6 +58,26 @@ impl App {
         }
     }
 
+    /// Plays the selected audio clips backwards, or forwards again.
+    pub(crate) fn reverse_selected_clips(&mut self) {
+        let ids = self.selected_clip_ids();
+        let done = self.document.reverse_clips(&ids);
+        if done.refused > 0 {
+            self.say(if done.changed > 0 {
+                "Some clips were left as they were: they reach past the end of their file"
+                    .to_owned()
+            } else {
+                "This clip reaches past the end of its file, so it cannot be reversed".to_owned()
+            });
+        }
+    }
+
+    /// Inverts the polarity of the selected audio clips, or puts it back.
+    pub(crate) fn invert_selected_clips(&mut self) {
+        let ids = self.selected_clip_ids();
+        self.document.invert_clips(&ids);
+    }
+
     /// One grid step in ticks, at the playhead (a step in bars is as long as
     /// the bar there).
     fn clip_nudge_step(&self) -> Ticks {

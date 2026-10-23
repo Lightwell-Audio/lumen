@@ -159,6 +159,8 @@ impl Document {
                     loop_phase: Default::default(),
                     envelopes: Default::default(),
                     audio_phase_seconds: 0.0,
+                    reversed: false,
+                    inverted: false,
                     content: ClipContent::Audio {
                         media: file.media,
                         offset: 0,

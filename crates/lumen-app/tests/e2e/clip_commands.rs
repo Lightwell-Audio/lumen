@@ -240,3 +240,106 @@ fn every_new_clip_command_is_in_the_palette() {
         lumen.key(Modifiers::NONE, Key::Escape);
     }
 }
+
+/// A WAV that rises from silence to a loud end over `seconds`.
+fn ramp_wav(path: &std::path::Path, seconds: f32) -> std::path::PathBuf {
+    let rate = 48_000_u32;
+    let frames = (seconds * rate as f32) as usize;
+    let data: Vec<u8> = (0..frames)
+        .flat_map(|i| {
+            let rise = i as f32 / frames as f32;
+            let v = ((i as f32 * 0.05).sin() * 20_000.0 * rise) as i16;
+            let [a, b] = v.to_le_bytes();
+            [a, b, a, b]
+        })
+        .collect();
+    let mut out = Vec::new();
+    out.extend(b"RIFF");
+    out.extend((36 + data.len() as u32).to_le_bytes());
+    out.extend(b"WAVEfmt ");
+    out.extend(16_u32.to_le_bytes());
+    out.extend(1_u16.to_le_bytes());
+    out.extend(2_u16.to_le_bytes());
+    out.extend(rate.to_le_bytes());
+    out.extend((rate * 4).to_le_bytes());
+    out.extend(4_u16.to_le_bytes());
+    out.extend(16_u16.to_le_bytes());
+    out.extend(b"data");
+    out.extend((data.len() as u32).to_le_bytes());
+    out.extend(data);
+    std::fs::write(path, out).expect("write the ramp WAV");
+    path.to_path_buf()
+}
+
+fn ramp(name: &str) -> Lumen {
+    let mut lumen = Lumen::start(name);
+    let file = ramp_wav(&lumen.dir().join("ramp.wav"), 4.0);
+    lumen.drop_files(&[file]);
+    lumen.frames(40);
+    lumen
+}
+
+/// The loudest sample heard in the next 50 ms, after 50 ms of settling.
+fn start_level(lumen: &mut Lumen) -> f32 {
+    lumen.key(Modifiers::NONE, Key::Space);
+    let heard = lumen.listen(std::time::Duration::from_millis(50), 2_400);
+    lumen.key(Modifiers::NONE, Key::Space);
+    heard
+        .iter()
+        .flat_map(|f| [f[0].abs(), f[1].abs()])
+        .fold(0.0, f32::max)
+}
+
+#[test]
+fn a_file_that_rises_starts_quiet_and_a_reversed_clip_of_it_starts_loud() {
+    let mut lumen = ramp("reverse-hear");
+    let clip = lumen.app().project().tracks[0].clips[0].id;
+    let media = match lumen.app().project().tracks[0].clips[0].content {
+        lumen_project::model::ClipContent::Audio { media, .. } => media,
+        _ => panic!("an audio clip"),
+    };
+    lumen.app_mut().select_clip(clip);
+    let forward = start_level(&mut lumen);
+    assert!(forward < 0.1, "the ramp begins quiet: {forward}");
+
+    command(&mut lumen, "Reverse");
+    assert!(lumen.app().project().tracks[0].clips[0].reversed);
+    assert_eq!(lumen.app().undo_label(), Some("Reverse clips"));
+    lumen.wait_for("the reversed copy", |app| app.has_reversed_waveform(media));
+    let backward = start_level(&mut lumen);
+    assert!(backward > 0.5, "the reversed ramp begins loud: {backward}");
+
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert!(!lumen.app().project().tracks[0].clips[0].reversed);
+    let again = start_level(&mut lumen);
+    assert!(again < 0.1, "undo plays it forwards again: {again}");
+}
+
+#[test]
+fn reverse_and_polarity_are_one_undo_step_each_and_need_an_audio_clip() {
+    let mut lumen = ramp("flags-undo");
+    let clip = lumen.app().project().tracks[0].clips[0].id;
+    // Nothing selected: the commands are not available and change nothing.
+    let before = lumen.app().project().clone();
+    for name in ["Reverse", "Invert polarity"] {
+        lumen.key(Modifiers::COMMAND, Key::K);
+        lumen.harness.event(Event::Text(name.into()));
+        lumen.frames(2);
+        lumen.key(Modifiers::NONE, Key::Enter);
+        lumen.key(Modifiers::NONE, Key::Escape);
+    }
+    assert_eq!(lumen.app().project(), &before);
+    assert!(!lumen.app().palette_open());
+
+    lumen.app_mut().select_clip(clip);
+    command(&mut lumen, "Invert polarity");
+    assert!(lumen.app().project().tracks[0].clips[0].inverted);
+    assert_eq!(lumen.app().undo_label(), Some("Invert polarity"));
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert!(!lumen.app().project().tracks[0].clips[0].inverted);
+
+    command(&mut lumen, "Reverse");
+    assert!(lumen.app().project().tracks[0].clips[0].reversed);
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(lumen.app().project(), &before);
+}

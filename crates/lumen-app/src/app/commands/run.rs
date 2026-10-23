@@ -255,6 +255,8 @@ impl App {
             Command::SelectAllInTrack => self.select_clips_in_track(),
             Command::SelectToStart => self.select_clips_toward(false),
             Command::SelectToEnd => self.select_clips_toward(true),
+            Command::ReverseClips => self.reverse_selected_clips(),
+            Command::InvertPolarity => self.invert_selected_clips(),
             Command::NudgeEarlierFine => self.note_op(NoteOp::Nudge {
                 direction: -1,
                 fine: true,

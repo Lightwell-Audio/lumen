@@ -2,7 +2,7 @@
 //! undo step; one that changes nothing adds none.
 
 use lumen_core::time::Ticks;
-use lumen_project::edit::clip_ops;
+use lumen_project::edit::{clip_ops, reverse};
 use lumen_project::model::Id;
 
 use super::clips::fresh_ids;
@@ -37,6 +37,26 @@ impl Document {
         let next = &mut self.next_id;
         self.history.apply("Unloop clips", None, |project| {
             out = clip_ops::unloop(project, ids, &mut fresh_ids(next));
+        });
+        out
+    }
+
+    /// Plays the selected audio clips backwards, or forwards again: each
+    /// keeps its place on the timeline and plays the same stretch of the
+    /// file the other way round (see `lumen_project::edit::reverse`).
+    pub fn reverse_clips(&mut self, ids: &[Id]) -> reverse::Flipped {
+        let mut out = reverse::Flipped::default();
+        self.history.apply("Reverse clips", None, |project| {
+            out = reverse::reverse(project, ids);
+        });
+        out
+    }
+
+    /// Inverts the polarity of the selected audio clips, or puts it back.
+    pub fn invert_clips(&mut self, ids: &[Id]) -> usize {
+        let mut out = 0;
+        self.history.apply("Invert polarity", None, |project| {
+            out = reverse::invert(project, ids);
         });
         out
     }

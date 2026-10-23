@@ -14,6 +14,11 @@ use eframe::egui;
 use lumen_engine::ClipAudio;
 use lumen_media::{MediaError, Peaks};
 
+mod twins;
+#[cfg(test)]
+pub use twins::mirror;
+pub use twins::reversed_key;
+
 /// What the user sees about a file: from its name and size at once, the
 /// rest when it has been decoded.
 #[derive(Debug, Clone, Default)]
@@ -88,6 +93,10 @@ struct Done {
 
 pub struct Library {
     items: Vec<Item>,
+    /// Reversed copies of files, by `twins::reversed_key` (M7b slice E1).
+    twins: Vec<twins::Twin>,
+    twin_tx: Sender<twins::Mirrored>,
+    twin_rx: Receiver<twins::Mirrored>,
     done_tx: Sender<Done>,
     done_rx: Receiver<Done>,
 }
@@ -95,8 +104,12 @@ pub struct Library {
 impl Default for Library {
     fn default() -> Self {
         let (done_tx, done_rx) = mpsc::channel();
+        let (twin_tx, twin_rx) = mpsc::channel();
         Self {
             items: Vec::new(),
+            twins: Vec::new(),
+            twin_tx,
+            twin_rx,
             done_tx,
             done_rx,
         }
@@ -108,8 +121,17 @@ impl Library {
         &self.items
     }
 
+    /// A file by media id, or its reversed twin by `reversed_key`.
     pub fn get(&self, id: u64) -> Option<&Item> {
-        self.items.iter().find(|i| i.id == id)
+        self.items
+            .iter()
+            .find(|i| i.id == id)
+            .or_else(|| self.twins.iter().map(|t| &t.item).find(|i| i.id == id))
+    }
+
+    /// Every file and every reversed twin, for the waveforms' atlas.
+    pub fn with_twins(&self) -> impl Iterator<Item = &Item> {
+        self.items.iter().chain(self.twins.iter().map(|t| &t.item))
     }
 
     /// Starts loading `path` at `rate` as `id` (the project's media id).
@@ -280,6 +302,7 @@ impl Library {
             }
             changed = true;
         }
+        changed |= self.take_twins();
         // Cancelled loads leave nothing behind.
         let before = self.items.len();
         self.items
@@ -330,8 +353,7 @@ impl Library {
 
     /// Bytes of audio held in memory.
     pub fn memory(&self) -> usize {
-        self.items
-            .iter()
+        self.with_twins()
             .map(|i| match &i.state {
                 State::Ready(audio) => audio.frames() * audio.channels.len() * 4,
                 _ => 0,

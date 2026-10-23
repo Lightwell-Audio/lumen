@@ -120,6 +120,8 @@ mod tests {
             loop_length: looping.map(Ticks::quarters),
             loop_phase: Default::default(),
             audio_phase_seconds: 0.0,
+            reversed: false,
+            inverted: false,
             envelopes: Default::default(),
             content: ClipContent::midi(),
         }

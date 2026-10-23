@@ -224,6 +224,19 @@ impl App {
             | Command::SelectAllInTrack
             | Command::SelectToStart
             | Command::SelectToEnd => need(clip, "Select a clip first"),
+            Command::ReverseClips | Command::InvertPolarity => need(
+                self.document
+                    .project()
+                    .tracks
+                    .iter()
+                    .flat_map(|t| &t.clips)
+                    .any(|c| {
+                        self.arrangement.clips.contains(&c.id)
+                            && !c.locked
+                            && matches!(c.content, lumen_project::model::ClipContent::Audio { .. })
+                    }),
+                "Select an audio clip first",
+            ),
             Command::InvertSelection => need(
                 self.document
                     .project()

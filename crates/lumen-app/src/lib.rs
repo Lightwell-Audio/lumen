@@ -52,6 +52,8 @@ mod browser;
 mod callback_bench;
 mod canvas;
 mod chain;
+#[cfg(test)]
+mod clip_flags_render;
 mod commands;
 mod crash;
 mod document;

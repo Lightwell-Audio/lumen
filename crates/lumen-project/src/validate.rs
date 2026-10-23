@@ -359,6 +359,9 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     if clip.audio_phase_seconds != 0.0 {
                         return Err(format!("{}: audio source phase on MIDI clip", at()));
                     }
+                    if clip.reversed || clip.inverted {
+                        return Err(format!("{}: reverse or polarity on MIDI clip", at()));
+                    }
                     // Notes and events may lie outside the clip's window,
                     // before its start or past its end (format v15).
                     for (n, event) in events.iter().enumerate() {

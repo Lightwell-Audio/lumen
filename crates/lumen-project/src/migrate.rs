@@ -22,6 +22,7 @@ pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
     v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16, v16_to_v17, v17_to_v18,
     v18_to_v19, v19_to_v20, v20_to_v21, v21_to_v22, v22_to_v23, v23_to_v24, v24_to_v25, v25_to_v26,
+    v26_to_v27,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -434,6 +435,12 @@ fn v25_to_v26(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
+/// v27 (M7b E1) adds `reversed` and `inverted` to audio clips, written only
+/// when set. A file without them has neither, as every older project had.
+fn v26_to_v27(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
 /// The highest id written anywhere in `document` (every `"id"` field).
 fn highest_id(document: &Value) -> Result<u64, String> {
     fn walk(value: &Value, highest: &mut u64) -> Result<(), String> {
@@ -547,7 +554,7 @@ mod tests {
         let v25 = json!({"version":25,"project":{"tracks":[{"clips":[{
             "loop_length": 100, "fade_in":{"length":20}, "fade_out":{"length":30}
         }]}]}});
-        let v26 = upgrade(v25, 25, FIRST_VERSION, MIGRATIONS).unwrap();
+        let v26 = upgrade(v25, 25, FIRST_VERSION, &MIGRATIONS[..25]).unwrap();
         assert_eq!(v26["version"], json!(26));
         assert!(
             v26["project"]["tracks"][0]["clips"][0]
@@ -569,6 +576,15 @@ mod tests {
                 .get("span")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn v26_to_v27_adds_no_flags_to_existing_clips() {
+        let v26 = json!({"version":26,"project":{"tracks":[{"clips":[{"loop_length": 100}]}]}});
+        let v27 = upgrade(v26, 26, FIRST_VERSION, MIGRATIONS).unwrap();
+        assert_eq!(v27["version"], json!(27));
+        let clip = &v27["project"]["tracks"][0]["clips"][0];
+        assert!(clip.get("reversed").is_none() && clip.get("inverted").is_none());
     }
 
     #[test]

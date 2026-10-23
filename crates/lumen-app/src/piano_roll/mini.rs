@@ -183,6 +183,8 @@ mod tests {
                 loop_phase: Default::default(),
                 envelopes: Default::default(),
                 audio_phase_seconds: 0.0,
+                reversed: false,
+                inverted: false,
                 content: ClipContent::Midi {
                     notes,
                     events: Vec::new(),

@@ -45,6 +45,8 @@ fn golden_v25_expected() -> Project {
         loop_length: Some(Ticks::quarters(4)),
         loop_phase: Default::default(),
         audio_phase_seconds: 0.0,
+        reversed: false,
+        inverted: false,
         envelopes: Default::default(),
         content: ClipContent::Audio {
             media: Id(1002),

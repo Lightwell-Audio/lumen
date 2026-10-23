@@ -205,6 +205,8 @@ pub(crate) enum Command {
     SelectAllInTrack,
     SelectToStart,
     SelectToEnd,
+    ReverseClips,
+    InvertPolarity,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -475,6 +477,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::SelectAllInTrack, "edit.select_in_track", "Select all in track", Area::Edit, &[], "Selects every clip on the tracks that hold a selected clip, or on the selected tracks."),
     info(Command::SelectToStart, "edit.select_to_start", "Select to start", Area::Edit, &[], "Adds the clips from the start of the song up to the latest selected clip, on the selected clips' tracks."),
     info(Command::SelectToEnd, "edit.select_to_end", "Select to end", Area::Edit, &[], "Adds the clips from the earliest selected clip to the end of the song, on the selected clips' tracks."),
+    info(Command::ReverseClips, "clip.reverse", "Reverse", Area::Clip, &[], "Plays the selected audio clips backwards, or forwards again. Each keeps its place and plays the same stretch of its file the other way round."),
+    info(Command::InvertPolarity, "clip.polarity", "Invert polarity", Area::Clip, &[], "Inverts the polarity of the selected audio clips, or puts it back."),
 ];
 
 const fn info(
@@ -524,7 +528,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::SelectToEnd as usize + 1,
+            Command::InvertPolarity as usize + 1,
             ALL.len(),
             "a command is missing"
         );

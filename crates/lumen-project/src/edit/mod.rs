@@ -30,6 +30,7 @@ pub mod note_tools;
 pub mod notes;
 pub mod quantize;
 pub mod record;
+pub mod reverse;
 pub mod seams;
 pub mod split;
 pub mod velocity;
@@ -464,6 +465,8 @@ mod tests {
                 loop_length: None,
                 loop_phase: Ticks::ZERO,
                 audio_phase_seconds: 0.0,
+                reversed: false,
+                inverted: false,
                 envelopes: Default::default(),
                 content: ClipContent::Audio {
                     media: Id(900),
