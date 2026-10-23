@@ -2,6 +2,7 @@
 //! keys, the palette and the clip menu, each one undo step.
 
 use eframe::egui::{Event, Key, Modifiers, Pos2, Rect, vec2};
+use egui_kittest::kittest::Queryable;
 use lumen_core::time::{PPQ, Ticks};
 
 use super::{Lumen, wav};
@@ -376,4 +377,75 @@ fn normalize_raises_a_quiet_clip_to_full_scale_in_one_undo_step() {
     assert!((db - 4.3).abs() < 0.3, "normalized to {db} dB");
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(gain_db(&lumen), 0.0);
+}
+
+#[test]
+fn a_midi_clips_menu_lists_no_audio_only_commands_and_an_audio_clips_does() {
+    use lumen_project::testing::{TempDir, midi_track, project_of};
+    // Audio: the rows are there.
+    let mut lumen = ramp("menu-audio");
+    let at = spot(&lumen, 2.0);
+    lumen.right_click(at);
+    lumen.frames(3);
+    for row in ["Reverse", "Invert polarity", "Normalize"] {
+        assert!(lumen.harness.query_by_label(row).is_some(), "audio: {row}");
+    }
+
+    // MIDI: left out, while the rest of the menu is whole.
+    let dir = TempDir::new("e2e-menu-midi");
+    let path = dir.path().join("song.lumen");
+    let project = project_of(
+        "Menu",
+        vec![midi_track(1, "Keys", "poly", (0, 8), None, vec![], vec![])],
+    );
+    lumen_project::save(&project, &path, &Default::default()).expect("save the test project");
+    let mut midi = Lumen::start_with(dir, move |l| l.opening(path));
+    midi.wait_for("the project", |app| app.project().tracks.len() == 1);
+    midi.app_mut().set_view(lumen_app::TimeView {
+        left: 0.0,
+        zoom: 60.0,
+    });
+    midi.frames(40);
+    let clip = midi.app().project().tracks[0].clips[0].id;
+    let r = midi
+        .app()
+        .clip_rect(&midi.harness.ctx.clone(), clip)
+        .expect("the clip is in view");
+    midi.right_click(r.center());
+    midi.frames(3);
+    assert!(
+        midi.harness.query_by_label_contains("Split").is_some(),
+        "the menu is open"
+    );
+    for row in ["Reverse", "Invert polarity", "Normalize"] {
+        assert!(midi.harness.query_by_label(row).is_none(), "MIDI: {row}");
+    }
+}
+
+#[test]
+fn a_note_is_read_in_full_by_wrapping_never_cut_short() {
+    let mut lumen = Lumen::start("note-wraps");
+    let area = |lumen: &Lumen| {
+        lumen
+            .harness
+            .ctx
+            .memory(|m| m.area_rect(eframe::egui::Id::new("toast area")))
+            .expect("the note is shown")
+    };
+    lumen.app_mut().say_note("Saved");
+    lumen.frames(20);
+    let short = area(&lumen);
+    let long = "These clips do not continue one another: use Consolidate, which closes \
+                the gap with silence and writes one new clip";
+    lumen.app_mut().say_note(long);
+    lumen.frames(20);
+    let wrapped = area(&lumen);
+    assert!(
+        wrapped.width() < 400.0,
+        "the note keeps its width: {wrapped:?}"
+    );
+    assert!(
+        wrapped.height() > short.height() * 1.8,
+        "a long note takes more lines instead of an ellipsis: {short:?} against {wrapped:?}"
+    );
 }

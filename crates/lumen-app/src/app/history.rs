@@ -111,8 +111,9 @@ impl App {
 
     /// A short note after undo, redo, save or open, fading out after a
     /// moment. One line in the arrangement's top-right corner, under the
-    /// ruler, clear of where clips usually are; long names are shortened
-    /// with "…". `at` is that corner.
+    /// ruler, clear of where clips usually are. A note is always read in
+    /// full: past the maximum width it wraps onto more lines, never an
+    /// ellipsis. `at` is that corner.
     pub(crate) fn toast(&mut self, ctx: &egui::Context, at: egui::Pos2) {
         let Some((text, since)) = &self.toast else {
             return;
@@ -145,7 +146,8 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(10, 5))
                     .show(ui, |ui| {
                         ui.set_width(natural.min(MAX_WIDTH));
-                        ui.add(egui::Label::new(RichText::new(text).font(font)).truncate());
+                        // Never cut short: a long note wraps onto more lines.
+                        ui.add(egui::Label::new(RichText::new(text).font(font)).wrap());
                     });
             });
     }

@@ -16,6 +16,19 @@ impl App {
         self.arrangement.clips.iter().copied().collect()
     }
 
+    /// Whether any selected clip is an audio clip (locked or not).
+    pub(crate) fn selection_has_audio(&self) -> bool {
+        self.document
+            .project()
+            .tracks
+            .iter()
+            .flat_map(|t| &t.clips)
+            .any(|c| {
+                self.arrangement.clips.contains(&c.id)
+                    && matches!(c.content, lumen_project::model::ClipContent::Audio { .. })
+            })
+    }
+
     /// Joins the selected clips (Ctrl+J).
     pub(crate) fn join_selected_clips(&mut self) {
         let ids = self.selected_clip_ids();

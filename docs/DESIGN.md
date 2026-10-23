@@ -1262,6 +1262,11 @@ Each flow lists its steps, its keyboard path and its feedback. Flows marked
 4. Empty and error states are designed: what happened, and what to do.
 5. Long text wraps or truncates with "…". Nothing grows a window or
    overlaps a neighbour.
+5-notify. **A notification is always read in full** (owner rule,
+   2026-10-23): toasts, notice cards, banners and error messages wrap onto
+   more lines and never end in "…", whatever their length. Truncation is
+   for labels (names, paths, status values), with the full text on hover.
+   A test lays out a long toast and checks it wraps.
 5a. Windows are `widgets::Dialog`; controls on a selected surface use
    `theme::controls(true)`. Circles are snapped to pixels along with the
    rectangles beside them.

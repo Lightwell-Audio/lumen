@@ -462,6 +462,12 @@ error where it can be)
   `text_edit_focused()`; never use `egui_wants_keyboard_input()` for that.
 - **Draw only what is in view** (see below), and never size anything by a
   clip's width.
+- **Notifications are read in full** (owner rule, 2026-10-23): a toast,
+  notice, banner or error message wraps onto more lines and never ends in
+  "…". Only labels (names, paths, values) may truncate. See DESIGN.md §9.
+- **Menus list what can apply:** a command that cannot act on what was
+  clicked is left out of its context menu rather than greyed (audio-only
+  clip commands are not listed for a MIDI-only selection).
 - **E2E rules:** wait for what the engine answers (`Lumen::wait_for`,
   `listen`), never a count of frames; write chords through `keys()`; let
   rows settle (`frames(30)`) after adding, moving or folding tracks; never

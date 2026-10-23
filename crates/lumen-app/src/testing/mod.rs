@@ -551,6 +551,11 @@ impl App {
         self.toast.as_ref().map(|(text, _)| text.as_str())
     }
 
+    /// Shows `words` as the short note (the toast), as a command would.
+    pub fn say_note(&mut self, words: &str) {
+        self.say(words.to_owned());
+    }
+
     /// What Undo would undo.
     pub fn undo_label(&self) -> Option<&str> {
         self.document.history().undo_label()
