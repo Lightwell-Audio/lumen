@@ -2,6 +2,8 @@
 
 ## Status
 
+**M7b slice E1 (clip commands) is built, 2026-10-23** on `m7b-s1-clip-commands` (ADR-0093; owner choices J1, N1, G1, K2; format v27). *Shipped:* join (Ctrl+J, seamless), crop to selection, unloop, nudge by grid and finely, reverse (reversed copies of files, no engine change), polarity, normalize (peak scan on a worker, cancel, one undo step), and the select variants; reverse, polarity and normalize are golden renders. *Waiting:* MT-EDIT-2 (owner). *Not run:* macOS, the WSL gates and the smoke tests until the push, RealtimeSanitizer.
+
 **M6 slice 7 (compatibility and closeout): the review is done; all its findings (High, Medium M1 to M14, Low L1 to L6) are fixed, 2026-10-19** on `m6-s7-compatibility-closeout` (`docs/audits/2026-10-18-m6.md`, Status table). Built in slice 7: the probe (`lumen-host-probe`), the fault soak (`lumen-hosting/tests/soak.rs`), the callback benchmark (`lumen --bench-callback`) and the combined walkthrough (E2E `walkthrough_plugins`). Not done: the owner's MT-VST-7 runs on real plugins, the M6 report. The earlier summaries follow.
 
 **M6 slice 5 (presets and resilient state) is built, 2026-10-17** on
@@ -286,7 +288,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Crisp, fast waveforms at every zoom | M | ✅ | 3 | M3 slice 4c (ADR-0027): peak pyramids built at load, drawn per pixel on the GPU; no measurable frame cost with 10,000 waveforms. Disk cache deferred to M9 with disk streaming (owner approved); drawn sample by sample below 16 frames per pixel (4d, ADR-0028) |
 | Recording: multi-arm, monitoring, multichannel, crash-safe capture, latency compensation and offset, punch, count-in, input meters | M | 🔲 | 9 |
 | Loop recording into takes; capture MIDI | S | 🟡 Loop passes layer into one MIDI clip (M5 slice 6, ADR-0055); takes and Capture MIDI are M9 | 9 |
-| Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🟡 Clip gain and fades along free curves, with four presets (M3 6d, ADR-0031; golden renders, and E2E scenarios that listen). Automatic crossfades (model chosen in M7b, X1), reverse, normalize and polarity in M7b. The clip's static pitch needs a pitch engine; the owner deferred it with the audio pitch envelope (2026-10-19, M7b plan, Y1) until warp and time-stretch | 3, 7b |
+| Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🟡 Clip gain and fades along free curves, with four presets (M3 6d, ADR-0031; golden renders, and E2E scenarios that listen). Reverse, polarity and normalize are built (M7b E1, ADR-0093; MT-EDIT-2 waits for the owner); automatic crossfades (model chosen, X1) are E2. The clip's static pitch needs a pitch engine; the owner deferred it with the audio pitch envelope (2026-10-19, M7b plan, Y1) until warp and time-stretch | 3, 7b |
 | Warp and time-stretch with quality modes | S | 🔲 Not in M7 or M7b. It also carries the audio pitch envelope (deferred by the owner, 2026-10-19) and, if the owner defers it, the clip's static pitch | — |
 | Take lanes and comping | S | 🔲 | 9 |
 | Mono, stereo, multichannel material | M | 🔲 | 2–3 |
@@ -340,7 +342,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 |---|---|---|---|
 | Split (playhead, cursor, grid, range edges), click-free | M | Built in M7b E0; verification in progress. Press-aim-release or click with Split, Ctrl+E on clips or a range, snapped with Alt bypass; one undo step, original source phase and fade windows preserved. MT-EDIT-1 awaits the owner | 7b |
 | Join / glue MIDI; consolidate audio (rendered) and MIDI (merged), originals kept | M | 🔲 | 7b |
-| Trim, crop, delete, ripple delete, insert silence, cut, copy, paste, duplicate clip and range, loop/unloop, reverse, normalize, nudge, move, rename, recolour, mute, lock | M | 🟡 Trim and loop-extend (6c); move and copy (6a); cut, copy, paste, duplicate, delete, delete time (ripple) and insert time (6b); rename, recolour, mute and lock (6e). Crop, unloop into copies, reverse, normalize and clip nudge are not built yet (M7b) | 3, 7b |
+| Trim, crop, delete, ripple delete, insert silence, cut, copy, paste, duplicate clip and range, loop/unloop, reverse, normalize, nudge, move, rename, recolour, mute, lock | M | 🟡 Trim and loop-extend (6c); move and copy (6a); cut, copy, paste, duplicate, delete, delete time (ripple) and insert time (6b); rename, recolour, mute and lock (6e). Crop, unloop into copies, reverse, normalize and clip nudge are built (M7b E1, ADR-0093; MT-EDIT-2 waits for the owner) | 3, 7b |
 | Bounce in place; render selection to new track | M | 🔲 | 7b |
 | Freeze, unfreeze, flatten | M | 🔲 | 7b |
 | Select all / none / invert / in track / to start / to end | M | 🟡 Select all (Ctrl+A) and none (Esc) in M3 7d; invert, in track, to start and to end with the editing tools (M7b) | 3 |
@@ -423,8 +425,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Freeze, unfreeze, flatten | M | 🔲 Planned in M7b (slice E5) |
 | Track delay, lock, icons, templates | S | 🔲 |
 | Select, marquee, range; cut/copy/paste/duplicate/delete/ripple delete/insert silence | M | 🟡 M3 6a: click, Ctrl and Shift selection, marquee, time ranges across tracks (a clip's bottom half). M3 6b (`lumen_project::edit`): cut, copy, paste (at the playhead or into a range, overwriting the destination range), duplicate, delete, delete time (ripple, the whole song) and insert time, on clips and ranges, each one undo step, in the lanes' right-click menu. Crop and the remaining range edits come with M7b's split |
-| Split, join, consolidate, trim, crop, slip, nudge, move, loop/unloop | M | 🟡 Trim, slip, move and loop-extend (M3 6a to 6c). Split (with the drag-to-cut gesture the owner asked for), join, consolidate, crop, unloop into copies and clip nudge in M7b |
-| Fades, crossfades, clip gain, reverse, normalize, polarity | M | 🟡 Fades with free curves and four presets, and clip gain (M3 6d, ADR-0031). Moved clips crossfade while playing (5 ms, engine). Automatic crossfades (M7b, model chosen at X1), reverse, normalize and polarity in M7b |
+| Split, join, consolidate, trim, crop, slip, nudge, move, loop/unloop | M | 🟡 Trim, slip, move and loop-extend (M3 6a to 6c). Split with the drag-to-cut gesture (E0); join (seamless: audio clips with a gap wait for consolidate in E3), crop, unloop into copies and clip nudge (E1) |
+| Fades, crossfades, clip gain, reverse, normalize, polarity | M | 🟡 Fades with free curves and four presets, and clip gain (M3 6d, ADR-0031). Moved clips crossfade while playing (5 ms, engine). Reverse, normalize and polarity (M7b E1); automatic crossfades (model chosen at X1) in E2 |
 | Snap and grid; zoom; clip name/colour/mute/lock; clip properties | M | ✅ | Grid and snapping (M3 5a) and zoom (4d) done; clip name, colour, mute, lock and the properties card done in M3 6e (ADR-0032; MT-APP-14 passed in run 4) |
 | Tool model: pointer, draw, erase, split, mute and zoom, with single-key switching and temporary modifiers (CLAUDE.md §5). Not built, and in no milestone plan yet; planned for M7b with split | M | 🔲 M7b slice E0; keys follow the CLAUDE.md §5 convention (B, Esc, Ctrl+E, 0, Z and X, Del), chosen 2026-10-19 (K1) |
 | Warp, transient and tempo detection, pitch shift | S | 🔲 |

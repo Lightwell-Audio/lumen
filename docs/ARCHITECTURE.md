@@ -1,6 +1,6 @@
 # Lumen — Architecture
 
-**As built:** M7b E0 (2026-10-22; format v26): arrangement tools and source-preserving split windows (ADR-0092). Before it: M7 slice A8 (2026-10-22; format v25). Before it: M7 slice A7 (2026-10-21; format v25) and M6 slice 7 (2026-10-18; format v21). The decision records in
+**As built:** M7b E1 (2026-10-23; format v27): clip commands, reverse twins and the normalize scan (ADR-0093). Before it: M7b E0 (2026-10-22; format v26): arrangement tools and source-preserving split windows (ADR-0092). Before it: M7 slice A8 (2026-10-22; format v25). Before it: M7 slice A7 (2026-10-21; format v25) and M6 slice 7 (2026-10-18; format v21). The decision records in
 `docs/DECISIONS.md` hold the reasoning and the evidence. This page shows
 how the parts fit.
 
@@ -155,3 +155,22 @@ for shutdown; the shared region's quit setter is internal.
   begins with a source fragment and then full repeats, retaining sustain
   seams. `midi_export.rs` bakes that same phase; `piano_roll/notes.rs` and
   `arrangement/waves.rs` show the source windows that play.
+
+### M7b E1 clip commands (ADR-0093)
+
+- `lumen-project::edit::clip_ops`: pure `join`, `crop`, `unloop` and nudge
+  edits; `edit::reverse`: reverse (mirrors a clip's place in its file about
+  the file's end) and polarity; `edit::normalize`: the stretch of the file a
+  clip plays and the gain a peak asks for. `document/clip_ops.rs` wraps
+  each in one history step (`join_clips`, `crop_clips`, `unloop_clips`,
+  `nudge_clips`, `reverse_clips`, `invert_clips`, `normalize_clips`).
+  Format v27 adds `Clip.reversed` and `Clip.inverted` (identity migration).
+- `lumen-app::media/twins.rs`: reversed copies of files (audio and peaks),
+  built on a worker while a reversed clip needs them and read under
+  `media::reversed_key`; `lanes::engine_clips`, `arrangement/waves.rs` and
+  the sample view use that key. The engine is unchanged; polarity is the sign
+  of the engine clip's gain and `waves.wgsl` accepts a negative gain.
+- `normalize.rs`: the peak scan on a worker (progress, cancel);
+  `app/clip_normalize.rs`: builds the jobs from the selection, shows
+  progress in the toast, stops on Esc, applies one undo step.
+  `app/clip_commands.rs` holds the other selection commands.

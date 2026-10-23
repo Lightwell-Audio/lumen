@@ -171,6 +171,8 @@ Parts (commits on this branch):
    for each command (by names and keys), shots in both themes at 100, 150 and
    200%, MT-EDIT-2 in `docs/manual-tests/M7b.md`, PROGRESS, ADR, handoff.
 
+Progress (2026-10-23): 1a to 1c are built and 1d is in the docs (ADR-0093, MT-EDIT-2). The plan changed in two ways: reverse uses reversed copies of files made on a worker (no engine change), and Join does not close audio gaps until E3 (the owner asked for it on 2026-10-23; KNOWN_ISSUES).
+
 Known cost: at a device rate other than the file's, a reversed clip can sit
 one frame off the forward clip (the file length and the offset are rounded
 separately); recorded in KNOWN_ISSUES if it shows in the golden render.
