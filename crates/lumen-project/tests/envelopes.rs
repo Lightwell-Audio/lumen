@@ -43,6 +43,8 @@ fn golden_v25_expected() -> Project {
         fade_in: Default::default(),
         fade_out: Default::default(),
         loop_length: Some(Ticks::quarters(4)),
+        loop_phase: Default::default(),
+        audio_phase_seconds: 0.0,
         envelopes: Default::default(),
         content: ClipContent::Audio {
             media: Id(1002),
@@ -75,6 +77,27 @@ fn golden_v25_expected() -> Project {
     project
 }
 
+fn golden_v26_expected() -> Project {
+    let mut project = golden_v25_expected();
+    let clip = Arc::make_mut(&mut Arc::make_mut(&mut project.tracks[0]).clips[0]);
+    clip.loop_phase = Ticks::quarters(2);
+    clip.fade_in = lumen_core::fade::Fade {
+        length: Ticks::quarters(2),
+        offset: Ticks::quarters(1),
+        span: Ticks::quarters(4),
+        curve: lumen_core::curve::Curve::SLOW,
+    };
+    clip.fade_out = lumen_core::fade::Fade {
+        length: Ticks::quarters(1),
+        offset: Ticks::quarters(1),
+        span: Ticks::quarters(2),
+        curve: lumen_core::curve::Curve::FAST,
+    };
+    clip.audio_phase_seconds = 0.125;
+    project.name = "Golden v26".into();
+    project
+}
+
 #[test]
 fn golden_v25_file_loads_forever() {
     let path = fixture("v25/golden.lumen");
@@ -84,6 +107,57 @@ fn golden_v25_file_loads_forever() {
     }
     let project = load(&path).expect("v25 golden file must load");
     assert_eq!(project, golden_v25_expected());
+}
+
+#[test]
+fn golden_v26_file_loads_and_round_trips_phase_and_fade_windows() {
+    let path = fixture("v26/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v26_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v26 golden file must load");
+    assert_eq!(project, golden_v26_expected());
+    assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
+}
+
+#[test]
+fn invalid_loop_phase_and_fade_windows_are_refused() {
+    let mut project = golden_v26_expected();
+    {
+        let clip = Arc::make_mut(&mut Arc::make_mut(&mut project.tracks[0]).clips[0]);
+        clip.loop_length = None;
+        clip.loop_phase = Ticks::quarters(1);
+    }
+    assert!(
+        to_bytes(&project)
+            .unwrap_err()
+            .to_string()
+            .contains("loop phase without a loop")
+    );
+    let clip = Arc::make_mut(&mut Arc::make_mut(&mut project.tracks[0]).clips[0]);
+    clip.loop_length = Some(Ticks::quarters(4));
+    clip.loop_phase = Ticks::quarters(2);
+    clip.fade_in.offset = Ticks::quarters(3);
+    assert!(
+        to_bytes(&project)
+            .unwrap_err()
+            .to_string()
+            .contains("invalid fade in window")
+    );
+}
+
+#[test]
+fn an_explicit_audio_source_phase_must_stay_within_the_media_even_for_loops() {
+    let mut project = golden_v26_expected();
+    let clip = Arc::make_mut(&mut Arc::make_mut(&mut project.tracks[0]).clips[0]);
+    clip.audio_phase_seconds = 1.0e300;
+    assert!(
+        to_bytes(&project)
+            .unwrap_err()
+            .to_string()
+            .contains("audio source phase exceeds the file")
+    );
 }
 
 #[test]

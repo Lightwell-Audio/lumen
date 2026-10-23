@@ -57,7 +57,7 @@ impl App {
         }
         widgets::Menu::context(&response).show(|ui| {
             let t: Ticks = ui.data(|d| d.get_temp(menu_at)).unwrap_or_default();
-            if ui.button("Add locator here").clicked() {
+            if widgets::menu_item(ui, "Add locator here", None, true).clicked() {
                 let id = self.document.add_marker(t, None);
                 self.locators.selected = Some(id);
                 self.arrangement.selected.clear();

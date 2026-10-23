@@ -20,6 +20,7 @@ mod automation;
 mod devices;
 mod editor;
 mod midi;
+mod tools;
 
 pub use editor::PianoRollDemo;
 

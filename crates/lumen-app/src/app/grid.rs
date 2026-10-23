@@ -121,7 +121,19 @@ impl App {
     /// grid menu on click.
     pub(crate) fn grid_button(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let label = self.grid_label();
-        let response = ui.interact(rect, ui.id().with("grid button"), Sense::click());
+        // In the compact header, the magnet owns the left half. Give the
+        // menu its value's hit area so keyboard/accessibility activation
+        // and a click in the menu button's centre cannot toggle snapping.
+        let compact = rect.width() < theme::size::CONTROL_LARGE * 3.0;
+        let menu_rect = if compact {
+            Rect::from_min_max(
+                pos2(rect.left() + theme::size::CONTROL_LARGE, rect.top()),
+                rect.max,
+            )
+        } else {
+            rect
+        };
+        let response = ui.interact(menu_rect, ui.id().with("grid button"), Sense::click());
         let keys = self.keymap.keys(Command::SnapToGrid);
         let response = widgets::tip(
             response,
@@ -147,13 +159,15 @@ impl App {
             );
         }
         let painter = ui.painter();
-        painter.text(
-            pos2(rect.left() + 8.0, rect.center().y),
-            Align2::LEFT_CENTER,
-            "Grid",
-            FontId::proportional(theme::size::CAPTION),
-            palette.text_hint,
-        );
+        if rect.width() >= theme::size::CONTROL_LARGE * 3.0 {
+            painter.text(
+                pos2(rect.left() + 8.0, rect.center().y),
+                Align2::LEFT_CENTER,
+                "Grid",
+                FontId::proportional(theme::size::CAPTION),
+                palette.text_hint,
+            );
+        }
         // The size, and a magnet: lit while snapping, struck through when
         // not (MT-APP-13 run 1).
         let size = painter.text(

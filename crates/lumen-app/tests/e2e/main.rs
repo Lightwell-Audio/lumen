@@ -84,6 +84,7 @@ mod smf;
 mod solo;
 mod song_lanes;
 mod stepped;
+mod tools;
 mod walkthrough;
 mod walkthrough_automation;
 mod walkthrough_mix;

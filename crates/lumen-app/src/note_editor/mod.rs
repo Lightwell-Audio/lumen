@@ -148,6 +148,7 @@ impl NoteEditor {
                 start: clip.start,
                 length: clip.length,
                 loop_length: clip.loop_length,
+                loop_phase: clip.loop_phase,
                 notes: notes_of(clip),
                 carried: &[],
                 outside: true,
@@ -228,6 +229,7 @@ impl App {
         self.note_editor.clip = Some(clip);
         self.detail_tab = DetailTab::Clip;
         self.show_detail = true;
+        self.arrangement.tool_keys = false;
         self.nav
             .steps
             .push(crate::app::navigate::ViewStep::ShowClip(clip));

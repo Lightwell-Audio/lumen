@@ -198,11 +198,11 @@ impl App {
             }
             let id_now = marker.id;
             widgets::Menu::context(&response).show(|ui| {
-                if ui.button("Rename").clicked() {
+                if widgets::menu_item(ui, "Rename", None, true).clicked() {
                     self.locators.renaming = Some((id_now, marker.name.clone()));
                     ui.close();
                 }
-                if ui.button("Delete").clicked() {
+                if widgets::menu_item(ui, "Delete", None, true).clicked() {
                     self.document.delete_marker(id_now);
                     ui.close();
                 }

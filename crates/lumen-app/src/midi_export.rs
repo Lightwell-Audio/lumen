@@ -8,11 +8,11 @@ use std::sync::Arc;
 
 use lumen_core::meter::MeterPoint;
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
-use lumen_project::edit::{content_length, in_window, repeats, to_arrangement};
+use lumen_project::edit::in_window;
 use lumen_project::model::{Clip, ClipContent, ClipEvent, Id, Note, Project, TrackKind};
 use lumen_project::smf::{FileTrack, MidiFile};
 
-use crate::midi_runs::{Member, run_notes, runs};
+use crate::midi_runs::{Member, loop_fragment, loop_period, run_notes, runs};
 
 /// The notes and events `clips` (one track's, in start order) play, in
 /// arrangement time.
@@ -24,9 +24,11 @@ fn heard(clips: &[&Arc<Clip>]) -> (Vec<Note>, Vec<ClipEvent>) {
     });
     for run in runs(members) {
         let head = run[0].clip;
-        let looping = run.len() == 1 && head.loop_length.is_some_and(|l| l.0 > 0);
-        if looping {
-            bake_loop(head, &mut notes, &mut events);
+        if let Some(period) = loop_period(&run) {
+            let length = run.last().expect("run is non-empty").clip.start
+                + run.last().expect("run is non-empty").length
+                - head.start;
+            bake_loop(head, length, period, &mut notes, &mut events);
             continue;
         }
         notes.extend(
@@ -53,35 +55,53 @@ fn heard(clips: &[&Arc<Clip>]) -> (Vec<Note>, Vec<ClipEvent>) {
 }
 
 /// A looping clip's repeats as real notes and events.
-fn bake_loop(clip: &Clip, notes: &mut Vec<Note>, events: &mut Vec<ClipEvent>) {
+fn bake_loop(
+    clip: &Clip,
+    length: Ticks,
+    period: Ticks,
+    notes: &mut Vec<Note>,
+    events: &mut Vec<ClipEvent>,
+) {
     let ClipContent::Midi {
-        notes: content,
-        events: controls,
+        events: controls, ..
     } = &clip.content
     else {
         return;
     };
-    let period = content_length(clip);
-    let end = clip.start + clip.length;
-    for repeat in 0..repeats(clip) {
-        let repeat_end = to_arrangement(clip, period, repeat).min(end);
-        for n in content
+    let mut elapsed = Ticks::ZERO;
+    while elapsed < length {
+        let phase = Ticks((clip.loop_phase.0 + elapsed.0).rem_euclid(period.0));
+        let span = if phase == Ticks::ZERO {
+            period
+        } else {
+            period - phase
+        }
+        .min(length - elapsed);
+        let (fragment, _) = loop_fragment(clip, elapsed, span, period);
+        notes.extend(fragment.into_iter().map(|n| {
+            Note::new(
+                clip.start + elapsed + n.start,
+                n.length,
+                n.pitch,
+                n.velocity,
+            )
+        }));
+        for e in controls
             .iter()
-            .filter(|n| !n.muted() && in_window(clip, n.start()))
+            .filter(|e| e.at >= Ticks::ZERO && e.at < period)
         {
-            let at = to_arrangement(clip, n.start(), repeat);
-            if at >= end {
+            if e.at < Ticks::ZERO || e.at >= period {
                 continue;
             }
-            let length = n.length().min(repeat_end - at);
-            notes.push(Note::new(at, length, n.pitch(), n.velocity()));
-        }
-        for e in controls.iter().filter(|e| in_window(clip, e.at)) {
-            let at = to_arrangement(clip, e.at, repeat);
-            if at < end {
-                events.push(ClipEvent { at, kind: e.kind });
+            let at = Ticks((e.at.0 - phase.0).rem_euclid(period.0));
+            if at < span {
+                events.push(ClipEvent {
+                    at: clip.start + elapsed + at,
+                    kind: e.kind,
+                });
             }
         }
+        elapsed = elapsed + span;
     }
 }
 
@@ -230,7 +250,9 @@ mod tests {
             fade_in: Default::default(),
             fade_out: Default::default(),
             loop_length: None,
+            loop_phase: Default::default(),
             envelopes: Default::default(),
+            audio_phase_seconds: 0.0,
             content: ClipContent::Midi {
                 notes,
                 events: Vec::new(),
@@ -310,6 +332,34 @@ mod tests {
         );
         let at: Vec<Ticks> = part.events.iter().map(|e| e.at).collect();
         assert_eq!(at, [q(2), q(6)], "the third repeat ends before its event");
+    }
+
+    #[test]
+    fn a_split_loop_exports_from_its_source_phase() {
+        let mut looped = (*clip(
+            1,
+            4,
+            8,
+            vec![
+                Note::new(q(0), q(1), 60, 100),
+                Note::new(q(2), q(2), 62, 100),
+            ],
+        ))
+        .clone();
+        looped.loop_length = Some(q(4));
+        looped.loop_phase = q(3);
+        let p = project(vec![midi(10, "Keys", vec![Arc::new(looped)])]);
+        let file = clips_file(&p, &[Id(1)]).unwrap();
+        assert_eq!(
+            starts(&file.tracks[0].notes),
+            [
+                (q(0), q(1), 62),
+                (q(1), q(1), 60),
+                (q(3), q(2), 62),
+                (q(5), q(1), 60),
+                (q(7), q(1), 62),
+            ]
+        );
     }
 
     #[test]

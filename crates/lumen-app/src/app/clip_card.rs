@@ -333,7 +333,7 @@ impl App {
             }
         });
         self.menu_command(ui, Command::MuteClips, &mute);
-        if ui.button(lock).clicked() {
+        if widgets::menu_item(ui, &lock, None, true).clicked() {
             self.toggle_clip_lock();
             ui.close();
         }
@@ -657,7 +657,9 @@ mod tests {
             fade_in: Fade::default(),
             fade_out: Fade::default(),
             loop_length: None,
+            loop_phase: Default::default(),
             envelopes: Default::default(),
+            audio_phase_seconds: 0.0,
             content: ClipContent::midi(),
         }
     }

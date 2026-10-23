@@ -189,6 +189,12 @@ pub(crate) enum Command {
     TempoRamp,
     ClipEnvelope,
     LockEnvelopes,
+    ToolPointer,
+    ToolDraw,
+    ToolErase,
+    ToolSplit,
+    ToolMute,
+    ToolZoom,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -364,8 +370,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::ExportMidiClip, "midi.export_clip", "Export MIDI clip…", Area::Midi, &[], "Writes the selected MIDI clips, as they play, to a Standard MIDI File."),
     info(Command::OpenClipEditor, "midi.open_editor", "Edit MIDI clip", Area::Midi, &[plain(Key::Enter)], "Opens the selected MIDI clip in the clip editor, in the detail panel."),
     info(Command::PopOutEditor, "midi.pop_out_editor", "Pop out clip editor", Area::Midi, &[ctrl_shift(Key::E)], "Moves the clip editor into its own window, or docks it back into the detail panel."),
-    info(Command::DrawTool, "midi.draw_tool", "Draw tool", Area::Midi, &[plain(Key::B)], "Switches the clip editor between the pointer and the draw tool: click to add a note, drag to set its length, click a note to remove it."),
-    info(Command::SplitNotes, "midi.split_notes", "Split notes", Area::Midi, &[ctrl(Key::E)], "Cuts the selected notes in two at the playhead. If the playhead is outside the clip, cuts at the pointer over the clip editor instead."),
+    info(Command::DrawTool, "midi.draw_tool", "Draw tool", Area::Midi, &[plain(Key::B)], "Toggles Pointer and Draw in the arrangement or active editor. In the note editor, click to add a note and drag to set its length."),
+    info(Command::SplitNotes, "midi.split_notes", "Split", Area::Midi, &[ctrl(Key::E)], "Splits selected clips or a time range at the edit cursor; in the clip editor, splits selected notes."),
     info(Command::GlueNotes, "midi.glue_notes", "Glue notes", Area::Midi, &[ctrl(Key::J)], "Joins selected notes of one pitch that touch or overlap into one."),
     info(Command::LegatoNotes, "midi.legato", "Legato", Area::Midi, &[plain(Key::L)], "Lengthens each selected note to the start of the next one."),
     info(Command::TransposeUp, "midi.transpose_up", "Transpose up", Area::Midi, &[], "Moves the selected notes up a semitone. In the clip editor the Up arrow does it."),
@@ -443,6 +449,12 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::TempoRamp, "edit.tempo_ramp", "Ramp or hold the picked tempo change", Area::Edit, &[], "Makes the picked tempo change glide to the tempo of the next change in a straight line, or hold its own tempo until the next change again. The last change has no next change to glide to."),
     info(Command::ClipEnvelope, "view.clip_envelope", "Show or hide the clip's envelope", Area::View, &[plain(Key::E)], "Shows the gain envelope of the selected audio clip over it, or hides it. Click the clip to add a point, drag a point to move it; the chip at the envelope's corner switches between gain and pan. Points move with the clip."),
     info(Command::LockEnvelopes, "edit.lock_envelopes", "Lock envelopes", Area::Edit, &[], "With this off, moving, copying or deleting a clip also moves, copies or removes the track's automation under it. With it on, automation stays where it is on the timeline."),
+    info(Command::ToolPointer, "view.tool_pointer", "Pointer tool", Area::View, &[], "Selects and moves clips and time ranges."),
+    info(Command::ToolDraw, "view.tool_draw", "Arrangement draw tool", Area::View, &[], "Draws MIDI clips in empty MIDI lanes."),
+    info(Command::ToolErase, "view.tool_erase", "Erase tool", Area::View, &[], "Deletes the clip under the pointer."),
+    info(Command::ToolSplit, "view.tool_split", "Split tool", Area::View, &[], "Cuts clips at the pointer or at the edit cursor."),
+    info(Command::ToolMute, "view.tool_mute", "Mute tool", Area::View, &[], "Toggles mute on the clip under the pointer."),
+    info(Command::ToolZoom, "view.tool_zoom", "Zoom tool", Area::View, &[], "Zooms to a time range dragged in the arrangement."),
 ];
 
 const fn info(
@@ -492,7 +504,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::LockEnvelopes as usize + 1,
+            Command::ToolZoom as usize + 1,
             ALL.len(),
             "a command is missing"
         );

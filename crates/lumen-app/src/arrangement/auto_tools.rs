@@ -175,10 +175,7 @@ impl Arrangement {
             widgets::Menu::below(&response).show(|ui| {
                 ui.set_min_width(140.0);
                 for choice in WAVES {
-                    if ui
-                        .selectable_label(choice == wave, wave_name(choice))
-                        .clicked()
-                    {
+                    if widgets::menu_toggle(ui, wave_name(choice), None, choice == wave).clicked() {
                         self.auto.use_tool(Tool::Shape(choice));
                         ui.close();
                     }

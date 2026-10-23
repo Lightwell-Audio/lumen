@@ -1,6 +1,6 @@
 use lumen_core::midi::Kind;
 use lumen_core::time::PPQ;
-use lumen_project::model::{Clip, Color, Note, Track, TrackKind};
+use lumen_project::model::{Clip, ClipEvent, Color, Note, Track, TrackKind};
 
 use super::*;
 
@@ -20,7 +20,9 @@ fn clip(id: u64, start: i64, length: i64, notes: Vec<Note>) -> Arc<Clip> {
         fade_in: Default::default(),
         fade_out: Default::default(),
         loop_length: None,
+        loop_phase: Default::default(),
         envelopes: Default::default(),
+        audio_phase_seconds: 0.0,
         content: ClipContent::Midi {
             notes,
             events: Vec::new(),
@@ -137,6 +139,125 @@ fn apart_or_looping_clips_are_runs_of_their_own() {
 }
 
 #[test]
+fn split_loop_pieces_keep_source_phase_for_playback() {
+    let source = vec![note(0, 1, 60), note(2, 2, 62)];
+    let mut first = clip(31, 0, 1, source.clone());
+    Arc::make_mut(&mut first).loop_length = Some(q(4));
+    Arc::make_mut(&mut first).loop_phase = q(3);
+    Arc::make_mut(&mut first).content = ClipContent::Midi {
+        notes: source.clone(),
+        events: [0, 1, 3]
+            .into_iter()
+            .map(|at| ClipEvent {
+                at: q(at),
+                kind: EventKind::Controller {
+                    number: 1,
+                    value: at as u8,
+                },
+            })
+            .collect(),
+    };
+    let mut second = clip(32, 1, 5, source);
+    Arc::make_mut(&mut second).loop_length = Some(q(4));
+    Arc::make_mut(&mut second).loop_phase = q(4);
+    Arc::make_mut(&mut second).content = first.content.clone();
+
+    let clips = [first, second];
+    let found = runs(whole(&clips));
+    assert_eq!(found.len(), 1, "contiguous split pieces form one loop run");
+    let mut cache = Cache::default();
+    let engine = cache.clip_with_suppression(&found[0], None);
+    assert_eq!(engine.len(), 2, "phase fragment then periodic remainder");
+    assert_eq!(
+        (engine[0].start, engine[0].length, engine[0].period),
+        (q(0), q(1), None)
+    );
+    assert_eq!(
+        (engine[1].start, engine[1].length, engine[1].period),
+        (q(1), q(5), Some(q(4)))
+    );
+    assert_eq!(
+        engine[0]
+            .notes
+            .iter()
+            .map(|n| (n.start, n.length, n.pitch))
+            .collect::<Vec<_>>(),
+        [(q(0), q(1), 62)],
+        "the note already sounding at the split starts at the clip boundary"
+    );
+    assert_eq!(
+        engine[1]
+            .notes
+            .iter()
+            .map(|n| (n.start, n.length, n.pitch))
+            .collect::<Vec<_>>(),
+        [(q(0), q(1), 60), (q(2), q(2), 62)]
+    );
+    assert_eq!(engine[0].controls.len(), 1);
+    assert_eq!(engine[0].controls[0].at, q(0));
+    assert_eq!(
+        engine[0].controls[0].msg.kind(),
+        Kind::Controller {
+            number: 1,
+            value: 3
+        }
+    );
+    assert_eq!(
+        engine[1]
+            .controls
+            .iter()
+            .map(|c| (c.at, c.msg.kind()))
+            .collect::<Vec<_>>(),
+        [
+            (
+                q(0),
+                Kind::Controller {
+                    number: 1,
+                    value: 0
+                }
+            ),
+            (
+                q(1),
+                Kind::Controller {
+                    number: 1,
+                    value: 1
+                }
+            ),
+            (
+                q(3),
+                Kind::Controller {
+                    number: 1,
+                    value: 3
+                }
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_split_loop_seam_does_not_cut_a_sustained_source_note() {
+    let source = vec![note(0, 3, 60)];
+    let mut first = clip(33, 0, 1, source.clone());
+    Arc::make_mut(&mut first).loop_length = Some(q(4));
+    Arc::make_mut(&mut first).loop_phase = q(1);
+    let mut second = clip(34, 1, 7, source);
+    Arc::make_mut(&mut second).loop_length = Some(q(4));
+    Arc::make_mut(&mut second).loop_phase = q(2);
+    let clips = [first, second];
+    let found = runs(whole(&clips));
+    assert_eq!(found.len(), 1);
+    let mut cache = Cache::default();
+    let engine = cache.clip_with_suppression(&found[0], None);
+    assert_eq!(engine.len(), 2);
+    assert_eq!(engine[0].period, None);
+    assert_eq!((engine[0].start, engine[0].length), (q(0), q(3)));
+    assert_eq!(engine[0].seams.as_ref(), &[q(1)]);
+    assert_eq!(engine[0].notes[0].start, q(0));
+    assert_eq!(engine[0].notes[0].length, q(2));
+    assert_eq!(engine[1].period, Some(q(4)));
+}
+
+#[test]
 fn a_run_cut_short_stops_at_its_end() {
     // A Replace take records over the first clip from 3: no seam.
     let clips = [
@@ -246,7 +367,9 @@ fn a_huge_looping_clip_stays_constant_size_during_a_narrow_replace() {
         fade_in: Default::default(),
         fade_out: Default::default(),
         loop_length: Some(Ticks(1)),
+        loop_phase: Default::default(),
         envelopes: Default::default(),
+        audio_phase_seconds: 0.0,
         content: ClipContent::Midi {
             notes: vec![Note::new(Ticks::ZERO, Ticks(1), 60, 100)],
             events: Vec::new(),

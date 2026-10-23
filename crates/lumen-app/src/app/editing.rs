@@ -12,7 +12,6 @@ use lumen_core::time::Ticks;
 use lumen_project::model::Id;
 
 use super::grid::draw_snap_guide;
-use super::info::{Held, Info, Mouse};
 use super::navigate::ViewStep;
 use crate::arrangement::Arrangement;
 use crate::arrangement::select::{
@@ -105,232 +104,7 @@ impl App {
     /// Clip selection, moving, copying, marquees and time ranges, from the
     /// lanes' `response` (click and drag). Draws the snap guide and the
     /// hint; the selection itself is drawn with the lanes.
-    pub(crate) fn clip_editing(
-        &mut self,
-        ui: &egui::Ui,
-        response: &egui::Response,
-        canvas: Rect,
-        painter: &egui::Painter,
-    ) {
-        let ctx = ui.ctx().clone();
-        let modifiers = ui.input(|i| i.modifiers);
-        let adding = modifiers.shift || modifiers.command;
-
-        if response.drag_started_by(egui::PointerButton::Primary)
-            && let Some(origin) = ui
-                .input(|i| i.pointer.press_origin())
-                .or(response.interact_pointer_pos())
-        {
-            // A drag shows its own hover (a trim rail, a handle), if any.
-            self.arrangement.hover = None;
-            self.arrangement.gesture = self.start_gesture(&ctx, origin, canvas, modifiers);
-        }
-        if response.dragged_by(egui::PointerButton::Primary)
-            && let Some(p) = response.interact_pointer_pos()
-        {
-            self.continue_gesture(&ctx, p, canvas, modifiers.alt, painter);
-        }
-        if response.drag_stopped() {
-            if let Some(Gesture::Move {
-                copies: Some(ids), ..
-            }) = &self.arrangement.gesture
-            {
-                // The copies are what was dropped: they stay selected.
-                self.arrangement.clips = ids.iter().copied().collect();
-            }
-            self.arrangement.gesture = None;
-            self.arrangement.marquee = None;
-        }
-
-        // A double-click resets a handle; on a MIDI clip it opens the clip
-        // editor; on an empty spot of a MIDI track's lane it makes a
-        // one-bar clip there (snapped) and opens it (M5 slice 3c).
-        if response.double_clicked()
-            && let Some(p) = response.interact_pointer_pos()
-        {
-            match self.hit(&ctx, p, canvas) {
-                Some(hit) if hit.handle.is_some() => self.reset_handle(&hit),
-                Some(hit) => self.open_note_editor(hit.clip),
-                None => {
-                    if let Some(track) = self.lane_track(&ctx, canvas, p) {
-                        let at = self.snapped(self.ticks_at(canvas, p.x), modifiers.alt);
-                        self.put_midi_clip(track, crate::document::NewClip::Bar(at));
-                    }
-                }
-            }
-        }
-
-        if response.clicked()
-            && let Some(p) = response.interact_pointer_pos()
-        {
-            let hit = self.hit(&ctx, p, canvas);
-            // A click on a clip's header (its title strip) locates to the
-            // clip's start rather than to the clicked spot.
-            let header_start = hit
-                .filter(|h| h.region == ClipRegion::Header && h.handle.is_none())
-                .and_then(|h| {
-                    let track = self.document.project().tracks.get(h.track)?;
-                    track.clips.iter().find(|c| c.id == h.clip).map(|c| c.start)
-                });
-            let clips = &mut self.arrangement.clips;
-            match hit {
-                Some(hit) if modifiers.command => {
-                    if !clips.remove(&hit.clip) {
-                        clips.insert(hit.clip);
-                    }
-                }
-                Some(hit) if modifiers.shift => {
-                    clips.insert(hit.clip);
-                }
-                Some(hit) => *clips = BTreeSet::from([hit.clip]),
-                None if !adding => clips.clear(),
-                None => {}
-            }
-            self.arrangement.range = None;
-            self.selected_clips_now();
-            // While stopped, a plain lane click also locates (snapped;
-            // Alt places freely), and a click on a clip's header locates to
-            // the clip's start. While playing, selecting or editing clips
-            // must leave playback running from its current place. Ctrl and
-            // Shift clicks only build a selection.
-            if !adding {
-                if !self.transport.state().playing {
-                    let target = header_start
-                        .unwrap_or_else(|| self.snapped(self.ticks_at(canvas, p.x), modifiers.alt));
-                    self.transport.locate(target.max(Ticks::ZERO));
-                    self.transport.follow_paused = true;
-                }
-                // The clicked track is where Paste lands now; the headers'
-                // selection gives way to it.
-                self.arrangement.insert = self.lane_track(&ctx, canvas, p);
-                self.arrangement.selected.clear();
-            }
-        }
-
-        // A right-click decides what the menu is for (the owner's A, after
-        // MT-APP-14 run 2): inside the time range, the range; on a clip,
-        // the clips (a clip that is not selected is selected first, so the
-        // menu acts on what was clicked); elsewhere, the lanes.
-        if response.secondary_clicked()
-            && let Some(p) = response.interact_pointer_pos()
-        {
-            self.menu_for = if self.in_range(&ctx, canvas, p) {
-                MenuFor::Range
-            } else if let Some(hit) = self.hit(&ctx, p, canvas) {
-                if !self.arrangement.clips.contains(&hit.clip) {
-                    self.arrangement.clips = BTreeSet::from([hit.clip]);
-                    self.arrangement.range = None;
-                    self.selected_clips_now();
-                }
-                MenuFor::Clips
-            } else {
-                let at = self.snapped(self.ticks_at(canvas, p.x), modifiers.alt);
-                self.arrangement.menu_spot =
-                    Some((at.max(Ticks::ZERO), self.lane_track(&ctx, canvas, p)));
-                MenuFor::Lanes
-            };
-        }
-
-        // The H1 hover: which region is under the pointer, and what it does.
-        // Not while a menu is open: the hint would sit on it.
-        if self.arrangement.gesture.is_some() || egui::Popup::is_any_open(&ctx) {
-            return;
-        }
-        self.arrangement.hover = None;
-        let Some(p) = response.hover_pos() else {
-            return;
-        };
-        let Some(hit) = self.hit(&ctx, p, canvas) else {
-            // Empty lanes (M4 slice 0: what a drag does is in the info line,
-            // not by the pointer).
-            self.set_info(
-                Info::new("Lanes")
-                    .on(Held::NONE, Mouse::Drag, "select time")
-                    .on(Held::CTRL_SHIFT, Mouse::Drag, "select clips")
-                    .on(
-                        Held::NONE,
-                        Mouse::Click,
-                        if self.transport.state().playing {
-                            "clear selection"
-                        } else {
-                            "move the playhead"
-                        },
-                    )
-                    .on(Held::NONE, Mouse::RightClick, "menu")
-                    .key(Command::Paste, "paste"),
-            );
-            return;
-        };
-        self.arrangement.hover = Some(Hover::from(&hit));
-        if let Some(info) = self.handle_hover(&ctx, &hit) {
-            self.set_info(info);
-            return;
-        }
-        let Some(clip) = self
-            .document
-            .project()
-            .tracks
-            .get(hit.track)
-            .and_then(|t| t.clips.iter().find(|c| c.id == hit.clip))
-        else {
-            return;
-        };
-        let name = format!("\u{201C}{}\u{201D}", clip.name);
-        let slip = modifiers.command && modifiers.alt;
-        // The cursor shows what a drag does now; the info line says it all.
-        let (cursor, info) = match (hit.edge, hit.region) {
-            _ if clip.locked => (
-                CursorIcon::NotAllowed,
-                Info::new(format!("Locked clip {name}")).on(
-                    Held::NONE,
-                    Mouse::RightClick,
-                    "unlock it in the menu",
-                ),
-            ),
-            (Some(Edge::End), _) => (
-                if modifiers.shift {
-                    CursorIcon::ResizeEast
-                } else {
-                    CursorIcon::ResizeHorizontal
-                },
-                Info::new(format!("End of {name}"))
-                    .on(Held::NONE, Mouse::Drag, "trim")
-                    .on(Held::SHIFT, Mouse::Drag, "loop"),
-            ),
-            (Some(Edge::Start), _) => (
-                CursorIcon::ResizeHorizontal,
-                Info::new(format!("Start of {name}")).on(Held::NONE, Mouse::Drag, "trim"),
-            ),
-            (None, ClipRegion::Header) => (
-                if slip {
-                    CursorIcon::ResizeColumn
-                } else if modifiers.command {
-                    CursorIcon::Copy
-                } else {
-                    CursorIcon::Grab
-                },
-                Info::new(format!("Clip {name}"))
-                    .on(Held::NONE, Mouse::Drag, "move")
-                    .on(Held::NONE, Mouse::Click, "go to its start")
-                    .on(Held::CTRL, Mouse::Drag, "copy")
-                    .on(Held::CTRL_ALT, Mouse::Drag, "slip the audio")
-                    .key(Command::Duplicate, "duplicate")
-                    .key(Command::MuteClips, "mute")
-                    .key(Command::ClipProperties, "properties"),
-            ),
-            (None, ClipRegion::Body) => (
-                CursorIcon::Text,
-                Info::new(format!("Clip {name}, body"))
-                    .on(Held::NONE, Mouse::Drag, "select time")
-                    .on(Held::CTRL_SHIFT, Mouse::Drag, "select clips")
-                    .key(Command::LoopSelection, "loop the selection"),
-            ),
-        };
-        ctx.set_cursor_icon(cursor);
-        self.set_info(info);
-    }
-
-    fn hit(
+    pub(super) fn hit(
         &self,
         ctx: &egui::Context,
         p: Pos2,
@@ -347,7 +121,7 @@ impl App {
     }
 
     /// Whether `p` is inside the time range.
-    fn in_range(&self, ctx: &egui::Context, canvas: Rect, p: Pos2) -> bool {
+    pub(super) fn in_range(&self, ctx: &egui::Context, canvas: Rect, p: Pos2) -> bool {
         let Some(range) = &self.arrangement.range else {
             return false;
         };
@@ -362,19 +136,19 @@ impl App {
     }
 
     /// The track whose lane is at `p`, if any.
-    fn lane_track(&self, ctx: &egui::Context, canvas: Rect, p: Pos2) -> Option<Id> {
+    pub(super) fn lane_track(&self, ctx: &egui::Context, canvas: Rect, p: Pos2) -> Option<Id> {
         let project = self.document.project();
         let pending = self.lanes.pending().len();
         self.arrangement
             .track_at(ctx, project, pending, p.y - canvas.top())
     }
 
-    fn ticks_at(&self, canvas: Rect, x: f32) -> Ticks {
+    pub(super) fn ticks_at(&self, canvas: Rect, x: f32) -> Ticks {
         ruler::ticks_at(self.nav.view.beat_at(canvas.left(), x))
     }
 
     /// What a drag starting at `origin` does.
-    fn start_gesture(
+    pub(super) fn start_gesture(
         &mut self,
         ctx: &egui::Context,
         origin: Pos2,
@@ -458,7 +232,7 @@ impl App {
     /// What a drag from empty lane space does (ADR-0049): a time range from
     /// the press down to the pointer's track, or, with Ctrl+Shift, a marquee
     /// that keeps the clips already selected when Shift or Ctrl is held.
-    fn empty_lane_gesture(
+    pub(super) fn empty_lane_gesture(
         &mut self,
         ctx: &egui::Context,
         origin: Pos2,
@@ -490,7 +264,7 @@ impl App {
         Some(Gesture::Marquee { from: origin, kept })
     }
 
-    fn continue_gesture(
+    pub(super) fn continue_gesture(
         &mut self,
         ctx: &egui::Context,
         p: Pos2,
@@ -509,6 +283,16 @@ impl App {
         let x = |t: Ticks| self.nav.view.x(canvas.left(), t.as_quarters());
         let guides = Rect::from_x_y_ranges(canvas.x_range(), canvas.y_range());
         match gesture {
+            Gesture::Split { from, clips, .. } => {
+                let to = self.snapped(self.ticks_at(canvas, p.x), free);
+                self.arrangement.gesture = Some(Gesture::Split { from, to, clips });
+            }
+            Gesture::Zoom { from, .. } => {
+                let to = self.ticks_at(canvas, p.x);
+                self.arrangement.gesture = Some(Gesture::Zoom { from, to });
+            }
+            // Aimed and painted by `aim_draw`, which `clip_editing` calls.
+            Gesture::Draw { .. } => {}
             Gesture::Move {
                 base,
                 grabbed,
@@ -619,6 +403,42 @@ impl App {
         }
     }
 
+    /// Splits selected clips at `at`, or clips in the selected range at both edges.
+    pub(crate) fn split_at(&mut self, at: Ticks) {
+        let (clips, points) = if let Some(range) = &self.arrangement.range {
+            let clips = self
+                .document
+                .project()
+                .tracks
+                .iter()
+                .filter(|t| range.tracks.contains(&t.id))
+                .flat_map(|t| t.clips.iter())
+                .filter(|c| c.start < range.end && c.start + c.length > range.start)
+                .map(|c| c.id)
+                .collect::<Vec<_>>();
+            (clips, vec![range.start, range.end])
+        } else {
+            (self.arrangement.clips.iter().copied().collect(), vec![at])
+        };
+        if clips.is_empty() {
+            return;
+        }
+        let split = self.document.split_clips(&clips, &points);
+        if !split.is_empty() {
+            self.arrangement.clips = split.into_iter().collect();
+        }
+    }
+
+    pub(super) fn split_ids_at(&mut self, clips: &[Id], at: Ticks) {
+        if clips.is_empty() {
+            return;
+        }
+        let split = self.document.split_clips(clips, &[at]);
+        if !split.is_empty() {
+            self.arrangement.clips = split.into_iter().collect();
+        }
+    }
+
     /// Clips (or a range) were just selected: tracks and locators are not.
     pub(super) fn selected_clips_now(&mut self) {
         if !self.arrangement.clips.is_empty() {
@@ -637,11 +457,15 @@ impl App {
                 use Edit::{Copy, Cut, Delete, Duplicate};
                 self.edit_items(ui, &[Cut, Copy, Duplicate, Delete]);
                 ui.separator();
+                self.menu_command(ui, Command::SplitNotes, "Split");
+                ui.separator();
                 self.clip_menu(ui);
             }
             MenuFor::Range => {
                 use Edit::{Copy, Cut, Delete, DeleteTime, Duplicate, InsertTime, Paste};
                 self.edit_items(ui, &[Cut, Copy, Paste, Duplicate, Delete]);
+                ui.separator();
+                self.menu_command(ui, Command::SplitNotes, "Split at range edges");
                 ui.separator();
                 self.edit_items(ui, &[DeleteTime, InsertTime]);
             }

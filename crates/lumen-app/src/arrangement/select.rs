@@ -222,6 +222,17 @@ pub enum Gesture {
         y: f32,
         per_point: f32,
     },
+    /// The Split tool's press-and-aim gesture; the document changes on release.
+    Split {
+        from: Ticks,
+        to: Ticks,
+        clips: Vec<Id>,
+    },
+    /// Zoom tool's drag selection.
+    Zoom { from: Ticks, to: Ticks },
+    /// The Draw tool's press-and-drag on an empty MIDI lane: the clip's
+    /// length being aimed. The document changes on release.
+    Draw { track: Id, from: Ticks, to: Ticks },
 }
 
 /// A time range across neighbouring tracks, independent of clips (slice
@@ -451,6 +462,26 @@ impl Arrangement {
             .map_or(Some(last.0), |(i, _)| Some(*i))
     }
 
+    /// Where track `id`'s clip lane is on screen: the top and bottom of its
+    /// clips' height, if the track has a row in view.
+    pub(crate) fn lane_span(
+        &self,
+        ctx: &egui::Context,
+        project: &Project,
+        pending: usize,
+        canvas: Rect,
+        id: Id,
+    ) -> Option<(f32, f32)> {
+        let index = project.tracks.iter().position(|t| t.id == id)?;
+        self.rows(ctx, project, pending)
+            .into_iter()
+            .find(|r| r.zone == Zone::Main && r.kind == RowKind::Track(index))
+            .map(|row| {
+                let top = canvas.top() + row.y - self.top;
+                (top + INSET, top + row.height - INSET)
+            })
+    }
+
     /// What `clips` are, picked up for a drag.
     pub fn grab(project: &Project, clips: &BTreeSet<Id>) -> Vec<Grabbed> {
         let mut out = Vec::new();
@@ -573,7 +604,9 @@ mod tests {
                     fade_in: Default::default(),
                     fade_out: Default::default(),
                     loop_length: None,
+                    loop_phase: Default::default(),
                     envelopes: Default::default(),
+                    audio_phase_seconds: 0.0,
                     content: ClipContent::midi(),
                 }));
             }

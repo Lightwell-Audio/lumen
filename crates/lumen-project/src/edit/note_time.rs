@@ -29,7 +29,12 @@ pub fn content_length(clip: &Clip) -> Ticks {
 /// so plays and shows: from the clip's start to the end of its content (or
 /// of the clip, when that is shorter).
 pub fn in_window(clip: &Clip, start: Ticks) -> bool {
-    start >= Ticks::ZERO && start < content_length(clip).min(clip.length)
+    if let Some(period) = clip.loop_length.filter(|p| p.0 > 0) {
+        let phase = clip.loop_phase.0.rem_euclid(period.0);
+        start.0 >= 0 && start < period && (start.0 - phase).rem_euclid(period.0) < clip.length.0
+    } else {
+        start >= Ticks::ZERO && start < clip.length
+    }
 }
 
 /// The indices of the notes in the clip's window (see [`in_window`]): what
@@ -51,23 +56,29 @@ pub fn to_clip_time(clip: &Clip, t: Ticks) -> Option<(Ticks, u32)> {
         return None;
     }
     let content = content_length(clip);
+    let phase = Ticks(clip.loop_phase.0.rem_euclid(content.0));
+    let source = local + phase;
     Some((
-        Ticks(local.0 % content.0),
-        u32::try_from(local.0 / content.0).unwrap_or(u32::MAX),
+        Ticks(source.0 % content.0),
+        u32::try_from(source.0 / content.0).unwrap_or(u32::MAX),
     ))
 }
 
 /// The arrangement time of clip time `local` in repeat `repeat` (0 is the
 /// clip's own content).
 pub fn to_arrangement(clip: &Clip, local: Ticks, repeat: u32) -> Ticks {
-    clip.start + Ticks(content_length(clip).0 * i64::from(repeat)) + local
+    let content = content_length(clip).0;
+    let phase = clip.loop_phase.0.rem_euclid(content);
+    let first = (local.0 - phase).rem_euclid(content);
+    clip.start + Ticks(first + content * i64::from(repeat))
 }
 
 /// How many repeats show in the clip: 1 for one that does not loop, counting
 /// a partial last repeat.
 pub fn repeats(clip: &Clip) -> u32 {
     let content = content_length(clip).0.max(1);
-    u32::try_from((clip.length.0 + content - 1) / content)
+    let phase = clip.loop_phase.0.rem_euclid(content);
+    u32::try_from((clip.length.0 + phase + content - 1) / content)
         .unwrap_or(u32::MAX)
         .max(1)
 }
@@ -76,8 +87,18 @@ pub fn repeats(clip: &Clip) -> u32 {
 /// it but in the last repeat).
 pub fn shown(clip: &Clip, repeat: u32) -> Ticks {
     let content = content_length(clip);
-    let used = Ticks(content.0 * i64::from(repeat));
-    (clip.length - used).clamp(Ticks::ZERO, content)
+    let phase = clip.loop_phase.0.rem_euclid(content.0.max(1));
+    let used = if repeat == 0 {
+        0
+    } else {
+        content.0 - phase + content.0 * (i64::from(repeat) - 1)
+    };
+    let visible = (clip.length.0 - used).clamp(0, content.0);
+    Ticks(if repeat == 0 {
+        visible.min(content.0 - phase)
+    } else {
+        visible
+    })
 }
 
 #[cfg(test)]
@@ -97,6 +118,8 @@ mod tests {
             fade_in: Default::default(),
             fade_out: Default::default(),
             loop_length: looping.map(Ticks::quarters),
+            loop_phase: Default::default(),
+            audio_phase_seconds: 0.0,
             envelopes: Default::default(),
             content: ClipContent::midi(),
         }
@@ -120,6 +143,21 @@ mod tests {
     }
 
     #[test]
+    fn a_short_phased_loop_exposes_the_source_notes_that_actually_start_in_its_window() {
+        let mut c = clip(8, 1, Some(4));
+        c.loop_phase = Ticks::quarters(2);
+        assert!(in_window(&c, Ticks::quarters(2)));
+        assert!(!in_window(&c, Ticks::ZERO));
+        assert!(!in_window(&c, Ticks::quarters(3)));
+        c.loop_phase = Ticks::quarters(3) + Ticks(Ticks::quarters(1).0 / 2);
+        assert!(
+            in_window(&c, Ticks::ZERO),
+            "the visible window wraps into the next cycle"
+        );
+        assert!(!in_window(&c, Ticks::quarters(1)));
+    }
+
+    #[test]
     fn a_looping_clip_repeats_its_content() {
         let c = clip(8, 10, Some(4));
         assert_eq!(content_length(&c), Ticks::quarters(4));
@@ -135,6 +173,31 @@ mod tests {
             Ticks::quarters(17)
         );
         // The round trip.
+        let t = Ticks::quarters(13) + Ticks(5);
+        let (local, repeat) = to_clip_time(&c, t).unwrap();
+        assert_eq!(to_arrangement(&c, local, repeat), t);
+    }
+
+    #[test]
+    fn a_phased_loop_starts_inside_the_source_repeat_and_round_trips() {
+        let mut c = clip(8, 6, Some(4));
+        c.loop_phase = Ticks::quarters(2);
+        assert_eq!(
+            to_clip_time(&c, Ticks::quarters(8)),
+            Some((Ticks::quarters(2), 0))
+        );
+        assert_eq!(
+            to_clip_time(&c, Ticks::quarters(10)),
+            Some((Ticks::ZERO, 1))
+        );
+        assert_eq!(repeats(&c), 2);
+        assert_eq!(shown(&c, 0), Ticks::quarters(2));
+        assert_eq!(shown(&c, 1), Ticks::quarters(4));
+        assert_eq!(
+            to_arrangement(&c, Ticks::quarters(1), 0),
+            Ticks::quarters(11),
+            "source time before the phase appears after the first wrap"
+        );
         let t = Ticks::quarters(13) + Ticks(5);
         let (local, repeat) = to_clip_time(&c, t).unwrap();
         assert_eq!(to_arrangement(&c, local, repeat), t);

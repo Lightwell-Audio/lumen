@@ -39,6 +39,9 @@ use std::collections::HashMap;
 use lumen_core::curve::Curve;
 use lumen_core::time::Ticks;
 
+mod seams;
+use seams::{envelopes_meet, fades_meet, resolve as set_seams, source_meets};
+
 use crate::envelope::{ClipEnvelope, EnvelopeGains};
 use crate::mixer::{BUS_CHANNELS, Buses, TrackSource};
 use crate::source::{Jump, Mode, RenderContext};
@@ -107,11 +110,17 @@ pub struct ClipShape {
     pub fade_out: FadeFrames,
     /// The content repeats every `period` frames from the clip's start.
     pub period: Option<i64>,
+    /// Position within the repeated source when this clip begins.
+    pub phase: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct FadeFrames {
     pub frames: i64,
+    /// Position within the fade's original curve window.
+    pub offset: i64,
+    /// Original fade curve window in frames; zero keeps legacy `frames` behavior.
+    pub span: i64,
     /// From silence to full; a fade out plays it backwards.
     pub curve: Curve,
 }
@@ -119,6 +128,20 @@ pub struct FadeFrames {
 /// A clip's fade in and fade out tables, when it has fades.
 #[derive(Clone, Default)]
 struct Fades([Option<Table>; 2]);
+
+/// Precomputed edge state for one clip in a contiguous split chain.
+#[derive(Clone, Copy, Default)]
+struct Seam {
+    edges: [bool; 2],
+    lead: i64,
+    total: i64,
+}
+
+#[derive(Clone, Copy)]
+struct ClipRender<'a> {
+    fades: &'a Fades,
+    seam: Seam,
+}
 
 /// The level `x` (0 to 1) of the way through `table`.
 #[inline]
@@ -145,14 +168,22 @@ impl ClipShape {
         if pos < fade_in
             && let Some(table) = &fades.0[0]
         {
-            gain *= read(table, (pos as f32 + 0.5) / fade_in as f32);
+            let span = self.fade_in.span.max(fade_in);
+            gain *= read(
+                table,
+                (pos as f32 + self.fade_in.offset as f32 + 0.5) / span as f32,
+            );
         }
         let fade_out = self.fade_out.frames;
         let left = length - pos;
         if left <= fade_out
             && let Some(table) = &fades.0[1]
         {
-            gain *= read(table, (left as f32 - 0.5) / fade_out as f32);
+            let span = self.fade_out.span.max(fade_out);
+            gain *= read(
+                table,
+                (left as f32 + self.fade_out.offset as f32 - 0.5) / span as f32,
+            );
         }
         gain
     }
@@ -174,6 +205,17 @@ struct ClipSet {
     swapped: Vec<bool>,
     /// Per clip, its fade tables.
     fades: Vec<Fades>,
+    /// Candidate touching pairs, ordered by track and timeline start. Built
+    /// with the list off the audio thread; `seams` is resolved per block as
+    /// tempo changes can alter the sample distance between clip starts.
+    adjacent: Vec<(usize, usize)>,
+    /// Whether the artificial clip-edge dip is suppressed at each edge.
+    seams: Vec<[bool; 2]>,
+    /// Frames already elapsed through the first clip's outer fade in a
+    /// verified contiguous split chain.
+    seam_lead: Vec<i64>,
+    seam_total: Vec<i64>,
+    seam_root: Vec<usize>,
 }
 
 impl ClipSet {
@@ -203,10 +245,32 @@ impl ClipSet {
             .iter()
             .map(|c| Fades([table(&c.shape.fade_in), table(&c.shape.fade_out)]))
             .collect();
+        let mut order: Vec<usize> = (0..clips.len()).collect();
+        order.sort_unstable_by_key(|&i| (clips[i].track, clips[i].start));
+        let adjacent = order
+            .windows(2)
+            .filter_map(|pair| {
+                let (a, b) = (pair[0], pair[1]);
+                let left = &clips[a];
+                let right = &clips[b];
+                (left.track == right.track
+                    && Arc::ptr_eq(&left.audio, &right.audio)
+                    && source_meets(left, right)
+                    && left.gain == right.gain
+                    && envelopes_meet(left, right)
+                    && fades_meet(left, right))
+                .then_some((a, b))
+            })
+            .collect();
         Self {
             levels: vec![f32::NAN; clips.len()],
             swapped: vec![false; clips.len()],
             fades,
+            adjacent,
+            seams: vec![[false; 2]; clips.len()],
+            seam_lead: vec![0; clips.len()],
+            seam_total: clips.iter().map(|c| c.length).collect(),
+            seam_root: (0..clips.len()).collect(),
             clips,
             by_id,
         }
@@ -390,13 +454,14 @@ impl Ramp {
 /// not move it.
 fn play(
     clip: &Clip,
-    fades: &Fades,
     kept: &mut f32,
     cx: &RenderContext<'_>,
     work: &mut Work<'_>,
     ramp: Ramp,
+    render: ClipRender<'_>,
     buses: &mut Buses<'_>,
 ) {
+    let ClipRender { fades, seam } = render;
     let Work { block, gains } = work;
     let rate = cx.sample_rate;
     if clip.audio.sample_rate != rate || clip.length <= 0 {
@@ -439,7 +504,10 @@ fn play(
     if enveloped {
         gains.fill(
             &clip.envelope,
-            (start, clip.shape.period.filter(|p| *p > 0)),
+            (
+                start - clip.shape.phase,
+                clip.shape.period.filter(|p| *p > 0),
+            ),
             (block.from, a, b),
             rate,
         );
@@ -458,6 +526,9 @@ fn play(
             edge: block.edge,
             fades,
             env: enveloped.then(|| gains.side(side)),
+            seamless: seam.edges,
+            seam_lead: seam.lead,
+            seam_total: seam.total,
         };
         // Mono plays on both sides; extra channels are ignored.
         let samples = &clip.audio.channels[side.min(sources - 1)];
@@ -494,6 +565,12 @@ struct Placement<'a> {
     /// The envelope gains for this side, indexed by the frame's place in the
     /// block; none for a clip without an envelope.
     env: Option<&'a [f32]>,
+    /// Suppress only the artificial 2 ms edge dip at verified split seams.
+    seamless: [bool; 2],
+    /// Position in the first clip's preserved outer edge fade.
+    seam_lead: i64,
+    /// Full contiguous span used to avoid shortening its edge fade.
+    seam_total: i64,
 }
 
 /// Adds `clip`'s audio at `gain` for the timeline samples `frames` into
@@ -515,7 +592,21 @@ fn mix(
         else {
             continue;
         };
-        target[(t - at.from) as usize] += sample * gain * edge_gain(pos, clip.length, at.edge);
+        let edge_cap = if at.seamless[0] || at.seamless[1] {
+            at.seam_total
+        } else {
+            clip.length
+        };
+        target[(t - at.from) as usize] += sample
+            * gain
+            * edge_gain(
+                pos,
+                clip.length,
+                edge_cap,
+                at.edge,
+                at.seamless,
+                at.seam_lead,
+            );
     }
 }
 
@@ -533,12 +624,18 @@ fn mix_shaped(
     let shape = &clip.shape;
     for t in frames {
         let pos = t - at.start;
-        let (inner, span) = match shape.period {
+        let (inner, span, repeat, looping) = match shape.period {
             Some(period) if period > 0 => {
-                let repeat = pos.div_euclid(period) * period;
-                (pos - repeat, period.min(clip.length - repeat))
+                let progressed = pos + clip.shape.phase;
+                let repeat = progressed.div_euclid(period) * period;
+                (
+                    progressed - repeat,
+                    period.min(clip.length + clip.shape.phase - repeat),
+                    repeat,
+                    true,
+                )
             }
-            _ => (pos, clip.length),
+            _ => (pos, clip.length, 0, false),
         };
         let Some(&sample) = usize::try_from(clip.offset + inner)
             .ok()
@@ -546,7 +643,16 @@ fn mix_shaped(
         else {
             continue;
         };
-        let shaped = edge_gain(inner, span, at.edge) * shape.fade_gain(at.fades, pos, clip.length);
+        let seamless = if looping {
+            [
+                false,
+                at.seamless[1] && repeat + span >= clip.length + clip.shape.phase,
+            ]
+        } else {
+            at.seamless
+        };
+        let shaped = edge_gain(inner, span, span, at.edge, seamless, at.seam_lead)
+            * shape.fade_gain(at.fades, pos, clip.length);
         let slot = (t - at.from) as usize;
         let env = at.env.map_or(1.0, |e| e[slot]);
         target[slot] += sample * gain * shaped * env;
@@ -554,13 +660,31 @@ fn mix_shaped(
 }
 
 /// The edge fade for frame `pos` of a clip `length` frames long.
-fn edge_gain(pos: i64, length: i64, edge: i64) -> f32 {
-    let edge = edge.min(length / 2).max(1);
-    let from_start = (pos + 1).min(edge);
-    let to_end = (length - pos).min(edge);
+fn edge_gain(
+    pos: i64,
+    length: i64,
+    edge_span: i64,
+    edge: i64,
+    seamless: [bool; 2],
+    seam_lead: i64,
+) -> f32 {
+    let edge = edge.min(edge_span / 2).max(1);
+    let from_start = if seamless[0] {
+        (pos + seam_lead + 1).min(edge)
+    } else {
+        (pos + 1).min(edge)
+    };
+    let to_end = if seamless[1] {
+        edge
+    } else {
+        (length - pos).min(edge)
+    };
     (from_start.min(to_end) as f32 / edge as f32).min(1.0)
 }
 
+/// Resolves candidate split seams against this block's tempo map. This is a
+/// bounded linear pass over metadata built off the audio thread and allocates
+/// nothing. Locate and loop declick remain owned by the engine transport.
 impl ClipPlayer {
     /// Takes a new clip list if one arrived and no crossfade is running.
     /// With `fade`, clips that moved crossfade into it. Real-time safe.
@@ -641,6 +765,7 @@ impl TrackSource for ClipPlayer {
             edge: i64::from(fade_length(rate)),
             glide: GLIDE_PER_SECOND / rate as f32,
         };
+        set_seams(&mut self.current, cx);
         let crossfade = self.swap.as_mut().map(|swap| {
             if swap.length == 0 {
                 swap.length = i64::from((rate / SWAP_PER_SECOND).max(1));
@@ -661,19 +786,42 @@ impl TrackSource for ClipPlayer {
                 _ => Ramp::Steady,
             };
             let (clip, fades) = (&set.clips[i], &set.fades[i]);
-            play(clip, fades, &mut set.levels[i], cx, &mut work, ramp, out);
+            play(
+                clip,
+                &mut set.levels[i],
+                cx,
+                &mut work,
+                ramp,
+                ClipRender {
+                    fades,
+                    seam: Seam {
+                        edges: set.seams[i],
+                        lead: set.seam_lead[i],
+                        total: set.seam_total[i],
+                    },
+                },
+                out,
+            );
         }
         if let (Some(swap), Some(x)) = (self.swap.as_mut(), crossfade) {
+            set_seams(&mut swap.old, cx);
             let old = &mut *swap.old;
             for i in (0..old.clips.len()).filter(|&i| old.swapped[i]) {
                 let (clip, fades) = (&old.clips[i], &old.fades[i]);
                 play(
                     clip,
-                    fades,
                     &mut old.levels[i],
                     cx,
                     &mut work,
                     Ramp::Out(x),
+                    ClipRender {
+                        fades,
+                        seam: Seam {
+                            edges: old.seams[i],
+                            lead: old.seam_lead[i],
+                            total: old.seam_total[i],
+                        },
+                    },
                     out,
                 );
             }
@@ -707,12 +855,20 @@ mod tests {
 
     #[test]
     fn edges_fade_over_the_edge_length() {
-        assert_eq!(edge_gain(0, 1_000, 10), 0.1);
-        assert_eq!(edge_gain(9, 1_000, 10), 1.0);
-        assert_eq!(edge_gain(500, 1_000, 10), 1.0);
-        assert_eq!(edge_gain(999, 1_000, 10), 0.1);
+        assert_eq!(edge_gain(0, 1_000, 1_000, 10, [false; 2], 0), 0.1);
+        assert_eq!(edge_gain(9, 1_000, 1_000, 10, [false; 2], 0), 1.0);
+        assert_eq!(edge_gain(500, 1_000, 1_000, 10, [false; 2], 0), 1.0);
+        assert_eq!(edge_gain(999, 1_000, 1_000, 10, [false; 2], 0), 0.1);
         // Short clips use half their length.
-        assert_eq!(edge_gain(1, 4, 10), 1.0);
-        assert_eq!(edge_gain(0, 4, 10), 0.5);
+        assert_eq!(edge_gain(1, 4, 4, 10, [false; 2], 0), 1.0);
+        assert_eq!(edge_gain(0, 4, 4, 10, [false; 2], 0), 0.5);
+        assert_eq!(edge_gain(0, 1_000, 1_000, 10, [true, false], 10), 1.0);
+        assert_eq!(edge_gain(999, 1_000, 1_000, 10, [false, true], 0), 1.0);
+        // A split 24 frames into the outer 96-frame fade carries the
+        // remaining fade into the second piece instead of snapping to unity.
+        assert_eq!(
+            edge_gain(0, 1_000, 1_000, 96, [true, false], 24),
+            25.0 / 96.0
+        );
     }
 }

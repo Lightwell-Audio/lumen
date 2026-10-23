@@ -95,8 +95,9 @@ fn touch_writes_while_a_fader_is_held_and_hands_the_lane_back_when_it_is_let_go(
     assert_eq!(lane_points(&lumen, track), before);
 
     let_go(&mut lumen, at);
-    lumen.frames(5);
-    assert!(!lumen.app().recording_automation(track, Target::Volume));
+    lumen.wait_for("the pass to end", |app| {
+        !app.recording_automation(track, Target::Volume)
+    });
     let written = lane_points(&lumen, track);
     assert!(written.len() >= 3, "{written:?}");
     let highest = written.iter().map(|p| p.1).fold(f32::MIN, f32::max);
@@ -135,8 +136,9 @@ fn latch_goes_on_writing_after_the_hand_is_gone_until_stop() {
         app.playhead() > released_at + Ticks::quarters(1)
     });
     lumen.key(Modifiers::NONE, Key::Space);
-    lumen.frames(5);
-    assert!(!lumen.app().recording_automation(track, Target::Volume));
+    lumen.wait_for("the pass to end", |app| {
+        !app.recording_automation(track, Target::Volume)
+    });
     let written = lane_points(&lumen, track);
     let last = written.last().unwrap();
     assert!(last.0 > released_at, "written to the stop: {written:?}");
@@ -171,8 +173,9 @@ fn write_overwrites_the_lane_with_the_control_from_where_playing_began() {
     assert!(near(heard, TONE), "the control's own level: {heard}");
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("the stop", |app| !app.is_playing());
-    lumen.frames(5);
-    assert!(!lumen.app().recording_automation(track, Target::Volume));
+    lumen.wait_for("the pass to end", |app| {
+        !app.recording_automation(track, Target::Volume)
+    });
     let written = lane_points(&lumen, track);
     assert_eq!(
         written.iter().map(|p| p.1).fold(f32::MIN, f32::max),
@@ -294,8 +297,9 @@ fn a_plugin_gesture_is_recorded_from_its_begin_to_its_end() {
     lumen
         .app_mut()
         .pretend_plugin_edits(FX, &[(LEVEL, 0.8, "end")]);
-    lumen.frames(4);
-    assert!(!lumen.app().recording_automation(KEYS, target));
+    lumen.wait_for("the pass to end", |app| {
+        !app.recording_automation(KEYS, target)
+    });
     let written: Vec<f32> = lumen
         .app()
         .project()
@@ -398,8 +402,9 @@ fn a_touch_on_a_control_with_no_lane_yet_returns_to_where_the_control_rested() {
     let held = peak(&mut lumen);
     assert!(held > rest * 1.2, "the hand is heard: {held} over {rest}");
     let_go(&mut lumen, at);
-    lumen.frames(20);
-    assert!(!lumen.app().recording_automation(track, Target::Volume));
+    lumen.wait_for("the pass to end", |app| {
+        !app.recording_automation(track, Target::Volume)
+    });
     let written = lane_points(&lumen, track);
     assert_eq!(
         written.first(),
@@ -454,8 +459,9 @@ fn a_long_pass_is_kept_in_the_project_as_it_goes_and_is_still_one_undo_step() {
     );
 
     lumen.key(Modifiers::NONE, Key::Space);
-    lumen.frames(5);
-    assert!(!lumen.app().recording_automation(track, Target::Volume));
+    lumen.wait_for("the pass to end", |app| {
+        !app.recording_automation(track, Target::Volume)
+    });
     assert!(
         !lumen.app().lane_taken_over(track, Target::Volume),
         "the finished pass hands the lane back"

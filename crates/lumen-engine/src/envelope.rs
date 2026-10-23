@@ -26,6 +26,29 @@ impl ClipEnvelope {
     pub fn is_empty(&self) -> bool {
         self.gain.is_none() && self.pan.is_none()
     }
+
+    /// Whether the baked source lanes are the same across a split, evaluated
+    /// off the audio thread. Exact translated knots keep curved segments and
+    /// their shapes intact; approximate boundary values are not sufficient.
+    pub(crate) fn meets(&self, other: &Self, left_frames: i64) -> bool {
+        fn translated(left: &AutoLane, right: &AutoLane, by: i64) -> bool {
+            left.points().len() == right.points().len()
+                && left.points().iter().zip(right.points()).all(|(a, b)| {
+                    a.at.checked_sub(by) == Some(b.at) && a.value == b.value && a.shape == b.shape
+                })
+        }
+        let gain = match (&self.gain, &other.gain) {
+            (None, None) => true,
+            (Some(a), Some(b)) => translated(a, b, left_frames),
+            _ => false,
+        };
+        let pan = match (&self.pan, &other.pan) {
+            (None, None) => true,
+            (Some((a, law_a)), Some((b, law_b))) if law_a == law_b => translated(a, b, left_frames),
+            _ => false,
+        };
+        gain && pan
+    }
 }
 
 /// The gains of the clip being played, for each side of its bus, over the

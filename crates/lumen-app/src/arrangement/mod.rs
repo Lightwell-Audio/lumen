@@ -217,6 +217,11 @@ pub struct OutputNote {
 
 #[derive(Debug, Default)]
 pub struct Arrangement {
+    /// The global arrangement tool (M7b E0).
+    pub(crate) tool: crate::app::tools::ArrangementTool,
+    /// A lane press or explicit tool choice gives B to the arrangement;
+    /// opening a MIDI editor gives it back to that editor.
+    pub(crate) tool_keys: bool,
     /// Vertical scroll, in points.
     pub top: f32,
     /// What each track that plays a plugin's output says of it, by track

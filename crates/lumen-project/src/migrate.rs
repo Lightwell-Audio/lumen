@@ -21,7 +21,7 @@ pub const FIRST_VERSION: u64 = 1;
 pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
     v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16, v16_to_v17, v17_to_v18,
-    v18_to_v19, v19_to_v20, v20_to_v21, v21_to_v22, v22_to_v23, v23_to_v24, v24_to_v25,
+    v18_to_v19, v19_to_v20, v20_to_v21, v21_to_v22, v22_to_v23, v23_to_v24, v24_to_v25, v25_to_v26,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -428,6 +428,12 @@ fn v24_to_v25(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
+/// v26 (M7b E0) adds source phase to clips and a window into a fade curve for
+/// slices. The phases and fade windows default to legacy zero/full behavior.
+fn v25_to_v26(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
 /// The highest id written anywhere in `document` (every `"id"` field).
 fn highest_id(document: &Value) -> Result<u64, String> {
     fn walk(value: &Value, highest: &mut u64) -> Result<(), String> {
@@ -534,6 +540,35 @@ mod tests {
     fn unknown_versions_have_no_path() {
         assert!(upgrade(json!({}), 0, 1, HISTORY).is_err());
         assert!(upgrade(json!({}), 4, 1, HISTORY).is_err());
+    }
+
+    #[test]
+    fn v25_to_v26_keeps_existing_clips_legacy_defaults() {
+        let v25 = json!({"version":25,"project":{"tracks":[{"clips":[{
+            "loop_length": 100, "fade_in":{"length":20}, "fade_out":{"length":30}
+        }]}]}});
+        let v26 = upgrade(v25, 25, FIRST_VERSION, MIGRATIONS).unwrap();
+        assert_eq!(v26["version"], json!(26));
+        assert!(
+            v26["project"]["tracks"][0]["clips"][0]
+                .get("loop_phase")
+                .is_none()
+        );
+        assert!(
+            v26["project"]["tracks"][0]["clips"][0]
+                .get("audio_phase_seconds")
+                .is_none()
+        );
+        assert!(
+            v26["project"]["tracks"][0]["clips"][0]["fade_in"]
+                .get("offset")
+                .is_none()
+        );
+        assert!(
+            v26["project"]["tracks"][0]["clips"][0]["fade_in"]
+                .get("span")
+                .is_none()
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Lumen — Architecture
 
-**As built:** M7 slice A8 (2026-10-22; format v25). Before it: M7 slice A7 (2026-10-21; format v25) and M6 slice 7 (2026-10-18; format v21). The decision records in
+**As built:** M7b E0 (2026-10-22; format v26): arrangement tools and source-preserving split windows (ADR-0092). Before it: M7 slice A8 (2026-10-22; format v25). Before it: M7 slice A7 (2026-10-21; format v25) and M6 slice 7 (2026-10-18; format v21). The decision records in
 `docs/DECISIONS.md` hold the reasoning and the evidence. This page shows
 how the parts fit.
 
@@ -43,7 +43,7 @@ and `midi/capture.rs` distinguishes first loop entry from a real wrap.
 | Design system | Semantic colour tokens (dark and light), type, spacing and motion, in `theme.rs`, `motion.rs` and `fonts.rs`; spec in `docs/DESIGN.md` | ADR-0023 |
 | Real-time engine | Allocation-free, block-size-invariant; transport, tempo and meter maps, declick crossfades, clip player, MIDI player and the built-in instruments, the mixer graph (a plan compiled on the UI side), metronome | ADR-0003, 0017, 0019, 0020, 0035, 0045 |
 | Audio devices | Lumen's own backend layer: native ASIO over COM, WASAPI shared and exclusive, cpal for macOS and Linux; a supervisor that recovers from loss, resets and sleep | ADR-0006, 0016, 0021 |
-| Projects | Folder with versioned JSON (format v22; lanes of automation on a track; hidden captured MIDI notes carry seam provenance), migrations over untyped JSON, atomic saves, rolling backups, relative media paths | ADR-0004, 0064 |
+| Projects | Folder with versioned JSON (format v26; loop source phase and partial fade windows; automation and hidden captured MIDI provenance retained), migrations over untyped JSON, atomic saves, rolling backups, relative media paths | ADR-0004, 0064 |
 | Undo | Shared snapshots: tracks and clips in `Arc`, every step a cheap copy | ADR-0024 |
 | Time | Integer ticks at 1,411,200 PPQ, with one rounding rule to samples; MIDI searches sample-expanded tick bounds and assigns events by their exact sample, including at a block's start | ADR-0009, 0062 follow-up |
 | Plugins (M6) | `vst3` crate bindings, sandboxed host processes (`lumen-plugin-host`: module loading, a bounded versioned protocol, stale-block rejection, a shared-memory audio path), out-of-process scanning (a child per module with a deadline, a cache keyed by file stamp, a blocked list with reasons: `lumen-plugin-catalog`) | ADR-0005, 0066, 0067, 0068, 0071 |
@@ -130,3 +130,28 @@ for shutdown; the shared region's quit setter is internal.
   inline.
 - User-visible strings come from `lumen_core::product` where they name the
   product.
+
+
+### M7b E0 source windows (ADR-0092)
+
+- `lumen-project::edit::split::clips`: pure clip/range-edge splitting;
+  `edit/windows.rs`: slicing and partial fade windows; `document/split.rs`:
+  one history step and fresh IDs. Format v26 has an identity migration over
+  older JSON (new fields default to the old behavior) and a frozen golden.
+- `lumen-core::fade::Fade`: visible length plus original curve offset/span.
+  A newly drawn fade resets the source window. `Clip.loop_phase` retains
+  elapsed ticks from a loop's source origin, not just a remainder.
+  `Clip.audio_phase_seconds` preserves nonloop source time without rounding
+  through the native sample rate; the adapter differences absolute device
+  sample positions, including clips with nonzero arrangement starts.
+- `lumen-engine::clips::seams`: source-neighbor eligibility off the audio
+  thread, sample-clock adjacency on it; preallocated outer-edge state keeps
+  short pieces from shortening the source's edge fade. The engine's
+  `ClipShape.phase` and `FadeFrames.offset/span` are device sample positions.
+- `lanes.rs`: converts source phase and fade windows through the tempo map,
+  bakes complete envelope knots so a split does not approximate a curved
+  segment, and retains the original loop clock across tempo changes.
+- `midi_runs.rs`: contiguous source-loop pieces share a run; a phased run
+  begins with a source fragment and then full repeats, retaining sustain
+  seams. `midi_export.rs` bakes that same phase; `piano_roll/notes.rs` and
+  `arrangement/waves.rs` show the source windows that play.

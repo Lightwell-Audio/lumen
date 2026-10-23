@@ -28,6 +28,15 @@ pub struct Clip {
     /// start, for as long as the clip lasts (loop-extend).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loop_length: Option<Ticks>,
+    /// Elapsed tick offset from the source loop's origin at this clip start
+    /// (format v26); consumers wrap it by `loop_length` for source lookup.
+    #[serde(default, skip_serializing_if = "ticks_are_zero")]
+    pub loop_phase: Ticks,
+    /// Elapsed source seconds from the integer media offset (format v26).
+    /// Signed so a start trim can reveal earlier source frames. Looped clips
+    /// use `loop_phase` for their repeated source position.
+    #[serde(default, skip_serializing_if = "seconds_are_zero")]
+    pub audio_phase_seconds: f64,
     /// Gain and pan envelopes of an audio clip (format v25), measured from
     /// the clip's start. Written only when there are some.
     #[serde(default, skip_serializing_if = "ClipEnvelopes::is_empty")]
@@ -35,12 +44,21 @@ pub struct Clip {
     pub content: ClipContent,
 }
 
+fn ticks_are_zero(ticks: &Ticks) -> bool {
+    *ticks == Ticks::ZERO
+}
+
+fn seconds_are_zero(seconds: &f64) -> bool {
+    *seconds == 0.0
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClipContent {
     Audio {
         media: Id,
-        /// First sample of the media file played at clip start.
+        /// Integer source-frame anchor (format v26); `Clip.audio_phase_seconds`
+        /// gives the elapsed source time from this frame to the clip start.
         offset: i64,
         gain_db: f32,
     },

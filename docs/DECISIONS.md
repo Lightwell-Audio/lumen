@@ -103,6 +103,7 @@ irreversible or external) · *Superseded*.
 | [0089](#adr-0089--tempo-and-meter-lanes-and-the-time-signature-map-m7-slice-a6) | Tempo and meter lanes, and the time-signature map (M7 slice A6) | Accepted 2026-10-21 | — |
 | [0090](#adr-0090--clip-envelopes-and-automation-that-follows-clips-m7-slice-a7) | Clip envelopes, and automation that follows clips (M7 slice A7) | Accepted 2026-10-21 | — |
 | [0091](#adr-0091--the-end-of-m7-reviews-fixes-a-project-swap-forgets-a-pass-is-written-in-parts-m7-slice-a8) | The end-of-M7 review's fixes: a project swap forgets, a pass is written in parts (M7 slice A8) | Accepted 2026-10-22 | — |
+| [0092](#adr-0092--arrangement-tools-and-source-preserving-cuts-m7b-e0) | Arrangement tools and source-preserving cuts (M7b E0) | Accepted 2026-10-22; owner's K1 | No |
 
 ---
 
@@ -8271,3 +8272,63 @@ ends a control waiting to learn. Mutation checked: without `forget_passes` the t
 `commit_passes` the two M1 scenarios fail; without the history exemption the undo scenario fails. The splits:
 the workspace tests and the 598 E2E pass unchanged. **Not run:** the WSL and performance gates (the audio path is
 untouched), RealtimeSanitizer, a real device or controller (MT-AUTO-10 is the owner's).
+
+
+## ADR-0092 — Arrangement tools and source-preserving cuts (M7b E0)
+
+**Status:** Accepted · **Date:** 2026-10-22. Branch: `m7b-s0-tools-split`,
+from `origin/main` after M7 merged. The owner asked to start M7b; its K1
+behavior and switch had already been chosen on 2026-10-19.
+
+**Context.** Clip splitting reused source-window edits, but a cut restarted
+a repeat, cropped a long fade into a different curve, and introduced two
+artificial 2 ms edge fades. M7's gain and pan envelopes also have to survive
+a cut. The existing Ctrl+E command applied only to notes.
+
+**Choice.**
+
+- Six session tools live on the arrangement: Pointer, Draw, Erase, Split,
+  Mute and Zoom. A compact switch above the headers and six palette commands
+  choose them. B keeps its existing editor context and toggles arrangement
+  Pointer/Draw otherwise; Escape cancels an arrangement gesture and returns
+  to Pointer. No additional single-letter shortcuts or new assets.
+- A Split drag captures its targets at the press, previews the snapped cut
+  (Alt bypasses snapping), and changes the document only at release. A click
+  cuts at once. Ctrl+E cuts selected clips at the transport position (the
+  stopped edit position or the moving playhead), or both edges of a selected
+  time range. Notes retain their existing contextual Ctrl+E behavior. The
+  stable command identifier `midi.split_notes` remains for saved keymaps.
+- `edit::split::clips` is the pure transformation; `Document::split_clips`
+  wraps the entire operation in one history step. First parts keep their
+  original IDs, later parts receive fresh IDs. Locked clips and boundary
+  cuts remain unchanged. Source data and hidden MIDI remain available.
+- Format **v26** adds `Clip.loop_phase`, `Clip.audio_phase_seconds`, and the `offset`/`span` of a partial
+  `Fade`. Phase is elapsed ticks since the source loop's origin, accumulated
+  without modulo, so the audio adapter can retain the original period on
+  the sample clock even across tempo changes. MIDI readers use modulo at
+  lookup. A partial fade keeps its original curve coordinates; a fresh fade
+  edit resets that window. Omitted fields keep the previous behavior. A
+  migration and frozen v26 fixture cover compatibility. E2's crossfade
+  format change consequently becomes v27. Nonloop audio keeps its native
+  integer media-offset anchor and accumulates exact elapsed source seconds;
+  the adapter differences rounded absolute sample positions. This avoids a
+  one-sample gap when native and device rates differ, including nonzero
+  starts at 123 BPM. Complete original envelope knots remain available to
+  the adapter, rather than approximating a cropped curve with line segments.
+- The engine compiles candidate source neighbors off the audio thread and
+  confirms sample adjacency when playing. Only continuous source, level,
+  envelope and fade windows skip their artificial internal edge fades;
+  unrelated joins keep them. Original repeat boundaries and the transport's
+  declicking remain. Waveforms, MIDI playback and MIDI export use the same
+  source phase as the model.
+
+**Alternatives.** Keeping the old split windows changes the sound and was
+rejected. Rendering every cut to a new file would add background work and
+new media to an immediate edit. Modulo-only tick phase loses the original
+audio loop period across tempo changes. Source windows retain the original
+material and permit later join/glue without baking it.
+
+**Scope.** General clip join/glue remains E1. E0 verifies continuity and undo;
+the join-command round trip is verified when that command is delivered.
+The owner verifies playback by ear and device behavior in
+[MT-EDIT-1](manual-tests/M7b.md#mt-edit-1--tools-and-split-e0).

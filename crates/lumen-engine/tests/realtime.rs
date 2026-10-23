@@ -78,6 +78,57 @@ fn process_never_touches_the_heap() {
 }
 
 #[test]
+fn split_clip_seam_resolution_never_touches_the_heap() {
+    use std::sync::Arc;
+
+    use lumen_engine::{Clip, ClipAudio, Destination, NodeSpec, Routing, clip_player, mixer};
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let audio = Arc::new(ClipAudio {
+        sample_rate: 48_000,
+        channels: vec![vec![0.1; 48_000], vec![0.1; 48_000]],
+    });
+    let make = |id, start, offset| Clip {
+        envelope: Default::default(),
+        id,
+        track: 0,
+        start,
+        offset,
+        length: 24_000,
+        gain: 1.0,
+        audio: Arc::clone(&audio),
+        shape: Default::default(),
+    };
+    let (mut clips, player) = clip_player();
+    clips
+        .set(vec![
+            make(1, Ticks::ZERO, 0),
+            make(2, Ticks::quarters(1), 24_000),
+        ])
+        .unwrap();
+    let (mut routing, source) = mixer(player);
+    assert!(
+        routing
+            .set(&Routing {
+                nodes: vec![NodeSpec::unity(0, Destination::Hardware(0))],
+                cue: None,
+                measure: None,
+            })
+            .unwrap()
+    );
+    let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
+    handle.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    for _ in 0..2_000 {
+        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
+        assert_eq!(heap, 0, "heap operation while resolving split seams");
+        let _ = handle.transport();
+        clips.collect_garbage();
+        routing.collect_garbage();
+    }
+}
+
+#[test]
 fn scrubbing_never_touches_the_heap() {
     let (mut handle, mut engine) = engine(Timeline::default(), Tone { phase: 0.0 }, 48_000);
     let mut data = vec![0.0; 2 * 128];
@@ -257,12 +308,15 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
                         fade_in: lumen_engine::FadeFrames {
                             frames: 4_800,
                             curve: lumen_core::curve::Curve::SLOW,
+                            ..Default::default()
                         },
                         fade_out: lumen_engine::FadeFrames {
                             frames: 9_600,
                             curve: lumen_core::curve::Curve::S_CURVE,
+                            ..Default::default()
                         },
                         period: None,
+                        phase: 0,
                     }
                 } else {
                     Default::default()

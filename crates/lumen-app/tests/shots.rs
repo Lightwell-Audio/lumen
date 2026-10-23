@@ -7,6 +7,31 @@
 //! SHOTS=<folder> cargo test -p lumen-app --test shots -- --ignored --test-threads=1
 //! ```
 
+/// M7b E0: the chosen tool switch and its menu in both themes and scales.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn arrangement_tools() {
+    use egui_kittest::kittest::Queryable;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-tools-{appearance}-{scale}"));
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(960.0, 540.0));
+            h.run_steps(30);
+            save(&mut h, &format!("tools-rest-{appearance}-{scale}"));
+            h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+            h.run_steps(3);
+            h.event(Event::Text("Split tool".into()));
+            h.run_steps(3);
+            h.key_press(Key::Enter);
+            h.run_steps(30);
+            save(&mut h, &format!("tools-{appearance}-{scale}"));
+            h.get_by_label("Arrangement tool: Split").click();
+            h.run_steps(30);
+            save(&mut h, &format!("tools-menu-{appearance}-{scale}"));
+        }
+    }
+}
+
 use std::path::PathBuf;
 
 use eframe::egui::{Event, Key, Modifiers, Pos2, Rect, pos2, vec2};
@@ -330,8 +355,16 @@ fn file_drops() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn lanes_menus() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0, 1.5, 2.0] {
+            lanes_menus_looking(appearance, scale);
+        }
+    }
+}
+
+fn lanes_menus_looking(appearance: &str, scale: f32) {
     let dir = TempDir::new("shots-menus");
-    let mut h = lumen(&dir);
+    let mut h = lumen_looking(&dir, appearance, scale);
     h.run_steps(20);
     let a = clip(&h, 0);
     for (name, p) in [
@@ -349,7 +382,10 @@ fn lanes_menus() {
             });
             h.run_steps(1);
         }
-        save(&mut h, name);
+        save(
+            &mut h,
+            &format!("{name}-{appearance}-{}", (scale * 100.0) as u32),
+        );
         h.key_press(Key::Escape);
         h.run_steps(3);
     }
@@ -3375,4 +3411,49 @@ fn song_lanes() {
             save(&mut h, &format!("song-lanes-typing-{appearance}-{scale}"));
         }
     }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn draw_clip_aim() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0, 1.5, 2.0] {
+            draw_clip_aim_looking(appearance, scale);
+        }
+    }
+}
+
+fn draw_clip_aim_looking(appearance: &str, scale: f32) {
+    use egui_kittest::kittest::Queryable;
+    let dir = TempDir::new("shots-draw");
+    let mut h = lumen_looking(&dir, appearance, scale);
+    h.run_steps(20);
+    h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::T);
+    h.run_steps(40);
+    let last = h.state().project().tracks.len() - 1;
+    let name = h.state().project().tracks[last].name.clone();
+    let y = h
+        .get_by_label_contains(&format!("Track {name},"))
+        .rect()
+        .center()
+        .y;
+    h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    h.event(Event::Text("Arrangement draw tool".into()));
+    h.run_steps(2);
+    h.key_press(Key::Enter);
+    h.run_steps(3);
+    let a = clip(&h, 0);
+    let from = Pos2::new(a.left() + a.width() * 0.5, y);
+    let to = Pos2::new(a.left() + a.width() * 2.0, y);
+    h.hover_at(from);
+    h.drag_at(from);
+    h.run_steps(2);
+    h.hover_at(to);
+    h.run_steps(3);
+    save(
+        &mut h,
+        &format!("draw-aim-{appearance}-{}", (scale * 100.0) as u32),
+    );
+    h.key_press(Key::Escape);
+    h.drop_at(to);
 }

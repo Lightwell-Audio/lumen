@@ -63,6 +63,7 @@ pub(super) fn build(
                     start: clip.start,
                     length: clip.length,
                     loop_length: clip.loop_length,
+                    loop_phase: clip.loop_phase,
                     notes,
                     carried,
                     outside: false,
@@ -111,7 +112,9 @@ mod tests {
             fade_in: Default::default(),
             fade_out: Default::default(),
             loop_length: None,
+            loop_phase: Default::default(),
             envelopes: Default::default(),
+            audio_phase_seconds: 0.0,
             content: ClipContent::Midi {
                 notes,
                 events: Vec::new(),

@@ -77,19 +77,17 @@ impl Arrangement {
             } else {
                 "Show its tracks"
             };
-            if ui.button(label).clicked() {
+            if widgets::menu_item(ui, label, None, true).clicked() {
                 self.toggle_collapsed(doc.project(), id);
                 ui.close();
             }
         }
-        if ui
-            .button(if self.expanded.contains(&id) {
-                "Fold"
-            } else {
-                "Unfold"
-            })
-            .clicked()
-        {
+        let fold = if self.expanded.contains(&id) {
+            "Fold"
+        } else {
+            "Unfold"
+        };
+        if widgets::menu_item(ui, fold, None, true).clicked() {
             self.toggle_fold(id);
             ui.close();
         }

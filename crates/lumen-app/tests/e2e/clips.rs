@@ -629,15 +629,20 @@ fn dragging_the_time_ruler_selects_empty_bars_on_every_track() {
 }
 
 /// The offset of `clip`'s audio in its file.
+/// Where in the file the clip's first frame plays: the integer anchor plus
+/// the exact source time a trim or split has advanced it by.
 fn offset(lumen: &Lumen, clip: Id) -> i64 {
     let project = lumen.app().project();
     let found = project
         .tracks
         .iter()
         .flat_map(|t| &t.clips)
-        .find(|c| c.id == clip);
-    match found.map(|c| &c.content) {
-        Some(lumen_project::model::ClipContent::Audio { offset, .. }) => *offset,
+        .find(|c| c.id == clip)
+        .expect("the clip");
+    match &found.content {
+        lumen_project::model::ClipContent::Audio { offset, .. } => {
+            *offset + (found.audio_phase_seconds * f64::from(project.sample_rate)).round() as i64
+        }
         _ => panic!("an audio clip"),
     }
 }

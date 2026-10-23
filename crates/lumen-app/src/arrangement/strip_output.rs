@@ -145,7 +145,7 @@ impl Arrangement {
         };
         let mut picked = None;
         let mut choose = |ui: &mut Ui, label: &str, on: bool, output: Output, tip: &str| {
-            let item = ui.selectable_label(on, label);
+            let item = widgets::menu_toggle(ui, label, None, on);
             let item = if tip.is_empty() {
                 item
             } else {

@@ -565,7 +565,7 @@ impl Arrangement {
                 1 => format!("{name}  \u{00B7}  1 point"),
                 n => format!("{name}  \u{00B7}  {n} points"),
             };
-            if ui.selectable_label(option == target, label).clicked() {
+            if crate::widgets::menu_toggle(ui, &label, None, option == target).clicked() {
                 self.auto.shown.insert(track, option);
                 self.auto.picks = None;
                 ui.close();
@@ -578,8 +578,7 @@ impl Arrangement {
         crate::widgets::menu_caption(ui, "While the song plays");
         for mode in crate::auto_record::Mode::ALL {
             let chosen = self.auto.mode_of(track) == mode;
-            let row = ui
-                .selectable_label(chosen, mode.name())
+            let row = crate::widgets::menu_toggle(ui, mode.name(), None, chosen)
                 .on_hover_text(mode.about());
             if row.clicked() {
                 self.auto.set_mode(track, mode);
@@ -598,7 +597,7 @@ impl Arrangement {
                 "Parameters of {}\u{2026}",
                 crate::document::device_name(device)
             );
-            if ui.button(label).clicked() {
+            if crate::widgets::menu_item(ui, &label, None, true).clicked() {
                 self.auto.chooser = Some(ParamChooser::new(track, device.id));
                 ui.close();
             }
@@ -610,17 +609,17 @@ impl Arrangement {
             } else {
                 "Turn the lane on"
             };
-            if ui.button(label).clicked() {
+            if crate::widgets::menu_item(ui, label, None, true).clicked() {
                 self.note_lane(doc.set_lane_enabled(track, target, !entry.enabled));
                 ui.close();
             }
-            if ui.button("Remove the lane").clicked() {
+            if crate::widgets::menu_item(ui, "Remove the lane", None, true).clicked() {
                 self.note_lane(doc.remove_lane(track, target));
                 self.auto.picks = None;
                 ui.close();
             }
         }
-        if ui.button("Hide automation").clicked() {
+        if crate::widgets::menu_item(ui, "Hide automation", None, true).clicked() {
             self.auto.shown.remove(&track);
             self.auto.picks = None;
             ui.close();

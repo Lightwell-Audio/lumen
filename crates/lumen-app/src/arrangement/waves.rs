@@ -60,7 +60,17 @@ pub(super) fn wave_instances(
                 continue;
             };
             // The file offset in the device-rate frames the peaks index.
-            let offset = *offset as f64 * f64::from(rate) / f64::from(source.native_rate.max(1));
+            let base =
+                (*offset as f64 * f64::from(rate) / f64::from(source.native_rate.max(1))) as i64;
+            let origin = if clip.loop_length.is_some() {
+                clip.start - clip.loop_phase
+            } else {
+                clip.start
+            };
+            let source_anchor = ((tempo.seconds_at(origin) - clip.audio_phase_seconds)
+                * f64::from(rate))
+            .round() as i64;
+            let offset = (base + tempo.sample_at(origin, rate) - source_anchor) as f64;
             let (start, end) = (clip.start, clip.start + clip.length);
             let mut cuts: Vec<Ticks> = tempo
                 .points()
@@ -86,11 +96,20 @@ pub(super) fn wave_instances(
             // A looping clip draws its content again from each repeat
             // (slice 6c), as the engine plays it.
             let period = clip.loop_length.filter(|p| *p > Ticks::ZERO);
-            if let Some(period) = period {
-                let mut at = start + period;
-                while at < end && cuts.len() < MAX_REPEATS {
-                    cuts.push(at);
-                    at = at + period;
+            let cycle = period.and_then(|period| {
+                let origin = start - clip.loop_phase;
+                let origin_frame = tempo.sample_at(origin, rate);
+                let frames = tempo.sample_at(origin + period, rate) - origin_frame;
+                (frames > 0).then_some((origin_frame, frames))
+            });
+            if let Some((origin, period)) = cycle {
+                let start_frame = tempo.sample_at(start, rate);
+                let phase = (start_frame - origin).rem_euclid(period);
+                let end_frame = tempo.sample_at(end, rate);
+                let mut frame = start_frame + period - phase;
+                while frame < end_frame && cuts.len() < MAX_REPEATS {
+                    cuts.push(tempo.ticks_at_sample(frame, rate));
+                    frame += period;
                 }
                 cuts.sort_unstable();
                 cuts.dedup();
@@ -100,13 +119,15 @@ pub(super) fn wave_instances(
             // as the engine plays it.
             let gain = 10f32.powf(gain_db / 20.0);
             let (curve_in, curve_out) = (clip.fade_in.curve.into(), clip.fade_out.curve.into());
+            let fade_start = start - clip.fade_in.offset;
+            let fade_end = end + clip.fade_out.offset;
             let fade_in = [
-                beats(start.as_quarters()),
-                beats((start + clip.fade_in.length).as_quarters()),
+                beats(fade_start.as_quarters()),
+                beats((fade_start + clip.fade_in.span.max(clip.fade_in.length)).as_quarters()),
             ];
             let fade_out = [
-                beats((end - clip.fade_out.length).as_quarters()),
-                beats(end.as_quarters()),
+                beats((fade_end - clip.fade_out.span.max(clip.fade_out.length)).as_quarters()),
+                beats(fade_end.as_quarters()),
             ];
             let mut from = start;
             for to in cuts {
@@ -114,10 +135,13 @@ pub(super) fn wave_instances(
                 if length <= 0.0 {
                     continue;
                 }
-                let repeat = period.map_or(start, |p| start + Ticks((from - start).0 / p.0 * p.0));
                 let frames = (tempo.sample_at(to, rate) - tempo.sample_at(from, rate)) as f64;
-                let first_frame =
-                    offset + (tempo.sample_at(from, rate) - tempo.sample_at(repeat, rate)) as f64;
+                let from_frame = tempo.sample_at(from, rate);
+                let source_frame = cycle.map_or(
+                    from_frame - tempo.sample_at(start, rate),
+                    |(origin, period)| (from_frame - origin).rem_euclid(period),
+                );
+                let first_frame = offset + source_frame as f64;
                 waves.push(Wave {
                     instance: WaveInstance {
                         start: beats(from.as_quarters()),
@@ -172,7 +196,9 @@ mod tests {
                 fade_in: Default::default(),
                 fade_out: Default::default(),
                 loop_length: None,
+                loop_phase: Default::default(),
                 envelopes: Default::default(),
+                audio_phase_seconds: 0.0,
                 content: ClipContent::Audio {
                     media: Id(3),
                     offset,
@@ -253,6 +279,55 @@ mod tests {
         assert_eq!(waves[0].frames_per_beat, 24_000.0);
         assert_eq!(waves[1].first_frame, 48_000.0);
         assert_eq!(waves[1].frames_per_beat, 48_000.0);
+    }
+
+    #[test]
+    fn a_cut_inside_a_repeat_draws_the_remaining_source_before_starting_the_next_cycle() {
+        let mut p = project(vec![bpm(0, 120.0)], 1_000);
+        let clip = Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]);
+        clip.loop_length = Some(Ticks::quarters(2));
+        clip.loop_phase = Ticks::quarters(1);
+        let w = waves(&p, 48_000);
+        let spans: Vec<_> = w
+            .iter()
+            .map(|w| (w.start[0], w.end[0], w.first_frame))
+            .collect();
+        assert_eq!(
+            spans,
+            [
+                (4.0, 5.0, 25_000.0),
+                (5.0, 7.0, 1_000.0),
+                (7.0, 8.0, 1_000.0)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_cut_fade_keeps_the_original_waveform_curve_coordinates() {
+        let mut p = project(vec![bpm(0, 120.0)], 0);
+        let clip = Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]);
+        clip.fade_in = lumen_core::fade::Fade {
+            length: Ticks::quarters(1),
+            offset: Ticks::quarters(1),
+            span: Ticks::quarters(2),
+            ..Default::default()
+        };
+        let w = waves(&p, 48_000);
+        assert_eq!(w[0].fade_in, [[3.0, 0.0], [5.0, 0.0]]);
+    }
+
+    #[test]
+    fn resampled_split_waveforms_keep_the_original_absolute_sample_clock() {
+        let mut p = project(vec![bpm(0, 123.0)], 37);
+        let tempo = TempoMap::new(p.tempo.clone()).unwrap();
+        let clip = Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]);
+        clip.audio_phase_seconds =
+            tempo.seconds_at(Ticks::quarters(5)) - tempo.seconds_at(clip.start);
+        clip.start = Ticks::quarters(5);
+        let w = waves(&p, 44_100);
+        let expected = 40 + tempo.sample_at(Ticks::quarters(5), 48_000)
+            - tempo.sample_at(Ticks::quarters(4), 48_000);
+        assert_eq!(w[0].first_frame, expected as f32);
     }
 
     #[test]

@@ -63,7 +63,7 @@ impl Arrangement {
                         clip.name
                     ),
                 };
-                if ui.selectable_label(option == target, label).clicked() {
+                if crate::widgets::menu_toggle(ui, &label, None, option == target).clicked() {
                     self.auto.show(track.id, option);
                     ui.close();
                 }
@@ -93,18 +93,20 @@ impl Arrangement {
                 1 => format!("{}  \u{00B7}  1 point", kind.name()),
                 n => format!("{}  \u{00B7}  {n} points", kind.name()),
             };
-            if ui.selectable_label(option == target, label).clicked() {
+            if crate::widgets::menu_toggle(ui, &label, None, option == target).clicked() {
                 self.auto.show(track.id, option);
                 ui.close();
             }
         }
         ui.separator();
-        if clip.envelopes.get(shown_kind).is_some() && ui.button("Remove the envelope").clicked() {
+        if clip.envelopes.get(shown_kind).is_some()
+            && crate::widgets::menu_item(ui, "Remove the envelope", None, true).clicked()
+        {
             self.note_lane(doc.remove_lane(track.id, target));
             self.auto.picks = None;
             ui.close();
         }
-        if ui.button("Show the track's lanes").clicked() {
+        if crate::widgets::menu_item(ui, "Show the track's lanes", None, true).clicked() {
             let first = track
                 .automation
                 .first()
@@ -112,7 +114,7 @@ impl Arrangement {
             self.auto.show(track.id, first);
             ui.close();
         }
-        if ui.button("Hide automation").clicked() {
+        if crate::widgets::menu_item(ui, "Hide automation", None, true).clicked() {
             self.auto.shown.remove(&track.id);
             self.auto.picks = None;
             ui.close();

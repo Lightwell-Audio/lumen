@@ -61,9 +61,9 @@ pub(crate) fn runs<'a>(members: impl IntoIterator<Item = Member<'a>>) -> Vec<Vec
     for m in members {
         match out.last_mut() {
             Some(run)
-                if run
-                    .last()
-                    .is_some_and(|p| seams::is_seam(p.clip, p.length, m.clip)) =>
+                if run.last().is_some_and(|p| {
+                    seams::is_seam(p.clip, p.length, m.clip) || loop_seam(p, &m)
+                }) =>
             {
                 run.push(m);
             }
@@ -71,6 +71,26 @@ pub(crate) fn runs<'a>(members: impl IntoIterator<Item = Member<'a>>) -> Vec<Vec
         }
     }
     out
+}
+
+/// Adjacent pieces cut from one loop share a pattern, but their source
+/// phase must advance by the amount of timeline each piece covers.
+fn loop_seam(prev: &Member<'_>, next: &Member<'_>) -> bool {
+    let Some(period) = prev.clip.loop_length.filter(|p| p.0 > 0) else {
+        return false;
+    };
+    prev.clip.start + prev.length == next.clip.start
+        && next.clip.loop_length == Some(period)
+        && prev.clip.content == next.clip.content
+        && (prev.clip.loop_phase.0 + prev.length.0).rem_euclid(period.0)
+            == next.clip.loop_phase.0.rem_euclid(period.0)
+}
+
+pub(crate) fn loop_period(run: &[Member<'_>]) -> Option<Ticks> {
+    let period = run.first()?.clip.loop_length.filter(|p| p.0 > 0)?;
+    run.iter()
+        .all(|m| m.clip.loop_length == Some(period))
+        .then_some(period)
 }
 
 fn content(clip: &model::Clip) -> (&[model::Note], &[model::ClipEvent]) {
@@ -200,7 +220,7 @@ fn run_controls(run: &[Member<'_>], suppression: Option<Suppression>) -> Vec<Mid
 /// The first part of a looping clip after punch-out, ending at the next
 /// original cycle boundary. Notes and controls are rotated to the clip's
 /// phase at `from`; later cycles can keep the original periodic pattern.
-fn loop_fragment(
+pub(crate) fn loop_fragment(
     clip: &model::Clip,
     from: Ticks,
     length: Ticks,
@@ -209,12 +229,21 @@ fn loop_fragment(
     let ClipContent::Midi { notes, events } = &clip.content else {
         return (Vec::new(), Vec::new());
     };
-    let phase = Ticks(from.0.rem_euclid(period.0));
+    let phase = Ticks((clip.loop_phase.0 + from.0).rem_euclid(period.0));
     let mut played_notes = Vec::new();
     for note in notes
         .iter()
-        .filter(|n| !n.muted() && lumen_project::edit::in_window(clip, n.start()))
+        .filter(|n| !n.muted() && n.start() >= Ticks::ZERO && n.start() < period)
     {
+        let source_end = (note.start() + note.length()).min(period);
+        if note.start() < phase && source_end > phase && length > Ticks::ZERO {
+            played_notes.push(MidiNote {
+                start: Ticks::ZERO,
+                length: (source_end - phase).min(length),
+                pitch: note.pitch(),
+                velocity: note.velocity(),
+            });
+        }
         if note.start() < Ticks::ZERO || note.start() >= period {
             continue;
         }
@@ -233,7 +262,7 @@ fn loop_fragment(
     let mut played_controls = Vec::new();
     for event in events
         .iter()
-        .filter(|e| lumen_project::edit::in_window(clip, e.at))
+        .filter(|e| e.at >= Ticks::ZERO && e.at < period)
     {
         if event.at < Ticks::ZERO || event.at >= period {
             continue;
@@ -278,15 +307,36 @@ fn control(event: &model::ClipEvent) -> Vec<MidiControl> {
     }
 }
 
+/// A split piece may be shorter than the source loop. Read the source pattern
+/// against its original period, not that piece's timeline window.
+fn loop_pattern(clip: &model::Clip, period: Ticks) -> (Arc<[MidiNote]>, Arc<[MidiControl]>) {
+    let ClipContent::Midi { notes, events } = &clip.content else {
+        return (note_list(Vec::new()), control_list(Vec::new()));
+    };
+    let notes = notes
+        .iter()
+        .filter(|n| !n.muted() && n.start() >= Ticks::ZERO && n.start() < period)
+        .map(|n| MidiNote {
+            start: n.start(),
+            length: n.length(),
+            pitch: n.pitch(),
+            velocity: n.velocity(),
+        })
+        .collect();
+    let controls = events
+        .iter()
+        .filter(|e| e.at >= Ticks::ZERO && e.at < period)
+        .flat_map(control)
+        .collect();
+    (note_list(notes), control_list(controls))
+}
+
 /// Where a run lies: its first clip's start, how long it plays, and the
 /// loop of a looping clip.
 fn extent(run: &[Member<'_>]) -> (Ticks, Ticks, Option<Ticks>) {
     let head = &run[0];
     let last = &run[run.len() - 1];
-    let period = match run.len() {
-        1 => head.clip.loop_length.filter(|l| l.0 > 0),
-        _ => None,
-    };
+    let period = loop_period(run);
     let start = head.clip.start;
     (start, last.clip.start + last.length - start, period)
 }
@@ -352,13 +402,29 @@ impl Cache {
             .is_some_and(|c| c.matches(run, suppression));
 
         if !cached_matches {
+            let period = loop_period(run);
             let pattern = match self.patterns.get(&head.id) {
                 Some(cached) if cached.matches(run) => {
                     (Arc::clone(&cached.notes), Arc::clone(&cached.controls))
                 }
                 _ => {
-                    let notes = note_list(run_notes(run));
-                    let controls = control_list(run_controls(run, None));
+                    let source = Member {
+                        clip: head,
+                        length: head.length,
+                    };
+                    let source_run = if period.is_some() {
+                        std::slice::from_ref(&source)
+                    } else {
+                        run
+                    };
+                    let (notes, controls) = if let Some(period) = period {
+                        loop_pattern(head, period)
+                    } else {
+                        (
+                            note_list(run_notes(source_run)),
+                            control_list(run_controls(source_run, None)),
+                        )
+                    };
                     self.patterns.insert(
                         head.id,
                         Pattern {
@@ -371,13 +437,13 @@ impl Cache {
                 }
             };
 
-            let split_loop = run.len() == 1
-                && loops(&run[0])
+            let (start, total_length, _) = extent(run);
+            let split_loop = period.is_some()
                 && suppression.is_some_and(|s| {
                     s.exempt != Some(head.id)
                         && s.from < s.until
-                        && s.from < head.start + head.length
-                        && head.start < s.until
+                        && s.from < start + total_length
+                        && start < s.until
                 });
             let suppression_applies = suppression.is_some_and(|s| {
                 run.iter().any(|m| {
@@ -386,53 +452,53 @@ impl Cache {
                         && m.clip.start < s.until
                 })
             });
+            let seams: Vec<Ticks> = run[1..].iter().map(|m| m.clip.start - head.start).collect();
             let mut clips = Vec::new();
             if split_loop {
                 let suppression = suppression.expect("split loop has a bounded suppression window");
-                let period = head.loop_length.expect("split loop has a positive period");
-                let clip_end = head.start + head.length;
-                let mask_from = suppression.from.max(head.start);
+                let period = period.expect("split loop has a positive period");
+                let clip_end = start + total_length;
+                let mask_from = suppression.from.max(start);
                 let mask_until = suppression.until.min(clip_end);
-                if mask_from > head.start {
-                    clips.push(engine_clip(
-                        head.id,
-                        head.start,
-                        mask_from - head.start,
-                        Some(period),
-                        Arc::clone(&pattern.0),
-                        Arc::clone(&pattern.1),
-                        Arc::from([]),
-                    ));
-                }
-                let suffix_start = mask_until - head.start;
-                let cycle_end = Ticks(((suffix_start.0 + period.0 - 1) / period.0) * period.0);
-                let fragment_length = (cycle_end - suffix_start).min(head.length - suffix_start);
-                if fragment_length > Ticks::ZERO {
-                    let (notes, controls) =
-                        loop_fragment(head, suffix_start, fragment_length, period);
-                    clips.push(engine_clip(
-                        head.id,
-                        mask_until,
-                        fragment_length,
-                        None,
-                        note_list(notes),
-                        control_list(controls),
-                        Arc::from([]),
-                    ));
-                }
-                if suffix_start + fragment_length < head.length {
-                    let start = head.start + suffix_start + fragment_length;
-                    let length = head.length - suffix_start - fragment_length;
-                    clips.push(engine_clip(
-                        head.id,
+                clips.extend(loop_segments(
+                    head,
+                    LoopSpan {
                         start,
+                        elapsed: Ticks::ZERO,
+                        length: mask_from - start,
+                        period,
+                    },
+                    &pattern.0,
+                    &pattern.1,
+                    &seams,
+                ));
+                let suffix_elapsed = mask_until - start;
+                clips.extend(loop_segments(
+                    head,
+                    LoopSpan {
+                        start: mask_until,
+                        elapsed: suffix_elapsed,
+                        length: clip_end - mask_until,
+                        period,
+                    },
+                    &pattern.0,
+                    &pattern.1,
+                    &seams,
+                ));
+            } else if let Some(period) = period.filter(|p| head.loop_phase.0.rem_euclid(p.0) != 0) {
+                let (start, length, _) = extent(run);
+                clips.extend(loop_segments(
+                    head,
+                    LoopSpan {
+                        start,
+                        elapsed: Ticks::ZERO,
                         length,
-                        Some(period),
-                        Arc::clone(&pattern.0),
-                        Arc::clone(&pattern.1),
-                        Arc::from([]),
-                    ));
-                }
+                        period,
+                    },
+                    &pattern.0,
+                    &pattern.1,
+                    &seams,
+                ));
             } else {
                 let (start, length, period) = extent(run);
                 let (notes, controls) = if !suppression_applies {
@@ -504,6 +570,78 @@ fn engine_clip(
     }
 }
 
+/// Builds the phase-rotated first source fragment, then ordinary source-loop
+/// repeats. `elapsed` is the clip's timeline offset of this segment.
+struct LoopSpan {
+    start: Ticks,
+    elapsed: Ticks,
+    length: Ticks,
+    period: Ticks,
+}
+
+fn loop_segments(
+    clip: &model::Clip,
+    span: LoopSpan,
+    notes: &Arc<[MidiNote]>,
+    controls: &Arc<[MidiControl]>,
+    seams: &[Ticks],
+) -> Vec<MidiClip> {
+    let LoopSpan {
+        start,
+        elapsed,
+        length,
+        period,
+    } = span;
+    if length <= Ticks::ZERO {
+        return Vec::new();
+    }
+    let phase = Ticks((clip.loop_phase.0 + elapsed.0).rem_euclid(period.0));
+    if phase == Ticks::ZERO {
+        return vec![engine_clip(
+            clip.id,
+            start,
+            length,
+            Some(period),
+            Arc::clone(notes),
+            Arc::clone(controls),
+            segment_seams(elapsed, length, seams),
+        )];
+    }
+    let first = (period - phase).min(length);
+    let (fragment_notes, fragment_controls) = loop_fragment(clip, elapsed, first, period);
+    let mut segments = vec![engine_clip(
+        clip.id,
+        start,
+        first,
+        None,
+        note_list(fragment_notes),
+        control_list(fragment_controls),
+        segment_seams(elapsed, first, seams),
+    )];
+    if first < length {
+        segments.push(engine_clip(
+            clip.id,
+            start + first,
+            length - first,
+            Some(period),
+            Arc::clone(notes),
+            Arc::clone(controls),
+            segment_seams(elapsed + first, length - first, seams),
+        ));
+    }
+    segments
+}
+
+fn segment_seams(elapsed: Ticks, length: Ticks, seams: &[Ticks]) -> Arc<[Ticks]> {
+    let end = elapsed + length;
+    seams
+        .iter()
+        .filter(|&&seam| elapsed < seam && seam < end)
+        .map(|&seam| seam - elapsed)
+        .collect::<Vec<_>>()
+        .into()
+}
+
 /// The keys `track`'s clips hold at arrangement time `at`, as the engine
 /// plays them (`hold.rs`): a note sounds from its start up to where it
 /// stops, within its repeat of a looping clip's content. A zero-length note
@@ -524,8 +662,15 @@ pub(crate) fn sounding_keys(track: &model::Track, at: Ticks) -> Vec<u8> {
         if local < 0 || local >= length.0 {
             continue;
         }
-        let local = period.map_or(local, |p| local % p.0);
-        for n in run_notes(&run) {
+        let (notes, local) = if let Some(period) = period {
+            (
+                loop_pattern(run[0].clip, period).0.to_vec(),
+                (run[0].clip.loop_phase.0 + local).rem_euclid(period.0),
+            )
+        } else {
+            (run_notes(&run), local)
+        };
+        for n in notes {
             let (from, to) = (n.start.0, n.start.0 + n.length.0.max(1));
             // A loop's notes stop at the end of their repeat.
             let to = period.map_or(to, |p| to.min(p.0));

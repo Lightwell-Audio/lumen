@@ -90,6 +90,7 @@ impl App {
                     || tracks
                     || locator
                     || notes
+                    || self.arrangement.gesture.is_some()
                     || self.song_keys_picked()
                     || self.lane_keys_picked()
                     || self.auto_keys_picked()
@@ -179,6 +180,7 @@ impl App {
             // closing the shortcuts window).
             Command::Deselect => need(
                 (clips
+                    || self.arrangement.tool != crate::app::tools::ArrangementTool::Pointer
                     || locator
                     || notes
                     || self.arrangement.auto.picks.is_some()
@@ -192,6 +194,12 @@ impl App {
                 "Select a clip, a track or a locator",
             ),
             Command::MuteClips => need(clip || notes, "Select a clip first"),
+            Command::ToolPointer
+            | Command::ToolDraw
+            | Command::ToolErase
+            | Command::ToolSplit
+            | Command::ToolMute
+            | Command::ToolZoom => Ok(()),
             Command::ClipProperties | Command::AddPreviousClip | Command::AddNextClip => {
                 need(clip, "Select a clip first")
             }
@@ -203,9 +211,8 @@ impl App {
                 self.selected_midi_clip().is_some(),
                 "Select a MIDI clip first",
             ),
-            Command::DrawTool if self.auto_chosen().is_some() && !self.note_keys() => Ok(()),
+            Command::DrawTool => Ok(()),
             Command::PopOutEditor
-            | Command::DrawTool
             | Command::Quantize
             | Command::QuantizeOptions
             | Command::HumanizeNotes
@@ -215,11 +222,11 @@ impl App {
                 need(self.note_editor.clip.is_some(), "Open a MIDI clip first")
             }
             Command::SplitNotes => need(
-                self.notes_are_picked() && self.split_point().is_some(),
+                (self.notes_are_picked() && self.split_point().is_some()) || clips,
                 if self.notes_are_picked() {
                     "Move the playhead into the clip, or point at the clip editor"
                 } else {
-                    "Select notes first"
+                    "Select clips or a time range first"
                 },
             ),
             Command::GlueNotes
