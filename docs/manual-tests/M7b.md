@@ -2,7 +2,7 @@
 
 ## MT-EDIT-1 — Tools and split (E0)
 
-**State:** Awaiting the owner's Windows run. Branch: `m7b-s0-tools-split`.
+**State:** Passed (owner, Windows, 2026-10-23; no step detail). Branch: `m7b-s0-tools-split`.
 General clip join/glue is E1; this test checks undo and continuous playback
 across a cut. Consolidate, bounce and freeze follow in E3–E5.
 
@@ -70,5 +70,14 @@ Use a scratch project and a copy of an audio file.
 
 ### Runs
 
-No owner run recorded yet. Automated verification is recorded in the slice
-report; it does not establish playback by ear or physical-device behavior.
+Run 1 (owner, Windows, 2026-10-23, steps 1 to 12 reported as passed with no
+step detail). Findings made during the run, both fixed in the same branch:
+
+- The Lock clip row (and 22 other menu rows built from plain egui buttons)
+  differed in height, spacing and hover from the other menu rows. Every menu
+  row is now a `menu_item` or `menu_toggle` (`c506e78`).
+- The Draw tool duplicated the Pointer's double-click in the arrangement. A
+  drag now aims the new clip's length (owner's option A, `84008a1`).
+
+Automated verification is recorded in the slice report; it does not establish
+playback by ear or physical-device behavior beyond what the owner reported.
