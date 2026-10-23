@@ -39,7 +39,10 @@ impl App {
                         let label = Path::new(&path)
                             .file_stem()
                             .map_or_else(|| path.clone(), |s| s.to_string_lossy().into_owned());
-                        if ui.button(label).on_hover_text(&path).clicked() {
+                        if widgets::menu_item(ui, &label, None, true)
+                            .on_hover_text(&path)
+                            .clicked()
+                        {
                             self.request(&ctx, Next::Open(Some(PathBuf::from(&path))));
                             ui.close();
                         }

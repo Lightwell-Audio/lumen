@@ -333,7 +333,7 @@ impl App {
             }
         });
         self.menu_command(ui, Command::MuteClips, &mute);
-        if ui.button(lock).clicked() {
+        if widgets::menu_item(ui, &lock, None, true).clicked() {
             self.toggle_clip_lock();
             ui.close();
         }
