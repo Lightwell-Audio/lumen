@@ -20,6 +20,7 @@ use crate::model::{Clip, ClipContent, ClipEvent, Id, Note, Project};
 
 pub mod automation;
 pub mod carry;
+pub mod clip_ops;
 mod clipboard;
 pub mod events;
 pub mod maps;

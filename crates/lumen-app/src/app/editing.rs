@@ -458,6 +458,18 @@ impl App {
                 self.edit_items(ui, &[Cut, Copy, Duplicate, Delete]);
                 ui.separator();
                 self.menu_command(ui, Command::SplitNotes, "Split");
+                self.menu_command(ui, Command::GlueNotes, "Join");
+                if self.availability(ui.ctx(), Command::UnloopClips).is_ok() {
+                    self.menu_command(ui, Command::UnloopClips, "Unloop");
+                }
+                self.menu_command(ui, Command::NudgeClipsEarlier, "Nudge earlier");
+                self.menu_command(ui, Command::NudgeClipsLater, "Nudge later");
+                widgets::submenu(ui, "Select", |ui| {
+                    self.menu_command(ui, Command::InvertSelection, "Invert selection");
+                    self.menu_command(ui, Command::SelectAllInTrack, "All in track");
+                    self.menu_command(ui, Command::SelectToStart, "To start");
+                    self.menu_command(ui, Command::SelectToEnd, "To end");
+                });
                 ui.separator();
                 self.clip_menu(ui);
             }
@@ -466,6 +478,7 @@ impl App {
                 self.edit_items(ui, &[Cut, Copy, Paste, Duplicate, Delete]);
                 ui.separator();
                 self.menu_command(ui, Command::SplitNotes, "Split at range edges");
+                self.menu_command(ui, Command::CropToSelection, "Crop to selection");
                 ui.separator();
                 self.edit_items(ui, &[DeleteTime, InsertTime]);
             }

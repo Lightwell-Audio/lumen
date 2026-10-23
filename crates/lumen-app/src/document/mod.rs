@@ -19,6 +19,7 @@ use lumen_project::model::{Color, Device, Id, Marker, Project, Track, TrackKind}
 pub const MAX_BEATS_PER_BAR: u32 = 64;
 
 mod automation;
+mod clip_ops;
 mod clips;
 mod devices;
 mod groups;

@@ -200,6 +200,38 @@ impl App {
             | Command::ToolSplit
             | Command::ToolMute
             | Command::ToolZoom => Ok(()),
+            Command::CropToSelection => need(
+                self.arrangement.range.is_some(),
+                "Select a time range first",
+            ),
+            Command::UnloopClips => need(
+                self.document
+                    .project()
+                    .tracks
+                    .iter()
+                    .flat_map(|t| &t.clips)
+                    .any(|c| {
+                        self.arrangement.clips.contains(&c.id)
+                            && !c.locked
+                            && c.loop_length.is_some_and(|l| l.0 > 0)
+                    }),
+                "Select a looping clip first",
+            ),
+            Command::NudgeClipsEarlier
+            | Command::NudgeClipsLater
+            | Command::NudgeClipsEarlierFine
+            | Command::NudgeClipsLaterFine
+            | Command::SelectAllInTrack
+            | Command::SelectToStart
+            | Command::SelectToEnd => need(clip, "Select a clip first"),
+            Command::InvertSelection => need(
+                self.document
+                    .project()
+                    .tracks
+                    .iter()
+                    .any(|t| !t.clips.is_empty()),
+                "There are no clips yet",
+            ),
             Command::ClipProperties | Command::AddPreviousClip | Command::AddNextClip => {
                 need(clip, "Select a clip first")
             }
@@ -229,8 +261,16 @@ impl App {
                     "Select clips or a time range first"
                 },
             ),
-            Command::GlueNotes
-            | Command::LegatoNotes
+            Command::GlueNotes => need(
+                self.notes_are_picked() || self.arrangement.clips.len() > 1,
+                "Select two or more clips, or notes, first",
+            ),
+            Command::NudgeEarlierFine | Command::NudgeLaterFine
+                if !self.notes_are_picked() && clip =>
+            {
+                Ok(())
+            }
+            Command::LegatoNotes
             | Command::TransposeUp
             | Command::TransposeDown
             | Command::OctaveUp
