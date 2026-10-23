@@ -16,6 +16,7 @@ use lumen_core::time::{TempoMap, Ticks};
 
 use crate::model::{Clip, ClipContent, Id, Media, Project};
 
+use super::normalize::{self, Window};
 use super::tempo_of;
 
 /// What a reverse did.
@@ -92,26 +93,11 @@ pub fn invert(project: &mut Project, ids: &[Id]) -> usize {
 /// `clip` with reverse toggled and its place in the file mirrored, or `None`
 /// when the mirror would begin before the file.
 fn mirrored(clip: &Clip, file: &Media, tempo: &TempoMap) -> Option<Clip> {
-    let ClipContent::Audio { offset, .. } = &clip.content else {
-        return None;
-    };
     let rate = f64::from(file.sample_rate.max(1));
     let total = file.frames as f64 / rate;
     // Where the clip's material begins in the file, and how long the stretch
     // that plays from there is: the clip, or one repeat of its loop.
-    let (from, span) = match clip.loop_length {
-        Some(period) => {
-            let origin = clip.start - clip.loop_phase;
-            (
-                *offset as f64 / rate + clip.audio_phase_seconds,
-                tempo.seconds_at(origin + period) - tempo.seconds_at(origin),
-            )
-        }
-        None => (
-            *offset as f64 / rate + clip.audio_phase_seconds,
-            tempo.seconds_at(clip.start + clip.length) - tempo.seconds_at(clip.start),
-        ),
-    };
+    let Window { from, span } = normalize::window(clip, rate, tempo)?;
     let to = total - from - span;
     if to * rate < -REACH {
         return None;

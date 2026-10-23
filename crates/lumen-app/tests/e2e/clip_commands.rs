@@ -343,3 +343,37 @@ fn reverse_and_polarity_are_one_undo_step_each_and_need_an_audio_clip() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(lumen.app().project(), &before);
 }
+
+fn gain_db(lumen: &Lumen) -> f32 {
+    let lumen_project::model::ClipContent::Audio { gain_db, .. } =
+        lumen.app().project().tracks[0].clips[0].content
+    else {
+        panic!("an audio clip")
+    };
+    gain_db
+}
+
+#[test]
+fn normalize_raises_a_quiet_clip_to_full_scale_in_one_undo_step() {
+    let mut lumen = ramp("normalize");
+    let clip = lumen.app().project().tracks[0].clips[0].id;
+    // Nothing selected: not available, nothing happens.
+    lumen.key(Modifiers::COMMAND, Key::K);
+    lumen.harness.event(Event::Text("Normalize".into()));
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.key(Modifiers::NONE, Key::Escape);
+    assert_eq!(gain_db(&lumen), 0.0);
+
+    lumen.app_mut().select_clip(clip);
+    command(&mut lumen, "Normalize");
+    lumen.wait_for("the scan to apply its gain", |app| {
+        app.undo_label() == Some("Normalize")
+    });
+    // The file's loudest sample is about 0.6 of full scale (20000 of
+    // 32768, at the end of the rise): +4.3 dB.
+    let db = gain_db(&lumen);
+    assert!((db - 4.3).abs() < 0.3, "normalized to {db} dB");
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(gain_db(&lumen), 0.0);
+}

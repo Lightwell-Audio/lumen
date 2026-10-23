@@ -85,7 +85,17 @@ fn render_as(
     block: usize,
     twin: impl Fn(Id) -> bool,
 ) -> Vec<f32> {
-    let forward = file();
+    render_file(project, frames, block, file(), twin)
+}
+
+/// [`render_as`] with `forward` as the file.
+fn render_file(
+    project: &Project,
+    frames: usize,
+    block: usize,
+    forward: Arc<ClipAudio>,
+    twin: impl Fn(Id) -> bool,
+) -> Vec<f32> {
     let backward = Arc::new(media::mirror(&forward));
     let timeline = Timeline::new(
         TempoMap::new(project.tempo.clone()).unwrap(),
@@ -211,4 +221,75 @@ fn a_reversed_clip_asks_for_the_twin_and_is_silent_until_it_is_there() {
     });
     assert_eq!(*asked.borrow(), [reversed_key(1000)]);
     assert!(list.is_empty(), "no twin yet: nothing to play");
+}
+
+/// The stretch of the file `doc`'s first clip plays and the peak in it.
+fn stretch_peak(doc: &Document, audio: &ClipAudio) -> f32 {
+    let project = doc.project();
+    let clip = &project.tracks[0].clips[0];
+    let window = lumen_project::edit::normalize::window(
+        clip,
+        f64::from(RATE),
+        &lumen_project::edit::tempo_of(project),
+    )
+    .expect("an audio clip");
+    crate::normalize::peak_of(
+        audio,
+        window,
+        &std::sync::atomic::AtomicBool::new(false),
+        |_| {},
+    )
+    .expect("not stopped")
+}
+
+#[test]
+fn a_normalized_clip_plays_its_file_scaled_so_the_stretch_reaches_full_scale() {
+    let mut doc = document();
+    let id = doc.project().tracks[0].clips[0].id;
+    let source = file();
+    let peak = stretch_peak(&doc, &source);
+    assert!(peak > 0.1 && peak < 0.5, "the test file is quiet: {peak}");
+    let db = lumen_project::edit::normalize::gain_for_peak(peak).unwrap();
+    assert_eq!(doc.normalize_clips(&[(id, db)]), 0, "within the gain range");
+    let normalized = render_file(doc.project(), 96_000, 128, source.clone(), |_| false);
+
+    // The oracle: the same clip at unity over a file scaled by hand.
+    let scaled = Arc::new(ClipAudio {
+        sample_rate: RATE,
+        channels: source
+            .channels
+            .iter()
+            .map(|c| c.iter().map(|v| v / peak).collect())
+            .collect(),
+    });
+    let plain = document();
+    assert!(
+        (stretch_peak(&plain, &scaled) - 1.0).abs() < 1e-5,
+        "full scale"
+    );
+    let oracle = render_file(plain.project(), 96_000, 128, scaled, |_| false);
+    assert_eq!(normalized.len(), oracle.len());
+    for i in EDGE * 2..normalized.len() - EDGE * 2 {
+        assert!(
+            (normalized[i] - oracle[i]).abs() < 1e-4,
+            "sample {i}: {} against {}",
+            normalized[i],
+            oracle[i]
+        );
+    }
+}
+
+#[test]
+fn a_reversed_clip_has_the_same_peak_read_from_its_twin() {
+    let mut doc = document();
+    let id = doc.project().tracks[0].clips[0].id;
+    let source = file();
+    let forward = stretch_peak(&doc, &source);
+    assert_eq!(doc.reverse_clips(&[id]).changed, 1);
+    let twin = media::mirror(&source);
+    let backward = stretch_peak(&doc, &twin);
+    assert!(
+        (forward - backward).abs() < 1e-5,
+        "the same stretch played the other way: {forward} against {backward}"
+    );
 }

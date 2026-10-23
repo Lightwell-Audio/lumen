@@ -24,6 +24,7 @@ pub mod clip_ops;
 mod clipboard;
 pub mod events;
 pub mod maps;
+pub mod normalize;
 mod note_selection;
 mod note_time;
 pub mod note_tools;

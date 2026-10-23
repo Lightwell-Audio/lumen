@@ -224,7 +224,7 @@ impl App {
             | Command::SelectAllInTrack
             | Command::SelectToStart
             | Command::SelectToEnd => need(clip, "Select a clip first"),
-            Command::ReverseClips | Command::InvertPolarity => need(
+            Command::ReverseClips | Command::InvertPolarity | Command::NormalizeClips => need(
                 self.document
                     .project()
                     .tracks

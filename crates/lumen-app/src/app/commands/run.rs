@@ -257,6 +257,7 @@ impl App {
             Command::SelectToEnd => self.select_clips_toward(true),
             Command::ReverseClips => self.reverse_selected_clips(),
             Command::InvertPolarity => self.invert_selected_clips(),
+            Command::NormalizeClips => self.normalize_selected_clips(ctx),
             Command::NudgeEarlierFine => self.note_op(NoteOp::Nudge {
                 direction: -1,
                 fine: true,

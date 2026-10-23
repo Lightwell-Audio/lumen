@@ -11,6 +11,7 @@ mod bench_callback;
 pub(crate) mod clip_card;
 mod clip_commands;
 mod clip_envelopes;
+pub(crate) mod clip_normalize;
 pub(crate) mod clipboard_keys;
 mod commands;
 mod controller_requests;

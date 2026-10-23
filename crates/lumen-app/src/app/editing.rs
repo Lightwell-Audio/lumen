@@ -464,6 +464,7 @@ impl App {
                 }
                 self.menu_command(ui, Command::ReverseClips, "Reverse");
                 self.menu_command(ui, Command::InvertPolarity, "Invert polarity");
+                self.menu_command(ui, Command::NormalizeClips, "Normalize");
                 self.menu_command(ui, Command::NudgeClipsEarlier, "Nudge earlier");
                 self.menu_command(ui, Command::NudgeClipsLater, "Nudge later");
                 widgets::submenu(ui, "Select", |ui| {

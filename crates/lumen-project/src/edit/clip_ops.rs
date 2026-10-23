@@ -110,6 +110,7 @@ fn cuts_back(project: &Project, tempo: &TempoMap, joined: &Clip, left: &Clip, ne
             let phase = (cut.audio_phase_seconds - want.audio_phase_seconds).abs();
             cut.id = want.id;
             cut.name = want.name.clone();
+            cut.color = want.color;
             cut.audio_phase_seconds = want.audio_phase_seconds;
             phase <= PHASE_SLACK && cut == *want
         })
@@ -347,7 +348,7 @@ mod tests {
     use super::*;
     use crate::edit::split;
     use crate::edit::tests::{clips as clip_summary, ids, q, song};
-    use crate::model::{EventKind, Id};
+    use crate::model::{Color, EventKind, Id};
 
     fn clip_at(project: &Project, track: usize, index: usize) -> Clip {
         (*project.tracks[track].clips[index]).clone()
@@ -362,6 +363,19 @@ mod tests {
         set(project, 0, 0, |c| {
             c.content = ClipContent::Midi { notes, events }
         });
+    }
+
+    #[test]
+    fn clips_of_different_colours_still_join_and_take_the_first_ones() {
+        let mut project = song();
+        let original = clip_at(&project, 0, 0);
+        let parts = split::clips(&mut project, &[original.id], &[q(6)], &mut ids());
+        set(&mut project, 0, 0, |c| c.color = Some(Color(0xAA3300)));
+        set(&mut project, 0, 1, |c| c.color = Some(Color(0x0033AA)));
+        let done = join(&mut project, &parts);
+        assert_eq!((done.merged, done.apart), (1, false));
+        assert_eq!(project.tracks[0].clips.len(), 1);
+        assert_eq!(clip_at(&project, 0, 0).color, Some(Color(0xAA3300)));
     }
 
     #[test]

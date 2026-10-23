@@ -1,11 +1,13 @@
 //! Clip commands of M7b slice E1: join, crop, unloop and nudge. Each is one
 //! undo step; one that changes nothing adds none.
 
+use std::sync::Arc;
+
 use lumen_core::time::Ticks;
 use lumen_project::edit::{clip_ops, reverse};
-use lumen_project::model::Id;
+use lumen_project::model::{ClipContent, Id};
 
-use super::clips::fresh_ids;
+use super::clips::{CLIP_GAIN, fresh_ids};
 use super::{ClipMove, Document, plural};
 
 impl Document {
@@ -50,6 +52,35 @@ impl Document {
             out = reverse::reverse(project, ids);
         });
         out
+    }
+
+    /// Sets the gain of audio clips to the values in `gains` (clip, decibels
+    /// within [`CLIP_GAIN`]) as one step: Normalize. Returns how many
+    /// clips were asked for a gain beyond the range and got its end.
+    pub fn normalize_clips(&mut self, gains: &[(Id, f32)]) -> usize {
+        let mut limited = 0;
+        self.history.apply("Normalize", None, |project| {
+            for track in &mut project.tracks {
+                for i in 0..track.clips.len() {
+                    let id = track.clips[i].id;
+                    let Some(&(_, db)) = gains.iter().find(|(c, _)| *c == id) else {
+                        continue;
+                    };
+                    if track.clips[i].locked {
+                        continue;
+                    }
+                    let set = db.clamp(*CLIP_GAIN.start(), *CLIP_GAIN.end());
+                    limited += usize::from(set != db);
+                    let t = Arc::make_mut(track);
+                    if let ClipContent::Audio { gain_db, .. } =
+                        &mut Arc::make_mut(&mut t.clips[i]).content
+                    {
+                        *gain_db = set;
+                    }
+                }
+            }
+        });
+        limited
     }
 
     /// Inverts the polarity of the selected audio clips, or puts it back.
@@ -184,5 +215,36 @@ mod tests {
         doc.nudge_clips(&[id], Ticks::quarters(1));
         assert_eq!(doc.project(), &locked);
         assert_ne!(before, locked);
+    }
+    fn gain_of(doc: &Document) -> f32 {
+        let ClipContent::Audio { gain_db, .. } = doc.project().tracks[0].clips[0].content else {
+            panic!("audio clip")
+        };
+        gain_db
+    }
+
+    #[test]
+    fn normalize_sets_the_gain_as_one_step_that_undo_gives_back() {
+        let (mut doc, _, id) = doc_with_clip();
+        let before = doc.project().clone();
+        assert_eq!(doc.normalize_clips(&[(id, 6.0)]), 0);
+        assert_eq!(gain_of(&doc), 6.0);
+        doc.undo();
+        assert_eq!(doc.project(), &before);
+        doc.redo();
+        assert_eq!(gain_of(&doc), 6.0);
+    }
+
+    #[test]
+    fn normalize_keeps_to_the_range_says_so_and_leaves_locked_clips() {
+        let (mut doc, _, id) = doc_with_clip();
+        assert_eq!(doc.normalize_clips(&[(id, 40.0)]), 1);
+        assert_eq!(gain_of(&doc), *CLIP_GAIN.end());
+        doc.set_clips_locked(&[id], true);
+        let locked = doc.project().clone();
+        assert_eq!(doc.normalize_clips(&[(id, -3.0)]), 0);
+        assert_eq!(doc.project(), &locked, "a locked clip keeps its gain");
+        assert_eq!(doc.normalize_clips(&[]), 0);
+        assert_eq!(doc.project(), &locked);
     }
 }
