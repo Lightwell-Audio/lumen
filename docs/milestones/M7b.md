@@ -138,7 +138,7 @@ stays unused in the media pool.
 Parts (commits on this branch):
 
 1. **3a, WAV writer, no format change.** `lumen_media::wav`: 16, 24 and 32-bit
-   float, mono to eight channels, streamed from a callback so a long render
+   float, mono or stereo (more is refused; consolidate and bounce write no more), written block by block so a long render
    never holds the whole file twice; written through `write_atomic`'s
    temp-and-rename pattern. Round trip against the decoder; header checks.
 2. **3b, the render driver.** A device-free `lumen_engine` driver that plays a

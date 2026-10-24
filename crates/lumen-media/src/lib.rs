@@ -11,6 +11,7 @@
 //! progress.
 
 mod peaks;
+pub mod wav;
 
 pub use peaks::{BASE as PEAK_BASE, Bucket, FACTOR as PEAK_FACTOR, LEVELS as PEAK_LEVELS, Peaks};
 
