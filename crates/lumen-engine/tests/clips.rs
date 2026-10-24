@@ -217,6 +217,7 @@ fn split_fade_windows_continue_the_original_curve_without_a_seam_dip() {
         offset: 24_000,
         span: 30_000,
         curve: Curve::S_CURVE,
+        ..Default::default()
     };
     for block in [1, 64, 128, 333, 4_096] {
         let (mut handle, _, mut original) = setup(vec![whole.clone()]);
@@ -358,6 +359,143 @@ fn unrelated_join_and_intentional_seam_fades_keep_the_edge_dip() {
     assert!(
         out[24_000].0.abs() < 0.001,
         "envelope jump retains edge dip"
+    );
+}
+
+/// The two halves of a crossfade `frames` long.
+fn blend(frames: i64) -> FadeFrames {
+    FadeFrames {
+        frames,
+        curve: Curve::LINEAR,
+        blend: true,
+        ..Default::default()
+    }
+}
+
+/// A clip from sample 0 to 25,000 fading out over its last 1,000 frames, and
+/// one from 24,000 fading in over its first 1,000: they overlap for the fade.
+fn overlapping_pair(audio: &Arc<ClipAudio>) -> (Clip, Clip) {
+    let mut left = steady_clip(audio, 0.8);
+    left.length = 25_000;
+    left.shape.fade_out = blend(1_000);
+    let mut right = steady_clip(audio, 0.6);
+    right.id = 8;
+    right.start = Ticks::quarters(1);
+    right.offset = 28_000;
+    right.length = 4_000;
+    right.shape.fade_in = blend(1_000);
+    (left, right)
+}
+
+#[test]
+fn overlapping_blend_fades_follow_the_equal_power_law() {
+    let audio = steady(32_000);
+    let (left, right) = overlapping_pair(&audio);
+    for block in [1, 128, 4_096] {
+        let (mut handle, _, mut engine) = setup(vec![left.clone(), right.clone()]);
+        handle.send(Command::Play).unwrap();
+        let out = run(&mut engine, 26_000, block);
+        // Before the overlap only the outgoing clip sounds, right to the
+        // sample where its fade begins: no edge dip at a crossfaded end.
+        assert!((out[23_999].0 - 0.4).abs() < 1e-6, "block {block}");
+        for i in 0..1_000 {
+            let p = (i as f32 + 0.5) / 1_000.0;
+            let want = 0.4 * (p * std::f32::consts::FRAC_PI_2).cos()
+                + 0.3 * (p * std::f32::consts::FRAC_PI_2).sin();
+            assert!(
+                (out[24_000 + i].0 - want).abs() < 3e-5,
+                "block {block}, frame {i}: got {}, want {want}",
+                out[24_000 + i].0
+            );
+        }
+        // After it only the incoming clip.
+        assert!((out[25_000].0 - 0.3).abs() < 1e-6, "block {block}");
+    }
+}
+
+#[test]
+fn a_crossfade_of_the_same_sound_keeps_a_steady_level_with_curved_fades() {
+    // Uncorrelated halves of a crossfade keep a constant power: for the
+    // same signal at both ends the sum is the sum of the two gains.
+    let audio = steady(32_000);
+    let (mut left, mut right) = overlapping_pair(&audio);
+    left.gain = 1.0;
+    right.gain = 1.0;
+    let curve = FadeFrames {
+        curve: Curve::S_CURVE,
+        ..blend(1_000)
+    };
+    left.shape.fade_out = curve;
+    right.shape.fade_in = curve;
+    let (mut handle, _, mut engine) = setup(vec![left, right]);
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 26_000, 128);
+    for i in 0..1_000 {
+        let p = (i as f32 + 0.5) / 1_000.0;
+        let bend = Curve::S_CURVE.at(p);
+        let want = 0.5
+            * ((bend * std::f32::consts::FRAC_PI_2).cos()
+                + (bend * std::f32::consts::FRAC_PI_2).sin());
+        assert!(
+            (out[24_000 + i].0 - want).abs() < 5e-5,
+            "frame {i}: got {}, want {want}",
+            out[24_000 + i].0
+        );
+    }
+}
+
+#[test]
+fn a_crossfade_is_safe_after_a_seek_and_during_a_clip_list_swap() {
+    let audio = steady(40_000);
+    let (left, right) = overlapping_pair(&audio);
+    let timeline = Timeline::constant(120.0, Meter::FOUR_FOUR);
+
+    // Seeking into the overlap plays the same blend as running through it.
+    let (mut handle, _, mut engine) = setup(vec![left.clone(), right.clone()]);
+    handle.set_timeline(timeline.clone()).unwrap();
+    handle
+        .send(Command::Locate(timeline.ticks_at(24_100, RATE)))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 128, 128);
+    let p = 196.5 / 1_000.0;
+    let want = 0.4 * (p * std::f32::consts::FRAC_PI_2).cos()
+        + 0.3 * (p * std::f32::consts::FRAC_PI_2).sin();
+    assert!(
+        (out[96].0 - want).abs() < 2e-5,
+        "seek got {}, want {want}",
+        out[96].0
+    );
+
+    // Removing the incoming clip while the crossfade runs fades it out with
+    // the list-swap ramp rather than stepping.
+    let (mut handle, mut clips, mut engine) = setup(vec![left.clone(), right.clone()]);
+    handle.set_timeline(timeline.clone()).unwrap();
+    handle.send(Command::Play).unwrap();
+    let before = run(&mut engine, 24_100, 128);
+    clips.set(vec![left.clone()]).unwrap();
+    let after = run(&mut engine, 128, 128);
+    assert!(
+        (before.last().unwrap().0 - after[0].0).abs() < 0.01,
+        "clip-list edit stepped across the crossfade: {} to {}",
+        before.last().unwrap().0,
+        after[0].0
+    );
+
+    // A gain change glides while the crossfade runs.
+    let (mut handle, mut clips, mut engine) = setup(vec![left.clone(), right.clone()]);
+    handle.set_timeline(timeline).unwrap();
+    handle.send(Command::Play).unwrap();
+    let before = run(&mut engine, 24_100, 128);
+    let mut quiet = left;
+    quiet.gain = 0.0;
+    clips.set(vec![quiet, right]).unwrap();
+    let after = run(&mut engine, 128, 128);
+    assert!(
+        (before.last().unwrap().0 - after[0].0).abs() < 0.002,
+        "gain stepped: {} to {}",
+        before.last().unwrap().0,
+        after[0].0
     );
 }
 

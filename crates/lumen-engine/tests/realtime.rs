@@ -400,6 +400,64 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
 }
 
 #[test]
+fn overlapping_crossfade_never_touches_the_heap() {
+    use std::sync::Arc;
+
+    use lumen_engine::testing::routed;
+    use lumen_engine::{Clip, ClipAudio, FadeFrames, clip_player, mixer};
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let audio = Arc::new(ClipAudio {
+        sample_rate: 48_000,
+        channels: vec![vec![0.2; 30_000], vec![0.2; 30_000]],
+    });
+    let blend = FadeFrames {
+        frames: 1_000,
+        blend: true,
+        ..Default::default()
+    };
+    let left = Clip {
+        envelope: Default::default(),
+        id: 1,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 25_000,
+        gain: 1.0,
+        track: 0,
+        audio: Arc::clone(&audio),
+        shape: lumen_engine::ClipShape {
+            fade_out: blend,
+            ..Default::default()
+        },
+    };
+    let right = Clip {
+        envelope: Default::default(),
+        id: 2,
+        start: Ticks::quarters(1),
+        offset: 25_000,
+        length: 2_000,
+        gain: 1.0,
+        track: 0,
+        audio,
+        shape: lumen_engine::ClipShape {
+            fade_in: blend,
+            ..Default::default()
+        },
+    };
+    let (mut clips, player) = clip_player();
+    let (mut routing, source) = mixer(player);
+    let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
+    clips.set(vec![left, right]).unwrap();
+    assert!(routing.set(&routed(1, 0)).unwrap());
+    handle.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    for block in 0..210 {
+        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
+        assert_eq!(heap, 0, "heap operation in crossfade block {block}");
+    }
+}
+
+#[test]
 fn midi_never_touches_the_heap() {
     use lumen_core::midi::{Event, Kind};
     use lumen_devices::Instrument;

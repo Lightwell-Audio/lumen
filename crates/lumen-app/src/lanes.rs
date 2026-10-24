@@ -101,8 +101,13 @@ pub fn engine_clips(
 ) -> Vec<Clip> {
     let tempo = lumen_core::time::TempoMap::new(project.tempo.clone()).ok();
     let mut list = Vec::new();
+    // Crossfades are clips that overlap, as `crossfades::played` has them.
+    let played = crate::crossfades::played(project);
     for track in &project.tracks {
-        for clip in &track.clips {
+        for model in &track.clips {
+            let (clip, blend) = played
+                .get(&model.id)
+                .map_or((&**model, [false; 2]), |p| (&p.clip, p.blend));
             let ClipContent::Audio {
                 media,
                 offset,
@@ -156,8 +161,14 @@ pub fn engine_clips(
                 (samples.frames() as i64 - offset).min(region)
             };
             let shape = lumen_engine::ClipShape {
-                fade_in: fade_frames(clip, tempo.as_ref(), rate, true),
-                fade_out: fade_frames(clip, tempo.as_ref(), rate, false),
+                fade_in: if clip.crossfade && !blend[0] {
+                    // A crossfade that is not played (nothing to blend) is
+                    // not an ordinary fade-in either.
+                    Default::default()
+                } else {
+                    fade_frames(clip, tempo.as_ref(), rate, true, blend[0])
+                },
+                fade_out: fade_frames(clip, tempo.as_ref(), rate, false, blend[1]),
                 period: clip
                     .loop_length
                     .map(|period| {
@@ -230,6 +241,7 @@ fn fade_frames(
     tempo: Option<&lumen_core::time::TempoMap>,
     rate: u32,
     fade_in: bool,
+    blend: bool,
 ) -> lumen_engine::FadeFrames {
     let fade = if fade_in { clip.fade_in } else { clip.fade_out };
     let end = clip.start + clip.length;
@@ -263,6 +275,7 @@ fn fade_frames(
         offset,
         span,
         curve: fade.curve,
+        blend,
     }
 }
 

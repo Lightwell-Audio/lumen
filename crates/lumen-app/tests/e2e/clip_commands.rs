@@ -387,6 +387,7 @@ fn a_midi_clips_menu_lists_no_audio_only_commands_and_an_audio_clips_does() {
     let at = spot(&lumen, 2.0);
     lumen.right_click(at);
     lumen.frames(3);
+    lumen.click("Edit");
     for row in ["Reverse", "Invert polarity", "Normalize"] {
         assert!(lumen.harness.query_by_label(row).is_some(), "audio: {row}");
     }
@@ -413,6 +414,7 @@ fn a_midi_clips_menu_lists_no_audio_only_commands_and_an_audio_clips_does() {
         .expect("the clip is in view");
     midi.right_click(r.center());
     midi.frames(3);
+    midi.click("Edit");
     assert!(
         midi.harness.query_by_label_contains("Split").is_some(),
         "the menu is open"

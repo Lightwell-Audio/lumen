@@ -93,6 +93,7 @@ pub fn add_dense_midi(project: &mut lumen_project::model::Project) {
         muted: false,
         color: None,
         locked: false,
+        crossfade: false,
         fade_in: Default::default(),
         fade_out: Default::default(),
         loop_length: None,

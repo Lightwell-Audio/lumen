@@ -54,6 +54,7 @@ fn clip(
         color: None,
         locked: false,
         fade_in: Default::default(),
+        crossfade: false,
         fade_out: Default::default(),
         loop_length: None,
         loop_phase: Default::default(),

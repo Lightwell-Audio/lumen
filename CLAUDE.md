@@ -408,16 +408,22 @@ and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
 **Now (2026-10-23)**
-- **Branch `m7b-s1-clip-commands`: M7b slice E1 (clip commands) is built and
-  pushed** (ADR-0093; format **v27**). Join (Ctrl+J, seamless), crop,
+- **Branch `m7b-s2-join-crossfades`: M7b E2 is built, reworked 2026-10-24**
+  (ADR-0094; format v28). A crossfade is now a true overlap: drag the left
+  clip's fade-out handle over the right clip; the left clip is extended and
+  fades into it, the right clip starts where the crossfade ends, and a
+  history rule clears the flag if either clip moves. The engine's join
+  machinery is gone (`FadeFrames.blend` only). MT-EDIT-3 awaits the owner;
+  final gate results are in PROGRESS.
+- **M7b E1 is merged (PR #52)** (ADR-0093; format **v27**). Join (Ctrl+J, seamless), crop,
   unloop, nudge, reverse, polarity, normalize and the select variants;
   reverse uses reversed copies of files built on a worker (no engine
   change), normalize scans on a worker with cancel. Gates run: fmt, clippy,
   workspace tests, smoke, macOS cross-clippy, the WSL performance gate (the
   baseline was updated for two per-clip flags in serialize). **Waiting for
-  the owner: MT-EDIT-2** (`docs/manual-tests/M7b.md`) and the merge. Audio
+  the owner: MT-EDIT-2** (`docs/manual-tests/M7b.md`). Audio
   clips with a gap do not join until E3's consolidate (KNOWN_ISSUES).
-- **Next:** E2 (crossfades, format v28), then E3 (render core and
+- **Next:** E3 (render core and
   consolidate), E4 (bounce), E5 (freeze), E6 (close M7b). Plan, owner choices
   and the slice list: `docs/milestones/M7b.md`.
 - **Done:** M1 to M4.5 approved; M5 (MIDI), M6 (VST3 hosting) and M7

@@ -194,6 +194,9 @@ impl App {
                 "Select a clip, a track or a locator",
             ),
             Command::MuteClips => need(clip || notes, "Select a clip first"),
+            Command::ToggleCrossfade => {
+                need(self.selection_has_audio(), "Select an audio clip first")
+            }
             Command::ToolPointer
             | Command::ToolDraw
             | Command::ToolErase
@@ -462,6 +465,7 @@ impl App {
             | Command::NextLocator
             | Command::NewProject
             | Command::OpenProject
+            | Command::ToggleAutoCrossfade
             | Command::Save
             | Command::SaveAs => Ok(()),
         }

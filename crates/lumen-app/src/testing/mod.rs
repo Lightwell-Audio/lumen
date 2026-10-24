@@ -494,16 +494,16 @@ impl App {
         use crate::arrangement::handles::ClipHandles;
         use crate::arrangement::select::Edge;
         let rect = self.clip_rect(ctx, id)?;
-        let clip = self
-            .document
-            .project()
+        let project = self.document.project();
+        let track = project
             .tracks
             .iter()
-            .flat_map(|t| &t.clips)
-            .find(|c| c.id == id)?;
+            .find(|t| t.clips.iter().any(|c| c.id == id))?;
+        let clip = track.clips.iter().find(|c| c.id == id)?;
+        let shown = crate::crossfades::preview(project, track.id, clip);
         let view = self.nav.view;
         let left = self.canvas.left();
-        let h = ClipHandles::of(clip, rect, |t| view.x(left, t.as_quarters()))?;
+        let h = ClipHandles::of(&shown, rect, |t| view.x(left, t.as_quarters()))?;
         Some(ClipHandlesAt {
             fade_in: h.handle_pos(Edge::Start),
             fade_out: h.handle_pos(Edge::End),
@@ -511,6 +511,7 @@ impl App {
             bend_out: h.bend_pos(Edge::End),
             gain: egui::pos2(h.wave.center().x, h.gain_y()),
             wave: h.wave,
+            crossfade: h.crossfade,
         })
     }
 
@@ -710,6 +711,8 @@ pub struct ClipHandlesAt {
     pub gain: egui::Pos2,
     /// Where the waveform is drawn.
     pub wave: egui::Rect,
+    /// The clip's fade-out is a crossfade into the clip after it.
+    pub crossfade: bool,
 }
 
 /// The `index`th colour of the clip and track palette, as the swatch

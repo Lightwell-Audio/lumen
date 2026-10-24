@@ -8,7 +8,7 @@ use lumen_core::time::Ticks;
 use lumen_project::model::Project;
 
 use super::clips::{CLAMP, INSET, span};
-use super::handles::{ClipHandles, draw_handles};
+use super::handles::{ClipHandles, HandleLook, draw_handles};
 use super::{Arrangement, Row, RowKind, TITLE, select};
 use crate::timeview::TimeView;
 use crate::widgets::draw_glow_rect;
@@ -133,17 +133,44 @@ impl Arrangement {
                         }
                     }
                 }
-                if let Some(h) = (!clip.locked)
+                // At fit-all thousands of clips are too narrow for handles.
+                // Reject those before cloning a clip or resolving its join.
+                let handles = (!clip.locked)
                     .then(|| ClipHandles::of(clip, whole, x))
                     .flatten()
-                {
+                    .and_then(|_| {
+                        let shown =
+                            crate::crossfades::preview(project, project.tracks[index].id, clip);
+                        ClipHandles::of(&shown, whole, x)
+                    });
+                if let Some(h) = handles {
                     let view = egui::Rangef::new(near_left, near_right);
+                    let track = &project.tracks[index];
+                    // The colours of the two clips a crossfade blends.
+                    let crossing = h
+                        .crossfade
+                        .then(|| {
+                            track
+                                .clips
+                                .iter()
+                                .find(|c| c.id != clip.id && c.start == clip.start + clip.length)
+                                .map(|next| {
+                                    (
+                                        super::clip_color(track, clip),
+                                        super::clip_color(track, next),
+                                    )
+                                })
+                        })
+                        .flatten();
                     draw_handles(
                         &painter,
                         &h,
                         view,
-                        hovered.is_some(),
-                        hovered.and_then(|h| h.handle),
+                        HandleLook {
+                            hovered: hovered.is_some(),
+                            hot: hovered.and_then(|h| h.handle),
+                            crossing,
+                        },
                     );
                 }
                 if !selected && hovered.is_none() {

@@ -353,6 +353,11 @@ impl App {
                 }
             }
             Command::MuteClips => self.toggle_clip_mute(),
+            Command::ToggleCrossfade => self.toggle_selected_crossfade(),
+            Command::ToggleAutoCrossfade => {
+                let enabled = !self.document.project().auto_crossfade;
+                self.document.set_auto_crossfade(enabled);
+            }
             Command::ClipProperties => {
                 if let Some(clip) = self.first_selected_clip() {
                     self.open_clip_card(clip);

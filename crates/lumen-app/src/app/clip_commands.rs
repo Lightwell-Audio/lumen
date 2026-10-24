@@ -29,6 +29,40 @@ impl App {
             })
     }
 
+    /// Makes a short crossfade into each selected audio clip from the clip
+    /// before it, or removes theirs.
+    pub(crate) fn toggle_selected_crossfade(&mut self) {
+        let (ids, enabled) = {
+            let project = self.document.project();
+            let clips: Vec<_> = project
+                .tracks
+                .iter()
+                .flat_map(|t| &t.clips)
+                .filter(|c| self.arrangement.clips.contains(&c.id) && !c.locked)
+                .filter(|c| matches!(c.content, lumen_project::model::ClipContent::Audio { .. }))
+                .collect();
+            if clips.is_empty() {
+                return;
+            }
+            (
+                clips.iter().map(|c| c.id).collect::<Vec<_>>(),
+                !clips.iter().all(|c| c.crossfade),
+            )
+        };
+        self.document.set_crossfade(&ids, enabled);
+        if enabled {
+            let project = self.document.project();
+            let made = project
+                .tracks
+                .iter()
+                .flat_map(|t| &t.clips)
+                .any(|c| ids.contains(&c.id) && c.crossfade);
+            if !made {
+                self.say("No selected clip has an audio clip against its start".to_owned());
+            }
+        }
+    }
+
     /// Joins the selected clips (Ctrl+J).
     pub(crate) fn join_selected_clips(&mut self) {
         let ids = self.selected_clip_ids();

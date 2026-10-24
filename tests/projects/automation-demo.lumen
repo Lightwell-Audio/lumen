@@ -1,6 +1,6 @@
 {
   "format": "lumen-project",
-  "version": 25,
+  "version": 28,
   "generator": "Lumen 0.0.1",
   "project": {
     "name": "Automation demo",

@@ -22,6 +22,7 @@ pub mod automation;
 pub mod carry;
 pub mod clip_ops;
 mod clipboard;
+pub mod crossfade;
 pub mod events;
 pub mod maps;
 pub mod normalize;
@@ -458,6 +459,7 @@ mod tests {
                     curve: FadeShape::Slow.curve(),
                     ..Fade::default()
                 },
+                crossfade: false,
                 fade_out: Fade {
                     length: q(1),
                     curve: FadeShape::Fast.curve(),

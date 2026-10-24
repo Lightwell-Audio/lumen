@@ -204,12 +204,21 @@ pub enum Gesture {
         at: Ticks,
     },
     /// Dragging the handle of `clip`'s fade at `edge` along (slice 6d).
-    Fade { clip: Id, edge: Edge },
+    /// `from`: a fade-out that has been dragged past the clip's end, so it
+    /// is making a crossfade into the next clip; where the clips met.
+    Fade {
+        clip: Id,
+        edge: Edge,
+        from: Option<Ticks>,
+    },
     /// Bending that fade by its dot (C3): the handle as it is now, the
     /// pointer's last place, and the fade's size on screen.
     Bend {
         clip: Id,
         edge: Edge,
+        /// The fade is the crossfade at the clip's end, curved like a
+        /// fade-in.
+        crossing: bool,
         handle: lumen_core::curve::Handle,
         last: Pos2,
         size: egui::Vec2,
@@ -401,7 +410,9 @@ impl Arrangement {
                     .iter()
                     .find(|c| c.id == clip && !c.locked)
                     .and_then(|c| {
-                        ClipHandles::of(c, rect, |t| time.x(canvas.left(), t.as_quarters()))
+                        let shown =
+                            crate::crossfades::preview(project, project.tracks[track].id, c);
+                        ClipHandles::of(&shown, rect, |t| time.x(canvas.left(), t.as_quarters()))
                     })
                     .and_then(|h| h.handle_at(pointer))
                     .filter(|h| edge.is_none() || *h != Handle::Gain);
@@ -601,6 +612,7 @@ mod tests {
                     muted: false,
                     color: None,
                     locked: false,
+                    crossfade: false,
                     fade_in: Default::default(),
                     fade_out: Default::default(),
                     loop_length: None,

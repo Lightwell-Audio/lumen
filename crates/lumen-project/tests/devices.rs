@@ -71,7 +71,9 @@ fn golden_v17_expected() -> Project {
     });
     let keys = track(1000, TrackKind::Midi, vec![synth, reverb]);
     let vox = track(1010, TrackKind::Audio, vec![effect(1011)]);
-    project_of("Golden v17", vec![keys, vox])
+    let mut project = project_of("Golden v17", vec![keys, vox]);
+    project.auto_crossfade = false;
+    project
 }
 
 #[test]

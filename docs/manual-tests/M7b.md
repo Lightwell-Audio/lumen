@@ -121,8 +121,50 @@ falling sound (a fade-in, a drum hit, a spoken word) so reverse is obvious.
    gain. Normalize a clip of silence: a note says so. Normalize a long file
    and press Esc: it stops and says so.
 9. Use Invert selection, All in track, Select to start and Select to end from
-   the clip menu's Select submenu (and Ctrl+K).
+   the clip menu's Edit → Select submenu (and Ctrl+K).
 10. Check the clip menu in both themes at 100, 150 and 200% scaling: the new
     rows match the others and the menu fits your window.
 11. Save, close and reopen: reversed, inverted and normalized clips come back
     as they were.
+
+## MT-EDIT-3 — Crossfades (E2)
+
+**State:** Waiting for the owner (re-run after the 2026-10-24 rework).
+Branch: `m7b-s2-join-crossfades`. Use a scratch project.
+
+```powershell
+cargo run --release -p lumen-app
+```
+
+1. Drop an audio file on a track and split it (Ctrl+E). With the halves
+   against each other, grab the left half's fade-out handle (the ring in its
+   top-right corner) and drag it right, over the right half. The left clip
+   is extended over the right one and fades into it; the farther you drag,
+   the longer the crossfade. Both curves cross the zone from corner to
+   corner; the length shows beside the pointer.
+2. The right clip starts where the crossfade ends, and the left clip ends
+   there too. Select the right clip: its outline begins at the end of the
+   crossfade. Drag the right clip to reposition it: it moves from that
+   start, and it is an ordinary clip again (no crossfade left behind).
+3. Drag the handle back to the split in the same gesture: the clips are as
+   they were. Undo and Redo treat the whole drag as one step.
+4. Grab the handle of an existing crossfade: moving it left lengthens the
+   crossfade and moving it right shortens it, the clips staying put.
+   The right clip's fade handle lengthens it to the right: the crossfade
+   begins where it did and ends further along, as pulling the left clip over
+   does, and it stays a crossfade. Drag the left clip's end edge further over
+   the right clip: the crossfade moves along and keeps its length.
+   Double-click a handle to remove the crossfade. Right-click the handle for the
+   preset shapes and bend the curve; check the sound.
+5. Place two different audio clips against each other and do the same drag.
+   Play through the crossfade and check for a clean transition, with the
+   outgoing clip's sound fading out as the incoming one's fades in.
+6. Select the right clip and use Toggle crossfade with the clip before
+   (Ctrl+Shift+X, the palette or the clip menu): a 5 ms crossfade is made or
+   removed. With nothing before the clip, the hint says so.
+7. Find Automatic crossfades in the project menu or the palette and toggle
+   it; Undo and Redo restore the setting. An older project opens with it
+   off. Automatic crossfades are played but not drawn.
+8. Look at both themes at 100, 150 and 200% scale, including the smallest
+   window; the menus scroll to their lower controls.
+9. Save, close and reopen: the crossfade is as you left it.

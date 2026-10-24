@@ -170,6 +170,7 @@ fn merge_midi(first: &Clip, second: &Clip) -> Option<Clip> {
     Some(Clip {
         length: second.start + second.length - first.start,
         fade_in: first.fade_in,
+        crossfade: first.crossfade,
         fade_out: second.fade_out,
         loop_length: None,
         loop_phase: Ticks::ZERO,

@@ -56,6 +56,7 @@ mod chain;
 mod clip_flags_render;
 mod commands;
 mod crash;
+mod crossfades;
 mod document;
 mod files;
 mod fonts;
@@ -320,6 +321,7 @@ pub(crate) fn empty_project() -> Project {
     Project {
         name: "Untitled".into(),
         sample_rate: 48_000,
+        auto_crossfade: true,
         tempo: vec![TempoPoint {
             at: Ticks::ZERO,
             bpm: 120.0,

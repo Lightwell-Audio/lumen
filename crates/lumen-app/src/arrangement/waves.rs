@@ -45,9 +45,15 @@ pub(super) fn wave_instances(
         return Vec::new();
     };
     let mut waves = Vec::new();
+    // A crossfade is drawn as it is heard: two clips that overlap, each
+    // fading through the crossing.
+    let played = crate::crossfades::played(project);
     for (row, track) in project.tracks.iter().enumerate() {
-        for clip in &track.clips {
-            let [r, g, b, a] = color(track, clip).to_srgba_unmultiplied();
+        for model in &track.clips {
+            let (clip, blend) = played
+                .get(&model.id)
+                .map_or((&**model, false), |p| (&p.clip, p.blend[0]));
+            let [r, g, b, a] = color(track, model).to_srgba_unmultiplied();
             let ClipContent::Audio {
                 media,
                 offset,
@@ -128,10 +134,21 @@ pub(super) fn wave_instances(
             let (curve_in, curve_out) = (clip.fade_in.curve.into(), clip.fade_out.curve.into());
             let fade_start = start - clip.fade_in.offset;
             let fade_end = end + clip.fade_out.offset;
-            let fade_in = [
-                beats(fade_start.as_quarters()),
-                beats((fade_start + clip.fade_in.span.max(clip.fade_in.length)).as_quarters()),
-            ];
+            // A crossfade that is not played (nothing to blend) is not a
+            // fade-in either.
+            let (curve_in, fade_in) = if model.crossfade && !blend {
+                (curve_in, [beats(start.as_quarters()); 2])
+            } else {
+                (
+                    curve_in,
+                    [
+                        beats(fade_start.as_quarters()),
+                        beats(
+                            (fade_start + clip.fade_in.span.max(clip.fade_in.length)).as_quarters(),
+                        ),
+                    ],
+                )
+            };
             let fade_out = [
                 beats((fade_end - clip.fade_out.span.max(clip.fade_out.length)).as_quarters()),
                 beats(fade_end.as_quarters()),
@@ -200,6 +217,7 @@ mod tests {
                 muted: false,
                 color: None,
                 locked: false,
+                crossfade: false,
                 fade_in: Default::default(),
                 fade_out: Default::default(),
                 loop_length: None,
@@ -357,6 +375,46 @@ mod tests {
             let drawn = pair[0].frames_per_beat * (pair[0].end[0] - pair[0].start[0]);
             assert!((pair[0].first_frame + drawn - pair[1].first_frame).abs() < 1.0);
         }
+    }
+
+    #[test]
+    fn a_crossfade_draws_the_incoming_clip_from_the_start_of_the_crossing() {
+        // Two clips of four beats from beat 0 and beat 4 of an eight-beat
+        // file, the second made a crossfade of half a beat that starts a
+        // beat into the file: it is drawn from half a beat before it starts,
+        // ramping in over the crossing, and the first one ramps out.
+        let mut p = project(vec![bpm(0, 120.0)], 24_000);
+        p.media.push(lumen_project::model::Media {
+            id: Id(3),
+            path: "a.wav".into(),
+            original_path: None,
+            frames: 48_000 * 8,
+            channels: 2,
+            sample_rate: 48_000,
+            size_bytes: 0,
+        });
+        let track = Arc::make_mut(&mut p.tracks[0]);
+        let mut left = (*track.clips[0]).clone();
+        left.id = Id(1);
+        left.start = Ticks::ZERO;
+        left.content = ClipContent::Audio {
+            media: Id(3),
+            offset: 0,
+            gain_db: 0.0,
+        };
+        track.clips.insert(0, Arc::new(left));
+        let right = Arc::make_mut(&mut track.clips[1]);
+        right.crossfade = true;
+        right.fade_in.length = Ticks(Ticks::quarters(1).0 / 2);
+        let waves = waves(&p, 48_000);
+        assert_eq!(waves.len(), 2);
+        let (out, inc) = (waves[0], waves[1]);
+        assert_eq!(inc.start, [3.0, 0.5]);
+        assert_eq!(inc.end, [8.0, 0.0]);
+        assert_eq!(inc.fade_in, [[3.0, 0.5], [4.0, 0.0]]);
+        // The audio under the clip's start is unmoved: half a beat on.
+        assert_eq!(inc.first_frame, 12_000.0);
+        assert_eq!(out.fade_out, [[3.0, 0.5], [4.0, 0.0]]);
     }
 
     #[test]

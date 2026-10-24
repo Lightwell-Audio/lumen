@@ -57,6 +57,7 @@ fn clip(id: u64, start: i64, length: i64, notes: Vec<Note>) -> Clip {
         color: None,
         locked: false,
         fade_in: Default::default(),
+        crossfade: false,
         fade_out: Default::default(),
         loop_length: None,
         loop_phase: Default::default(),

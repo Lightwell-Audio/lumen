@@ -457,25 +457,27 @@ impl App {
                 use Edit::{Copy, Cut, Delete, Duplicate};
                 self.edit_items(ui, &[Cut, Copy, Duplicate, Delete]);
                 ui.separator();
-                self.menu_command(ui, Command::SplitNotes, "Split");
-                self.menu_command(ui, Command::GlueNotes, "Join");
-                if self.availability(ui.ctx(), Command::UnloopClips).is_ok() {
-                    self.menu_command(ui, Command::UnloopClips, "Unloop");
-                }
-                // These act on audio only: a MIDI-only selection does not
-                // list them.
-                if self.selection_has_audio() {
-                    self.menu_command(ui, Command::ReverseClips, "Reverse");
-                    self.menu_command(ui, Command::InvertPolarity, "Invert polarity");
-                    self.menu_command(ui, Command::NormalizeClips, "Normalize");
-                }
-                self.menu_command(ui, Command::NudgeClipsEarlier, "Nudge earlier");
-                self.menu_command(ui, Command::NudgeClipsLater, "Nudge later");
-                widgets::submenu(ui, "Select", |ui| {
-                    self.menu_command(ui, Command::InvertSelection, "Invert selection");
-                    self.menu_command(ui, Command::SelectAllInTrack, "All in track");
-                    self.menu_command(ui, Command::SelectToStart, "To start");
-                    self.menu_command(ui, Command::SelectToEnd, "To end");
+                widgets::submenu(ui, "Edit", |ui| {
+                    self.menu_command(ui, Command::SplitNotes, "Split");
+                    self.menu_command(ui, Command::GlueNotes, "Join");
+                    if self.availability(ui.ctx(), Command::UnloopClips).is_ok() {
+                        self.menu_command(ui, Command::UnloopClips, "Unloop");
+                    }
+                    // These act on audio only: a MIDI-only selection does not
+                    // list them.
+                    if self.selection_has_audio() {
+                        self.menu_command(ui, Command::ReverseClips, "Reverse");
+                        self.menu_command(ui, Command::InvertPolarity, "Invert polarity");
+                        self.menu_command(ui, Command::NormalizeClips, "Normalize");
+                    }
+                    self.menu_command(ui, Command::NudgeClipsEarlier, "Nudge earlier");
+                    self.menu_command(ui, Command::NudgeClipsLater, "Nudge later");
+                    widgets::submenu(ui, "Select", |ui| {
+                        self.menu_command(ui, Command::InvertSelection, "Invert selection");
+                        self.menu_command(ui, Command::SelectAllInTrack, "All in track");
+                        self.menu_command(ui, Command::SelectToStart, "To start");
+                        self.menu_command(ui, Command::SelectToEnd, "To end");
+                    });
                 });
                 ui.separator();
                 self.clip_menu(ui);

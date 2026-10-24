@@ -30,6 +30,7 @@ fn at(quarters: i64, numerator: u32, denominator: u32) -> MeterPoint {
 /// The model the v24 golden file must always load as. Never change it.
 fn golden_v24_expected() -> Project {
     let mut project = project_of("Golden v24", vec![]);
+    project.auto_crossfade = false;
     project.tempo = vec![
         TempoPoint {
             at: Ticks::ZERO,

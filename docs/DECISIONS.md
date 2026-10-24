@@ -8402,3 +8402,75 @@ the original can differ slightly.
 when it writes) and `project_parse` +1.61%; the engine scenarios moved by
 under 1% except `engine_clips_64` at -2.03% (no engine code changed: code
 layout). `perf/baseline.json` was regenerated from WSL for all scenarios.
+
+## ADR-0094 — Crossfades at audio joins (M7b E2)
+
+**Context.** A crossfade is two clips sounding together for a short time. The
+first design kept the arrangement's rule that clips never overlap and drew the
+overlap as decoration; the owner found that the picture and the model
+disagreed (the incoming clip appeared to start where the crossfade began, and
+repositioning it moved it from the wrong place). Owner direction after
+MT-EDIT-3: keep it simple, make it behave as expected, and do not fake the
+picture.
+
+**Choice (revised 2026-10-24).** The crossfade is a true overlap of the two
+clips' sound that the model describes exactly:
+
+- The outgoing (left) clip is extended over the incoming (right) clip and
+  fades into it. The right clip is trimmed to start where the crossfade ends.
+  The two clips still touch (left end = right start), so the arrangement's
+  no-overlap rule is unchanged and the clip list stays simple.
+- The right clip carries `crossfade = true` and `fade_in.length = d`, the
+  crossfade length. The sound before the right clip's start is its own hidden
+  head, which keeps playing in the zone `[start - d, start]`; the left clip
+  plays its real audio there. Both fade with equal power along the saved
+  curve (the fade curve on the left clip's handle is the crossfade's curve).
+- By hand: drag the left clip's fade-out handle past its end into the right
+  clip. The farther the drag, the longer the crossfade; the clip ends move
+  with it, dragged back they return exactly, and the whole drag is one undo
+  step. Grabbing the handle of an existing crossfade changes its length with
+  the clips staying put; double-click removes it. The right clip's
+  fade-in handle lengthens it to the right (the crossfade begins where it did
+  and ends further along, as pulling the left clip over does); it never turns
+  it into a plain fade-in. Dragging the left clip's end edge on
+  moves the whole crossfade along at its length (the trimmed right clip keeps
+  it). Toggle crossfade with the clip
+  before (Ctrl+Shift+X) makes a 5 ms one from the keyboard.
+- One history rule keeps the model honest: after every edit the flag is
+  cleared on any clip with no audio clip ending where it starts (moving,
+  trimming, deleting or pasting either clip), and its fade-in with it. A clip
+  that is moved away is an ordinary clip again.
+- Automatic 5 ms joins (project setting, new projects on, older projects off
+  after migration) use the left clip's hidden tail after the join; they are
+  played but not drawn as a zone, since they are not an edit the user made.
+- Where the audio is continuous (a plain split), a crossfade is shown but not
+  played: blending a signal with itself changes nothing heard.
+- Format v28 stays (the branch is unmerged): the `crossfade` flag and
+  `auto_crossfade` setting.
+
+**Engine.** The overlapping clips already mix additively. The engine gains one
+fade property, `blend`: an equal-power half-crossfade at that end that also
+leaves out the 2 ms edge fade there. The app sends the left clip with a
+blend fade-out and the right clip with a blend fade-in over the same frames.
+The special join machinery of the first design (join tails, partner tracking,
+`ClipShape.crossfade`) is removed. Equal-power references, steady level for
+the same sound across a curved crossfade, seeks and list swaps are covered by
+engine tests; the allocation guard covers an overlapping crossfade.
+
+**Alternatives.** Storing free overlapping clips would need exceptions through
+editing and hit testing; take lanes and comping stay with the later comping
+work. Rendering a file per crossfade adds disk work and hides the edit.
+
+**Verification.** Results and remaining manual checks are recorded in the E2
+slice report in PROGRESS and MT-EDIT-3.
+
+**Performance (2026-10-24, WSL instruction gate).** `engine_crossfades_64` is
+now 64 overlapping pairs (128 clips sounding, each with a blend fade, one
+`sin` or `cos` per clip-frame): 5,898,998,818 instructions per 1,000 blocks of
+128 frames, +15.26% on the first design's 5,117,889,825 (a different scenario,
+so the baseline was regenerated). Every other scenario moved by at most +0.38%
+(project parse -0.10%, serialization -0.00%). Cost to remember: the blend
+fades evaluate a sine per frame; a table that holds the equal-power shape
+(one per curve) would remove it if a project with many simultaneous
+crossfades ever needs the room. `perf/baseline.json` was regenerated from WSL
+and its threshold remains 2%.

@@ -268,6 +268,9 @@ pub fn validate(project: &Project) -> Result<(), String> {
         }
         for (index, clip) in track.clips.iter().enumerate() {
             let at = || format!("{}, clip {index} {:?}", at(), clip.name);
+            if clip.crossfade && !matches!(clip.content, ClipContent::Audio { .. }) {
+                return Err(format!("{}: a MIDI clip cannot request a crossfade", at()));
+            }
             if !ids.insert(clip.id) {
                 return Err(format!("{}: duplicate clip id", at()));
             }

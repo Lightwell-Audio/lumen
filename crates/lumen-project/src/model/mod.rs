@@ -75,6 +75,10 @@ pub struct Project {
     pub name: String,
     pub sample_rate: u32,
     pub tempo: Vec<TempoPoint>,
+    /// Automatically crossfade eligible audio joins (format v28). New
+    /// projects enable this; migration explicitly disables it for old files.
+    #[serde(default = "default_auto_crossfade", skip_serializing_if = "is_true")]
+    pub auto_crossfade: bool,
     /// The time signature along the song (format v24; one `time_signature`
     /// before): the first change at zero, each later one on a bar line of
     /// the meter before it. Part of undo.
@@ -275,6 +279,14 @@ mod base64_bytes {
 
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
+fn default_auto_crossfade() -> bool {
+    true
 }
 
 fn is_zero(x: &f32) -> bool {
