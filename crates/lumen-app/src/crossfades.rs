@@ -81,10 +81,12 @@ pub(crate) fn fade(project: &Project, track: Id, clip: &Clip) -> Option<Fade> {
         .filter(|m| m.id == a || m.id == b)
         .map(|m| (m.id, m))
         .collect();
-    resolve(&sources, &tempo, left, clip)
+    resolve(&sources, &tempo, left, clip).map(|join| join.fade)
 }
 
-/// Index join positions once and share the tempo map across the list.
+/// The crossfades that change what is heard, by incoming clip. A crossfade
+/// asked for across a seamless join (a split whose halves still continue each
+/// other) is left out: it is shown, but the audio plays on unchanged.
 pub(crate) fn resolved(project: &Project) -> HashMap<Id, Fade> {
     let mut out = HashMap::new();
     let Ok(tempo) = TempoMap::new(project.tempo.clone()) else {
@@ -100,13 +102,21 @@ pub(crate) fn resolved(project: &Project) -> HashMap<Id, Fade> {
         for clip in &track.clips {
             if (clip.crossfade || project.auto_crossfade)
                 && let Some(left) = ends.get(&clip.start)
-                && let Some(fade) = resolve(&sources, &tempo, left, clip)
+                && let Some(join) = resolve(&sources, &tempo, left, clip)
+                && !join.seamless
             {
-                out.insert(clip.id, fade);
+                out.insert(clip.id, join.fade);
             }
         }
     }
     out
+}
+
+/// A join that crossfades. `seamless`: the two clips continue the same audio,
+/// so blending them changes nothing heard and none is played.
+struct Join {
+    fade: Fade,
+    seamless: bool,
 }
 
 fn resolve(
@@ -114,7 +124,7 @@ fn resolve(
     tempo: &TempoMap,
     left: &Clip,
     clip: &Clip,
-) -> Option<Fade> {
+) -> Option<Join> {
     // An explicit handle dragged to zero overrides the automatic default.
     if clip.crossfade && clip.fade_in.length <= Ticks::ZERO {
         return None;
@@ -149,7 +159,16 @@ fn resolve(
             && (left_origin + duration - right_origin).abs() < 1e-7
     };
     if left_media == media && left.reversed == clip.reversed && contiguous {
-        return None;
+        // Only a crossfade asked for by hand is shown across a seamless join,
+        // so every split does not show one.
+        return (clip.crossfade && clip.fade_in.length > Ticks::ZERO).then(|| Join {
+            fade: Fade {
+                length: clip.fade_in.length.min(clip.length),
+                curve: clip.fade_in.curve,
+                ..Fade::default()
+            },
+            seamless: true,
+        });
     }
     let tail_start = if let Some(period) = left.loop_length.filter(|p| *p > Ticks::ZERO) {
         let phase = Ticks((left.loop_phase + left.length).0.rem_euclid(period.0));
@@ -169,10 +188,13 @@ fn resolve(
     };
     let tail = tempo.ticks_at_seconds(tempo.seconds_at(clip.start) + available) - clip.start;
     let length = requested.min(tail).min(clip.length);
-    (length > Ticks::ZERO).then_some(Fade {
-        length,
-        curve: clip.fade_in.curve,
-        ..Fade::default()
+    (length > Ticks::ZERO).then_some(Join {
+        fade: Fade {
+            length,
+            curve: clip.fade_in.curve,
+            ..Fade::default()
+        },
+        seamless: false,
     })
 }
 
@@ -324,6 +346,34 @@ mod tests {
         let clips = crate::lanes::engine_clips(&p, 48_000, |_| Some((audio.clone(), 48_000)));
         assert!(!clips[1].shape.crossfade);
         assert_eq!(clips[1].shape.fade_in.frames, 0);
+    }
+
+    #[test]
+    fn a_crossfade_asked_for_across_a_split_is_shown_but_changes_nothing_heard() {
+        let mut p = join();
+        let id = p.tracks[0].id;
+        let right = Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[1]);
+        // The right half continues the left's audio: a plain split.
+        if let ClipContent::Audio { offset, .. } = &mut right.content {
+            *offset = 48_000;
+        }
+        assert!(
+            fade(&p, id, &p.tracks[0].clips[1]).is_none(),
+            "not asked for"
+        );
+        let right = Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[1]);
+        right.crossfade = true;
+        right.fade_in.length = Ticks::quarters(1);
+        let shown = fade(&p, id, &p.tracks[0].clips[1]).expect("shown");
+        assert_eq!(shown.length, Ticks::quarters(1));
+        assert!(resolved(&p).is_empty(), "no blend is played");
+        let audio = Arc::new(lumen_engine::ClipAudio {
+            sample_rate: 48_000,
+            channels: vec![vec![0.5; 96_000]],
+        });
+        let clips = crate::lanes::engine_clips(&p, 48_000, |_| Some((audio.clone(), 48_000)));
+        assert!(!clips[1].shape.crossfade);
+        assert_eq!(clips[1].shape.fade_in.frames, 0, "plays on seamlessly");
     }
 
     #[test]

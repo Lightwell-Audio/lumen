@@ -511,6 +511,7 @@ impl App {
             bend_out: h.bend_pos(Edge::End),
             gain: egui::pos2(h.wave.center().x, h.gain_y()),
             wave: h.wave,
+            crossfade: h.crossfade,
         })
     }
 
@@ -710,6 +711,8 @@ pub struct ClipHandlesAt {
     pub gain: egui::Pos2,
     /// Where the waveform is drawn.
     pub wave: egui::Rect,
+    /// The clip shows a crossfade at its start (both curves cross it).
+    pub crossfade: bool,
 }
 
 /// The `index`th colour of the clip and track palette, as the swatch

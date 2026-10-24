@@ -8452,6 +8452,10 @@ curves drawn firmly across its full height, the outgoing clip's hidden tail
 drawn in its own colour fading out, and the incoming clip's waveform ramping in
 with the shared fade. A looping outgoing clip draws no tail. Free overlap,
 take lanes and comping stay with the later comping work.
+A crossfade asked for by hand across a plain split (the halves still continue
+the same audio) is made and drawn like any other, but nothing is played for it:
+blending a signal with itself changes nothing heard, so the audio stays
+seamless. The zone is not drawn at every split, only when the drag asks for it.
 
 **Alternatives.** Storing overlapping clips would require exceptions throughout
 editing and hit testing. Rendering a new file for each crossfade would add disk

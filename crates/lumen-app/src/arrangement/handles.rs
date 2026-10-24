@@ -36,9 +36,9 @@ const LINE_GRAB: f32 = 3.0;
 /// Clips narrower than this, or with a shorter wave area, show no handles.
 const MIN_WIDTH: f32 = 28.0;
 const MIN_HEIGHT: f32 = 10.0;
-/// How dark the overlap zone of a crossfade is (of the shadow token), and
+/// How strong the shading of a crossfade zone is (of the ember wash), and
 /// how strong its closing edge and crossing lines are (of the text colour).
-const CROSSFADE_WASH: f32 = 0.45;
+const CROSSFADE_WASH: f32 = 1.4;
 const CROSSFADE_EDGE: f32 = 0.35;
 const CROSSFADE_LINE: f32 = 0.85;
 /// A fade narrower than this shows no bend dot.
@@ -324,7 +324,6 @@ pub fn draw_handles(
         let (x0, x1) = (h.fade_in.from.max(view.min), h.fade_in.to.min(view.max));
         if x1 > x0 {
             let zone = Rect::from_x_y_ranges(x0..=x1, h.wave.y_range());
-            painter.rect_filled(zone, 0.0, palette.shadow.gamma_multiply(CROSSFADE_WASH));
             if view.contains(h.fade_in.to) {
                 painter.vline(
                     h.fade_in.to,
@@ -348,6 +347,11 @@ pub fn draw_handles(
                 incoming.push(pos2(point.x, h.y_of(in_gain)));
                 outgoing.push(pos2(point.x, h.y_of(out_gain)));
             }
+            // What each clip gives up across the zone: shaded above its
+            // curve, so the middle, where both are present, reads darkest.
+            let wash = palette.ember.gamma_multiply(CROSSFADE_WASH);
+            wash_above(painter, &incoming, h.wave.top(), wash);
+            wash_above(painter, &outgoing, h.wave.top(), wash);
             curve = incoming;
             Some(outgoing)
         } else {
@@ -376,18 +380,7 @@ pub fn draw_handles(
             continue;
         }
         // What the fade takes away: a light wash above the curve.
-        let mut wash = egui::Mesh::default();
-        let tint = accent.gamma_multiply(0.10);
-        for p in &curve {
-            wash.colored_vertex(*p, tint);
-            wash.colored_vertex(pos2(p.x, h.wave.top()), tint);
-        }
-        for i in 0..curve.len() as u32 - 1 {
-            let k = 2 * i;
-            wash.add_triangle(k, k + 1, k + 2);
-            wash.add_triangle(k + 1, k + 3, k + 2);
-        }
-        painter.add(wash);
+        wash_above(painter, &curve, h.wave.top(), accent.gamma_multiply(0.10));
         glow_line(painter, curve, accent, hot == Some(Handle::Bend(edge)));
         if let Some(other) = other {
             glow_line(painter, other, accent, hot == Some(Handle::Bend(edge)));
@@ -443,6 +436,24 @@ pub fn draw_handles(
             );
         }
     }
+}
+
+/// A wash `tint` from `curve` up to `top`.
+fn wash_above(painter: &Painter, curve: &[Pos2], top: f32, tint: Color32) {
+    if curve.len() < 2 {
+        return;
+    }
+    let mut wash = egui::Mesh::default();
+    for p in curve {
+        wash.colored_vertex(*p, tint);
+        wash.colored_vertex(pos2(p.x, top), tint);
+    }
+    for i in 0..curve.len() as u32 - 1 {
+        let k = 2 * i;
+        wash.add_triangle(k, k + 1, k + 2);
+        wash.add_triangle(k + 1, k + 3, k + 2);
+    }
+    painter.add(wash);
 }
 
 /// Equal-power incoming and outgoing gains at normalized fade progress.

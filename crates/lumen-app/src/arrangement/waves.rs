@@ -142,6 +142,9 @@ pub(super) fn wave_instances(
                         beats((start + fade.length).as_quarters()),
                     ],
                 ),
+                // A crossfade that is not played (a broken join) is not a
+                // fade-in either.
+                None if clip.crossfade => (curve_in, [beats(start.as_quarters()); 2]),
                 None => (
                     curve_in,
                     [

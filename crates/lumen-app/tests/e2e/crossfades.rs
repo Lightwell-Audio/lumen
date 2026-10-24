@@ -210,6 +210,53 @@ fn dragging_the_left_clips_fade_out_handle_into_the_next_clip_makes_the_crossfad
     assert_eq!(clip(&lumen, right).fade_in.length, Ticks::ZERO);
 }
 
+/// The owner's flow (MT-EDIT-3): split, then pull the left clip's handle into
+/// the right one. The halves still continue each other, so nothing changes
+/// that is heard, but the crossing is made and shown.
+#[test]
+fn a_plain_split_takes_a_crossfade_from_the_left_clips_handle() {
+    let mut lumen = Lumen::start("crossfade-plain-split");
+    let file = wav(&lumen.dir().join("split.wav"), 4.0);
+    lumen.drop_files(&[file]);
+    lumen.frames(40);
+    for _ in 0..3 {
+        lumen.key(Modifiers::NONE, Key::Equals);
+    }
+    lumen.frames(15);
+    let first = lumen.app().project().tracks[0].clips[0].id;
+    let r = rect(&lumen, first);
+    let zoom = lumen.app().view().zoom as f32;
+    let cut = Pos2::new(r.left() + 2.0 * zoom, r.bottom() - 6.0);
+    lumen.harness.hover_at(cut);
+    lumen.frames(1);
+    for pressed in [true, false] {
+        lumen.harness.event(Event::PointerButton {
+            pos: cut,
+            button: eframe::egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        lumen.frames(1);
+    }
+    lumen.key(Modifiers::COMMAND, Key::E);
+    let (left, right) = {
+        let clips = &lumen.app().project().tracks[0].clips;
+        (clips[0].id, clips[1].id)
+    };
+    let at = lumen.app().clip_handles(&lumen.harness.ctx, left).unwrap();
+    let reach = vec2(rect(&lumen, right).width() * 0.2, 0.0);
+    lumen.drag(at.fade_out, at.fade_out + reach, Modifiers::NONE);
+    let made = clip(&lumen, right);
+    assert!(made.crossfade && made.fade_in.length > Ticks::ZERO);
+    let shown = lumen.app().clip_handles(&lumen.harness.ctx, right).unwrap();
+    assert!(shown.crossfade, "the crossing is drawn on the right clip");
+    // Pulling further makes it longer.
+    let first_length = made.fade_in.length;
+    let at = lumen.app().clip_handles(&lumen.harness.ctx, left).unwrap();
+    lumen.drag(at.fade_out, at.fade_out + reach * 2.0, Modifiers::NONE);
+    assert!(clip(&lumen, right).fade_in.length > first_length);
+}
+
 #[test]
 fn project_menu_keeps_crossfades_and_lower_controls_reachable_in_a_small_window() {
     let mut lumen = Lumen::start("crossfade-small-menu");

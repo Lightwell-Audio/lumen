@@ -154,6 +154,10 @@ cargo run --release -p lumen-app
    crossing, both curves cross it from corner to corner in firm lines, the
    first clip's tail shows in its colour fading out, and the second clip's
    wave grows in. Check both themes and 150% and 200% scale.
+5. Split one clip (Ctrl+E) and, with the halves against each other, drag the
+   first half's ring into the second. The crossing is made and drawn; the
+   farther you drag, the longer it gets. Playback is unchanged (the audio
+   continues), and Undo removes it in one step.
    The commands below do the same from the keyboard.
    Select the incoming audio clip and use Toggle custom crossfade through
    the palette (Ctrl+Shift+X), or Custom crossfade at join in the clip menu.
