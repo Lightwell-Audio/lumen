@@ -19,6 +19,7 @@ use crate::model::EventKind;
 use crate::model::{Clip, ClipContent, ClipEvent, Id, Note, Project};
 
 pub mod automation;
+pub mod bounce;
 pub mod carry;
 pub mod clip_ops;
 mod clipboard;
