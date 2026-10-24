@@ -260,7 +260,24 @@ impl<'r> Menu<'r> {
             } else {
                 PopupCloseBehavior::CloseOnClick
             })
-            .show(content);
+            .show(|ui| {
+                // A menu taller than the window scrolls instead of running
+                // off its edge (the grid menu at the minimum window). The
+                // layout constraint is widened first: a popup's area begins
+                // with a provisional height the scroll area would measure.
+                let height = ui.ctx().content_rect().height() - theme::space::M * 2.0;
+                ui.set_max_height(height);
+                // Reserve the scrollbar's width instead of painting it
+                // over the final letters and shortcut caps in a row.
+                ui.spacing_mut().scroll.floating = false;
+                ui.spacing_mut().scroll.bar_width = theme::space::XS;
+                ui.spacing_mut().scroll.foreground_color = false;
+                egui::ScrollArea::vertical()
+                    .id_salt("menu scroll")
+                    .max_height(height)
+                    .show(ui, content)
+                    .inner
+            });
         let changed = ctx.data_mut(|d| d.remove_temp::<bool>(change_key())) == Some(true);
         let Some(shown_menu) = shown_menu else {
             store(&ctx, id, State::default());

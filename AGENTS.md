@@ -404,7 +404,14 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated (2026-10-23):** M7b E2 crossfades are built on
+**Last updated (2026-10-24):** M7b E6 audit and small UX corrections are on
+`m7b-s6-close`. See `docs/audits/2026-10-24-m7b.md` for the walkthrough,
+screenshots, verification and larger backlog; MT-EDIT-7 awaits the owner.
+Normalize and consolidate can apply stale background results after certain
+concurrent edits; these are tracked for a dedicated follow-up. M7b is not
+approved closed and the next milestone has not started. Format remains v29.
+
+Earlier handoff (2026-10-23): M7b E2 crossfades are built on
 `m7b-s2-join-crossfades`, cut from `origin/main` after E1 merged (PR #52).
 Windows: 2,770 workspace tests (636 E2E), six smoke tests, clean clippy;
 macOS cross-clippy passes. See ADR-0094, `docs/milestones/M7b.md`, and

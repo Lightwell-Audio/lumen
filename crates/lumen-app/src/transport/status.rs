@@ -188,17 +188,12 @@ impl Transport {
         // The plugin list gives way first, down to two rows.
         let room = ui.ctx().content_rect().bottom() - ui.cursor().top() - theme::space::L;
         self.budget.list_room = room - self.budget.outside;
-        egui::ScrollArea::vertical()
-            .id_salt("audio panel")
-            // A popup offers less height than the window has: ask for it.
-            .min_scrolled_height(room)
-            .max_height(room)
-            .show(ui, |ui| {
-                let top = ui.cursor().top();
-                self.budget.list_height = 0.0;
-                self.audio_panel_rows(ui, project);
-                self.budget.outside = ui.cursor().top() - top - self.budget.list_height;
-            });
+        // The shared menu owns scrolling; a second scroll area here would
+        // reserve width twice and clip the budget labels at the right.
+        let top = ui.cursor().top();
+        self.budget.list_height = 0.0;
+        self.audio_panel_rows(ui, project);
+        self.budget.outside = ui.cursor().top() - top - self.budget.list_height;
     }
 
     fn audio_panel_rows(&mut self, ui: &mut Ui, project: &Project) {

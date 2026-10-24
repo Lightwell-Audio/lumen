@@ -69,6 +69,10 @@ pub fn render_job(
         file,
         media,
     } = job;
+    if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Could not make {}: {e}", parent.display()))?;
+    }
     let channels = if part.mono { 1 } else { 2 };
     let mut writer = Writer::create(
         &file,
@@ -319,7 +323,7 @@ mod tests {
     #[test]
     fn a_mono_part_writes_a_mono_file() {
         let dir = TempDir::new("consolidate-mono");
-        let (job, _) = job(dir.path(), true);
+        let (job, _) = job(&dir.path().join("new-render-folder"), true);
         let baked = render_job(
             job,
             &Timeline::default(),
@@ -354,7 +358,9 @@ mod tests {
     fn a_file_that_cannot_be_made_is_an_error_not_a_panic() {
         let dir = TempDir::new("consolidate-fail");
         let (mut job, _) = job(dir.path(), false);
-        job.file = dir.path().join("missing").join("out.wav");
+        let blocked = dir.path().join("blocked");
+        std::fs::write(&blocked, b"not a directory").unwrap();
+        job.file = blocked.join("out.wav");
         let result = render_job(
             job,
             &Timeline::default(),

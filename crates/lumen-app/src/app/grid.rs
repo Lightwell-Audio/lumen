@@ -110,10 +110,13 @@ impl App {
             grid.snap = !grid.snap;
         }
         let fixed = fixed.map_or_else(String::new, |k| format!("; {k} fixed or adaptive"));
-        ui.label(
-            egui::RichText::new(format!("Hold Alt to place freely{fixed}"))
-                .weak()
-                .small(),
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(format!("Hold Alt to place freely{fixed}"))
+                    .weak()
+                    .small(),
+            )
+            .wrap(),
         );
     }
 

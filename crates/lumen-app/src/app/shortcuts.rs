@@ -503,9 +503,11 @@ impl App {
     fn shortcut_list(&mut self, ui: &mut egui::Ui) {
         let palette = *theme::p();
         ui.horizontal(|ui| {
-            let field = ui.add(
+            let field = ui.add_sized(
+                vec2(ui.available_width() - 220.0, theme::size::CONTROL_LARGE),
                 egui::TextEdit::singleline(&mut self.shortcuts.query)
                     .hint_text("Search commands or keys")
+                    .margin(vec2(theme::space::M, theme::space::S))
                     .desired_width(ui.available_width() - 220.0),
             );
             field.widget_info(|| {

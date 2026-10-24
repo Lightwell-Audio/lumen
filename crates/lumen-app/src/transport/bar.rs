@@ -482,11 +482,8 @@ impl Transport {
         // The drag value fills the value's part of the well, with no fill
         // or outline of its own: the well is its ground.
         let value_rect = egui::Rect::from_min_max(
-            egui::pos2(well.left() + pad - theme::space::XS, well.top()),
-            egui::pos2(
-                well.left() + pad + value_w + theme::space::XS,
-                well.bottom(),
-            ),
+            egui::pos2(well.left() + pad, well.top()),
+            egui::pos2(well.left() + pad + value_w, well.bottom()),
         );
         let mut field = ui.new_child(
             egui::UiBuilder::new()
@@ -494,6 +491,8 @@ impl Transport {
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
         field.style_mut().drag_value_text_style = egui::TextStyle::Monospace;
+        field.spacing_mut().button_padding.x = 0.0;
+        field.set_clip_rect(value_rect.intersect(ui.clip_rect()));
         field.style_mut().visuals.text_edit_bg_color = Some(theme::p().well);
         for state in {
             let w = &mut field.style_mut().visuals.widgets;
@@ -523,7 +522,7 @@ impl Transport {
                 ui.painter()
                     .layout_no_wrap(unit.to_owned(), unit_font(), theme::p().text_hint);
             let at = egui::pos2(
-                value_rect.right() - theme::space::XS + theme::space::S,
+                value_rect.right() + theme::space::S,
                 well.center().y - galley.size().y / 2.0,
             );
             ui.painter()

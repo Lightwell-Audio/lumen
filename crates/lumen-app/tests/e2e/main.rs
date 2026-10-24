@@ -92,6 +92,7 @@ mod stepped;
 mod tools;
 mod walkthrough;
 mod walkthrough_automation;
+mod walkthrough_editing;
 mod walkthrough_mix;
 mod walkthrough_plugins;
 

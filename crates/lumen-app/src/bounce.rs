@@ -237,6 +237,10 @@ pub fn render_job(
         file,
         media,
     } = job;
+    if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Could not make {}: {e}", parent.display()))?;
+    }
     let effects = bake != Bake::Plain;
     let Some(held) = project.tracks.iter().find(|t| t.id == track) else {
         return Err("The track is gone".to_owned());
@@ -577,7 +581,13 @@ mod tests {
         doc.set_volume(track, -6.0);
         doc.set_pan(track, -1.0);
         let dir = TempDir::new("bounce-effects");
-        let job = job(&doc, track, dir.path(), 20_000, 10_000);
+        let job = job(
+            &doc,
+            track,
+            &dir.path().join("new-render-folder"),
+            20_000,
+            10_000,
+        );
         let file = job.file.clone();
         let mut last = 0.0;
         let made = render_job(job, &AtomicBool::new(false), &mut |p| last = p)

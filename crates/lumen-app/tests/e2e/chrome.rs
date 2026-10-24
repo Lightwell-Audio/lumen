@@ -8,6 +8,22 @@ use egui_kittest::kittest::Queryable;
 use super::Lumen;
 
 #[test]
+fn the_copy_imported_audio_switch_saves_without_another_setting_change() {
+    let dir = lumen_project::testing::TempDir::new("copy-imported-setting");
+    let file = dir.path().join("settings.json");
+    let mut lumen = Lumen::start_with(dir, |launch| launch.with_settings_file(&file));
+    lumen.click("Lumen");
+    lumen.click("Copy imported audio into the project");
+    lumen.wait_for("copy setting saved", |_| {
+        std::fs::read_to_string(&file).is_ok_and(|text| text.contains("\"copy_imported\": false"))
+    });
+    let dir = lumen.crash();
+    let mut again = Lumen::start_with(dir, |launch| launch.with_settings_file(&file));
+    again.click("Lumen");
+    assert!(!again.is_on("Copy imported audio into the project"));
+}
+
+#[test]
 fn the_panel_toggles_and_the_mixer_tab_say_whether_they_are_on() {
     let mut lumen = Lumen::start("toggles");
     // ("Browser" also names its pane, so the Detail toggle is checked.)

@@ -15,7 +15,12 @@ impl Document {
     /// Enables or disables automatic crossfades for eligible audio joins.
     /// The setting is part of the project history.
     pub fn set_auto_crossfade(&mut self, enabled: bool) {
-        self.history.apply("Automatic crossfades", None, |project| {
+        let label = if enabled {
+            "Enable automatic crossfades"
+        } else {
+            "Disable automatic crossfades"
+        };
+        self.history.apply(label, None, |project| {
             project.auto_crossfade = enabled;
         });
     }
