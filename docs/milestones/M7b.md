@@ -132,7 +132,10 @@ tail; a switch turns it off. **B4** scope: a time range if there is one, else
 the span of the selected clips, else the whole track; one file per track, all
 in one undo step.
 
-**Open (to the owner, before part 4c):** what Replace does when effects are
+**B5 (owner, 2026-10-24): option (b).** Replace with effects also bypasses the
+track's baked processing (devices off, fader 0 dB, pan centre) in the same
+undo step. The question as asked:
+what Replace does when effects are
 included. The track's devices, fader and pan would process the baked audio a
 second time. Candidates: (a) Replace bakes clip-level processing only and the
 effects switch is off and disabled in that mode; (b) Replace with effects also
