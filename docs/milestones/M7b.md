@@ -1,10 +1,9 @@
 # Milestone 7b — Advanced Editing & Render: plan
 
-**Status:** Approved to start by the owner, 2026-10-22. E0 merged (PR #51).
-E1 merged (PR #52). E2 is built on `m7b-s2-join-crossfades`, cut from
-`origin/main` after E1 and the recording-priority documentation update.
-MT-EDIT-3 awaits the owner; automated checks and measurements are in PROGRESS
-and ADR-0094. E3 has not started.
+**Status:** Approved to start by the owner, 2026-10-22. E0 (PR #51), E1
+(PR #52) and E2 (PR #54, MT-EDIT-3 passed 2026-10-24) are merged. E3 is
+planned (§6, "E3 implementation plan") and under way on
+`m7b-s3-render-consolidate`; E4 to E6 have not started.
 The behavior choices below remain the owner's accepted choices. This is the second half of the roadmap's
 milestone 7, split off at the owner's decision of 2026-10-19 (S1 A). The
 automation half is [M7](M7.md). M8 keeps its number.
@@ -111,12 +110,52 @@ Sizes are rough (S/M/L).
 | E0 (M) | Tools and split | K1 as chosen: the global tool state and its switch, the keys above, split at playhead, edit cursor, grid and range edges (click-free), the press-aim-release cut gesture, Ctrl+E widened to clips, seamless joins | Split then join returns the original; playback across a split equals the unsplit clip (null test); the keymap has no conflict; every tool and command is in the palette |
 | E1 (M) | Clip commands | Join (glue), crop to selection, unloop into copies, nudge by grid and finely, reverse (engine clip flag and reversed peaks), normalize (peak scan off the UI thread), polarity (clip flag), select invert, in track, to start, to end | Each is one undo step; reverse and normalize are golden renders; undo restores exactly |
 | E2 (M) | Crossfades | X1 as chosen: format v28 (E0 took v26, E1 v27), the engine tail read, the handle, the project setting, equal-power default curve | A crossfade is click-free and null-tests against an equal-power reference; an edit that breaks the join clears or ignores it; golden render |
-| E3 (L) | Render core and consolidate | R1: the worker render driver, WAV writer with atomic writes, registration as media, Ctrl+J widened to clips, consolidate for audio (gain, fades, envelopes, gaps as silence) and MIDI (merge and bake loops), originals kept in the media pool; the R2 spike runs first and its result is recorded | Consolidating unprocessed audio is identical to the original (null test); render equals real-time playback in a golden render; progress and cancel |
+| E3 (L) | Render core and consolidate | R1: the worker render driver, WAV writer with atomic writes, registration as media, Ctrl+J widened to clips, consolidate for audio (gain, fades, envelopes, gaps as silence) and MIDI (merge and bake loops), originals kept in the media pool; the R2 spike moved to the start of E4 (owner, 2026-10-24) | Consolidating unprocessed audio is identical to the original (null test); render equals real-time playback in a golden render; progress and cancel |
 | E4 (M) | Bounce | Bounce in place and render selection to a new track, with or without effects and tails | Bounce equals playback; a tail setting is honoured; the new track is one undo step |
 | E5 (L) | Freeze family | Freeze, unfreeze and flatten, including hosted plugins by the R2 route | A frozen track runs no plugin processes; a plugin crash during freeze is a result, not an exit; F1 only if the spike failed |
 | E6 (S) | Close M7b | Walkthrough (split, crossfade, consolidate, bounce, freeze, save, reopen), `lumen-review`, report, manual tests | The owner's MT-EDIT series passes; review findings fixed or tracked |
 
 ## 6. Validation and records
+
+### E3 implementation plan (2026-10-24)
+
+Branch: `m7b-s3-render-consolidate`, cut from `origin/main` after E2 merged
+(PR #54). Owner choices (2026-10-24, all recommendations): **C1** Consolidate
+bakes clip-level processing only (gain, polarity, reverse, fades, crossfades,
+clip envelopes), not the track's fader, pan, sends or devices; those are
+bounce's work (E4). **C2** the file is a 32-bit float WAV at the project's
+sample rate, mono when every clip is mono and stereo otherwise, so
+consolidating plain audio is bit-identical to the original. **C3** Ctrl+J on
+audio clips that are contiguous in one source still joins them with no new
+file (E1); on any other audio clips it consolidates, gaps as silence. There is
+also a Consolidate command and palette entry. **C4** the R2 spike moves to the
+start of E4 (consolidate never runs a plugin); the plan's pass condition for E3
+no longer includes it. Assumptions (logged, not asked): a render works on a
+snapshot of the clips and its result lands only if those clips are unchanged
+when it finishes; otherwise it says "Changed while rendering" and the file
+stays unused in the media pool.
+
+Parts (commits on this branch):
+
+1. **3a, WAV writer, no format change.** `lumen_media::wav`: 16, 24 and 32-bit
+   float, mono to eight channels, streamed from a callback so a long render
+   never holds the whole file twice; written through `write_atomic`'s
+   temp-and-rename pattern. Round trip against the decoder; header checks.
+2. **3b, the render driver.** A device-free `lumen_engine` driver that plays a
+   clip list through the clip player and a unity routing in blocks, with
+   progress, cancel and an exact length. Golden test: render equals the
+   real-time path block for block, at several block sizes.
+3. **3c, consolidate for audio.** A pure planner in `lumen_project::edit`
+   (which clips, the span, the channel count, the result clip with the first
+   clip's name), a worker in the app that bakes via the driver and writes the
+   WAV into the project's media folder, and `Document::consolidate_clips`
+   registering the media like an import and replacing the sources in one undo
+   step. Originals stay in `Project.media`.
+4. **3d, consolidate for MIDI.** Unloop then merge (E1's pieces) as one undo
+   step; no file.
+5. **3e, interface and close.** Ctrl+J widened, the Consolidate command and
+   clip-menu row, progress and cancel in the info line, E2E scenarios,
+   MT-EDIT-4, PROGRESS, ADR, handoff.
 
 ### E2 implementation plan (2026-10-23)
 

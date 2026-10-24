@@ -129,7 +129,7 @@ falling sound (a fade-in, a drum hit, a spoken word) so reverse is obvious.
 
 ## MT-EDIT-3 — Crossfades (E2)
 
-**State:** Waiting for the owner (re-run after the 2026-10-24 rework).
+**State:** Passed (owner, Windows, 2026-10-24, after the rework; no step detail).
 Branch: `m7b-s2-join-crossfades`. Use a scratch project.
 
 ```powershell
