@@ -212,7 +212,7 @@ not mind changing.
 
 ## MT-EDIT-5 — Bounce (E4)
 
-**State:** Not run. Branch: `m7b-s4-bounce`. Needs a plugin instrument and an
+**State:** Passed (owner, 2026-10-24; no step detail). Branch: `m7b-s4-bounce`. Needs a plugin instrument and an
 effect that are installed and scanned; work on a copy of a project.
 
 1. Make an audio track with a clip that has a fader at about -6 dB, pan left

@@ -418,8 +418,7 @@ per slice and move what is no longer current out of it.
   `clip.bounce` (last in `Command`, no default key), in the palette, the
   clip, range and track menus. Replace-with-effects falls back to a new
   track when the span is not the whole track or a clip is locked (not yet
-  shown to the owner: tell them). MT-EDIT-5 awaits the owner (needs real
-  plugins).
+  shown to the owner: tell them). MT-EDIT-5 passed (owner, 2026-10-24).
 - **Branch `m7b-s3-render-consolidate`: M7b E3 (render core and consolidate)
   is built** (ADR-0095; **no format change**, still v28; not pushed). New:
   `lumen_media::wav` (the WAV writer), `lumen_engine::render_clips` (the

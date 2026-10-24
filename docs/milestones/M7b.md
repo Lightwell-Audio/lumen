@@ -3,7 +3,7 @@
 **Status:** Approved to start by the owner, 2026-10-22. E0 (PR #51), E1
 (PR #52) and E2 (PR #54, MT-EDIT-3 passed 2026-10-24) are merged. E3 is
 built (§6, "E3 implementation plan") on
-`m7b-s3-render-consolidate`; E4 (bounce) is built (§6) on `m7b-s4-bounce`, MT-EDIT-5 awaits the owner; E5 and E6 have not started.
+`m7b-s3-render-consolidate`; E4 (bounce) is built (§6) on `m7b-s4-bounce`, MT-EDIT-5 passed; E5 and E6 have not started.
 The behavior choices below remain the owner's accepted choices. This is the second half of the roadmap's
 milestone 7, split off at the owner's decision of 2026-10-19 (S1 A). The
 automation half is [M7](M7.md). M8 keeps its number.
