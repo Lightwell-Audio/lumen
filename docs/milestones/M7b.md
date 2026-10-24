@@ -3,7 +3,7 @@
 **Status:** Approved to start by the owner, 2026-10-22. E0 (PR #51), E1
 (PR #52) and E2 (PR #54, MT-EDIT-3 passed 2026-10-24) are merged. E3 is
 built (§6, "E3 implementation plan") on
-`m7b-s3-render-consolidate`; E4 (bounce) is built (§6) on `m7b-s4-bounce`, MT-EDIT-5 passed; E5 and E6 have not started.
+`m7b-s3-render-consolidate`; E4 (bounce) is built (§6) on `m7b-s4-bounce`, MT-EDIT-5 passed; E3 and E4 are merged (PR #55, #56). E5 (freeze) is under way on `m7b-s5-freeze` (§6, "E5 implementation plan"); E6 has not started.
 The behavior choices below remain the owner's accepted choices. This is the second half of the roadmap's
 milestone 7, split off at the owner's decision of 2026-10-19 (S1 A). The
 automation half is [M7](M7.md). M8 keeps its number.
@@ -116,6 +116,44 @@ Sizes are rough (S/M/L).
 | E6 (S) | Close M7b | Walkthrough (split, crossfade, consolidate, bounce, freeze, save, reopen), `lumen-review`, report, manual tests | The owner's MT-EDIT series passes; review findings fixed or tracked |
 
 ## 6. Validation and records
+
+### E5 implementation plan (2026-10-24)
+
+Branch: `m7b-s5-freeze`, cut from `origin/main` after E4 merged (PR #56).
+Owner choices (2026-10-24, all recommendations): **FR1** Freeze bakes the
+sound only: the instrument, devices, trim, polarity and the lanes that drive
+them. Fader, pan, sends, mute, solo, output and their lanes stay live on a
+frozen track. **FR2** A frozen track is read-only: an edit of its clips, notes,
+devices, trim or polarity does nothing and says so in full, with an Unfreeze
+action; the header shows the frozen state. **FR3** Flatten converts the frozen
+track in place into a plain audio track holding the rendered clip (name, colour,
+fader, pan, sends and output stay; clips, notes, instrument, devices and their
+lanes go; a MIDI track becomes an audio track), one undo step, the file stays
+in the media pool. **FR4** Only audio and MIDI tracks freeze, and a track whose
+sound depends on other tracks (a sidechained device, or an instrument whose
+extra outputs feed other tracks) is refused with the reason, since freeze
+renders one track alone.
+
+Design: `Track.frozen: Option<Frozen { id, media, start, length, mono }>`
+(format v29, identity migration, frozen golden). A pure `frozen::played(project)`
+gives the project as it sounds: a frozen track becomes an audio track with one
+clip (the file), no devices, no trim or polarity; the live engine's clips,
+routing, MIDI and plugin hosting are built from it, so a frozen track starts no
+plugin process by construction. `History::apply` refuses any edit that changes
+a frozen track's clips, devices, trim, polarity or the lanes for them (the
+backstop that holds whatever the interface does), and the interface also stops
+gestures at the start.
+
+Parts (commits on this branch):
+
+1. **5a, model and engine side, no interface.** `Frozen`, format v29,
+   `frozen::{played, can_freeze}`, the `History` guard, `Document::{freeze_tracks,
+   unfreeze_tracks, flatten_tracks}`, the lanes/routing/MIDI/hosting hooks.
+2. **5b, the render.** The bounce worker gains a "sound only" mode; whole track
+   plus tail; plugin states captured first; cancel and plugin failure as results.
+3. **5c, interface.** Commands, menus, palette, header state, refusal toast with
+   Unfreeze, progress and Esc.
+4. **5d, close.** E2E scenarios, MT-EDIT-6, PROGRESS, ADR-0098, handoff.
 
 ### E4 implementation plan (2026-10-24)
 
