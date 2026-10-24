@@ -34,6 +34,18 @@ impl App {
             .map(|c| &**c)
     }
 
+    /// A temporary drawing/editing view with the eligible automatic fade
+    /// resolved. The preview never changes the saved project.
+    fn shown_clip(&self, id: Id) -> Option<Clip> {
+        let project = self.document.project();
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.clips.iter().any(|c| c.id == id))?;
+        let clip = track.clips.iter().find(|c| c.id == id)?;
+        Some(crate::crossfades::preview(project, track.id, clip))
+    }
+
     /// A drag starting at `origin` on the handle of `hit`: it selects the
     /// clip alone.
     pub(super) fn start_handle_gesture(
@@ -43,9 +55,9 @@ impl App {
         canvas: Rect,
     ) -> Option<Gesture> {
         let handle = hit.handle?;
-        let clip = self.clip(hit.clip)?;
+        let clip = self.shown_clip(hit.clip)?;
         let view = self.nav.view;
-        let handles = ClipHandles::of(clip, hit.rect, |t| view.x(canvas.left(), t.as_quarters()))?;
+        let handles = ClipHandles::of(&clip, hit.rect, |t| view.x(canvas.left(), t.as_quarters()))?;
         let gesture = match handle {
             Handle::Fade(edge) => Gesture::Fade {
                 clip: hit.clip,
@@ -91,7 +103,7 @@ impl App {
         let at = ruler::ticks_at(self.nav.view.beat_at(canvas.left(), p.x));
         let (clip, handle, text) = match gesture {
             Gesture::Fade { clip, edge } => {
-                let Some(c) = self.clip(clip) else {
+                let Some(c) = self.shown_clip(clip) else {
                     return;
                 };
                 // Fades follow the hand freely: they are about sound, not
@@ -100,8 +112,13 @@ impl App {
                     Edge::Start => at - c.start,
                     Edge::End => c.start + c.length - at,
                 };
-                self.document
-                    .set_fade_length(clip, edge, length, Some("clip fade"));
+                if edge == Edge::Start && c.crossfade {
+                    self.document
+                        .set_crossfade_length(clip, length, Some("clip fade"));
+                } else {
+                    self.document
+                        .set_fade_length(clip, edge, length, Some("clip fade"));
+                }
                 ctx.set_cursor_icon(CursorIcon::ResizeHorizontal);
                 (clip, Handle::Fade(edge), self.fade_text(clip, edge))
             }
@@ -174,11 +191,20 @@ impl App {
         let (cursor, info) = match hit.handle? {
             Handle::Fade(edge) => (
                 CursorIcon::ResizeHorizontal,
-                Info::new(if edge == Edge::Start {
-                    "Fade in"
-                } else {
-                    "Fade out"
-                })
+                Info::new(
+                    if edge == Edge::Start && self.shown_clip(hit.clip).is_some_and(|c| c.crossfade)
+                    {
+                        "Crossfade"
+                    } else if edge == Edge::Start
+                        && self.clip(hit.clip).is_some_and(|c| c.crossfade)
+                    {
+                        "No source tail at this join"
+                    } else if edge == Edge::Start {
+                        "Fade in"
+                    } else {
+                        "Fade out"
+                    },
+                )
                 .on(Held::NONE, Mouse::Drag, "set its length")
                 .on(Held::NONE, Mouse::DoubleClick, "remove it")
                 .on(Held::NONE, Mouse::RightClick, "preset shapes"),
@@ -213,8 +239,16 @@ impl App {
     pub(super) fn reset_handle(&mut self, hit: &ClipHit) {
         match hit.handle {
             Some(Handle::Fade(edge)) => {
-                self.document
-                    .set_fade_length(hit.clip, edge, Ticks::ZERO, None)
+                if edge == Edge::Start
+                    && (self.shown_clip(hit.clip).is_some_and(|c| c.crossfade)
+                        || self.clip(hit.clip).is_some_and(|c| c.crossfade))
+                {
+                    self.document
+                        .set_crossfade_length(hit.clip, Ticks::ZERO, None);
+                } else {
+                    self.document
+                        .set_fade_length(hit.clip, edge, Ticks::ZERO, None);
+                }
             }
             Some(Handle::Bend(edge)) => {
                 self.document
@@ -227,7 +261,7 @@ impl App {
 
     /// "125 ms" or "1.50 s": how long a fade lasts.
     fn fade_text(&self, clip: Id, edge: Edge) -> String {
-        let Some(c) = self.clip(clip) else {
+        let Some(c) = self.shown_clip(clip) else {
             return String::new();
         };
         let (from, length) = match edge {

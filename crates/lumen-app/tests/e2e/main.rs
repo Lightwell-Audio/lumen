@@ -24,6 +24,7 @@ mod clock;
 mod commands;
 mod compensation;
 mod controllers;
+mod crossfades;
 mod cue;
 mod devices;
 mod dropdown;

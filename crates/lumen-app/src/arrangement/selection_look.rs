@@ -133,10 +133,17 @@ impl Arrangement {
                         }
                     }
                 }
-                if let Some(h) = (!clip.locked)
+                // At fit-all thousands of clips are too narrow for handles.
+                // Reject those before cloning a clip or resolving its join.
+                let handles = (!clip.locked)
                     .then(|| ClipHandles::of(clip, whole, x))
                     .flatten()
-                {
+                    .and_then(|_| {
+                        let shown =
+                            crate::crossfades::preview(project, project.tracks[index].id, clip);
+                        ClipHandles::of(&shown, whole, x)
+                    });
+                if let Some(h) = handles {
                     let view = egui::Rangef::new(near_left, near_right);
                     draw_handles(
                         &painter,

@@ -41,6 +41,7 @@ fn golden_v25_expected() -> Project {
         color: None,
         locked: false,
         fade_in: Default::default(),
+        crossfade: false,
         fade_out: Default::default(),
         loop_length: Some(Ticks::quarters(4)),
         loop_phase: Default::default(),
@@ -67,6 +68,7 @@ fn golden_v25_expected() -> Project {
     clip.envelopes.set(Kind::Pan, lane(&[(0, -1.0), (3, 1.0)]));
     track.clips = vec![Arc::new(clip)];
     let mut project = project_of("Golden v25", vec![track]);
+    project.auto_crossfade = false;
     project.media = vec![Media {
         id: Id(1002),
         path: "Samples/take.wav".into(),

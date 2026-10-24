@@ -28,6 +28,10 @@ use lumen_project::{from_bytes, to_bytes};
 /// Every scenario, with what it measures.
 pub const SCENARIOS: &[(&str, &str)] = &[
     (
+        "engine_crossfades_64",
+        "1,000 blocks of 128 frames with 64 simultaneous stereo equal-power join crossfades",
+    ),
+    (
         "engine_clips_64",
         "1,000 blocks of 128 frames with 64 stereo clips sounding",
     ),
@@ -80,6 +84,10 @@ pub const SCENARIOS: &[(&str, &str)] = &[
 /// Runs one scenario. Returns false for an unknown name.
 pub fn run(name: &str) -> bool {
     match name {
+        "engine_crossfades_64" => {
+            let mut engine = crossfading_clips();
+            measured_engine_crossfades_64(&mut engine);
+        }
         "engine_clips_64" => {
             let mut engine = playing_clips(64, Mix::Direct);
             measured_engine_clips_64(&mut engine);
@@ -146,6 +154,66 @@ const FRAMES: usize = 128;
 type Player = Engine<Mixer<ClipPlayer>>;
 /// The engine with the MIDI instruments beside the audio clips.
 type SynthPlayer = Engine<Mixer<lumen_engine::Layered<ClipPlayer, lumen_engine::MidiPlayer>>>;
+
+fn crossfading_clips() -> Player {
+    let audio = Arc::new(ClipAudio {
+        sample_rate: RATE,
+        channels: vec![vec![0.01; 480_000]; 2],
+    });
+    let (mut clips, player) = clip_player();
+    let mut list = Vec::new();
+    for track in 0..64 {
+        let left = Clip {
+            id: track * 2,
+            track,
+            start: Ticks::ZERO,
+            offset: 0,
+            length: 24_000,
+            gain: 0.5,
+            audio: audio.clone(),
+            shape: Default::default(),
+            envelope: Default::default(),
+        };
+        let mut right = left.clone();
+        right.id += 1;
+        right.start = Ticks::quarters(1);
+        right.length = 240_000;
+        right.shape.crossfade = true;
+        right.shape.fade_in.frames = 240_000;
+        list.extend([left, right]);
+    }
+    clips.set(list).expect("room for a clip list");
+    let (mut routing, source) = mixer(player);
+    routing
+        .set(&Routing {
+            nodes: (0..64)
+                .map(|id| NodeSpec::unity(id, Destination::Hardware(0)))
+                .collect(),
+            cue: None,
+            measure: None,
+        })
+        .expect("valid crossfade routing");
+    let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
+    transport
+        .send(Command::Locate(Ticks::quarters(1)))
+        .expect("room for locate");
+    transport.send(Command::Play).expect("room for play");
+    let mut data = [0.0; 2 * FRAMES];
+    for _ in 0..10 {
+        engine.process(RATE, &mut data, 2, FRAMES);
+    }
+    engine
+}
+
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub fn measured_engine_crossfades_64(engine: &mut Player) {
+    let mut data = [0.0; 2 * FRAMES];
+    for _ in 0..1_000 {
+        engine.process(RATE, &mut data, 2, FRAMES);
+    }
+    black_box(&data);
+}
 
 /// How the clips of a scenario are mixed.
 #[derive(Clone, Copy, PartialEq)]
@@ -618,6 +686,7 @@ mod tests {
         // The project scenarios are slow in debug builds; run the cheap ones
         // here, and check the names of the rest resolve.
         for name in [
+            "engine_crossfades_64",
             "engine_clips_64",
             "engine_routed_64",
             "engine_latent_64",

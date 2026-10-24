@@ -1,7 +1,8 @@
 # Milestone 7b — Advanced Editing & Render: plan
 
 **Status:** Approved to start by the owner, 2026-10-22. E0 merged (PR #51).
-E1 is in progress on `m7b-s1-clip-commands`, cut from `origin/main` after it.
+E1 merged (PR #52). E2 is being verified on `m7b-s2-crossfades`, cut from
+`origin/main` after E1 and the recording-priority documentation update.
 The behavior choices below remain the owner's accepted choices. This is the second half of the roadmap's
 milestone 7, split off at the owner's decision of 2026-10-19 (S1 A). The
 automation half is [M7](M7.md). M8 keeps its number.
@@ -114,6 +115,28 @@ Sizes are rough (S/M/L).
 | E6 (S) | Close M7b | Walkthrough (split, crossfade, consolidate, bounce, freeze, save, reopen), `lumen-review`, report, manual tests | The owner's MT-EDIT series passes; review findings fixed or tracked |
 
 ## 6. Validation and records
+
+### E2 implementation plan (2026-10-23)
+
+Branch: `m7b-s2-crossfades`, cut from `origin/main` after E1 merged.
+Implement the accepted X1 join design using existing fade handles, menu
+controls, and the tokens in `docs/design-system/lumen-tokens.json` and
+`theme.rs`; no new visual direction or assets.
+
+1. Persist incoming crossfade requests and the automatic-crossfade project
+   setting in format v28, with migration, frozen fixtures, and undoable
+   Document methods. New projects enable automatic 5 ms joins; older projects
+   retain their playback by migrating with the setting off.
+2. Resolve touching audio joins and available source tails off the audio
+   thread. Preserve seamless split joins. Render the outgoing continuation
+   and incoming clip with equal-power gains; shorten or skip unavailable
+   tails and ignore joins broken by edits.
+3. Expose the setting and clip command through existing menus and the
+   palette. Reuse the fade-in handle for length, with crossing curves and
+   matching accessible feedback. One drag is one undo step.
+4. Add reference-render, real-time safety, migration, undo, and user-driven
+   E2E coverage. Inspect both themes at 100%, 150%, and 200%; run the slice
+   gates and record MT-EDIT-3 and the handoff before reporting.
 
 ### E0 implementation plan (2026-10-22)
 

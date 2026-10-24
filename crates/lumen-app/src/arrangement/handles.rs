@@ -125,6 +125,8 @@ pub struct ClipHandles {
     pub wave: Rect,
     pub fade_in: FadeLook,
     pub fade_out: FadeLook,
+    /// The incoming fade is a crossfade; draw its outgoing partner too.
+    pub crossfade: bool,
     pub gain_db: f32,
 }
 
@@ -202,6 +204,7 @@ impl ClipHandles {
                 rect.right(),
                 x_of(end - clip.fade_out.length),
             ),
+            crossfade: clip.crossfade,
             gain_db,
         })
     }
@@ -241,7 +244,12 @@ impl ClipHandles {
         if u < fade.offset || u > fade.offset + fade.portion {
             return None;
         }
-        Some(pos2(fade.x_of(u), self.y_of(v)))
+        let level = if self.crossfade && edge == Edge::Start {
+            equal_power_gains(fade.level_at(fade.x_of(u))).0
+        } else {
+            v
+        };
+        Some(pos2(fade.x_of(u), self.y_of(level)))
     }
 
     /// How big a fade is drawn, for bending it: its width and the wave
@@ -306,12 +314,41 @@ pub fn draw_handles(
     let palette = theme::p();
     let accent = palette.accent;
     for edge in [Edge::Start, Edge::End] {
-        let curve = h.curve(edge, view.min, view.max);
+        let mut curve = h.curve(edge, view.min, view.max);
+        let other = if h.crossfade && edge == Edge::Start {
+            let mut incoming = Vec::with_capacity(curve.len());
+            let mut outgoing = Vec::with_capacity(curve.len());
+            for point in curve {
+                let progress = ((h.wave.bottom() - point.y) / h.wave.height()).clamp(0.0, 1.0);
+                let (in_gain, out_gain) = equal_power_gains(progress);
+                incoming.push(pos2(point.x, h.y_of(in_gain)));
+                outgoing.push(pos2(point.x, h.y_of(out_gain)));
+            }
+            curve = incoming;
+            Some(outgoing)
+        } else {
+            None
+        };
         if curve.len() < 2 {
             continue;
         }
         if !hovered {
-            painter.line(curve, Stroke::new(1.0, palette.text.gamma_multiply(0.45)));
+            if h.crossfade && edge == Edge::Start {
+                let other = other.expect("crossfade outgoing curve");
+                painter.line(
+                    curve,
+                    Stroke::new(theme::stroke::HAIRLINE, palette.text.gamma_multiply(0.45)),
+                );
+                painter.line(
+                    other,
+                    Stroke::new(theme::stroke::HAIRLINE, palette.text.gamma_multiply(0.45)),
+                );
+            } else {
+                painter.line(
+                    curve,
+                    Stroke::new(theme::stroke::HAIRLINE, palette.text.gamma_multiply(0.45)),
+                );
+            }
             continue;
         }
         // What the fade takes away: a light wash above the curve.
@@ -328,6 +365,9 @@ pub fn draw_handles(
         }
         painter.add(wash);
         glow_line(painter, curve, accent, hot == Some(Handle::Bend(edge)));
+        if let Some(other) = other {
+            glow_line(painter, other, accent, hot == Some(Handle::Bend(edge)));
+        }
     }
     if !hovered {
         return;
@@ -381,6 +421,12 @@ pub fn draw_handles(
     }
 }
 
+/// Equal-power incoming and outgoing gains at normalized fade progress.
+fn equal_power_gains(progress: f32) -> (f32, f32) {
+    let angle = progress.clamp(0.0, 1.0) * std::f32::consts::FRAC_PI_2;
+    (angle.sin(), angle.cos())
+}
+
 /// A glowing accent line through `points` (the [`light::LIT`] level),
 /// brighter when `hot`.
 fn glow_line(painter: &Painter, points: Vec<Pos2>, accent: Color32, hot: bool) {
@@ -393,6 +439,15 @@ mod tests {
     use super::*;
     use lumen_project::model::Id;
 
+    #[test]
+    fn equal_power_crossfade_curves_have_constant_squared_gain() {
+        for step in 0..=100 {
+            let progress = step as f32 / 100.0;
+            let (incoming, outgoing) = equal_power_gains(progress);
+            assert!((incoming * incoming + outgoing * outgoing - 1.0).abs() < 1e-6);
+        }
+    }
+
     /// An audio clip of four beats drawn 100 points a beat from x = 0.
     fn setup(fade_in: Fade, fade_out: Fade, gain_db: f32) -> ClipHandles {
         let clip = Clip {
@@ -403,6 +458,7 @@ mod tests {
             muted: false,
             color: None,
             locked: false,
+            crossfade: false,
             fade_in,
             fade_out,
             loop_length: None,
@@ -553,6 +609,7 @@ mod tests {
             muted: false,
             color: None,
             locked: false,
+            crossfade: false,
             fade_in: Fade::default(),
             fade_out: Fade::default(),
             loop_length: None,

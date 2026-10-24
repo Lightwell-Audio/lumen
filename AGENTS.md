@@ -404,7 +404,12 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** PR 16 review corrections: recording eligibility shares
+**Last updated (2026-10-23):** M7b E2 crossfades are being verified on
+`m7b-s2-crossfades`, cut from `origin/main` after E1 merged (PR #52).
+See ADR-0094, `docs/milestones/M7b.md`, and MT-EDIT-3. New UI follows
+`docs/DESIGN.md` and the saved design-system tokens. E3 has not started.
+
+Earlier handoff: PR 16 review corrections: recording eligibility shares
 capture's compensated positions and uses engine-side loop-pass bounds.
 Disabling Loop before the first wrap preserves the saved visible window.
 Format v16 marks hidden captured notes so they cannot continue an old

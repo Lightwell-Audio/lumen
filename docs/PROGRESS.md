@@ -2,6 +2,13 @@
 
 ## Status
 
+**M7b slice E2 (crossfades) is in verification, 2026-10-23** on
+`m7b-s2-crossfades` (ADR-0094; accepted X1; format v28). Automatic 5 ms
+crossfades for new projects, custom join fades, source-tail bounds, shared
+preview/playback eligibility and undoable settings are implemented. Older
+projects migrate with automatic crossfades off. Validation results will be
+recorded here after the gates; MT-EDIT-3 awaits the owner.
+
 **M7b slice E1 (clip commands) is built, 2026-10-23** on `m7b-s1-clip-commands` (ADR-0093; owner choices J1, N1, G1, K2; format v27). *Shipped:* join (Ctrl+J, seamless), crop to selection, unloop, nudge by grid and finely, reverse (reversed copies of files, no engine change), polarity, normalize (peak scan on a worker, cancel, one undo step), and the select variants; reverse, polarity and normalize are golden renders. *Waiting:* MT-EDIT-2 (owner). *Not run:* macOS, the WSL gates and the smoke tests until the push, RealtimeSanitizer.
 
 **M6 slice 7 (compatibility and closeout): the review is done; all its findings (High, Medium M1 to M14, Low L1 to L6) are fixed, 2026-10-19** on `m6-s7-compatibility-closeout` (`docs/audits/2026-10-18-m6.md`, Status table). Built in slice 7: the probe (`lumen-host-probe`), the fault soak (`lumen-hosting/tests/soak.rs`), the callback benchmark (`lumen --bench-callback`) and the combined walkthrough (E2E `walkthrough_plugins`). Not done: the owner's MT-VST-7 runs on real plugins, the M6 report. The earlier summaries follow.
@@ -99,7 +106,10 @@ are retained. The rule is in the repository instructions and
 `.agents/skills/lumen-documentation/SKILL.md`; this editorial pass changes
 no implementation or feature status.
 
-**Current milestone:** M7b — Advanced editing and render. The owner authorized starting it on 2026-10-22 after M7 merged (PR #50). E0 (tools and split) is being verified on `m7b-s0-tools-split`; [plan](milestones/M7b.md), ADR-0092, [MT-EDIT-1](manual-tests/M7b.md). E1–E6 have not started.
+**Current milestone:** M7b — Advanced editing and render. E0 and E1 are merged
+(PR #51 and #52); E2 is being verified on `m7b-s2-crossfades` (format v28,
+ADR-0094). E3–E6 have not started. See the [plan](milestones/M7b.md) and
+[MT-EDIT-3](manual-tests/M7b.md).
 **2026-10-14 playback fix:** imported notes (and controllers) that round
 to a block's first sample are now scheduled reliably, including Play at
 their onset. The owner's ocarina file exposed a two-tick search margin
@@ -142,7 +152,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway (review done); MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md`; report written 2026-10-19 (below), awaiting the owner's approval |
 | 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 complete 2026-10-16 (report below; ADR-0069 accepted, the callback's wait on trial) and slice 1 built (MT-VST-1 passed on Windows, owner-reported); slice 2 built and its walkthrough passed (owner-reported; ADR-0069 measurements outstanding); slices 3 to 6 built; slice 7 (compatibility and closeout) under way: the probe, the fault soak, the callback benchmark and the combined walkthrough are built (branch `m6-s7-compatibility-closeout`), the review is done and its seven High findings fixed (`docs/audits/2026-10-18-m6.md`); the owner's MT-VST-7 runs, the Medium and Low findings and the M6 report remain | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
 | 7 | Automation & Envelopes | 🟡 Built 2026-10-22 (slices A0 to A8; ADRs 0081 to 0091; formats v22 to v25). MT-AUTO-1 to 10 passed (owner; MT-AUTO-2 but for step 12; MT-AUTO-8 and MT-AUTO-10 on 2026-10-22, no step detail, two findings logged in KNOWN_ISSUES); the owner's approval of the milestone is still to come. Report below; review `docs/audits/2026-10-22-m7.md`; plan: `docs/milestones/M7.md` |
-| 7b | Advanced Editing & Render | E0 in verification (2026-10-22): six arrangement tools, clip/range split, source-preserving audio/MIDI windows, format v26. General join/glue is E1; crossfades E2 (v27); consolidate, bounce and freeze E3–E5. Static pitch remains deferred by the owner | [Plan](milestones/M7b.md), ADR-0092 |
+| 7b | Advanced Editing & Render | E0 and E1 merged; E2 crossfades in verification (format v28). Consolidate, bounce and freeze remain E3–E5. Static pitch remains deferred by the owner | [Plan](milestones/M7b.md), ADR-0092–0094 |
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | Owner-approved to precede M8 (2026-10-23) |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | Follows M9 per owner priority (2026-10-23) |
 | 10 | Hardening, Performance & Release | 🔲 | |

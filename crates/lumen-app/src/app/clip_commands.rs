@@ -29,6 +29,47 @@ impl App {
             })
     }
 
+    /// Toggles an explicit crossfade request for the selected audio clips.
+    /// The engine ignores requests without an eligible touching join/tail.
+    pub(crate) fn toggle_selected_crossfade(&mut self) {
+        let (ids, enabled) = {
+            let project = self.document.project();
+            let clips: Vec<_> = project
+                .tracks
+                .iter()
+                .flat_map(|t| &t.clips)
+                .filter(|c| self.arrangement.clips.contains(&c.id) && !c.locked)
+                .filter(|c| matches!(c.content, lumen_project::model::ClipContent::Audio { .. }))
+                .collect();
+            if clips.is_empty() {
+                return;
+            }
+            (
+                clips.iter().map(|c| c.id).collect::<Vec<_>>(),
+                !clips.iter().all(|c| c.crossfade),
+            )
+        };
+        self.document.set_crossfade(&ids, enabled);
+        if !enabled && self.document.project().auto_crossfade {
+            self.say("Custom crossfade disabled; automatic crossfades still apply".to_owned());
+        } else if enabled
+            && !ids.iter().any(|id| {
+                self.document.project().tracks.iter().any(|track| {
+                    track
+                        .clips
+                        .iter()
+                        .find(|c| c.id == *id)
+                        .is_some_and(|clip| {
+                            crate::crossfades::fade(self.document.project(), track.id, clip)
+                                .is_some()
+                        })
+                })
+            })
+        {
+            self.say("No selected clip has an eligible join and source tail".to_owned());
+        }
+    }
+
     /// Joins the selected clips (Ctrl+J).
     pub(crate) fn join_selected_clips(&mut self) {
         let ids = self.selected_clip_ids();

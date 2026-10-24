@@ -47,6 +47,7 @@ fn golden_v1_expected() -> Project {
         color: None,
         locked: false,
         fade_in: Default::default(),
+        crossfade: false,
         fade_out: Default::default(),
         loop_length: None,
         loop_phase: Default::default(),
@@ -84,6 +85,7 @@ fn golden_v1_expected() -> Project {
         color: None,
         locked: false,
         fade_in: Default::default(),
+        crossfade: false,
         fade_out: Default::default(),
         loop_length: None,
         loop_phase: Default::default(),
@@ -117,6 +119,7 @@ fn golden_v1_expected() -> Project {
                 ramp: false,
             },
         ],
+        auto_crossfade: false,
         meter: constant_meter(TimeSignature {
             numerator: 4,
             denominator: 4,

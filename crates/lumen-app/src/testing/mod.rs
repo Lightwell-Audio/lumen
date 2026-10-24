@@ -494,16 +494,16 @@ impl App {
         use crate::arrangement::handles::ClipHandles;
         use crate::arrangement::select::Edge;
         let rect = self.clip_rect(ctx, id)?;
-        let clip = self
-            .document
-            .project()
+        let project = self.document.project();
+        let track = project
             .tracks
             .iter()
-            .flat_map(|t| &t.clips)
-            .find(|c| c.id == id)?;
+            .find(|t| t.clips.iter().any(|c| c.id == id))?;
+        let clip = track.clips.iter().find(|c| c.id == id)?;
+        let shown = crate::crossfades::preview(project, track.id, clip);
         let view = self.nav.view;
         let left = self.canvas.left();
-        let h = ClipHandles::of(clip, rect, |t| view.x(left, t.as_quarters()))?;
+        let h = ClipHandles::of(&shown, rect, |t| view.x(left, t.as_quarters()))?;
         Some(ClipHandlesAt {
             fade_in: h.handle_pos(Edge::Start),
             fade_out: h.handle_pos(Edge::End),

@@ -21,6 +21,7 @@ pub const MAX_BEATS_PER_BAR: u32 = 64;
 mod automation;
 mod clip_ops;
 mod clips;
+mod crossfades;
 mod devices;
 mod groups;
 mod import;

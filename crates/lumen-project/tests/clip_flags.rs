@@ -27,6 +27,7 @@ fn clip(content: ClipContent) -> Clip {
         color: None,
         locked: false,
         fade_in: Default::default(),
+        crossfade: false,
         fade_out: Default::default(),
         loop_length: None,
         loop_phase: Default::default(),
@@ -59,6 +60,7 @@ fn golden_v27_expected() -> Project {
     plain.audio_phase_seconds = 0.0;
     track.clips = vec![Arc::new(flagged), Arc::new(plain)];
     let mut project = project_of("Golden v27", vec![track]);
+    project.auto_crossfade = false;
     project.media = vec![Media {
         id: Id(2002),
         path: "Samples/take.wav".into(),

@@ -121,8 +121,47 @@ falling sound (a fade-in, a drum hit, a spoken word) so reverse is obvious.
    gain. Normalize a clip of silence: a note says so. Normalize a long file
    and press Esc: it stops and says so.
 9. Use Invert selection, All in track, Select to start and Select to end from
-   the clip menu's Select submenu (and Ctrl+K).
+   the clip menu's Edit → Select submenu (and Ctrl+K).
 10. Check the clip menu in both themes at 100, 150 and 200% scaling: the new
     rows match the others and the menu fits your window.
 11. Save, close and reopen: reversed, inverted and normalized clips come back
     as they were.
+
+## MT-EDIT-3 — Crossfades (E2)
+
+**State:** Waiting for the owner. Branch: `m7b-s2-crossfades`.
+Use a scratch project; retain source audio beyond the outgoing clip's trim.
+
+```powershell
+cargo run --release -p lumen-app
+```
+
+1. Place two different audio clips against one another on the same track.
+   Trim the first short enough that its file has material after the join.
+   In a new project the automatic 5 ms crossfade is enabled. Play through
+   the join and check for a clean transition.
+2. Find Automatic crossfades through the palette and toggle it. Undo and
+   redo restore the setting. An older project opens with it disabled.
+3. Select the incoming audio clip and use Toggle custom crossfade through
+   the palette (Ctrl+Shift+X), or Custom crossfade at join in the clip menu.
+   Drag its fade-in handle to lengthen the crossing;
+   both curves and the live length feedback follow. Undo the whole drag in
+   one step, then redo it. Bend the curve and check the audible result.
+   Drag or double-click its length handle to zero: that join stays off
+   even with automatic crossfades enabled. Undo restores it. Clearing the
+   custom request returns the join to the automatic project setting.
+4. Use the keyboard to reach the same commands. Check the setting, crossed
+   curves, handles, focus and feedback in both themes at 100%, 150% and
+   200%, including the minimum window size. Scroll the app menu to its
+   lower controls; the clip menu's Edit submenu keeps the main menu short.
+5. Move the incoming clip to create a gap: the crossfade ceases. Undo the
+   move: it returns. Delete the preceding clip and undo that as well.
+6. Try an outgoing clip trimmed to its source file's end, then one with
+   only a short tail: the transition skips or shortens to available material.
+7. Split an otherwise unprocessed audio clip and play over the seam. It
+   stays seamless, without a new equal-power level bump.
+8. Test polarity, clip gain, gain/pan envelopes, reversed source material,
+   and a looping outgoing clip at the join. Seek into and across the join
+   while playing; loop across it and check for unwanted clicks.
+9. Save, close and reopen: the project setting, explicit crossfade request,
+   length and curve return. Original source files remain unchanged.

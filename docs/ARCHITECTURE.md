@@ -1,6 +1,7 @@
 # Lumen — Architecture
 
-**As built:** M7b E1 (2026-10-23; format v27): clip commands, reverse twins and the normalize scan (ADR-0093). Before it: M7b E0 (2026-10-22; format v26): arrangement tools and source-preserving split windows (ADR-0092). Before it: M7 slice A8 (2026-10-22; format v25). Before it: M7 slice A7 (2026-10-21; format v25) and M6 slice 7 (2026-10-18; format v21). The decision records in
+**Current work:** M7b E2 (2026-10-23; format v28): join crossfades (ADR-0094).
+**Previously built:** M7b E1 (2026-10-23; format v27): clip commands, reverse twins and the normalize scan (ADR-0093). Before it: M7b E0 (2026-10-22; format v26): arrangement tools and source-preserving split windows (ADR-0092). Before it: M7 slice A8 (2026-10-22; format v25). Before it: M7 slice A7 (2026-10-21; format v25) and M6 slice 7 (2026-10-18; format v21). The decision records in
 `docs/DECISIONS.md` hold the reasoning and the evidence. This page shows
 how the parts fit.
 
@@ -11,6 +12,17 @@ capture running past punch-out; `recorder.rs` snapshots full timing;
 and `midi/capture.rs` distinguishes first loop entry from a real wrap.
 
 ## Processes and threads
+
+E2 module additions: app `crossfades.rs` shares effective join eligibility
+and source-tail bounds between arrangement previews and `lanes::engine_clips`;
+`document/crossfades.rs` owns undoable project settings and custom fade edits.
+The engine's `clips/set.rs` prepares join partners and fade tables off-thread;
+`clips/seams.rs` resolves sample-bound joins using preallocated state, and
+`clips/join.rs` mixes each outgoing source continuation with the incoming
+fade while preserving gain glides and edit ramps. All discovery, allocation
+and project edits remain off the audio thread. The model's `Clip.crossfade`
+and `Project.auto_crossfade` are
+stored in format v28 with a migration that preserves older playback.
 
 ```text
 ┌──────────────────────────── lumen (main process) ─────────────────────────────┐

@@ -313,7 +313,8 @@ impl App {
             ids.iter()
                 .all(|&id| find(project, id).is_some_and(|(c, _)| test(c)))
         };
-        let (muted, locked) = (all(|c| c.muted), all(|c| c.locked));
+        let (muted, locked, crossfade) =
+            (all(|c| c.muted), all(|c| c.locked), all(|c| c.crossfade));
         let name = |verb: &str| {
             if several {
                 format!("{verb} clips")
@@ -338,6 +339,14 @@ impl App {
             ui.close();
         }
         self.fade_menu(ui);
+        if self.selection_has_audio() {
+            let keys = self.keymap.keys(Command::ToggleCrossfade);
+            if widgets::menu_toggle(ui, "Custom crossfade at join", keys.as_ref(), crossfade)
+                .clicked()
+            {
+                self.run(ui.ctx(), Command::ToggleCrossfade);
+            }
+        }
         if let Some((track, clip)) = self.selected_audio_clip() {
             let label = if self.envelope_shown(track, clip) {
                 "Hide the envelope"
@@ -654,6 +663,7 @@ mod tests {
             muted: false,
             color: None,
             locked: false,
+            crossfade: false,
             fade_in: Fade::default(),
             fade_out: Fade::default(),
             loop_length: None,

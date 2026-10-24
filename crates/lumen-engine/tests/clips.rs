@@ -362,6 +362,232 @@ fn unrelated_join_and_intentional_seam_fades_keep_the_edge_dip() {
 }
 
 #[test]
+fn joined_crossfade_matches_equal_power_reference_and_clamps_missing_tail() {
+    let audio = steady(32_000);
+    let mut left = steady_clip(&audio, 0.8);
+    left.length = 24_000;
+    left.shape.fade_out = FadeFrames {
+        frames: 1_000,
+        curve: Curve::LINEAR,
+        ..Default::default()
+    };
+    let mut right = steady_clip(&audio, 0.6);
+    right.id = 8;
+    right.start = Ticks::quarters(1);
+    right.offset = 28_000;
+    right.length = 4_000;
+    right.shape.crossfade = true;
+    right.shape.fade_in = FadeFrames {
+        frames: 1_000,
+        curve: Curve::LINEAR,
+        ..Default::default()
+    };
+    let (mut handle, _, mut engine) = setup(vec![left.clone(), right.clone()]);
+    handle
+        .set_timeline(Timeline::constant(120.0, Meter::FOUR_FOUR))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 26_000, 128);
+    assert!(
+        (out[23_999].0 - 0.4).abs() < 1e-6,
+        "join overrides outgoing fade-out"
+    );
+    for i in 0..1_000 {
+        let p = (i as f32 + 0.5) / 1_000.0;
+        let want = 0.4 * (p * std::f32::consts::FRAC_PI_2).cos()
+            + 0.3 * (p * std::f32::consts::FRAC_PI_2).sin();
+        assert!(
+            (out[24_000 + i].0 - want).abs() < 3e-5,
+            "frame {i}: got {}, want {want}",
+            out[24_000 + i].0
+        );
+    }
+
+    // An incoming fade-out may begin before this crossfade ends; its own
+    // envelope continues smoothly after the outgoing tail reaches zero.
+    let mut fading_right = right.clone();
+    fading_right.shape.fade_out = FadeFrames {
+        frames: 3_500,
+        curve: Curve::LINEAR,
+        ..Default::default()
+    };
+    let (mut handle, _, mut engine) = setup(vec![left.clone(), fading_right]);
+    handle
+        .set_timeline(Timeline::constant(120.0, Meter::FOUR_FOUR))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 25_100, 128);
+    assert!((out[25_001].0 - out[25_000].0).abs() < 0.002);
+
+    // No samples remain after the predecessor's visible clip. The engine
+    // skips the crossfade and retains its regular edge declick.
+    let short = steady(24_000);
+    let mut left = steady_clip(&short, 1.0);
+    left.length = 24_000;
+    let mut right = steady_clip(&short, 1.0);
+    right.id = 9;
+    right.start = Ticks::quarters(1);
+    right.shape.crossfade = true;
+    right.shape.fade_in = FadeFrames {
+        frames: 1_000,
+        curve: Curve::LINEAR,
+        ..Default::default()
+    };
+    let (mut handle, _, mut engine) = setup(vec![left, right]);
+    handle
+        .set_timeline(Timeline::constant(120.0, Meter::FOUR_FOUR))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 25_000, 128);
+    assert_eq!(out[24_000].0, 0.5 / FADE as f32);
+
+    // A short available source tail shortens both sides of the fade. The
+    // incoming fade reaches unity as the truncated outgoing tail reaches 0.
+    let short_tail = steady(24_300);
+    let mut left = steady_clip(&short_tail, 1.0);
+    left.length = 24_000;
+    let mut right = steady_clip(&short_tail, 1.0);
+    right.id = 11;
+    right.start = Ticks::quarters(1);
+    right.shape.crossfade = true;
+    right.shape.fade_in = FadeFrames {
+        frames: 1_000,
+        curve: Curve::LINEAR,
+        ..Default::default()
+    };
+    let (mut handle, _, mut engine) = setup(vec![left, right]);
+    handle
+        .set_timeline(Timeline::constant(120.0, Meter::FOUR_FOUR))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 24_500, 128);
+    for i in 0..300 {
+        let p = (i as f32 + 0.5) / 300.0;
+        let want = 0.5
+            * ((p * std::f32::consts::FRAC_PI_2).cos() + (p * std::f32::consts::FRAC_PI_2).sin());
+        assert!(
+            (out[24_000 + i].0 - want).abs() < 3e-5,
+            "short tail frame {i}"
+        );
+    }
+    assert!((out[24_300].0 - 0.5).abs() < 1e-6);
+
+    // A one-frame gap breaks exact adjacency, so the predecessor tail is
+    // ignored even when its source has plenty of audio left.
+    let audio = steady(32_000);
+    let mut left = steady_clip(&audio, 1.0);
+    left.length = 24_000;
+    let mut right = steady_clip(&audio, 1.0);
+    right.id = 10;
+    right.start = Ticks(59 + Ticks::quarters(1).0);
+    assert_eq!(
+        Timeline::constant(120.0, Meter::FOUR_FOUR).sample_at(right.start, RATE),
+        24_001
+    );
+    right.shape.crossfade = true;
+    right.shape.fade_in = FadeFrames {
+        frames: 1_000,
+        curve: Curve::LINEAR,
+        ..Default::default()
+    };
+    let (mut handle, _, mut engine) = setup(vec![left, right]);
+    handle
+        .set_timeline(Timeline::constant(120.0, Meter::FOUR_FOUR))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 25_000, 128);
+    assert_eq!(out[24_000].0, 0.0);
+    assert_eq!(out[24_001].0, 0.5 / FADE as f32);
+}
+
+#[test]
+fn join_tail_is_safe_after_seek_and_during_a_clip_list_swap() {
+    let audio = steady(40_000);
+    let mut left = steady_clip(&audio, 1.0);
+    left.length = 24_000;
+    let mut right = steady_clip(&audio, 1.0);
+    right.id = 20;
+    right.start = Ticks::quarters(1);
+    right.offset = 30_000;
+    right.length = 4_000;
+    right.shape.crossfade = true;
+    right.shape.fade_in = FadeFrames {
+        frames: 1_000,
+        curve: Curve::LINEAR,
+        ..Default::default()
+    };
+    let timeline = Timeline::constant(120.0, Meter::FOUR_FOUR);
+
+    // Seeking directly into the tail must use the clip's target level even
+    // though its visible body has not been rendered to initialise that level.
+    let (mut handle, _, mut engine) = setup(vec![left.clone(), right.clone()]);
+    handle.set_timeline(timeline.clone()).unwrap();
+    handle
+        .send(Command::Locate(timeline.ticks_at(24_100, RATE)))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 128, 128);
+    let p = 196.5 / 1_000.0;
+    let want =
+        0.5 * ((p * std::f32::consts::FRAC_PI_2).cos() + (p * std::f32::consts::FRAC_PI_2).sin());
+    assert!(
+        (out[96].0 - want).abs() < 2e-5,
+        "seek tail got {}, want {want}",
+        out[96].0
+    );
+
+    // Removing the incoming clip while its crossfade is active fades both
+    // its body and the predecessor tail with the list-swap ramp.
+    let (mut handle, mut clips, mut engine) = setup(vec![left.clone(), right.clone()]);
+    handle.set_timeline(timeline.clone()).unwrap();
+    handle.send(Command::Play).unwrap();
+    let before = run(&mut engine, 24_100, 128);
+    clips.set(vec![steady_clip(&audio, 1.0)]).unwrap();
+    let after = run(&mut engine, 128, 128);
+    assert!(
+        (before.last().unwrap().0 - after[0].0).abs() < 0.01,
+        "clip-list edit stepped across join tail: {} to {}",
+        before.last().unwrap().0,
+        after[0].0
+    );
+
+    // Moving the predecessor while leaving the incoming clip in place must
+    // ramp the replacement tail against the retired tail instead of adding
+    // both at full level.
+    let (mut handle, mut clips, mut engine) = setup(vec![left.clone(), right.clone()]);
+    handle.set_timeline(timeline.clone()).unwrap();
+    handle.send(Command::Play).unwrap();
+    let _ = run(&mut engine, 24_100, 128);
+    let mut moved_left = left.clone();
+    moved_left.offset = 1_000;
+    clips.set(vec![moved_left, right.clone()]).unwrap();
+    let after_move = run(&mut engine, 128, 128);
+    assert!(
+        after_move[0].0 < 0.75,
+        "replacement tail doubled during predecessor move: {}",
+        after_move[0].0
+    );
+
+    // A gain change while the predecessor body is already past its visible
+    // end glides on the tail instead of resetting to the new target.
+    let mut long_right = right;
+    long_right.shape.fade_in.frames = 2_000;
+    let (mut handle, mut clips, mut engine) = setup(vec![left.clone(), long_right.clone()]);
+    handle.set_timeline(timeline).unwrap();
+    handle.send(Command::Play).unwrap();
+    let before = run(&mut engine, 24_100, 128);
+    left.gain = 0.0;
+    clips.set(vec![left, long_right]).unwrap();
+    let after_gain = run(&mut engine, 128, 128);
+    assert!(
+        (before.last().unwrap().0 - after_gain[0].0).abs() < 0.002,
+        "tail gain stepped: {} to {}",
+        before.last().unwrap().0,
+        after_gain[0].0
+    );
+}
+
+#[test]
 fn the_loop_wrap_crossfades_and_stays_on_the_exact_sample() {
     let audio = ramp(400_000, RATE);
     let clip = Clip {
@@ -920,6 +1146,7 @@ fn fades_sound_as_drawn_in_every_shape_and_free_curve() {
                     curve: fade_out_curve,
                     ..Default::default()
                 },
+                crossfade: false,
                 period: None,
                 phase: 0,
             },

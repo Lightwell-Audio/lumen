@@ -101,6 +101,7 @@ pub fn engine_clips(
 ) -> Vec<Clip> {
     let tempo = lumen_core::time::TempoMap::new(project.tempo.clone()).ok();
     let mut list = Vec::new();
+    let crossfades = crate::crossfades::resolved(project);
     for track in &project.tracks {
         for clip in &track.clips {
             let ClipContent::Audio {
@@ -156,7 +157,20 @@ pub fn engine_clips(
                 (samples.frames() as i64 - offset).min(region)
             };
             let shape = lumen_engine::ClipShape {
-                fade_in: fade_frames(clip, tempo.as_ref(), rate, true),
+                crossfade: crossfades.contains_key(&clip.id),
+                fade_in: if let Some(fade) = crossfades.get(&clip.id) {
+                    lumen_engine::FadeFrames {
+                        frames: frames(clip.start, clip.start + fade.length),
+                        curve: fade.curve,
+                        ..Default::default()
+                    }
+                } else if clip.crossfade {
+                    // A custom join fade is not an ordinary fade-in when
+                    // the join is broken or has no usable source tail.
+                    Default::default()
+                } else {
+                    fade_frames(clip, tempo.as_ref(), rate, true)
+                },
                 fade_out: fade_frames(clip, tempo.as_ref(), rate, false),
                 period: clip
                     .loop_length

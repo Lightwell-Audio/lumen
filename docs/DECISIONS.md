@@ -8402,3 +8402,41 @@ the original can differ slightly.
 when it writes) and `project_parse` +1.61%; the engine scenarios moved by
 under 1% except `engine_clips_64` at -2.03% (no engine code changed: code
 layout). `perf/baseline.json` was regenerated from WSL for all scenarios.
+
+## ADR-0094 — Crossfades at audio joins (M7b E2)
+
+**Context.** The accepted X1 design keeps the arrangement's overwrite rule:
+clips never overlap in the project. A crossfade instead reads the preceding
+clip's hidden source tail while the incoming clip begins.
+
+**Choice.** Format v28 adds the incoming clip's `crossfade` request and the
+project's `auto_crossfade` setting. New projects enable automatic 5 ms joins.
+Migration explicitly disables the setting in older projects so opening an
+existing song does not change its sound. Both the setting and explicit clip
+requests are undoable. Existing fade-in handles set crossfade length, using
+the established material and tokens; the drawing shows both crossing curves.
+Clip editing commands are grouped in an Edit submenu so the new custom
+crossfade control fits at minimum height. The app menu scrolls within its
+viewport instead of cutting off lower settings.
+
+The app resolves touching audio joins, source continuity and available tails
+before sending the engine list. Contiguous source material remains seamless.
+The engine verifies the join against its sample positions and loaded audio,
+then reads the outgoing source continuation with cosine gain and the incoming
+source with sine gain. The saved fade curve bends their shared progress.
+An active crossing replaces the outgoing ordinary fade-out at that join,
+avoiding silence followed by a full-level source tail. The saved fade-out
+returns when the crossing is removed. A custom duration dragged to zero
+suppresses the automatic default at that join; clearing a custom request
+returns it to the project setting.
+Unavailable tails shorten the crossfade or leave ordinary edge behavior.
+Breaking the join by moving, trimming or deleting a clip removes its effective
+crossfade without destroying the saved request. Audio data and original media
+remain unchanged.
+
+**Alternatives.** Storing overlapping clips would require exceptions throughout
+editing and hit testing. Rendering a new file for each crossfade would add disk
+work and obscure the original edits. Both were rejected in favor of X1.
+
+**Verification.** Results and remaining manual checks are recorded in the E2
+slice report in PROGRESS and MT-EDIT-3, rather than inferred from this decision.

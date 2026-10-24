@@ -116,6 +116,7 @@ mod tests {
             color: None,
             locked: false,
             fade_in: Default::default(),
+            crossfade: false,
             fade_out: Default::default(),
             loop_length: looping.map(Ticks::quarters),
             loop_phase: Default::default(),

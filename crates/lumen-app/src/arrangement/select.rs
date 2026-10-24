@@ -401,7 +401,9 @@ impl Arrangement {
                     .iter()
                     .find(|c| c.id == clip && !c.locked)
                     .and_then(|c| {
-                        ClipHandles::of(c, rect, |t| time.x(canvas.left(), t.as_quarters()))
+                        let shown =
+                            crate::crossfades::preview(project, project.tracks[track].id, c);
+                        ClipHandles::of(&shown, rect, |t| time.x(canvas.left(), t.as_quarters()))
                     })
                     .and_then(|h| h.handle_at(pointer))
                     .filter(|h| edge.is_none() || *h != Handle::Gain);
@@ -601,6 +603,7 @@ mod tests {
                     muted: false,
                     color: None,
                     locked: false,
+                    crossfade: false,
                     fade_in: Default::default(),
                     fade_out: Default::default(),
                     loop_length: None,

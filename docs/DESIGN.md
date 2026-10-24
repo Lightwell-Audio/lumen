@@ -1214,6 +1214,22 @@ menu show and hide it; the chip's menu switches between gain and pan and goes ba
 
 ## 8. Key flows
 
+### Join crossfades (M7b E2, accepted X1)
+
+Reuse the incoming audio clip's
+fade-in handle and bend dot; a crossing shows both equal-power curves in
+the existing fade material. The displayed duration is bounded by the
+outgoing source tail and incoming clip. The info line names Crossfade and
+shows the live duration during a drag. A custom duration dragged to zero
+disables that join's crossfade. Broken joins and missing tails show no
+crossing. The project menu uses the existing menu-toggle control for
+Automatic crossfades; custom requests are available in the clip menu and
+command palette. Controls, curve strokes, focus, spacing and text use the
+established theme tokens and shared widgets. This introduces no new palette,
+material, typeface or handle geometry.
+The app menu scrolls within the viewport at the minimum window height, so
+the project setting does not push later controls beyond reach.
+
 ### Arrangement tools (M7b E0, owner's K1)
 
 The compact tool switch sits between the grid and tempo buttons above the

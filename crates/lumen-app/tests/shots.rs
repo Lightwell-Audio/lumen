@@ -269,6 +269,94 @@ fn clip_fades_and_gain() {
     save(&mut h, "fade-gain-idle");
 }
 
+/// M7b E2: an eligible join with a lengthened, crossed fade and the
+/// project menu switch at both themes and each supported scale.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn crossfades() {
+    use egui_kittest::kittest::Queryable;
+
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-crossfade-{appearance}-{scale}"));
+            let mut h = lumen_looking(&dir, appearance, scale);
+            for _ in 0..3 {
+                h.key_press(Key::Equals);
+                h.run_steps(2);
+            }
+            h.run_steps(20);
+            let left = h.state().project().tracks[0].clips[0].id;
+            let before = clip(&h, 0);
+            let zoom = h.state().view().zoom as f32;
+            let cut = Pos2::new(before.left() + zoom, before.bottom() - 6.0);
+            click(&mut h, cut);
+            h.key_press_modifiers(Modifiers::COMMAND, Key::E);
+            h.run_steps(4);
+            let right = h.state().project().tracks[0].clips[1].id;
+            h.state_mut().select_clip(right);
+
+            // Keep the clips touching while slipping the right source window
+            // away from the split point, leaving tail in the earlier source.
+            let r = h.state().clip_rect(&h.ctx, right).expect("right clip");
+            let origin = Pos2::new(r.center().x, r.top() + 6.0);
+            h.event(Event::ModifiersChanged(Modifiers::COMMAND | Modifiers::ALT));
+            drag(&mut h, origin, origin + vec2(0.25 * zoom, 0.0));
+            h.event(Event::ModifiersChanged(Modifiers::NONE));
+            h.run_steps(5);
+
+            let at = h
+                .state()
+                .clip_handles(&h.ctx, right)
+                .expect("automatic join has an incoming handle");
+            drag(
+                &mut h,
+                at.fade_in,
+                at.fade_in + vec2(at.wave.width() * 0.2, 0.0),
+            );
+            h.run_steps(10);
+            let at = h
+                .state()
+                .clip_handles(&h.ctx, right)
+                .expect("crossfade handle");
+            h.hover_at(at.fade_in + vec2(at.wave.width() * 0.1, 0.0));
+            save(
+                &mut h,
+                &format!("crossfade-join-{appearance}-{}", (scale * 100.0) as u32),
+            );
+
+            h.get_by_label("Lumen").click();
+            h.run_steps(4);
+            save(
+                &mut h,
+                &format!("crossfade-menu-{appearance}-{}", (scale * 100.0) as u32),
+            );
+            // The left clip is kept alive here to ensure the rendered scene
+            // came from a two-clip join, not a standalone fade.
+            assert_ne!(left, right);
+            drop(h);
+            let mut minimum = lumen_looking_sized(&dir, appearance, scale, vec2(960.0, 540.0));
+            minimum.get_by_label("Lumen").click();
+            minimum.run_steps(4);
+            save(
+                &mut minimum,
+                &format!("crossfade-minimum-{appearance}-{}", (scale * 100.0) as u32),
+            );
+            minimum.key_press(Key::Escape);
+            minimum.run_steps(20);
+            let r = clip(&minimum, 0);
+            right_click(&mut minimum, Pos2::new(r.left() + 12.0, r.top() + 6.0));
+            minimum.run_steps(5);
+            save(
+                &mut minimum,
+                &format!(
+                    "crossfade-clip-menu-{appearance}-{}",
+                    (scale * 100.0) as u32
+                ),
+            );
+        }
+    }
+}
+
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn clip_properties() {

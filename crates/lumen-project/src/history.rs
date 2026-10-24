@@ -178,6 +178,7 @@ fn unchanged(a: &Project, b: &Project) -> bool {
         name,
         sample_rate,
         tempo,
+        auto_crossfade,
         meter,
         tracks,
         master,
@@ -191,6 +192,7 @@ fn unchanged(a: &Project, b: &Project) -> bool {
     *name == b.name
         && *sample_rate == b.sample_rate
         && *tempo == b.tempo
+        && *auto_crossfade == b.auto_crossfade
         && *meter == b.meter
         && *pan_law == b.pan_law
         && *media == b.media
@@ -322,6 +324,7 @@ mod tests {
                         color: None,
                         locked: false,
                         fade_in: Default::default(),
+                        crossfade: false,
                         fade_out: Default::default(),
                         loop_length: None,
                         loop_phase: Default::default(),
