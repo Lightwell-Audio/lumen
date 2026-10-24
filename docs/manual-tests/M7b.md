@@ -209,3 +209,38 @@ not mind changing.
    open a project saved earlier than the join: nothing is missing.
 10. Look at the clip menu in both themes at 100, 150 and 200% scale: the
     Join into new file row is whole and the menu still scrolls to its lower controls.
+
+## MT-EDIT-5 — Bounce (E4)
+
+**State:** Not run. Branch: `m7b-s4-bounce`. Needs a plugin instrument and an
+effect that are installed and scanned; work on a copy of a project.
+
+1. Make an audio track with a clip that has a fader at about -6 dB, pan left
+   and a plugin effect. Select the clip and press Ctrl+K, type Bounce, Enter.
+   A small Bounce window opens with Result (New track or Replace), Include
+   effects and Include tail. Press Enter (or click Bounce). A message with a
+   percentage and "Esc to stop" shows, then a new track appears after the first
+   with a clip named after the source with "(bounced)", and it is selected.
+   Solo the new track with the source muted and its devices bypassed: it
+   sounds the same as the source did, fader, pan and effect included; the new
+   track's fader is at 0 dB.
+2. Undo once: the new track is gone and the project is as before. Redo.
+3. Open Bounce again and choose Replace. The clip is replaced by the file, the
+   track's fader is at 0 dB, pan is centred and its devices are bypassed; the
+   sound is the same as before. Undo is one step. Open Bounce again: Replace is
+   still chosen.
+4. Turn off Include effects and bounce to a new track: the file is the track's
+   own sound, without the fader, pan and effect.
+5. Make a MIDI track with a plugin instrument and a note that rings on after
+   the clip ends (a long release). Select the track and bounce: a new audio
+   track holds the notes and the release. Turn Include tail off: the file ends
+   with the clip. Replace: the MIDI clips are muted, not deleted.
+6. Select a time range over part of an audio track and bounce with Replace and
+   Include effects on: the file goes to a new track and the window says why.
+7. Select two tracks and bounce: one new track each, one undo step.
+8. Press Esc while a long bounce runs: nothing is added. Edit the project while
+   it runs: when it finishes it says the tracks changed and nothing is added.
+9. End the plugin's host process from the task manager during a bounce: it
+   stops with a message naming the plugin and the project is unchanged.
+10. Right-click a track and a clip and a time range: Bounce is in each menu
+    and does the same. In both themes at 100, 150 and 200% the window is whole.

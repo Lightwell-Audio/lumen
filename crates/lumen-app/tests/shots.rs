@@ -3595,3 +3595,25 @@ fn draw_clip_aim_looking(appearance: &str, scale: f32) {
     h.key_press(Key::Escape);
     h.drop_at(to);
 }
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn bounce_popover() {
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.5), ("dark", 2.0)] {
+        let dir = TempDir::new("shots-bounce");
+        let mut h = lumen_looking(&dir, appearance, scale);
+        let id = h.state().project().tracks[0].clips[0].id;
+        h.state_mut().select_clip(id);
+        h.run_steps(2);
+        h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+        h.run_steps(2);
+        h.event(eframe::egui::Event::Text("Bounce".into()));
+        h.run_steps(3);
+        h.key_press(Key::Enter);
+        h.run_steps(10);
+        save(
+            &mut h,
+            &format!("bounce-{appearance}-{}", (scale * 100.0) as u32),
+        );
+    }
+}

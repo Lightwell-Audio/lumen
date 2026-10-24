@@ -108,6 +108,7 @@ irreversible or external) · *Superseded*.
 | [0094](#adr-0094--crossfades-at-audio-joins-m7b-e2) | Crossfades at audio joins (M7b E2) | Accepted 2026-10-23 | No |
 | [0095](#adr-0095--consolidate-and-the-offline-clip-render-m7b-e3) | Consolidate and the offline clip render (M7b E3) | Accepted 2026-10-24 | No |
 | [0096](#adr-0096--plugins-render-offline-the-r2-spike-m7b-e4) | Plugins render offline: the R2 spike (M7b E4) | Accepted 2026-10-24 | No |
+| [0097](#adr-0097--bounce-m7b-e4) | Bounce (M7b E4) | Accepted 2026-10-24 | No |
 
 ---
 
@@ -8590,3 +8591,53 @@ progress). Plugins that are not deterministic (a free-running modulation that
 starts at a random phase) render differently each time; that is theirs, not
 the render's. Real third-party plugins are not covered by this spike: the
 owner's manual run (MT-EDIT-5) checks installed plugins.
+
+## ADR-0097 — Bounce (M7b E4)
+
+**Context.** Bounce renders a track with its own sound into a new audio file
+and puts the file on the track or on a new one. The owner's choices (2026-10-24):
+**B1** one command with a Replace or New track switch in a popover, remembered;
+**B2** "include effects" bakes the track's devices, trim, polarity, fader, pan
+and its own automation lanes, but not sends, its group or the master, and the
+new clip plays at unity on a track whose fader is at 0 dB; **B3** the tail is
+automatic until quiet (below the hosted-plugin quiet level for two seconds,
+at most ten), on by default, with a switch; **B4** the scope is the time range
+if there is one, else the selected clips' span, else the whole track, one file
+per track, all in one undo step; **B5** Replace with effects also takes the
+track's processing off in the same step, so it is not applied twice.
+
+**Choice.**
+- The render is `lumen_engine::render_source`: the real mixer, driven block by
+  block without a device, with `Engine::set_offline` waiting for each plugin
+  host (ADR-0096). A pre-roll of a tenth of a second is played and dropped so
+  the mixer's play fade-in and the clip player's start glide are over before
+  the span; the source's latency is skipped. The routing is the track alone
+  into a unity master with its audible flag forced on, so mute and solo do not
+  silence a bounce (`routing::bounce_routing`). Without effects the node is
+  the unity node that keeps only the source's delay.
+- Plugins run in host processes of the bounce's own, started from the states
+  the project holds after the running ones are read (`Hosting::request_captures`,
+  `stamp`, `offline_starts`). A plugin that is not installed, or not allowed in
+  safe mode, stops the bounce before it starts, by name.
+- What changes in the project is `lumen_project::edit::bounce`, no format
+  change (still v28): the media is registered as consolidate's is, a clip's
+  `muted` and a device's `bypass` already exist. Replace on audio overwrites
+  the span (the tail stops at the next clip, so what was not bounced is not
+  replaced).
+- **Refinements to B5, not yet shown to the owner.** Replace with effects is
+  only possible when the span holds everything the track plays, since
+  bypassing its devices would change the rest of it; otherwise the file goes to
+  a new track and the popover says so. A locked clip in the span also makes it
+  a new track. A MIDI track cannot hold audio, so its file goes to a new audio
+  track and Replace mutes the clips it was made from.
+- The popover is a small window (`Dialog`) like History, not a modal: Enter
+  starts, Esc closes, and the three choices are saved in the settings
+  (`bounce`, an added section with defaults, no version change).
+
+**Consequences.** A new file is written for every bounce, in the renders folder
+and copied into the project on Save, as consolidate's are; the originals stay
+in the media pool. Known limits: with a plugin that reports latency, the tail
+holds up to that many frames of what plays just past the span's end (the
+instrument has to be flushed through); sidechained effects are keyed from
+nothing, since the keying track is not part of the render. Real third-party
+plugins are checked by hand (MT-EDIT-5).
