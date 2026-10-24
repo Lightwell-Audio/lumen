@@ -3,7 +3,7 @@
 **Status:** Approved to start by the owner, 2026-10-22. E0 (PR #51), E1
 (PR #52) and E2 (PR #54, MT-EDIT-3 passed 2026-10-24) are merged. E3 is
 built (§6, "E3 implementation plan") on
-`m7b-s3-render-consolidate`; E4 to E6 have not started.
+`m7b-s3-render-consolidate`; E4 (bounce) is built (§6) on `m7b-s4-bounce`, MT-EDIT-5 passed; E5 and E6 have not started.
 The behavior choices below remain the owner's accepted choices. This is the second half of the roadmap's
 milestone 7, split off at the owner's decision of 2026-10-19 (S1 A). The
 automation half is [M7](M7.md). M8 keeps its number.
@@ -116,6 +116,57 @@ Sizes are rough (S/M/L).
 | E6 (S) | Close M7b | Walkthrough (split, crossfade, consolidate, bounce, freeze, save, reopen), `lumen-review`, report, manual tests | The owner's MT-EDIT series passes; review findings fixed or tracked |
 
 ## 6. Validation and records
+
+### E4 implementation plan (2026-10-24)
+
+Branch: `m7b-s4-bounce`, cut from `m7b-s3-render-consolidate` (E3 is not
+merged yet; merge `main` in when it is). Owner choices (2026-10-24):
+**B1** one Bounce command whose popover has a Replace / New track switch that
+remembers its last choice. **B2** "include effects" bakes everything the track
+does to its own sound: devices, trim, polarity, fader, pan and the track's own
+automation lanes; not sends, groups or the master. The new clip plays at unity
+on a track whose fader is at 0 dB. **B3** the tail is automatic and on by
+default: the render goes on until the output is quiet (the engine's existing
+`QUIET_LEVEL` and `QUIET_SECONDS`) up to the existing 10 s cap on a reported
+tail; a switch turns it off. **B4** scope: a time range if there is one, else
+the span of the selected clips, else the whole track; one file per track, all
+in one undo step.
+
+**B5 (owner, 2026-10-24): option (b).** Replace with effects also bypasses the
+track's baked processing (devices off, fader 0 dB, pan centre) in the same
+undo step. The question as asked:
+what Replace does when effects are
+included. The track's devices, fader and pan would process the baked audio a
+second time. Candidates: (a) Replace bakes clip-level processing only and the
+effects switch is off and disabled in that mode; (b) Replace with effects also
+bypasses the baked processing on the track in the same undo step; (c) Replace
+with effects falls back to a new track and says so. On a MIDI track Replace
+cannot put audio on the track, so the audio goes on a new audio track and the
+source is muted (assumption, logged).
+
+Parts (commits on this branch):
+
+1. **4a, the R2 spike, no product code.** Does a hosted plugin render offline
+   with a repeatable result that equals the real-time result? The hosts already
+   answer a block over a blocking call (`HostProcess::process`); the engine's
+   wall-clock deadline is the part that is not offline. The spike drives the
+   test instrument and effect through a real host process and the mixer with a
+   far deadline: twice offline (identical), at two block sizes (identical),
+   against a real-time `Engine::process` run (equal while the host keeps up),
+   with a plugin that stalls (the render ends with a failed result, not a hang
+   or an exit), and with a host killed mid-render. The result goes in ADR-0096
+   and decides F1.
+2. **4b, the track render.** `lumen_engine` renders one track's path
+   (devices, trim, polarity, fader, pan, track lanes) offline into a bus, with
+   progress and cancel, then keeps going for the tail until the output is quiet
+   or the cap. The spike's route for plugins.
+3. **4c, the edit.** A pure planner (which tracks, the span, mono or stereo)
+   and `Document::bounce_tracks`: the new audio track and clip, the source left,
+   muted or replaced as the switch says, registered media, one undo step.
+4. **4d, interface and close.** The Bounce command and palette entry, the
+   clip, range and track menu rows, the popover (switch, Include effects,
+   Include tail), progress and Esc as for Join, E2E scenarios, MT-EDIT-5,
+   PROGRESS, ADR, handoff.
 
 ### E3 implementation plan (2026-10-24)
 

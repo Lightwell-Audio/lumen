@@ -286,6 +286,31 @@ pub struct Settings {
     /// How clip edits treat automation (M7 slice A7): an added section with
     /// defaults, so older files read as before (no version change).
     pub editing: Editing,
+    /// What Bounce did last (M7b slice E4): an added section with defaults,
+    /// so older files read as before (no version change).
+    pub bounce: BounceChoices,
+}
+
+/// The choices in Bounce's popover, remembered (the owner's B1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BounceChoices {
+    /// Replace the track's audio; off puts the file on a new track.
+    pub replace: bool,
+    /// The track's devices, fader and pan are in the file.
+    pub effects: bool,
+    /// What rings on after the end is in the file.
+    pub tail: bool,
+}
+
+impl Default for BounceChoices {
+    fn default() -> Self {
+        Self {
+            replace: false,
+            effects: true,
+            tail: true,
+        }
+    }
 }
 
 /// How clip edits treat automation.
@@ -314,6 +339,7 @@ impl Default for Settings {
             record: RecordSettings::default(),
             plugins: Default::default(),
             editing: Editing::default(),
+            bounce: BounceChoices::default(),
         }
     }
 }
@@ -565,6 +591,11 @@ mod tests {
             },
             editing: Editing {
                 lock_envelopes: true,
+            },
+            bounce: BounceChoices {
+                replace: true,
+                effects: false,
+                tail: false,
             },
         };
         save(&path, &settings).unwrap();

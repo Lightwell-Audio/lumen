@@ -295,6 +295,9 @@ impl App {
         self.synced = None;
         self.normalizing = None;
         self.consolidating = None;
+        self.bounce_waiting = None;
+        self.bouncing = None;
+        self.show_bounce = false;
         self.show_history = false;
         self.forget_passes();
         self.transport.locate(Ticks::ZERO);

@@ -196,3 +196,10 @@ for shutdown; the shared region's quit setter is internal.
   merge. `lumen-app::consolidate`: the render worker; `app/clip_consolidate.rs`:
   the command, progress and Esc; `document/consolidate.rs`: one undo step.
   `app/clip_commands.rs` holds the other selection commands.
+- Bounce (ADR-0096, ADR-0097): `lumen_engine::render_source` (`render.rs`) plays
+  a `Source` (the mixer) without a device, with a pre-roll and a tail;
+  `Engine::set_offline` waits for plugin hosts. `lumen_project::edit::bounce`:
+  the planner and the swap. `lumen-app::bounce`: the worker (a host process per
+  plugin, `routing::bounce_routing` for the track alone); `app/clip_bounce.rs`:
+  the popover, plugin-state capture, progress and Esc; `document/bounce.rs`:
+  one undo step.

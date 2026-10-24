@@ -197,7 +197,15 @@ pub struct Engine<S> {
     /// When plugin hosts must have answered for this callback: set at its
     /// start while a host is attached (ADR-0069), else `None`.
     deadline: Option<Instant>,
+    /// Rendering without a device (bounce, freeze): a plugin host is waited
+    /// for this long per block instead of a share of the period, so the
+    /// result does not depend on how busy the machine is.
+    offline: Option<Duration>,
 }
+
+/// How long a plugin host is waited for, per block, while rendering offline.
+/// A plugin that needs longer is taken for hung.
+pub const OFFLINE_WAIT: Duration = Duration::from_secs(10);
 
 /// The share of a callback's period a plugin host has to answer in
 /// (ADR-0069: three quarters, the rest is the engine's to finish in).
@@ -241,6 +249,7 @@ pub fn engine<S: Source>(
         recording: false,
         counting: None,
         deadline: None,
+        offline: None,
     };
     engine.publish();
     let handle = EngineHandle {
@@ -253,6 +262,14 @@ pub fn engine<S: Source>(
 }
 
 impl<S: Source> Engine<S> {
+    /// Renders without a device from now on: a plugin host is waited for up
+    /// to `wait` per block (see [`OFFLINE_WAIT`]); `None` is real time again.
+    /// Set before the first block; the engine is not shared with a callback
+    /// then.
+    pub fn set_offline(&mut self, wait: Option<Duration>) {
+        self.offline = wait;
+    }
+
     pub fn source(&self) -> &S {
         &self.source
     }
@@ -273,6 +290,9 @@ impl<S: Source> Engine<S> {
         // The clock is read only while a host is attached (B3), so a project
         // without plugins costs what it did.
         self.deadline = self.source.hosted().then(|| {
+            if let Some(wait) = self.offline {
+                return Instant::now() + wait;
+            }
             let period = frames as u64 * 1_000_000_000 / u64::from(sample_rate.max(1));
             Instant::now() + Duration::from_nanos(period * HOST_SHARE.0 / HOST_SHARE.1)
         });

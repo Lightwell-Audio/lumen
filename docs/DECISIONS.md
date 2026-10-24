@@ -104,6 +104,11 @@ irreversible or external) · *Superseded*.
 | [0090](#adr-0090--clip-envelopes-and-automation-that-follows-clips-m7-slice-a7) | Clip envelopes, and automation that follows clips (M7 slice A7) | Accepted 2026-10-21 | — |
 | [0091](#adr-0091--the-end-of-m7-reviews-fixes-a-project-swap-forgets-a-pass-is-written-in-parts-m7-slice-a8) | The end-of-M7 review's fixes: a project swap forgets, a pass is written in parts (M7 slice A8) | Accepted 2026-10-22 | — |
 | [0092](#adr-0092--arrangement-tools-and-source-preserving-cuts-m7b-e0) | Arrangement tools and source-preserving cuts (M7b E0) | Accepted 2026-10-22; owner's K1 | No |
+| [0093](#adr-0093--clip-commands-join-reverse-polarity-and-normalize-m7b-e1) | Clip commands: join, reverse, polarity and normalize (M7b E1) | Accepted 2026-10-23 | No |
+| [0094](#adr-0094--crossfades-at-audio-joins-m7b-e2) | Crossfades at audio joins (M7b E2) | Accepted 2026-10-23 | No |
+| [0095](#adr-0095--consolidate-and-the-offline-clip-render-m7b-e3) | Consolidate and the offline clip render (M7b E3) | Accepted 2026-10-24 | No |
+| [0096](#adr-0096--plugins-render-offline-the-r2-spike-m7b-e4) | Plugins render offline: the R2 spike (M7b E4) | Accepted 2026-10-24 | No |
+| [0097](#adr-0097--bounce-m7b-e4) | Bounce (M7b E4) | Accepted 2026-10-24 | No |
 
 ---
 
@@ -8546,3 +8551,93 @@ row, undo label and notes say Join, the new clip is named "… (joined)", the
 file is `joined-<id>.wav`). Code identifiers keep `consolidate`. The product
 spec's word "consolidate" (CLAUDE.md §6.6) is the feature's name in the
 requirements, not the interface's.
+
+## ADR-0096 — Plugins render offline: the R2 spike (M7b E4)
+
+**Context.** Bounce and freeze must run plugin tracks. The quality bar says an
+offline render equals real-time playback and is repeatable. The plan (R2)
+asked for a spike before choosing: render the test plugins offline through a
+host process per plugin and compare with a real-time run; if it failed, F1
+would have asked the owner whether plugin tracks bounce in real time or wait.
+
+**What was measured.** `crates/lumen-hosting/tests/offline.rs` puts the test
+effect and the test instrument, each in a real host process, behind the real
+mixer (an effect on a clip track; an instrument on a MIDI track) and drives
+`Engine::process` as fast as it will go:
+
+| Question | Result |
+|---|---|
+| Is an offline render repeatable? | Yes: two renders are identical, sample for sample (effect and instrument) |
+| Does it equal real time? | Yes, exactly, while the host keeps up in real time |
+| Does the block size matter? | Not audibly: 64 and 256 are identical to 128; 333 and 480 differ by 3e-8 (−150 dB) on a few samples, the mixer's level glides landing on other chunk edges (nothing the plugin does). A render uses one block size, so it is exactly repeatable |
+| A plugin too slow for real time (6 ms a block against the 4 ms real time allows)? | Real time misses blocks and plays something else; the offline render misses none and equals the fast plugin's render. This is the case offline exists for |
+| A plugin that crashes mid-render? | The host's process ends, the guard fails the device, and the render sees `failed` and stops at that block: a result, not an exit |
+| A plugin that hangs? | The block is waited for once (500 ms in the test; `OFFLINE_WAIT`, 10 s, in use), then the render stops. Without the stop the guard would wait that long for about 188 blocks (its 48,000-frame rule) before failing it |
+
+**Choice.** **F1 is not triggered: plugin tracks render offline.** The route
+is the live engine's own path with one change: `Engine::set_offline(Some(wait))`
+replaces the real-time deadline (three quarters of the period) with a wait of
+`wait` per block, and the render driver (E4 part 4b) ends the render at the
+first block a host did not answer (`Status::failed` or `late_blocks`), reports
+which plugin, and keeps what was rendered out of the project. The process mode
+the host gives the plugin stays real time, so an offline render sounds as
+playback does; plugins that sound different in an offline mode are not offered
+it.
+
+**Consequences.** A render needs its own host processes: they cannot be shared
+with the live engine, so bounce starts one per plugin on the track from the
+device's saved state (the host start-up cost is paid per bounce and shown as
+progress). Plugins that are not deterministic (a free-running modulation that
+starts at a random phase) render differently each time; that is theirs, not
+the render's. Real third-party plugins are not covered by this spike: the
+owner's manual run (MT-EDIT-5) checks installed plugins.
+
+## ADR-0097 — Bounce (M7b E4)
+
+**Context.** Bounce renders a track with its own sound into a new audio file
+and puts the file on the track or on a new one. The owner's choices (2026-10-24):
+**B1** one command with a Replace or New track switch in a popover, remembered;
+**B2** "include effects" bakes the track's devices, trim, polarity, fader, pan
+and its own automation lanes, but not sends, its group or the master, and the
+new clip plays at unity on a track whose fader is at 0 dB; **B3** the tail is
+automatic until quiet (below the hosted-plugin quiet level for two seconds,
+at most ten), on by default, with a switch; **B4** the scope is the time range
+if there is one, else the selected clips' span, else the whole track, one file
+per track, all in one undo step; **B5** Replace with effects also takes the
+track's processing off in the same step, so it is not applied twice.
+
+**Choice.**
+- The render is `lumen_engine::render_source`: the real mixer, driven block by
+  block without a device, with `Engine::set_offline` waiting for each plugin
+  host (ADR-0096). A pre-roll of a tenth of a second is played and dropped so
+  the mixer's play fade-in and the clip player's start glide are over before
+  the span; the source's latency is skipped. The routing is the track alone
+  into a unity master with its audible flag forced on, so mute and solo do not
+  silence a bounce (`routing::bounce_routing`). Without effects the node is
+  the unity node that keeps only the source's delay.
+- Plugins run in host processes of the bounce's own, started from the states
+  the project holds after the running ones are read (`Hosting::request_captures`,
+  `stamp`, `offline_starts`). A plugin that is not installed, or not allowed in
+  safe mode, stops the bounce before it starts, by name.
+- What changes in the project is `lumen_project::edit::bounce`, no format
+  change (still v28): the media is registered as consolidate's is, a clip's
+  `muted` and a device's `bypass` already exist. Replace on audio overwrites
+  the span (the tail stops at the next clip, so what was not bounced is not
+  replaced).
+- **Refinements to B5, not yet shown to the owner.** Replace with effects is
+  only possible when the span holds everything the track plays, since
+  bypassing its devices would change the rest of it; otherwise the file goes to
+  a new track and the popover says so. A locked clip in the span also makes it
+  a new track. A MIDI track cannot hold audio, so its file goes to a new audio
+  track and Replace mutes the clips it was made from.
+- The popover is a small window (`Dialog`) like History, not a modal: Enter
+  starts, Esc closes, and the three choices are saved in the settings
+  (`bounce`, an added section with defaults, no version change).
+
+**Consequences.** A new file is written for every bounce, in the renders folder
+and copied into the project on Save, as consolidate's are; the originals stay
+in the media pool. Known limits: with a plugin that reports latency, the tail
+holds up to that many frames of what plays just past the span's end (the
+instrument has to be flushed through); sidechained effects are keyed from
+nothing, since the keying track is not part of the render. Real third-party
+plugins are checked by hand (MT-EDIT-5).
