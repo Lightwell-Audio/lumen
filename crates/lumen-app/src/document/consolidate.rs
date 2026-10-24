@@ -11,28 +11,29 @@ use super::clips::fresh_ids;
 
 impl Document {
     /// Replaces the clips each rendered file was made from with one clip that
-    /// plays it, as one step. Returns the new clips. A part whose clips
-    /// changed while it rendered is left alone; when none is applied nothing
-    /// is recorded.
-    pub fn consolidate_clips(&mut self, baked: &[Baked]) -> Vec<Id> {
+    /// plays it, and consolidates the MIDI clips in `midi_ids` (loops baked,
+    /// merged per track), all as one step. Returns the clips now standing for
+    /// the selection. A part whose clips changed while it rendered is left
+    /// alone; when nothing is applied nothing is recorded and the answer is
+    /// empty.
+    pub fn consolidate_clips(&mut self, baked: &[Baked], midi_ids: &[Id]) -> Vec<Id> {
         let current: Vec<Baked> = baked
             .iter()
             .filter(|b| consolidate::is_current(self.history.project(), &b.part))
             .cloned()
             .collect();
-        if current.is_empty() {
-            return Vec::new();
-        }
         for b in &current {
             self.media_files
                 .insert(b.media.id, PathBuf::from(&b.media.path));
         }
         let mut made = Vec::new();
         let next = &mut self.next_id;
-        self.history.apply("Consolidate", None, |project| {
-            made = consolidate::apply(project, &current, &mut fresh_ids(next));
+        let changed = self.history.apply("Consolidate", None, |project| {
+            let mut fresh = fresh_ids(next);
+            made = consolidate::apply(project, &current, &mut fresh);
+            made.extend(consolidate::midi(project, midi_ids, &mut fresh));
         });
-        made
+        if changed { made } else { Vec::new() }
     }
 }
 
@@ -78,7 +79,7 @@ mod tests {
         let before = doc.project().clone();
         let parts = baked(&mut doc, &ids);
         assert!(!parts.is_empty());
-        let made = doc.consolidate_clips(&parts);
+        let made = doc.consolidate_clips(&parts, &[]);
         assert_eq!(made.len(), parts.len());
         assert!(doc.media_files.contains_key(&parts[0].media.id));
         assert!(doc.undo().is_some());
@@ -92,7 +93,7 @@ mod tests {
         let parts = baked(&mut doc, &ids);
         doc.delete_clips(&ids);
         let after = doc.project().clone();
-        assert!(doc.consolidate_clips(&parts).is_empty());
+        assert!(doc.consolidate_clips(&parts, &[]).is_empty());
         assert_eq!(doc.project(), &after);
     }
 }

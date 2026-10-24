@@ -166,3 +166,70 @@ fn a_consolidated_clip_survives_save_and_reopen_inside_the_project() {
     );
     assert_eq!(media.original_path, None, "a render is not an import");
 }
+
+/// MIDI needs no file: the loop is baked into real notes and the track's
+/// clips merge, in one undo step, at once.
+#[test]
+fn a_looping_midi_clip_consolidates_at_once_and_undo_gives_the_loop_back() {
+    use lumen_core::time::Ticks;
+    use lumen_project::model::Note;
+    use lumen_project::testing::{TempDir, midi_track, project_of};
+    let dir = TempDir::new("e2e-consolidate-midi");
+    let path = dir.path().join("song.lumen");
+    let notes = vec![Note::new(Ticks::quarters(0), Ticks::quarters(2), 60, 90)];
+    let project = project_of(
+        "Loop",
+        vec![midi_track(
+            1,
+            "Keys",
+            "poly",
+            (0, 7),
+            Some(3),
+            notes,
+            vec![],
+        )],
+    );
+    lumen_project::save(&project, &path, &Default::default()).expect("save the test project");
+    let mut lumen = Lumen::start_with(dir, move |l| l.opening(path));
+    lumen.wait_for("the project", |app| app.project().tracks.len() == 1);
+    let before = lumen.app().project().clone();
+    let clip = before.tracks[0].clips[0].id;
+    lumen.app_mut().select_clip(clip);
+    command(&mut lumen, "Consolidate");
+    assert_eq!(lumen.app().undo_label(), Some("Consolidate"));
+    let after = lumen.app().project();
+    assert_eq!(after.tracks[0].clips.len(), 1);
+    let ClipContent::Midi { notes, .. } = &after.tracks[0].clips[0].content else {
+        panic!("a MIDI clip")
+    };
+    assert_eq!(notes.len(), 3, "each repeat is real notes now");
+    assert_eq!(after.tracks[0].clips[0].loop_length, None);
+    assert_eq!(after.media, before.media, "no file");
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(lumen.app().project(), &before);
+}
+
+#[test]
+fn consolidating_one_plain_midi_clip_says_there_is_nothing_to_do() {
+    use lumen_project::testing::{TempDir, midi_track, project_of};
+    let dir = TempDir::new("e2e-consolidate-plain");
+    let path = dir.path().join("song.lumen");
+    let project = project_of(
+        "Plain",
+        vec![midi_track(1, "Keys", "poly", (0, 4), None, vec![], vec![])],
+    );
+    lumen_project::save(&project, &path, &Default::default()).expect("save the test project");
+    let mut lumen = Lumen::start_with(dir, move |l| l.opening(path));
+    lumen.wait_for("the project", |app| app.project().tracks.len() == 1);
+    let before = lumen.app().project().clone();
+    lumen.app_mut().select_clip(before.tracks[0].clips[0].id);
+    command(&mut lumen, "Consolidate");
+    assert_eq!(lumen.app().project(), &before);
+    assert_eq!(lumen.app().undo_label(), None);
+    assert!(
+        lumen
+            .app()
+            .note()
+            .is_some_and(|n| n.contains("Nothing to consolidate"))
+    );
+}

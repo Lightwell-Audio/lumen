@@ -158,10 +158,37 @@ pub fn apply(project: &mut Project, baked: &[Baked], fresh: &mut impl FnMut() ->
     made
 }
 
+/// The unlocked MIDI clips among `ids`.
+pub fn midi_clips(project: &Project, ids: &[Id]) -> Vec<Id> {
+    project
+        .tracks
+        .iter()
+        .flat_map(|t| t.clips.iter())
+        .filter(|c| ids.contains(&c.id) && !c.locked)
+        .filter(|c| matches!(c.content, ClipContent::Midi { .. }))
+        .map(|c| c.id)
+        .collect()
+}
+
+/// Consolidates the selected unlocked MIDI clips: each repeat of a looping
+/// clip becomes a real clip, then the clips of each track merge into one
+/// holding every note they show (a gap between them is just empty time).
+/// No file is made. Audio clips in `ids` are not touched. Returns the ids
+/// now standing for the MIDI selection.
+pub fn midi(project: &mut Project, ids: &[Id], fresh: &mut impl FnMut() -> Id) -> Vec<Id> {
+    let picked = midi_clips(project, ids);
+    if picked.is_empty() {
+        return picked;
+    }
+    let (now, _) = super::clip_ops::unloop(project, &picked, fresh);
+    super::clip_ops::join(project, &now).clips
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::edit::tests::{clips, ids, q, song};
+    use crate::model::Note;
 
     fn media(id: u64) -> Media {
         Media {
@@ -301,5 +328,90 @@ mod tests {
         // A clip deleted.
         Arc::make_mut(&mut project.tracks[0]).clips.remove(0);
         assert!(apply(&mut project, &baked, &mut ids()).is_empty());
+    }
+
+    /// Track 0's clip made a MIDI clip of `notes` (starting at 4 quarters, 8 long).
+    fn midi_song(notes: Vec<Note>) -> Project {
+        let mut project = song();
+        let track = Arc::make_mut(&mut project.tracks[0]);
+        let mut clip = (*track.clips[0]).clone();
+        clip.content = ClipContent::Midi {
+            notes,
+            events: Vec::new(),
+        };
+        track.clips[0] = Arc::new(clip);
+        project
+    }
+
+    fn shown(project: &Project, track: usize) -> Vec<Vec<(i64, i64, u8)>> {
+        project.tracks[track]
+            .clips
+            .iter()
+            .map(|c| {
+                let ClipContent::Midi { notes, .. } = &c.content else {
+                    return Vec::new();
+                };
+                notes
+                    .iter()
+                    .map(|n| (n.start().0 / q(1).0, n.length().0 / q(1).0, n.pitch()))
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_looping_midi_clip_becomes_one_clip_with_the_repeats_baked() {
+        let mut project = midi_song(vec![Note::new(q(0), q(2), 60, 90)]);
+        let track = Arc::make_mut(&mut project.tracks[0]);
+        let mut clip = (*track.clips[0]).clone();
+        clip.loop_length = Some(q(3));
+        clip.length = q(7);
+        track.clips[0] = Arc::new(clip);
+        let made = midi(&mut project, &[Id(10)], &mut ids());
+        assert_eq!(made, [Id(10)], "the clip keeps its id");
+        assert_eq!(project.tracks[0].clips.len(), 1);
+        let clip = &project.tracks[0].clips[0];
+        assert_eq!((clip.start, clip.length), (q(4), q(7)));
+        assert_eq!(clip.loop_length, None);
+        assert_eq!(shown(&project, 0), [[(0, 2, 60), (3, 2, 60), (6, 1, 60)]]);
+    }
+
+    #[test]
+    fn midi_clips_with_a_gap_become_one_clip_and_audio_is_left_alone() {
+        let mut project = midi_song(vec![Note::new(q(1), q(1), 60, 90)]);
+        let track = Arc::make_mut(&mut project.tracks[0]);
+        let mut second = (*track.clips[0]).clone();
+        second.id = Id(11);
+        second.start = q(14);
+        second.length = q(4);
+        second.content = ClipContent::Midi {
+            notes: vec![Note::new(q(2), q(1), 72, 100)],
+            events: Vec::new(),
+        };
+        track.clips.push(Arc::new(second));
+        let audio = project.tracks[1].clone();
+        let made = midi(&mut project, &[Id(10), Id(11), Id(20)], &mut ids());
+        assert_eq!(made, [Id(10)]);
+        assert_eq!(project.tracks[0].clips.len(), 1);
+        let clip = &project.tracks[0].clips[0];
+        assert_eq!((clip.start, clip.length), (q(4), q(14)));
+        assert_eq!(shown(&project, 0), [[(1, 1, 60), (12, 1, 72)]]);
+        assert_eq!(project.tracks[1], audio, "the audio clip is not touched");
+    }
+
+    #[test]
+    fn a_single_plain_or_locked_midi_clip_is_left_as_it_was() {
+        let mut project = midi_song(vec![Note::new(q(1), q(1), 60, 90)]);
+        let before = project.clone();
+        midi(&mut project, &[Id(10)], &mut ids());
+        assert_eq!(project, before);
+        let track = Arc::make_mut(&mut project.tracks[0]);
+        let mut clip = (*track.clips[0]).clone();
+        clip.locked = true;
+        clip.loop_length = Some(q(3));
+        track.clips[0] = Arc::new(clip);
+        let before = project.clone();
+        assert!(midi(&mut project, &[Id(10)], &mut ids()).is_empty());
+        assert_eq!(project, before);
     }
 }

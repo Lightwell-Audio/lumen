@@ -4,13 +4,15 @@
 //! (`consolidate::Render`) with progress in the toast and Esc to stop. The
 //! file holds the clips as the clip player plays them: clip gain, polarity,
 //! reverse, fades, crossfades and envelopes; not the track's fader, pan,
-//! sends or devices.
+//! sends or devices. Selected MIDI clips need no file: their loops are baked
+//! and each track's clips merge into one, in the same undo step.
 
 use std::path::PathBuf;
 use std::time::Instant;
 
 use eframe::egui;
-use lumen_project::edit::consolidate::plan;
+use lumen_project::edit::consolidate::{Baked, midi_clips, plan};
+use lumen_project::model::Id;
 
 use crate::App;
 use crate::consolidate::{Job, Poll, Render, remove_files};
@@ -18,6 +20,8 @@ use crate::consolidate::{Job, Poll, Render, remove_files};
 /// A render under way.
 pub(crate) struct Running {
     render: Render,
+    /// The MIDI clips to consolidate when the audio is done.
+    midi: Vec<Id>,
 }
 
 impl App {
@@ -34,16 +38,23 @@ impl App {
             )
     }
 
-    /// Starts rendering the selected audio clips (Consolidate).
+    /// Consolidates the selected clips: audio is rendered on a worker, MIDI
+    /// is merged when it is done (at once when there is no audio).
     pub(crate) fn consolidate_selected_clips(&mut self, ctx: &egui::Context) {
         if self.consolidating.is_some() {
             self.say("Already consolidating".to_owned());
             return;
         }
         let ids = self.selected_clip_ids();
-        let parts = plan(self.document.project(), &ids);
+        let project = self.document.project();
+        let parts = plan(project, &ids);
+        let midi = midi_clips(project, &ids);
+        if parts.is_empty() && midi.is_empty() {
+            self.say("Select clips to consolidate".to_owned());
+            return;
+        }
         if parts.is_empty() {
-            self.say("Select audio clips to consolidate".to_owned());
+            self.finish_consolidation(&[], &midi);
             return;
         }
         let rate = self.lanes.rate();
@@ -83,6 +94,7 @@ impl App {
         }
         self.consolidating = Some(Running {
             render: Render::start(jobs, timeline, rate, ctx),
+            midi,
         });
     }
 
@@ -116,22 +128,31 @@ impl App {
                 self.say(format!("Could not consolidate: {why}"));
             }
             Poll::Done(baked) => {
-                self.consolidating = None;
-                let made = self.document.consolidate_clips(&baked);
-                if made.is_empty() {
-                    remove_files(&baked);
-                    self.say("The clips changed while rendering: nothing was replaced".to_owned());
-                } else {
-                    let left = baked.len() - made.len();
-                    self.arrangement.clips = made.into_iter().collect();
-                    self.say(if left > 0 {
-                        "Consolidated \u{b7} some clips changed while rendering and were left"
-                            .to_owned()
-                    } else {
-                        "Consolidated".to_owned()
-                    });
-                }
+                let midi = self
+                    .consolidating
+                    .take()
+                    .map(|r| r.midi)
+                    .unwrap_or_default();
+                self.finish_consolidation(&baked, &midi);
             }
         }
+    }
+
+    /// Puts the rendered files and the MIDI merge into the project as one
+    /// step, selects the result, and tells the user what happened.
+    fn finish_consolidation(&mut self, baked: &[Baked], midi: &[Id]) {
+        let made = self.document.consolidate_clips(baked, midi);
+        if made.is_empty() {
+            remove_files(baked);
+            self.say(if baked.is_empty() {
+                "Nothing to consolidate: each track already has one clip".to_owned()
+            } else {
+                "The clips changed while rendering: nothing was replaced".to_owned()
+            });
+            return;
+        }
+        self.arrangement.clips = made.into_iter().collect();
+        self.arrangement.clip_cursor = None;
+        self.say("Consolidated".to_owned());
     }
 }
