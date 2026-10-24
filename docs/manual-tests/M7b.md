@@ -247,7 +247,7 @@ effect that are installed and scanned; work on a copy of a project.
 
 ## MT-EDIT-6 — Freeze, unfreeze and flatten (E5)
 
-**State:** Awaiting the owner. Branch: `m7b-s5-freeze`. Needs an installed and
+**State:** Passed (owner, 2026-10-24; no step detail). Branch: `m7b-s5-freeze`. Needs an installed and
 scanned plugin instrument and effect; work on a copy of a project. Build the
 plugin host first (`cargo build --release -p lumen-plugin-host`).
 

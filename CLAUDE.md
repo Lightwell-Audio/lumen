@@ -420,7 +420,7 @@ per slice and move what is no longer current out of it.
   not a toast action (ADR-0098). Gates run: fmt, clippy, workspace tests, E2E,
   smoke, macOS cross-clippy, WSL clippy and perf (`compact_scalar_arrays` is now
   `#[inline(never)]`: the new field moved serialize by +7% through inlining).
-  **Waiting for the owner: MT-EDIT-6** (`docs/manual-tests/M7b.md`).
+  MT-EDIT-6 passed (owner, 2026-10-24).
 - **E3 (consolidate, ADR-0095, MT-EDIT-4) and E4 (bounce, ADR-0096 and
   ADR-0097, MT-EDIT-5) are merged (PR #55, #56), no format change.** Rendered
   files are 32-bit float WAVs at the device rate in a `Renders` folder, copied
