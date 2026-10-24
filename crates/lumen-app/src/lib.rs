@@ -221,6 +221,9 @@ pub struct App {
     bounce_waiting: Option<app::clip_bounce::Waiting>,
     bouncing: Option<app::clip_bounce::Running>,
     show_bounce: bool,
+    /// A freeze reading the plugins, then rendering (M7b slice E5).
+    freeze_waiting: Option<app::track_freeze::Waiting>,
+    freezing: Option<app::track_freeze::Running>,
     /// An exported MIDI file being written (M5 slice 7).
     midi_writing: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
     /// A MIDI file's tempo and meter, offered in a banner (M5 slice 7, F2).
@@ -455,6 +458,9 @@ impl eframe::App for App {
         if std::mem::take(&mut self.arrangement.bounce_requested) {
             self.run(&ctx, commands::Command::Bounce);
         }
+        if let Some(command) = self.arrangement.track_command.take() {
+            self.run(&ctx, command);
+        }
         self.poll_files(&ctx);
         self.autosave(&ctx);
         let rate = self.transport.state().sample_rate;
@@ -481,6 +487,8 @@ impl eframe::App for App {
         self.poll_normalize(&ctx);
         self.poll_consolidate(&ctx);
         self.poll_bounce(&ctx);
+        self.poll_freeze(&ctx);
+        self.say_frozen_refusals();
         self.plugins.poll();
         if let Some(wait) = self.plugins.rebuild_wait() {
             ctx.request_repaint_after(wait);

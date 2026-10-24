@@ -1,0 +1,123 @@
+{
+  "format": "lumen-project",
+  "version": 29,
+  "generator": "Lumen 0.0.1",
+  "project": {
+    "name": "Golden v29",
+    "sample_rate": 48000,
+    "tempo": [
+      {
+        "at": 0,
+        "bpm": 120.0
+      }
+    ],
+    "meter": [
+      {
+        "at": 0,
+        "meter": {
+          "numerator": 4,
+          "denominator": 4
+        }
+      }
+    ],
+    "tracks": [
+      {
+        "id": "0000000000000b54",
+        "name": "Frozen",
+        "kind": "audio",
+        "color": "#4F81BD",
+        "gain_db": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [],
+        "frozen": {
+          "id": "0000000000000b57",
+          "media": "0000000000000b58",
+          "start": 5644800,
+          "length": 14112000,
+          "mono": true
+        },
+        "clips": [
+          {
+            "id": "0000000000000b55",
+            "name": "Take",
+            "start": 5644800,
+            "length": 11289600,
+            "muted": false,
+            "content": {
+              "type": "audio",
+              "media": "0000000000000b56",
+              "offset": 0,
+              "gain_db": 0.0
+            }
+          }
+        ]
+      }
+    ],
+    "master": {
+      "id": "00000000000003e7",
+      "name": "Master",
+      "kind": "master",
+      "color": "#8A8F99",
+      "gain_db": 0.0,
+      "pan": 0.0,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "devices": [],
+      "clips": []
+    },
+    "pan_law": "constant_power",
+    "media": [
+      {
+        "id": "0000000000000b56",
+        "path": "Samples/take.wav",
+        "frames": 48000,
+        "channels": 1,
+        "sample_rate": 48000,
+        "size_bytes": 96000
+      },
+      {
+        "id": "0000000000000b58",
+        "path": "Samples/Rendered/frozen.wav",
+        "frames": 240000,
+        "channels": 1,
+        "sample_rate": 48000,
+        "size_bytes": 960000
+      }
+    ],
+    "markers": [],
+    "transport": {
+      "loop_start": 0,
+      "loop_end": 22579200,
+      "loop_enabled": false,
+      "punch_in": false,
+      "punch_out": false
+    },
+    "view": {
+      "left_beat": 0.0,
+      "px_per_beat": 24.0,
+      "browser_open": true,
+      "detail_open": true,
+      "browser_size": 220.0,
+      "detail_size": 220.0,
+      "top": 0.0,
+      "track_heights": {},
+      "expanded": [],
+      "grid": {
+        "fixed": false,
+        "width": "narrow",
+        "size": {
+          "note": 16
+        },
+        "feel": "straight",
+        "snap": true
+      },
+      "collapsed": [],
+      "header_width": 204.0,
+      "returns_folded": false
+    }
+  }
+}

@@ -159,6 +159,23 @@ impl App {
         let Some(hit) = self.hit(ctx, origin, canvas) else {
             return self.empty_lane_gesture(ctx, origin, canvas, modifiers);
         };
+        let frozen = self
+            .document
+            .project()
+            .tracks
+            .get(hit.track)
+            .is_some_and(|t| t.frozen.is_some());
+        if frozen && (hit.handle.is_some() || hit.edge.is_some() || hit.region != ClipRegion::Body)
+        {
+            // The history would refuse the edit; saying so up front keeps the
+            // clip from being dragged around for nothing (the owner's FR2).
+            let name = self.document.project().tracks[hit.track].name.clone();
+            self.say(format!(
+                "{name} is frozen, so its clips can't be changed. \
+                 Click the lit Frozen badge on its header (or use Unfreeze track) to unfreeze it"
+            ));
+            return None;
+        }
         if hit.handle.is_some() {
             return self.start_handle_gesture(&hit, origin, canvas);
         }

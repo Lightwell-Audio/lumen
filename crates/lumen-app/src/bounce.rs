@@ -7,8 +7,13 @@
 //! and are waited for rather than raced. A plugin that stops answering ends
 //! the bounce with its name, and no file is left.
 //!
-//! What a bounce does to the project is `Document::bounce_tracks`; this
-//! module only turns a track into a file, off the UI thread.
+//! A freeze (M7b E5) is the same render with [`Bake::Sound`]: the track's
+//! instrument, devices, trim and polarity, but not its fader, pan, mute or
+//! sends, which stay live on a frozen track (the owner's FR1).
+//!
+//! What a bounce does to the project is `Document::bounce_tracks` and a freeze
+//! `Document::freeze_tracks`; this module only turns a track into a file, off
+//! the UI thread.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -19,8 +24,8 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use lumen_devices::{Guard, HostedInstrument, Status};
 use lumen_engine::{
-    Clip, Ended, InstrumentSpec, Layered, NodeSpec, OFFLINE_WAIT, SourceRender, Timeline,
-    clip_player, midi_player, mixer, render_source,
+    Clip, Ended, InstrumentSpec, Layered, NodeAutomation, NodeSpec, OFFLINE_WAIT, SourceRender,
+    Timeline, clip_player, midi_player, mixer, render_source,
 };
 use lumen_hosting::{Happened, Manager};
 use lumen_media::wav::{Sample, Spec, Writer};
@@ -37,6 +42,18 @@ const LOAD_WAIT: Duration = Duration::from_secs(60);
 /// The longest tail a bounce adds after its span.
 pub const MOST_TAIL_SECONDS: u32 = 10;
 
+/// How much of the track's processing is in the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bake {
+    /// Its own sound, unprocessed (an instrument still plays).
+    Plain,
+    /// Its instrument, devices, trim and polarity, and the lanes for them: a
+    /// freeze (the fader, pan, mute and sends stay live).
+    Sound,
+    /// Also its fader, pan and own lanes: a bounce with effects.
+    Mix,
+}
+
 /// One track to render.
 pub struct Job {
     /// The project as it was when the bounce began, with the plugins' states
@@ -48,10 +65,10 @@ pub struct Job {
     /// The plugin devices to host: the instrument, and the effects when
     /// `effects` is on.
     pub plugins: Vec<OfflinePlugin>,
-    /// The track's trim, polarity, fader, pan, devices and lanes are in the
-    /// file. Off: the track's own sound, unprocessed (an instrument still
-    /// plays).
-    pub effects: bool,
+    pub bake: Bake,
+    /// The track plays mono material: a mono file is kept too, and used when
+    /// the two channels came out the same, so the track keeps its pan law.
+    pub mono: bool,
     /// Add what rings on after the span, until it is quiet.
     pub tail: bool,
     pub timeline: Timeline,
@@ -175,6 +192,29 @@ fn plain(node: &mut NodeSpec) {
     };
 }
 
+/// The node of a frozen track: its trim, polarity, devices and the lanes for them,
+/// but a fader at unity, pan centred with the balance law and no mute, send or
+/// fader lane (the owner's FR1: those stay live on the track).
+fn sound(node: &mut NodeSpec) {
+    node.volume = 1.0;
+    node.pan = 0.0;
+    node.law = lumen_core::pan::PanLaw::Balance;
+    node.audible = true;
+    if let Some(lanes) = &mut node.automation {
+        lanes.volume = None;
+        lanes.pan = None;
+        lanes.mute = None;
+        lanes.sends.clear();
+    }
+    if node
+        .automation
+        .as_ref()
+        .is_some_and(NodeAutomation::is_empty)
+    {
+        node.automation = None;
+    }
+}
+
 /// Renders one track to its file. `done` is told how far (0.0 to 1.0) after
 /// each block. `None` means `cancel` stopped it and no file is left.
 pub fn render_job(
@@ -187,7 +227,8 @@ pub fn render_job(
         track,
         clips,
         plugins,
-        effects,
+        bake,
+        mono,
         tail,
         timeline,
         rate,
@@ -196,6 +237,7 @@ pub fn render_job(
         file,
         media,
     } = job;
+    let effects = bake != Bake::Plain;
     let Some(held) = project.tracks.iter().find(|t| t.id == track) else {
         return Err("The track is gone".to_owned());
     };
@@ -217,8 +259,12 @@ pub fn render_job(
     let Some(mut routing) = routing::bounce_routing(&project, track, &devices, rate) else {
         return Err("The track is gone".to_owned());
     };
-    if !effects && let Some(node) = routing.nodes.iter_mut().find(|n| n.id == track.0) {
-        plain(node);
+    if let Some(node) = routing.nodes.iter_mut().find(|n| n.id == track.0) {
+        match bake {
+            Bake::Plain => plain(node),
+            Bake::Sound => sound(node),
+            Bake::Mix => {}
+        }
     }
     // MIDI is built from this track alone: another track's instrument is
     // not started.
@@ -273,6 +319,25 @@ pub fn render_job(
         },
     )
     .map_err(|e| e.to_string())?;
+    // A track that plays mono material also gets a mono file, kept if the two
+    // channels never differed.
+    let twin_file = file.with_extension("mono.wav");
+    let mut twin = if mono {
+        Some(
+            Writer::create(
+                &twin_file,
+                Spec {
+                    sample_rate: rate,
+                    channels: 1,
+                    sample: Sample::F32,
+                },
+            )
+            .map_err(|e| e.to_string())?,
+        )
+    } else {
+        None
+    };
+    let mut same = true;
     let mut write_failed = None;
     let mut written = 0u64;
     let mut late = None;
@@ -308,13 +373,26 @@ pub fn render_job(
                 Ok(()) => written += left.len() as u64,
                 Err(e) => write_failed = Some(e.to_string()),
             }
+            if let Some(twin) = &mut twin {
+                same &= left == right;
+                if same && let Err(e) = twin.write(&[left]) {
+                    write_failed = Some(e.to_string());
+                }
+            }
         },
     );
     drop(source);
     manager.shutdown(Duration::from_secs(2));
-    let discard = |writer: Writer| {
+    let done = if bake == Bake::Sound {
+        "frozen"
+    } else {
+        "bounced"
+    };
+    let mut discard = |writer: Writer| {
         drop(writer);
+        drop(twin.take());
         let _ = std::fs::remove_file(&file);
+        let _ = std::fs::remove_file(&twin_file);
     };
     if let Some(error) = write_failed {
         discard(writer);
@@ -329,12 +407,22 @@ pub fn render_job(
             discard(writer);
             let name = late.unwrap_or_else(|| "A plugin".to_owned());
             return Err(format!(
-                "{name} stopped answering. Nothing was bounced and the project is unchanged"
+                "{name} stopped answering. Nothing was {done} and the project is unchanged"
             ));
         }
         Ended::Done => {}
     }
     let frames_written = writer.finish().map_err(|e| e.to_string())?;
+    let mut channels = 2;
+    if let Some(twin) = twin.take() {
+        // The mono file replaces the stereo one only if every block matched.
+        let kept = same && twin.finish().is_ok() && std::fs::rename(&twin_file, &file).is_ok();
+        if kept {
+            channels = 1;
+        } else {
+            let _ = std::fs::remove_file(&twin_file);
+        }
+    }
     let size_bytes = std::fs::metadata(&file).map_or(0, |m| m.len());
     Ok(Some(Rendered {
         track,
@@ -343,7 +431,7 @@ pub fn render_job(
             path: file.to_string_lossy().into_owned(),
             original_path: None,
             frames: frames_written,
-            channels: 2,
+            channels,
             sample_rate: rate,
             size_bytes,
         },
@@ -461,7 +549,8 @@ mod tests {
             track,
             clips: vec![clip],
             plugins: Vec::new(),
-            effects: true,
+            bake: Bake::Mix,
+            mono: false,
             tail: false,
             timeline: Timeline::default(),
             rate: RATE,
@@ -517,7 +606,7 @@ mod tests {
         doc.set_pan(track, -1.0);
         let dir = TempDir::new("bounce-plain");
         let mut job = job(&doc, track, dir.path(), 20_000, 10_000);
-        job.effects = false;
+        job.bake = Bake::Plain;
         let file = job.file.clone();
         render_job(job, &AtomicBool::new(false), &mut |_| {})
             .unwrap()
@@ -537,6 +626,66 @@ mod tests {
     }
 
     #[test]
+    fn a_freeze_has_trim_and_polarity_in_the_file_but_not_the_fader_or_pan() {
+        let (mut doc, track) = audio_track();
+        doc.set_trim(track, 6.0);
+        doc.set_invert(&[track], true);
+        doc.set_volume(track, -6.0);
+        doc.set_pan(track, -1.0);
+        let dir = TempDir::new("freeze-sound");
+        let mut job = job(&doc, track, dir.path(), 20_000, 10_000);
+        job.bake = Bake::Sound;
+        let file = job.file.clone();
+        render_job(job, &AtomicBool::new(false), &mut |_| {})
+            .unwrap()
+            .unwrap();
+        let back = read(&file);
+        let ramp = ramp();
+        let gain = -(10f32.powf(6.0 / 20.0));
+        for k in 1_000..10_000 {
+            let want = ramp[20_000 + k] * gain;
+            assert!((back.channel(0)[k] - want).abs() < 1e-4, "left {k}");
+            assert!((back.channel(1)[k] - want).abs() < 1e-4, "right {k}");
+        }
+    }
+
+    #[test]
+    fn mono_material_is_kept_as_a_mono_file_only_if_the_channels_never_differ() {
+        let (doc, track) = audio_track();
+        let dir = TempDir::new("freeze-mono");
+        let mut same = job(&doc, track, dir.path(), 0, 10_000);
+        same.bake = Bake::Sound;
+        same.mono = true;
+        let file = same.file.clone();
+        let made = render_job(same, &AtomicBool::new(false), &mut |_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(made.media.channels, 1);
+        let back = read(&file);
+        assert_eq!(back.channels(), 1);
+        assert!((back.channel(0)[500] - ramp()[500]).abs() < 1e-6);
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
+        assert_eq!(leftovers.len(), 1, "no twin left behind");
+
+        // A pan lane-free track whose right channel differs stays stereo.
+        let mut apart = job(&doc, track, dir.path(), 0, 10_000);
+        let left = ramp();
+        let right: Vec<f32> = left.iter().map(|s| s * 0.5).collect();
+        apart.clips[0].audio = Arc::new(ClipAudio {
+            sample_rate: RATE,
+            channels: vec![left, right],
+        });
+        apart.bake = Bake::Sound;
+        apart.mono = true;
+        apart.file = dir.path().join("apart.wav");
+        let made = render_job(apart, &AtomicBool::new(false), &mut |_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(made.media.channels, 2);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+    }
+
+    #[test]
     fn a_bounce_ignores_mute_and_other_tracks() {
         let (mut doc, track) = audio_track();
         let other = doc.add_track(TrackKind::Audio, None);
@@ -544,7 +693,7 @@ mod tests {
         doc.set_solo(&[other], true, false);
         let dir = TempDir::new("bounce-muted");
         let mut job = job(&doc, track, dir.path(), 20_000, 4_000);
-        job.effects = false;
+        job.bake = Bake::Plain;
         let file = job.file.clone();
         render_job(job, &AtomicBool::new(false), &mut |_| {})
             .unwrap()

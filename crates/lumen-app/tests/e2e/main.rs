@@ -34,6 +34,7 @@ mod editing;
 mod editors;
 mod fades;
 mod files;
+mod freeze;
 mod grid;
 mod groups;
 mod hidden_notes;

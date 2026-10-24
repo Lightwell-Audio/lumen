@@ -15,7 +15,7 @@ use lumen_core::time::Ticks;
 use lumen_project::edit::bounce::{Baked, Mode, Moved, Options, Part, Scope, plan};
 use lumen_project::model::{ClipContent, Id};
 
-use crate::bounce::{Job, Poll, Render, Rendered, remove_files};
+use crate::bounce::{Bake, Job, Poll, Render, Rendered, remove_files};
 use crate::widgets::{self, Choice, Dialog, raised};
 use crate::{App, theme};
 
@@ -254,7 +254,8 @@ impl App {
                 track: part.track,
                 clips: playing.clone(),
                 plugins,
-                effects: part.effects,
+                bake: if part.effects { Bake::Mix } else { Bake::Plain },
+                mono: false,
                 tail: part.tail,
                 timeline: timeline.clone(),
                 rate,

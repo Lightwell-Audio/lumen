@@ -68,8 +68,32 @@ pub struct Track {
     /// when there are some.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub automation: Vec<AutomationLane>,
+    /// The track plays a rendered file in place of its clips, notes and
+    /// devices (format v29). Written only when frozen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frozen: Option<Frozen>,
     #[serde(default)]
     pub clips: Vec<Arc<Clip>>,
+}
+
+/// A frozen track's rendered sound (format v29, M7b E5): what its instrument,
+/// devices, trim and polarity made of its clips, in a file. The track keeps its
+/// clips, notes and devices untouched, so unfreezing gives them back; while
+/// frozen it plays the file as one clip and runs no plugin
+/// (`edit::freeze::played`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Frozen {
+    /// The id the file's clip plays under.
+    pub id: Id,
+    /// The rendered file, in the project's media.
+    pub media: Id,
+    /// Where the file starts, and how long it lasts with its tail.
+    pub start: Ticks,
+    pub length: Ticks,
+    /// The track played mono material, so it keeps the project's pan law
+    /// (the file is always stereo).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub mono: bool,
 }
 
 /// An output of a plugin instrument that a track plays (format v21): the
@@ -105,8 +129,28 @@ impl Track {
             monitor: Monitor::default(),
             plugin_output: None,
             automation: Vec::new(),
+            frozen: None,
             clips: Vec::new(),
         }
+    }
+
+    /// Whether the track plays mono material, which pans by the project's law
+    /// (stereo keeps its level at the centre). A frozen track keeps what it
+    /// was before it was frozen.
+    pub fn plays_mono(&self, media: &[Media]) -> bool {
+        if let Some(frozen) = &self.frozen {
+            return frozen.mono;
+        }
+        if self.kind != TrackKind::Audio || self.clips.is_empty() {
+            return false;
+        }
+        self.clips.iter().all(|clip| match clip.content {
+            ClipContent::Audio { media: id, .. } => media
+                .iter()
+                .find(|m| m.id == id)
+                .is_some_and(|m| m.channels == 1),
+            ClipContent::Midi { .. } => false,
+        })
     }
 
     /// The track's built-in synth: its first one (format v12). The engine's

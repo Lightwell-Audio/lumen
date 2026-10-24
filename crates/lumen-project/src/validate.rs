@@ -172,6 +172,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
         }
         routing(track, &kinds).map_err(|e| format!("{}: {e}", at()))?;
         crate::automation::check(track).map_err(|e| format!("{}: {e}", at()))?;
+        frozen(track, &media).map_err(|e| format!("{}: {e}", at()))?;
         if let Some(output) = &track.plugin_output {
             if track.kind != TrackKind::Audio {
                 return Err(format!(
@@ -416,6 +417,27 @@ pub fn validate(project: &Project) -> Result<(), String> {
 }
 
 /// A track's output and sends go to tracks that can take them.
+/// A frozen track's file: only an audio or MIDI track is frozen, its file is
+/// in the media and it lies within the song.
+fn frozen(track: &Track, media: &HashSet<Id>) -> Result<(), &'static str> {
+    let Some(frozen) = &track.frozen else {
+        return Ok(());
+    };
+    if !matches!(track.kind, TrackKind::Audio | TrackKind::Midi) {
+        return Err("only an audio or MIDI track is frozen");
+    }
+    if !media.contains(&frozen.media) {
+        return Err("its frozen file is missing from the media");
+    }
+    if frozen.length <= Ticks::ZERO
+        || !within(frozen.start)
+        || !within(frozen.start + frozen.length)
+    {
+        return Err("its frozen file lies outside the song");
+    }
+    Ok(())
+}
+
 fn routing(track: &Track, kinds: &HashMap<Id, TrackKind>) -> Result<(), String> {
     if let Output::Track(to) = track.output {
         match kinds.get(&to) {

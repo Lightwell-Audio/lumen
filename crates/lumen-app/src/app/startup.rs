@@ -147,6 +147,8 @@ impl App {
             bounce_waiting: None,
             bouncing: None,
             show_bounce: false,
+            freeze_waiting: None,
+            freezing: None,
             tempo_offer: None,
             song: Default::default(),
             drag_pointer: None,

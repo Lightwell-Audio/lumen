@@ -160,6 +160,10 @@ pub fn plan(project: &Project, tracks: &[Id], scope: Scope<'_>, options: Options
 
 /// Whether a bounce can make sound from the track.
 fn playable(track: &Track) -> bool {
+    // A frozen track is already a file: flatten it to keep it.
+    if track.frozen.is_some() {
+        return false;
+    }
     match track.kind {
         TrackKind::Audio => true,
         TrackKind::Midi => track.midi_to.is_none(),

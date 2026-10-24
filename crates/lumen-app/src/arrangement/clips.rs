@@ -359,7 +359,7 @@ impl Arrangement {
                             clip,
                             &palette,
                         );
-                        let mut look = look_of(clip, clip_color(track, clip), paint, lanes, ctx);
+                        let mut look = look_of(clip, track, paint, lanes, ctx);
                         if !heard {
                             look.alpha *= DIMMED;
                         }
@@ -518,7 +518,7 @@ impl Arrangement {
             }
             for clip in &track.clips {
                 let paint = recording_look::paint(recording.as_ref(), track.id, clip, &palette);
-                let look = look_of(clip, clip_color(track, clip), paint, lanes, ctx);
+                let look = look_of(clip, track, paint, lanes, ctx);
                 moving |= look.alpha < 1.0;
                 boxes.push(clip_box(clip, row as u32, &look, &palette));
             }
@@ -572,7 +572,7 @@ impl Arrangement {
             }
             for clip in &track.clips {
                 let paint = recording_look::paint(recording, track.id, clip, &palette);
-                let look = look_of(clip, clip_color(track, clip), paint, lanes, ctx);
+                let look = look_of(clip, track, paint, lanes, ctx);
                 boxes.push(clip_box(clip, row as u32, &look, &palette));
             }
         }
@@ -654,10 +654,10 @@ struct ClipLook<'a> {
     paint: Paint,
 }
 
-/// A project clip's look, before dimming for its track.
+/// A project clip's look on `track`, before dimming for its track.
 fn look_of<'a>(
     clip: &'a Clip,
-    color: Color32,
+    track: &lumen_project::model::Track,
     paint: Paint,
     lanes: &mut Lanes,
     ctx: &egui::Context,
@@ -675,11 +675,12 @@ fn look_of<'a>(
     };
     ClipLook {
         name: &clip.name,
-        color,
+        color: clip_color(track, clip),
         state,
         progress,
         alpha: lanes.shown(key, ctx),
-        locked: clip.locked,
+        // A frozen track's clips cannot change, so they show the padlock too.
+        locked: clip.locked || track.frozen.is_some(),
         paint,
     }
 }

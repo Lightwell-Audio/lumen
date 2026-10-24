@@ -122,8 +122,10 @@ impl Arrangement {
                 }
                 // Fades and gain (slice 6d), placed by the clip's whole
                 // extent and drawn only where they are in view.
+                // A frozen track's clips are clamped like locked ones.
+                let locked = clip.locked || project.tracks[index].frozen.is_some();
                 let whole = Rect::from_x_y_ranges(left..=right, rect.y_range());
-                if clip.locked && right - left >= 4.0 * CLAMP {
+                if locked && right - left >= 4.0 * CLAMP {
                     // K3: clamped at both ends; it has no handles to show.
                     let clamp = palette.text.gamma_multiply(0.55);
                     for x in [left, right - CLAMP] {
@@ -135,7 +137,7 @@ impl Arrangement {
                 }
                 // At fit-all thousands of clips are too narrow for handles.
                 // Reject those before cloning a clip or resolving its join.
-                let handles = (!clip.locked)
+                let handles = (!locked)
                     .then(|| ClipHandles::of(clip, whole, x))
                     .flatten()
                     .and_then(|_| {

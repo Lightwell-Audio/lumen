@@ -298,6 +298,8 @@ impl App {
         self.bounce_waiting = None;
         self.bouncing = None;
         self.show_bounce = false;
+        self.freeze_waiting = None;
+        self.freezing = None;
         self.show_history = false;
         self.forget_passes();
         self.transport.locate(Ticks::ZERO);

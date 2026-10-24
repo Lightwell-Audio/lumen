@@ -244,3 +244,40 @@ effect that are installed and scanned; work on a copy of a project.
    stops with a message naming the plugin and the project is unchanged.
 10. Right-click a track and a clip and a time range: Bounce is in each menu
     and does the same. In both themes at 100, 150 and 200% the window is whole.
+
+## MT-EDIT-6 — Freeze, unfreeze and flatten (E5)
+
+**State:** Passed (owner, 2026-10-24; no step detail). Branch: `m7b-s5-freeze`. Needs an installed and
+scanned plugin instrument and effect; work on a copy of a project. Build the
+plugin host first (`cargo build --release -p lumen-plugin-host`).
+
+1. Make a MIDI track with a plugin instrument and a plugin effect, a few
+   notes with a long release, and a clip. Select the track, press Ctrl+K, type
+   Freeze, Enter. A message with a percentage and "Esc to stop" shows, then the
+   header shows a lit **Frozen** pill (a padlock where the header is narrow) and
+   the clip shows a padlock. The task manager shows the track's plugin
+   processes gone. Play: it sounds the same, release included, and the CPU
+   meter is lower.
+2. The fader, pan, mute, solo and sends of the frozen track still work, and so
+   do volume and pan automation lanes.
+3. Try to move, trim or delete the clip, play a note into it, or open a device
+   to change it: nothing changes and a message says the track is frozen and
+   how to unfreeze it. Change the tempo: it says tempo cannot change while a
+   track is frozen.
+4. Click the pill (or Ctrl+K, Unfreeze track): the clips, notes and devices are
+   as they were, and the plugins start again with the settings they had when
+   you froze. Undo and redo each step: the history says Freeze and Unfreeze.
+5. Freeze again, then Flatten track: the track becomes an audio track holding
+   the file, its devices and notes are gone, its name, colour, fader, pan and
+   output stay. Undo brings the frozen MIDI track back.
+6. Save, close and open: a frozen track is still frozen and plays. The file is
+   in `Samples/Rendered`.
+7. Freeze two tracks together (one undo step). Select an audio track keyed
+   from another track's sidechain and freeze it: it is refused, saying why.
+8. Press Esc during a long freeze: nothing changes. Edit the project during a
+   freeze: when it ends it says the tracks changed and nothing was frozen.
+9. End a plugin's host process from the task manager during a freeze: it stops
+   with a message naming the plugin and the project is unchanged.
+10. Look at the track header in both themes at 100, 150 and 200%: the pill (or
+    the padlock) is whole, the name stays readable, and the clip's padlock and
+    clamps show.

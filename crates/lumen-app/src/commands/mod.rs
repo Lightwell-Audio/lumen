@@ -212,6 +212,9 @@ pub(crate) enum Command {
     NormalizeClips,
     ConsolidateClips,
     Bounce,
+    FreezeTracks,
+    UnfreezeTracks,
+    FlattenTracks,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -489,6 +492,9 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::NormalizeClips, "clip.normalize", "Normalize", Area::Clip, &[], "Sets the gain of the selected audio clips so the loudest sample of the stretch each plays reaches full scale. The audio file is not changed."),
     info(Command::ConsolidateClips, "clip.consolidate", "Join into new file", Area::Clip, &[], "Renders the selected audio clips of each track, from the first clip's start to the last clip's end with gaps as silence, into one new audio file and replaces them with a clip that plays it. Clip gain, polarity, reverse, fades, crossfades and envelopes are baked in; the track's fader, pan and devices are not. The originals stay in the media pool. Esc stops it."),
     info(Command::Bounce, "clip.bounce", "Bounce", Area::Clip, &[], "Renders the selected tracks, over the time range, the selected clips or the whole track, into a new audio file with the track's own sound, its plugins, fader and pan included if you leave Include effects on, and puts it on the track or on a new track. A tail that rings on after the end is kept. Esc stops it."),
+    info(Command::FreezeTracks, "track.freeze", "Freeze track", Area::Track, &[], "Renders the selected audio and MIDI tracks, from their first clip to their last plus the tail that rings on, with their instrument, devices, trim and polarity, into a file the track plays instead. A frozen track runs no plugin, so it costs almost nothing. Its fader, pan, sends, mute and solo stay live; its clips, notes and devices are read-only until you unfreeze. Tracks that depend on other tracks (a sidechain, extra instrument outputs) cannot be frozen. Esc stops it."),
+    info(Command::UnfreezeTracks, "track.unfreeze", "Unfreeze track", Area::Track, &[], "Gives a frozen track back its clips, notes, instrument and devices, exactly as they were. The rendered file stays in the media pool."),
+    info(Command::FlattenTracks, "track.flatten", "Flatten track", Area::Track, &[], "Turns a frozen track into a plain audio track that holds the rendered file. Its clips, notes, instrument and devices are removed; its name, colour, fader, pan, sends and output stay. A MIDI track becomes an audio track. Undo brings everything back."),
 ];
 
 const fn info(
@@ -538,7 +544,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::Bounce as usize + 1,
+            Command::FlattenTracks as usize + 1,
             ALL.len(),
             "a command is missing"
         );

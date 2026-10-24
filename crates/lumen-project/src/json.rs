@@ -4,6 +4,11 @@
 
 /// Rewrites `serde_json` pretty output so scalar-only arrays sit on one line.
 /// The result parses to exactly the same value.
+///
+/// Never inlined: this text pass dominates saving a big project, and its
+/// cost moved by several percent with the size of whatever it was inlined
+/// into (the performance gate saw +5% from an unrelated field, M7b E5).
+#[inline(never)]
 pub fn compact_scalar_arrays(pretty: &str) -> String {
     let mut out = String::with_capacity(pretty.len());
     // For each open array: where it starts in `out`, and whether it holds a container.
