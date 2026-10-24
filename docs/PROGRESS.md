@@ -18,12 +18,10 @@ clean, **2,782 workspace tests pass** (E2E crossfade scenarios: the left
 handle drag, one undo step, drag back in one gesture, repositioning the right
 clip, the command and menu, save/reopen), **6/6 binary smoke tests** and the
 macOS cross-clippy pass. Screenshots of the crossfade in both themes at 100%
-and 200% (plus the menus at 100/150/200%) were looked at. *Not run yet:* the
-WSL Linux mirror and the performance gate. The `engine_crossfades_64`
-scenario changed (64 overlapping pairs with blend fades), so its entry in
-`perf/baseline.json` must be re-measured in WSL after the push
-(`perf.sh --update`, copy the baseline back) and the numbers recorded here;
-the figures from the first design no longer apply. RealtimeSanitizer and
+and 200% (plus the menus at 100/150/200%) were looked at. WSL instruction gate: `engine_crossfades_64` (now 64 overlapping
+pairs) measures 5,898,998,818 instructions per 1,000 blocks, +15.26% on the
+first design's different scenario, and its baseline was regenerated; every
+other scenario is within +0.38% (ADR-0094). The WSL Linux mirror (clippy and tests) passes on the pushed branch. *Not run:* RealtimeSanitizer and
 physical-device listening were not run; the latter is MT-EDIT-3.
 
 **M7b slice E1 (clip commands) is built, 2026-10-23** on `m7b-s1-clip-commands` (ADR-0093; owner choices J1, N1, G1, K2; format v27). *Shipped:* join (Ctrl+J, seamless), crop to selection, unloop, nudge by grid and finely, reverse (reversed copies of files, no engine change), polarity, normalize (peak scan on a worker, cancel, one undo step), and the select variants; reverse, polarity and normalize are golden renders. *Waiting:* MT-EDIT-2 (owner). *Not run:* macOS, the WSL gates and the smoke tests until the push, RealtimeSanitizer.

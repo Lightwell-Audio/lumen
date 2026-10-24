@@ -8464,5 +8464,13 @@ work. Rendering a file per crossfade adds disk work and hides the edit.
 **Verification.** Results and remaining manual checks are recorded in the E2
 slice report in PROGRESS and MT-EDIT-3.
 
-**Performance.** The `engine_crossfades_64` scenario is now 64 overlapping
-pairs with blend fades; its baseline is re-measured in WSL (see PROGRESS).
+**Performance (2026-10-24, WSL instruction gate).** `engine_crossfades_64` is
+now 64 overlapping pairs (128 clips sounding, each with a blend fade, one
+`sin` or `cos` per clip-frame): 5,898,998,818 instructions per 1,000 blocks of
+128 frames, +15.26% on the first design's 5,117,889,825 (a different scenario,
+so the baseline was regenerated). Every other scenario moved by at most +0.38%
+(project parse -0.10%, serialization -0.00%). Cost to remember: the blend
+fades evaluate a sine per frame; a table that holds the equal-power shape
+(one per curve) would remove it if a project with many simultaneous
+crossfades ever needs the room. `perf/baseline.json` was regenerated from WSL
+and its threshold remains 2%.
