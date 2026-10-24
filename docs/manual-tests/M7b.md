@@ -171,6 +171,8 @@ cargo run --release -p lumen-app
 
 ## MT-EDIT-4 — Join into a new file (E3)
 
+**State:** Passed (owner, Windows, 2026-10-24; no step detail). Branch: `m7b-s3-render-consolidate`.
+
 Start from a project with an audio track. Work on a copy of a project you do
 not mind changing.
 

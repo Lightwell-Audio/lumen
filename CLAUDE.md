@@ -422,7 +422,7 @@ per slice and move what is no longer current out of it.
   files are 32-bit float WAVs at the **device rate** (the media library holds
   audio at that rate), written to a `Renders` folder beside the autosaves and
   copied into `Samples/Rendered` on Save. Gates and what was not run: see
-  PROGRESS. **Waiting for the owner: MT-EDIT-4** (`docs/manual-tests/M7b.md`).
+  PROGRESS. MT-EDIT-4 passed (owner, 2026-10-24).
 - **M7b E2 (crossfades, ADR-0094, format v28) is merged (PR #54;
   MT-EDIT-3 passed).** A crossfade is a true overlap: drag the left clip's
   fade-out handle over the right clip.
