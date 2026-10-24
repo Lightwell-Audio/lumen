@@ -28,6 +28,25 @@ pub(crate) fn preview(project: &Project, track: Id, clip: &Clip) -> Clip {
     shown
 }
 
+/// How far `clip`'s sound reaches into the next clip: the length of the
+/// crossfade that starts where it ends, zero when there is none. Drawn as the
+/// outgoing clip's extent (selection and hover), though it still ends at the
+/// join in the project.
+pub(crate) fn outgoing_extent(project: &Project, track: Id, clip: &Clip) -> Ticks {
+    let Some(track) = project.tracks.iter().find(|t| t.id == track) else {
+        return Ticks::ZERO;
+    };
+    let end = clip.start + clip.length;
+    track
+        .clips
+        .iter()
+        .filter(|next| next.start == end && next.id != clip.id)
+        .filter_map(|next| fade(project, track.id, next))
+        .map(|fade| fade.length)
+        .max()
+        .unwrap_or(Ticks::ZERO)
+}
+
 /// The audio clip that starts where `left` ends on the same track: the one a
 /// crossfade dragged from `left`'s fade-out handle belongs to. Both clips
 /// must be unlocked audio.
@@ -374,6 +393,20 @@ mod tests {
         let clips = crate::lanes::engine_clips(&p, 48_000, |_| Some((audio.clone(), 48_000)));
         assert!(!clips[1].shape.crossfade);
         assert_eq!(clips[1].shape.fade_in.frames, 0, "plays on seamlessly");
+    }
+
+    #[test]
+    fn the_outgoing_clip_reaches_to_the_end_of_the_crossing() {
+        let mut p = join();
+        let id = p.tracks[0].id;
+        let left = p.tracks[0].clips[0].clone();
+        let f = fade(&p, id, &p.tracks[0].clips[1]).unwrap();
+        assert_eq!(outgoing_extent(&p, id, &left), f.length);
+        // The incoming clip crosses nothing further, and no join, no reach.
+        let right = p.tracks[0].clips[1].clone();
+        assert_eq!(outgoing_extent(&p, id, &right), Ticks::ZERO);
+        p.auto_crossfade = false;
+        assert_eq!(outgoing_extent(&p, id, &left), Ticks::ZERO);
     }
 
     #[test]

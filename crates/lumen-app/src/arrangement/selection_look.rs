@@ -156,6 +156,16 @@ impl Arrangement {
                 if !selected && hovered.is_none() {
                     continue;
                 }
+                // Under a crossfade the clip reaches to the end of the
+                // crossing, over the next clip, though it ends at the join.
+                let reach =
+                    crate::crossfades::outgoing_extent(project, project.tracks[index].id, clip);
+                let outline = if reach > Ticks::ZERO {
+                    let end = x(clip.start + clip.length + reach).min(near_right);
+                    Rect::from_x_y_ranges(rect.left()..=end.max(rect.right()), rect.y_range())
+                } else {
+                    rect
+                };
                 if let Some(select::Hover {
                     edge: Some(edge), ..
                 }) = hovered
@@ -190,7 +200,7 @@ impl Arrangement {
                     painter.rect_filled(wash, 0.0, palette.text.gamma_multiply(light::EMBER_WASH));
                 }
                 if selected {
-                    draw_glow_rect(&painter, rect, f32::from(theme::radius::SMALL));
+                    draw_glow_rect(&painter, outline, f32::from(theme::radius::SMALL));
                 }
             }
         }
