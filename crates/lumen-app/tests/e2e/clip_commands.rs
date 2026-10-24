@@ -119,7 +119,7 @@ fn join_needs_two_clips_and_apart_audio_is_consolidated() {
     // Parts that do not continue one another are rendered into one clip
     // (E3; the details are in `consolidate.rs`).
     lumen.wait_for("the render to replace the parts", |app| {
-        app.undo_label() == Some("Consolidate")
+        app.undo_label() == Some("Join into new file")
     });
     assert_eq!(lumen.app().project().tracks[0].clips.len(), 1);
     lumen.key(Modifiers::COMMAND, Key::Z);
@@ -440,7 +440,7 @@ fn a_note_is_read_in_full_by_wrapping_never_cut_short() {
     lumen.app_mut().say_note("Saved");
     lumen.frames(20);
     let short = area(&lumen);
-    let long = "These clips do not continue one another: use Consolidate, which closes \
+    let long = "These clips do not continue one another: use Join into new file, which closes \
                 the gap with silence and writes one new clip";
     lumen.app_mut().say_note(long);
     lumen.frames(20);

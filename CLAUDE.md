@@ -416,7 +416,7 @@ per slice and move what is no longer current out of it.
   `lumen_project::edit::consolidate` (the planner, the swap and the MIDI
   merge), `lumen-app::consolidate` (the worker), `app/clip_consolidate.rs`
   (the command, progress and Esc in the toast), `Document::consolidate_clips`
-  (one undo step for audio and MIDI together). Command `clip.consolidate`
+  (one undo step for audio and MIDI together). Command `clip.consolidate` (shown everywhere as "Join into new file": the user-visible word is Join, owner 2026-10-24; the palette's "Glue notes" is now "Join")
   (last in `Command` and `ALL`, no default key), the clip menu's Edit row,
   and Ctrl+J now consolidates audio that does not join seamlessly. Rendered
   files are 32-bit float WAVs at the **device rate** (the media library holds

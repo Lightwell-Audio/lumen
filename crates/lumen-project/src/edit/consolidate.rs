@@ -77,7 +77,7 @@ pub fn plan(project: &Project, ids: &[Id]) -> Vec<Part> {
 
 /// The name of a clip made from one called `name`.
 fn named(name: &str) -> String {
-    const SUFFIX: &str = " (consolidated)";
+    const SUFFIX: &str = " (joined)";
     if name.ends_with(SUFFIX) {
         name.to_owned()
     } else {
@@ -237,7 +237,7 @@ mod tests {
         assert_eq!(parts[0].track, project.tracks[0].id);
         assert_eq!((parts[0].start, parts[0].end), (q(0), q(5)));
         assert_eq!(parts[0].clips.len(), 2, "the locked clip stays out");
-        assert_eq!(parts[0].name, "c10 (consolidated)");
+        assert_eq!(parts[0].name, "c10 (joined)");
         assert_eq!(parts[1].track, project.tracks[1].id);
         assert!(plan(&project, &[Id(999)]).is_empty());
     }
@@ -252,8 +252,8 @@ mod tests {
 
     #[test]
     fn a_name_is_not_suffixed_twice() {
-        assert_eq!(named("Kick"), "Kick (consolidated)");
-        assert_eq!(named("Kick (consolidated)"), "Kick (consolidated)");
+        assert_eq!(named("Kick"), "Kick (joined)");
+        assert_eq!(named("Kick (joined)"), "Kick (joined)");
     }
 
     #[test]

@@ -371,7 +371,7 @@ mod tests {
     fn rendered_audio_is_always_copied_in_and_is_not_an_import() {
         let tmp = TempDir::new("files-rendered");
         let renders = tmp.path().join("Renders");
-        let baked = renders.join("consolidated-1.wav");
+        let baked = renders.join("joined-1.wav");
         let library = tmp.path().join("Library").join("kick.wav");
         wav(&baked, 4_800);
         wav(&library, 4_800);
@@ -383,12 +383,12 @@ mod tests {
         // The render moves in; the library file, with copying off, stays.
         assert_eq!(saved.copied, 1);
         let folder = path.parent().unwrap().join(RENDERED);
-        assert!(folder.join("consolidated-1.wav").is_file());
+        assert!(folder.join("joined-1.wav").is_file());
         let opened = open_now(&path).unwrap();
         assert!(opened.missing.is_empty(), "{:?}", opened.missing);
         assert_eq!(
             opened.project.media[0].path,
-            "Samples/Rendered/consolidated-1.wav"
+            "Samples/Rendered/joined-1.wav"
         );
         assert_eq!(opened.project.media[0].original_path, None);
         assert!(Path::new(&opened.project.media[1].path).is_absolute());

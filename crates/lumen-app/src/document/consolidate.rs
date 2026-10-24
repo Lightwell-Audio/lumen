@@ -28,7 +28,7 @@ impl Document {
         }
         let mut made = Vec::new();
         let next = &mut self.next_id;
-        let changed = self.history.apply("Consolidate", None, |project| {
+        let changed = self.history.apply("Join into new file", None, |project| {
             let mut fresh = fresh_ids(next);
             made = consolidate::apply(project, &current, &mut fresh);
             made.extend(consolidate::midi(project, midi_ids, &mut fresh));

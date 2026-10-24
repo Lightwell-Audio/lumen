@@ -42,7 +42,7 @@ impl App {
     /// is merged when it is done (at once when there is no audio).
     pub(crate) fn consolidate_selected_clips(&mut self, ctx: &egui::Context) {
         if self.consolidating.is_some() {
-            self.say("Already consolidating".to_owned());
+            self.say("Already joining".to_owned());
             return;
         }
         let ids = self.selected_clip_ids();
@@ -50,7 +50,7 @@ impl App {
         let parts = plan(project, &ids);
         let midi = midi_clips(project, &ids);
         if parts.is_empty() && midi.is_empty() {
-            self.say("Select clips to consolidate".to_owned());
+            self.say("Select clips to join".to_owned());
             return;
         }
         if parts.is_empty() {
@@ -73,13 +73,13 @@ impl App {
                 .cloned()
                 .collect();
             if clips.len() != part.clips.len() {
-                self.say("Wait for the audio to finish loading, then consolidate".to_owned());
+                self.say("Wait for the audio to finish loading, then join".to_owned());
                 return;
             }
             let from = timeline.sample_at(part.start, rate);
             let frames = timeline.sample_at(part.end, rate) - from;
             if frames <= 0 {
-                self.say("These clips are too short to consolidate".to_owned());
+                self.say("These clips are too short to join".to_owned());
                 return;
             }
             let media = self.document.fresh_id();
@@ -88,7 +88,7 @@ impl App {
                 clips,
                 from,
                 frames: frames as u64,
-                file: dir.join(format!("consolidated-{}.wav", media.0)),
+                file: dir.join(format!("joined-{}.wav", media.0)),
                 media,
             });
         }
@@ -107,7 +107,7 @@ impl App {
         if !self.typing && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             running.render.stop();
             self.consolidating = None;
-            self.say("Consolidate stopped".to_owned());
+            self.say("Join stopped".to_owned());
             return;
         }
         match running.render.poll() {
@@ -115,17 +115,17 @@ impl App {
                 let shown = (done * 100.0).floor() as u32;
                 // Keeps the note up while the render goes.
                 self.toast = Some((
-                    format!("Consolidating {shown}% \u{b7} Esc to stop"),
+                    format!("Joining {shown}% \u{b7} Esc to stop"),
                     Instant::now(),
                 ));
             }
             Poll::Stopped => {
                 self.consolidating = None;
-                self.say("Consolidate stopped".to_owned());
+                self.say("Join stopped".to_owned());
             }
             Poll::Failed(why) => {
                 self.consolidating = None;
-                self.say(format!("Could not consolidate: {why}"));
+                self.say(format!("Could not join: {why}"));
             }
             Poll::Done(baked) => {
                 let midi = self
@@ -145,14 +145,14 @@ impl App {
         if made.is_empty() {
             remove_files(baked);
             self.say(if baked.is_empty() {
-                "Nothing to consolidate: each track already has one clip".to_owned()
+                "Nothing to join: each track already has one clip".to_owned()
             } else {
-                "The clips changed while rendering: nothing was replaced".to_owned()
+                "The clips changed while joining: nothing was replaced".to_owned()
             });
             return;
         }
         self.arrangement.clips = made.into_iter().collect();
         self.arrangement.clip_cursor = None;
-        self.say("Consolidated".to_owned());
+        self.say("Joined".to_owned());
     }
 }

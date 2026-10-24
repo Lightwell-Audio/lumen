@@ -35,7 +35,7 @@ pub struct Joined {
     /// How many clips were taken into another.
     pub merged: usize,
     /// Whether audio clips were left apart because they do not continue one
-    /// another in their source (that is Consolidate's work).
+    /// another in their source (that is Join into new file's work).
     pub apart: bool,
 }
 

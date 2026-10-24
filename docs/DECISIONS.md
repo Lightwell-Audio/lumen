@@ -8534,3 +8534,15 @@ cut ends will differ from their neighbour's source, so E0's seamless join will
 not apply there. Long renders are cancelled with Esc and cost memory only in
 blocks. Plugins never run in a consolidate. The track fader, pan, sends and
 devices are not baked; bounce (E4) does that.
+
+### ADR-0095 amendment: one word, Join (owner, 2026-10-24)
+
+The palette listed "Glue notes" (Ctrl+J, which joins clips) beside
+"Consolidate", and the clip menu called the first "Join": two words for one
+idea. The user-visible word is now **Join** everywhere. "Glue notes" is
+"Join" (same id, so saved shortcuts stay). The command that always renders a
+new file is **Join into new file** (id `clip.consolidate` unchanged; the menu
+row, undo label and notes say Join, the new clip is named "… (joined)", the
+file is `joined-<id>.wav`). Code identifiers keep `consolidate`. The product
+spec's word "consolidate" (CLAUDE.md §6.6) is the feature's name in the
+requirements, not the interface's.

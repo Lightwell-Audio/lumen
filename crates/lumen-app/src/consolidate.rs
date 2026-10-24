@@ -246,7 +246,7 @@ mod tests {
             clips: vec![Arc::new(clip)],
             start: Ticks::ZERO,
             end: Ticks(960),
-            name: "Take (consolidated)".into(),
+            name: "Take (joined)".into(),
             color: None,
             mono,
         }

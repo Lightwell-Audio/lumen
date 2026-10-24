@@ -24,9 +24,9 @@ fn parts_with_a_gap(name: &str) -> Lumen {
 }
 
 fn consolidated(lumen: &mut Lumen) {
-    command(lumen, "Consolidate");
+    command(lumen, "Join into new file");
     lumen.wait_for("the render to replace the clips", |app| {
-        app.undo_label() == Some("Consolidate")
+        app.undo_label() == Some("Join into new file")
     });
 }
 
@@ -61,7 +61,7 @@ fn consolidate_writes_one_file_holding_the_parts_and_the_gap_and_undo_gives_them
     let clip = &after.tracks[0].clips[0];
     assert_eq!(clip.start, first.start);
     assert_eq!(clip.start + clip.length, second.start + second.length);
-    assert!(clip.name.ends_with("(consolidated)"), "{}", clip.name);
+    assert!(clip.name.ends_with("(joined)"), "{}", clip.name);
     assert_eq!(lumen.app().selected_clips(), [clip.id]);
 
     // The file is a render in the renders folder, at the device's rate, and
@@ -106,7 +106,7 @@ fn one_clip_consolidates_and_a_clip_with_nothing_selected_does_not() {
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen
         .harness
-        .event(eframe::egui::Event::Text("Consolidate".into()));
+        .event(eframe::egui::Event::Text("Join into new file".into()));
     lumen.frames(2);
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.key(Modifiers::NONE, Key::Escape);
@@ -130,7 +130,7 @@ fn ctrl_j_renders_parts_that_do_not_continue_and_a_second_press_has_nothing_left
     let mut lumen = parts_with_a_gap("consolidate-ctrl-j");
     lumen.key(Modifiers::COMMAND, Key::J);
     lumen.wait_for("the render to replace the clips", |app| {
-        app.undo_label() == Some("Consolidate")
+        app.undo_label() == Some("Join into new file")
     });
     assert_eq!(lumen.app().project().tracks[0].clips.len(), 1);
     // One clip is selected: Ctrl+J wants two.
@@ -195,8 +195,8 @@ fn a_looping_midi_clip_consolidates_at_once_and_undo_gives_the_loop_back() {
     let before = lumen.app().project().clone();
     let clip = before.tracks[0].clips[0].id;
     lumen.app_mut().select_clip(clip);
-    command(&mut lumen, "Consolidate");
-    assert_eq!(lumen.app().undo_label(), Some("Consolidate"));
+    command(&mut lumen, "Join into new file");
+    assert_eq!(lumen.app().undo_label(), Some("Join into new file"));
     let after = lumen.app().project();
     assert_eq!(after.tracks[0].clips.len(), 1);
     let ClipContent::Midi { notes, .. } = &after.tracks[0].clips[0].content else {
@@ -223,13 +223,13 @@ fn consolidating_one_plain_midi_clip_says_there_is_nothing_to_do() {
     lumen.wait_for("the project", |app| app.project().tracks.len() == 1);
     let before = lumen.app().project().clone();
     lumen.app_mut().select_clip(before.tracks[0].clips[0].id);
-    command(&mut lumen, "Consolidate");
+    command(&mut lumen, "Join into new file");
     assert_eq!(lumen.app().project(), &before);
     assert_eq!(lumen.app().undo_label(), None);
     assert!(
         lumen
             .app()
             .note()
-            .is_some_and(|n| n.contains("Nothing to consolidate"))
+            .is_some_and(|n| n.contains("Nothing to join"))
     );
 }
