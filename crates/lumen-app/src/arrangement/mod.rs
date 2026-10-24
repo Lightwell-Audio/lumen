@@ -48,6 +48,7 @@ mod mini_notes;
 mod monitor_badge;
 mod nesting;
 mod pinned;
+mod reach;
 pub(crate) mod recording_look;
 mod reorder;
 mod row_glide;
