@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::seams::{envelopes_meet, fades_meet, source_meets};
+use super::seams::{BARE_LEAD, envelopes_meet, fades_meet, source_meets};
 use super::{Clip, FadeFrames, Fades, MAX_TABLES, TABLE_STEPS, Table};
 
 /// A clip list with its lookup, fade and join metadata prepared off-thread.
@@ -18,11 +18,19 @@ pub(super) struct ClipSet {
     pub(super) seam_lead: Vec<i64>,
     pub(super) seam_total: Vec<i64>,
     pub(super) seam_root: Vec<usize>,
+    /// Outer edges of a track that play without a 2 ms fade (start, end).
+    pub(super) bare: Vec<[bool; 2]>,
+    /// Any edge is bare (so the live player, which has none, pays nothing).
+    pub(super) any_bare: bool,
 }
 
 impl ClipSet {
     /// Allocates; called off the audio thread. Fade tables are shared by curve.
-    pub(super) fn new(clips: Vec<Clip>, tables: &mut HashMap<[u32; 4], Table>) -> Self {
+    pub(super) fn new(
+        clips: Vec<Clip>,
+        tables: &mut HashMap<[u32; 4], Table>,
+        bare_ends: bool,
+    ) -> Self {
         let mut by_id: Vec<(u64, u32)> = clips
             .iter()
             .enumerate()
@@ -63,7 +71,15 @@ impl ClipSet {
                 .then_some((a, b))
             })
             .collect();
-        Self {
+        let mut bare = vec![[false; 2]; clips.len()];
+        if bare_ends {
+            for (n, &i) in order.iter().enumerate() {
+                let track = clips[i].track;
+                bare[i][0] = n == 0 || clips[order[n - 1]].track != track;
+                bare[i][1] = order.get(n + 1).is_none_or(|&j| clips[j].track != track);
+            }
+        }
+        let mut set = Self {
             levels: vec![f32::NAN; clips.len()],
             swapped: vec![false; clips.len()],
             fades,
@@ -72,8 +88,28 @@ impl ClipSet {
             seam_lead: vec![0; clips.len()],
             seam_total: clips.iter().map(|clip| clip.length).collect(),
             seam_root: (0..clips.len()).collect(),
+            any_bare: bare_ends && !clips.is_empty(),
+            bare,
             clips,
             by_id,
+        };
+        set.apply_bare();
+        set
+    }
+
+    /// Marks the outer edges that play bare. Allocation-free.
+    pub(super) fn apply_bare(&mut self) {
+        if !self.any_bare {
+            return;
+        }
+        for (i, edges) in self.bare.iter().enumerate() {
+            if edges[0] {
+                self.seams[i][0] = true;
+                self.seam_lead[i] = BARE_LEAD;
+            }
+            if edges[1] {
+                self.seams[i][1] = true;
+            }
         }
     }
 

@@ -3,6 +3,9 @@
 use super::{Clip, ClipSet, FadeFrames};
 use crate::RenderContext;
 
+/// How far into a fade a bare start is taken to be: past any fade.
+pub(super) const BARE_LEAD: i64 = i64::MAX / 4;
+
 pub(super) fn envelopes_meet(left: &Clip, right: &Clip) -> bool {
     if left.shape.period.is_some() {
         left.envelope == right.envelope
@@ -79,4 +82,5 @@ pub(super) fn resolve(set: &mut ClipSet, cx: &RenderContext<'_>) {
         let root = set.seam_root[i];
         set.seam_total[i] = set.seam_total[root];
     }
+    set.apply_bare();
 }

@@ -805,6 +805,19 @@ pub struct Buses<'a> {
     frames: usize,
 }
 
+impl<'a> Buses<'a> {
+    /// Buses over `data`, one [`CHUNK`] of each of [`BUS_CHANNELS`] sides per
+    /// track in `by_id` (sorted by id, with the track's place). `frames` is
+    /// at most [`CHUNK`].
+    pub(crate) fn over(by_id: &'a [(u64, u32)], data: &'a mut [f32], frames: usize) -> Self {
+        Self {
+            by_id,
+            data,
+            frames,
+        }
+    }
+}
+
 impl Buses<'_> {
     /// Frames in this part.
     pub fn frames(&self) -> usize {
