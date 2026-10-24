@@ -8,7 +8,7 @@ use lumen_core::time::Ticks;
 use lumen_project::model::Project;
 
 use super::clips::{CLAMP, INSET, span};
-use super::handles::{ClipHandles, draw_handles};
+use super::handles::{ClipHandles, HandleLook, draw_handles};
 use super::{Arrangement, Row, RowKind, TITLE, select};
 use crate::timeview::TimeView;
 use crate::widgets::draw_glow_rect;
@@ -145,24 +145,52 @@ impl Arrangement {
                     });
                 if let Some(h) = handles {
                     let view = egui::Rangef::new(near_left, near_right);
+                    let track = &project.tracks[index];
+                    // The colours of the two clips a crossfade blends.
+                    let crossing = h
+                        .crossfade
+                        .then(|| {
+                            track
+                                .clips
+                                .iter()
+                                .find(|c| c.id != clip.id && c.start + c.length == clip.start)
+                                .map(|left| {
+                                    (
+                                        super::clip_color(track, left),
+                                        super::clip_color(track, clip),
+                                    )
+                                })
+                        })
+                        .flatten();
                     draw_handles(
                         &painter,
                         &h,
                         view,
-                        hovered.is_some(),
-                        hovered.and_then(|h| h.handle),
+                        HandleLook {
+                            hovered: hovered.is_some(),
+                            hot: hovered.and_then(|h| h.handle),
+                            crossing,
+                        },
                     );
                 }
                 if !selected && hovered.is_none() {
                     continue;
                 }
-                // Under a crossfade the clip reaches to the end of the
-                // crossing, over the next clip, though it ends at the join.
-                let reach =
-                    crate::crossfades::outgoing_extent(project, project.tracks[index].id, clip);
-                let outline = if reach > Ticks::ZERO {
-                    let end = x(clip.start + clip.length + reach).min(near_right);
-                    Rect::from_x_y_ranges(rect.left()..=end.max(rect.right()), rect.y_range())
+                // Under a crossfade an overlap is drawn: the outgoing clip
+                // reaches to the end of the crossing, and the incoming one
+                // begins there, though both still meet at the join.
+                let track_id = project.tracks[index].id;
+                let reach = crate::crossfades::outgoing_extent(project, track_id, clip);
+                let lead =
+                    super::reach::incoming_width(project, track_id, clip, time, canvas.left());
+                let outline = if reach > Ticks::ZERO || lead > 0.0 {
+                    let end = if reach > Ticks::ZERO {
+                        x(clip.start + clip.length + reach).min(near_right)
+                    } else {
+                        rect.right()
+                    };
+                    let begin = (left + lead).max(rect.left());
+                    Rect::from_x_y_ranges(begin.min(end)..=end.max(rect.right()), rect.y_range())
                 } else {
                     rect
                 };

@@ -400,6 +400,15 @@ fn crossfade_split() {
                 &mut h,
                 &format!("crossfade-split-hover-{appearance}-{name}"),
             );
+            // The incoming clip selected: its outline begins where the
+            // crossing ends.
+            h.state_mut().select_clip(right);
+            h.hover_at(Pos2::new(before.right() + 300.0, before.bottom() + 120.0));
+            h.run_steps(5);
+            save(
+                &mut h,
+                &format!("crossfade-split-right-{appearance}-{name}"),
+            );
         }
     }
 }

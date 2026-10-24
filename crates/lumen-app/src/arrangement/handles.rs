@@ -36,9 +36,11 @@ const LINE_GRAB: f32 = 3.0;
 /// Clips narrower than this, or with a shorter wave area, show no handles.
 const MIN_WIDTH: f32 = 28.0;
 const MIN_HEIGHT: f32 = 10.0;
-/// How strong the shading of a crossfade zone is (of the ember wash), and
+/// How strong the shading of a crossfade zone is (of the ember wash), how
+/// strongly each clip's colour fills under its curve, and
 /// how strong its closing edge and crossing lines are (of the text colour).
-const CROSSFADE_WASH: f32 = 1.4;
+const CROSSFADE_WASH: f32 = 1.0;
+const CROSSFADE_FILL: f32 = 0.4;
 const CROSSFADE_EDGE: f32 = 0.35;
 const CROSSFADE_LINE: f32 = 0.85;
 /// A fade narrower than this shows no bend dot.
@@ -304,18 +306,27 @@ impl ClipHandles {
     }
 }
 
+/// How [`draw_handles`] shows a clip: whether the pointer is on it, the handle
+/// it is on or dragging, and the track colours of a crossfade at its start
+/// (the outgoing clip's, then its own).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct HandleLook {
+    pub hovered: bool,
+    pub hot: Option<Handle>,
+    pub crossing: Option<(Color32, Color32)>,
+}
+
 /// Draws `h` on `painter`, within `view` (the lanes' x range, so nothing
 /// sized by a long clip is drawn whole). A fade is a quiet curve until the
 /// clip is `hovered`; then fades glow in the accent with their handles and
 /// bend dots, and the gain line glows across the clip. `hot` is the handle
 /// under the pointer or being dragged.
-pub fn draw_handles(
-    painter: &Painter,
-    h: &ClipHandles,
-    view: Rangef,
-    hovered: bool,
-    hot: Option<Handle>,
-) {
+pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: HandleLook) {
+    let HandleLook {
+        hovered,
+        hot,
+        crossing,
+    } = look;
     let palette = theme::p();
     let accent = palette.accent;
     if h.crossfade {
@@ -324,6 +335,7 @@ pub fn draw_handles(
         let (x0, x1) = (h.fade_in.from.max(view.min), h.fade_in.to.min(view.max));
         if x1 > x0 {
             let zone = Rect::from_x_y_ranges(x0..=x1, h.wave.y_range());
+            painter.rect_filled(zone, 0.0, palette.ember.gamma_multiply(CROSSFADE_WASH));
             if view.contains(h.fade_in.to) {
                 painter.vline(
                     h.fade_in.to,
@@ -347,11 +359,22 @@ pub fn draw_handles(
                 incoming.push(pos2(point.x, h.y_of(in_gain)));
                 outgoing.push(pos2(point.x, h.y_of(out_gain)));
             }
-            // What each clip gives up across the zone: shaded above its
-            // curve, so the middle, where both are present, reads darkest.
-            let wash = palette.ember.gamma_multiply(CROSSFADE_WASH);
-            wash_above(painter, &incoming, h.wave.top(), wash);
-            wash_above(painter, &outgoing, h.wave.top(), wash);
+            // What each clip still gives across the zone: filled under its
+            // curve in its own colour, so the outgoing clip fades away
+            // beneath the incoming one's rise.
+            let (from, to) = crossing.unwrap_or((accent, accent));
+            wash_to(
+                painter,
+                &outgoing,
+                h.wave.bottom(),
+                from.gamma_multiply(CROSSFADE_FILL),
+            );
+            wash_to(
+                painter,
+                &incoming,
+                h.wave.bottom(),
+                to.gamma_multiply(CROSSFADE_FILL),
+            );
             curve = incoming;
             Some(outgoing)
         } else {
@@ -380,7 +403,7 @@ pub fn draw_handles(
             continue;
         }
         // What the fade takes away: a light wash above the curve.
-        wash_above(painter, &curve, h.wave.top(), accent.gamma_multiply(0.10));
+        wash_to(painter, &curve, h.wave.top(), accent.gamma_multiply(0.10));
         glow_line(painter, curve, accent, hot == Some(Handle::Bend(edge)));
         if let Some(other) = other {
             glow_line(painter, other, accent, hot == Some(Handle::Bend(edge)));
@@ -438,15 +461,15 @@ pub fn draw_handles(
     }
 }
 
-/// A wash `tint` from `curve` up to `top`.
-fn wash_above(painter: &Painter, curve: &[Pos2], top: f32, tint: Color32) {
+/// A wash `tint` between `curve` and the horizontal line at `y`.
+fn wash_to(painter: &Painter, curve: &[Pos2], y: f32, tint: Color32) {
     if curve.len() < 2 {
         return;
     }
     let mut wash = egui::Mesh::default();
     for p in curve {
         wash.colored_vertex(*p, tint);
-        wash.colored_vertex(pos2(p.x, top), tint);
+        wash.colored_vertex(pos2(p.x, y), tint);
     }
     for i in 0..curve.len() as u32 - 1 {
         let k = 2 * i;

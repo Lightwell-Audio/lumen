@@ -64,7 +64,12 @@ pub(super) fn draw(painter: &Painter, rect: Rect, width: f32, bar: Color32, outl
         sw: 0,
         se: radius,
     };
-    let title = Rect::from_min_max(reach.min, pos2(reach.right(), reach.top() + TITLE));
+    // The bar starts a corner's width back, over the notch the rounded
+    // corners of the two clips leave at the join.
+    let title = Rect::from_min_max(
+        pos2(reach.left() - f32::from(radius), reach.top()),
+        pos2(reach.right(), reach.top() + TITLE),
+    );
     painter.rect_filled(
         title,
         egui::CornerRadius {
