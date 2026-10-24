@@ -186,3 +186,61 @@ fn a_device_that_leaves_the_project_is_forgotten() {
     assert!(hosting.state(device).is_none());
     assert!(latencies.is_empty());
 }
+
+#[test]
+fn a_frozen_track_has_no_plugin_and_unfreezing_wants_it_again() {
+    use lumen_project::edit::freeze::{Baked, plan};
+    let (mut doc, track, device) = project_with(DeviceKind::Effect, TrackKind::Audio);
+    // A clip to render, then freeze the track.
+    doc.apply("clip", None, |p| {
+        let mut clip = lumen_project::testing::small_project(1).tracks[2].clips[0].clone();
+        Arc::make_mut(&mut clip).start = lumen_core::time::Ticks::ZERO;
+        Arc::make_mut(&mut p.tracks[0]).clips.push(clip);
+    });
+    let media = doc.fresh_id();
+    let baked: Vec<Baked> = plan(doc.project(), &[track])
+        .parts
+        .into_iter()
+        .map(|part| Baked {
+            end: part.end,
+            part,
+            media: lumen_project::model::Media {
+                id: media,
+                path: "frozen.wav".into(),
+                original_path: None,
+                frames: 48_000,
+                channels: 2,
+                sample_rate: 48_000,
+                size_bytes: 0,
+            },
+            devices: Vec::new(),
+        })
+        .collect();
+    assert_eq!(doc.freeze_tracks(&baked), vec![track]);
+    assert!(
+        wanted(doc.project()).is_empty(),
+        "no host for a frozen track"
+    );
+
+    let mut hosting = Hosting::off();
+    let mut mixer = mixer_handle();
+    let mut latencies = Default::default();
+    let catalog = Catalog::build(&Default::default(), Vec::new());
+    hosting.update(
+        doc.project(),
+        &catalog,
+        (48_000, 128),
+        &mut mixer,
+        &mut latencies,
+    );
+    assert!(hosting.state(device).is_none());
+    doc.unfreeze_tracks(&[track]);
+    hosting.update(
+        doc.project(),
+        &catalog,
+        (48_000, 128),
+        &mut mixer,
+        &mut latencies,
+    );
+    assert!(hosting.state(device).is_some(), "it starts again");
+}

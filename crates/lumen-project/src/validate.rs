@@ -172,6 +172,23 @@ pub fn validate(project: &Project) -> Result<(), String> {
         }
         routing(track, &kinds).map_err(|e| format!("{}: {e}", at()))?;
         crate::automation::check(track).map_err(|e| format!("{}: {e}", at()))?;
+        if let Some(frozen) = &track.frozen {
+            if !matches!(track.kind, TrackKind::Audio | TrackKind::Midi) {
+                return Err(format!("{}: only an audio or MIDI track is frozen", at()));
+            }
+            if !media.contains(&frozen.media) {
+                return Err(format!(
+                    "{}: its frozen file is missing from the media",
+                    at()
+                ));
+            }
+            if frozen.length <= Ticks::ZERO
+                || !within(frozen.start)
+                || !within(frozen.start + frozen.length)
+            {
+                return Err(format!("{}: its frozen file lies outside the song", at()));
+            }
+        }
         if let Some(output) = &track.plugin_output {
             if track.kind != TrackKind::Audio {
                 return Err(format!(

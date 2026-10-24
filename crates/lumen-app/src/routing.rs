@@ -99,18 +99,7 @@ pub struct Devices {
 /// mono files. Its pan follows the project's pan law; every other track
 /// balances (unity at the centre).
 fn plays_mono(project: &Project, track: &Track) -> bool {
-    use lumen_project::model::ClipContent;
-    if track.kind != TrackKind::Audio || track.clips.is_empty() {
-        return false;
-    }
-    track.clips.iter().all(|clip| match clip.content {
-        ClipContent::Audio { media, .. } => project
-            .media
-            .iter()
-            .find(|m| m.id == media)
-            .is_some_and(|m| m.channels == 1),
-        ClipContent::Midi { .. } => false,
-    })
+    track.plays_mono(&project.media)
 }
 
 /// A track's lanes on the device's sample clock (M7 slices A0 and A3, D3).

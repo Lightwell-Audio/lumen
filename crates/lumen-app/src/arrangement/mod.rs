@@ -36,6 +36,7 @@ mod clips;
 pub(crate) mod control_menu;
 mod drop;
 pub(crate) mod follow;
+mod frozen_badge;
 mod glide;
 pub mod handles;
 mod header_row;
@@ -285,6 +286,8 @@ pub struct Arrangement {
     /// Bounce was chosen in a track's menu: the app runs it next frame, on
     /// that track (now the selection).
     pub(crate) bounce_requested: bool,
+    /// A track command picked in a track's menu, for the app to run.
+    pub(crate) track_command: Option<crate::commands::Command>,
     /// The clip the arrow keys last chose (M3 review H2): where the next
     /// arrow goes from while it is selected.
     pub(crate) clip_cursor: Option<Id>,

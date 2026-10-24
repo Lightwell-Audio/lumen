@@ -260,6 +260,9 @@ impl App {
             Command::NormalizeClips => self.normalize_selected_clips(ctx),
             Command::ConsolidateClips => self.consolidate_selected_clips(ctx),
             Command::Bounce => self.open_bounce(),
+            Command::FreezeTracks => self.freeze_selected_tracks(ctx),
+            Command::UnfreezeTracks => self.unfreeze_selected_tracks(),
+            Command::FlattenTracks => self.flatten_selected_tracks(),
             Command::NudgeEarlierFine => self.note_op(NoteOp::Nudge {
                 direction: -1,
                 fine: true,

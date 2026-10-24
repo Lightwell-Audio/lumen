@@ -25,6 +25,7 @@ mod clips;
 mod consolidate;
 mod crossfades;
 mod devices;
+mod freeze;
 mod groups;
 mod import;
 mod instrument;
@@ -651,6 +652,7 @@ fn highest_id(project: &Project) -> u64 {
         std::iter::once(t.id.0)
             .chain(t.devices.iter().map(|d| d.id.0))
             .chain(t.clips.iter().map(|c| c.id.0))
+            .chain(t.frozen.iter().map(|f| f.id.0))
     });
     tracks
         .chain(project.media.iter().map(|m| m.id.0))

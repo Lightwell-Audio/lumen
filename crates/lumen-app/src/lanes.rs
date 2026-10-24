@@ -458,7 +458,8 @@ impl Lanes {
 
         if self.dirty || self.built != Some(doc.state()) {
             // A full queue means the engine has not caught up; retry next frame.
-            let list = self.engine_clips(doc.project(), rate);
+            // A frozen track plays its file (M7b E5), not its clips.
+            let list = self.engine_clips(&lumen_project::edit::freeze::played(doc.project()), rate);
             self.dirty = clips.set(list).is_err();
             self.built = Some(doc.state());
         }
@@ -472,19 +473,15 @@ impl Lanes {
                 .as_ref()
                 .is_none_or(|(s, i, r, o)| (*s, i, *r, o) != midi_wanted)
         {
+            let sounding = lumen_project::edit::freeze::played(doc.project());
             let mut tracks = crate::midi_play::engine_midi_with(
-                doc.project(),
+                &sounding,
                 inputs,
                 &mut self.midi_ports,
                 &mut self.midi_cache,
                 hosting,
             );
-            crate::midi_play::with_lanes(
-                &mut tracks,
-                doc.project(),
-                &self.devices.overridden,
-                rate,
-            );
+            crate::midi_play::with_lanes(&mut tracks, &sounding, &self.devices.overridden, rate);
             self.midi_dirty = match midi.set(tracks) {
                 Ok(()) => false,
                 // Full: a plugin instrument in the list is kept for the
@@ -507,8 +504,9 @@ impl Lanes {
         // Lanes are baked for the device's rate, so a new rate is a new routing.
         let wanted = (doc.state(), cue.clone(), self.devices.clone(), rate);
         if !self.dirty && self.routed.as_ref() != Some(&wanted) {
+            let sounding = lumen_project::edit::freeze::played(doc.project());
             match mixer.set(&crate::routing::routing(
-                doc.project(),
+                &sounding,
                 cue,
                 &self.devices,
                 rate,
@@ -885,6 +883,43 @@ mod tests {
 
     fn played(doc: &Document, audio: &Arc<ClipAudio>, native: u32) -> Vec<Clip> {
         engine_clips(doc.project(), 48_000, |_| Some((audio.clone(), native)))
+    }
+
+    #[test]
+    fn a_frozen_track_plays_its_file_in_place_of_its_clips() {
+        use lumen_project::edit::freeze::{Baked, plan};
+        let (mut doc, audio) = setup(2);
+        let track = doc.project().tracks[0].id;
+        let own = doc.project().tracks[0].clips[0].id;
+        let media = doc.fresh_id();
+        let baked: Vec<Baked> = plan(doc.project(), &[track])
+            .parts
+            .into_iter()
+            .map(|part| Baked {
+                end: part.end,
+                part,
+                media: lumen_project::model::Media {
+                    id: media,
+                    path: "frozen.wav".into(),
+                    original_path: None,
+                    frames: 96_000,
+                    channels: 2,
+                    sample_rate: 48_000,
+                    size_bytes: 0,
+                },
+                devices: Vec::new(),
+            })
+            .collect();
+        doc.freeze_tracks(&baked);
+        let frozen = doc.project().tracks[0].frozen.clone().expect("frozen");
+        let sounding = lumen_project::edit::freeze::played(doc.project());
+        let list = engine_clips(&sounding, 48_000, |_| Some((audio.clone(), 48_000)));
+        let mine: Vec<_> = list.iter().filter(|c| c.track == track.0).collect();
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].id, frozen.id.0);
+        assert_ne!(mine[0].id, own.0, "not the clip it was made from");
+        let other = doc.project().tracks[1].id;
+        assert_eq!(list.iter().filter(|c| c.track == other.0).count(), 1);
     }
 
     #[test]

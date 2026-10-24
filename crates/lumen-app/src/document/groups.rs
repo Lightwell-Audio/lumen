@@ -254,6 +254,10 @@ pub(super) fn copy_runs(
                 copy.id = id;
                 // A plugin's output is played by one track only.
                 copy.plugin_output = None;
+                // The clip that plays a frozen track's file is its own.
+                if let Some(frozen) = &mut copy.frozen {
+                    frozen.id = fresh();
+                }
                 // The head stays where it was; those inside follow the copies.
                 if original.id != head {
                     copy.parent = copy.parent.map(renamed);

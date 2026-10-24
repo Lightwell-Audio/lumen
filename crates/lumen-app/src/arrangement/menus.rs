@@ -50,6 +50,46 @@ impl Arrangement {
             self.selected = targets.clone();
             self.bounce_requested = true;
         }
+        // Freezing (M7b slice E5): offered where it can run.
+        let on = |frozen: bool| {
+            targets.iter().any(|t| {
+                doc.project().tracks.iter().any(|x| {
+                    x.id == *t
+                        && x.frozen.is_some() == frozen
+                        && (frozen || matches!(x.kind, TrackKind::Audio | TrackKind::Midi))
+                })
+            })
+        };
+        let (can_freeze, can_thaw) = (on(false), on(true));
+        let freeze = if many {
+            "Freeze tracks"
+        } else {
+            "Freeze track"
+        };
+        if can_freeze && item(ui, freeze, Command::FreezeTracks) {
+            self.selected = targets.clone();
+            self.track_command = Some(Command::FreezeTracks);
+        }
+        if can_thaw {
+            let unfreeze = if many {
+                "Unfreeze tracks"
+            } else {
+                "Unfreeze track"
+            };
+            if item(ui, unfreeze, Command::UnfreezeTracks) {
+                self.selected = targets.clone();
+                self.track_command = Some(Command::UnfreezeTracks);
+            }
+            let flatten = if many {
+                "Flatten tracks"
+            } else {
+                "Flatten track"
+            };
+            if item(ui, flatten, Command::FlattenTracks) {
+                self.selected = targets.clone();
+                self.track_command = Some(Command::FlattenTracks);
+            }
+        }
         if item(ui, "Move up", Command::MoveTracksUp) {
             self.move_selected(doc, -1);
         }

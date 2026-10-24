@@ -240,6 +240,14 @@ impl App {
                 !self.bounce_targets().is_empty(),
                 "Select a clip, a time range or a track to bounce",
             ),
+            Command::FreezeTracks => need(
+                self.can_freeze_targets(),
+                "Select an audio or MIDI track to freeze",
+            ),
+            Command::UnfreezeTracks | Command::FlattenTracks => need(
+                !self.frozen_targets().is_empty(),
+                "Select a frozen track first",
+            ),
             Command::ReverseClips | Command::InvertPolarity | Command::NormalizeClips => need(
                 self.document
                     .project()

@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use crate::automation::AutomationLane;
+use crate::edit::freeze::{self, Violation};
 use crate::model::{Project, Track};
 
 /// Steps kept by default; the oldest are dropped beyond this.
@@ -33,6 +34,8 @@ pub struct History {
     redo: Vec<Step>,
     /// The merge key of the gesture in progress, if any.
     open_gesture: Option<String>,
+    /// What the latest refused edit tried to change on a frozen track.
+    refused: Vec<Violation>,
     limit: usize,
 }
 
@@ -45,6 +48,7 @@ impl History {
             undo: VecDeque::new(),
             redo: Vec::new(),
             open_gesture: None,
+            refused: Vec::new(),
             limit: DEFAULT_LIMIT,
         }
     }
@@ -77,6 +81,13 @@ impl History {
         let mut next = self.current.clone();
         edit(&mut next);
         crate::edit::crossfade::tidy(&mut next);
+        let broken = freeze::violations(&self.current, &next);
+        if !broken.is_empty() {
+            // A frozen track is read-only (owner's FR2): the edit is dropped and
+            // the interface says why.
+            self.refused = broken;
+            return false;
+        }
         if unchanged(&self.current, &next) {
             return false;
         }
@@ -98,6 +109,12 @@ impl History {
         self.open_gesture = merge.map(str::to_owned);
         self.state = self.fresh_state();
         true
+    }
+
+    /// What the latest edit that was refused tried to change on a frozen
+    /// track, taken: empty until another is refused.
+    pub fn take_refused(&mut self) -> Vec<Violation> {
+        std::mem::take(&mut self.refused)
     }
 
     /// Ends the gesture in progress: the next edit is a new step.
@@ -233,6 +250,7 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         monitor,
         plugin_output,
         automation,
+        frozen,
         clips,
     } = &**x;
     let bits = |a: f32, b: f32| a.to_bits() == b.to_bits();
@@ -258,6 +276,7 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         && *midi_to == y.midi_to
         && *midi_from == y.midi_from
         && *monitor == y.monitor
+        && *frozen == y.frozen
         && *plugin_output == y.plugin_output
         && automation_unchanged(automation, &y.automation)
         && clips.len() == y.clips.len()
@@ -556,5 +575,37 @@ mod tests {
                 .all(|(a, b)| Arc::ptr_eq(a, b)),
             "its clips are still shared"
         );
+    }
+
+    #[test]
+    fn a_frozen_track_refuses_edits_to_what_it_froze_and_says_which() {
+        use crate::edit::freeze::Violation;
+        let mut project = crate::testing::synthetic(3, 4, 2, 1, 0);
+        Arc::make_mut(&mut project.tracks[1]).frozen = Some(crate::model::Frozen {
+            id: Id(1),
+            media: Id(2),
+            start: Ticks::ZERO,
+            length: Ticks::quarters(4),
+            mono: false,
+        });
+        let mut history = History::new(project);
+        let before = history.project().clone();
+        let refused = history.apply("Delete clips", None, |p| {
+            Arc::make_mut(&mut p.tracks[1]).clips.clear();
+        });
+        assert!(!refused);
+        assert_eq!(history.project(), &before);
+        assert!(!history.can_undo(), "nothing is recorded");
+        let id = history.project().tracks[1].id;
+        assert_eq!(history.take_refused(), vec![Violation::Track(id)]);
+        assert!(history.take_refused().is_empty(), "taken once");
+        // Mixing is not editing.
+        assert!(history.apply("Fader", None, |p| {
+            Arc::make_mut(&mut p.tracks[1]).gain_db = -6.0;
+        }));
+        // Another track is free.
+        assert!(history.apply("Delete clips", None, |p| {
+            Arc::make_mut(&mut p.tracks[2]).clips.clear();
+        }));
     }
 }

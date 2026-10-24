@@ -334,6 +334,20 @@ impl Arrangement {
             }
             None => (rect, None),
         };
+        // A frozen track keeps room for its badge (the strip has none).
+        let frozen = track.frozen.is_some() && !in_strip;
+        let (rect, badge_row) = if frozen {
+            let room = super::frozen_badge::room(ui);
+            (
+                Rect::from_min_max(
+                    rect.min,
+                    pos2((rect.right() - room).max(rect.left()), rect.bottom()),
+                ),
+                Some(rect),
+            )
+        } else {
+            (rect, None)
+        };
         if let Some((renaming, text)) = &mut self.renaming
             && *renaming == track.id
             && self.renaming_in_strip == in_strip
@@ -414,6 +428,12 @@ impl Arrangement {
         if let Some((count, _)) = count {
             let at = pos2(drawn.right() + 6.0, rect.center().y - count.size().y / 2.0);
             painter.galley(at, count, palette.text_hint);
+        }
+        if let Some(row) = badge_row
+            && super::frozen_badge::badge(ui, row, id, track, self.selected.contains(&track.id))
+        {
+            self.selected = vec![track.id];
+            self.track_command = Some(crate::commands::Command::UnfreezeTracks);
         }
         Some(response)
     }

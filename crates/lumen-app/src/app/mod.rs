@@ -51,4 +51,5 @@ mod startup;
 pub(crate) mod test_modes;
 pub(crate) mod tools;
 mod tools_gestures;
+pub(crate) mod track_freeze;
 pub(crate) mod view;

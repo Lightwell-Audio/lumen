@@ -521,7 +521,8 @@ struct Wanted<'a> {
 
 fn wanted(project: &Project) -> Vec<Wanted<'_>> {
     let mut list = Vec::new();
-    for track in all_tracks(project) {
+    // A frozen track runs no plugin: its hosts end and its file plays (M7b E5).
+    for track in all_tracks(project).filter(|t| t.frozen.is_none()) {
         let mut instrument_seen = false;
         for device in &track.devices {
             let lumen_project::model::PluginRef::Vst3 { class_id, .. } = &device.plugin else {
