@@ -294,31 +294,18 @@ fn crossfades() {
             h.run_steps(4);
             let right = h.state().project().tracks[0].clips[1].id;
             h.state_mut().select_clip(right);
-
-            // Keep the clips touching while slipping the right source window
-            // away from the split point, leaving tail in the earlier source.
-            let r = h.state().clip_rect(&h.ctx, right).expect("right clip");
-            let origin = Pos2::new(r.center().x, r.top() + 6.0);
-            h.event(Event::ModifiersChanged(Modifiers::COMMAND | Modifiers::ALT));
-            drag(&mut h, origin, origin + vec2(0.25 * zoom, 0.0));
-            h.event(Event::ModifiersChanged(Modifiers::NONE));
-            h.run_steps(5);
-
+            // Pull the left clip's fade handle over the right clip.
             let at = h
                 .state()
-                .clip_handles(&h.ctx, right)
-                .expect("automatic join has an incoming handle");
-            drag(
-                &mut h,
-                at.fade_in,
-                at.fade_in + vec2(at.wave.width() * 0.2, 0.0),
-            );
+                .clip_handles(&h.ctx, left)
+                .expect("left clip handles");
+            drag(&mut h, at.fade_out, at.fade_out + vec2(0.7 * zoom, 0.0));
             h.run_steps(10);
             let at = h
                 .state()
-                .clip_handles(&h.ctx, right)
+                .clip_handles(&h.ctx, left)
                 .expect("crossfade handle");
-            h.hover_at(at.fade_in + vec2(at.wave.width() * 0.1, 0.0));
+            h.hover_at(at.fade_out + vec2(at.wave.width() * 0.02, 0.0));
             save(
                 &mut h,
                 &format!("crossfade-join-{appearance}-{}", (scale * 100.0) as u32),
@@ -390,11 +377,8 @@ fn crossfade_split() {
             h.hover_at(Pos2::new(before.right() + 300.0, before.bottom() + 120.0));
             h.run_steps(5);
             save(&mut h, &format!("crossfade-split-idle-{appearance}-{name}"));
-            let at = h
-                .state()
-                .clip_handles(&h.ctx, right)
-                .expect("right handles");
-            h.hover_at(at.fade_in + vec2(at.wave.width() * 0.05, 20.0));
+            let at = h.state().clip_handles(&h.ctx, left).expect("left handles");
+            h.hover_at(at.fade_out + vec2(at.wave.width() * 0.05, 20.0));
             h.run_steps(5);
             save(
                 &mut h,

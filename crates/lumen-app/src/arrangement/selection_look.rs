@@ -153,11 +153,11 @@ impl Arrangement {
                             track
                                 .clips
                                 .iter()
-                                .find(|c| c.id != clip.id && c.start + c.length == clip.start)
-                                .map(|left| {
+                                .find(|c| c.id != clip.id && c.start == clip.start + clip.length)
+                                .map(|next| {
                                     (
-                                        super::clip_color(track, left),
                                         super::clip_color(track, clip),
+                                        super::clip_color(track, next),
                                     )
                                 })
                         })
@@ -176,24 +176,6 @@ impl Arrangement {
                 if !selected && hovered.is_none() {
                     continue;
                 }
-                // Under a crossfade an overlap is drawn: the outgoing clip
-                // reaches to the end of the crossing, and the incoming one
-                // begins there, though both still meet at the join.
-                let track_id = project.tracks[index].id;
-                let reach = crate::crossfades::outgoing_extent(project, track_id, clip);
-                let lead =
-                    super::reach::incoming_width(project, track_id, clip, time, canvas.left());
-                let outline = if reach > Ticks::ZERO || lead > 0.0 {
-                    let end = if reach > Ticks::ZERO {
-                        x(clip.start + clip.length + reach).min(near_right)
-                    } else {
-                        rect.right()
-                    };
-                    let begin = (left + lead).max(rect.left());
-                    Rect::from_x_y_ranges(begin.min(end)..=end.max(rect.right()), rect.y_range())
-                } else {
-                    rect
-                };
                 if let Some(select::Hover {
                     edge: Some(edge), ..
                 }) = hovered
@@ -228,7 +210,7 @@ impl Arrangement {
                     painter.rect_filled(wash, 0.0, palette.text.gamma_multiply(light::EMBER_WASH));
                 }
                 if selected {
-                    draw_glow_rect(&painter, outline, f32::from(theme::radius::SMALL));
+                    draw_glow_rect(&painter, rect, f32::from(theme::radius::SMALL));
                 }
             }
         }

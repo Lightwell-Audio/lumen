@@ -76,6 +76,7 @@ impl History {
     ) -> bool {
         let mut next = self.current.clone();
         edit(&mut next);
+        crate::edit::crossfade::tidy(&mut next);
         if unchanged(&self.current, &next) {
             return false;
         }

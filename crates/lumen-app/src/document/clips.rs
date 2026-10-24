@@ -110,6 +110,20 @@ impl Document {
         merge: Option<&str>,
     ) {
         let label = if looping { "Loop clip" } else { "Trim clip" };
+        // A crossfade at this clip's end keeps its length when the end is
+        // dragged on: the clip after it is trimmed to match, and would
+        // otherwise take the crossfade's length with it.
+        let crossing = (edge == edit::Edge::End && !looping)
+            .then(|| {
+                let track = base
+                    .tracks
+                    .iter()
+                    .find(|t| t.clips.iter().any(|c| c.id == clip))?;
+                let left = track.clips.iter().find(|c| c.id == clip)?;
+                let (right, crossing) = crate::crossfades::outgoing(base, track.id, left)?;
+                Some((right, crossing.fade.length))
+            })
+            .flatten();
         let next = &mut self.next_id;
         self.history.apply(label, merge, |project| {
             *project = base.clone();
@@ -118,6 +132,9 @@ impl Document {
                 edit::trim(base, &tempo, c, edge, to, looping)
             });
             edit::overwrite(project, &[clip], &mut fresh_ids(next));
+            if let Some((right, length)) = crossing {
+                keep_crossfade(project, clip, right, length);
+            }
         });
     }
 
@@ -146,6 +163,8 @@ impl Document {
                         c.fade_in.length = room(c.fade_out.length);
                         c.fade_in.offset = Ticks::ZERO;
                         c.fade_in.span = Ticks::ZERO;
+                        // An ordinary fade-in takes the place of a crossfade.
+                        c.crossfade = false;
                     }
                     Edge::End => {
                         c.fade_out.length = room(c.fade_in.length);
@@ -167,6 +186,9 @@ impl Document {
         }
         self.history.apply("Fade curve", merge, |project| {
             for &id in clips {
+                // The fade-out of a clip that ends a crossfade is the curve
+                // of the crossfade, which the next clip keeps as its fade-in.
+                let (id, edge) = crossfade_curve_owner(project, id, edge);
                 replace_clip(project, id, |c| {
                     let mut c = c.clone();
                     match edge {
@@ -361,6 +383,22 @@ impl Document {
 }
 
 /// Replaces the unlocked clip `id` with `change` of it.
+/// Where the curve of `clip`'s fade at `edge` is kept: with the next clip
+/// when it is the crossfade that clip ends.
+fn crossfade_curve_owner(project: &Project, clip: Id, edge: Edge) -> (Id, Edge) {
+    if edge == Edge::End
+        && let Some(track) = project
+            .tracks
+            .iter()
+            .find(|t| t.clips.iter().any(|c| c.id == clip))
+        && let Some(left) = track.clips.iter().find(|c| c.id == clip)
+        && let Some((next, _)) = crate::crossfades::outgoing(project, track.id, left)
+    {
+        return (next, Edge::Start);
+    }
+    (clip, edge)
+}
+
 fn replace_clip(project: &mut Project, id: Id, change: impl FnOnce(&Clip) -> Clip) {
     for track in &mut project.tracks {
         if let Some(i) = track.clips.iter().position(|c| c.id == id && !c.locked) {
@@ -448,6 +486,34 @@ pub(super) fn fresh_ids(next: &mut u64) -> impl FnMut() -> Id + '_ {
         *next += 1;
         id
     }
+}
+
+/// After the clip `left` was trimmed on, puts the crossfade of length
+/// `length` back into `right` if `right` still starts where `left` ends.
+fn keep_crossfade(project: &mut Project, left: Id, right: Id, length: Ticks) {
+    let Some(track) = project
+        .tracks
+        .iter()
+        .find(|t| t.clips.iter().any(|c| c.id == right))
+    else {
+        return;
+    };
+    let (Some(first), Some(next)) = (
+        track.clips.iter().find(|c| c.id == left),
+        track.clips.iter().find(|c| c.id == right),
+    ) else {
+        return;
+    };
+    if first.start + first.length != next.start {
+        return;
+    }
+    let length = length.min(crate::crossfades::room(project, track.id, next));
+    replace_clip(project, right, |c| {
+        let mut c = c.clone();
+        c.crossfade = length > Ticks::ZERO;
+        c.fade_in.length = length;
+        c
+    });
 }
 
 #[cfg(test)]

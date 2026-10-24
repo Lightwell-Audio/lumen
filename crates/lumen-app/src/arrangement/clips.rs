@@ -17,7 +17,6 @@ use lumen_media::Peaks;
 use lumen_project::model::{Clip, ClipContent, Project, TrackKind};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
 
-use super::reach;
 use super::recording_look::{self, Paint, RecordingLook};
 use super::samples::{Geometry, Pixels, Strips};
 use super::waves::{Source, wave_instances};
@@ -332,52 +331,12 @@ impl Arrangement {
                 RowKind::Track(index) => {
                     let track = &project.tracks[index];
                     let heard = audible(track);
-                    // A crossfade reads as an overlap: the outgoing clip's
-                    // bar and edge reach to the end of the crossing, under
-                    // the names drawn next.
-                    for clip in &track.clips {
-                        let (x0, x1) = span(time, canvas, clip);
-                        if x1 < canvas.left() - 1.0
-                            || x0 > canvas.right()
-                            || x1 - x0 < reach::MIN_WIDTH
-                        {
-                            continue;
-                        }
-                        let width =
-                            reach::outgoing_width(project, track.id, clip, time, canvas.left());
-                        if width > 0.0 {
-                            let rect = Rect::from_x_y_ranges(
-                                x0..=x1,
-                                lane.top() + INSET..=lane.bottom() - INSET,
-                            );
-                            let paint = recording_look::paint(
-                                self.recording.as_ref(),
-                                track.id,
-                                clip,
-                                &palette,
-                            );
-                            let mut look =
-                                look_of(clip, clip_color(track, clip), paint, lanes, ctx);
-                            if !heard {
-                                look.alpha *= DIMMED;
-                            }
-                            let (bar, _) = bar_and_label(&look, &palette);
-                            let outline = outline_color(&look.paint, look.color, look.alpha);
-                            reach::draw(
-                                painter,
-                                rect,
-                                width,
-                                bar.gamma_multiply(look.alpha),
-                                outline,
-                            );
-                        }
-                    }
                     for clip in &track.clips {
                         let (x0, x1) = span(time, canvas, clip);
                         if x1 < canvas.left() || x0 > canvas.right() {
                             continue;
                         }
-                        let mut rect = Rect::from_x_y_ranges(
+                        let rect = Rect::from_x_y_ranges(
                             x0..=x1,
                             lane.top() + INSET..=lane.bottom() - INSET,
                         );
@@ -393,16 +352,6 @@ impl Arrangement {
                         }
                         if x1 - x0 < NAME_MIN_WIDTH {
                             continue;
-                        }
-                        // After a crossfade the name starts where the
-                        // crossing ends.
-                        let shift =
-                            reach::incoming_width(project, track.id, clip, time, canvas.left());
-                        if shift > 0.0 {
-                            rect.min.x = (rect.min.x + shift).min(rect.max.x);
-                            if rect.width() < NAME_MIN_WIDTH {
-                                continue;
-                            }
                         }
                         let paint = recording_look::paint(
                             self.recording.as_ref(),

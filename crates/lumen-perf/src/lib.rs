@@ -29,7 +29,7 @@ use lumen_project::{from_bytes, to_bytes};
 pub const SCENARIOS: &[(&str, &str)] = &[
     (
         "engine_crossfades_64",
-        "1,000 blocks of 128 frames with 64 simultaneous stereo equal-power join crossfades",
+        "1,000 blocks of 128 frames with 64 simultaneous stereo equal-power crossfades between overlapping clips",
     ),
     (
         "engine_clips_64",
@@ -163,12 +163,12 @@ fn crossfading_clips() -> Player {
     let (mut clips, player) = clip_player();
     let mut list = Vec::new();
     for track in 0..64 {
-        let left = Clip {
+        let mut left = Clip {
             id: track * 2,
             track,
             start: Ticks::ZERO,
             offset: 0,
-            length: 24_000,
+            length: 264_000,
             gain: 0.5,
             audio: audio.clone(),
             shape: Default::default(),
@@ -178,8 +178,12 @@ fn crossfading_clips() -> Player {
         right.id += 1;
         right.start = Ticks::quarters(1);
         right.length = 240_000;
-        right.shape.crossfade = true;
-        right.shape.fade_in.frames = 240_000;
+        right.shape.fade_in = lumen_engine::FadeFrames {
+            frames: 240_000,
+            blend: true,
+            ..Default::default()
+        };
+        left.shape.fade_out = right.shape.fade_in;
         list.extend([left, right]);
     }
     clips.set(list).expect("room for a clip list");

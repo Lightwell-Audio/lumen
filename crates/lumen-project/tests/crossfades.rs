@@ -113,3 +113,74 @@ fn a_midi_clip_cannot_request_a_crossfade() {
     let project = project_of("Invalid", vec![track]);
     assert!(to_bytes(&project).unwrap_err().to_string().contains("MIDI"));
 }
+
+fn audio_clip(id: u64, start: i64, length: i64, crossfade: bool) -> Arc<Clip> {
+    Arc::new(Clip {
+        id: Id(id),
+        name: "Audio".into(),
+        start: Ticks::quarters(start),
+        length: Ticks::quarters(length),
+        muted: false,
+        color: None,
+        locked: false,
+        fade_in: lumen_core::fade::Fade {
+            length: if crossfade { Ticks(2_352) } else { Ticks::ZERO },
+            ..Default::default()
+        },
+        crossfade,
+        fade_out: Default::default(),
+        loop_length: None,
+        loop_phase: Ticks::ZERO,
+        audio_phase_seconds: 0.0,
+        reversed: false,
+        inverted: false,
+        envelopes: Default::default(),
+        content: ClipContent::Audio {
+            media: Id(1),
+            offset: 0,
+            gain_db: 0.0,
+        },
+    })
+}
+
+/// The one rule of a crossfade: it stands only while an audio clip ends where
+/// the incoming clip starts, and every edit through the history keeps it.
+#[test]
+fn a_crossfade_ends_with_the_clip_that_ends_at_its_start() {
+    use lumen_project::history::History;
+
+    let mut track = Track::new(Id(10), "Audio", TrackKind::Audio, Color(0x4F81BD));
+    track.clips = vec![audio_clip(11, 0, 4, false), audio_clip(12, 4, 4, true)];
+    let mut history = History::new(project_of("Rule", vec![track]));
+    let flag = |h: &History| h.project().tracks[0].clips[1].crossfade;
+
+    // An unrelated edit leaves it alone.
+    history.apply("rename", None, |p| {
+        Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]).name = "A".into();
+    });
+    assert!(flag(&history));
+
+    // Moving the incoming clip away ends it, and its fade-in with it.
+    history.apply("move", None, |p| {
+        Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[1]).start = Ticks::quarters(9);
+    });
+    assert!(!flag(&history));
+    assert_eq!(
+        history.project().tracks[0].clips[1].fade_in.length,
+        Ticks::ZERO
+    );
+
+    // Undo brings it back whole, in one step.
+    history.undo();
+    assert!(flag(&history));
+    assert_eq!(
+        history.project().tracks[0].clips[1].start,
+        Ticks::quarters(4)
+    );
+
+    // Trimming the outgoing clip so it no longer reaches the start ends it.
+    history.apply("trim", None, |p| {
+        Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]).length = Ticks::quarters(3);
+    });
+    assert!(!flag(&history));
+}

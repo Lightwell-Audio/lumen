@@ -711,7 +711,7 @@ pub struct ClipHandlesAt {
     pub gain: egui::Pos2,
     /// Where the waveform is drawn.
     pub wave: egui::Rect,
-    /// The clip shows a crossfade at its start (both curves cross it).
+    /// The clip's fade-out is a crossfade into the clip after it.
     pub crossfade: bool,
 }
 

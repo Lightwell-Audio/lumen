@@ -106,6 +106,17 @@ impl FadeLook {
         }
     }
 
+    /// How far through a crossfade `x` is, 0 to 1, along the curve (the
+    /// same on both sides: the incoming clip's gain follows it up and the
+    /// outgoing clip's down).
+    fn progress_at(&self, x: f32) -> f32 {
+        if self.width() <= 0.0 {
+            return 1.0;
+        }
+        self.curve
+            .at(((x - self.from) / self.width()).clamp(0.0, 1.0))
+    }
+
     /// Where the point `[u, v]` of the curve (u along it from silence, v
     /// its level) is across: a fade out runs backwards.
     fn x_of(&self, u: f32) -> f32 {
@@ -132,7 +143,8 @@ pub struct ClipHandles {
     pub wave: Rect,
     pub fade_in: FadeLook,
     pub fade_out: FadeLook,
-    /// The incoming fade is a crossfade; draw its outgoing partner too.
+    /// The fade out is a crossfade into the next clip, which this clip
+    /// ends where it starts: both its curves cross the zone.
     pub crossfade: bool,
     pub gain_db: f32,
 }
@@ -251,12 +263,12 @@ impl ClipHandles {
         if u < fade.offset || u > fade.offset + fade.portion {
             return None;
         }
-        let level = if self.crossfade && edge == Edge::Start {
-            equal_power_gains(fade.level_at(fade.x_of(u))).0
-        } else {
-            v
-        };
-        Some(pos2(fade.x_of(u), self.y_of(level)))
+        if self.crossfade && edge == Edge::End {
+            // The dot sits on the rising curve, `u` of the way across.
+            let x = fade.from + u * fade.width();
+            return Some(pos2(x, self.y_of(equal_power_gains(v).0)));
+        }
+        Some(pos2(fade.x_of(u), self.y_of(v)))
     }
 
     /// How big a fade is drawn, for bending it: its width and the wave
@@ -329,17 +341,19 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
     } = look;
     let palette = theme::p();
     let accent = palette.accent;
+    let crossing_edge = Edge::End;
     if h.crossfade {
-        // The overlap zone: the outgoing clip's tail under the incoming
-        // clip's ramp, set apart by a dim wash and a closing edge.
-        let (x0, x1) = (h.fade_in.from.max(view.min), h.fade_in.to.min(view.max));
+        // The crossfade zone, over the end of the clip: set apart by a dim
+        // wash and an edge where it begins.
+        let zone = &h.fade_out;
+        let (x0, x1) = (zone.from.max(view.min), zone.to.min(view.max));
         if x1 > x0 {
-            let zone = Rect::from_x_y_ranges(x0..=x1, h.wave.y_range());
-            painter.rect_filled(zone, 0.0, palette.ember.gamma_multiply(CROSSFADE_WASH));
-            if view.contains(h.fade_in.to) {
+            let rect = Rect::from_x_y_ranges(x0..=x1, h.wave.y_range());
+            painter.rect_filled(rect, 0.0, palette.ember.gamma_multiply(CROSSFADE_WASH));
+            if view.contains(zone.from) {
                 painter.vline(
-                    h.fade_in.to,
-                    zone.y_range(),
+                    zone.from,
+                    rect.y_range(),
                     Stroke::new(
                         theme::stroke::HAIRLINE,
                         palette.text.gamma_multiply(CROSSFADE_EDGE),
@@ -350,11 +364,12 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
     }
     for edge in [Edge::Start, Edge::End] {
         let mut curve = h.curve(edge, view.min, view.max);
-        let other = if h.crossfade && edge == Edge::Start {
+        let other = if h.crossfade && edge == crossing_edge {
+            let zone = &h.fade_out;
             let mut incoming = Vec::with_capacity(curve.len());
             let mut outgoing = Vec::with_capacity(curve.len());
             for point in curve {
-                let progress = ((h.wave.bottom() - point.y) / h.wave.height()).clamp(0.0, 1.0);
+                let progress = zone.progress_at(point.x);
                 let (in_gain, out_gain) = equal_power_gains(progress);
                 incoming.push(pos2(point.x, h.y_of(in_gain)));
                 outgoing.push(pos2(point.x, h.y_of(out_gain)));
@@ -384,7 +399,7 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
             continue;
         }
         if !hovered {
-            if h.crossfade && edge == Edge::Start {
+            if h.crossfade && edge == crossing_edge {
                 let other = other.expect("crossfade outgoing curve");
                 // Both curves cross the whole zone, drawn firmly so a
                 // crossfade reads at a glance.

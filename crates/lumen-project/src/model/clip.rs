@@ -22,8 +22,11 @@ pub struct Clip {
     /// Fades at the clip's start and end.
     #[serde(default, skip_serializing_if = "Fade::is_none")]
     pub fade_in: Fade,
-    /// Marks this clip's fade-in as the incoming side of a crossfade at a
-    /// touching audio join (format v28). Written only when enabled.
+    /// Marks this clip as the incoming side of a crossfade with the audio
+    /// clip that ends where it starts (format v28); `fade_in.length` is how
+    /// long it lasts and `fade_in.curve` its curve. It runs over the end of
+    /// that clip and the audio this one keeps hidden before its start.
+    /// Written only when enabled.
     #[serde(default, skip_serializing_if = "is_false")]
     pub crossfade: bool,
     #[serde(default, skip_serializing_if = "Fade::is_none")]

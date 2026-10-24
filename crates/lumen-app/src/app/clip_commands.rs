@@ -29,8 +29,8 @@ impl App {
             })
     }
 
-    /// Toggles an explicit crossfade request for the selected audio clips.
-    /// The engine ignores requests without an eligible touching join/tail.
+    /// Makes a short crossfade into each selected audio clip from the clip
+    /// before it, or removes theirs.
     pub(crate) fn toggle_selected_crossfade(&mut self) {
         let (ids, enabled) = {
             let project = self.document.project();
@@ -50,23 +50,16 @@ impl App {
             )
         };
         self.document.set_crossfade(&ids, enabled);
-        if !enabled && self.document.project().auto_crossfade {
-            self.say("Custom crossfade disabled; automatic crossfades still apply".to_owned());
-        } else if enabled
-            && !ids.iter().any(|id| {
-                self.document.project().tracks.iter().any(|track| {
-                    track
-                        .clips
-                        .iter()
-                        .find(|c| c.id == *id)
-                        .is_some_and(|clip| {
-                            crate::crossfades::fade(self.document.project(), track.id, clip)
-                                .is_some()
-                        })
-                })
-            })
-        {
-            self.say("No selected clip has an eligible join and source tail".to_owned());
+        if enabled {
+            let project = self.document.project();
+            let made = project
+                .tracks
+                .iter()
+                .flat_map(|t| &t.clips)
+                .any(|c| ids.contains(&c.id) && c.crossfade);
+            if !made {
+                self.say("No selected clip has an audio clip against its start".to_owned());
+            }
         }
     }
 

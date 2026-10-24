@@ -341,8 +341,13 @@ impl App {
         self.fade_menu(ui);
         if self.selection_has_audio() {
             let keys = self.keymap.keys(Command::ToggleCrossfade);
-            if widgets::menu_toggle(ui, "Custom crossfade at join", keys.as_ref(), crossfade)
-                .clicked()
+            if widgets::menu_toggle(
+                ui,
+                "Crossfade with the clip before",
+                keys.as_ref(),
+                crossfade,
+            )
+            .clicked()
             {
                 self.run(ui.ctx(), Command::ToggleCrossfade);
             }

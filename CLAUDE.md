@@ -408,11 +408,13 @@ and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
 **Now (2026-10-23)**
-- **Branch `m7b-s2-join-crossfades`: M7b E2 is built** (ADR-0094;
-  format v28). Automatic 5 ms crossfades, custom join fades and the existing
-  incoming fade handle, shared preview/playback eligibility and preserved
-  legacy playback. New controls use the design-system material and tokens.
-  MT-EDIT-3 awaits the owner; final gate results are in PROGRESS.
+- **Branch `m7b-s2-join-crossfades`: M7b E2 is built, reworked 2026-10-24**
+  (ADR-0094; format v28). A crossfade is now a true overlap: drag the left
+  clip's fade-out handle over the right clip; the left clip is extended and
+  fades into it, the right clip starts where the crossfade ends, and a
+  history rule clears the flag if either clip moves. The engine's join
+  machinery is gone (`FadeFrames.blend` only). MT-EDIT-3 awaits the owner;
+  final gate results are in PROGRESS.
 - **M7b E1 is merged (PR #52)** (ADR-0093; format **v27**). Join (Ctrl+J, seamless), crop,
   unloop, nudge, reverse, polarity, normalize and the select variants;
   reverse uses reversed copies of files built on a worker (no engine

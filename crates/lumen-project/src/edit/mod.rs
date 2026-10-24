@@ -22,6 +22,7 @@ pub mod automation;
 pub mod carry;
 pub mod clip_ops;
 mod clipboard;
+pub mod crossfade;
 pub mod events;
 pub mod maps;
 pub mod normalize;

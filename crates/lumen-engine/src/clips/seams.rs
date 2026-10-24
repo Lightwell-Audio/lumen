@@ -50,72 +50,33 @@ pub(super) fn fades_meet(left: &Clip, right: &Clip) -> bool {
 }
 
 pub(super) fn resolve(set: &mut ClipSet, cx: &RenderContext<'_>) {
-    if set.adjacent.is_empty() && !set.has_joins {
+    if set.adjacent.is_empty() {
         return;
     }
-    if set.adjacent.is_empty() {
-        set.join_frames.fill(0);
-        set.join_outgoing.fill(false);
-    } else {
-        set.seams.fill([false; 2]);
-        set.seam_lead.fill(0);
-        for (i, clip) in set.clips.iter().enumerate() {
-            set.seam_root[i] = i;
-            set.seam_total[i] = clip.length;
-        }
-        for &(left, right) in &set.adjacent {
-            let a = &set.clips[left];
-            let b = &set.clips[right];
-            let a_start = cx.timeline.sample_at(a.start, cx.sample_rate);
-            let b_start = cx.timeline.sample_at(b.start, cx.sample_rate);
-            if a_start.checked_add(a.length) == Some(b_start) {
-                set.seams[left][1] = true;
-                if a.shape.period.is_none() {
-                    set.seams[right][0] = true;
-                    set.seam_lead[right] = set.seam_lead[left].saturating_add(a.length);
-                    let root = set.seam_root[left];
-                    set.seam_root[right] = root;
-                    set.seam_total[root] = set.seam_total[root].saturating_add(b.length);
-                }
+    set.seams.fill([false; 2]);
+    set.seam_lead.fill(0);
+    for (i, clip) in set.clips.iter().enumerate() {
+        set.seam_root[i] = i;
+        set.seam_total[i] = clip.length;
+    }
+    for &(left, right) in &set.adjacent {
+        let a = &set.clips[left];
+        let b = &set.clips[right];
+        let a_start = cx.timeline.sample_at(a.start, cx.sample_rate);
+        let b_start = cx.timeline.sample_at(b.start, cx.sample_rate);
+        if a_start.checked_add(a.length) == Some(b_start) {
+            set.seams[left][1] = true;
+            if a.shape.period.is_none() {
+                set.seams[right][0] = true;
+                set.seam_lead[right] = set.seam_lead[left].saturating_add(a.length);
+                let root = set.seam_root[left];
+                set.seam_root[right] = root;
+                set.seam_total[root] = set.seam_total[root].saturating_add(b.length);
             }
         }
-        for i in 0..set.clips.len() {
-            let root = set.seam_root[i];
-            set.seam_total[i] = set.seam_total[root];
-        }
     }
-    if !set.has_joins {
-        return;
-    }
-    set.join_frames.fill(0);
-    set.join_outgoing.fill(false);
-    for &(predecessor, incoming) in &set.join_pairs {
-        let left = &set.clips[predecessor];
-        let right = &set.clips[incoming];
-        let left_start = cx.timeline.sample_at(left.start, cx.sample_rate);
-        let right_start = cx.timeline.sample_at(right.start, cx.sample_rate);
-        if left_start.checked_add(left.length) != Some(right_start) {
-            continue;
-        }
-        let source_tail = match left.shape.period {
-            Some(period) if period > 0 => left
-                .shape
-                .phase
-                .saturating_add(left.length)
-                .rem_euclid(period),
-            _ => left.length,
-        };
-        let available = left.audio.frames() as i64 - left.offset - source_tail;
-        let frames = right
-            .shape
-            .fade_in
-            .frames
-            .max(0)
-            .min(right.length.max(0))
-            .min(available.max(0));
-        set.join_frames[incoming] = frames;
-        if frames > 0 {
-            set.join_outgoing[predecessor] = true;
-        }
+    for i in 0..set.clips.len() {
+        let root = set.seam_root[i];
+        set.seam_total[i] = set.seam_total[root];
     }
 }

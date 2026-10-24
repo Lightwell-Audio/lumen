@@ -19,6 +19,10 @@
 //! through (its audio finished loading during playback, or its track
 //! joined the routing late) fades in.
 //!
+//! Clips on a track may overlap; each plays on and the bus sums them. A
+//! crossfade is two overlapping clips whose fades are marked `blend`: the
+//! outgoing one fades out and the incoming one in along an equal-power law.
+//!
 //! A clip can fade in and out along any [`Curve`] and repeat its content
 //! (loop-extend, M3 slice 6). Each repeat gets the 2 ms edge fades, so the
 //! seams never click. Clips with neither take the plain path. The audio
@@ -39,10 +43,8 @@ use std::collections::HashMap;
 use lumen_core::curve::Curve;
 use lumen_core::time::Ticks;
 
-mod join;
 mod seams;
 mod set;
-use join::{JoinTail, play_tail as play_join_tail};
 use seams::resolve as set_seams;
 use set::ClipSet;
 
@@ -112,8 +114,6 @@ pub struct Clip {
 pub struct ClipShape {
     pub fade_in: FadeFrames,
     pub fade_out: FadeFrames,
-    /// The fade-in crosses the preceding clip at an exact timeline join.
-    pub crossfade: bool,
     /// The content repeats every `period` frames from the clip's start.
     pub period: Option<i64>,
     /// Position within the repeated source when this clip begins.
@@ -129,6 +129,11 @@ pub struct FadeFrames {
     pub span: i64,
     /// From silence to full; a fade out plays it backwards.
     pub curve: Curve,
+    /// This fade is one half of a crossfade with an overlapping clip: it
+    /// follows an equal-power law (the other half is its mirror, so the two
+    /// keep a steady level) and the clip's 2 ms edge fade is left out at this
+    /// end, as the fade already covers it.
+    pub blend: bool,
 }
 
 /// A clip's fade in and fade out tables, when it has fades.
@@ -147,8 +152,6 @@ struct Seam {
 struct ClipRender<'a> {
     fades: &'a Fades,
     seam: Seam,
-    crossfade_frames: i64,
-    crossfade_out_frames: i64,
 }
 
 /// The level `x` (0 to 1) of the way through `table`.
@@ -174,10 +177,15 @@ impl ClipShape {
             && let Some(table) = &fades.0[0]
         {
             let span = self.fade_in.span.max(fade_in);
-            return read(
+            let level = read(
                 table,
                 (pos as f32 + self.fade_in.offset as f32 + 0.5) / span as f32,
             );
+            return if self.fade_in.blend {
+                (level * std::f32::consts::FRAC_PI_2).sin()
+            } else {
+                level
+            };
         }
         1.0
     }
@@ -190,10 +198,13 @@ impl ClipShape {
             && let Some(table) = &fades.0[1]
         {
             let span = self.fade_out.span.max(fade_out);
-            return read(
-                table,
-                (left as f32 + self.fade_out.offset as f32 - 0.5) / span as f32,
-            );
+            let x = (left as f32 + self.fade_out.offset as f32 - 0.5) / span as f32;
+            return if self.fade_out.blend {
+                // The mirror of the fade-in: its curve read forwards.
+                (read(table, 1.0 - x) * std::f32::consts::FRAC_PI_2).cos()
+            } else {
+                read(table, x)
+            };
         }
         1.0
     }
@@ -342,12 +353,7 @@ fn play(
     render: ClipRender<'_>,
     buses: &mut Buses<'_>,
 ) {
-    let ClipRender {
-        fades,
-        seam,
-        crossfade_frames,
-        crossfade_out_frames,
-    } = render;
+    let ClipRender { fades, seam } = render;
     let Work { block, gains } = work;
     let rate = cx.sample_rate;
     if clip.audio.sample_rate != rate || clip.length <= 0 {
@@ -370,12 +376,7 @@ fn play(
     }
     if a >= b {
         // Silent in this block: nothing to glide from.
-        if crossfade_out_frames <= 0
-            || block.from >= end.saturating_add(crossfade_out_frames)
-            || block.to <= end
-        {
-            *level = goal;
-        }
+        *level = goal;
         return;
     }
     if level.is_nan() {
@@ -410,17 +411,23 @@ fn play(
         mix_shaped
     };
     let mut gain = *level;
+    // A crossfade half needs no 2 ms edge fade at its end of the clip.
+    let blend = [clip.shape.fade_in.blend, clip.shape.fade_out.blend];
+    let seamless = [seam.edges[0] || blend[0], seam.edges[1] || blend[1]];
+    let seam_lead = if blend[0] {
+        seam.lead.max(block.edge)
+    } else {
+        seam.lead
+    };
     for side in 0..BUS_CHANNELS {
         let at = Placement {
             start,
             from: block.from,
             edge: block.edge,
             fades,
-            crossfade_frames,
-            crossfade_out_frames,
             env: enveloped.then(|| gains.side(side)),
-            seamless: seam.edges,
-            seam_lead: seam.lead,
+            seamless,
+            seam_lead,
             seam_total: seam.total,
         };
         // Mono plays on both sides; extra channels are ignored.
@@ -455,8 +462,6 @@ struct Placement<'a> {
     edge: i64,
     /// The clip's fade tables.
     fades: &'a Fades,
-    crossfade_frames: i64,
-    crossfade_out_frames: i64,
     /// The envelope gains for this side, indexed by the frame's place in the
     /// block; none for a clip without an envelope.
     env: Option<&'a [f32]>,
@@ -546,26 +551,8 @@ fn mix_shaped(
         } else {
             at.seamless
         };
-        let fade_in = if shape.crossfade {
-            if at.crossfade_frames > 0 && pos < at.crossfade_frames {
-                let progress =
-                    ((pos as f32 + 0.5) / at.crossfade_frames.max(1) as f32).clamp(0.0, 1.0);
-                let bend = at.fades.0[0]
-                    .as_deref()
-                    .map_or(progress, |table| read(table, progress));
-                (bend * std::f32::consts::FRAC_PI_2).sin()
-            } else {
-                1.0
-            }
-        } else {
-            shape.fade_in_gain(at.fades, pos)
-        };
-        let fade_out = if at.crossfade_out_frames > 0 {
-            1.0
-        } else {
-            shape.fade_out_gain(at.fades, pos, clip.length)
-        };
-        let fade = fade_in * fade_out;
+        let fade =
+            shape.fade_in_gain(at.fades, pos) * shape.fade_out_gain(at.fades, pos, clip.length);
         let shaped = edge_gain(inner, span, span, at.edge, seamless, at.seam_lead) * fade;
         let slot = (t - at.from) as usize;
         let env = at.env.map_or(1.0, |e| e[slot]);
@@ -699,148 +686,43 @@ impl TrackSource for ClipPlayer {
                 Some(x) if set.swapped[i] => Ramp::In(x),
                 _ => Ramp::Steady,
             };
-            let (clip, fades) = (&set.clips[i], &set.fades[i]);
-            let mut edges = set.seams[i];
-            if set.has_joins && set.join_frames[i] > 0 {
-                edges[0] = true;
-            }
-            if set.has_joins && set.join_outgoing[i] {
-                edges[1] = true;
-            }
-            let seam_lead = if set.has_joins && set.join_frames[i] > 0 {
-                set.seam_lead[i].max(work.block.edge)
-            } else {
-                set.seam_lead[i]
-            };
-            let crossfade_out_frames =
-                set.join_successor[i].map_or(0, |successor| set.join_frames[successor]);
             play(
-                clip,
+                &set.clips[i],
                 &mut set.levels[i],
                 cx,
                 &mut work,
                 ramp,
                 ClipRender {
-                    fades,
-                    crossfade_frames: set.join_frames[i],
-                    crossfade_out_frames,
+                    fades: &set.fades[i],
                     seam: Seam {
-                        edges,
-                        lead: seam_lead,
+                        edges: set.seams[i],
+                        lead: set.seam_lead[i],
                         total: set.seam_total[i],
                     },
                 },
                 out,
             );
         }
-        if set.has_joins {
-            for &(predecessor, incoming) in &set.join_pairs {
-                let tail_frames = set.join_frames[incoming];
-                if tail_frames == 0 {
-                    continue;
-                }
-                let clip = &set.clips[predecessor];
-                let start = cx.timeline.sample_at(clip.start, rate);
-                let source_anchor = match clip.shape.period {
-                    Some(period) if period > 0 => clip
-                        .shape
-                        .phase
-                        .saturating_add(clip.length)
-                        .rem_euclid(period),
-                    _ => clip.length,
-                };
-                let ramp = match crossfade {
-                    Some(x) if set.swapped[incoming] || set.swapped[predecessor] => Ramp::In(x),
-                    _ => Ramp::Steady,
-                };
-                play_join_tail(
-                    JoinTail {
-                        clip,
-                        level: &mut set.levels[predecessor],
-                        source_anchor,
-                        frames: tail_frames,
-                        curve: set.fades[incoming].0[0].as_deref(),
-                        start,
-                        ramp,
-                    },
-                    cx,
-                    &mut work,
-                    out,
-                );
-            }
-        }
         if let (Some(swap), Some(x)) = (self.swap.as_mut(), crossfade) {
             set_seams(&mut swap.old, cx);
             let old = &mut *swap.old;
             for i in (0..old.clips.len()).filter(|&i| old.swapped[i]) {
-                let (clip, fades) = (&old.clips[i], &old.fades[i]);
-                let mut edges = old.seams[i];
-                if old.has_joins && old.join_frames[i] > 0 {
-                    edges[0] = true;
-                }
-                if old.has_joins && old.join_outgoing[i] {
-                    edges[1] = true;
-                }
-                let seam_lead = if old.has_joins && old.join_frames[i] > 0 {
-                    old.seam_lead[i].max(work.block.edge)
-                } else {
-                    old.seam_lead[i]
-                };
-                let crossfade_out_frames =
-                    old.join_successor[i].map_or(0, |successor| old.join_frames[successor]);
                 play(
-                    clip,
+                    &old.clips[i],
                     &mut old.levels[i],
                     cx,
                     &mut work,
                     Ramp::Out(x),
                     ClipRender {
-                        fades,
-                        crossfade_frames: old.join_frames[i],
-                        crossfade_out_frames,
+                        fades: &old.fades[i],
                         seam: Seam {
-                            edges,
-                            lead: seam_lead,
+                            edges: old.seams[i],
+                            lead: old.seam_lead[i],
                             total: old.seam_total[i],
                         },
                     },
                     out,
                 );
-            }
-            if old.has_joins {
-                for &(predecessor, incoming) in &old.join_pairs {
-                    let tail_frames = old.join_frames[incoming];
-                    if tail_frames == 0 {
-                        continue;
-                    }
-                    if !old.swapped[incoming] && !old.swapped[predecessor] {
-                        continue;
-                    }
-                    let clip = &old.clips[predecessor];
-                    let source_anchor = match clip.shape.period {
-                        Some(period) if period > 0 => clip
-                            .shape
-                            .phase
-                            .saturating_add(clip.length)
-                            .rem_euclid(period),
-                        _ => clip.length,
-                    };
-                    let start = cx.timeline.sample_at(clip.start, rate);
-                    play_join_tail(
-                        JoinTail {
-                            clip,
-                            level: &mut old.levels[predecessor],
-                            source_anchor,
-                            frames: tail_frames,
-                            curve: old.fades[incoming].0[0].as_deref(),
-                            start,
-                            ramp: Ramp::Out(x),
-                        },
-                        cx,
-                        &mut work,
-                        out,
-                    );
-                }
             }
             if !cx.tail {
                 swap.done += frames;

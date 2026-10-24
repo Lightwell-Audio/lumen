@@ -13,16 +13,20 @@ and `midi/capture.rs` distinguishes first loop entry from a real wrap.
 
 ## Processes and threads
 
-E2 module additions: app `crossfades.rs` shares effective join eligibility
-and source-tail bounds between arrangement previews and `lanes::engine_clips`;
-`document/crossfades.rs` owns undoable project settings and custom fade edits.
-The engine's `clips/set.rs` prepares join partners and fade tables off-thread;
-`clips/seams.rs` resolves sample-bound joins using preallocated state, and
-`clips/join.rs` mixes each outgoing source continuation with the incoming
-fade while preserving gain glides and edit ramps. All discovery, allocation
-and project edits remain off the audio thread. The model's `Clip.crossfade`
-and `Project.auto_crossfade` are
-stored in format v28 with a migration that preserves older playback.
+E2 module additions (crossfade as a true overlap, ADR-0094): app
+`crossfades.rs` works out each crossing (the zone, its limits from the hidden
+audio) and the played clips: the left clip extended with a blend fade-out, the
+right clip's hidden head restored with a blend fade-in; arrangement previews
+and `lanes::engine_clips` share it. `document/crossfades.rs` owns the undoable
+edits (`crossfade_across`, `set_crossfade_length`, `set_crossfade`, the project
+setting). `lumen-project/src/edit/crossfade.rs` is the one rule run by the
+history after every edit: a clip's crossfade flag stands only while an audio
+clip ends at its start. The engine has no join machinery: overlapping clips
+mix additively, and `FadeFrames.blend` gives an equal-power half-crossfade
+without the edge fade at that end. All discovery, allocation and project edits
+remain off the audio thread. The model's `Clip.crossfade` and
+`Project.auto_crossfade` are stored in format v28 with a migration that
+preserves older playback.
 
 ```text
 ┌──────────────────────────── lumen (main process) ─────────────────────────────┐

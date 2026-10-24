@@ -2,33 +2,29 @@
 
 ## Status
 
-**M7b slice E2 (crossfades) is built, 2026-10-23** on
-`m7b-s2-join-crossfades` (ADR-0094; accepted X1; format v28). Automatic 5 ms
-crossfades for new projects, custom join fades, source-tail bounds, shared
-preview/playback eligibility and undoable settings are implemented. Older
-projects migrate with automatic crossfades off. Existing edit and selection
-rows are grouped under Edit; the app menu scrolls within a small viewport.
-MT-EDIT-3 awaits the owner.
+**M7b slice E2 (crossfades) is built, reworked 2026-10-24** on
+`m7b-s2-join-crossfades` (ADR-0094; format v28). A crossfade is a true
+overlap: dragging the left clip's fade-out handle over the right clip extends
+the left clip and trims the right one, which starts where the crossfade ends;
+the model, the picture and the sound agree. A history rule clears the flag
+when either clip moves, the engine's join machinery is gone (equal-power
+`blend` fades only), the right clip's fade-in handle lengthens an
+existing crossfade to the right, and extending the left clip keeps its length. Automatic 5 ms crossfades (new projects on, older projects
+off) are played but not drawn. Toggle crossfade with the clip before
+(Ctrl+Shift+X) makes a 5 ms one. MT-EDIT-3 awaits the owner.
 
-E2 validation: Windows workspace clippy and **2,770 tests**, including
-**636 E2E**, pass; **6/6 binary smoke tests** and the macOS cross-clippy pass.
-The WSL mirror reports clean clippy and **637 E2E** passes; project, render
-and RT tests also pass in a separate Linux run. Equal-power references,
-short/missing tails, broken joins, seeks into tails, live source/gain edits,
-allocation guards, exact undo, migrations and save/reopen are covered.
-Twenty-four screenshots cover both themes at 100%, 150% and 200%, including
-960 × 540 menus. RealtimeSanitizer and physical-device listening were not run
-locally; the latter is MT-EDIT-3.
-
-Release stress benchmark, p99 milliseconds for scroll time / scroll tracks /
-zoom: **2.93 / 3.26 / 2.74** at 1600 × 900 and **5.77 / 5.80 / 4.97** at
-3440 × 1380. Both meet the 8.33 ms target; each reported three idle repaints
-in three seconds. These used an isolated release copy with fake audio and
-plugins off. Instruction-count results are recorded in ADR-0094.
-The WSL instruction gate found no existing regression over +2%; the plain
-64-clip engine measured +0.29%. Its baseline now includes 64 simultaneous
-crossfades (5,117,889,825 instructions / 1,000 blocks), with the threshold
-unchanged.
+E2 validation after the rework (Windows): workspace clippy with `-D warnings`
+clean, **2,782 workspace tests pass** (E2E crossfade scenarios: the left
+handle drag, one undo step, drag back in one gesture, repositioning the right
+clip, the command and menu, save/reopen), **6/6 binary smoke tests** and the
+macOS cross-clippy pass. Screenshots of the crossfade in both themes at 100%
+and 200% (plus the menus at 100/150/200%) were looked at. *Not run yet:* the
+WSL Linux mirror and the performance gate. The `engine_crossfades_64`
+scenario changed (64 overlapping pairs with blend fades), so its entry in
+`perf/baseline.json` must be re-measured in WSL after the push
+(`perf.sh --update`, copy the baseline back) and the numbers recorded here;
+the figures from the first design no longer apply. RealtimeSanitizer and
+physical-device listening were not run; the latter is MT-EDIT-3.
 
 **M7b slice E1 (clip commands) is built, 2026-10-23** on `m7b-s1-clip-commands` (ADR-0093; owner choices J1, N1, G1, K2; format v27). *Shipped:* join (Ctrl+J, seamless), crop to selection, unloop, nudge by grid and finely, reverse (reversed copies of files, no engine change), polarity, normalize (peak scan on a worker, cancel, one undo step), and the select variants; reverse, polarity and normalize are golden renders. *Waiting:* MT-EDIT-2 (owner). *Not run:* macOS, the WSL gates and the smoke tests until the push, RealtimeSanitizer.
 

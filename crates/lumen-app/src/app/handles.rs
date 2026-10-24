@@ -62,11 +62,19 @@ impl App {
             Handle::Fade(edge) => Gesture::Fade {
                 clip: hit.clip,
                 edge,
-                crossing: false,
+                // The fade-in handle of a clip a crossfade runs into
+                // lengthens that crossfade to the right, as pulling the
+                // clip before it over this one does: `from` is where the
+                // crossfade begins, which stays.
+                from: (edge == Edge::Start)
+                    .then(|| self.clip(hit.clip).filter(|c| c.crossfade))
+                    .flatten()
+                    .map(|c| c.start - c.fade_in.length),
             },
             Handle::Bend(edge) => Gesture::Bend {
                 clip: hit.clip,
                 edge,
+                crossing: clip.crossfade && edge == Edge::End,
                 handle: handles.fade(edge).curve.handle(),
                 last: origin,
                 size: handles.fade_size(edge),
@@ -103,67 +111,83 @@ impl App {
         let (fine, alt) = ctx.input(|i| (i.modifiers.shift, i.modifiers.alt));
         let at = ruler::ticks_at(self.nav.view.beat_at(canvas.left(), p.x));
         let (clip, handle, text) = match gesture {
-            Gesture::Fade {
-                clip,
-                edge,
-                crossing,
-            } => {
+            Gesture::Fade { clip, edge, from } => {
                 let Some(c) = self.shown_clip(clip) else {
                     return;
                 };
                 // Fades follow the hand freely: they are about sound, not
                 // the grid.
                 let end = c.start + c.length;
-                let length = match edge {
-                    Edge::Start => at - c.start,
-                    Edge::End => end - at,
-                };
-                // A fade-out dragged past the end of its clip into the next
-                // one is a crossfade at that join: it sets the incoming
-                // clip's fade length. Dragged back to the join it is a hard
-                // cut there.
-                let next = (edge == Edge::End)
-                    .then(|| crate::crossfades::incoming(self.document.project(), clip))
-                    .flatten();
                 ctx.set_cursor_icon(CursorIcon::ResizeHorizontal);
-                if let Some(right) = next
-                    && (crossing || at > end)
-                {
-                    let length = (at - end).max(Ticks::ZERO);
+                let project = self.document.project();
+                let existing = (from.is_none() && edge == Edge::End && c.crossfade)
+                    .then(|| self.crossing_into(clip))
+                    .flatten();
+                let next = (edge == Edge::End && existing.is_none())
+                    .then(|| crate::crossfades::incoming(project, clip))
+                    .flatten();
+                if let (Edge::Start, Some(begin)) = (edge, from) {
+                    // The incoming clip's handle lengthens the crossfade
+                    // into it to the right: the clip before it is extended
+                    // and this one trimmed, the start of the crossfade
+                    // staying where it is.
                     self.document
-                        .set_crossfade_length(right, length, Some("clip fade"));
+                        .crossfade_across(clip, begin, at, Some("clip fade"));
+                    (clip, Handle::Fade(edge), self.crossfade_text(clip))
+                } else if let Some(right) = existing {
+                    // The handle of a crossfade sets how long it lasts,
+                    // the clips staying where they are.
+                    self.document.set_crossfade_length(
+                        right,
+                        (end - at).max(Ticks::ZERO),
+                        Some("clip fade"),
+                    );
+                    (clip, Handle::Fade(edge), self.crossing_text(clip))
+                } else if let Some(right) = next
+                    && (from.is_some() || at > end)
+                {
+                    // A fade-out dragged past the end of its clip into the
+                    // next one makes a crossfade there: the clip is
+                    // extended by the drag and the next one trimmed by it.
+                    // Dragged back it is as it was.
+                    let from = from.unwrap_or(end);
+                    self.document
+                        .crossfade_across(right, from, at, Some("clip fade"));
                     self.arrangement.gesture = Some(Gesture::Fade {
                         clip,
                         edge,
-                        crossing: length > Ticks::ZERO,
+                        from: Some(from),
                     });
-                    (right, Handle::Fade(Edge::Start), self.crossing_text(right))
+                    (clip, Handle::Fade(edge), self.crossing_text(clip))
                 } else {
-                    if edge == Edge::Start && c.crossfade {
-                        self.document
-                            .set_crossfade_length(clip, length, Some("clip fade"));
-                    } else {
-                        self.document
-                            .set_fade_length(clip, edge, length, Some("clip fade"));
-                    }
+                    let length = match edge {
+                        Edge::Start => at - c.start,
+                        Edge::End => end - at,
+                    };
+                    self.document
+                        .set_fade_length(clip, edge, length, Some("clip fade"));
                     (clip, Handle::Fade(edge), self.fade_text(clip, edge))
                 }
             }
             Gesture::Bend {
                 clip,
                 edge,
+                crossing,
                 handle,
                 last,
                 size,
             } => {
-                // Step by step, so Alt can come and go mid-drag.
-                let handle = bend(handle, edge, size, p - last, alt);
+                // Step by step, so Alt can come and go mid-drag. A
+                // crossfade is curved like the incoming clip's fade-in.
+                let mirrored = if crossing { Edge::Start } else { edge };
+                let handle = bend(handle, mirrored, size, p - last, alt);
                 let curve = Curve::from_handle(handle);
                 self.document
                     .set_fade_curve(&[clip], edge, curve, Some("clip fade curve"));
                 self.arrangement.gesture = Some(Gesture::Bend {
                     clip,
                     edge,
+                    crossing,
                     handle,
                     last: p,
                     size,
@@ -216,36 +240,37 @@ impl App {
     /// info line (M4 slice 0).
     pub(super) fn handle_hover(&self, ctx: &egui::Context, hit: &ClipHit) -> Option<Info> {
         let (cursor, info) = match hit.handle? {
-            Handle::Fade(edge) => (
-                CursorIcon::ResizeHorizontal,
-                Info::new(
-                    if edge == Edge::Start && self.shown_clip(hit.clip).is_some_and(|c| c.crossfade)
-                    {
-                        "Crossfade"
-                    } else if edge == Edge::Start
-                        && self.clip(hit.clip).is_some_and(|c| c.crossfade)
-                    {
-                        "No source tail at this join"
-                    } else if edge == Edge::Start {
-                        "Fade in"
-                    } else {
-                        "Fade out"
-                    },
+            Handle::Fade(edge) => {
+                let crossing = match edge {
+                    Edge::End => self.crossing_into(hit.clip).is_some(),
+                    Edge::Start => self.clip(hit.clip).is_some_and(|c| c.crossfade),
+                };
+                let title = if crossing {
+                    "Crossfade"
+                } else if edge == Edge::Start {
+                    "Fade in"
+                } else {
+                    "Fade out"
+                };
+                let can_cross = edge == Edge::End
+                    && !crossing
+                    && crate::crossfades::incoming(self.document.project(), hit.clip).is_some();
+                (
+                    CursorIcon::ResizeHorizontal,
+                    Info::new(title)
+                        .on(
+                            Held::NONE,
+                            Mouse::Drag,
+                            if can_cross {
+                                "set its length, or drag into the next clip to crossfade"
+                            } else {
+                                "set its length"
+                            },
+                        )
+                        .on(Held::NONE, Mouse::DoubleClick, "remove it")
+                        .on(Held::NONE, Mouse::RightClick, "preset shapes"),
                 )
-                .on(
-                    Held::NONE,
-                    Mouse::Drag,
-                    if edge == Edge::End
-                        && crate::crossfades::incoming(self.document.project(), hit.clip).is_some()
-                    {
-                        "set its length, or drag into the next clip to crossfade"
-                    } else {
-                        "set its length"
-                    },
-                )
-                .on(Held::NONE, Mouse::DoubleClick, "remove it")
-                .on(Held::NONE, Mouse::RightClick, "preset shapes"),
-            ),
+            }
             Handle::Bend(_) => (
                 CursorIcon::Move,
                 Info::new("Fade curve")
@@ -276,18 +301,11 @@ impl App {
     pub(super) fn reset_handle(&mut self, hit: &ClipHit) {
         match hit.handle {
             Some(Handle::Fade(edge)) => {
-                if edge == Edge::Start
-                    && (self.shown_clip(hit.clip).is_some_and(|c| c.crossfade)
-                        || self.clip(hit.clip).is_some_and(|c| c.crossfade))
-                {
-                    self.document
-                        .set_crossfade_length(hit.clip, Ticks::ZERO, None);
-                } else if let Some(right) = (edge == Edge::End)
-                    .then(|| crate::crossfades::incoming(self.document.project(), hit.clip))
+                if let Some(right) = (edge == Edge::End)
+                    .then(|| self.crossing_into(hit.clip))
                     .flatten()
-                    .filter(|right| self.shown_clip(*right).is_some_and(|r| r.crossfade))
                 {
-                    // The crossing at this join is what the handle shows.
+                    // The crossing at this end is what the handle shows.
                     self.document.set_crossfade_length(right, Ticks::ZERO, None);
                 } else {
                     self.document
@@ -321,13 +339,38 @@ impl App {
         }
     }
 
-    /// What a crossfade dragged into `right` shows beside the pointer: how
-    /// long it lasts, or that the outgoing clip has nothing left to blend.
-    fn crossing_text(&self, right: Id) -> String {
-        if self.shown_clip(right).is_some_and(|c| c.crossfade) {
-            self.fade_text(right, Edge::Start)
+    /// How long the crossfade into `right` lasts, for beside the pointer.
+    fn crossfade_text(&self, right: Id) -> String {
+        let Some(c) = self.clip(right) else {
+            return String::new();
+        };
+        let tempo = edit::tempo_of(self.document.project());
+        let seconds = tempo.seconds_at(c.start) - tempo.seconds_at(c.start - c.fade_in.length);
+        if seconds < 1.0 {
+            format!("{:.0} ms", seconds * 1_000.0)
         } else {
-            "No audio past the clip's end".to_owned()
+            format!("{seconds:.2} s")
+        }
+    }
+
+    /// The clip that `left`'s crossfade by hand goes into, if it ends one.
+    fn crossing_into(&self, left: Id) -> Option<Id> {
+        let project = self.document.project();
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.clips.iter().any(|c| c.id == left))?;
+        let clip = track.clips.iter().find(|c| c.id == left)?;
+        crate::crossfades::outgoing(project, track.id, clip).map(|(right, _)| right)
+    }
+
+    /// What a crossfade at the end of `left` shows beside the pointer: how
+    /// long it lasts.
+    fn crossing_text(&self, left: Id) -> String {
+        if self.crossing_into(left).is_some() {
+            self.fade_text(left, Edge::End)
+        } else {
+            "No audio to crossfade".to_owned()
         }
     }
 
