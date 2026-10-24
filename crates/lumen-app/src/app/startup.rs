@@ -143,6 +143,7 @@ impl App {
             midi_exporting: None,
             midi_writing: None,
             normalizing: None,
+            consolidating: None,
             tempo_offer: None,
             song: Default::default(),
             drag_pointer: None,

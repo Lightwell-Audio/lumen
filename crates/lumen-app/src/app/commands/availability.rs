@@ -227,6 +227,15 @@ impl App {
             | Command::SelectAllInTrack
             | Command::SelectToStart
             | Command::SelectToEnd => need(clip, "Select a clip first"),
+            Command::ConsolidateClips => need(
+                self.document
+                    .project()
+                    .tracks
+                    .iter()
+                    .flat_map(|t| &t.clips)
+                    .any(|c| self.arrangement.clips.contains(&c.id) && !c.locked),
+                "Select a clip first",
+            ),
             Command::ReverseClips | Command::InvertPolarity | Command::NormalizeClips => need(
                 self.document
                     .project()

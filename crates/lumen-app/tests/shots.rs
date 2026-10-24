@@ -514,6 +514,16 @@ fn lanes_menus_looking(appearance: &str, scale: f32) {
             &mut h,
             &format!("{name}-{appearance}-{}", (scale * 100.0) as u32),
         );
+        if name == "menu-clip" {
+            // The Edit submenu, which ends with Join into new file (M7b E3).
+            use egui_kittest::kittest::Queryable;
+            h.get_by_label("Edit").click();
+            h.run_steps(4);
+            save(
+                &mut h,
+                &format!("menu-clip-edit-{appearance}-{}", (scale * 100.0) as u32),
+            );
+        }
         h.key_press(Key::Escape);
         h.run_steps(3);
     }

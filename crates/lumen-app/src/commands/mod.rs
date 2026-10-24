@@ -210,6 +210,7 @@ pub(crate) enum Command {
     ReverseClips,
     InvertPolarity,
     NormalizeClips,
+    ConsolidateClips,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -389,7 +390,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::PopOutEditor, "midi.pop_out_editor", "Pop out clip editor", Area::Midi, &[ctrl_shift(Key::E)], "Moves the clip editor into its own window, or docks it back into the detail panel."),
     info(Command::DrawTool, "midi.draw_tool", "Draw tool", Area::Midi, &[plain(Key::B)], "Toggles Pointer and Draw in the arrangement or active editor. In the note editor, click to add a note and drag to set its length."),
     info(Command::SplitNotes, "midi.split_notes", "Split", Area::Midi, &[ctrl(Key::E)], "Splits selected clips or a time range at the edit cursor; in the clip editor, splits selected notes."),
-    info(Command::GlueNotes, "midi.glue_notes", "Glue notes", Area::Midi, &[ctrl(Key::J)], "Joins selected notes of one pitch that touch or overlap into one. With clips selected, joins them: MIDI clips merge, audio clips that continue one another in their source become one."),
+    info(Command::GlueNotes, "midi.glue_notes", "Join", Area::Midi, &[ctrl(Key::J)], "Joins selected notes of one pitch that touch or overlap into one. With clips selected, joins them: MIDI clips merge, audio clips that continue one another in their source become one, and other audio clips are rendered into one new file."),
     info(Command::LegatoNotes, "midi.legato", "Legato", Area::Midi, &[plain(Key::L)], "Lengthens each selected note to the start of the next one."),
     info(Command::TransposeUp, "midi.transpose_up", "Transpose up", Area::Midi, &[], "Moves the selected notes up a semitone. In the clip editor the Up arrow does it."),
     info(Command::TransposeDown, "midi.transpose_down", "Transpose down", Area::Midi, &[], "Moves the selected notes down a semitone. In the clip editor the Down arrow does it."),
@@ -485,6 +486,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::ReverseClips, "clip.reverse", "Reverse", Area::Clip, &[], "Plays the selected audio clips backwards, or forwards again. Each keeps its place and plays the same stretch of its file the other way round."),
     info(Command::InvertPolarity, "clip.polarity", "Invert polarity", Area::Clip, &[], "Inverts the polarity of the selected audio clips, or puts it back."),
     info(Command::NormalizeClips, "clip.normalize", "Normalize", Area::Clip, &[], "Sets the gain of the selected audio clips so the loudest sample of the stretch each plays reaches full scale. The audio file is not changed."),
+    info(Command::ConsolidateClips, "clip.consolidate", "Join into new file", Area::Clip, &[], "Renders the selected audio clips of each track, from the first clip's start to the last clip's end with gaps as silence, into one new audio file and replaces them with a clip that plays it. Clip gain, polarity, reverse, fades, crossfades and envelopes are baked in; the track's fader, pan and devices are not. The originals stay in the media pool. Esc stops it."),
 ];
 
 const fn info(
@@ -534,7 +536,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::NormalizeClips as usize + 1,
+            Command::ConsolidateClips as usize + 1,
             ALL.len(),
             "a command is missing"
         );

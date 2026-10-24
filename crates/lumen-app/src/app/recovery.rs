@@ -27,6 +27,7 @@ impl App {
                 normalize_project_path: false,
                 media_files: self.document.media_files.clone(),
                 copy_imported: false,
+                renders: Some(self.renders_dir()),
                 keep_backups: 0,
                 state: self.document.change_mark(),
             },

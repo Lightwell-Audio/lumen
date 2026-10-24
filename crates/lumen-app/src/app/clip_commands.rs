@@ -1,6 +1,7 @@
 //! Clip commands of M7b slice E1 that work on the selection: join, crop to
 //! the time range, unloop, nudge, and the selection variants.
 
+use eframe::egui;
 use lumen_core::grid::Step;
 use lumen_core::time::{PPQ, Ticks};
 use lumen_project::model::Id;
@@ -12,7 +13,7 @@ const FINE: Ticks = Ticks(PPQ / 32);
 
 impl App {
     /// The selected clips, in no order.
-    fn selected_clip_ids(&self) -> Vec<Id> {
+    pub(super) fn selected_clip_ids(&self) -> Vec<Id> {
         self.arrangement.clips.iter().copied().collect()
     }
 
@@ -64,7 +65,7 @@ impl App {
     }
 
     /// Joins the selected clips (Ctrl+J).
-    pub(crate) fn join_selected_clips(&mut self) {
+    pub(crate) fn join_selected_clips(&mut self, ctx: &egui::Context) {
         let ids = self.selected_clip_ids();
         if ids.len() < 2 {
             self.say("Select two or more clips to join".to_owned());
@@ -72,11 +73,15 @@ impl App {
         }
         let joined = self.document.join_clips(&ids);
         if joined.merged > 0 {
-            self.arrangement.clips = joined.clips.into_iter().collect();
+            self.arrangement.clips = joined.clips.iter().copied().collect();
             self.arrangement.clip_cursor = None;
-        } else if joined.apart {
-            self.say("These clips do not continue one another: use Consolidate".to_owned());
-        } else {
+        }
+        if joined.apart {
+            // Audio that does not continue in its source cannot be one clip
+            // of the same file: it is rendered into a new file instead.
+            self.arrangement.clips = joined.clips.into_iter().collect();
+            self.consolidate_selected_clips(ctx);
+        } else if joined.merged == 0 {
             self.say("Nothing to join: the clips are locked or apart".to_owned());
         }
     }

@@ -8474,3 +8474,75 @@ fades evaluate a sine per frame; a table that holds the equal-power shape
 (one per curve) would remove it if a project with many simultaneous
 crossfades ever needs the room. `perf/baseline.json` was regenerated from WSL
 and its threshold remains 2%.
+
+## ADR-0095 — Consolidate and the offline clip render (M7b E3)
+
+**Context.** Consolidate turns selected clips into one clip. For audio that
+needs a new file (gain, fades, crossfades, envelopes and gaps baked in), for
+MIDI it does not. The first test of any such render is that it sounds like
+playback, and the second is that consolidating plain audio changes nothing.
+Owner choices (2026-10-24, all recommendations): **C1** clip-level baking
+only, **C2** a 32-bit float WAV, mono only when every clip is mono, **C3**
+Ctrl+J consolidates what it cannot join seamlessly, and a Consolidate command
+exists too, **C4** the plugin-offline spike moves to the start of E4.
+
+**Choice.**
+
+- **The render is the live clip player, run without a device**
+  (`lumen_engine::render_clips`). It drives `ClipPlayer` directly as a track
+  source into one bus, in blocks of at most 256 frames, with progress and
+  cancel. It does not go through the transport (no Play fade-in) or the mixer
+  (no level glide), so nothing is added to the clips' own sound. A test
+  compares it with the live engine at a block of 128 and another shows the
+  block size does not change a render.
+- **Bare outer ends.** The player gives every clip edge a 2 ms fade where no
+  seam is known. A baked clip would be faded at its edges twice: once in the
+  file and once when played. The render marks the first start and the last end
+  of each track as seams (`ClipsHandle::bare_ends`), so those two edges are
+  not faded in the file; edges between clips and into gaps keep the fade
+  playback gives them. A baked clip played back then equals the clips it came
+  from (the null test), and plain contiguous source material is bit-identical.
+  The live path pays nothing for this (`any_bare` is checked first).
+- **The file is a float WAV at the device rate, not the project rate.** The
+  media library holds all audio at the device's rate, so the render produces
+  exactly what is heard, and the new media's `sample_rate` is the device rate.
+  Played at another rate it is converted like any file. This differs from the
+  wording of C2 ("the project rate"), which assumed a project rate that the
+  model does not have. Consolidating at one device rate and opening at another
+  is a conversion, not a bit-identical copy.
+- **Where files live.** A render is written to a `Renders` folder beside the
+  autosaves, so crash recovery finds it. Rendered media is recognised by its
+  location. Save always copies it into `Samples/Rendered` (even when copying
+  imports is off) and does not record it as an import. Files of renders that
+  were never used (cancelled, stale or undone and never redone) stay until the
+  media pool's purge (M9).
+- **Mixed selections are one step.** `Document::consolidate_clips` applies the
+  audio parts and the MIDI merge in the same history step. A part whose clips
+  changed while the render ran is left alone (and its file removed); if none
+  applies nothing is recorded.
+- **MIDI** is unloop (E1) then join (E1) on the selected unlocked MIDI clips,
+  with no file: loops become real notes, gaps are empty time, and all of a
+  track's selected clips become one clip that keeps the first one's id.
+- **Originals** stay in `Project.media`, so they are in the media pool.
+- **Ctrl+J** still joins seamlessly first (E1); audio clips that remain apart
+  are then consolidated, as a second undo step.
+
+**Consequences.** No format change (still v28): a consolidated clip is an
+ordinary audio clip over a new media entry. Consolidating a time range that
+cuts through a clip is not built yet (clip selection only); when it is, the
+cut ends will differ from their neighbour's source, so E0's seamless join will
+not apply there. Long renders are cancelled with Esc and cost memory only in
+blocks. Plugins never run in a consolidate. The track fader, pan, sends and
+devices are not baked; bounce (E4) does that.
+
+### ADR-0095 amendment: one word, Join (owner, 2026-10-24)
+
+The palette listed "Glue notes" (Ctrl+J, which joins clips) beside
+"Consolidate", and the clip menu called the first "Join": two words for one
+idea. The user-visible word is now **Join** everywhere. "Glue notes" is
+"Join" (same id, so saved shortcuts stay). The command that always renders a
+new file is **Join into new file** (id `clip.consolidate` unchanged; the menu
+row, undo label and notes say Join, the new clip is named "… (joined)", the
+file is `joined-<id>.wav`). Code identifiers keep `consolidate`. The product
+spec's word "consolidate" (CLAUDE.md §6.6) is the feature's name in the
+requirements, not the interface's.

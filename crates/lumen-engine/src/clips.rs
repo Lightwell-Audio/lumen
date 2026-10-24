@@ -216,14 +216,26 @@ pub struct ClipsHandle {
     retired: rtrb::Consumer<Box<ClipSet>>,
     /// Fade tables by curve, shared between clips and lists.
     tables: HashMap<[u32; 4], Table>,
+    /// The lists sent leave the outermost edge of each track unfaded
+    /// ([`ClipsHandle::bare_ends`]).
+    bare: bool,
 }
 
 impl ClipsHandle {
+    /// For lists sent from now on, the start of the first clip and the end of
+    /// the last clip of each track get no 2 ms edge fade, as inside a seamless
+    /// join. Rendering a stretch of clips into a file uses it: the file's
+    /// outer edges are faded when the new clip plays, as any clip is, and the
+    /// edges inside it keep the fades they had (M7b slice E3).
+    pub fn bare_ends(&mut self, on: bool) {
+        self.bare = on;
+    }
+
     /// Sends a new clip list. Returns it if the queue is full (call again
     /// next frame).
     pub fn set(&mut self, clips: Vec<Clip>) -> Result<(), Vec<Clip>> {
         self.incoming
-            .push(Box::new(ClipSet::new(clips, &mut self.tables)))
+            .push(Box::new(ClipSet::new(clips, &mut self.tables, self.bare)))
             .map_err(|rtrb::PushError::Full(set)| set.clips)
     }
 
@@ -268,12 +280,13 @@ pub fn clip_player() -> (ClipsHandle, ClipPlayer) {
             incoming: incoming_tx,
             retired: retired_rx,
             tables: HashMap::new(),
+            bare: false,
         },
         ClipPlayer {
             incoming: incoming_rx,
             retired: retired_tx,
             stash: None,
-            current: Box::new(ClipSet::new(Vec::new(), &mut HashMap::new())),
+            current: Box::new(ClipSet::new(Vec::new(), &mut HashMap::new(), false)),
             swap: None,
             gains: EnvelopeGains::new(),
         },

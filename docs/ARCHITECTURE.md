@@ -189,4 +189,10 @@ for shutdown; the shared region's quit setter is internal.
 - `normalize.rs`: the peak scan on a worker (progress, cancel);
   `app/clip_normalize.rs`: builds the jobs from the selection, shows
   progress in the toast, stops on Esc, applies one undo step.
+- `lumen_media::wav`: the WAV writer (16, 24 and 32-bit float, mono or
+  stereo, atomic, streamed). `lumen_engine::render_clips` (`render.rs`):
+  the clip player run without a device, with bare outer ends (ADR-0095).
+  `lumen_project::edit::consolidate`: the planner, the swap and the MIDI
+  merge. `lumen-app::consolidate`: the render worker; `app/clip_consolidate.rs`:
+  the command, progress and Esc; `document/consolidate.rs`: one undo step.
   `app/clip_commands.rs` holds the other selection commands.

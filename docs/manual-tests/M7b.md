@@ -85,7 +85,7 @@ playback by ear or physical-device behavior beyond what the owner reported.
 ## MT-EDIT-2 — Clip commands (E1)
 
 **State:** Waiting for the owner. Branch: `m7b-s1-clip-commands`.
-Consolidate for audio with gaps is E3; here Join is seamless only.
+Joining audio with gaps is E3; here Join is seamless only.
 
 ```powershell
 cargo build --release -p lumen-plugin-host
@@ -100,7 +100,7 @@ falling sound (a fade-in, a drum hit, a spoken word) so reverse is obvious.
    parts; redo joins them. Change one part's colour before joining: it still
    joins.
 2. Move one part away so there is a gap and press Ctrl+J: a note says to use
-   Consolidate and nothing changes (audio with gaps is E3). Select two MIDI
+   Join into new file and nothing changes (audio with gaps is E3). Select two MIDI
    clips with a gap and press Ctrl+J: they merge.
 3. Select a looping clip and choose Unloop in the clip menu: real clips, one
    per repeat, sound the same; undo gives the loop back.
@@ -129,7 +129,7 @@ falling sound (a fade-in, a drum hit, a spoken word) so reverse is obvious.
 
 ## MT-EDIT-3 — Crossfades (E2)
 
-**State:** Waiting for the owner (re-run after the 2026-10-24 rework).
+**State:** Passed (owner, Windows, 2026-10-24, after the rework; no step detail).
 Branch: `m7b-s2-join-crossfades`. Use a scratch project.
 
 ```powershell
@@ -168,3 +168,44 @@ cargo run --release -p lumen-app
 8. Look at both themes at 100, 150 and 200% scale, including the smallest
    window; the menus scroll to their lower controls.
 9. Save, close and reopen: the crossfade is as you left it.
+
+## MT-EDIT-4 — Join into a new file (E3)
+
+**State:** Passed (owner, Windows, 2026-10-24; no step detail). Branch: `m7b-s3-render-consolidate`.
+
+Start from a project with an audio track. Work on a copy of a project you do
+not mind changing.
+
+1. Import or record an audio clip about ten seconds long. Split it into three
+   parts (Ctrl+E) and move the middle part later so there are gaps, and give
+   the first part a fade-in and the last a fade-out. Select the three parts
+   (Ctrl+A) and play them; remember the sound.
+2. Press Ctrl+J. A message with a percentage and "Esc to stop" shows while
+   it renders. Afterwards one clip stands where the three were, named after the
+   first with "(joined)", spanning from the first start to the last end,
+   and the new clip is selected. Play it: it sounds the same as before, with
+   the same silences and the same fades. There is no click at either end.
+3. Undo: the three parts are back exactly. Redo: the single clip is back.
+4. Do the same from the clip menu (right-click, Edit, Join into new file) and from the
+   palette (Ctrl+K, Join into new file) with clips that have different gains, a
+   reversed clip, a clip envelope and a crossfade. Compare by ear with undo and
+   redo, soloing the track. Anything the clips did is in the sound; the
+   track's fader and pan still apply on top of it, as before.
+5. Select one audio clip and Join it into a new file: it is rendered into a new clip of
+   the same length. Select nothing: the command is greyed in the palette.
+6. Start Join into new file on a long clip (a few minutes) and press Esc: it stops, the
+   clips are unchanged and no clip is added. Start it again and edit something
+   in the project while it runs: when it finishes it says the clips changed
+   and nothing is replaced.
+7. Make a MIDI clip that loops, and a second MIDI clip after a gap on the same
+   track. Select both and Join them: one MIDI clip remains with the loop
+   written out as real notes. Undo restores the loop and both clips. A
+   selection of MIDI and audio clips on different tracks changes both in one
+   undo step.
+8. Look at the media pool's source (the project's media): the original file is
+   still listed.
+9. Save the project to a new folder. The rendered file is in
+   `Samples/Rendered`. Close Lumen and open it: the clip plays. Close and
+   open a project saved earlier than the join: nothing is missing.
+10. Look at the clip menu in both themes at 100, 150 and 200% scale: the
+    Join into new file row is whole and the menu still scrolls to its lower controls.

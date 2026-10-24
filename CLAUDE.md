@@ -407,25 +407,30 @@ short: the history of every slice is in `docs/HANDOFF_ARCHIVE.md`
 and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
-**Now (2026-10-23)**
-- **Branch `m7b-s2-join-crossfades`: M7b E2 is built, reworked 2026-10-24**
-  (ADR-0094; format v28). A crossfade is now a true overlap: drag the left
-  clip's fade-out handle over the right clip; the left clip is extended and
-  fades into it, the right clip starts where the crossfade ends, and a
-  history rule clears the flag if either clip moves. The engine's join
-  machinery is gone (`FadeFrames.blend` only). MT-EDIT-3 awaits the owner;
-  final gate results are in PROGRESS.
-- **M7b E1 is merged (PR #52)** (ADR-0093; format **v27**). Join (Ctrl+J, seamless), crop,
-  unloop, nudge, reverse, polarity, normalize and the select variants;
-  reverse uses reversed copies of files built on a worker (no engine
-  change), normalize scans on a worker with cancel. Gates run: fmt, clippy,
-  workspace tests, smoke, macOS cross-clippy, the WSL performance gate (the
-  baseline was updated for two per-clip flags in serialize). **Waiting for
-  the owner: MT-EDIT-2** (`docs/manual-tests/M7b.md`). Audio
-  clips with a gap do not join until E3's consolidate (KNOWN_ISSUES).
-- **Next:** E3 (render core and
-  consolidate), E4 (bounce), E5 (freeze), E6 (close M7b). Plan, owner choices
-  and the slice list: `docs/milestones/M7b.md`.
+**Now (2026-10-24)**
+- **Branch `m7b-s3-render-consolidate`: M7b E3 (render core and consolidate)
+  is built** (ADR-0095; **no format change**, still v28; not pushed). New:
+  `lumen_media::wav` (the WAV writer), `lumen_engine::render_clips` (the
+  device-free clip render: the live `ClipPlayer` run block by block, with
+  bare outer ends so a baked clip is not faded twice),
+  `lumen_project::edit::consolidate` (the planner, the swap and the MIDI
+  merge), `lumen-app::consolidate` (the worker), `app/clip_consolidate.rs`
+  (the command, progress and Esc in the toast), `Document::consolidate_clips`
+  (one undo step for audio and MIDI together). Command `clip.consolidate` (shown everywhere as "Join into new file": the user-visible word is Join, owner 2026-10-24; the palette's "Glue notes" is now "Join")
+  (last in `Command` and `ALL`, no default key), the clip menu's Edit row,
+  and Ctrl+J now consolidates audio that does not join seamlessly. Rendered
+  files are 32-bit float WAVs at the **device rate** (the media library holds
+  audio at that rate), written to a `Renders` folder beside the autosaves and
+  copied into `Samples/Rendered` on Save. Gates and what was not run: see
+  PROGRESS. MT-EDIT-4 passed (owner, 2026-10-24).
+- **M7b E2 (crossfades, ADR-0094, format v28) is merged (PR #54;
+  MT-EDIT-3 passed).** A crossfade is a true overlap: drag the left clip's
+  fade-out handle over the right clip.
+- **M7b E1 is merged (PR #52)** (ADR-0093; format **v27**): join, crop,
+  unloop, nudge, reverse, polarity, normalize and the select variants.
+- **Next:** E4 (bounce; it starts with the R2 plugin-offline spike), E5
+  (freeze), E6 (close M7b). Plan, owner choices and the slice list:
+  `docs/milestones/M7b.md`.
 - **Done:** M1 to M4.5 approved; M5 (MIDI), M6 (VST3 hosting) and M7
   (automation and envelopes) are built, with reports in PROGRESS. M7b E0
   (tools and split, format v26) is merged.

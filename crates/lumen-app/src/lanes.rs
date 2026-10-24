@@ -581,7 +581,7 @@ impl Lanes {
     }
 
     /// What the engine plays, from the files that are loaded.
-    fn engine_clips(&self, project: &Project, rate: u32) -> Vec<Clip> {
+    pub(crate) fn engine_clips(&self, project: &Project, rate: u32) -> Vec<Clip> {
         engine_clips(project, rate, |media| {
             let item = self.library.get(media.0)?;
             let State::Ready(audio) = &item.state else {

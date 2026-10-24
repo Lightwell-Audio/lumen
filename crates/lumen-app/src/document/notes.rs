@@ -192,7 +192,7 @@ impl Document {
 
     /// Joins picked notes of one pitch that touch or overlap.
     pub fn glue_notes(&mut self, clip: Id, selection: &[usize]) -> Vec<usize> {
-        self.edit_notes("Glue notes", None, None, clip, selection, |notes, _| {
+        self.edit_notes("Join", None, None, clip, selection, |notes, _| {
             ops::glue(notes, selection)
         })
     }
