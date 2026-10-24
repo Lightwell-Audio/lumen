@@ -123,8 +123,8 @@ no implementation or feature status.
 
 **Current milestone:** M7b — Advanced editing and render. E0 and E1 are merged
 (PR #51 and #52); E2 is merged (PR #54; MT-EDIT-3 passed; format v28,
-ADR-0094). E3 is being planned on `m7b-s3-render-consolidate`; E4–E6 have not started. See the [plan](milestones/M7b.md) and
-[MT-EDIT-3](manual-tests/M7b.md) (passed).
+ADR-0094). E3 (render core and consolidate, ADR-0095) is built on `m7b-s3-render-consolidate` and awaits MT-EDIT-4; E4–E6 have not started. See the [plan](milestones/M7b.md) and
+[MT-EDIT-3](manual-tests/M7b.md) (passed) and MT-EDIT-4 (waits).
 **2026-10-14 playback fix:** imported notes (and controllers) that round
 to a block's first sample are now scheduled reliably, including Play at
 their onset. The owner's ocarina file exposed a two-tick search margin
@@ -167,7 +167,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway (review done); MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md`; report written 2026-10-19 (below), awaiting the owner's approval |
 | 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 complete 2026-10-16 (report below; ADR-0069 accepted, the callback's wait on trial) and slice 1 built (MT-VST-1 passed on Windows, owner-reported); slice 2 built and its walkthrough passed (owner-reported; ADR-0069 measurements outstanding); slices 3 to 6 built; slice 7 (compatibility and closeout) under way: the probe, the fault soak, the callback benchmark and the combined walkthrough are built (branch `m6-s7-compatibility-closeout`), the review is done and its seven High findings fixed (`docs/audits/2026-10-18-m6.md`); the owner's MT-VST-7 runs, the Medium and Low findings and the M6 report remain | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
 | 7 | Automation & Envelopes | 🟡 Built 2026-10-22 (slices A0 to A8; ADRs 0081 to 0091; formats v22 to v25). MT-AUTO-1 to 10 passed (owner; MT-AUTO-2 but for step 12; MT-AUTO-8 and MT-AUTO-10 on 2026-10-22, no step detail, two findings logged in KNOWN_ISSUES); the owner's approval of the milestone is still to come. Report below; review `docs/audits/2026-10-22-m7.md`; plan: `docs/milestones/M7.md` |
-| 7b | Advanced Editing & Render | E0 and E1 merged; E2 crossfades in verification (format v28). Consolidate, bounce and freeze remain E3–E5. Static pitch remains deferred by the owner | [Plan](milestones/M7b.md), ADR-0092–0094 |
+| 7b | Advanced Editing & Render | E0 to E2 merged (format v28); E3 consolidate built, MT-EDIT-4 waits. Bounce and freeze remain E4 and E5. Static pitch remains deferred by the owner | [Plan](milestones/M7b.md), ADR-0092–0095 |
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | Owner-approved to precede M8 (2026-10-23) |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | Follows M9 per owner priority (2026-10-23) |
 | 10 | Hardening, Performance & Release | 🔲 | |
@@ -366,7 +366,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
 | Split (playhead, cursor, grid, range edges), click-free | M | Built in M7b E0; verification in progress. Press-aim-release or click with Split, Ctrl+E on clips or a range, snapped with Alt bypass; one undo step, original source phase and fade windows preserved. MT-EDIT-1 awaits the owner | 7b |
-| Join / glue MIDI; consolidate audio (rendered) and MIDI (merged), originals kept | M | 🔲 | 7b |
+| Join / glue MIDI; consolidate audio (rendered) and MIDI (merged), originals kept | M | 🟡 Built for clip selections (M7b E3, ADR-0095): audio is rendered through the clip player into a float WAV (gain, polarity, reverse, fades, crossfades, envelopes, gaps as silence), MIDI is unlooped and merged; one undo step, originals stay in the media pool. Time-range consolidate is not built (KNOWN_ISSUES). MT-EDIT-4 waits for the owner | 7b |
 | Trim, crop, delete, ripple delete, insert silence, cut, copy, paste, duplicate clip and range, loop/unloop, reverse, normalize, nudge, move, rename, recolour, mute, lock | M | 🟡 Trim and loop-extend (6c); move and copy (6a); cut, copy, paste, duplicate, delete, delete time (ripple) and insert time (6b); rename, recolour, mute and lock (6e). Crop, unloop into copies, reverse, normalize and clip nudge are built (M7b E1, ADR-0093; MT-EDIT-2 waits for the owner) | 3, 7b |
 | Bounce in place; render selection to new track | M | 🔲 | 7b |
 | Freeze, unfreeze, flatten | M | 🔲 | 7b |
@@ -450,7 +450,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Freeze, unfreeze, flatten | M | 🔲 Planned in M7b (slice E5) |
 | Track delay, lock, icons, templates | S | 🔲 |
 | Select, marquee, range; cut/copy/paste/duplicate/delete/ripple delete/insert silence | M | 🟡 M3 6a: click, Ctrl and Shift selection, marquee, time ranges across tracks (a clip's bottom half). M3 6b (`lumen_project::edit`): cut, copy, paste (at the playhead or into a range, overwriting the destination range), duplicate, delete, delete time (ripple, the whole song) and insert time, on clips and ranges, each one undo step, in the lanes' right-click menu. Crop and the remaining range edits come with M7b's split |
-| Split, join, consolidate, trim, crop, slip, nudge, move, loop/unloop | M | 🟡 Trim, slip, move and loop-extend (M3 6a to 6c). Split with the drag-to-cut gesture (E0); join (seamless: audio clips with a gap wait for consolidate in E3), crop, unloop into copies and clip nudge (E1) |
+| Split, join, consolidate, trim, crop, slip, nudge, move, loop/unloop | M | 🟡 Trim, slip, move and loop-extend (M3 6a to 6c). Split with the drag-to-cut gesture (E0); join (seamless), crop, unloop into copies and clip nudge (E1); consolidate (E3, ADR-0095) |
 | Fades, crossfades, clip gain, reverse, normalize, polarity | M | 🟡 Fades with free curves and four presets, and clip gain (M3 6d, ADR-0031). Moved clips crossfade while playing (5 ms, engine). Reverse, normalize and polarity (M7b E1); automatic and custom join crossfades (M7b E2, ADR-0094; MT-EDIT-3 passed, owner, 2026-10-24) |
 | Snap and grid; zoom; clip name/colour/mute/lock; clip properties | M | ✅ | Grid and snapping (M3 5a) and zoom (4d) done; clip name, colour, mute, lock and the properties card done in M3 6e (ADR-0032; MT-APP-14 passed in run 4) |
 | Tool model: pointer, draw, erase, split, mute and zoom, with single-key switching and temporary modifiers (CLAUDE.md §5). Not built, and in no milestone plan yet; planned for M7b with split | M | 🔲 M7b slice E0; keys follow the CLAUDE.md §5 convention (B, Esc, Ctrl+E, 0, Z and X, Del), chosen 2026-10-19 (K1) |

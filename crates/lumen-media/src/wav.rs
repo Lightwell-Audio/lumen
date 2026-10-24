@@ -201,10 +201,12 @@ impl Drop for Writer {
 /// Makes the rename durable where a directory can be flushed; NTFS journals it.
 fn sync_dir(path: &Path) {
     #[cfg(unix)]
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        if let Ok(dir) = File::open(dir) {
-            let _ = dir.sync_all();
-        }
+    if let Some(dir) = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .and_then(|d| File::open(d).ok())
+    {
+        let _ = dir.sync_all();
     }
     #[cfg(not(unix))]
     let _ = path;

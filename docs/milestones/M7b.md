@@ -2,7 +2,7 @@
 
 **Status:** Approved to start by the owner, 2026-10-22. E0 (PR #51), E1
 (PR #52) and E2 (PR #54, MT-EDIT-3 passed 2026-10-24) are merged. E3 is
-planned (§6, "E3 implementation plan") and under way on
+built (§6, "E3 implementation plan") on
 `m7b-s3-render-consolidate`; E4 to E6 have not started.
 The behavior choices below remain the owner's accepted choices. This is the second half of the roadmap's
 milestone 7, split off at the owner's decision of 2026-10-19 (S1 A). The
@@ -156,6 +156,17 @@ Parts (commits on this branch):
 5. **3e, interface and close.** Ctrl+J widened, the Consolidate command and
    clip-menu row, progress and cancel in the info line, E2E scenarios,
    MT-EDIT-4, PROGRESS, ADR, handoff.
+
+Progress (2026-10-24): 3a to 3d are built and 3e's interface is in (ADR-0095,
+MT-EDIT-4). What changed from the plan: the file is at the **device rate**,
+not a project rate (the media library holds audio at the device's rate; the
+ADR says so); a `Renders` folder beside the autosaves holds the files until
+Save copies them into `Samples/Rendered`; the render is the live clip player
+with **bare outer ends** (the first start and last end of each track play
+without the 2 ms edge fade) so a baked clip is not faded twice; MIDI and audio
+in one selection are one undo step; consolidating a **time range** is not
+built (KNOWN_ISSUES). Ctrl+J joins seamlessly first and consolidates what is
+left apart.
 
 ### E2 implementation plan (2026-10-23)
 

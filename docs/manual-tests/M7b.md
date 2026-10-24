@@ -168,3 +168,42 @@ cargo run --release -p lumen-app
 8. Look at both themes at 100, 150 and 200% scale, including the smallest
    window; the menus scroll to their lower controls.
 9. Save, close and reopen: the crossfade is as you left it.
+
+## MT-EDIT-4 — Consolidate (E3)
+
+Start from a project with an audio track. Work on a copy of a project you do
+not mind changing.
+
+1. Import or record an audio clip about ten seconds long. Split it into three
+   parts (Ctrl+E) and move the middle part later so there are gaps, and give
+   the first part a fade-in and the last a fade-out. Select the three parts
+   (Ctrl+A) and play them; remember the sound.
+2. Press Ctrl+J. A message with a percentage and "Esc to stop" shows while
+   it renders. Afterwards one clip stands where the three were, named after the
+   first with "(consolidated)", spanning from the first start to the last end,
+   and the new clip is selected. Play it: it sounds the same as before, with
+   the same silences and the same fades. There is no click at either end.
+3. Undo: the three parts are back exactly. Redo: the single clip is back.
+4. Do the same from the clip menu (right-click, Edit, Consolidate) and from the
+   palette (Ctrl+K, Consolidate) with clips that have different gains, a
+   reversed clip, a clip envelope and a crossfade. Compare by ear with undo and
+   redo, soloing the track. Anything the clips did is in the sound; the
+   track's fader and pan still apply on top of it, as before.
+5. Select one audio clip and Consolidate it: it is rendered into a new clip of
+   the same length. Select nothing: the command is greyed in the palette.
+6. Start Consolidate on a long clip (a few minutes) and press Esc: it stops, the
+   clips are unchanged and no clip is added. Start it again and edit something
+   in the project while it runs: when it finishes it says the clips changed
+   and nothing is replaced.
+7. Make a MIDI clip that loops, and a second MIDI clip after a gap on the same
+   track. Select both and Consolidate: one MIDI clip remains with the loop
+   written out as real notes. Undo restores the loop and both clips. A
+   selection of MIDI and audio clips on different tracks changes both in one
+   undo step.
+8. Look at the media pool's source (the project's media): the original file is
+   still listed.
+9. Save the project to a new folder. The rendered file is in
+   `Samples/Rendered`. Close Lumen and open it: the clip plays. Close and
+   open a project saved earlier than the consolidate: nothing is missing.
+10. Look at the clip menu in both themes at 100, 150 and 200% scale: the
+    Consolidate row is whole and the menu still scrolls to its lower controls.
