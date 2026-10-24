@@ -35,10 +35,10 @@ pub struct Part {
 }
 
 /// The parts for the selected clips: one per track that has an unlocked audio
-/// clip selected. Other kinds of clip are left out.
+/// clip selected. Other kinds of clip are left out, and so is a frozen track.
 pub fn plan(project: &Project, ids: &[Id]) -> Vec<Part> {
     let mut parts = Vec::new();
-    for track in &project.tracks {
+    for track in project.tracks.iter().filter(|t| t.frozen.is_none()) {
         let clips: Vec<Arc<Clip>> = track
             .clips
             .iter()
@@ -158,11 +158,12 @@ pub fn apply(project: &mut Project, baked: &[Baked], fresh: &mut impl FnMut() ->
     made
 }
 
-/// The unlocked MIDI clips among `ids`.
+/// The unlocked MIDI clips among `ids`, not on a frozen track.
 pub fn midi_clips(project: &Project, ids: &[Id]) -> Vec<Id> {
     project
         .tracks
         .iter()
+        .filter(|t| t.frozen.is_none())
         .flat_map(|t| t.clips.iter())
         .filter(|c| ids.contains(&c.id) && !c.locked)
         .filter(|c| matches!(c.content, ClipContent::Midi { .. }))
@@ -218,6 +219,21 @@ mod tests {
             })
             .collect();
         project
+    }
+
+    #[test]
+    fn a_frozen_track_is_left_out_of_the_plan() {
+        let mut project = three_clips();
+        let media = project.media[0].id;
+        Arc::make_mut(&mut project.tracks[0]).frozen = Some(crate::model::Frozen {
+            id: Id(900),
+            media,
+            start: q(0),
+            length: q(10),
+            mono: false,
+        });
+        let parts = plan(&project, &[Id(1), Id(2), Id(3)]);
+        assert!(parts.iter().all(|p| p.track != project.tracks[0].id));
     }
 
     #[test]

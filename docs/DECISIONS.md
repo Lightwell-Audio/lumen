@@ -8641,3 +8641,86 @@ holds up to that many frames of what plays just past the span's end (the
 instrument has to be flushed through); sidechained effects are keyed from
 nothing, since the keying track is not part of the render. Real third-party
 plugins are checked by hand (MT-EDIT-5).
+
+## ADR-0098 — Freeze, unfreeze and flatten (M7b E5)
+
+**Context.** Freezing a track renders its sound into a file and stops running
+its plugins, to save CPU. The owner's choices (2026-10-24): **FR1** freeze
+bakes the track's sound only (instrument, devices, trim, polarity); the fader,
+pan, sends, mute and solo stay live, so mixing is not locked in; **FR2** a
+frozen track is read-only, an edit says so and changes nothing, and the header
+shows a frozen state with a one-click way out; **FR3** Flatten converts the
+track in place; **FR4** a track whose sound depends on other tracks is refused,
+with the reason.
+
+**Choice.**
+- **Format v29**, an identity migration: `Track.frozen: Option<Frozen { id,
+  media, start, length, mono }>`, written only when frozen. The track keeps its
+  clips, notes and devices untouched, so Unfreeze gives them back exactly.
+  `highest_id` counts `Frozen.id`; duplicating a frozen track gives the copy its
+  own.
+- **One view for sound.** `edit::freeze::played(project)` is the project as it
+  sounds: a frozen track becomes an audio track with one clip playing the file,
+  no devices, trim or polarity, no MIDI output, and only its mixer lanes
+  (volume, pan, mute, send). The clip player, the MIDI engine and the routing
+  all take `played`, and `hosting::wanted` skips frozen tracks, so a frozen
+  track runs no plugin process by construction (E2E: the plugin's process ends
+  and unfreezing starts it again from its state). The "plays mono" decision of
+  the pan law comes from `Frozen.mono`, since the file is always stereo; for a
+  track that played mono the render writes a mono twin of the file, kept only
+  if both channels were identical the whole way.
+- **Read-only is enforced in one place.** `History::apply` compares the project
+  before and after an edit; if a track that is frozen both before and after has
+  changed in its clips, devices, trim, polarity, kind, MIDI output or plugin
+  output, was armed, or gained a lane that is not a mixer lane, or if the tempo
+  or meter changed while any track is frozen, the edit is refused: nothing is
+  applied, no undo step is made, and the violations are kept for the app to say
+  in full (`take_refused`). No edit method needs its own check. Clip gestures
+  that would only be refused (move, trim, slip, fade, gain on a frozen track)
+  are stopped at the start with the same words.
+- **The render** is the bounce worker (ADR-0097) with `Bake::Sound`: unity
+  fader, centre pan, balance law, audible, no volume, pan, mute or send lanes;
+  trim, polarity, devices and instrument kept; from the first clip to the last
+  plus the tail (until quiet). Plugins render offline in hosts of the freeze's
+  own (ADR-0096), so a plugin that fails is a message, not an exit. The plugin
+  states are read first and stamped into the track's devices as the freeze is
+  applied, so Unfreeze restarts the plugins from what they were when frozen.
+  Progress and Esc are in the toast, as for bounce; the freeze applies as one
+  undo step ("Freeze"), or nothing if the track changed meanwhile.
+- **Refusals (FR4):** a track that is not audio or MIDI; one routed to a
+  hardware MIDI output; already frozen; empty; one with a sidechain keyed from
+  another track; one that plays another output of an instrument (`plugin_output`);
+  one whose instrument other tracks play outputs of. Each is said in full.
+- **Unfreeze** and **Flatten** are `Document` methods, one undo step each.
+  Flatten makes an audio track holding the file as one clip, clears its
+  devices, trim, polarity and MIDI routing, and keeps its mixer lanes; undo
+  restores the frozen track.
+- **Interface.** Commands `track.freeze`, `track.unfreeze` and `track.flatten`
+  (last in `Command`, no default keys), in the palette and in the track menu,
+  where each is listed only if it applies. A frozen track's header shows a lit
+  **Frozen** pill (a padlock alone where the header is narrow; both named "<track>
+  is frozen: unfreeze" for assistive technology) that unfreezes on click. Its
+  clips show the lock mark and clamps.
+
+**Deviations from the plan, for the owner.** (1) The way out is the header pill,
+not a toast action: toasts are not interactive. (2) A tempo or time-signature
+change is refused while a track is frozen: the file is rendered at the tempo of
+freezing and would stay behind the music; Unfreeze first. (3) Bounce and
+consolidate do not act on frozen tracks. (4) The file has the freeze's 2 ms edge
+fades, and the clip playing it gets the clip player's own, so both ends carry
+two. (5) A track that played mono and is flattened keeps the project's pan law
+only through its mono twin; a stereo file made from mono material that was not
+identical in both channels pans by the stereo law.
+
+**Consequences.** Frozen files are written to the renders folder and copied into
+`Samples/Rendered` on Save, like consolidate's and bounce's. No automation lane
+on a frozen track can be written except mixer lanes. Real third-party plugins
+(a plugin that hangs or crashes mid-freeze, a plugin whose state differs after
+unfreezing) are checked by hand (MT-EDIT-6).
+
+**Performance gate.** The serialize scenario rose 7% with the new field, though
+the field adds no work: the text pass `compact_scalar_arrays` had been inlined
+into `to_bytes` and compiled differently (callgrind showed the extra
+instructions in it). It is now `#[inline(never)]`, which brings the count back to
+that of `main` (+1.73% against the stored baseline, +1.74% on `main` itself;
+the baseline is not updated and is close to its limit).

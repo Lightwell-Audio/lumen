@@ -172,7 +172,7 @@ impl App {
             let name = self.document.project().tracks[hit.track].name.clone();
             self.say(format!(
                 "{name} is frozen, so its clips can't be changed. \
-                 Click Frozen on its header to unfreeze it"
+                 Click the lit Frozen badge on its header (or use Unfreeze track) to unfreeze it"
             ));
             return None;
         }

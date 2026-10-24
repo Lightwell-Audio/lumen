@@ -203,3 +203,12 @@ for shutdown; the shared region's quit setter is internal.
   plugin, `routing::bounce_routing` for the track alone); `app/clip_bounce.rs`:
   the popover, plugin-state capture, progress and Esc; `document/bounce.rs`:
   one undo step.
+- Freeze (ADR-0098, format v29): `lumen_project::edit::freeze` holds the planner,
+  the refusals, `apply`, `unfreeze`, `flatten`, `played` (the project as it
+  sounds: a frozen track is one audio clip of its file, no devices) and
+  `violations` (what `History::apply` refuses on a frozen track).
+  `Track.frozen` is the model. `lumen-app::bounce` renders with `Bake::Sound`;
+  `app/track_freeze.rs`: the commands, plugin-state capture, progress, Esc and
+  the refusal messages; `document/freeze.rs`: one undo step each;
+  `arrangement/frozen_badge.rs`: the header pill. `lanes` and `hosting::wanted`
+  use `played`, so a frozen track runs no plugin.

@@ -408,38 +408,33 @@ and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
 **Now (2026-10-24)**
-- **Branch `m7b-s4-bounce`: M7b E4 (bounce) is built** (ADR-0096 the R2
-  spike, ADR-0097 the command; **no format change**, still v28; not pushed).
-  New: `lumen_engine::render_source` and `Engine::set_offline`,
-  `routing::bounce_routing`, `Hosting::offline_starts`, `lumen-app::bounce`
-  (the worker), `lumen_project::edit::bounce` (planner and swap),
-  `Document::bounce_tracks`, `app/clip_bounce.rs` (the popover, plugin-state
-  capture, progress, Esc) and the settings section `bounce`. Command
-  `clip.bounce` (last in `Command`, no default key), in the palette, the
-  clip, range and track menus. Replace-with-effects falls back to a new
-  track when the span is not the whole track or a clip is locked (not yet
-  shown to the owner: tell them). MT-EDIT-5 passed (owner, 2026-10-24).
-- **Branch `m7b-s3-render-consolidate`: M7b E3 (render core and consolidate)
-  is built** (ADR-0095; **no format change**, still v28; not pushed). New:
-  `lumen_media::wav` (the WAV writer), `lumen_engine::render_clips` (the
-  device-free clip render: the live `ClipPlayer` run block by block, with
-  bare outer ends so a baked clip is not faded twice),
-  `lumen_project::edit::consolidate` (the planner, the swap and the MIDI
-  merge), `lumen-app::consolidate` (the worker), `app/clip_consolidate.rs`
-  (the command, progress and Esc in the toast), `Document::consolidate_clips`
-  (one undo step for audio and MIDI together). Command `clip.consolidate` (shown everywhere as "Join into new file": the user-visible word is Join, owner 2026-10-24; the palette's "Glue notes" is now "Join")
-  (last in `Command` and `ALL`, no default key), the clip menu's Edit row,
-  and Ctrl+J now consolidates audio that does not join seamlessly. Rendered
-  files are 32-bit float WAVs at the **device rate** (the media library holds
-  audio at that rate), written to a `Renders` folder beside the autosaves and
-  copied into `Samples/Rendered` on Save. Gates and what was not run: see
-  PROGRESS. MT-EDIT-4 passed (owner, 2026-10-24).
+- **Branch `m7b-s5-freeze`: M7b E5 (freeze, unfreeze, flatten) is built**
+  (ADR-0098; format **v29**; not pushed). `Track.frozen` (`edit::freeze`:
+  planner, `played`, `violations`); a frozen track plays its file and runs no
+  plugin (`lanes` and `hosting::wanted` take `played`); `History::apply`
+  refuses edits to a frozen track and says why (`take_refused`); the render is
+  the bounce worker with `Bake::Sound`; commands `track.freeze`, `.unfreeze`,
+  `.flatten` (last in `Command`, no default keys), a header pill (a padlock when
+  narrow) that unfreezes; E2E `freeze.rs`. Not shown to the owner: tempo and
+  meter changes are refused while a track is frozen, and the way out is the pill,
+  not a toast action (ADR-0098). Gates run: fmt, clippy, workspace tests, E2E,
+  smoke, macOS cross-clippy, WSL clippy and perf (`compact_scalar_arrays` is now
+  `#[inline(never)]`: the new field moved serialize by +7% through inlining).
+  **Waiting for the owner: MT-EDIT-6** (`docs/manual-tests/M7b.md`).
+- **E3 (consolidate, ADR-0095, MT-EDIT-4) and E4 (bounce, ADR-0096 and
+  ADR-0097, MT-EDIT-5) are merged (PR #55, #56), no format change.** Rendered
+  files are 32-bit float WAVs at the device rate in a `Renders` folder, copied
+  into `Samples/Rendered` on Save; `lumen_engine::render_source` and
+  `lumen-app::bounce` are the shared render. The user-visible word for
+  consolidate is Join (owner, 2026-10-24). Replace-with-effects falls back to a
+  new track when the span is not the whole track or a clip is locked (not yet
+  shown to the owner: tell them).
 - **M7b E2 (crossfades, ADR-0094, format v28) is merged (PR #54;
   MT-EDIT-3 passed).** A crossfade is a true overlap: drag the left clip's
   fade-out handle over the right clip.
 - **M7b E1 is merged (PR #52)** (ADR-0093; format **v27**): join, crop,
   unloop, nudge, reverse, polarity, normalize and the select variants.
-- **Next:** E5 (freeze, by the R2 route of ADR-0096), E6 (close M7b). Plan, owner choices and the slice list:
+- **Next:** E6 (close M7b). Plan, owner choices and the slice list:
   `docs/milestones/M7b.md`.
 - **Done:** M1 to M4.5 approved; M5 (MIDI), M6 (VST3 hosting) and M7
   (automation and envelopes) are built, with reports in PROGRESS. M7b E0
@@ -452,7 +447,7 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status, slice tables and reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0093 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0098 and the table of owner decisions.
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
 - `docs/KNOWN_ISSUES.md`, `docs/ARCHITECTURE.md` (crates, threads, module

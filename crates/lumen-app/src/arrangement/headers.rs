@@ -337,7 +337,7 @@ impl Arrangement {
         // A frozen track keeps room for its badge (the strip has none).
         let frozen = track.frozen.is_some() && !in_strip;
         let (rect, badge_row) = if frozen {
-            let room = super::frozen_badge::room(ui);
+            let room = super::frozen_badge::room(ui, rect.width());
             (
                 Rect::from_min_max(
                     rect.min,

@@ -376,7 +376,7 @@ impl App {
         if !names.is_empty() {
             words = format!(
                 "{} is frozen, so its clips, notes and devices can't be changed and nothing was. \
-                 Click Frozen on its header to unfreeze it",
+                 Click the lit Frozen badge on its header (or use Unfreeze track) to unfreeze it",
                 names.join(", ")
             );
         }

@@ -3617,3 +3617,43 @@ fn bounce_popover() {
         );
     }
 }
+
+/// A frozen track (the Frozen badge, the padlock on its clip) beside one that
+/// is not, and the words an edit gets when it is refused.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn frozen_track() {
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.5), ("dark", 2.0)] {
+        let dir = TempDir::new("shots-freeze");
+        let mut h = lumen_looking(&dir, appearance, scale);
+        let track = h.state().project().tracks[0].id;
+        h.state_mut().select_tracks(&[track]);
+        h.run_steps(2);
+        h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+        h.run_steps(2);
+        h.event(eframe::egui::Event::Text("Freeze track".into()));
+        h.run_steps(3);
+        h.key_press(Key::Enter);
+        for _ in 0..400 {
+            h.run_steps(1);
+            if h.state().undo_label() == Some("Freeze") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(h.state().undo_label(), Some("Freeze"), "the freeze ended");
+        h.run_steps(10);
+        save(
+            &mut h,
+            &format!("frozen-{appearance}-{}", (scale * 100.0) as u32),
+        );
+        let clip = h.state().project().tracks[0].clips[0].id;
+        h.state_mut().select_clip(clip);
+        h.key_press(Key::Delete);
+        h.run_steps(10);
+        save(
+            &mut h,
+            &format!("frozen-refused-{appearance}-{}", (scale * 100.0) as u32),
+        );
+    }
+}
