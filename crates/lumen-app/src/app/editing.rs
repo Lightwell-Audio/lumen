@@ -471,6 +471,7 @@ impl App {
                         self.menu_command(ui, Command::NormalizeClips, "Normalize");
                     }
                     self.menu_command(ui, Command::ConsolidateClips, "Join into new file");
+                    self.menu_command(ui, Command::Bounce, "Bounce");
                     self.menu_command(ui, Command::NudgeClipsEarlier, "Nudge earlier");
                     self.menu_command(ui, Command::NudgeClipsLater, "Nudge later");
                     widgets::submenu(ui, "Select", |ui| {
@@ -489,6 +490,7 @@ impl App {
                 ui.separator();
                 self.menu_command(ui, Command::SplitNotes, "Split at range edges");
                 self.menu_command(ui, Command::CropToSelection, "Crop to selection");
+                self.menu_command(ui, Command::Bounce, "Bounce");
                 ui.separator();
                 self.edit_items(ui, &[DeleteTime, InsertTime]);
             }

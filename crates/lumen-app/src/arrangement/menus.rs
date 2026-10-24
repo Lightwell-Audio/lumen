@@ -40,6 +40,16 @@ impl Arrangement {
             self.selected = vec![id];
             self.import_requested = true;
         }
+        let bounces = targets.iter().any(|t| {
+            doc.project()
+                .tracks
+                .iter()
+                .any(|x| x.id == *t && matches!(x.kind, TrackKind::Audio | TrackKind::Midi))
+        });
+        if bounces && item(ui, "Bounce", Command::Bounce) {
+            self.selected = targets.clone();
+            self.bounce_requested = true;
+        }
         if item(ui, "Move up", Command::MoveTracksUp) {
             self.move_selected(doc, -1);
         }

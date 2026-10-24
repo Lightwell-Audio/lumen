@@ -259,6 +259,7 @@ impl App {
             Command::InvertPolarity => self.invert_selected_clips(),
             Command::NormalizeClips => self.normalize_selected_clips(ctx),
             Command::ConsolidateClips => self.consolidate_selected_clips(ctx),
+            Command::Bounce => self.open_bounce(),
             Command::NudgeEarlierFine => self.note_op(NoteOp::Nudge {
                 direction: -1,
                 fine: true,

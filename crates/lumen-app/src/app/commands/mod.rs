@@ -46,6 +46,7 @@ impl App {
         self.shortcuts.open
             || self.transport.settings_window.open
             || self.show_history
+            || self.show_bounce
             || self.controllers.window
             || self.prompt.is_some()
     }

@@ -236,6 +236,10 @@ impl App {
                     .any(|c| self.arrangement.clips.contains(&c.id) && !c.locked),
                 "Select a clip first",
             ),
+            Command::Bounce => need(
+                !self.bounce_targets().is_empty(),
+                "Select a clip, a time range or a track to bounce",
+            ),
             Command::ReverseClips | Command::InvertPolarity | Command::NormalizeClips => need(
                 self.document
                     .project()

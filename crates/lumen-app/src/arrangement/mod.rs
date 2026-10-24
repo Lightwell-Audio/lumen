@@ -282,6 +282,9 @@ pub struct Arrangement {
     /// Import audio or MIDI was chosen in a track's menu: the app runs it next
     /// frame, onto that track (now the selection).
     pub(crate) import_requested: bool,
+    /// Bounce was chosen in a track's menu: the app runs it next frame, on
+    /// that track (now the selection).
+    pub(crate) bounce_requested: bool,
     /// The clip the arrow keys last chose (M3 review H2): where the next
     /// arrow goes from while it is selected.
     pub(crate) clip_cursor: Option<Id>,

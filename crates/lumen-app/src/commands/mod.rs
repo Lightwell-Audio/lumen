@@ -211,6 +211,7 @@ pub(crate) enum Command {
     InvertPolarity,
     NormalizeClips,
     ConsolidateClips,
+    Bounce,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -487,6 +488,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::InvertPolarity, "clip.polarity", "Invert polarity", Area::Clip, &[], "Inverts the polarity of the selected audio clips, or puts it back."),
     info(Command::NormalizeClips, "clip.normalize", "Normalize", Area::Clip, &[], "Sets the gain of the selected audio clips so the loudest sample of the stretch each plays reaches full scale. The audio file is not changed."),
     info(Command::ConsolidateClips, "clip.consolidate", "Join into new file", Area::Clip, &[], "Renders the selected audio clips of each track, from the first clip's start to the last clip's end with gaps as silence, into one new audio file and replaces them with a clip that plays it. Clip gain, polarity, reverse, fades, crossfades and envelopes are baked in; the track's fader, pan and devices are not. The originals stay in the media pool. Esc stops it."),
+    info(Command::Bounce, "clip.bounce", "Bounce", Area::Clip, &[], "Renders the selected tracks, over the time range, the selected clips or the whole track, into a new audio file with the track's own sound, its plugins, fader and pan included if you leave Include effects on, and puts it on the track or on a new track. A tail that rings on after the end is kept. Esc stops it."),
 ];
 
 const fn info(
@@ -536,7 +538,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::ConsolidateClips as usize + 1,
+            Command::Bounce as usize + 1,
             ALL.len(),
             "a command is missing"
         );

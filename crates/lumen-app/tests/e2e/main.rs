@@ -16,6 +16,7 @@ mod audition;
 mod automation;
 mod barfit;
 mod bench_callback;
+mod bounce;
 mod chrome;
 mod clip_commands;
 mod clip_envelopes;

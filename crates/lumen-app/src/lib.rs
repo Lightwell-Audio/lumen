@@ -216,6 +216,11 @@ pub struct App {
     /// The peak scan behind Normalize, while it runs (M7b slice E1).
     normalizing: Option<app::clip_normalize::Running>,
     consolidating: Option<app::clip_consolidate::Running>,
+    /// A bounce reading the plugins, then rendering (M7b slice E4), and the
+    /// popover that starts one.
+    bounce_waiting: Option<app::clip_bounce::Waiting>,
+    bouncing: Option<app::clip_bounce::Running>,
+    show_bounce: bool,
     /// An exported MIDI file being written (M5 slice 7).
     midi_writing: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
     /// A MIDI file's tempo and meter, offered in a banner (M5 slice 7, F2).
@@ -447,6 +452,9 @@ impl eframe::App for App {
         if std::mem::take(&mut self.arrangement.import_requested) {
             self.run(&ctx, commands::Command::Import);
         }
+        if std::mem::take(&mut self.arrangement.bounce_requested) {
+            self.run(&ctx, commands::Command::Bounce);
+        }
         self.poll_files(&ctx);
         self.autosave(&ctx);
         let rate = self.transport.state().sample_rate;
@@ -472,6 +480,7 @@ impl eframe::App for App {
         self.poll_midi_files(&ctx);
         self.poll_normalize(&ctx);
         self.poll_consolidate(&ctx);
+        self.poll_bounce(&ctx);
         self.plugins.poll();
         if let Some(wait) = self.plugins.rebuild_wait() {
             ctx.request_repaint_after(wait);
@@ -605,6 +614,7 @@ impl eframe::App for App {
         self.update_recording();
         self.update_audition(&ctx);
         self.history_window(&ctx);
+        self.bounce_window(&ctx);
         self.mappings_window(&ctx);
         self.parameters_panel(&ctx);
         self.lane_parameters(&ctx);
