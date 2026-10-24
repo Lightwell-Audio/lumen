@@ -221,6 +221,7 @@ impl App {
             normalize_project_path,
             media_files: self.document.media_files.clone(),
             copy_imported: self.settings.projects.copy_imported,
+            renders: Some(self.renders_dir()),
             keep_backups: lumen_project::SaveOptions::default().keep_backups,
             state: self.document.state(),
         }));
@@ -293,6 +294,7 @@ impl App {
         self.chain.selected = None;
         self.synced = None;
         self.normalizing = None;
+        self.consolidating = None;
         self.show_history = false;
         self.forget_passes();
         self.transport.locate(Ticks::ZERO);

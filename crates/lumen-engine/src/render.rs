@@ -17,6 +17,9 @@ use crate::mixer::{BUS_CHANNELS, Buses, CHUNK, TrackSource};
 use crate::source::{Mode, RenderContext};
 use crate::timeline::Timeline;
 
+/// The most frames a render handles at a time.
+pub const MOST_BLOCK: usize = CHUNK;
+
 /// The bus every clip is summed on.
 const BUS_ID: u64 = 0;
 
@@ -74,7 +77,7 @@ pub fn render_clips(
     }
     let by_id = [(BUS_ID, 0)];
     let mut data = vec![0.0; CHUNK * BUS_CHANNELS];
-    let block = block.clamp(1, CHUNK) as u64;
+    let block = block.clamp(1, MOST_BLOCK) as u64;
     let mut done = 0;
     while done < frames {
         if cancel.load(Ordering::Relaxed) {

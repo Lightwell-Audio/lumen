@@ -7,7 +7,7 @@ use lumen_core::time::{PPQ, Ticks};
 
 use super::{Lumen, wav};
 
-fn command(lumen: &mut Lumen, name: &str) {
+pub(super) fn command(lumen: &mut Lumen, name: &str) {
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.harness.event(Event::Text(name.into()));
     lumen.frames(2);
@@ -15,7 +15,7 @@ fn command(lumen: &mut Lumen, name: &str) {
     assert!(!lumen.app().palette_open());
 }
 
-fn audio(name: &str) -> Lumen {
+pub(super) fn audio(name: &str) -> Lumen {
     let mut lumen = Lumen::start(name);
     let file = wav(&lumen.dir().join("take.wav"), 4.0);
     lumen.drop_files(&[file]);
@@ -53,7 +53,7 @@ fn click_at(lumen: &mut Lumen, at: Pos2) {
 
 /// Cuts the clip under `quarter` there: a click puts the playhead and the
 /// selection there, Ctrl+E cuts.
-fn cut_at(lumen: &mut Lumen, quarter: i64) {
+pub(super) fn cut_at(lumen: &mut Lumen, quarter: i64) {
     let clips = lumen.app().project().tracks[0].clips.clone();
     let zoom = lumen.app().view().zoom as f32;
     let clip = clips
@@ -100,7 +100,7 @@ fn ctrl_j_joins_what_a_split_made_and_undo_gives_the_parts_back() {
 }
 
 #[test]
-fn join_needs_two_clips_and_apart_audio_is_pointed_to_consolidate() {
+fn join_needs_two_clips_and_apart_audio_is_consolidated() {
     let mut lumen = audio("join-apart");
     let id = lumen.app().project().tracks[0].clips[0].id;
     lumen.app_mut().select_clip(id);
@@ -116,11 +116,14 @@ fn join_needs_two_clips_and_apart_audio_is_pointed_to_consolidate() {
     lumen.key(Modifiers::COMMAND, Key::A);
     let apart = lumen.app().project().clone();
     lumen.key(Modifiers::COMMAND, Key::J);
+    // Parts that do not continue one another are rendered into one clip
+    // (E3; the details are in `consolidate.rs`).
+    lumen.wait_for("the render to replace the parts", |app| {
+        app.undo_label() == Some("Consolidate")
+    });
+    assert_eq!(lumen.app().project().tracks[0].clips.len(), 1);
+    lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(lumen.app().project(), &apart);
-    assert_eq!(
-        lumen.app().note(),
-        Some("These clips do not continue one another: use Consolidate")
-    );
 }
 
 #[test]

@@ -23,6 +23,7 @@ mod clips;
 mod clock;
 mod commands;
 mod compensation;
+mod consolidate;
 mod controllers;
 mod crossfades;
 mod cue;

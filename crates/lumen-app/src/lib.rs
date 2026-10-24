@@ -55,6 +55,7 @@ mod chain;
 #[cfg(test)]
 mod clip_flags_render;
 mod commands;
+mod consolidate;
 mod crash;
 mod crossfades;
 mod document;
@@ -213,6 +214,7 @@ pub struct App {
     midi_exporting: Option<std::sync::mpsc::Receiver<Result<midi_files::Exported, String>>>,
     /// The peak scan behind Normalize, while it runs (M7b slice E1).
     normalizing: Option<app::clip_normalize::Running>,
+    consolidating: Option<app::clip_consolidate::Running>,
     /// An exported MIDI file being written (M5 slice 7).
     midi_writing: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
     /// A MIDI file's tempo and meter, offered in a banner (M5 slice 7, F2).
@@ -468,6 +470,7 @@ impl eframe::App for App {
         }
         self.poll_midi_files(&ctx);
         self.poll_normalize(&ctx);
+        self.poll_consolidate(&ctx);
         self.plugins.poll();
         if let Some(wait) = self.plugins.rebuild_wait() {
             ctx.request_repaint_after(wait);

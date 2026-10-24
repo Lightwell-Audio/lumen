@@ -19,6 +19,9 @@ use lumen_project::{MediaLocation, SaveOptions, locate_media, media_path_for};
 
 /// Where audio copied into a project goes, inside its folder.
 pub const IMPORTED: &str = "Samples/Imported";
+/// Where audio Lumen rendered itself (a consolidated clip) goes, inside the
+/// project folder.
+pub const RENDERED: &str = "Samples/Rendered";
 /// The file extension of projects.
 pub const EXTENSION: &str = "lumen";
 
@@ -57,6 +60,11 @@ pub struct SaveRequest {
     pub media_files: HashMap<Id, PathBuf>,
     /// Copy audio from outside the project folder into `Samples/Imported`.
     pub copy_imported: bool,
+    /// The folder Lumen writes rendered audio to while a project is open.
+    /// Files in it are Lumen's own work, which only the project holds a
+    /// reference to: they are copied into the project whatever
+    /// `copy_imported` says, and are not recorded as imported.
+    pub renders: Option<PathBuf>,
     /// Earlier versions kept in `Backups` (none for autosaves).
     pub keep_backups: usize,
     /// The document state being saved (edits during the save stay unsaved).
@@ -94,9 +102,11 @@ pub fn save_now(request: SaveRequest) -> Result<Saved, String> {
         normalize_project_path,
         media_files,
         copy_imported,
+        renders,
         keep_backups,
         state,
     } = request;
+    let renders = renders.map(|dir| canonical(&dir));
     let path = if normalize_project_path {
         project_file_for(&chosen_path)
     } else {
@@ -117,20 +127,25 @@ pub fn save_now(request: SaveRequest) -> Result<Saved, String> {
             continue;
         };
         let source = canonical(source);
-        let location = if copy_imported && !source.starts_with(&dir) && source.is_file() {
-            let target = copy_target(&dir.join(IMPORTED), &source)?;
-            if !target.is_file() {
-                std::fs::create_dir_all(dir.join(IMPORTED))
-                    .and_then(|()| std::fs::copy(&source, &target).map(|_| ()))
-                    .map_err(|e| format!("Could not copy {}: {e}", source.display()))?;
-                copied += 1;
-            }
-            moved.insert(media.id, target.clone());
-            media.original_path = Some(source.to_string_lossy().into_owned());
-            target
-        } else {
-            source
-        };
+        let rendered = renders.as_ref().is_some_and(|dir| source.starts_with(dir));
+        let location =
+            if (copy_imported || rendered) && !source.starts_with(&dir) && source.is_file() {
+                let folder = dir.join(if rendered { RENDERED } else { IMPORTED });
+                let target = copy_target(&folder, &source)?;
+                if !target.is_file() {
+                    std::fs::create_dir_all(&folder)
+                        .and_then(|()| std::fs::copy(&source, &target).map(|_| ()))
+                        .map_err(|e| format!("Could not copy {}: {e}", source.display()))?;
+                    copied += 1;
+                }
+                moved.insert(media.id, target.clone());
+                if !rendered {
+                    media.original_path = Some(source.to_string_lossy().into_owned());
+                }
+                target
+            } else {
+                source
+            };
         media.path = media_path_for(&dir, &location);
     }
     let file = dir.join(path.file_name().ok_or("the project has no file name")?);
@@ -288,6 +303,7 @@ mod tests {
             normalize_project_path: false,
             media_files: doc.media_files.clone(),
             copy_imported,
+            renders: None,
             keep_backups: SaveOptions::default().keep_backups,
             state: doc.state(),
         }
@@ -349,6 +365,33 @@ mod tests {
         assert!(!original.starts_with(r"\\?\"), "{original}");
         assert_eq!(opened.project.tracks, doc.project().tracks);
         assert_eq!(opened.media_files.len(), 2);
+    }
+
+    #[test]
+    fn rendered_audio_is_always_copied_in_and_is_not_an_import() {
+        let tmp = TempDir::new("files-rendered");
+        let renders = tmp.path().join("Renders");
+        let baked = renders.join("consolidated-1.wav");
+        let library = tmp.path().join("Library").join("kick.wav");
+        wav(&baked, 4_800);
+        wav(&library, 4_800);
+        let doc = document_with(&[baked.clone(), library.clone()]);
+        let path = tmp.path().join("Song").join("Song.lumen");
+        let mut asked = request(&doc, path.clone(), false);
+        asked.renders = Some(renders);
+        let saved = save_now(asked).unwrap();
+        // The render moves in; the library file, with copying off, stays.
+        assert_eq!(saved.copied, 1);
+        let folder = path.parent().unwrap().join(RENDERED);
+        assert!(folder.join("consolidated-1.wav").is_file());
+        let opened = open_now(&path).unwrap();
+        assert!(opened.missing.is_empty(), "{:?}", opened.missing);
+        assert_eq!(
+            opened.project.media[0].path,
+            "Samples/Rendered/consolidated-1.wav"
+        );
+        assert_eq!(opened.project.media[0].original_path, None);
+        assert!(Path::new(&opened.project.media[1].path).is_absolute());
     }
 
     #[test]

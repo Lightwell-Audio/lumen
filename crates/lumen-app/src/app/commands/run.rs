@@ -258,6 +258,7 @@ impl App {
             Command::ReverseClips => self.reverse_selected_clips(),
             Command::InvertPolarity => self.invert_selected_clips(),
             Command::NormalizeClips => self.normalize_selected_clips(ctx),
+            Command::ConsolidateClips => self.consolidate_selected_clips(ctx),
             Command::NudgeEarlierFine => self.note_op(NoteOp::Nudge {
                 direction: -1,
                 fine: true,
@@ -285,7 +286,7 @@ impl App {
             Command::LaneLine => self.note_editor.lane.use_tool(LaneTool::Line),
             Command::LaneCurve => self.note_editor.lane.use_tool(LaneTool::Curve),
             Command::GlueNotes if notes => self.note_op(NoteOp::Glue),
-            Command::GlueNotes => self.join_selected_clips(),
+            Command::GlueNotes => self.join_selected_clips(ctx),
             Command::LegatoNotes => self.note_op(NoteOp::Legato),
             Command::SplitNotes if notes => {
                 if let Some(at) = self.split_point() {

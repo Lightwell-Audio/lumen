@@ -46,7 +46,7 @@ pub use mixer::{
     Plan, RMS_SECONDS, Routing, RoutingError, SendSpec, SidechainSpec, Tap, TrackSource,
     compile as compile_routing, db_gain, mixer,
 };
-pub use render::{ClipRender, Finished, render_clips};
+pub use render::{ClipRender, Finished, MOST_BLOCK, render_clips};
 pub use scrub::{MAX_SPEED as MAX_SCRUB_SPEED, ScrubStyle};
 pub use snapshot::TransportSnapshot;
 pub use source::{Jump, Mode, Output, RenderContext, Source};

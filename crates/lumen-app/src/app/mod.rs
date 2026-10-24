@@ -10,6 +10,7 @@ pub(crate) mod auto_recording;
 mod bench_callback;
 pub(crate) mod clip_card;
 mod clip_commands;
+pub(crate) mod clip_consolidate;
 mod clip_envelopes;
 pub(crate) mod clip_normalize;
 pub(crate) mod clipboard_keys;
