@@ -408,7 +408,7 @@ and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
 **Now (2026-10-23)**
-- **Branch `m7b-s2-crossfades`: M7b E2 is built** (ADR-0094;
+- **Branch `m7b-s2-join-crossfades`: M7b E2 is built** (ADR-0094;
   format v28). Automatic 5 ms crossfades, custom join fades and the existing
   incoming fade handle, shared preview/playback eligibility and preserved
   legacy playback. New controls use the design-system material and tokens.

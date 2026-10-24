@@ -3,7 +3,7 @@
 ## Status
 
 **M7b slice E2 (crossfades) is built, 2026-10-23** on
-`m7b-s2-crossfades` (ADR-0094; accepted X1; format v28). Automatic 5 ms
+`m7b-s2-join-crossfades` (ADR-0094; accepted X1; format v28). Automatic 5 ms
 crossfades for new projects, custom join fades, source-tail bounds, shared
 preview/playback eligibility and undoable settings are implemented. Older
 projects migrate with automatic crossfades off. Existing edit and selection
@@ -128,7 +128,7 @@ are retained. The rule is in the repository instructions and
 no implementation or feature status.
 
 **Current milestone:** M7b — Advanced editing and render. E0 and E1 are merged
-(PR #51 and #52); E2 is being verified on `m7b-s2-crossfades` (format v28,
+(PR #51 and #52); E2 is being verified on `m7b-s2-join-crossfades` (format v28,
 ADR-0094). E3–E6 have not started. See the [plan](milestones/M7b.md) and
 [MT-EDIT-3](manual-tests/M7b.md).
 **2026-10-14 playback fix:** imported notes (and controllers) that round

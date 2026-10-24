@@ -405,7 +405,7 @@ The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
 **Last updated (2026-10-23):** M7b E2 crossfades are built on
-`m7b-s2-crossfades`, cut from `origin/main` after E1 merged (PR #52).
+`m7b-s2-join-crossfades`, cut from `origin/main` after E1 merged (PR #52).
 Windows: 2,770 workspace tests (636 E2E), six smoke tests, clean clippy;
 macOS cross-clippy passes. See ADR-0094, `docs/milestones/M7b.md`, and
 MT-EDIT-3 (owner verification pending). New UI follows

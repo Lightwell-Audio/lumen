@@ -1,7 +1,7 @@
 # Milestone 7b — Advanced Editing & Render: plan
 
 **Status:** Approved to start by the owner, 2026-10-22. E0 merged (PR #51).
-E1 merged (PR #52). E2 is built on `m7b-s2-crossfades`, cut from
+E1 merged (PR #52). E2 is built on `m7b-s2-join-crossfades`, cut from
 `origin/main` after E1 and the recording-priority documentation update.
 MT-EDIT-3 awaits the owner; automated checks and measurements are in PROGRESS
 and ADR-0094. E3 has not started.
@@ -120,7 +120,7 @@ Sizes are rough (S/M/L).
 
 ### E2 implementation plan (2026-10-23)
 
-Branch: `m7b-s2-crossfades`, cut from `origin/main` after E1 merged.
+Branch: `m7b-s2-join-crossfades`, cut from `origin/main` after E1 merged.
 Implement the accepted X1 join design using existing fade handles, menu
 controls, and the tokens in `docs/design-system/lumen-tokens.json` and
 `theme.rs`; no new visual direction or assets.

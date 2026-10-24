@@ -129,7 +129,7 @@ falling sound (a fade-in, a drum hit, a spoken word) so reverse is obvious.
 
 ## MT-EDIT-3 — Crossfades (E2)
 
-**State:** Waiting for the owner. Branch: `m7b-s2-crossfades`.
+**State:** Waiting for the owner. Branch: `m7b-s2-join-crossfades`.
 Use a scratch project; retain source audio beyond the outgoing clip's trim.
 
 ```powershell
