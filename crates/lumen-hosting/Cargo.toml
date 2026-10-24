@@ -13,6 +13,7 @@ lumen-devices.workspace = true
 lumen-plugin-host = { path = "../lumen-plugin-host" }
 
 [dev-dependencies]
+lumen-engine.workspace = true
 lumen-rt.workspace = true
 lumen-test-plugin = { path = "../lumen-test-plugin" }
 
