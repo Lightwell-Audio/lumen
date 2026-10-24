@@ -169,6 +169,48 @@ fn auto_crossfades_toggle_and_explicit_crossfade_handle_roundtrip() {
 }
 
 #[test]
+fn dragging_the_left_clips_fade_out_handle_into_the_next_clip_makes_the_crossfade() {
+    let (mut lumen, right) = joined_parts("crossfade-left-handle");
+    let left = lumen.app().project().tracks[0].clips[0].id;
+    // With automatic crossfades off, the drag alone makes the crossfade.
+    lumen.click("Lumen");
+    lumen.click("Automatic crossfades");
+    lumen.key(Modifiers::NONE, Key::Escape);
+    assert!(!lumen.app().project().auto_crossfade);
+    assert!(!clip(&lumen, right).crossfade);
+
+    let at = lumen.app().clip_handles(&lumen.harness.ctx, left).unwrap();
+    lumen.harness.hover_at(at.fade_out);
+    lumen.frames(2);
+    assert!(
+        lumen
+            .info()
+            .contains("drag into the next clip to crossfade")
+    );
+    let reach = vec2(rect(&lumen, right).width() * 0.2, 0.0);
+    lumen.drag(at.fade_out, at.fade_out + reach, Modifiers::NONE);
+    let made = clip(&lumen, right);
+    assert!(made.crossfade && made.fade_in.length > Ticks::ZERO);
+    assert_eq!(clip(&lumen, left).fade_out.length, Ticks::ZERO);
+    // The whole drag is one undo step.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert!(!clip(&lumen, right).crossfade);
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
+    assert!(clip(&lumen, right).crossfade);
+
+    // Dragging the handle back to the join is a hard cut there.
+    let at = lumen.app().clip_handles(&lumen.harness.ctx, left).unwrap();
+    lumen.drag(at.fade_out, at.fade_out + reach, Modifiers::NONE);
+    lumen.drag(
+        at.fade_out + reach,
+        at.fade_out - vec2(4.0, 0.0),
+        Modifiers::NONE,
+    );
+    assert!(clip(&lumen, right).crossfade);
+    assert_eq!(clip(&lumen, right).fade_in.length, Ticks::ZERO);
+}
+
+#[test]
 fn project_menu_keeps_crossfades_and_lower_controls_reachable_in_a_small_window() {
     let mut lumen = Lumen::start("crossfade-small-menu");
     lumen.harness.set_size(vec2(960.0, 540.0));

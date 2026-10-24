@@ -142,7 +142,16 @@ cargo run --release -p lumen-app
    the join and check for a clean transition.
 2. Find Automatic crossfades through the palette and toggle it. Undo and
    redo restore the setting. An older project opens with it disabled.
-3. Select the incoming audio clip and use Toggle custom crossfade through
+3. Make the crossfade by hand: hover the first clip and grab the ring in its
+   top-right corner (the fade-out handle). Drag it right, past the join and
+   into the second clip. The crossing grows from the join, both curves
+   show, and the length appears beside the pointer. It works with Automatic
+   crossfades off as well. Drag the handle back to the join: that join is a
+   hard cut. Undo restores each state in one step. With no audio left past
+   the first clip's end, the hint says so. Double-click the handle to remove
+   the crossing.
+   The commands below do the same from the keyboard.
+   Select the incoming audio clip and use Toggle custom crossfade through
    the palette (Ctrl+Shift+X), or Custom crossfade at join in the clip menu.
    Drag its fade-in handle to lengthen the crossing;
    both curves and the live length feedback follow. Undo the whole drag in

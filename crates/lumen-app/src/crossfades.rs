@@ -28,6 +28,32 @@ pub(crate) fn preview(project: &Project, track: Id, clip: &Clip) -> Clip {
     shown
 }
 
+/// The audio clip that starts where `left` ends on the same track: the one a
+/// crossfade dragged from `left`'s fade-out handle belongs to. Both clips
+/// must be unlocked audio.
+pub(crate) fn incoming(project: &Project, left: Id) -> Option<Id> {
+    let track = project
+        .tracks
+        .iter()
+        .find(|t| t.clips.iter().any(|c| c.id == left))?;
+    let from = track.clips.iter().find(|c| c.id == left)?;
+    if from.locked || !matches!(from.content, ClipContent::Audio { .. }) {
+        return None;
+    }
+    let end = from.start + from.length;
+    track
+        .clips
+        .iter()
+        .find(|c| {
+            c.id != left
+                && c.start == end
+                && !c.locked
+                && c.length > Ticks::ZERO
+                && matches!(c.content, ClipContent::Audio { .. })
+        })
+        .map(|c| c.id)
+}
+
 /// Effective incoming fade at a touching audio join. A missing tail, a gap,
 /// or contiguous source material leaves the ordinary fade behavior intact.
 pub(crate) fn fade(project: &Project, track: Id, clip: &Clip) -> Option<Fade> {

@@ -8434,6 +8434,14 @@ Breaking the join by moving, trimming or deleting a clip removes its effective
 crossfade without destroying the saved request. Audio data and original media
 remain unchanged.
 
+**Owner revision (2026-10-23, MT-EDIT-3).** The crossfade is made by
+dragging the outgoing clip's fade-out handle past the join into the next clip.
+Options chosen by the owner: the crossing runs after the join (no format
+change); dragging back to the join is a hard cut there; the incoming clip's
+fade-in handle keeps controlling the same crossfade. The drag writes the
+incoming clip's request and length as one undo step, so it works with
+automatic crossfades off. Double-click on the handle removes the crossing.
+
 **Alternatives.** Storing overlapping clips would require exceptions throughout
 editing and hit testing. Rendering a new file for each crossfade would add disk
 work and obscure the original edits. Both were rejected in favor of X1.

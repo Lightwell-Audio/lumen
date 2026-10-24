@@ -204,7 +204,13 @@ pub enum Gesture {
         at: Ticks,
     },
     /// Dragging the handle of `clip`'s fade at `edge` along (slice 6d).
-    Fade { clip: Id, edge: Edge },
+    /// `crossing`: a fade-out that has been dragged past the clip's end, so
+    /// it is setting the next clip's crossfade.
+    Fade {
+        clip: Id,
+        edge: Edge,
+        crossing: bool,
+    },
     /// Bending that fade by its dot (C3): the handle as it is now, the
     /// pointer's last place, and the fade's size on screen.
     Bend {
