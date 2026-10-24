@@ -47,6 +47,7 @@ mod audition;
 mod auto_record;
 mod autosave;
 mod bench;
+mod bounce;
 mod brand;
 mod browser;
 mod callback_bench;

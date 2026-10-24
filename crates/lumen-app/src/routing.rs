@@ -270,6 +270,37 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Ro
     }
 }
 
+/// The routing that renders `track` alone for a bounce (M7b E4, owner's B2):
+/// the track's own sound (devices, trim, polarity, fader, pan and its own
+/// lanes) into a master that does nothing. Not its sends, its group, mute and
+/// solo, the cue or the master's own fader and devices; a plugin keyed from
+/// another track is keyed from nothing. `None` if the track is not in the
+/// project.
+pub fn bounce_routing(
+    project: &Project,
+    track: lumen_project::model::Id,
+    devices: &Devices,
+    rate: u32,
+) -> Option<Routing> {
+    let mut full = routing(project, &Cue::default(), devices, rate);
+    let mut node = full.nodes.drain(..).find(|n| n.id == track.0)?;
+    let master = project.master.id.0;
+    node.audible = true;
+    node.sends_audible = false;
+    node.cue = false;
+    node.output = Destination::Node(master);
+    node.sends.clear();
+    node.sidechains.clear();
+    if let Some(lanes) = &mut node.automation {
+        lanes.sends.clear();
+    }
+    Some(Routing {
+        nodes: vec![NodeSpec::unity(master, Destination::Hardware(0)), node],
+        cue: None,
+        measure: None,
+    })
+}
+
 /// The sidechains into `track`: where each of its plugin effects is keyed
 /// from, once for each source and tap. A source that has been deleted plays
 /// nothing (the device keeps naming it, so undoing the delete restores it).
@@ -502,6 +533,36 @@ mod tests {
         let routing = super::routing(doc.project(), &Cue::default(), &devices, RATE);
         let plan = lumen_engine::compile_routing(&routing).unwrap();
         assert_eq!(plan.compensation().frames, 480);
+    }
+
+    #[test]
+    fn a_bounce_routes_the_track_alone_with_its_own_sound_into_a_plain_master() {
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio, TrackKind::Return]);
+        doc.set_volume(ids[0], -6.0);
+        doc.set_pan(ids[0], 0.5);
+        doc.set_send(ids[0], ids[1], Level(0.0)).unwrap();
+        doc.set_mute(&ids[..1], true);
+        let master = doc.project().master.id;
+        let routing = super::bounce_routing(doc.project(), ids[0], &Devices::default(), RATE)
+            .expect("the track is there");
+        assert_eq!(routing.nodes.len(), 2, "the track and the master");
+        assert_eq!(routing.cue, None);
+        let track = node(&routing, ids[0]);
+        assert!(track.audible, "a muted track is bounced as it sounds");
+        assert!(track.sends.is_empty());
+        assert_eq!(track.output, Destination::Node(master.0));
+        assert!(
+            (track.volume - db_to_gain(-6.0)).abs() < 1e-6,
+            "its fader stays"
+        );
+        assert_eq!(track.pan, 0.5);
+        let bus = node(&routing, master);
+        assert_eq!(bus.output, Destination::Hardware(0));
+        assert_eq!(bus.volume, 1.0, "the master does nothing");
+        lumen_engine::compile_routing(&routing).unwrap();
+        assert!(
+            super::bounce_routing(doc.project(), Id(9_999), &Devices::default(), RATE).is_none()
+        );
     }
 
     fn doc_with(kinds: &[TrackKind]) -> (Document, Vec<Id>) {

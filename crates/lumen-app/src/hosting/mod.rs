@@ -502,6 +502,15 @@ pub fn promised_frames(block: u32) -> u32 {
     if block == 0 { most } else { block.min(most) }
 }
 
+/// A plugin device of a track being bounced, with what its own host is
+/// started from.
+pub struct OfflinePlugin {
+    pub device: Id,
+    pub name: String,
+    pub instrument: bool,
+    pub start: Start,
+}
+
 /// What a device needs of the project to get a host.
 struct Wanted<'a> {
     track: &'a Track,
@@ -755,21 +764,47 @@ impl Hosting {
         if self.safe && !self.allowed.contains(&w.device.id.0) {
             return State::Safe;
         }
-        let (Some(manager), Some(host)) = (self.manager.as_mut(), self.host.as_ref()) else {
+        if self.manager.is_none() {
             return State::Missing;
+        }
+        let start = match self.make_start(w, catalog, rate, frames) {
+            Ok(start) => start,
+            Err(state) => return state,
+        };
+        let Some(manager) = self.manager.as_mut() else {
+            return State::Missing;
+        };
+        match manager.want(w.device.id.0, start) {
+            Ok(()) => State::Loading,
+            Err(e) => State::Failed(format!("The plugin host could not be started: {e}")),
+        }
+    }
+
+    /// What a host for `w` is started from: the program, the plugin's module,
+    /// and the state and values the project holds for it. Why not, as the
+    /// state the device is in.
+    fn make_start(
+        &self,
+        w: &Wanted<'_>,
+        catalog: &Catalog,
+        rate: u32,
+        frames: u32,
+    ) -> Result<Start, State> {
+        let Some(host) = self.host.as_ref() else {
+            return Err(State::Missing);
         };
         let Some(module) = catalog
             .find(&format!("vst3:{}", w.class.to_ascii_uppercase()))
             .and_then(|d| d.module.clone())
         else {
-            return State::Missing;
+            return Err(State::Missing);
         };
         let Some(class) = lumen_hosting::parse_class_id(w.class) else {
-            return State::Missing;
+            return Err(State::Missing);
         };
         if rate == 0 {
             // Not known yet (no stream): try again next frame.
-            return State::Missing;
+            return Err(State::Missing);
         }
         let mut start = Start::new(
             host.clone(),
@@ -799,10 +834,43 @@ impl Hosting {
                 ));
             }
         }
-        match manager.want(w.device.id.0, start) {
-            Ok(()) => State::Loading,
-            Err(e) => State::Failed(format!("The plugin host could not be started: {e}")),
+        Ok(start)
+    }
+
+    /// The plugin devices a bounce of `track` needs, each with what a host of
+    /// its own is started from (M7b E4): the instrument, and the effects when
+    /// `effects`. `project` should carry the plugins' states as they are now
+    /// ([`Hosting::stamp`]). Why a plugin cannot be had, in words.
+    pub fn offline_starts(
+        &self,
+        project: &Project,
+        track: Id,
+        effects: bool,
+        catalog: &Catalog,
+        rate: u32,
+    ) -> Result<Vec<OfflinePlugin>, String> {
+        let mut found = Vec::new();
+        for w in wanted(project) {
+            if w.track.id != track || !(effects || w.instrument) {
+                continue;
+            }
+            let name = match &w.device.plugin {
+                PluginRef::Vst3 { name, .. } | PluginRef::Builtin { name } => name.clone(),
+            };
+            if self.safe && !self.allowed.contains(&w.device.id.0) {
+                return Err(format!("{name} is not loaded in safe mode"));
+            }
+            match self.make_start(&w, catalog, rate, promised_frames(0)) {
+                Ok(start) => found.push(OfflinePlugin {
+                    device: w.device.id,
+                    name,
+                    instrument: w.instrument,
+                    start,
+                }),
+                Err(_) => return Err(format!("{name} is not installed")),
+            }
         }
+        Ok(found)
     }
 
     /// The instrument for a MIDI track's plugin: the running one, once, or a
