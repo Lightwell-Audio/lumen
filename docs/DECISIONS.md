@@ -8442,6 +8442,17 @@ fade-in handle keeps controlling the same crossfade. The drag writes the
 incoming clip's request and length as one undo step, so it works with
 automatic crossfades off. Double-click on the handle removes the crossing.
 
+**Owner revision (2026-10-23, second look at MT-EDIT-3).** The crossing must
+read as an overlap. Free, stacked overlap of clips was considered and not
+adopted: the reference behavior (manual and user reports) places a clip over
+another by trimming what it covers, and a crossfade is the zone where both clips
+sound. Clips therefore still never overlap in the model (no format change).
+The zone is drawn instead: a dim wash over the crossing, a closing edge, both
+curves drawn firmly across its full height, the outgoing clip's hidden tail
+drawn in its own colour fading out, and the incoming clip's waveform ramping in
+with the shared fade. A looping outgoing clip draws no tail. Free overlap,
+take lanes and comping stay with the later comping work.
+
 **Alternatives.** Storing overlapping clips would require exceptions throughout
 editing and hit testing. Rendering a new file for each crossfade would add disk
 work and obscure the original edits. Both were rejected in favor of X1.

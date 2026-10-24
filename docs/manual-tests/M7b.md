@@ -150,6 +150,10 @@ cargo run --release -p lumen-app
    hard cut. Undo restores each state in one step. With no audio left past
    the first clip's end, the hint says so. Double-click the handle to remove
    the crossing.
+4. Look at the crossing: it reads as an overlap. A dim zone covers the
+   crossing, both curves cross it from corner to corner in firm lines, the
+   first clip's tail shows in its colour fading out, and the second clip's
+   wave grows in. Check both themes and 150% and 200% scale.
    The commands below do the same from the keyboard.
    Select the incoming audio clip and use Toggle custom crossfade through
    the palette (Ctrl+Shift+X), or Custom crossfade at join in the clip menu.

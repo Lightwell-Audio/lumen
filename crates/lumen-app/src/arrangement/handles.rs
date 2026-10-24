@@ -36,6 +36,11 @@ const LINE_GRAB: f32 = 3.0;
 /// Clips narrower than this, or with a shorter wave area, show no handles.
 const MIN_WIDTH: f32 = 28.0;
 const MIN_HEIGHT: f32 = 10.0;
+/// How dark the overlap zone of a crossfade is (of the shadow token), and
+/// how strong its closing edge and crossing lines are (of the text colour).
+const CROSSFADE_WASH: f32 = 0.45;
+const CROSSFADE_EDGE: f32 = 0.35;
+const CROSSFADE_LINE: f32 = 0.85;
 /// A fade narrower than this shows no bend dot.
 const BEND_MIN: f32 = 16.0;
 /// The coarsest a gain drag gets (Shift: a tenth of it).
@@ -313,6 +318,25 @@ pub fn draw_handles(
 ) {
     let palette = theme::p();
     let accent = palette.accent;
+    if h.crossfade {
+        // The overlap zone: the outgoing clip's tail under the incoming
+        // clip's ramp, set apart by a dim wash and a closing edge.
+        let (x0, x1) = (h.fade_in.from.max(view.min), h.fade_in.to.min(view.max));
+        if x1 > x0 {
+            let zone = Rect::from_x_y_ranges(x0..=x1, h.wave.y_range());
+            painter.rect_filled(zone, 0.0, palette.shadow.gamma_multiply(CROSSFADE_WASH));
+            if view.contains(h.fade_in.to) {
+                painter.vline(
+                    h.fade_in.to,
+                    zone.y_range(),
+                    Stroke::new(
+                        theme::stroke::HAIRLINE,
+                        palette.text.gamma_multiply(CROSSFADE_EDGE),
+                    ),
+                );
+            }
+        }
+    }
     for edge in [Edge::Start, Edge::End] {
         let mut curve = h.curve(edge, view.min, view.max);
         let other = if h.crossfade && edge == Edge::Start {
@@ -335,14 +359,14 @@ pub fn draw_handles(
         if !hovered {
             if h.crossfade && edge == Edge::Start {
                 let other = other.expect("crossfade outgoing curve");
-                painter.line(
-                    curve,
-                    Stroke::new(theme::stroke::HAIRLINE, palette.text.gamma_multiply(0.45)),
+                // Both curves cross the whole zone, drawn firmly so a
+                // crossfade reads at a glance.
+                let line = Stroke::new(
+                    theme::stroke::LIT,
+                    palette.text.gamma_multiply(CROSSFADE_LINE),
                 );
-                painter.line(
-                    other,
-                    Stroke::new(theme::stroke::HAIRLINE, palette.text.gamma_multiply(0.45)),
-                );
+                painter.line(curve, line);
+                painter.line(other, line);
             } else {
                 painter.line(
                     curve,

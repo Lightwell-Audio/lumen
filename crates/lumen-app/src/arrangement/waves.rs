@@ -14,6 +14,9 @@ use super::samples::Geometry;
 /// short loop over a long clip shows its first repeats only.
 const MAX_REPEATS: usize = 4_096;
 
+/// How strongly the outgoing clip's tail shows under a crossfade.
+const TAIL_ALPHA: f32 = 0.6;
+
 /// What the waveform of a media file needs: its atlas slot, how many
 /// channels to show, and the file's own sample rate.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -45,6 +48,8 @@ pub(super) fn wave_instances(
         return Vec::new();
     };
     let mut waves = Vec::new();
+    let crossfades = crate::crossfades::resolved(project);
+    let lookup = &source;
     for (row, track) in project.tracks.iter().enumerate() {
         for clip in &track.clips {
             let [r, g, b, a] = color(track, clip).to_srgba_unmultiplied();
@@ -128,10 +133,25 @@ pub(super) fn wave_instances(
             let (curve_in, curve_out) = (clip.fade_in.curve.into(), clip.fade_out.curve.into());
             let fade_start = start - clip.fade_in.offset;
             let fade_end = end + clip.fade_out.offset;
-            let fade_in = [
-                beats(fade_start.as_quarters()),
-                beats((fade_start + clip.fade_in.span.max(clip.fade_in.length)).as_quarters()),
-            ];
+            // A crossfade at a join ramps the clip in, as the engine plays it.
+            let (curve_in, fade_in) = match crossfades.get(&clip.id) {
+                Some(fade) => (
+                    fade.curve.into(),
+                    [
+                        beats(start.as_quarters()),
+                        beats((start + fade.length).as_quarters()),
+                    ],
+                ),
+                None => (
+                    curve_in,
+                    [
+                        beats(fade_start.as_quarters()),
+                        beats(
+                            (fade_start + clip.fade_in.span.max(clip.fade_in.length)).as_quarters(),
+                        ),
+                    ],
+                ),
+            };
             let fade_out = [
                 beats((fade_end - clip.fade_out.span.max(clip.fade_out.length)).as_quarters()),
                 beats(fade_end.as_quarters()),
@@ -176,9 +196,113 @@ pub(super) fn wave_instances(
                 });
                 from = to;
             }
+            if let Some(fade) = crossfades.get(&clip.id)
+                && let Some(tail) = tail_wave(
+                    Crossing {
+                        track,
+                        row: row as u32,
+                        clip,
+                        fade,
+                    },
+                    &tempo,
+                    rate,
+                    lookup,
+                    &color,
+                )
+            {
+                waves.push(tail);
+            }
         }
     }
     waves
+}
+
+/// A crossfade at the start of `clip`, on `track`'s `row`.
+#[derive(Clone, Copy)]
+struct Crossing<'a> {
+    track: &'a Track,
+    row: u32,
+    clip: &'a Clip,
+    fade: &'a lumen_core::fade::Fade,
+}
+
+/// The outgoing clip's hidden tail under a crossfade, drawn where the
+/// incoming clip ramps in: the same audio the engine reads past the left
+/// clip's end, fading out over the join. A looping outgoing clip draws none.
+fn tail_wave(
+    crossing: Crossing<'_>,
+    tempo: &TempoMap,
+    rate: u32,
+    source: &impl Fn(u64) -> Option<Source>,
+    color: &impl Fn(&Track, &Clip) -> Color32,
+) -> Option<Wave> {
+    let Crossing {
+        track,
+        row,
+        clip,
+        fade,
+    } = crossing;
+    let left = track
+        .clips
+        .iter()
+        .find(|c| c.id != clip.id && c.start + c.length == clip.start && c.length > Ticks::ZERO)?;
+    let ClipContent::Audio {
+        media,
+        offset,
+        gain_db,
+    } = &left.content
+    else {
+        return None;
+    };
+    if left.loop_length.is_some() {
+        return None;
+    }
+    let key = if left.reversed {
+        crate::media::reversed_key(media.0)
+    } else {
+        media.0
+    };
+    let source = source(key)?;
+    let base = (*offset as f64 * f64::from(rate) / f64::from(source.native_rate.max(1))) as i64;
+    let anchor = ((tempo.seconds_at(left.start) - left.audio_phase_seconds) * f64::from(rate))
+        .round() as i64;
+    let file_start = (base + tempo.sample_at(left.start, rate) - anchor) as f64;
+    let (from, to) = (clip.start, clip.start + fade.length);
+    let length = (to - from).as_quarters();
+    if length <= 0.0 {
+        return None;
+    }
+    let frames = (tempo.sample_at(to, rate) - tempo.sample_at(from, rate)) as f64;
+    let first_frame =
+        file_start + (tempo.sample_at(from, rate) - tempo.sample_at(left.start, rate)) as f64;
+    let [r, g, b, a] = color(track, left).to_srgba_unmultiplied();
+    let a = (f32::from(a) * TAIL_ALPHA) as u8;
+    let gain = 10f32.powf(gain_db / 20.0) * if left.inverted { -1.0 } else { 1.0 };
+    Some(Wave {
+        instance: WaveInstance {
+            start: beats(from.as_quarters()),
+            end: beats(to.as_quarters()),
+            row,
+            slot: source.slot,
+            first_frame: first_frame as f32,
+            frames_per_beat: (frames / length) as f32,
+            color: rgba(r, g, b, a),
+            channels: source.channels,
+            gain,
+            curve_in: Default::default(),
+            curve_out: fade.curve.into(),
+            fade_in: [beats(from.as_quarters()); 2],
+            fade_out: [beats(from.as_quarters()), beats(to.as_quarters())],
+        },
+        geometry: Geometry {
+            media: key,
+            row,
+            start: from.as_quarters(),
+            first_frame,
+            frames_per_beat: frames / length,
+            frames,
+        },
+    })
 }
 
 #[cfg(test)]
@@ -358,6 +482,40 @@ mod tests {
             let drawn = pair[0].frames_per_beat * (pair[0].end[0] - pair[0].start[0]);
             assert!((pair[0].first_frame + drawn - pair[1].first_frame).abs() < 1.0);
         }
+    }
+
+    #[test]
+    fn a_crossfade_draws_the_outgoing_tail_where_the_incoming_clip_ramps_in() {
+        // Two clips of four beats from beat 0 and beat 4, both from the start
+        // of the same eight-beat file (not a seam): a join with a tail.
+        let mut p = project(vec![bpm(0, 120.0)], 0);
+        p.auto_crossfade = true;
+        p.media.push(lumen_project::model::Media {
+            id: Id(3),
+            path: "a.wav".into(),
+            original_path: None,
+            frames: 48_000 * 8,
+            channels: 2,
+            sample_rate: 48_000,
+            size_bytes: 0,
+        });
+        let track = Arc::make_mut(&mut p.tracks[0]);
+        let mut left = (*track.clips[0]).clone();
+        left.id = Id(1);
+        left.start = Ticks::ZERO;
+        track.clips.insert(0, Arc::new(left));
+        let waves = waves(&p, 48_000);
+        assert_eq!(waves.len(), 3, "two clips and the left one's tail");
+        let tail = waves[2];
+        // 5 ms at 120 BPM is 0.01 of a beat (a beat position is whole + part).
+        assert_eq!(tail.start, [4.0, 0.0]);
+        assert_eq!(tail.end[0], 4.0);
+        assert!(tail.end[1] > 0.0 && tail.end[1] < 0.1);
+        // Four beats on from the left clip's start: 96,000 frames in.
+        assert_eq!(tail.first_frame, 96_000.0);
+        assert_eq!(tail.fade_out, [tail.start, tail.end]);
+        // The incoming clip ramps in over the same span.
+        assert_eq!(waves[1].fade_in, [tail.start, tail.end]);
     }
 
     #[test]
