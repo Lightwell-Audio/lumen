@@ -11,6 +11,33 @@ use super::Lumen;
 const RULER: &str = "Ruler: click to move the playhead";
 
 #[test]
+fn the_bottom_of_the_grid_menu_can_be_scrolled_into_a_small_window() {
+    use eframe::egui::{Event, MouseWheelUnit, TouchPhase, vec2};
+    let mut lumen = Lumen::start("grid-small-menu");
+    lumen.harness.set_size(vec2(960.0, 540.0));
+    lumen.frames(20);
+    lumen.click("Grid: 1/8");
+    let top = lumen.harness.get_by_label_contains("Narrower").rect();
+    lumen.harness.hover_at(top.center());
+    for _ in 0..3 {
+        lumen.harness.event(Event::MouseWheel {
+            unit: MouseWheelUnit::Point,
+            delta: vec2(0.0, -640.0),
+            modifiers: Modifiers::NONE,
+            phase: TouchPhase::Move,
+        });
+        lumen.frames(10);
+    }
+    let dotted = lumen.harness.get_by_label("Dotted").rect();
+    assert!(
+        dotted.top() >= 0.0 && dotted.bottom() <= 540.0,
+        "{dotted:?}"
+    );
+    lumen.click("Dotted");
+    assert!(lumen.shows("Grid: 1/8."), "the bottom row is usable");
+}
+
+#[test]
 fn the_keys_change_the_grid_and_the_button_shows_it() {
     let mut lumen = Lumen::start("grid-keys");
     // The default: adaptive, Narrow; eighths at the default zoom.

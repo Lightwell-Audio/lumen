@@ -61,10 +61,6 @@ impl App {
         let timeline = self.transport.timeline.clone();
         let playing = self.lanes.engine_clips(self.document.project(), rate);
         let dir = self.renders_dir();
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            self.say(format!("Could not make {}: {e}", dir.display()));
-            return;
-        }
         let mut jobs = Vec::new();
         for part in parts {
             let clips: Vec<_> = playing

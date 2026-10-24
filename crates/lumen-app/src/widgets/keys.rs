@@ -32,7 +32,7 @@ pub struct Keys {
 /// below, so whatever centres keycaps centres the caps themselves and the
 /// light hangs below (the owner: shortcuts sat high in menu rows).
 struct Caps {
-    caps: Vec<(std::sync::Arc<egui::Galley>, bool)>,
+    caps: Vec<(std::sync::Arc<egui::Galley>, bool, f32)>,
     cap_height: f32,
     size: Vec2,
 }
@@ -51,6 +51,11 @@ const LIGHT_HALO_ALPHA: f32 = 0.3;
 fn lay_out_caps(ui: &Ui, modifiers: &[&str], key: Option<&str>) -> Caps {
     let palette = theme::p();
     let font = FontId::proportional(theme::size::KEYCAP);
+    let letter_width = ui
+        .painter()
+        .layout_no_wrap("W".to_owned(), font.clone(), palette.text)
+        .size()
+        .x;
     let caps: Vec<_> = modifiers
         .iter()
         .map(|m| (*m, false))
@@ -75,14 +80,16 @@ fn lay_out_caps(ui: &Ui, modifiers: &[&str], key: Option<&str>) -> Caps {
                 },
             );
             let galley = ui.painter().layout_job(job);
-            (galley, main)
+            let width = if main && text.len() == 1 && text.as_bytes()[0].is_ascii_alphabetic() {
+                letter_width
+            } else {
+                galley.size().x
+            } + 2.0 * CAP_PAD.x;
+            (galley, main, width)
         })
         .collect();
-    let cap_height = caps.iter().map(|(g, _)| g.size().y).fold(0.0, f32::max) + 2.0 * CAP_PAD.y;
-    let width = caps
-        .iter()
-        .map(|(g, _)| g.size().x + 2.0 * CAP_PAD.x)
-        .sum::<f32>()
+    let cap_height = caps.iter().map(|(g, _, _)| g.size().y).fold(0.0, f32::max) + 2.0 * CAP_PAD.y;
+    let width = caps.iter().map(|(_, _, width)| *width).sum::<f32>()
         + theme::space::XS * (caps.len() - 1) as f32;
     Caps {
         caps,
@@ -98,12 +105,9 @@ fn paint_caps(painter: &Painter, ppp: f32, caps: Caps, at: Pos2, light: Color32,
     let palette = theme::p();
     let at = at + vec2(0.0, KEY_LIGHT_ROOM);
     let mut x = at.x;
-    for (galley, main) in caps.caps {
-        let cap = Rect::from_min_size(
-            pos2(x, at.y),
-            vec2(galley.size().x + 2.0 * CAP_PAD.x, caps.cap_height),
-        )
-        .round_to_pixels(ppp);
+    for (galley, main, width) in caps.caps {
+        let cap =
+            Rect::from_min_size(pos2(x, at.y), vec2(width, caps.cap_height)).round_to_pixels(ppp);
         if main {
             painter.rect_stroke(
                 cap,
@@ -323,6 +327,11 @@ pub fn submenu<R>(
         );
     }
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &label));
+    raised::focus_ring(
+        ui.painter(),
+        &response,
+        response.rect.shrink(raised::FOCUS_OUTSET),
+    );
     response
 }
 
@@ -392,6 +401,8 @@ fn menu_row(
         if hovered {
             painter.rect_filled(highlight, theme::radius::MEDIUM, palette.ember);
         }
+        // Keep the ring inside the row so scrolling cannot clip its edge.
+        raised::focus_ring(painter, &response, rect.shrink(raised::FOCUS_OUTSET));
         painter.galley(
             pos2(rect.left() + pad.x, rect.center().y - galley.size().y / 2.0),
             galley,
@@ -478,6 +489,20 @@ mod tests {
         .textures_delta
         .clear();
         out.expect("the frame ran")
+    }
+
+    #[test]
+    fn single_letter_keycaps_have_equal_widths() {
+        let widths = in_ui(|ui| {
+            ('A'..='Z')
+                .map(|letter| {
+                    keycaps(ui, &[], &letter.to_string(), theme::p().accent, false)
+                        .rect
+                        .width()
+                })
+                .collect::<Vec<_>>()
+        });
+        assert!(widths.iter().all(|width| *width == widths[0]), "{widths:?}");
     }
 
     #[test]

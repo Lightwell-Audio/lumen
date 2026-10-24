@@ -408,6 +408,14 @@ and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
 **Now (2026-10-24)**
+- **Branch `m7b-s6-close`: E6 audit and small UX corrections are built.**
+  Report: `docs/audits/2026-10-24-m7b.md`; repeatable visual check MT-EDIT-7.
+  Shared menus scroll within the window, crossfades use a switch, track
+  colours have names/focus, menu focus has its accent ring, the copy-import
+  preference schedules a save, and render directories are made by workers.
+  The combined editing walkthrough covers save/reopen and audible playback.
+  Normalize/consolidate stale-result checks remain open in KNOWN_ISSUES.
+  Owner closeout and the next milestone's approval remain pending.
 - **Branch `m7b-s5-freeze`: M7b E5 (freeze, unfreeze, flatten) is built**
   (ADR-0098; format **v29**; not pushed). `Track.frozen` (`edit::freeze`:
   planner, `played`, `violations`); a frozen track plays its file and runs no
@@ -434,7 +442,7 @@ per slice and move what is no longer current out of it.
   fade-out handle over the right clip.
 - **M7b E1 is merged (PR #52)** (ADR-0093; format **v27**): join, crop,
   unloop, nudge, reverse, polarity, normalize and the select variants.
-- **Next:** E6 (close M7b). Plan, owner choices and the slice list:
+- **Next:** review E6's report and follow-up findings. Plan, owner choices and the slice list:
   `docs/milestones/M7b.md`.
 - **Done:** M1 to M4.5 approved; M5 (MIDI), M6 (VST3 hosting) and M7
   (automation and envelopes) are built, with reports in PROGRESS. M7b E0

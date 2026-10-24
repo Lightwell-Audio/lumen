@@ -540,6 +540,14 @@ impl App {
                 }
             }
         }
+        ui.separator();
+        let mut crossfades = self.document.project().auto_crossfade;
+        if widgets::switch(ui, &mut crossfades, "Automatic crossfades", true)
+            .on_hover_text("Automatically blend eligible audio joins in this project")
+            .changed()
+        {
+            self.run(ui.ctx(), Command::ToggleAutoCrossfade);
+        }
     }
 
     /// Menu items for the `commands` that can run now; whether any could.

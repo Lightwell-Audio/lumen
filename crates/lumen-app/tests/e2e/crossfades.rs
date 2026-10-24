@@ -88,11 +88,18 @@ fn the_automatic_setting_the_command_and_the_menu_roundtrip() {
         "new projects enable automatic crossfades"
     );
 
-    // The project menu exposes the saved switch, and the change is undoable.
+    // The saved editing switch lives with arrangement actions, not files.
     lumen.click("Lumen");
+    assert!(!lumen.shows("Automatic crossfades"));
+    lumen.key(Modifiers::NONE, Key::Escape);
+    let r = rect(&lumen, right);
+    lumen.right_click(r.left_top() + vec2(12.0, 6.0));
     lumen.click("Automatic crossfades");
     assert!(!lumen.app().project().auto_crossfade);
-    lumen.key(Modifiers::NONE, Key::Escape);
+    assert_eq!(
+        lumen.app().undo_label(),
+        Some("Disable automatic crossfades")
+    );
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert!(lumen.app().project().auto_crossfade);
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
@@ -101,6 +108,7 @@ fn the_automatic_setting_the_command_and_the_menu_roundtrip() {
     assert!(lumen.app().project().auto_crossfade);
 
     // Ctrl+Shift+X and the palette both reach the selected audio command.
+    assert_eq!(lumen.app().selected_clips(), [right]);
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::X);
     let made = clip(&lumen, right);
     assert!(made.crossfade && made.fade_in.length > Ticks::ZERO);
@@ -325,16 +333,14 @@ fn dragging_the_handle_back_in_one_gesture_leaves_the_clips_as_they_were() {
 }
 
 #[test]
-fn project_menu_keeps_crossfades_and_lower_controls_reachable_in_a_small_window() {
+fn project_menu_keeps_lower_controls_reachable_in_a_small_window() {
     let mut lumen = Lumen::start("crossfade-small-menu");
     lumen.harness.set_size(vec2(960.0, 540.0));
     lumen.frames(20);
     lumen.click("Lumen");
-    let automatic = lumen.harness.get_by_label("Automatic crossfades").rect();
-    assert!(automatic.top() >= 0.0 && automatic.bottom() <= 540.0);
-    lumen.click("Automatic crossfades");
-    assert!(!lumen.app().project().auto_crossfade);
-    lumen.harness.hover_at(automatic.center());
+    assert!(!lumen.shows("Automatic crossfades"));
+    let first = lumen.harness.get_by_label_contains("New Ctrl").rect();
+    lumen.harness.hover_at(first.center());
     for _ in 0..3 {
         lumen.harness.event(Event::MouseWheel {
             unit: eframe::egui::MouseWheelUnit::Point,

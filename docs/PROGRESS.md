@@ -2,6 +2,18 @@
 
 ## Status
 
+**M7b E6 audit (2026-10-24), branch `m7b-s6-close`:** combined editing
+walkthrough and application-wide UX review, with shared scrollable menus,
+consistent crossfade switch, accessible track colours and menu focus,
+persisted copy-import preference, and render-folder creation off the UI
+thread. See [the audit](audits/2026-10-24-m7b.md) for evidence and scope.
+Normalize/consolidate stale-result checks and command coverage are open in
+KNOWN_ISSUES. MT-EDIT-7 and owner milestone closeout remain pending.
+Owner follow-up: compact tempo stays inside its well; single-letter shortcut
+caps have equal widths; the shortcut search has the standard inset;
+Automatic crossfades moved to the arrangement context menu and application
+Undo/Redo labels stay short. Updated screenshots and verification are in the audit.
+
 **M7b slice E2 (crossfades) is built, reworked 2026-10-24** on
 `m7b-s2-join-crossfades` (ADR-0094; format v28). A crossfade is a true
 overlap: dragging the left clip's fade-out handle over the right clip extends

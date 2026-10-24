@@ -162,7 +162,7 @@ cargo run --release -p lumen-app
 6. Select the right clip and use Toggle crossfade with the clip before
    (Ctrl+Shift+X, the palette or the clip menu): a 5 ms crossfade is made or
    removed. With nothing before the clip, the hint says so.
-7. Find Automatic crossfades in the project menu or the palette and toggle
+7. Find Automatic crossfades in the arrangement context menu or the palette and toggle
    it; Undo and Redo restore the setting. An older project opens with it
    off. Automatic crossfades are played but not drawn.
 8. Look at both themes at 100, 150 and 200% scale, including the smallest
@@ -281,3 +281,38 @@ plugin host first (`cargo build --release -p lumen-plugin-host`).
 10. Look at the track header in both themes at 100, 150 and 200%: the pill (or
     the padlock) is whole, the name stays readable, and the clip's padlock and
     clamps show.
+
+## MT-EDIT-7 — Closeout and menu audit (E6)
+
+**State:** Owner verification pending. Branch: `m7b-s6-close`.
+Use isolated settings, fake audio and scratch project files, as described in
+DEVELOPMENT. Repeat visual checks in both themes at 100%, 150% and 200%.
+
+1. At a 960 × 540 logical window, open Grid. Scroll to the smallest fixed
+   divisions, Triplet, Dotted and Snap to grid. Every option can be brought
+   fully into view and selected; Esc closes the menu.
+2. Open the application menu. Undo and Redo have short labels; Automatic
+   crossfades is absent. Right-click the arrangement: Automatic crossfades
+   is a switch there. Change it, then undo: the project setting returns.
+   In the application menu, scroll to the last settings rows; all remain reachable.
+3. Change only Copy imported audio into the project. Wait a second, restart
+   with those isolated settings and check that the choice remains.
+4. Navigate menu and submenu rows with the keyboard. Focus has a visible
+   accent ring; pressing Enter runs the focused item.
+5. Open a track's Colour submenu. Each swatch has a named tooltip and an
+   accessible name. Choose a colour; undo restores the previous one.
+6. Open the audio status popover at the minimum window. Scroll until its
+   final counters are visible. Test tone and Audio on remain usable.
+7. Import a take, split it, crossfade the halves, join into a new file,
+   bounce to a new track, freeze the first track, save and reopen. It plays;
+   unfreezing restores the editable clips. Existing MT-EDIT-1 to 6 retain
+   the detailed sound and plugin checks.
+8. At the minimum window, check Tempo at 120.00 and 999.00 BPM: the digits
+   stay inside the well. Click/type a new tempo and drag it; both still work.
+9. Compare the I, N and S keycaps in the application menu: single-letter
+   keys have the same width. Open Keyboard shortcuts: the search text has
+   the same comfortable inset as the other search fields; filtering works.
+
+Automated evidence and limitations: `docs/audits/2026-10-24-m7b.md`.
+The two background-result consistency findings there remain open; do not
+treat this script as verification that concurrent edits are safe in those cases.

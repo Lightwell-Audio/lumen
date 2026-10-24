@@ -168,10 +168,6 @@ impl App {
         let mut project = self.document.project().clone();
         self.hosting.stamp(&mut project);
         let dir = self.renders_dir();
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            self.say(format!("Could not make {}: {e}", dir.display()));
-            return;
-        }
         let mut jobs = Vec::new();
         let mut states = Vec::new();
         for part in &parts {

@@ -59,6 +59,27 @@ fn check(lumen: &Lumen, view: &str, problems: &mut Vec<String>) {
 }
 
 #[test]
+fn track_colour_swatches_have_names_and_recolour_in_one_undo_step() {
+    let mut lumen = Lumen::start("track-colour-access");
+    lumen.key(Modifiers::COMMAND, Key::T);
+    lumen.frames(30);
+    let before = lumen.app().project().tracks[0].color;
+    let header = lumen.harness.get_by_label_contains("Track Audio 1").rect();
+    lumen.right_click(header.center());
+    let colour = lumen.harness.get_by_label("Colour").rect();
+    lumen.harness.hover_at(colour.center());
+    lumen.frames(30);
+    assert!(
+        unnamed(&lumen).is_empty(),
+        "colour submenu controls are named"
+    );
+    lumen.click("Track colour 2");
+    assert_ne!(lumen.app().project().tracks[0].color, before);
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(lumen.app().project().tracks[0].color, before);
+}
+
+#[test]
 fn every_control_in_every_m3_view_has_a_name() {
     let (mut lumen, kick, _) = with_two_clips("access");
     let mut problems = Vec::new();

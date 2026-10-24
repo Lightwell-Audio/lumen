@@ -952,7 +952,8 @@ Chosen by the owner from rendered specimens:
   Locators terracotta, File brown). The light groups commands the way
   track colours group tracks; it never carries state, so it does not
   break the one-accent rule, and the area is also named in text beside
-  it.
+  it. Single-letter main keys share one width, including narrow glyphs such
+  as I; longer key names size to their labels (owner correction, 2026-10-24).
 - **The palette (the owner's P2 with P3's values, `app/palette.rs`).**
   Ctrl+K, or the magnifier at the right of the transport bar. It opens
   top-centre, 520 points wide, on the overlay surface with a strong
