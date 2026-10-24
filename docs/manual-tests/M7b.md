@@ -165,3 +165,14 @@ cargo run --release -p lumen-app
    while playing; loop across it and check for unwanted clicks.
 9. Save, close and reopen: the project setting, explicit crossfade request,
    length and curve return. Original source files remain unchanged.
+
+### Automated run (2026-10-23)
+
+Windows: 2,770 workspace tests, including 636 E2E, and six binary smoke
+tests passed. Linux: clean clippy, 637 E2E passes, plus project/render/RT
+tests. Reference renders and allocation guards cover the join audio;
+seeks and live source/gain edits have regressions. Menus and crossing curves
+were rendered in both themes at 100%, 150% and 200%, including 960 × 540.
+The clip menu now groups edits and selection; the app menu scrolls within
+the viewport. Release frame measurements and instruction counts are in
+PROGRESS and ADR-0094. Owner listening and physical-device checks await a run.

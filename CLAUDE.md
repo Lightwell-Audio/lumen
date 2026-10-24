@@ -408,19 +408,18 @@ and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
 **Now (2026-10-23)**
-- **Branch `m7b-s2-crossfades`: M7b E2 is in verification** (ADR-0094;
+- **Branch `m7b-s2-crossfades`: M7b E2 is built** (ADR-0094;
   format v28). Automatic 5 ms crossfades, custom join fades and the existing
   incoming fade handle, shared preview/playback eligibility and preserved
   legacy playback. New controls use the design-system material and tokens.
   MT-EDIT-3 awaits the owner; final gate results are in PROGRESS.
-- **Branch `m7b-s1-clip-commands`: M7b slice E1 (clip commands) is built and
-  pushed** (ADR-0093; format **v27**). Join (Ctrl+J, seamless), crop,
+- **M7b E1 is merged (PR #52)** (ADR-0093; format **v27**). Join (Ctrl+J, seamless), crop,
   unloop, nudge, reverse, polarity, normalize and the select variants;
   reverse uses reversed copies of files built on a worker (no engine
   change), normalize scans on a worker with cancel. Gates run: fmt, clippy,
   workspace tests, smoke, macOS cross-clippy, the WSL performance gate (the
   baseline was updated for two per-clip flags in serialize). **Waiting for
-  the owner: MT-EDIT-2** (`docs/manual-tests/M7b.md`) and the merge. Audio
+  the owner: MT-EDIT-2** (`docs/manual-tests/M7b.md`). Audio
   clips with a gap do not join until E3's consolidate (KNOWN_ISSUES).
 - **Next:** E3 (render core and
   consolidate), E4 (bounce), E5 (freeze), E6 (close M7b). Plan, owner choices

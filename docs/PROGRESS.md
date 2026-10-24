@@ -2,12 +2,33 @@
 
 ## Status
 
-**M7b slice E2 (crossfades) is in verification, 2026-10-23** on
+**M7b slice E2 (crossfades) is built, 2026-10-23** on
 `m7b-s2-crossfades` (ADR-0094; accepted X1; format v28). Automatic 5 ms
 crossfades for new projects, custom join fades, source-tail bounds, shared
 preview/playback eligibility and undoable settings are implemented. Older
-projects migrate with automatic crossfades off. Validation results will be
-recorded here after the gates; MT-EDIT-3 awaits the owner.
+projects migrate with automatic crossfades off. Existing edit and selection
+rows are grouped under Edit; the app menu scrolls within a small viewport.
+MT-EDIT-3 awaits the owner.
+
+E2 validation: Windows workspace clippy and **2,770 tests**, including
+**636 E2E**, pass; **6/6 binary smoke tests** and the macOS cross-clippy pass.
+The WSL mirror reports clean clippy and **637 E2E** passes; project, render
+and RT tests also pass in a separate Linux run. Equal-power references,
+short/missing tails, broken joins, seeks into tails, live source/gain edits,
+allocation guards, exact undo, migrations and save/reopen are covered.
+Twenty-four screenshots cover both themes at 100%, 150% and 200%, including
+960 × 540 menus. RealtimeSanitizer and physical-device listening were not run
+locally; the latter is MT-EDIT-3.
+
+Release stress benchmark, p99 milliseconds for scroll time / scroll tracks /
+zoom: **2.93 / 3.26 / 2.74** at 1600 × 900 and **5.77 / 5.80 / 4.97** at
+3440 × 1380. Both meet the 8.33 ms target; each reported three idle repaints
+in three seconds. These used an isolated release copy with fake audio and
+plugins off. Instruction-count results are recorded in ADR-0094.
+The WSL instruction gate found no existing regression over +2%; the plain
+64-clip engine measured +0.29%. Its baseline now includes 64 simultaneous
+crossfades (5,117,889,825 instructions / 1,000 blocks), with the threshold
+unchanged.
 
 **M7b slice E1 (clip commands) is built, 2026-10-23** on `m7b-s1-clip-commands` (ADR-0093; owner choices J1, N1, G1, K2; format v27). *Shipped:* join (Ctrl+J, seamless), crop to selection, unloop, nudge by grid and finely, reverse (reversed copies of files, no engine change), polarity, normalize (peak scan on a worker, cancel, one undo step), and the select variants; reverse, polarity and normalize are golden renders. *Waiting:* MT-EDIT-2 (owner). *Not run:* macOS, the WSL gates and the smoke tests until the push, RealtimeSanitizer.
 
@@ -298,7 +319,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Crisp, fast waveforms at every zoom | M | ✅ | 3 | M3 slice 4c (ADR-0027): peak pyramids built at load, drawn per pixel on the GPU; no measurable frame cost with 10,000 waveforms. Disk cache deferred to M9 with disk streaming (owner approved); drawn sample by sample below 16 frames per pixel (4d, ADR-0028) |
 | Recording: multi-arm, monitoring, multichannel, crash-safe capture, latency compensation and offset, punch, count-in, input meters | M | 🔲 | 9 |
 | Loop recording into takes; capture MIDI | S | 🟡 Loop passes layer into one MIDI clip (M5 slice 6, ADR-0055); takes and Capture MIDI are M9 | 9 |
-| Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🟡 Clip gain and fades along free curves, with four presets (M3 6d, ADR-0031; golden renders, and E2E scenarios that listen). Reverse, polarity and normalize are built (M7b E1, ADR-0093; MT-EDIT-2 waits for the owner); automatic crossfades (model chosen, X1) are E2. The clip's static pitch needs a pitch engine; the owner deferred it with the audio pitch envelope (2026-10-19, M7b plan, Y1) until warp and time-stretch | 3, 7b |
+| Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🟡 Clip gain and fades along free curves, with four presets (M3 6d, ADR-0031; golden renders, and E2E scenarios that listen). Reverse, polarity and normalize are built (M7b E1, ADR-0093; MT-EDIT-2 waits for the owner); automatic join crossfades are built (M7b E2, ADR-0094; MT-EDIT-3 waits for the owner). The clip's static pitch needs a pitch engine; the owner deferred it with the audio pitch envelope (2026-10-19, M7b plan, Y1) until warp and time-stretch | 3, 7b |
 | Warp and time-stretch with quality modes | S | 🔲 Not in M7 or M7b. It also carries the audio pitch envelope (deferred by the owner, 2026-10-19) and, if the owner defers it, the clip's static pitch | — |
 | Take lanes and comping | S | 🔲 | 9 |
 | Mono, stereo, multichannel material | M | 🔲 | 2–3 |
@@ -436,7 +457,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Track delay, lock, icons, templates | S | 🔲 |
 | Select, marquee, range; cut/copy/paste/duplicate/delete/ripple delete/insert silence | M | 🟡 M3 6a: click, Ctrl and Shift selection, marquee, time ranges across tracks (a clip's bottom half). M3 6b (`lumen_project::edit`): cut, copy, paste (at the playhead or into a range, overwriting the destination range), duplicate, delete, delete time (ripple, the whole song) and insert time, on clips and ranges, each one undo step, in the lanes' right-click menu. Crop and the remaining range edits come with M7b's split |
 | Split, join, consolidate, trim, crop, slip, nudge, move, loop/unloop | M | 🟡 Trim, slip, move and loop-extend (M3 6a to 6c). Split with the drag-to-cut gesture (E0); join (seamless: audio clips with a gap wait for consolidate in E3), crop, unloop into copies and clip nudge (E1) |
-| Fades, crossfades, clip gain, reverse, normalize, polarity | M | 🟡 Fades with free curves and four presets, and clip gain (M3 6d, ADR-0031). Moved clips crossfade while playing (5 ms, engine). Reverse, normalize and polarity (M7b E1); automatic crossfades (model chosen at X1) in E2 |
+| Fades, crossfades, clip gain, reverse, normalize, polarity | M | 🟡 Fades with free curves and four presets, and clip gain (M3 6d, ADR-0031). Moved clips crossfade while playing (5 ms, engine). Reverse, normalize and polarity (M7b E1); automatic and custom join crossfades (M7b E2, ADR-0094; MT-EDIT-3 waits for the owner) |
 | Snap and grid; zoom; clip name/colour/mute/lock; clip properties | M | ✅ | Grid and snapping (M3 5a) and zoom (4d) done; clip name, colour, mute, lock and the properties card done in M3 6e (ADR-0032; MT-APP-14 passed in run 4) |
 | Tool model: pointer, draw, erase, split, mute and zoom, with single-key switching and temporary modifiers (CLAUDE.md §5). Not built, and in no milestone plan yet; planned for M7b with split | M | 🔲 M7b slice E0; keys follow the CLAUDE.md §5 convention (B, Esc, Ctrl+E, 0, Z and X, Del), chosen 2026-10-19 (K1) |
 | Warp, transient and tempo detection, pitch shift | S | 🔲 |

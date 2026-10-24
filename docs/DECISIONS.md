@@ -8440,3 +8440,13 @@ work and obscure the original edits. Both were rejected in favor of X1.
 
 **Verification.** Results and remaining manual checks are recorded in the E2
 slice report in PROGRESS and MT-EDIT-3, rather than inferred from this decision.
+
+**Performance (2026-10-23).** The WSL instruction gate measured the existing
+64-clip scenario at +0.29% and transport at +0.15%; all other existing engine
+scenarios decreased, and every existing scenario stayed within the +2% gate.
+Project parsing measured -0.65% and serialization -6.62%; no serialization
+optimization is claimed. The new `engine_crossfades_64` scenario measured
+5,117,889,825 instructions for 1,000 blocks of 128 frames with 64 simultaneous
+stereo crossfades. `perf/baseline.json` was regenerated to add that scenario
+and retain the measured current counts; its threshold remains 2%.
+The release frame benchmark and visual/check results are in PROGRESS.

@@ -1,8 +1,10 @@
 # Milestone 7b — Advanced Editing & Render: plan
 
 **Status:** Approved to start by the owner, 2026-10-22. E0 merged (PR #51).
-E1 merged (PR #52). E2 is being verified on `m7b-s2-crossfades`, cut from
+E1 merged (PR #52). E2 is built on `m7b-s2-crossfades`, cut from
 `origin/main` after E1 and the recording-priority documentation update.
+MT-EDIT-3 awaits the owner; automated checks and measurements are in PROGRESS
+and ADR-0094. E3 has not started.
 The behavior choices below remain the owner's accepted choices. This is the second half of the roadmap's
 milestone 7, split off at the owner's decision of 2026-10-19 (S1 A). The
 automation half is [M7](M7.md). M8 keeps its number.

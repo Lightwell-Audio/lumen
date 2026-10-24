@@ -1,6 +1,6 @@
 # Lumen — Architecture
 
-**Current work:** M7b E2 (2026-10-23; format v28): join crossfades (ADR-0094).
+**As built:** M7b E2 (2026-10-23; format v28): join crossfades (ADR-0094).
 **Previously built:** M7b E1 (2026-10-23; format v27): clip commands, reverse twins and the normalize scan (ADR-0093). Before it: M7b E0 (2026-10-22; format v26): arrangement tools and source-preserving split windows (ADR-0092). Before it: M7 slice A8 (2026-10-22; format v25). Before it: M7 slice A7 (2026-10-21; format v25) and M6 slice 7 (2026-10-18; format v21). The decision records in
 `docs/DECISIONS.md` hold the reasoning and the evidence. This page shows
 how the parts fit.
