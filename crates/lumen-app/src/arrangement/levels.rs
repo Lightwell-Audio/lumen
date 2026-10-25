@@ -19,9 +19,11 @@ use crate::{light, theme};
 /// The top of the volume slider's range (`SliderKind::Volume`): the meter
 /// in it shares the slider's scale.
 const TOP_DB: f32 = 6.0;
-/// The two sides' bars inside the slider: 2 pt each, 0.5 pt apart, ending
-/// 2 pt above its bottom.
-const BAR: f32 = 2.0;
+/// The two sides' bars inside the slider: 1 pt each, 0.5 pt apart, ending
+/// 1.5 pt above its bottom. Thin and low, so the value text can sit exactly
+/// centred (the owner's choice A, M9 R1: lifted text crowded the top edge).
+const BAR: f32 = 1.0;
+const BAR_INSET: f32 = 1.5;
 const BAR_GAP: f32 = 0.5;
 /// The folded hairline: 1.5 pt a side, 6 pt above the row's bottom (clear
 /// of the resize edge).
@@ -103,7 +105,7 @@ impl Arrangement {
     pub(super) fn slider_meter(&mut self, ui: &mut Ui, slider: Rect, track: &Track, id: EguiId) {
         let reading = self.meters.reading(track.id.0);
         let painter = ui.painter_at(slider.shrink2(egui::vec2(1.0, 0.0)));
-        let bottom = slider.bottom() - 2.0;
+        let bottom = slider.bottom() - BAR_INSET;
         let ys = Rangef::new(bottom - 2.0 * BAR - BAR_GAP, bottom);
         draw(
             &painter,

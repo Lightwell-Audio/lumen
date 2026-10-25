@@ -549,8 +549,8 @@ impl Arrangement {
             self.hairline_meter(ui, rect, span, &master, id);
         }
         // The cue level, under volume and pan, while a cue pair is open.
-        if self.cue.ready && rect.height() >= FOLDED + 2.0 * super::STEP {
-            let y = rect.top() + FOLDED + super::STEP + super::STEP / 2.0;
+        if self.cue.ready && rect.height() >= FOLDED + 3.0 * super::STEP {
+            let y = rect.top() + FOLDED + 2.0 * super::STEP + super::STEP / 2.0;
             let label = Rect::from_min_max(
                 pos2(rect.left() + 30.0, y - 10.0),
                 pos2(rect.left() + 64.0, y + 10.0),

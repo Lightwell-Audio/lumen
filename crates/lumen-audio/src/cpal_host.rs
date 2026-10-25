@@ -148,7 +148,7 @@ impl CpalBackend {
         if config.device.kind != kind() {
             return Err(AudioError::DeviceNotFound(id.clone()));
         }
-        if !config.input_channels.is_empty() {
+        if !config.input_channels.is_empty() && !config.wants_all_inputs() {
             return Err(AudioError::Unsupported(
                 "audio input is not available yet; it arrives with the device selector".into(),
             ));

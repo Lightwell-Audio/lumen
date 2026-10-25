@@ -22,7 +22,7 @@ pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
     v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16, v16_to_v17, v17_to_v18,
     v18_to_v19, v19_to_v20, v20_to_v21, v21_to_v22, v22_to_v23, v23_to_v24, v24_to_v25, v25_to_v26,
-    v26_to_v27, v27_to_v28, v28_to_v29,
+    v26_to_v27, v27_to_v28, v28_to_v29, v29_to_v30,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -471,6 +471,12 @@ fn v28_to_v29(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
+/// v30 (M9 R1) adds `input` to tracks, written only when an audio track has
+/// an input route. A file without it has none, as every older project had.
+fn v29_to_v30(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
 /// The highest id written anywhere in `document` (every `"id"` field).
 fn highest_id(document: &Value) -> Result<u64, String> {
     fn walk(value: &Value, highest: &mut u64) -> Result<(), String> {
@@ -633,6 +639,13 @@ mod tests {
         let v28 = json!({"version":28,"project":{"tracks":[{"clips":[]}]}});
         let v29 = v28_to_v29(v28).unwrap();
         assert!(v29["project"]["tracks"][0].get("frozen").is_none());
+    }
+
+    #[test]
+    fn v29_to_v30_routes_no_input() {
+        let v29 = json!({"version":29,"project":{"tracks":[{"clips":[]}]}});
+        let v30 = v29_to_v30(v29).unwrap();
+        assert!(v30["project"]["tracks"][0].get("input").is_none());
     }
 
     #[test]

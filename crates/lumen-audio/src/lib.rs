@@ -14,15 +14,19 @@ pub mod backend;
 mod convert;
 #[cfg(not(windows))]
 pub mod cpal_host;
+#[cfg(windows)]
+mod drift;
 pub mod fake;
 pub mod supervisor;
 pub mod types;
 #[cfg(windows)]
 pub mod wasapi;
+#[cfg(windows)]
+mod wasapi_input;
 
 pub use backend::{Backend, OpenError, Stream, StreamEvent, Unavailable};
 pub use supervisor::{AudioSystem, BlockTime, DeviceEvent, State, Status, Timing};
 pub use types::{
-    AudioCallback, AudioError, Block, BufferSizes, DeviceId, DeviceInfo, DriverKind, StreamConfig,
-    StreamInfo,
+    ALL_INPUTS, AudioCallback, AudioError, Block, BufferSizes, DeviceId, DeviceInfo, DriverKind,
+    MOST_INPUTS, StreamConfig, StreamInfo,
 };

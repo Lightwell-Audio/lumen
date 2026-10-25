@@ -25,6 +25,7 @@
 //! bottom, under a divider (`pinned`): rows carry the [`Zone`] they are
 //! drawn in, and each zone clips its own.
 
+pub(crate) mod audio_in;
 pub(crate) mod auto_envelope;
 pub(crate) mod auto_params;
 pub(crate) mod auto_scale;
@@ -87,9 +88,10 @@ pub const STEP: f32 = crate::theme::size::TRACK_STEP;
 /// A folded track: two steps.
 pub const FOLDED: f32 = 2.0 * STEP;
 
-/// An unfolded track, and the smallest one: room for the volume and pan
-/// row. Four steps.
-pub const UNFOLDED: f32 = 4.0 * STEP;
+/// An unfolded track, and the smallest one: room for the volume row and the
+/// row of pan (and the input, on audio tracks) under it. Five steps (the
+/// owner's choice with the In chip, M9 slice R1).
+pub const UNFOLDED: f32 = 5.0 * STEP;
 
 /// The tallest a track can be dragged: fourteen steps.
 const MAX_HEIGHT: f32 = 14.0 * STEP;
@@ -360,6 +362,9 @@ pub struct Arrangement {
     /// The device's outputs, as the strips' output menus offer them (M4
     /// slice 5), lent by the app.
     pub(crate) outputs: OutputChoices,
+    /// The device's inputs, as the audio tracks' input menus offer them (M9 slice
+    /// R1), lent by the app.
+    pub(crate) inputs: audio_in::InputChoices,
     /// How far the mixer's strips are scrolled, and how hard a strip drag
     /// near their edge pushes them (-1 to 1).
     mixer_offset: f32,
@@ -480,7 +485,7 @@ mod tests {
         assert_eq!(snap_height(95.0), 4.0 * STEP);
         assert_eq!(snap_height(100.0), 5.0 * STEP);
         assert_eq!(FOLDED, 2.0 * STEP);
-        assert_eq!(UNFOLDED, 4.0 * STEP);
+        assert_eq!(UNFOLDED, 5.0 * STEP);
         // An opened project with an odd height (an older build) snaps.
         let mut view = lumen_project::model::ViewState::default();
         view.track_heights.insert(Id(1), 150.0);

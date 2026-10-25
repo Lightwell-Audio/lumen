@@ -36,6 +36,12 @@ pub struct FakeDevice {
     pub buffer_sizes: BufferSizes,
     /// Output channels the device has (4: a main and a cue pair).
     pub outputs: usize,
+    /// Input channels the device has (2).
+    pub inputs: usize,
+    /// What each input channel hears, as a steady level (a DC signal), by
+    /// the device's channel: a channel past the list hears silence. Read at
+    /// every block, so a test changes it while the stream runs.
+    pub input_levels: Vec<f32>,
     /// Keep a pace: each poll runs every block the time since the stream
     /// opened owes (up to [`CATCH_UP`]), so a poll that came late is made up
     /// for, as a hardware driver's clock would be. `None`, a poll runs one
@@ -75,6 +81,8 @@ impl FakeControl {
             resync_jump: None,
             opens: 0,
             outputs: 4,
+            inputs: 2,
+            input_levels: Vec::new(),
             pace: None,
             buffer_sizes: BufferSizes {
                 min: 32,
@@ -115,7 +123,7 @@ impl Backend for FakeBackend {
         vec![DeviceInfo {
             id: fake_device_id(),
             name: "Fake device".into(),
-            input_channels: vec!["In 1".into(), "In 2".into()],
+            input_channels: (1..=device.inputs).map(|n| format!("In {n}")).collect(),
             output_channels: (1..=device.outputs).map(|n| format!("Out {n}")).collect(),
             sample_rates: vec![44_100, 48_000],
             current_sample_rate: Some(48_000),
@@ -146,7 +154,8 @@ impl Backend for FakeBackend {
         }
         device.opens += 1;
         device.reset_pending = false;
-        let (inputs, outputs) = (config.input_channels.len(), config.output_channels.len());
+        let input_map = config.inputs_on(device.inputs);
+        let (inputs, outputs) = (input_map.len(), config.output_channels.len());
         Ok(Box::new(FakeStream {
             control: self.0.clone(),
             callback: Some(callback),
@@ -159,6 +168,7 @@ impl Backend for FakeBackend {
                 output_channels: outputs,
             },
             inputs: vec![0.0; inputs * frames as usize],
+            input_map,
             outputs: vec![0.0; outputs * frames as usize],
             position: device.start_position,
             polls: 0,
@@ -173,6 +183,8 @@ struct FakeStream {
     callback: Option<Box<dyn AudioCallback>>,
     info: StreamInfo,
     inputs: Vec<f32>,
+    /// The device channel each input of the callback is.
+    input_map: Vec<usize>,
     outputs: Vec<f32>,
     position: u64,
     polls: u32,
@@ -207,6 +219,13 @@ impl Stream for FakeStream {
 
     fn poll(&mut self) -> Option<StreamEvent> {
         let (present, reset, stalled, every, skip, resync, pace) = {
+            let device = self.control.0.lock().expect("fake device lock");
+            let frames = self.info.buffer_frames as usize;
+            for (i, &channel) in self.input_map.iter().enumerate() {
+                let level = device.input_levels.get(channel).copied().unwrap_or(0.0);
+                self.inputs[i * frames..(i + 1) * frames].fill(level);
+            }
+            drop(device);
             let mut device = self.control.0.lock().expect("fake device lock");
             let reset = std::mem::take(&mut device.reset_pending);
             let skip = std::mem::take(&mut device.skip_frames);

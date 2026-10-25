@@ -2,7 +2,7 @@
 //! shows, moved on from the levels the engine measured.
 //!
 //! The engine hands over each node's peaks since the last look, its RMS
-//! and whether it clipped (`lumen_engine::Level`). Here they become what is
+//! and whether it clipped (`lumen_engine::Level`). Here they ecome what is
 //! drawn, with the owner's B2 ballistics: a peak jumps up at once and falls
 //! 20 dB a second; a hold line stays 1.5 s on the highest peak, then falls;
 //! a clip stays lit until it is clicked. The master's loudness windows and
@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 
 use lumen_core::loudness::Loudness;
-use lumen_engine::{Level, MixerHandle};
+use lumen_engine::{InputHandle, InputLevel, Level, MixerHandle};
 
 /// The bottom of every meter's scale: quieter reads as silence.
 pub const FLOOR_DB: f32 = -60.0;
@@ -132,6 +132,8 @@ pub struct LoudnessReading {
 #[derive(Debug)]
 pub struct Meters {
     tracks: HashMap<u64, Ballistics>,
+    /// The device's open inputs, by device channel (M9 R1).
+    inputs: HashMap<usize, Ballistics>,
     loudness: Loudness,
     true_peak: f32,
     /// Short-term loudness after every 100 ms block, newest last (the
@@ -146,6 +148,7 @@ impl Default for Meters {
     fn default() -> Self {
         Self {
             tracks: HashMap::new(),
+            inputs: HashMap::new(),
             loudness: Loudness::new(),
             true_peak: f32::NEG_INFINITY,
             history: std::collections::VecDeque::with_capacity(HISTORY),
@@ -175,6 +178,39 @@ impl Meters {
         self.true_peak = self.true_peak.max(db(mixer.take_true_peak()));
     }
 
+    /// Takes what the engine measured on each of the device's `open` input
+    /// channels and moves their meters on by `dt` seconds. Inputs are
+    /// measured whatever the transport does; they rest when the audio is not
+    /// `running`.
+    pub fn update_inputs(&mut self, handle: &InputHandle, open: &[usize], dt: f32, running: bool) {
+        self.inputs.retain(|channel, _| open.contains(channel));
+        for &channel in open {
+            let InputLevel { peak, rms, clipped } = handle.take_level(channel);
+            let level = running.then_some(Level {
+                peak: [peak; 2],
+                rms: [rms; 2],
+                clipped,
+            });
+            self.inputs.entry(channel).or_default().step(level, dt);
+        }
+    }
+
+    /// What the meter of device input `channel` shows (both sides alike).
+    pub fn input_reading(&self, channel: usize) -> Reading {
+        self.inputs
+            .get(&channel)
+            .map(|b| b.shown)
+            .unwrap_or_default()
+    }
+
+    /// Clears input `channel`'s clip light and hold line (a click on it).
+    pub fn clear_input_clip(&mut self, channel: usize) {
+        if let Some(b) = self.inputs.get_mut(&channel) {
+            b.shown.clipped = false;
+            b.shown.hold = b.shown.peak;
+        }
+    }
+
     /// What track `id`'s meter shows.
     pub fn reading(&self, id: u64) -> Reading {
         self.tracks.get(&id).map(|b| b.shown).unwrap_or_default()
@@ -182,7 +218,10 @@ impl Meters {
 
     /// Whether any meter is moving: the UI keeps drawing until they rest.
     pub fn moving(&self) -> bool {
-        self.tracks.values().any(|b| !b.shown.at_rest())
+        self.tracks
+            .values()
+            .chain(self.inputs.values())
+            .any(|b| !b.shown.at_rest())
     }
 
     /// Clears track `id`'s clip light and hold line (a click on it).
@@ -197,6 +236,9 @@ impl Meters {
     pub fn clear_all_clips(&mut self) {
         for id in self.tracks.keys().copied().collect::<Vec<_>>() {
             self.clear_clip(id);
+        }
+        for channel in self.inputs.keys().copied().collect::<Vec<_>>() {
+            self.clear_input_clip(channel);
         }
     }
 
@@ -313,5 +355,22 @@ mod tests {
         let mut b = Ballistics::default();
         b.step(None, 0.016);
         assert!(b.shown.at_rest());
+    }
+    #[test]
+    fn input_meters_follow_the_open_inputs_and_rest_without_signal() {
+        let (handle, _player) = lumen_engine::input_player();
+        let mut meters = Meters::default();
+        meters.update_inputs(&handle, &[0, 1], 0.016, true);
+        assert!(!meters.moving());
+        assert_eq!(meters.input_reading(1), Reading::default());
+        // A channel the device no longer has open is forgotten.
+        meters
+            .inputs
+            .entry(5)
+            .or_default()
+            .step(level(1.0, 0.5, true), 0.0);
+        assert!(meters.moving() && meters.input_reading(5).clipped);
+        meters.update_inputs(&handle, &[0, 1], 0.016, true);
+        assert!(!meters.input_reading(5).clipped);
     }
 }

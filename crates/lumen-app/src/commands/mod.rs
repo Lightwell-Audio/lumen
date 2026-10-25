@@ -215,6 +215,8 @@ pub(crate) enum Command {
     FreezeTracks,
     UnfreezeTracks,
     FlattenTracks,
+    NextTrackInput,
+    NextTrackMonitor,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -495,6 +497,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::FreezeTracks, "track.freeze", "Freeze track", Area::Track, &[], "Renders the selected audio and MIDI tracks, from their first clip to their last plus the tail that rings on, with their instrument, devices, trim and polarity, into a file the track plays instead. A frozen track runs no plugin, so it costs almost nothing. Its fader, pan, sends, mute and solo stay live; its clips, notes and devices are read-only until you unfreeze. Tracks that depend on other tracks (a sidechain, extra instrument outputs) cannot be frozen. Esc stops it."),
     info(Command::UnfreezeTracks, "track.unfreeze", "Unfreeze track", Area::Track, &[], "Gives a frozen track back its clips, notes, instrument and devices, exactly as they were. The rendered file stays in the media pool."),
     info(Command::FlattenTracks, "track.flatten", "Flatten track", Area::Track, &[], "Turns a frozen track into a plain audio track that holds the rendered file. Its clips, notes, instrument and devices are removed; its name, colour, fader, pan, sends and output stay. A MIDI track becomes an audio track. Undo brings everything back."),
+    info(Command::NextTrackInput, "track.input_next", "Next track input", Area::Track, &[], "Steps the selected audio tracks to the next input of the audio device: none, each stereo pair, then each mono input. Arming a track without an input picks the first free one for you."),
+    info(Command::NextTrackMonitor, "track.monitor_next", "Next monitor mode", Area::Track, &[], "Steps the selected audio tracks through Auto, In and Off. Auto plays what the input hears while the track is armed and the transport is stopped or recording; In always does; Off never does."),
 ];
 
 const fn info(
@@ -544,7 +548,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::FlattenTracks as usize + 1,
+            Command::NextTrackMonitor as usize + 1,
             ALL.len(),
             "a command is missing"
         );

@@ -3657,3 +3657,75 @@ fn frozen_track() {
         );
     }
 }
+
+/// M9 R1: the In chip on four audio
+/// tracks: a stereo pair armed and clipping, a mono input playing, no input,
+/// an input the device lacks. Both themes at 100% and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn audio_input_chip() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_project::model::{AudioInput, Color, Id, Track, TrackKind};
+    use lumen_project::testing::project_of;
+    let mut tracks = Vec::new();
+    for (id, name, input, armed) in [
+        (21, "Vocals", Some(AudioInput::pair(0)), true),
+        (22, "Guitar DI", Some(AudioInput::mono(1)), false),
+        (23, "Drum overheads", None, false),
+        (24, "Bass", Some(AudioInput::mono(9)), false),
+    ] {
+        let mut track = Track::new(Id(id), name, TrackKind::Audio, Color(0x4F81BD));
+        track.input = input;
+        track.armed = armed;
+        tracks.push(track);
+    }
+    {
+        for appearance in ["dark", "light"] {
+            for scale in [1.0_f32, 2.0] {
+                let dir = TempDir::new(&format!("shots-chip-{appearance}-{scale}"));
+                let path = dir.path().join("song.lumen");
+                lumen_project::save(
+                    &project_of("Input", tracks.clone()),
+                    &path,
+                    &Default::default(),
+                )
+                .expect("save");
+                let launch = Launch::for_test(dir.path())
+                    .appearing(appearance)
+                    .with_input_device()
+                    .opening(path);
+                let mut h = Harness::builder()
+                    .with_size(vec2(560.0, 560.0))
+                    .with_pixels_per_point(scale)
+                    .with_theme(if appearance == "light" {
+                        eframe::egui::Theme::Light
+                    } else {
+                        eframe::egui::Theme::Dark
+                    })
+                    .with_step_dt(1.0 / 60.0)
+                    .wgpu()
+                    .build_eframe(|cc| {
+                        lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                        App::new(cc, launch)
+                    });
+                lumen_app::testing::input_device().set(|d| d.input_levels = vec![1.0, 0.18, 0.0]);
+                h.run_steps(40);
+                h.query_all_by_label("Browser")
+                    .next()
+                    .expect("toggle")
+                    .click();
+                h.query_all_by_label("Detail")
+                    .next()
+                    .expect("toggle")
+                    .click();
+                h.run_steps(20);
+                h.get_by_label("Fold Vocals").click();
+                h.get_by_label("Fold Guitar DI").click();
+                h.run_steps(30);
+                h.get_by_label("Fold Drum overheads").click();
+                h.run_steps(40);
+                save(&mut h, &format!("chip-{appearance}-{scale}"));
+            }
+        }
+    }
+}

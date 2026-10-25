@@ -14,8 +14,8 @@ use lumen_audio::{
 };
 use lumen_core::product::PRODUCT_NAME;
 use lumen_engine::{
-    ClipsHandle, EngineHandle, Layered, MidiHandle, MixerHandle, Timeline, clip_player, engine,
-    midi_player, mixer,
+    ClipsHandle, EngineHandle, InputHandle, Layered, MidiHandle, MixerHandle, Timeline,
+    clip_player, engine, input_player, midi_player, mixer,
 };
 
 use crate::midi_out::StreamClock;
@@ -52,6 +52,14 @@ impl Choice {
             driver: driver.into(),
             name: name.into(),
         })
+    }
+
+    /// The silent test device with scripted inputs ([`TEST_INPUT_DRIVER`]).
+    pub fn test_input_device() -> Self {
+        Choice::Named {
+            driver: TEST_INPUT_DRIVER.into(),
+            name: "fake".into(),
+        }
     }
 
     /// The silent test device ([`TEST_DRIVER`]).
@@ -120,6 +128,9 @@ pub fn backend(driver: &str) -> Option<MakeBackend> {
         // The same, in real time (see `FakeDevice::pace`): for scenarios that
         // map wall-clock stamps to frames (recording).
         TEST_PACED_DRIVER => Some(|| test_backend(Pace::RealTime)),
+        // The silent test device whose inputs a scenario plays (one per
+        // process: the scenarios that use it take turns).
+        TEST_INPUT_DRIVER => Some(|| Box::new(lumen_audio::fake::FakeBackend(input_device()))),
         _ => None,
     }
 }
@@ -134,9 +145,22 @@ fn test_backend(pace: Pace) -> Box<dyn Backend> {
     Box::new(lumen_audio::fake::FakeBackend(control))
 }
 
+/// The one device behind [`TEST_INPUT_DRIVER`]: a scenario sets its
+/// `input_levels` while the stream runs.
+pub fn input_device() -> lumen_audio::fake::FakeControl {
+    static DEVICE: std::sync::OnceLock<lumen_audio::fake::FakeControl> = std::sync::OnceLock::new();
+    DEVICE
+        .get_or_init(|| {
+            let control = lumen_audio::fake::FakeControl::new();
+            control.set(|device| device.pace = Some(Pace::Every(TEST_BLOCK_EVERY)));
+            control
+        })
+        .clone()
+}
+
 /// Whether `driver` is one of the silent test devices.
 fn is_test(driver: &str) -> bool {
-    driver == TEST_DRIVER || driver == TEST_PACED_DRIVER
+    driver == TEST_DRIVER || driver == TEST_PACED_DRIVER || driver == TEST_INPUT_DRIVER
 }
 
 pub const DEFAULT_DRIVER: &str = if cfg!(windows) { "wasapi" } else { "cpal" };
@@ -144,6 +168,8 @@ pub const DEFAULT_DRIVER: &str = if cfg!(windows) { "wasapi" } else { "cpal" };
 pub const TEST_DRIVER: &str = "test";
 /// The silent test device that keeps to real time.
 pub const TEST_PACED_DRIVER: &str = "test-paced";
+/// The silent test device with inputs a scenario plays ([`input_device`]).
+pub const TEST_INPUT_DRIVER: &str = "test-input";
 
 /// A device found for a choice.
 struct Resolved {
@@ -155,6 +181,8 @@ struct Resolved {
     sample_rate: Option<u32>,
     buffer_frames: Option<u32>,
     input_channels: Vec<usize>,
+    /// Every input the device has (`input_channels` is then empty).
+    all_inputs: bool,
     output_channels: Vec<usize>,
     /// The cue pair, opened after the main pair (empty: none).
     cue_channels: Vec<usize>,
@@ -172,6 +200,7 @@ impl Resolved {
             sample_rate: None,
             buffer_frames: None,
             input_channels: Vec::new(),
+            all_inputs: true,
             output_channels: vec![0, 1],
             cue_channels: Vec::new(),
             notice: None,
@@ -189,7 +218,11 @@ impl Resolved {
             device: self.id.clone(),
             sample_rate: self.sample_rate,
             buffer_frames: self.buffer_frames,
-            input_channels: self.input_channels.clone(),
+            input_channels: if self.all_inputs {
+                vec![lumen_audio::ALL_INPUTS]
+            } else {
+                self.input_channels.clone()
+            },
             output_channels: self.output_channels.iter().chain(cue).copied().collect(),
         }
     }
@@ -231,6 +264,7 @@ fn find_saved(saved: &AudioSettings) -> Option<Resolved> {
         sample_rate: saved.sample_rate,
         buffer_frames: saved.buffer_frames,
         input_channels: saved.input_channels.clone(),
+        all_inputs: saved.all_inputs,
         output_channels: saved.output_channels.clone(),
         cue_channels: saved.cue_channels.clone(),
         ..Resolved::found(&saved.driver, make, id, name)
@@ -322,6 +356,9 @@ pub struct Audio {
     pub clock: Arc<StreamClock>,
     /// Replaces the routing they play through (M4).
     pub mixer: MixerHandle,
+    /// Where audio tracks take their input from, and what the inputs read
+    /// (M9 slice R1).
+    pub inputs: InputHandle,
     /// What the test device played, left and right frame by frame, for the
     /// end-to-end tests to listen to (`testing`). Real devices have none.
     pub(crate) heard: Option<rtrb::Consumer<f32>>,
@@ -378,7 +415,8 @@ impl Audio {
     pub fn start(choice: &Choice, timeline: Timeline) -> Self {
         let (clips, player) = clip_player();
         let (midi, midi_play) = midi_player();
-        let (mixer, source) = mixer(Layered(player, midi_play));
+        let (inputs, input_play) = input_player();
+        let (mixer, source) = mixer(Layered(player, Layered(midi_play, input_play)));
         let (engine_handle, mut engine) = engine(timeline, source, 48_000);
         let testing = match choice {
             Choice::Named { driver, .. } => is_test(driver),
@@ -399,7 +437,14 @@ impl Audio {
             // MIDI to hardware is timed against this clock (midi_out.rs).
             stream.publish(processed, frames, rate);
             processed += frames as u64;
-            engine.process(rate, block.outputs, channels, frames);
+            engine.process_with_input(
+                rate,
+                block.inputs,
+                block.input_channels,
+                block.outputs,
+                channels,
+                frames,
+            );
             if let Some(tap) = &mut tap {
                 listen(tap, block.outputs, channels, frames);
             }
@@ -412,6 +457,7 @@ impl Audio {
             midi,
             clock,
             mixer,
+            inputs,
             heard,
             status: Status::Off(String::new()),
             driver: String::new(),
@@ -505,10 +551,24 @@ impl Audio {
             device_name: self.device.clone(),
             sample_rate: config.sample_rate,
             buffer_frames: config.buffer_frames,
-            input_channels: config.input_channels.clone(),
+            input_channels: if config.wants_all_inputs() {
+                Vec::new()
+            } else {
+                config.input_channels.clone()
+            },
+            all_inputs: config.wants_all_inputs(),
             output_channels: self.main_channels(config),
             cue_channels: self.cue_channels.clone(),
         })
+    }
+
+    /// The device channels open as inputs, in the order the engine sees
+    /// them: none until the device runs.
+    pub fn open_inputs(&self) -> Vec<usize> {
+        match (&self.config, &self.info) {
+            (Some(config), Some(info)) => config.inputs_on(info.input_channels),
+            _ => Vec::new(),
+        }
     }
 
     /// The main pair: the opened outputs before the cue pair (and any
@@ -674,6 +734,7 @@ impl Audio {
                 sample_rate: previous.config.sample_rate,
                 buffer_frames: previous.config.buffer_frames,
                 input_channels: previous.config.input_channels.clone(),
+                all_inputs: previous.config.wants_all_inputs(),
                 output_channels: previous.config.output_channels
                     [..previous.config.output_channels.len() - previous.cue_channels.len()]
                     .to_vec(),

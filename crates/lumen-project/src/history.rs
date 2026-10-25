@@ -312,6 +312,7 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         midi_to,
         midi_from,
         monitor,
+        input,
         plugin_output,
         automation,
         frozen,
@@ -340,6 +341,7 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         && *midi_to == y.midi_to
         && *midi_from == y.midi_from
         && *monitor == y.monitor
+        && *input == y.input
         && *frozen == y.frozen
         && *plugin_output == y.plugin_output
         && automation_unchanged(automation, &y.automation)

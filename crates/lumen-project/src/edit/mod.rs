@@ -27,6 +27,7 @@ pub mod consolidate;
 pub mod crossfade;
 pub mod events;
 pub mod freeze;
+pub mod input;
 pub mod maps;
 pub mod normalize;
 mod note_selection;

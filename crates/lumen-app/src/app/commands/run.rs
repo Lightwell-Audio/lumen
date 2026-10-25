@@ -263,6 +263,8 @@ impl App {
             Command::FreezeTracks => self.freeze_selected_tracks(ctx),
             Command::UnfreezeTracks => self.unfreeze_selected_tracks(),
             Command::FlattenTracks => self.flatten_selected_tracks(),
+            Command::NextTrackInput => self.next_input_for_selected(),
+            Command::NextTrackMonitor => self.next_monitor_for_selected(),
             Command::NudgeEarlierFine => self.note_op(NoteOp::Nudge {
                 direction: -1,
                 fine: true,

@@ -2,6 +2,7 @@
 //! start-up stay in `main.rs`; these modules hold its `impl` blocks (audit
 //! M1).
 
+pub(crate) mod audio_inputs;
 pub(crate) mod auto_editing;
 mod auto_gestures;
 mod auto_keys;
@@ -52,4 +53,5 @@ pub(crate) mod test_modes;
 pub(crate) mod tools;
 mod tools_gestures;
 pub(crate) mod track_freeze;
+mod track_input;
 pub(crate) mod view;

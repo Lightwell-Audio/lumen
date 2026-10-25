@@ -204,6 +204,7 @@ impl App {
             typing: false,
             clipboard_keys: Default::default(),
             meters_at: None,
+            inputs: Default::default(),
             mark: widgets::mark::Look::REST,
             menu_for: app::editing::MenuFor::default(),
             clip_props: app::clip_card::ClipProps::default(),

@@ -23,6 +23,7 @@ features = [
 
 [target.'cfg(windows)'.dependencies]
 wasapi.workspace = true
+rubato.workspace = true
 
 [target.'cfg(not(windows))'.dependencies]
 cpal.workspace = true

@@ -256,13 +256,19 @@ impl Arrangement {
         y += NAME + GAP;
 
         if look.sections.io {
-            // A MIDI track's From and To (the other kinds leave the room
-            // empty, so every fader keeps its place).
-            if track.kind == TrackKind::Midi {
-                let from = Rect::from_x_y_ranges(x, y..=y + ROW);
-                self.input_row(ui, doc, &track, from, id);
-                let to = Rect::from_x_y_ranges(x, y + ROW + GAP..=y + 2.0 * ROW + GAP);
-                self.output_row(ui, doc, &track, to, id);
+            // A MIDI track's From and To, an audio track's In and Monitor
+            // (the other kinds leave the room empty, so every fader keeps
+            // its place).
+            if matches!(track.kind, TrackKind::Midi | TrackKind::Audio) {
+                let first = Rect::from_x_y_ranges(x, y..=y + ROW);
+                let second = Rect::from_x_y_ranges(x, y + ROW + GAP..=y + 2.0 * ROW + GAP);
+                if track.kind == TrackKind::Midi {
+                    self.input_row(ui, doc, &track, first, id);
+                    self.output_row(ui, doc, &track, second, id);
+                } else {
+                    self.audio_input_row(ui, doc, &track, first, id);
+                    self.audio_monitor_row(ui, doc, &track, second, id);
+                }
             }
             y += 2.0 * ROW + 2.0 * GAP;
         }

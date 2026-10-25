@@ -24,12 +24,12 @@ use crate::widgets::{self, SliderKind, draw_arrow, value_slider};
 pub(super) const ARROW_X: f32 = 16.0;
 pub(super) const ICON_X: f32 = 34.0;
 pub(super) const NAME_X: f32 = 48.0;
+
+/// The pan field beside the In chip on an audio track's third row.
+const PAN_WIDTH: f32 = 56.0;
 /// How much of its strength a silenced track's name and type icon keep
 /// (the design system's `.is-dim`).
 pub(super) const SILENCED: f32 = 0.45;
-/// The volume slider's value text rises this far, clear of the level bars
-/// drawn along its bottom (the owner's report: the meter sat against it).
-const METER_LIFT: f32 = 3.0;
 use crate::theme::Tone;
 use crate::widgets::raised;
 use crate::{fonts, motion, theme};
@@ -448,25 +448,35 @@ impl Arrangement {
         id: EguiId,
         look: theme::Controls,
     ) {
-        // One row of sliders that show their value inside (owner request):
-        // volume fills from the left; pan fills from the centre and grows
-        // more saturated the harder it pans.
+        // Volume on a row of its own with the A button at its end (M7
+        // slice A1); the row under it holds pan, and on an audio track the
+        // In chip before it (M9 slice R1, the owner's choice of layout R).
+        // Both sliders show their value inside (owner request): volume fills
+        // from the left; pan fills from the centre and grows more saturated
+        // the harder it pans.
         let center_y = rect.top() + FOLDED + STEP / 2.0;
+        let third_y = center_y + STEP;
         let left = rect.left() + 30.0;
         let right = rect.right() - 8.0;
-        // The A button ends the row (M7 slice A1), then pan, then volume.
         let auto_rect = Rect::from_min_size(
             pos2(right - BUTTON, center_y - BUTTON / 2.0),
             vec2(BUTTON, BUTTON),
         );
-        let pan_rect = Rect::from_min_max(
-            pos2(auto_rect.left() - 6.0 - 54.0, center_y - 10.0),
-            pos2(auto_rect.left() - 6.0, center_y + 10.0),
-        );
         let volume_rect = Rect::from_min_max(
             pos2(left, center_y - 10.0),
-            pos2(pan_rect.left() - 6.0, center_y + 10.0),
+            pos2(auto_rect.left() - 6.0, center_y + 10.0),
         );
+        let is_audio = track.kind == lumen_project::model::TrackKind::Audio;
+        let pan_left = if is_audio { right - PAN_WIDTH } else { left };
+        let pan_rect =
+            Rect::from_min_max(pos2(pan_left, third_y - 10.0), pos2(right, third_y + 10.0));
+        if is_audio {
+            let chip = Rect::from_min_max(
+                pos2(left, third_y - 10.0),
+                pos2(pan_rect.left() - 6.0, third_y + 10.0),
+            );
+            self.input_chip(ui, doc, track, chip, id);
+        }
         let gain = self.shown(doc, track, Target::Volume, track.gain_db);
         let db = widgets::value_slider_styled(
             ui,
@@ -475,11 +485,7 @@ impl Arrangement {
             gain,
             SliderKind::Volume,
             &format!("Volume {}", track.name),
-            widgets::SliderStyle {
-                look,
-                lift: METER_LIFT,
-                comet: false,
-            },
+            widgets::SliderStyle { look, comet: false },
         );
         if db != gain {
             doc.set_volume(track.id, db);

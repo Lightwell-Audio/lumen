@@ -1,6 +1,17 @@
 # Lumen — Architecture
 
-**As built:** M7b E6 audit (2026-10-24; format v29), following E3 consolidate,
+**As built:** M9 R1 audio input (2026-10-24; format v30; ADR-0100). Engine
+`input.rs`: the `InputPlayer` track source reads the device channels a track
+routes (`Source::input`, `Engine::process_with_input`). `lumen-audio`:
+`drift.rs` (Windows) keeps a capture clock and the render clock together with
+rubato's `Slip`; `wasapi_input.rs` finds the capture endpoints of a render
+endpoint's adapter and reads them beside the render stream; `types.rs` has
+`ALL_INPUTS`/`MOST_INPUTS`; `fake.rs` scripts input levels. App: `audio_input.rs`
+(placement of a track's input on the open ones), `app/audio_inputs.rs` (route
+sync, input meters, input names), `app/track_input.rs` (the stepping commands),
+`arrangement/audio_in.rs` (the In chip, its menu, the level bar and clip light);
+`lumen-project/src/edit/input.rs` arms and routes in one step.
+**Earlier:** M7b E6 audit (2026-10-24; format v29), following E3 consolidate,
 E4 bounce and E5 freeze (ADR-0095 to ADR-0098). Shared menu height constraints
 live in `widgets/menu.rs`; output directory creation runs inside the
 `consolidate::render_job` and `bounce::render_job` workers. The combined

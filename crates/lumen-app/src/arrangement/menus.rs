@@ -142,6 +142,7 @@ impl Arrangement {
             ui.close();
         }
         self.midi_menus(ui, doc, id, &targets);
+        self.audio_menus(ui, doc, id);
         widgets::submenu(ui, "Colour", |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(6.0 * 26.0);
@@ -219,6 +220,27 @@ impl Arrangement {
             midi_io::to_menu(ui, doc, &midi, &to);
         });
         midi_io::monitor_row(ui, doc, &midi, monitor);
+    }
+
+    /// What an audio track records (M9 slice R1): its input and when it is
+    /// heard. Only on audio tracks; applies to every selected audio track.
+    fn audio_menus(&mut self, ui: &mut Ui, doc: &mut Document, id: Id) {
+        let Some(track) = doc
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.id == id && t.kind == TrackKind::Audio)
+        else {
+            return;
+        };
+        let (input, monitor) = (track.input, track.monitor);
+        let audio = self.audio_targets(doc, id);
+        let mut choices = std::mem::take(&mut self.inputs);
+        widgets::submenu(ui, "Input", |ui| {
+            super::audio_in::menu(ui, doc, &audio, input, &mut choices);
+        });
+        self.inputs = choices;
+        midi_io::monitor_row(ui, doc, &audio, monitor);
     }
 
     /// "Add … track" entries, adding after `after`.

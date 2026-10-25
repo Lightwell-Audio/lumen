@@ -8771,3 +8771,84 @@ purpose: moving any clip into the span while it renders now discards the
 result with the existing stale-result path (nothing recorded). Not reproduced
 with a real timing race; the tests build the changed project directly, as the
 audit asked for the condition to be proven rejected.
+
+## ADR-0100 — Audio input reaches the engine and the tracks (M9 R1)
+
+**Context.** Until R1 the ASIO backend filled `Block.inputs` and nothing read it;
+WASAPI and cpal refused input. R1 has to make input audible and visible (routing,
+meters, monitoring) before R2 records it. The owner chose, on 2026-10-24: an In
+chip on the track header with a menu of pairs and mono inputs by friendly name
+(R1 A) and Auto monitoring (R2 A). The chip first went beside the mute button
+while a track was armed or monitored In (placement E); on the owner's own run at
+the smallest header width that squeezed the name to "V…" and crowded the row, so
+(2026-10-24, from rendered mocks) the chip is always on the unfolded header, on a
+new third row with pan (layout R: volume and the A button keep the second row);
+the unfolded height grows from four steps to five (110 pt, the owner's choice:
+"worth the clarity, and you can always fold tracks"). The chip is wide enough to
+read "In  1+2" or "In: none". A folded track shows no chip. The level bar stays as
+drawn in the specimen, and the clip light moved to the chip's top-right corner.
+Tracks with sends and tracks with a lane open one step taller than before
+(six steps), and a return's senders and the master's cue level start a row lower.
+
+**Decision.**
+- **Engine.** `Engine::process_with_input` takes the block's input, channel after
+  channel. `Source::input(&Inputs)` is a hook beside `render`; the `InputPlayer`
+  track source reads the channels a track routes (a mono input or a pair) and
+  plays them through the track's chain, so effects, sends and metering apply. The
+  app sends the routes as a message when `(document state, open inputs)` changes.
+  The stream shows (`ringing()`) while stopped so an armed track is heard stopped.
+- **Monitoring.** `Monitor::Auto` hears the input while the track is armed and the
+  transport is stopped, counting in or recording; `In` always; `Off` never. Clips
+  play on plain playback in every mode. A new command steps the mode (`track.monitor_next`).
+- **Format v30.** `Track.input: Option<AudioInput { channel, stereo }>`; only an
+  audio track may have one and `channel + width <= MAX_INPUT_CHANNELS` (256).
+  Arming an audio track with no input routes the first input no armed track uses,
+  in the same undo step (`edit::input::route_armed`). Choosing an input is one step
+  (`Document::set_audio_input`); `track.input_next` steps the choices from the keys.
+- **All inputs is the default.** `AudioSettings.all_inputs` (true when absent) opens
+  every input the device has (up to `MOST_INPUTS`, 32) by `StreamConfig::input_channels
+  = [ALL_INPUTS]`, so a track can use any of them without the user choosing a pair
+  in the audio settings first. A pair, or None, narrows it. Settings files
+  written before R1 have no such field and so open every input as well (an added
+  field, no version change). A driver model without
+  input opens none; naming channels on one that cannot is an error.
+- **Meters.** Input meters are per device channel (`Meters::input_reading`), with the
+  same ballistics as tracks; the clip light stays until clicked (Alt clears all).
+- **WASAPI input.** A device has several capture endpoints beside its render
+  endpoints; the inputs of a WASAPI device are the capture endpoints on the same
+  adapter (`PKEY_DeviceInterface_FriendlyName`), in name order, channels numbered
+  one after another ("In 1", "In 2"...). Each endpoint is a *tap*: a shared-mode
+  capture stream with Windows' format conversion to the render rate, polled by
+  the render thread each block (no thread of its own). The two clocks differ, so
+  each tap runs through `drift::Corrected`: a queue kept near one block plus one
+  device packet, steered by rubato's `Slip` (a frame inserted or dropped with a
+  short crossfade, no filter delay, D4). The controller is proportional on the
+  smoothed queue level (gain 4e-6 per frame, smoothing 1%), tested against capture
+  clocks 3 in 10,000 fast and slow without a dry queue, and for clicks on a
+  tone. A queue that runs dry plays silence and fills again. Capture is shared
+  mode beside an exclusive render stream too: it adds the engine's latency to the
+  input but never takes the inputs from other programs and needs no format search.
+  An endpoint that will not open for "all inputs" (a microphone blocked in the
+  privacy settings) is silent in place so the other inputs keep their numbers;
+  for a named list it fails the open.
+- **cpal (macOS, Linux).** Compile-only (D8): the "all" list is accepted and opens
+  no input.
+- **Test input.** The `test-input` driver (`audio::input_device()`, a process-wide
+  `FakeControl` whose `input_levels` sets a DC level per channel) drives the E2E
+  scenarios; it is not offered to users.
+
+**Options not taken.** One capture stream for the whole device: WASAPI has none.
+Resampling instead of slipping: it adds filter delay and costs more CPU for a
+difference of tens of parts per million. Exclusive capture beside exclusive render:
+it needs the same period search again, an exclusive grab of the inputs, and I could
+not test it without the interface; shared capture is the safe first step.
+Leaving the default to a chosen pair, as before: a track then could not use input 3
+until the user changed the audio settings.
+
+**Consequences.** Format v30 (migration and golden). Opening a WASAPI device now
+opens every capture endpoint of its adapter by default, so Windows may show its
+microphone-in-use indicator and ask for microphone permission; choosing None in the
+audio settings opens none. The latency figures for WASAPI input are estimates (the
+queue and one packet; the converter and driver add more) until MT-REC-1 measures
+them with the interface. ADR-0069's trial (monitoring through an effect at 64 and
+128 frames) waits on that run.

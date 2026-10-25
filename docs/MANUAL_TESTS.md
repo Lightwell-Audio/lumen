@@ -15,4 +15,5 @@ Run commands from the repository root (`D:\Projects\lumen`). Prefer `cargo run -
 | M6 · VST3 hosting and the device system | [M6.md](manual-tests/M6.md) |
 | M7 · Automation and envelopes | [M7.md](manual-tests/M7.md) |
 | M7b · Advanced editing and render | [M7b.md](manual-tests/M7b.md) |
+| M9 · Audio input, recording, export | [M9.md](manual-tests/M9.md) |
 | Native VST3 hosting on macOS | [macOS-VST3.md](manual-tests/macOS-VST3.md) |
