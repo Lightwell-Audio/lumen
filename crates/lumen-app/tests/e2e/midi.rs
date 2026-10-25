@@ -2,12 +2,10 @@
 //! the settings' MIDI page, the switches open them, are saved, and come
 //! back with the device; a port that will not open says so.
 
-use std::time::{Duration, Instant};
-
 use lumen_midi::Direction;
 use lumen_midi::fake::FakeControl;
 
-use super::{Lumen, PATIENCE};
+use super::Lumen;
 
 fn start(name: &str, fake: &FakeControl) -> Lumen {
     let fake = fake.clone();
@@ -21,28 +19,11 @@ fn open_midi_page(lumen: &mut Lumen) {
     lumen.open_midi_settings();
 }
 
-/// Runs frames until `done` holds, for as long as background work may take
-/// (`PATIENCE`), never a count of frames: the MIDI worker answers on its own
-/// thread, and on a loaded machine that can take far longer than a few
-/// hundred frames.
-#[track_caller]
-fn until(lumen: &mut Lumen, what: &str, done: impl Fn(&Lumen) -> bool) {
-    let started = Instant::now();
-    loop {
-        lumen.frames(1);
-        if done(lumen) {
-            return;
-        }
-        assert!(started.elapsed() < PATIENCE, "{what} never happened");
-        std::thread::sleep(Duration::from_millis(5));
-    }
-}
-
 /// Runs frames until the page shows (or no longer shows) `label`.
 #[track_caller]
 fn until_shown(lumen: &mut Lumen, label: &str, shown: bool) {
     let what = format!("{label:?} {}", if shown { "appearing" } else { "leaving" });
-    until(lumen, &what, |l| l.shows(label) == shown);
+    lumen.run_until(&what, |l| l.shows(label) == shown);
 }
 
 /// Runs frames until the switch named `label` is (or is no longer) on. A
@@ -51,15 +32,13 @@ fn until_shown(lumen: &mut Lumen, label: &str, shown: bool) {
 #[track_caller]
 fn until_on(lumen: &mut Lumen, label: &str, on: bool) {
     let what = format!("{label:?} turning {}", if on { "on" } else { "off" });
-    until(lumen, &what, |l| l.is_on(label) == on);
+    lumen.run_until(&what, |l| l.is_on(label) == on);
 }
 
 /// Runs frames until `open` input ports are open on the fake system.
 #[track_caller]
 fn until_open_inputs(lumen: &mut Lumen, fake: &FakeControl, open: usize) {
-    until(lumen, "the input ports opening", |_| {
-        fake.open_inputs() == open
-    });
+    lumen.run_until("the input ports opening", |_| fake.open_inputs() == open);
 }
 
 #[test]

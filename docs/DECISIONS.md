@@ -9028,3 +9028,11 @@ scenarios waited a fixed count of frames for the settings page and for the MIDI
 worker, and clicked the MIDI tab once, right after the window opened. They now
 wait on a deadline (`PATIENCE`) and `Lumen::open_midi_settings` clicks the tab
 until it is chosen. Test code only; no product behaviour changed.
+
+CI on the PR (same day) showed the MIDI-page flake on Windows in two more
+scenarios that carried their own copy of "open the page, wait 400 frames"
+(`midi_from`, `record`); they now share `switch_on_for_tracks`, built on
+`Lumen::open_midi_settings` and `Lumen::run_until` (the deadline wait). The one
+macOS failure that was not a known flake was `crossfades::project_menu_…`,
+which looked for the label "New Ctrl" where macOS writes "New Cmd"; it was
+already failing on `main` and now uses `keys()`.

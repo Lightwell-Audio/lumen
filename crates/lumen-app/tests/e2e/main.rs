@@ -211,6 +211,24 @@ impl Lumen {
         }
     }
 
+    /// Runs frames until `done` holds, for as long as background work may
+    /// take ([`PATIENCE`]), never a count of frames: a worker thread answers
+    /// in its own time, and on a loaded machine that can take far longer
+    /// than a few hundred frames. For state that is drawn or that the test
+    /// holds; [`wait_for`](Self::wait_for) reads the app's.
+    #[track_caller]
+    pub fn run_until(&mut self, what: &str, done: impl Fn(&Lumen) -> bool) {
+        let started = Instant::now();
+        loop {
+            self.frames(1);
+            if done(self) {
+                return;
+            }
+            assert!(started.elapsed() < PATIENCE, "{what} never happened");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     /// Opens the settings window on its MIDI page. The tab is clicked until
     /// it is the chosen one, never a fixed number of frames after the window
     /// opens: a click that lands while the window is still being laid out
