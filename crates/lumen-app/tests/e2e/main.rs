@@ -13,6 +13,7 @@
 
 mod access;
 mod audio_input;
+mod audio_record;
 mod audition;
 mod automation;
 mod barfit;
@@ -206,6 +207,31 @@ impl Lumen {
                 return;
             }
             assert!(started.elapsed() < PATIENCE, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Opens the settings window on its MIDI page. The tab is clicked until
+    /// it is the chosen one, never a fixed number of frames after the window
+    /// opens: a click that lands while the window is still being laid out
+    /// does nothing (as it would for a user), and on a loaded machine that
+    /// was enough to leave the page unopened.
+    #[track_caller]
+    pub fn open_midi_settings(&mut self) {
+        self.click("Lumen");
+        self.click("Audio and MIDI settings\u{2026}");
+        let started = Instant::now();
+        loop {
+            self.harness.get_by_label("MIDI tab").click();
+            self.frames(3);
+            // A chosen tab reports as on.
+            if self.is_on("MIDI tab") {
+                return;
+            }
+            assert!(
+                started.elapsed() < PATIENCE,
+                "timed out waiting for the MIDI page"
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
     }

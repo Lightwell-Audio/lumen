@@ -222,6 +222,7 @@ impl App {
             media_files: self.document.media_files.clone(),
             copy_imported: self.settings.projects.copy_imported,
             renders: Some(self.renders_dir()),
+            recordings: Some(self.recordings_dir()),
             keep_backups: lumen_project::SaveOptions::default().keep_backups,
             state: self.document.state(),
         }));
@@ -406,6 +407,7 @@ impl App {
                                 leftover.note.project.map(PathBuf::from),
                                 opened.media_files,
                             ));
+                            self.recover_takes(&leftover.session);
                         }
                         None => self.replace_document(document::Document::opened(
                             opened.project,

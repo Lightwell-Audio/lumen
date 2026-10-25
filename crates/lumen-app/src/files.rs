@@ -22,6 +22,8 @@ pub const IMPORTED: &str = "Samples/Imported";
 /// Where audio Lumen rendered itself (a consolidated clip) goes, inside the
 /// project folder.
 pub const RENDERED: &str = "Samples/Rendered";
+/// Where audio recorded in Lumen goes, inside the project folder.
+pub const RECORDED: &str = "Samples/Recorded";
 /// The file extension of projects.
 pub const EXTENSION: &str = "lumen";
 
@@ -65,6 +67,9 @@ pub struct SaveRequest {
     /// reference to: they are copied into the project whatever
     /// `copy_imported` says, and are not recorded as imported.
     pub renders: Option<PathBuf>,
+    /// The folder takes are recorded into: handled like `renders`, and copied
+    /// into `Samples/Recorded`.
+    pub recordings: Option<PathBuf>,
     /// Earlier versions kept in `Backups` (none for autosaves).
     pub keep_backups: usize,
     /// The document state being saved (edits during the save stay unsaved).
@@ -103,10 +108,12 @@ pub fn save_now(request: SaveRequest) -> Result<Saved, String> {
         media_files,
         copy_imported,
         renders,
+        recordings,
         keep_backups,
         state,
     } = request;
     let renders = renders.map(|dir| canonical(&dir));
+    let recordings = recordings.map(|dir| canonical(&dir));
     let path = if normalize_project_path {
         project_file_for(&chosen_path)
     } else {
@@ -127,10 +134,19 @@ pub fn save_now(request: SaveRequest) -> Result<Saved, String> {
             continue;
         };
         let source = canonical(source);
-        let rendered = renders.as_ref().is_some_and(|dir| source.starts_with(dir));
+        let recorded = recordings
+            .as_ref()
+            .is_some_and(|dir| source.starts_with(dir));
+        let rendered = recorded || renders.as_ref().is_some_and(|dir| source.starts_with(dir));
         let location =
             if (copy_imported || rendered) && !source.starts_with(&dir) && source.is_file() {
-                let folder = dir.join(if rendered { RENDERED } else { IMPORTED });
+                let folder = dir.join(if recorded {
+                    RECORDED
+                } else if rendered {
+                    RENDERED
+                } else {
+                    IMPORTED
+                });
                 let target = copy_target(&folder, &source)?;
                 if !target.is_file() {
                     std::fs::create_dir_all(&folder)
@@ -304,6 +320,7 @@ mod tests {
             media_files: doc.media_files.clone(),
             copy_imported,
             renders: None,
+            recordings: None,
             keep_backups: SaveOptions::default().keep_backups,
             state: doc.state(),
         }
@@ -365,6 +382,31 @@ mod tests {
         assert!(!original.starts_with(r"\\?\"), "{original}");
         assert_eq!(opened.project.tracks, doc.project().tracks);
         assert_eq!(opened.media_files.len(), 2);
+    }
+
+    #[test]
+    fn recorded_audio_is_always_copied_into_samples_recorded() {
+        let tmp = TempDir::new("files-recorded");
+        let recordings = tmp.path().join("Recordings");
+        let take = recordings.join("Vox 1.wav");
+        wav(&take, 4_800);
+        let doc = document_with(&[take]);
+        let path = tmp.path().join("Song").join("Song.lumen");
+        let mut asked = request(&doc, path.clone(), false);
+        asked.recordings = Some(recordings);
+        let saved = save_now(asked).unwrap();
+        assert_eq!(saved.copied, 1);
+        assert!(
+            path.parent()
+                .unwrap()
+                .join(RECORDED)
+                .join("Vox 1.wav")
+                .is_file()
+        );
+        let opened = open_now(&path).unwrap();
+        assert!(opened.missing.is_empty(), "{:?}", opened.missing);
+        assert_eq!(opened.project.media[0].path, "Samples/Recorded/Vox 1.wav");
+        assert_eq!(opened.project.media[0].original_path, None);
     }
 
     #[test]

@@ -58,6 +58,9 @@ pub struct Lanes {
     built: Option<u64>,
     /// The engine's clip list needs rebuilding.
     dirty: bool,
+    /// The audio tracks being recorded over that the clip list was built
+    /// with, so it is built again when a take begins or ends.
+    masked: Vec<crate::midi_play::Replacing>,
     /// The project state the engine's MIDI tracks were built from, and
     /// whether they need sending again (M5 slice 1).
     midi_built: Option<(
@@ -313,6 +316,49 @@ fn envelope_of(
     }
 }
 
+/// The audio tracks a take is being recorded over, from the same list the
+/// MIDI tracks are in.
+fn audio_replacing(
+    project: &Project,
+    inputs: &crate::midi_play::Inputs,
+) -> Vec<crate::midi_play::Replacing> {
+    inputs
+        .replacing
+        .iter()
+        .filter(|r| {
+            project
+                .tracks
+                .iter()
+                .any(|t| t.id == r.track && t.kind == lumen_project::model::TrackKind::Audio)
+        })
+        .cloned()
+        .collect()
+}
+
+/// The project as it sounds while audio is recorded over: what the take
+/// covers on its track is cut away, as Stop will cut it (the overlap rule),
+/// so the old clip is not heard under the new one.
+fn without_replaced<'a>(
+    project: std::borrow::Cow<'a, Project>,
+    replacing: &[crate::midi_play::Replacing],
+) -> std::borrow::Cow<'a, Project> {
+    if replacing.is_empty() {
+        return project;
+    }
+    let mut copy = project.into_owned();
+    // Ids for the right-hand pieces; the cut project is never saved.
+    let mut next = u64::MAX;
+    let mut fresh = || {
+        next -= 1;
+        lumen_project::model::Id(next)
+    };
+    for r in replacing {
+        let until = r.until.unwrap_or(Ticks(i64::MAX / 8));
+        lumen_project::edit::clear(&mut copy, &[r.track], r.from, until, &mut fresh);
+    }
+    std::borrow::Cow::Owned(copy)
+}
+
 impl Lanes {
     /// A plugin instrument is ready for the next MIDI track list (M6
     /// slice 2c).
@@ -323,6 +369,12 @@ impl Lanes {
     /// Files are still loading for import.
     /// Files dropped for import are still loading (not an opened
     /// project's media: `library.is_loading()` covers every load).
+    /// The audio tracks whose clips the engine plays cut for a take under
+    /// way (test seam).
+    pub fn masked_tracks(&self) -> Vec<Id> {
+        self.masked.iter().map(|r| r.track).collect()
+    }
+
     pub fn is_loading(&self) -> bool {
         !self.pending.is_empty() || !self.landing.is_empty()
     }
@@ -456,12 +508,15 @@ impl Lanes {
             }
         }
 
-        if self.dirty || self.built != Some(doc.state()) {
+        let masked = audio_replacing(doc.project(), inputs);
+        if self.dirty || self.built != Some(doc.state()) || self.masked != masked {
             // A full queue means the engine has not caught up; retry next frame.
             // A frozen track plays its file (M7b E5), not its clips.
-            let list = self.engine_clips(&lumen_project::edit::freeze::played(doc.project()), rate);
+            let sounding = lumen_project::edit::freeze::played(doc.project());
+            let list = self.engine_clips(&without_replaced(sounding, &masked), rate);
             self.dirty = clips.set(list).is_err();
             self.built = Some(doc.state());
+            self.masked = masked;
         }
         // Sent again when the project, the selection or the inputs change
         // (which tracks listen to what), never every frame.
@@ -883,6 +938,63 @@ mod tests {
 
     fn played(doc: &Document, audio: &Arc<ClipAudio>, native: u32) -> Vec<Clip> {
         engine_clips(doc.project(), 48_000, |_| Some((audio.clone(), native)))
+    }
+
+    #[test]
+    fn a_take_recorded_over_a_clip_silences_it_from_where_the_take_begins() {
+        use crate::midi_play::Replacing;
+        let (doc, audio) = setup(2);
+        let (first, second) = (doc.project().tracks[0].id, doc.project().tracks[1].id);
+        let whole = played(&doc, &audio, 48_000);
+        let one = |list: &[Clip], track: Id| list.iter().filter(|c| c.track == track.0).count();
+        let length = |list: &[Clip], track: Id| {
+            list.iter()
+                .filter(|c| c.track == track.0)
+                .map(|c| c.length)
+                .sum::<i64>()
+        };
+        let cut = |until: Option<Ticks>| {
+            let replacing = [Replacing {
+                track: first,
+                from: Ticks::quarters(1),
+                until,
+                take: None,
+            }];
+            let sounding = without_replaced(std::borrow::Cow::Borrowed(doc.project()), &replacing);
+            engine_clips(&sounding, 48_000, |_| Some((audio.clone(), 48_000)))
+        };
+        // Recording with no end yet: only the second before it begins plays.
+        let open = cut(None);
+        assert_eq!(one(&open, first), 1);
+        assert_eq!(length(&open, first), 24_000);
+        // Punched: the clip plays on both sides of the punch.
+        let punched = cut(Some(Ticks::quarters(3)));
+        assert_eq!(one(&punched, first), 2);
+        assert_eq!(length(&punched, first), 48_000);
+        // The other track is not touched.
+        assert_eq!(length(&open, second), length(&whole, second));
+        // Nothing being recorded: the clips play whole.
+        let none = without_replaced(std::borrow::Cow::Borrowed(doc.project()), &[]);
+        assert!(matches!(none, std::borrow::Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn only_audio_tracks_are_masked_for_audio() {
+        use crate::midi_play::{Inputs, Replacing};
+        let (doc, _) = setup(1);
+        let track = doc.project().tracks[0].id;
+        let mut inputs = Inputs::default();
+        for id in [track, Id(9999)] {
+            inputs.replacing.push(Replacing {
+                track: id,
+                from: Ticks::ZERO,
+                until: None,
+                take: None,
+            });
+        }
+        let masked = audio_replacing(doc.project(), &inputs);
+        assert_eq!(masked.len(), 1);
+        assert_eq!(masked[0].track, track);
     }
 
     #[test]

@@ -16,13 +16,14 @@ use crate::launch::Launch;
 use crate::timeview::TimeView;
 use crate::{App, files, settings};
 
+mod audio_record;
 mod automation;
 mod devices;
 mod editor;
 mod midi;
 mod tools;
 
-pub use crate::audio::input_device;
+pub use crate::audio::{InputDeviceTurn, input_device, input_device_turn};
 pub use editor::PianoRollDemo;
 
 /// A note edit for tests (`App::edit_notes`).

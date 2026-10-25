@@ -420,6 +420,20 @@ per slice and move what is no longer current out of it.
   hover); the In chip is a fixed 60 pt; the A button is gone (A key, track
   menu "Show automation lane", palette). E2E updated (`lane_view`, `sends`,
   `audio_input`), shot `track_headers`. MT-REC-4 waits on the owner.
+- **Branch `m9-s2-audio-recording`: M9 slice R2 (audio recording) is built** (ADR-0102;
+  no format change; cut from `main` after PR #62; pushed). F9 records the armed audio
+  tracks that have an input, beside the MIDI ones: the engine copies what a recording
+  route takes into rings (`capture.rs`), a worker thread writes one float WAV per track
+  that is valid at every moment (`take_worker.rs`, `lumen-media/src/take.rs`) into a
+  `Recordings` folder beside the autosaves (Save copies them to `Samples/Recorded`),
+  and Stop places each as a clip, one undo step, shifted by the input and output latency
+  plus a manual offset (audio window, Latency section; `RecordSettings.offset_ms`). Punch
+  keeps only the punched range; loop keeps one long clip (R3 cuts passes); a growing
+  record-red clip with a live wave is drawn while recording; a take left by a crash is
+  repaired and put back when the session's autosave is recovered. E2E scenarios on a ramp
+  input (`tests/e2e/audio_record.rs`) pass. Not hardware-verified: MT-REC-2
+  (`docs/manual-tests/M9.md`) waits on the owner's Focusrite. The loopback helper is
+  its own slice R2b. Next: R3 (takes and Capture MIDI) per `docs/milestones/M9.md`.
 - **Branch `m9-s1-audio-input`: M9 slice R1 (audio input) is built** (ADR-0100;
   format **v30**; cut from `m9-s0-render-consistency`; not pushed). Input reaches
   the engine (`Source::input`, `Engine::process_with_input`); an audio track routes a

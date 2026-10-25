@@ -3815,3 +3815,78 @@ fn audio_input_chip() {
         }
     }
 }
+
+/// Audio recording (M9 R2): the take as it grows and the clip it becomes, at
+/// several track heights, on the input device's ramp, so the two can be laid
+/// side by side. `live-<height>` and `final-<height>`.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn record_wave_heights() {
+    use lumen_project::model::{Color, Id, Track, TrackKind};
+    use lumen_project::testing::project_of;
+    for (height, scale) in [(88.0_f32, 1.0_f32), (280.0, 1.0), (88.0, 1.5), (280.0, 1.5)] {
+        let dir = TempDir::new(&format!("shots-rec-wave-{height}-{scale}"));
+        let vox = Id(21);
+        let mut project = project_of(
+            "Take",
+            vec![Track::new(vox, "Vox", TrackKind::Audio, Color(0x4F81BD))],
+        );
+        project.view.track_heights.insert(vox, height);
+        project.view.expanded.insert(vox);
+        let path = dir.path().join("song.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        lumen_app::testing::input_device().set(|d| {
+            d.input_levels = Vec::new();
+            d.input_ramp = true;
+        });
+        let launch = Launch::for_test(dir.path())
+            .appearing("dark")
+            .with_input_device()
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(vec2(1280.0, 760.0))
+            .with_pixels_per_point(scale)
+            .with_theme(eframe::egui::Theme::Dark)
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        let wait = |h: &mut Harness<'static, App>, what: &str, ok: &dyn Fn(&App) -> bool| {
+            for _ in 0..1500 {
+                h.run_steps(2);
+                if ok(h.state()) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            panic!("timed out waiting for {what}");
+        };
+        wait(&mut h, "the project", &|a| a.project().tracks.len() == 1);
+        wait(&mut h, "inputs", &|a| a.open_inputs() == 2);
+        h.run_steps(30);
+        {
+            use egui_kittest::kittest::Queryable;
+            h.get_by_label("Arm Vox").click();
+        }
+        h.run_steps(5);
+        h.key_press(Key::F9);
+        wait(&mut h, "recording", &|a| a.recording() && a.is_playing());
+        wait(&mut h, "frames", &|a| {
+            a.audio_take_frames(vox).is_some_and(|f| f >= 200_000)
+        });
+        save(&mut h, &format!("live-{height}-{scale}"));
+        h.key_press(Key::Space);
+        wait(&mut h, "the clip", &|a| {
+            !a.recording() && a.project().tracks[0].clips.len() == 1
+        });
+        h.run_steps(60);
+        wait(&mut h, "the wave", &|a| a.project().media.len() == 1);
+        for _ in 0..30 {
+            h.run_steps(5);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        save(&mut h, &format!("final-{height}-{scale}"));
+    }
+}

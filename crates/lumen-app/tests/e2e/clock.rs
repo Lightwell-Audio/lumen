@@ -91,9 +91,7 @@ fn a_synced_port_follows_play_the_tempo_map_loops_jumps_and_stop() {
     lumen.wait_for("the project", |app| app.project().tempo.len() == 2);
 
     // Sync on in the MIDI settings: the delay field appears beside it.
-    lumen.click("Lumen");
-    lumen.click("Audio and MIDI settings\u{2026}");
-    lumen.click("MIDI tab");
+    lumen.open_midi_settings();
     for _ in 0..400 {
         if lumen.shows("Sync Drum machine output") {
             break;

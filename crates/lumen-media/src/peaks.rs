@@ -102,6 +102,77 @@ fn merge(buckets: &[Bucket]) -> Bucket {
         })
 }
 
+/// Fine buckets in one coarse bucket of [`Growing`]: 16 × 16 = 256 frames.
+pub const GROWING_FACTOR: usize = 16;
+
+/// The peaks of audio that is still arriving (a take being recorded), built
+/// with the finished waveform's own buckets (the same extent, rounded the
+/// same way) so the live picture is the final one drawn early. It keeps the
+/// finest level and one coarse level of 256 frames, which a zoomed-out view
+/// reads instead of every fine bucket. A partly filled bucket is not shown.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Growing {
+    /// 1 or 2, as [`Peaks::channels`]: how many channels the take has.
+    pub channels: usize,
+    fine: Vec<Bucket>,
+    coarse: Vec<Bucket>,
+    /// Extent of the bucket in progress, as `[min, max]` of each channel.
+    pending: [f32; 4],
+    filled: usize,
+}
+
+impl Growing {
+    /// Takes in frames of `left` and, for a take of two channels, `right`.
+    pub fn add(&mut self, left: &[f32], right: Option<&[f32]>) {
+        self.channels = if right.is_some() { 2 } else { 1 };
+        let right = right.unwrap_or(left);
+        for (l, r) in left.iter().zip(right) {
+            if self.filled == 0 {
+                self.pending = [f32::MAX, f32::MIN, f32::MAX, f32::MIN];
+            }
+            self.pending[0] = self.pending[0].min(*l);
+            self.pending[1] = self.pending[1].max(*l);
+            self.pending[2] = self.pending[2].min(*r);
+            self.pending[3] = self.pending[3].max(*r);
+            self.filled += 1;
+            if self.filled == BASE {
+                let [l_min, l_max, r_min, r_max] = self.pending;
+                self.fine
+                    .push([down(l_min), up(l_max), down(r_min), up(r_max)]);
+                self.filled = 0;
+                if self.fine.len().is_multiple_of(GROWING_FACTOR) {
+                    let from = self.fine.len() - GROWING_FACTOR;
+                    self.coarse.push(merge(&self.fine[from..]));
+                }
+            }
+        }
+    }
+
+    /// Frames in the buckets so far.
+    pub fn frames(&self) -> usize {
+        self.fine.len() * BASE
+    }
+
+    /// The bucket covering frames `from..to` of the take: the extent of
+    /// every bucket under them, from the coarse level when `to - from` holds
+    /// several of its buckets and the fine level otherwise. Frames past the
+    /// end are silent, and a range is never narrower than one bucket.
+    pub fn extent(&self, from: f64, to: f64) -> Bucket {
+        let coarse = to - from >= (BASE * GROWING_FACTOR * 4) as f64;
+        let (buckets, size) = if coarse {
+            (&self.coarse, BASE * GROWING_FACTOR)
+        } else {
+            (&self.fine, BASE)
+        };
+        let first = ((from.max(0.0) / size as f64) as usize).min(buckets.len());
+        let last = ((to.max(0.0) / size as f64).ceil() as usize).max(first + 1);
+        buckets
+            .get(first..last.min(buckets.len()))
+            .filter(|s| !s.is_empty())
+            .map_or([0; 4], merge)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,6 +194,41 @@ mod tests {
         // Frames 32–39, the partial bucket: left 0.6 to 0.95.
         assert_eq!(finest[2][..2], [76, 121]);
         assert_eq!(peaks.channels, 2);
+    }
+
+    #[test]
+    fn a_growing_take_has_the_buckets_the_finished_file_will_have() {
+        let left: Vec<f32> = (0..1_000)
+            .map(|i| ((i * 7) % 200) as f32 / 150.0 - 0.6)
+            .collect();
+        let right: Vec<f32> = left.iter().map(|v| v * -0.3).collect();
+        let finished = build(&[left.clone(), right.clone()]);
+        // Fed in uneven chunks, as the audio arrives.
+        let mut live = Growing::default();
+        let mut at = 0;
+        for step in [1, 17, 300, 5, 677] {
+            let end = (at + step).min(left.len());
+            live.add(&left[at..end], Some(&right[at..end]));
+            at = end;
+        }
+        assert_eq!(live.channels, 2);
+        // 62 whole buckets; the partial one is not shown.
+        assert_eq!(live.frames(), 992);
+        assert_eq!(live.fine, finished.levels()[0][..62]);
+        // A range reads the extent of the buckets under it.
+        assert_eq!(live.extent(0.0, 16.0), finished.levels()[0][0]);
+        assert_eq!(live.extent(16.0, 48.0), merge(&finished.levels()[0][1..3]));
+        // A wide range reads the coarse level, past the end is silent.
+        assert_eq!(live.extent(0.0, 512.0), merge(&finished.levels()[0][..32]));
+        assert_eq!(live.extent(5_000.0, 5_016.0), [0; 4]);
+    }
+
+    #[test]
+    fn a_growing_mono_take_repeats_its_channel_and_quiet_audio_shows() {
+        let mut live = Growing::default();
+        live.add(&[0.001; 16], None);
+        assert_eq!(live.channels, 1);
+        assert_eq!(live.extent(0.0, 16.0), [0, 1, 0, 1]);
     }
 
     #[test]

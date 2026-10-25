@@ -28,6 +28,7 @@ impl App {
                 media_files: self.document.media_files.clone(),
                 copy_imported: false,
                 renders: Some(self.renders_dir()),
+                recordings: Some(self.recordings_dir()),
                 keep_backups: 0,
                 state: self.document.change_mark(),
             },

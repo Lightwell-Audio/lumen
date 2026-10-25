@@ -32,7 +32,9 @@ mod source;
 pub mod testing;
 mod timeline;
 
-pub use capture::{CaptureReader, CaptureSink, Chunk as CaptureChunk, RING_CHUNKS, RING_SAMPLES};
+pub use capture::{
+    CaptureReader, CaptureSink, Chunk as CaptureChunk, RING_CHUNKS, RING_SAMPLES, capture,
+};
 pub use clips::{Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, FadeFrames, clip_player};
 pub use engine::{Command, Engine, EngineHandle, HOST_SHARE, OFFLINE_WAIT, Region, engine};
 pub use envelope::ClipEnvelope;

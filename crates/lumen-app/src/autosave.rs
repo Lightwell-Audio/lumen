@@ -359,6 +359,7 @@ mod tests {
             media_files: doc.media_files.clone(),
             copy_imported: false,
             renders: None,
+            recordings: None,
             keep_backups: 0,
             state: doc.state(),
         }

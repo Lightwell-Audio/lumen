@@ -8912,3 +8912,119 @@ clicks away and knobs moved as sends turned on.
 saved heights of 110 pt stay as saved (a taller row is still valid). Unfolding
 now gives 88 pt. Twelve 8.5 pt slots are narrow targets; each is 16 pt tall,
 has a name and keys, and the flag names it.
+
+## ADR-0102 — Recording audio: a ring, a worker, a file that is valid at every moment (M9 R2)
+
+**Context.** R1 brought input to the engine. R2 records it: arm one or many audio
+tracks, press Record, and get a clip per track that plays what came in, where it
+was played. A crash may cost the last second at most and the audio thread may
+never wait for the disk (hard rule 1). Owner choices (2026-10-25): punch A (the
+file holds only the punched range), loop A (one continuous file and one long clip;
+R3 cuts the passes), the loopback helper is its own slice (R2b).
+
+**Decision.**
+- **Capture in the engine.** `InputPlayer` copies what a recording route takes
+  into two preallocated SPSC rings (`lumen_engine::capture`): samples (4 Mi
+  floats) and chunk headers (128 Ki). A chunk is the frames one route took in one
+  render part: track, `device` (the stream's frame count at its first frame),
+  `at` (the timeline sample *heard* at that frame, as MIDI is placed, ADR-0046),
+  frames, channels. A chunk is all or nothing; a full ring drops it and counts
+  it. `device` shows a gap (a dropped chunk), `at` jumping back shows a loop wrap.
+  Nothing is kept during the count-in, a stop, or plain playback.
+- **A worker writes the files** (`take_worker.rs`, one long-lived thread that
+  owns the ring's reading end; the engine and `Audio` live across device
+  restarts). One float WAV per armed track, a pair as one stereo file, at the
+  device rate. Placement is `chunk.at - shift + i` with `shift = input latency +
+  output latency + manual offset`. Frames before the window (the start of the
+  timeline, or the punch-in) are skipped until the take begins; the first frame
+  past the punch-out ends that track's take; a loop wrap continues the same file.
+  A dropped chunk is padded with silence so the rest stays in time.
+- **The file is valid at every moment** (`lumen_media::take::TakeWriter`): the
+  header names the frames written so far and is refreshed about once a second and
+  at the end, so a kill costs about a second; `repair()` cuts a half frame and
+  rewrites the header. Past 4 GiB the header carries the streaming length
+  (`u32::MAX`), which the decoder reads to the end of the file; RF64 was not
+  taken because the decoder does not read it.
+- **Placement is one undo step** (`Document::record_audio_takes`, label
+  "Record"): `lumen_project::edit::audio_take::apply` puts each file on its track
+  as a clip over the span it was played in and cuts what it covers (the overlap
+  rule). A locked clip is never cut: the take goes on a new audio track after the
+  source ("<name> take"). Mixed MIDI and audio recording makes two undo steps
+  (the MIDI take commits as it grows; the audio files are only ready at the stop).
+- **Files** live in a `Recordings` folder beside the autosaves; Save copies them
+  into `Samples/Recorded` (as renders go to `Samples/Rendered`, ADR-0095).
+- **While recording** the arrangement draws a record-red clip growing on each
+  recording track, its wave from the peaks the worker keeps (one per 256 frames,
+  drawn per pixel column of what is in view). Edits to a recording track are
+  refused (R0). If the disk cannot keep up, a notice says so once.
+- **Recovery.** A take has a sidecar (`<file>.take`: session, track, start, rate,
+  channels) from its first frame until a clean finish. When an autosave of that
+  session is recovered, its unfinished takes are repaired and placed on their
+  tracks in one undo step, with a notice.
+- **The manual offset** is `RecordSettings.offset_ms` (an added settings field,
+  absent means 0, no version change), a number field in the audio window's
+  Latency section; positive moves a take earlier. No project format change.
+- **Test seam.** The `test-input` fake device can play a ramp
+  (`FakeDevice::input_ramp`), so the end-to-end tests check that no frame is lost,
+  repeated or moved.
+
+**Options not taken.** RF64 (not read by the decoder). Writing from the audio
+thread (disk waits). One file per loop pass (R3 cuts the single file instead).
+Importing the file as media through the normal import path (it would decode and
+convert a file Lumen just wrote).
+
+**Consequences.** No project format change. A crash during a recording is only
+offered back when an autosave of the session exists (see KNOWN_ISSUES). The two
+Record undo steps for mixed recording are a known limit. Real latency
+compensation, ASIO and WASAPI capture under load and the kill-and-reopen on real
+hardware are MT-REC-2 on the Focusrite.
+
+**Amendment (2026-10-25, owner's first run).** Two faults. (1) The old clip kept
+sounding under a take: only MIDI had a Replace mask. Audio tracks being recorded
+now add themselves to the same `Replacing` list whatever the MIDI mode is (audio
+always goes in as a clip that cuts what it covers), and `Lanes::update` builds
+the engine's clips from the project with `edit::clear` applied over the take's
+window (from where it begins, to the punch-out or the loop end, else open), so
+what is heard while recording is what Stop leaves. The list is compared each
+frame, so the clips are sent again only when a take begins or ends. (2) After
+Stop the transport is idle, so nothing asked for the frames that poll the worker
+and then place the clip and start loading its waveform; the clip and its wave
+appeared only on the next mouse move or Play. `poll_audio_takes` now requests
+repaints while the worker closes the files and one after the clips are placed.
+(3) Second run, same day: the old clip was still *drawn* under the growing take,
+and the live wave still looked unlike the final one. Cutting the old clip in the
+arrangement's preview project (to the bar ahead of the take, to keep the redraw
+to once a bar) made it vanish a bar at a time ahead of the take, so that was
+dropped: the take's body now has an opaque lane-coloured base under its tint,
+which hides what it covers exactly as far as it has grown, in real time and with
+no rebuild of the clip layers. The live wave was symmetric absolute peaks per 256 frames, joined across
+channels; the finished wave is min and max buckets of 16 frames, rounded outward
+to 1/127 (so any sound is at least a pixel each side), with a stereo take drawn
+as two halves when the clip is tall enough. `lumen_media::GrowingPeaks` now builds
+the finished file's own buckets as the audio arrives (tested equal to
+`Peaks::build`, fed in uneven chunks) with one coarse level of 256 frames for
+zoomed-out views, and the take's drawing places columns as the shader does.
+
+
+**Amendment (2026-10-25, third run: the live wave flickered as the track height
+changed).** The live wave was drawn as one thin `rect_filled` per column. egui
+feathers the edges of a shape by the pixel it sits on, so a rectangle about a
+pixel thick was dimmed or dropped depending on where the track height put its
+centre line; the finished clip (a shader that shades each pixel row by its
+exact coverage) did not. The take's wave is now one `Mesh` of pixel-aligned
+quads in physical pixels: a column's whole rows are painted whole, and the rows
+it only partly covers at its ends take its coverage as their alpha
+(`audio_take_look::rows`, tested), anchored to where the take starts as the
+shader anchors a clip. Checked by shot `record_wave_heights` (a live and a
+finished take at several heights and scales).
+
+**Test architecture (same day).** Two E2E flakes were found and fixed at their
+cause, not retried. (1) The fake input device is one per process, shared by
+every scenario; a scenario that left its test ramp on made the next one's
+input differ. `lumen_app::testing::input_device_turn()` is now the only way a
+scenario takes it: it holds the turn and resets the whole fake device
+(`FakeControl::reset`) first, so order no longer matters. (2) The MIDI
+scenarios waited a fixed count of frames for the settings page and for the MIDI
+worker, and clicked the MIDI tab once, right after the window opened. They now
+wait on a deadline (`PATIENCE`) and `Lumen::open_midi_settings` clicks the tab
+until it is chosen. Test code only; no product behaviour changed.

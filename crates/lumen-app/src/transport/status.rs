@@ -157,10 +157,13 @@ impl Transport {
     ) -> Vec<crate::midi::Action> {
         use crate::audio_settings::Action;
         let mut asked = std::mem::take(&mut self.midi_asked);
-        for action in self
-            .settings_window
-            .show(ctx, &self.audio, midi, self.test_tone)
-        {
+        for action in self.settings_window.show(
+            ctx,
+            &self.audio,
+            midi,
+            self.test_tone,
+            self.record_offset_ms,
+        ) {
             match action {
                 Action::Midi(action) => asked.push(action),
                 Action::Apply(settings) => {
@@ -170,6 +173,7 @@ impl Transport {
                 }
                 Action::ControlPanel => self.audio.open_control_panel(),
                 Action::DismissNotice => self.audio.dismiss_notice(),
+                Action::RecordOffset(ms) => self.offset_asked = Some(ms),
                 Action::TestTone(on) => {
                     self.test_tone = on;
                     self.send(Command::TestTone(on));

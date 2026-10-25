@@ -3,6 +3,7 @@
 //! M1).
 
 pub(crate) mod audio_inputs;
+pub(crate) mod audio_record;
 pub(crate) mod auto_editing;
 mod auto_gestures;
 mod auto_keys;

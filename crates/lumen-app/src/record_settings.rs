@@ -78,7 +78,7 @@ impl<'de> Deserialize<'de> for CountIn {
 
 /// The record page of the settings. Every field has a default, so older
 /// files read as before (no version change).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RecordSettings {
     pub count_in: CountIn,
@@ -88,6 +88,10 @@ pub struct RecordSettings {
     /// Overdub: a take's new clip also holds what was recorded there
     /// already; off, Replace overwrites it.
     pub overdub: bool,
+    /// Milliseconds a recorded audio take moves earlier on top of the
+    /// driver's own latencies (M9 slice R2): for drivers that misreport.
+    /// Negative moves it later.
+    pub offset_ms: f32,
 }
 
 #[cfg(test)]
@@ -122,6 +126,18 @@ mod tests {
     }
 
     #[test]
+    fn the_recording_offset_is_zero_in_older_settings_and_round_trips() {
+        let old: RecordSettings = serde_json::from_str(r#"{"count_in":"one_bar"}"#).unwrap();
+        assert_eq!(old.offset_ms, 0.0);
+        let set = RecordSettings {
+            offset_ms: -3.5,
+            ..old
+        };
+        let text = serde_json::to_string(&set).unwrap();
+        assert_eq!(serde_json::from_str::<RecordSettings>(&text).unwrap(), set);
+    }
+
+    #[test]
     fn an_unknown_count_in_name_reads_as_off() {
         assert_eq!(
             serde_json::from_str::<CountIn>(r#""eight_bars""#).unwrap(),
@@ -150,6 +166,7 @@ mod tests {
                 count_in: CountIn::Off,
                 only_while_recording: false,
                 overdub: true,
+                offset_ms: 0.0,
             }
         );
     }

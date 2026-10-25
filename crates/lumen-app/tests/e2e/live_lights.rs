@@ -128,9 +128,7 @@ fn the_computer_keyboard_is_heard_on_the_selected_midi_track_and_lights_it() {
 
 /// Opens the settings' MIDI page and switches the input on for tracks.
 fn switch_on_for_tracks(lumen: &mut Lumen, fake: &FakeControl, port: &str) {
-    lumen.click("Lumen");
-    lumen.click("Audio and MIDI settings\u{2026}");
-    lumen.click("MIDI tab");
+    lumen.open_midi_settings();
     let label = format!("Track {port} input");
     for _ in 0..400 {
         lumen.frames(1);

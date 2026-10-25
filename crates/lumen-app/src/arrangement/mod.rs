@@ -26,6 +26,7 @@
 //! drawn in, and each zone clips its own.
 
 pub(crate) mod audio_in;
+pub(crate) mod audio_take_look;
 pub(crate) mod auto_envelope;
 pub(crate) mod auto_params;
 pub(crate) mod auto_scale;
@@ -342,6 +343,9 @@ pub struct Arrangement {
     pub(crate) live: Live,
     /// The recording under way, if any, lent by the app each frame (slice 6d).
     pub(crate) recording: Option<recording_look::RecordingLook>,
+    /// The audio tracks recording and how far their takes have got, lent by
+    /// the app each frame (M9 slice R2).
+    pub(crate) audio_takes: Vec<audio_take_look::AudioTakeLook>,
     /// While recording, the project as the next commit will make it, lent
     /// by the app each frame and drawn in place of the document's: the take
     /// and the clips it records over or into change with the playhead, not

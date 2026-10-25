@@ -97,6 +97,7 @@ mod routing;
 mod ruler;
 mod settings;
 mod song_lanes;
+mod take_worker;
 pub mod testing;
 mod theme;
 mod timefmt;
@@ -601,7 +602,13 @@ impl eframe::App for App {
             midi: &self.midi,
             saved: &self.settings.midi,
         };
-        for action in self.transport.windows(&ctx, shown) {
+        self.transport.record_offset_ms = self.settings.record.offset_ms;
+        let asked = self.transport.windows(&ctx, shown);
+        if let Some(ms) = self.transport.offset_asked.take() {
+            self.settings.record.offset_ms = ms;
+            self.settings_changed = Some(Instant::now());
+        }
+        for action in asked {
             self.midi.apply(&action);
             match &action {
                 midi::Action::Use(id, using) => {
@@ -623,7 +630,7 @@ impl eframe::App for App {
             self.transport.audio.notice = Some(notice);
         }
         self.update_midi_hardware(&ctx);
-        self.update_recording();
+        self.update_recording(&ctx);
         self.update_audition(&ctx);
         self.history_window(&ctx);
         self.bounce_window(&ctx);

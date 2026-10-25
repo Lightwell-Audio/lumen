@@ -595,7 +595,7 @@ fn a_count_in_holds_the_playhead_and_keeps_nothing_played_during_it() {
 
 /// Record with nothing armed does not start, and says why.
 #[test]
-fn record_with_no_armed_midi_track_does_not_start_and_says_so() {
+fn record_with_no_armed_track_does_not_start_and_says_so() {
     let fake = keyboard();
     let project = project_of("Record", vec![track(None, false)]);
     let mut lumen = launch("unarmed", &project, &fake);
@@ -607,7 +607,7 @@ fn record_with_no_armed_midi_track_does_not_start_and_says_so() {
         lumen
             .app()
             .record_notice()
-            .is_some_and(|n| n.contains("Arm a MIDI track")),
+            .is_some_and(|n| n.contains("Arm a track")),
         "the notice says to arm a track: {:?}",
         lumen.app().record_notice()
     );
