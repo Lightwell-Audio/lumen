@@ -318,12 +318,17 @@ pub fn played(project: &Project) -> Cow<'_, Project> {
     Cow::Owned(copy)
 }
 
-/// What an edit may not do to a frozen track.
+/// What an edit may not do: change a frozen track, or the clips of a track
+/// being recorded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Violation {
     /// It changed this frozen track's clips, devices, trim, polarity or the
     /// lanes for them, or armed it.
     Track(Id),
+    /// It changed the clips of this track, or removed it, while a recording
+    /// is writing a take into it: the next commit would put them back as they
+    /// were when recording began.
+    Recording(Id),
     /// It changed the tempo or the time signatures, which would leave a frozen
     /// track's file behind the music.
     Timing,

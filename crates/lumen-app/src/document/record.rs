@@ -144,7 +144,7 @@ impl Document {
             &mut fresh,
         )?;
         self.history
-            .apply("Record", Some(&rec.key), |project| *project = next);
+            .apply_take("Record", Some(&rec.key), |project| *project = next);
         Ok(placed)
     }
 }

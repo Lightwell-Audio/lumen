@@ -24,6 +24,12 @@ pub struct Part {
     /// The clips as they were when the part was planned, in time order. A
     /// part is applied only if the track still holds exactly these.
     pub clips: Vec<Arc<Clip>>,
+    /// Every clip of the track that touches the span when it was planned,
+    /// selected or not, in time order. The new clip cuts away whatever lies
+    /// under it, so a part is applied only if the span still holds exactly
+    /// these: a clip moved or drawn into it while the file rendered would
+    /// otherwise be lost to a result that never heard it.
+    pub span_clips: Vec<Arc<Clip>>,
     /// From the first clip's start to the last clip's end.
     pub start: Ticks,
     pub end: Ticks,
@@ -62,9 +68,11 @@ pub fn plan(project: &Project, ids: &[Id]) -> Vec<Part> {
                 .find(|m| m.id == *media)
                 .is_some_and(|m| m.channels == 1)
         });
+        let start = first.start;
         parts.push(Part {
             track: track.id,
-            start: first.start,
+            span_clips: touching(track, start, end),
+            start,
             end,
             name: named(&first.name),
             color: first.color,
@@ -92,18 +100,33 @@ pub struct Baked {
     pub media: Media,
 }
 
-/// Whether the track of `part` still holds exactly the clips it was planned
-/// from.
+/// The clips of `track` that touch `start..end`, in the track's order.
+fn touching(track: &crate::model::Track, start: Ticks, end: Ticks) -> Vec<Arc<Clip>> {
+    track
+        .clips
+        .iter()
+        .filter(|c| c.start < end && c.start + c.length > start)
+        .cloned()
+        .collect()
+}
+
+/// Whether the span of `part` still holds exactly the clips it was planned
+/// from, and nothing else: the planned clips unchanged, and no other clip
+/// moved, drawn or pasted into the span.
 pub fn is_current(project: &Project, part: &Part) -> bool {
     let Some(track) = project.tracks.iter().find(|t| t.id == part.track) else {
         return false;
     };
-    part.clips.iter().all(|planned| {
-        track
+    let now = touching(track, part.start, part.end);
+    now.len() == part.span_clips.len()
+        && now
+            .iter()
+            .zip(&part.span_clips)
+            .all(|(c, planned)| Arc::ptr_eq(c, planned) || **c == **planned)
+        && part
             .clips
             .iter()
-            .any(|c| Arc::ptr_eq(c, planned) || **c == **planned)
-    })
+            .all(|planned| now.iter().any(|c| c.id == planned.id))
 }
 
 /// Replaces each part's clips with one clip that plays its file, and
@@ -344,6 +367,42 @@ mod tests {
         // A clip deleted.
         Arc::make_mut(&mut project.tracks[0]).clips.remove(0);
         assert!(apply(&mut project, &baked, &mut ids()).is_empty());
+    }
+
+    #[test]
+    fn a_clip_put_into_the_span_while_it_rendered_makes_the_part_stale() {
+        let project = three_clips();
+        // Clips 1 and 3 are selected; the gap holds clip 2, which is planned.
+        let part = plan(&project, &[Id(1), Id(3)]).remove(0);
+        assert_eq!(part.span_clips.len(), 3);
+        let baked = [Baked {
+            part: part.clone(),
+            media: media(777),
+        }];
+        // An unselected clip drawn into the span: the old result would cut it.
+        let mut drawn = project.clone();
+        let track = Arc::make_mut(&mut drawn.tracks[0]);
+        let mut clip = (*track.clips[0]).clone();
+        clip.id = Id(50);
+        clip.start = q(6);
+        clip.length = q(1);
+        track.clips.insert(2, Arc::new(clip));
+        assert!(!is_current(&drawn, &part));
+        assert!(apply(&mut drawn, &baked, &mut ids()).is_empty());
+        assert_eq!(drawn.tracks[0].clips.len(), 4, "the new clip is kept");
+        // The unselected clip in the span that was planned going away is stale too.
+        let mut gone = project.clone();
+        Arc::make_mut(&mut gone.tracks[0]).clips.remove(1);
+        assert!(!is_current(&gone, &part));
+        // An edit outside the span does not matter.
+        let mut outside = project.clone();
+        let track = Arc::make_mut(&mut outside.tracks[0]);
+        let mut clip = (*track.clips[0]).clone();
+        clip.id = Id(51);
+        clip.start = q(20);
+        track.clips.push(Arc::new(clip));
+        assert!(is_current(&outside, &part));
+        assert!(is_current(&project, &part));
     }
 
     /// Track 0's clip made a MIDI clip of `notes` (starting at 4 quarters, 8 long).

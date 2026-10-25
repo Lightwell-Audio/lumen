@@ -1331,3 +1331,54 @@ fn the_clip_recorded_into_is_drawn_growing_on_every_frame() {
         "the end moves with the playhead, not once a commit: {ends:?} against {heads:?}"
     );
 }
+
+/// An edit to the clips of a track while a take is written into it would be
+/// put back by the next commit, which places the take over the clips the
+/// track had when recording began. It is refused instead, with the reason
+/// (M9 slice R0, the M5 slice 6 known issue).
+#[test]
+fn editing_the_clips_of_a_track_being_recorded_is_refused_and_says_why() {
+    let fake = keyboard();
+    let old = vec![Note::new(Ticks::ZERO, beats(1.0), 50, 100)];
+    let project = project_of("Record", vec![track_at((8, 4), old)]);
+    let name = project.tracks[0].name.clone();
+    let old_clip = project.tracks[0].clips[0].id;
+    let mut lumen = launch("edit-while-recording", &project, &fake);
+    let keys = Keys::new(&fake);
+    record(&mut lumen);
+    reach(&mut lumen, beats(1.0));
+    keys.on(60, 90);
+    reach(&mut lumen, beats(1.5));
+    keys.off(60);
+    lumen.wait_for("the first commit", |app| {
+        app.project().tracks[0]
+            .clips
+            .iter()
+            .any(|c| c.id != old_clip && !placed(c).is_empty())
+    });
+
+    let during = lumen.app().project().clone();
+    lumen.app_mut().select_clip(old_clip);
+    lumen.key(Modifiers::NONE, Key::Delete);
+    lumen.frames(3);
+    assert!(
+        clips_of(&lumen).iter().any(|c| c.id == old_clip),
+        "the clip is still there"
+    );
+    assert_eq!(
+        lumen.app().project().tracks[0].clips.len(),
+        during.tracks[0].clips.len()
+    );
+    let note = lumen.app().note().unwrap_or_default().to_owned();
+    assert!(note.contains(&format!("{name} is recording")), "{note}");
+
+    // The take goes on and ends as one step; afterwards the track is free.
+    reach(&mut lumen, beats(3.0));
+    stop(&mut lumen);
+    lumen.frames(3);
+    assert_eq!(lumen.app().undo_label(), Some("Record"));
+    assert!(clips_of(&lumen).iter().any(|c| c.id == old_clip));
+    lumen.app_mut().select_clip(old_clip);
+    lumen.key(Modifiers::NONE, Key::Delete);
+    assert!(!clips_of(&lumen).iter().any(|c| c.id == old_clip));
+}

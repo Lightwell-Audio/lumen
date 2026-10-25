@@ -247,7 +247,8 @@ mod tests {
         };
         Part {
             track: Id(2),
-            clips: vec![Arc::new(clip)],
+            clips: vec![Arc::new(clip.clone())],
+            span_clips: vec![Arc::new(clip)],
             start: Ticks::ZERO,
             end: Ticks(960),
             name: "Take (joined)".into(),

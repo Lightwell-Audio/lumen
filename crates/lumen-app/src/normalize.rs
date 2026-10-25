@@ -10,7 +10,7 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use eframe::egui;
 use lumen_engine::ClipAudio;
-use lumen_project::edit::normalize::Window;
+use lumen_project::edit::normalize::{Source, Window};
 use lumen_project::model::Id;
 
 /// Frames read between looks at the cancel flag and the progress counter.
@@ -21,7 +21,9 @@ pub struct Job {
     pub clip: Id,
     /// The audio the clip plays (its reversed twin, if it is reversed).
     pub audio: Arc<ClipAudio>,
-    pub window: Window,
+    /// What the scan reads, kept to tell afterwards whether the clip still
+    /// plays it.
+    pub source: Source,
 }
 
 /// What a scan found for one clip: the largest absolute sample over every
@@ -30,6 +32,8 @@ pub struct Job {
 pub struct Peak {
     pub clip: Id,
     pub peak: f32,
+    /// What it read.
+    pub source: Source,
 }
 
 /// Where a scan stands.
@@ -102,7 +106,7 @@ impl Scan {
         let (stop, shown, ctx) = (Arc::clone(&cancel), Arc::clone(&progress), ctx.clone());
         let total: usize = jobs
             .iter()
-            .map(|j| frames_of(&j.audio, j.window).len())
+            .map(|j| frames_of(&j.audio, j.source.window).len())
             .sum::<usize>()
             .max(1);
         std::thread::Builder::new()
@@ -111,7 +115,7 @@ impl Scan {
                 let mut done = 0usize;
                 let mut found = Vec::with_capacity(jobs.len());
                 for job in &jobs {
-                    let peak = peak_of(&job.audio, job.window, &stop, |n| {
+                    let peak = peak_of(&job.audio, job.source.window, &stop, |n| {
                         done += n;
                         shown.store((done as f32 / total as f32).to_bits(), Ordering::Relaxed);
                         ctx.request_repaint();
@@ -122,6 +126,7 @@ impl Scan {
                     found.push(Peak {
                         clip: job.clip,
                         peak,
+                        source: job.source,
                     });
                 }
                 let _ = tx.send(found);
@@ -229,22 +234,31 @@ mod tests {
         assert_eq!(peak_of(&audio, whole(200.0), &stop, |_| {}), None);
     }
 
+    fn source(window: Window) -> Source {
+        Source {
+            media: Id(7),
+            reversed: false,
+            window,
+        }
+    }
+
     #[test]
     fn a_scan_finds_each_clips_peak_on_its_worker() {
         let ctx = egui::Context::default();
+        let second = Window {
+            from: 0.0,
+            span: 50.0,
+        };
         let jobs = vec![
             Job {
                 clip: Id(1),
                 audio: audio(200_000),
-                window: whole(200.0),
+                source: source(whole(200.0)),
             },
             Job {
                 clip: Id(2),
                 audio: audio(200_000),
-                window: Window {
-                    from: 0.0,
-                    span: 50.0,
-                },
+                source: source(second),
             },
         ];
         let scan = Scan::start(jobs, &ctx);
@@ -256,14 +270,16 @@ mod tests {
             found[0],
             Peak {
                 clip: Id(1),
-                peak: 0.9
+                peak: 0.9,
+                source: source(whole(200.0)),
             }
         );
         assert_eq!(
             found[1],
             Peak {
                 clip: Id(2),
-                peak: 0.099
+                peak: 0.099,
+                source: source(second),
             }
         );
     }
@@ -274,7 +290,7 @@ mod tests {
         let jobs = vec![Job {
             clip: Id(1),
             audio: audio(40_000_000),
-            window: whole(40_000.0),
+            source: source(whole(40_000.0)),
         }];
         let scan = Scan::start(jobs, &ctx);
         scan.stop();

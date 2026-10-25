@@ -408,13 +408,23 @@ and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
 **Now (2026-10-24)**
+- **Branch `m9-s0-render-consistency`: M9 slice R0 is built** (ADR-0099; no
+  format change; not pushed; it contains the M9 plan from `m9-plan`, merged in).
+  Consolidate is stale if any clip touching its span changed; normalize applies
+  a peak only to a clip that still plays what it scanned; the clips of a track
+  being recorded are refused edits, with a note (`History::guard_recording`,
+  `apply_take`). Gates run: fmt, clippy, macOS cross-clippy, workspace tests
+  (2,900), smoke. Not yet
+  run: the WSL mirror and performance gate (they test the pushed branch). Next: slice R1
+  (audio input) per `docs/milestones/M9.md`; the owner took every
+  recommendation for R1 to R5 and X1 to X3 (2026-10-24).
 - **Branch `m7b-s6-close`: E6 audit and small UX corrections are built.**
   Report: `docs/audits/2026-10-24-m7b.md`; repeatable visual check MT-EDIT-7.
   Shared menus scroll within the window, crossfades use a switch, track
   colours have names/focus, menu focus has its accent ring, the copy-import
   preference schedules a save, and render directories are made by workers.
   The combined editing walkthrough covers save/reopen and audible playback.
-  Normalize/consolidate stale-result checks remain open in KNOWN_ISSUES.
+  The normalize/consolidate stale-result checks were fixed in M9 R0 (ADR-0099).
   Owner closeout and the next milestone's approval remain pending.
 - **Branch `m7b-s5-freeze`: M7b E5 (freeze, unfreeze, flatten) is built**
   (ADR-0098; format **v29**; not pushed). `Track.frozen` (`edit::freeze`:

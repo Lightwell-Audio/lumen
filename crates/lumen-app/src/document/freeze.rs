@@ -57,6 +57,14 @@ impl Document {
     pub fn take_refused(&mut self) -> Vec<Violation> {
         self.history.take_refused()
     }
+
+    /// Names the tracks a recording is writing a take into (none when it has
+    /// ended): edits to their clips are refused meanwhile, as `take_refused`
+    /// reports. Called every frame, so a recording that ends any way at all
+    /// lifts it.
+    pub fn guard_recording(&mut self, tracks: &[Id]) {
+        self.history.guard_recording(tracks);
+    }
 }
 
 #[cfg(test)]
