@@ -404,7 +404,16 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated (2026-10-24):** M7b E6 audit and small UX corrections are on
+**Last updated (2026-10-24):** macOS CI test corrections are on
+`fix/macos-ci-walkthrough`: sustained plugin-walkthrough fixture, expiry
+diagnostics, late-position regression and platform-neutral menu lookup.
+See `docs/ci-macos-walkthrough.md`; native macOS confirmation is pending.
+Windows: 2,897 workspace tests and six smoke tests pass; macOS cross-clippy
+passes. Linux E2E: 664 pass; the full run finds an independent orphan-cleanup
+failure also reproduced on the unchanged base (see `docs/KNOWN_ISSUES.md`).
+Application behavior and format v29 are unchanged.
+
+Earlier handoff (2026-10-24): M7b E6 audit and small UX corrections are on
 `m7b-s6-close`. See `docs/audits/2026-10-24-m7b.md` for the walkthrough,
 screenshots, verification and larger backlog; MT-EDIT-7 awaits the owner.
 Normalize and consolidate can apply stale background results after certain

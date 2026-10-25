@@ -9,7 +9,7 @@
 
 use std::time::Duration;
 
-use eframe::egui::{Key, Modifiers};
+use eframe::egui::{Event, Key, Modifiers};
 use egui_kittest::kittest::Queryable;
 use lumen_app::testing::project_file;
 use lumen_core::time::Ticks;
@@ -42,6 +42,10 @@ const VERB_PLUGIN: Id = Id(14);
 /// fall back. 2048 (43 ms, a 32 ms wait, the test device's largest) rides such stalls out.
 const BUFFER: u32 = 2048;
 const PLUGINS: [Id; 5] = [KICK_PLUGIN, PERC_PLUGIN, BASS_PLUGIN, KEYED, VERB_PLUGIN];
+// These notes sustain through the whole scenario, including slow UI work and
+// every bounded audio probe. The old 60-quarter notes ended after 30 seconds,
+// so a loaded runner could reach silence before removing the sidechain.
+const HELD_QUARTERS: i64 = 7_200;
 
 /// A kick and a percussion instrument, the percussion's second output on a
 /// track of its own, a bass whose effect is keyed from the kick and which
@@ -50,22 +54,53 @@ const PLUGINS: [Id; 5] = [KICK_PLUGIN, PERC_PLUGIN, BASS_PLUGIN, KEYED, VERB_PLU
 /// its pitch picks (pitch mod 3): the kick's 69 and the percussion's 61 are
 /// outputs 0 and 1.
 fn song() -> Project {
-    let held = |pitch| vec![Note::new(Ticks::ZERO, Ticks::quarters(60), pitch, 100)];
+    let held = |pitch| {
+        vec![Note::new(
+            Ticks::ZERO,
+            Ticks::quarters(HELD_QUARTERS),
+            pitch,
+            100,
+        )]
+    };
     let loud = |id| {
         let mut device = instrument_device(id);
         device.params.insert(lumen_test_plugin::params::LEVEL, 1.0);
         device
     };
-    let mut kick = midi_track(KICK.0, "Kick", "poly", (0, 64), None, held(69), vec![]);
+    let mut kick = midi_track(
+        KICK.0,
+        "Kick",
+        "poly",
+        (0, HELD_QUARTERS),
+        None,
+        held(69),
+        vec![],
+    );
     kick.devices = vec![loud(KICK_PLUGIN)];
-    let mut perc = midi_track(PERC.0, "Perc", "poly", (0, 64), None, held(61), vec![]);
+    let mut perc = midi_track(
+        PERC.0,
+        "Perc",
+        "poly",
+        (0, HELD_QUARTERS),
+        None,
+        held(61),
+        vec![],
+    );
     perc.devices = vec![loud(PERC_PLUGIN)];
     let mut perc_out = Track::new(PERC_OUT, "Perc out", TrackKind::Audio, Color(0x5FA89A));
     perc_out.plugin_output = Some(PluginOutput {
         device: PERC_PLUGIN,
         bus: 1,
     });
-    let mut bass = midi_track(BASS.0, "Bass", "poly", (0, 64), None, held(40), vec![]);
+    let mut bass = midi_track(
+        BASS.0,
+        "Bass",
+        "poly",
+        (0, HELD_QUARTERS),
+        None,
+        held(40),
+        vec![],
+    );
     let mut keyed = effect_device(KEYED);
     keyed.sidechain = Some(Sidechain {
         from: KICK,
@@ -82,6 +117,24 @@ fn song() -> Project {
     project_of("Walk", vec![kick, perc, perc_out, bass, verb])
 }
 
+fn diagnostics(lumen: &Lumen) -> String {
+    let hosts = PLUGINS.map(|id| (id, lumen.app().device_state(id)));
+    let meters = [KICK, PERC_OUT, BASS, VERB].map(|id| (id, lumen.app().meter(id).peak_db));
+    format!(
+        "transport: {:?}; hosts: {hosts:?}; meters: {meters:?}",
+        lumen.app().transport_state(),
+    )
+}
+
+fn listen(lumen: &mut Lumen) {
+    lumen.listen(Duration::from_millis(100), 4_800);
+    assert!(
+        lumen.app().is_playing() && lumen.app().playhead() < Ticks::quarters(HELD_QUARTERS),
+        "the fixture must still be sustaining its notes: {}",
+        diagnostics(lumen)
+    );
+}
+
 /// The loudest a track's meter reads over a few windows, stopping early once
 /// it is above `db`. A plugin that is set up again after an edit is silent
 /// until it has run, which takes longer on a slow runner: the limit is
@@ -89,11 +142,17 @@ fn song() -> Project {
 fn loudest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
     let mut best = f32::MIN;
     for _ in 0..150 {
-        lumen.listen(Duration::from_millis(100), 4_800);
+        listen(lumen);
         best = best.max(lumen.app().meter(track).peak_db);
         if best > db {
             break;
         }
+    }
+    if best <= db {
+        eprintln!(
+            "track {track:?} never rose above {db} dB: {}",
+            diagnostics(lumen)
+        );
     }
     best
 }
@@ -106,11 +165,17 @@ fn loudest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
 fn quietest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
     let mut least = f32::MAX;
     for _ in 0..150 {
-        lumen.listen(Duration::from_millis(100), 4_800);
+        listen(lumen);
         least = least.min(lumen.app().meter(track).peak_db);
         if least < db {
             break;
         }
+    }
+    if least >= db {
+        eprintln!(
+            "track {track:?} never fell below {db} dB: {}",
+            diagnostics(lumen)
+        );
     }
     least
 }
@@ -146,6 +211,55 @@ fn start(project: &Project) -> Lumen {
     lumen
 }
 
+fn remove_sidechain(lumen: &mut Lumen) {
+    lumen.app_mut().select_tracks(&[BASS]);
+    lumen
+        .harness
+        .get_all_by_label("Devices tab")
+        .last()
+        .expect("the detail panel's tabs")
+        .click();
+    lumen.frames(20);
+    lumen.click("Sidechain source, Kick, Post FX");
+    lumen.frames(5);
+    lumen.click("None");
+    lumen.frames(5);
+    let keyed = lumen
+        .app()
+        .project()
+        .tracks
+        .iter()
+        .flat_map(|track| &track.devices)
+        .find(|device| device.id == KEYED)
+        .expect("the bass's keyed effect");
+    assert!(keyed.sidechain.is_none(), "the UI removed the sidechain");
+    let bass = loudest(lumen, BASS, -30.0);
+    assert!(bass > -30.0, "unkeyed, the bass plays: {bass} dB");
+    let verb = loudest(lumen, VERB, -40.0);
+    assert!(verb > -40.0, "and feeds the return: {verb} dB");
+}
+
+#[test]
+fn a_held_note_survives_sidechain_removal_past_the_old_thirty_second_fixture() {
+    let _turn = timing_sensitive();
+    let mut lumen = start(&song());
+    // Locate instead of sleeping: this is beyond both the old note's end
+    // (60 quarters) and its clip's end (64). The sound assertions must still
+    // have held notes to measure, however long earlier UI work took.
+    lumen.harness.get_by_label_contains("Position ").click();
+    lumen.frames(3);
+    lumen.key(Modifiers::COMMAND, Key::A);
+    lumen.harness.event(Event::Text("17.1.1".into()));
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.wait_for("the later position", |app| {
+        (app.playhead().0 - Ticks::quarters(64).0).abs() < 100
+    });
+    play(&mut lumen);
+    sounds_as_it_should(&mut lumen, "past the old fixture's end");
+    remove_sidechain(&mut lumen);
+    lumen.key(Modifiers::NONE, Key::Space);
+}
+
 #[test]
 fn plugins_in_a_group_with_a_return_a_sidechain_and_outputs_save_reopen_and_survive_a_crash() {
     let _turn = timing_sensitive();
@@ -173,22 +287,7 @@ fn plugins_in_a_group_with_a_return_a_sidechain_and_outputs_save_reopen_and_surv
 
     // Take the sidechain away on the bass's card: the bass plays, and its
     // send reaches the return, until Undo gives the key back.
-    lumen.app_mut().select_tracks(&[BASS]);
-    lumen
-        .harness
-        .get_all_by_label("Devices tab")
-        .last()
-        .expect("the detail panel's tabs")
-        .click();
-    lumen.frames(20);
-    lumen.click("Sidechain source, Kick, Post FX");
-    lumen.frames(5);
-    lumen.click("None");
-    lumen.frames(5);
-    let bass = loudest(&mut lumen, BASS, -30.0);
-    assert!(bass > -30.0, "unkeyed, the bass plays: {bass} dB");
-    let verb = loudest(&mut lumen, VERB, -40.0);
-    assert!(verb > -40.0, "and feeds the return: {verb} dB");
+    remove_sidechain(&mut lumen);
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(5);
     let bass = quietest(&mut lumen, BASS, -60.0);

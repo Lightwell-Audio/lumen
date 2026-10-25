@@ -339,7 +339,8 @@ fn project_menu_keeps_lower_controls_reachable_in_a_small_window() {
     lumen.frames(20);
     lumen.click("Lumen");
     assert!(!lumen.shows("Automatic crossfades"));
-    let first = lumen.harness.get_by_label_contains("New Ctrl").rect();
+    // The accessible name includes the platform's shortcut (Cmd on macOS).
+    let first = lumen.harness.get_by_label_contains("New ").rect();
     lumen.harness.hover_at(first.center());
     for _ in 0..3 {
         lumen.harness.event(Event::MouseWheel {

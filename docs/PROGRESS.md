@@ -2,6 +2,13 @@
 
 ## Status
 
+**macOS CI correction (2026-10-24), branch `fix/macos-ci-walkthrough`:**
+the plugin walkthrough now keeps its held notes alive through slow runs,
+guards against fixture expiry and reports transport/host state on failure.
+A regression exercises sidechain removal beyond the old note/clip end; the
+small-window menu query accepts the platform's shortcut spelling. See
+[the investigation](ci-macos-walkthrough.md). Native macOS confirmation is pending.
+
 **M7b E6 audit (2026-10-24), branch `m7b-s6-close`:** combined editing
 walkthrough and application-wide UX review, with shared scrollable menus,
 consistent crossfade switch, accessible track colours and menu focus,
