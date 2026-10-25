@@ -25,11 +25,6 @@ use crate::{light, motion, theme, widgets};
 const BAR: f32 = 1.5;
 const BAR_INSET: f32 = 1.5;
 
-/// The chip's size on a header: as tall as the volume field beside it.
-pub(super) fn chip_size() -> egui::Vec2 {
-    vec2(40.0, 20.0)
-}
-
 /// The device's inputs, as the menus offer them, lent by the app each frame.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct InputChoices {
@@ -255,11 +250,17 @@ impl Arrangement {
         } else {
             palette.text_hint
         };
-        let text = if trouble.is_some() {
+        let mut text = if trouble.is_some() {
             format!("\u{25B2}{}", chip_text(track.input))
         } else {
             chip_text(track.input)
         };
+        if rect.width() > 60.0 {
+            text = match track.input {
+                Some(_) => format!("In  {text}"),
+                None => "In: none".to_owned(),
+            };
+        }
         ui.painter().text(
             body.center(),
             Align2::CENTER_CENTER,

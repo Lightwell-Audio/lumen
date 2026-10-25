@@ -108,6 +108,8 @@ fn the_masters_volume_is_set_from_its_unfolded_row() {
         lumen.frames(1);
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
+    // The row grows with a glide: let it settle before aiming at the field.
+    lumen.frames(30);
     let volume = lumen.harness.get_by_label_contains("Volume Master").rect();
     lumen.drag(
         volume.center(),

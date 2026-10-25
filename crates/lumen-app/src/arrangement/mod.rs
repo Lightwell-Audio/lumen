@@ -88,9 +88,10 @@ pub const STEP: f32 = crate::theme::size::TRACK_STEP;
 /// A folded track: two steps.
 pub const FOLDED: f32 = 2.0 * STEP;
 
-/// An unfolded track, and the smallest one: room for the volume and pan
-/// row. Four steps.
-pub const UNFOLDED: f32 = 4.0 * STEP;
+/// An unfolded track, and the smallest one: room for the volume row and the
+/// row of pan (and the input, on audio tracks) under it. Five steps (the
+/// owner's choice with the In chip, M9 slice R1).
+pub const UNFOLDED: f32 = 5.0 * STEP;
 
 /// The tallest a track can be dragged: fourteen steps.
 const MAX_HEIGHT: f32 = 14.0 * STEP;
@@ -484,7 +485,7 @@ mod tests {
         assert_eq!(snap_height(95.0), 4.0 * STEP);
         assert_eq!(snap_height(100.0), 5.0 * STEP);
         assert_eq!(FOLDED, 2.0 * STEP);
-        assert_eq!(UNFOLDED, 4.0 * STEP);
+        assert_eq!(UNFOLDED, 5.0 * STEP);
         // An opened project with an odd height (an older build) snaps.
         let mut view = lumen_project::model::ViewState::default();
         view.track_heights.insert(Id(1), 150.0);

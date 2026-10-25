@@ -378,7 +378,7 @@ impl Arrangement {
             self.sends_row(ui, doc, &track, rect, selected);
         }
         // An unfolded return lists what sends to it (the owner's R2).
-        if track.kind == TrackKind::Return && row_height >= FOLDED + 2.0 * STEP {
+        if track.kind == TrackKind::Return && row_height >= FOLDED + 3.0 * STEP {
             self.senders_rows(ui, doc, &track, rect);
         }
         // A return lights with the sends that feed it, and the other

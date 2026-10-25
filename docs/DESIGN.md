@@ -515,11 +515,11 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
 - **Folding and resizing**:
   - heights come in **22 pt steps**, so anything later drawn by track
     height (automation lanes, meters) lines up;
-  - folded is 2 steps (44 pt); unfolded starts at 4 steps (88 pt) and
+  - folded is 2 steps (44 pt); unfolded starts at 5 steps (110 pt: volume on the second row, pan and, on audio tracks, the In chip on the third) and
     goes up to 14;
   - drag the bottom edge to resize. The handle glows with the accent
     (header and lane) while hovered or dragged. A folded track dragged
-    taller unfolds; an unfolded one dragged below 4 steps folds;
+    taller unfolds; an unfolded one dragged below 5 steps folds;
   - heights glide (`GLIDE`) and are saved with the project.
 - **Group tracks** (M4 slice 3, the owner's H1 and L1, ADR-0037):
   - groups go **three deep at most**; a refused Ctrl+G or drop says why
@@ -1190,7 +1190,7 @@ rests (0 dB, centre); the line is the accent at `stroke::LIT`, and a lane that i
 inside, an accent ring), a point larger under the pointer, and the picked one solid with a
 ring round it so it never rests on colour alone. Values are drawn under the chip, which
 sits at the top-left, a raised combo naming the parameter ("Volume", "Send to Reverb",
-"Pan · off") with its menu. A track with a lane is at least five steps tall. The **A**
+"Pan · off") with its menu. A track with a lane is at least six steps tall. The **A**
 button ends the unfolded header's second row (`size::CONTROL_SMALL`, lit with `Tone::On`
 while a lane is shown). Sizes are `size::AUTO_*`.
 

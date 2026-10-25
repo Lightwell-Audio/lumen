@@ -43,8 +43,9 @@ pub(super) fn has_sends(kind: TrackKind) -> bool {
 }
 
 /// The height a header needs to show its sends: the folded row, volume
-/// and pan, then two steps for the knobs (such tracks unfold this tall).
-pub(super) const SENDS_FROM: f32 = FOLDED + 3.0 * STEP;
+/// then pan (with the input), then a row for the knobs (such tracks unfold
+/// this tall).
+pub(super) const SENDS_FROM: f32 = FOLDED + 4.0 * STEP;
 
 /// A return, as its sends show it.
 #[derive(Debug, Clone)]
@@ -273,7 +274,7 @@ impl Arrangement {
         }
         let heard = lumen_project::solo::hearing(doc.project());
         // Under volume and pan, with room to breathe above the row's edge.
-        let center_y = rect.top() + FOLDED + 2.0 * STEP - 2.0;
+        let center_y = rect.top() + FOLDED + 3.0 * STEP - 2.0;
         let left = rect.left() + 30.0;
         let right = rect.right() - 8.0;
         let fits = (((right - left) + GAP) / (KNOB + GAP)).floor().max(0.0) as usize;
@@ -443,7 +444,7 @@ impl Arrangement {
         let project = doc.project().clone();
         let held = self.held_send.filter(|(_, r)| *r == ret.id);
         let senders = senders(&project, ret.id, held);
-        let top = rect.top() + FOLDED + STEP;
+        let top = rect.top() + FOLDED + 2.0 * STEP;
         let left = rect.left() + 30.0;
         let right = rect.right() - 8.0;
         if senders.is_empty() {
