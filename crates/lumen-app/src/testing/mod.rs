@@ -22,6 +22,7 @@ mod editor;
 mod midi;
 mod tools;
 
+pub use crate::audio::input_device;
 pub use editor::PianoRollDemo;
 
 /// A note edit for tests (`App::edit_notes`).
@@ -110,9 +111,17 @@ impl Launch {
             sample_rate: None,
             buffer_frames: Some(frames),
             input_channels: Vec::new(),
+            all_inputs: true,
             output_channels: vec![0, 1],
             cue_channels: Vec::new(),
         });
+        self
+    }
+
+    /// Starts with the silent test device whose inputs the scenario plays
+    /// (`lumen_app::testing::input_device`).
+    pub fn with_input_device(mut self) -> Self {
+        self.audio = audio::Choice::test_input_device();
         self
     }
 
@@ -329,6 +338,27 @@ impl App {
     /// peak, RMS and hold line in dB, and the clip light.
     pub fn meter(&self, id: Id) -> MeterShown {
         let reading = self.arrangement.meters.reading(id.0);
+        MeterShown {
+            peak_db: reading.peak[0].max(reading.peak[1]),
+            rms_db: reading.rms[0].max(reading.rms[1]),
+            hold_db: reading.hold_db(),
+            clipped: reading.clipped,
+        }
+    }
+
+    /// How many device inputs are open (M9 slice R1).
+    pub fn open_inputs(&self) -> usize {
+        self.transport.audio.open_inputs().len()
+    }
+
+    /// Routes audio track `id` to `input`, as the In chip's menu does.
+    pub fn set_audio_input(&mut self, id: Id, input: lumen_project::model::AudioInput) {
+        self.document.set_audio_input(&[id], Some(input));
+    }
+
+    /// What device input `channel`'s meter shows (M9 slice R1).
+    pub fn input_meter(&self, channel: usize) -> MeterShown {
+        let reading = self.arrangement.meters.input_reading(channel);
         MeterShown {
             peak_db: reading.peak[0].max(reading.peak[1]),
             rms_db: reading.rms[0].max(reading.rms[1]),

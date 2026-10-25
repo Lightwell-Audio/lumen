@@ -24,6 +24,8 @@ pub(crate) fn within(t: Ticks) -> bool {
 
 /// The most audio output buses of a plugin an output track can play (the
 /// host's own limit, less the main one).
+/// Device inputs a track can name: far more than any interface has.
+pub const MAX_INPUT_CHANNELS: u16 = 256;
 const MOST_BUSES: u32 = 31;
 
 /// The most parameters a plugin may list, and so the most a device holds
@@ -173,6 +175,14 @@ pub fn validate(project: &Project) -> Result<(), String> {
         routing(track, &kinds).map_err(|e| format!("{}: {e}", at()))?;
         crate::automation::check(track).map_err(|e| format!("{}: {e}", at()))?;
         frozen(track, &media).map_err(|e| format!("{}: {e}", at()))?;
+        if let Some(input) = &track.input {
+            if track.kind != TrackKind::Audio {
+                return Err(format!("{}: only an audio track has an input", at()));
+            }
+            if input.channels().end > MAX_INPUT_CHANNELS {
+                return Err(format!("{}: its input is not a device channel", at()));
+            }
+        }
         if let Some(output) = &track.plugin_output {
             if track.kind != TrackKind::Audio {
                 return Err(format!(

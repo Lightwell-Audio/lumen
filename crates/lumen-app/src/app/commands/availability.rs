@@ -244,6 +244,10 @@ impl App {
                 self.can_freeze_targets(),
                 "Select an audio or MIDI track to freeze",
             ),
+            Command::NextTrackInput | Command::NextTrackMonitor => need(
+                !self.selected_audio_tracks().is_empty(),
+                "Select an audio track first",
+            ),
             Command::UnfreezeTracks | Command::FlattenTracks => need(
                 !self.frozen_targets().is_empty(),
                 "Select a frozen track first",

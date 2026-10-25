@@ -38,12 +38,21 @@ pub struct AudioSettings {
     pub buffer_frames: Option<u32>,
     #[serde(default)]
     pub input_channels: Vec<usize>,
+    /// Every input the device has is open, so any audio track can record from
+    /// any of them (M9 slice R1); `input_channels` then lists none. An added
+    /// field, no version change: files without it open every input.
+    #[serde(default = "yes")]
+    pub all_inputs: bool,
     #[serde(default = "stereo")]
     pub output_channels: Vec<usize>,
     /// The cue pair (M4 slice 4, the owner's O1): opened after the main
     /// pair. Empty: no cue. An added field, no version change.
     #[serde(default)]
     pub cue_channels: Vec<usize>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 fn stereo() -> Vec<usize> {
@@ -514,6 +523,7 @@ mod tests {
                 sample_rate: Some(48_000),
                 buffer_frames: Some(128),
                 input_channels: vec![0, 1],
+                all_inputs: false,
                 output_channels: vec![0, 1],
                 cue_channels: vec![2, 3],
             }),

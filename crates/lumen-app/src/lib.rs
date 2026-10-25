@@ -42,6 +42,7 @@
 mod app;
 mod arrangement;
 mod audio;
+mod audio_input;
 mod audio_settings;
 mod audition;
 mod auto_record;
@@ -292,6 +293,8 @@ pub struct App {
     clipboard_keys: app::clipboard_keys::Pending,
     /// When the meters last moved on (M4 slice 5).
     meters_at: Option<Instant>,
+    /// What the engine knows of the tracks' audio inputs (M9 slice R1).
+    inputs: app::audio_inputs::InputSync,
     /// How the transport's mark was last lit (ADR-0043).
     mark: widgets::mark::Look,
     /// What the lanes' right-click menu is for (owner's A, MT-APP-14 run 2).
@@ -550,6 +553,7 @@ impl eframe::App for App {
         );
         self.sync_document(&ctx);
         let meters_moving = self.update_meters();
+        let inputs_watched = self.update_inputs(&ctx);
         self.update_outputs(&ctx);
         self.transport.clip_memory = self.lanes.library.memory();
         self.save_settings_when_settled(&ctx);
@@ -722,6 +726,8 @@ impl eframe::App for App {
         self.record_automation(&ctx, rate);
         if self.transport.animating() || meters_moving {
             ctx.request_repaint();
+        } else if inputs_watched {
+            ctx.request_repaint_after(app::audio_inputs::WATCH_EVERY);
         } else {
             ctx.request_repaint_after(Duration::from_secs(1));
         }

@@ -1,7 +1,7 @@
-//! The Monitor badge on MIDI track headers (M5 slice 2 fix, the owner's
-//! MA): shown only for In and Off, never for Auto and never on an audio
-//! track; a click cycles In, Off, Auto, one undo step each; it sits in the
-//! Tab order before M.
+//! The Monitor badge on MIDI and audio track headers (M5 slice 2 fix, the
+//! owner's MA; audio tracks since M9 R1): shown only for In and Off, never for
+//! Auto; a click cycles In, Off, Auto, one undo step each; it sits in the Tab
+//! order before M.
 
 use eframe::egui::{Key, Modifiers};
 use egui_kittest::kittest::{NodeT, Queryable};
@@ -16,7 +16,7 @@ fn project() -> Project {
     let mut pad = midi_track(51, "Pad", "poly", (0, 8), None, vec![], vec![]);
     pad.monitor = Monitor::Off;
     let mut vox = Track::new(Id(21), "Vox", TrackKind::Audio, Color(0x4F81BD));
-    // Monitor is kept on every kind of track, but only MIDI tracks show it.
+    // Audio tracks monitor their input too (M9 R1), so they show it.
     vox.monitor = Monitor::In;
     project_of(
         "Badge",
@@ -61,20 +61,19 @@ fn focused(lumen: &Lumen) -> String {
 }
 
 #[test]
-fn the_badge_shows_for_in_and_off_on_midi_tracks_only() {
+fn the_badge_shows_for_in_and_off_and_not_for_auto() {
     let lumen = launch("badge-shows");
     assert!(lumen.shows("Monitor Lead: In"));
     assert!(lumen.shows("Monitor Pad: Off"));
-    for none in ["Monitor Keys", "Monitor Vox"] {
-        assert!(
-            lumen
-                .harness
-                .query_all_by_label_contains(none)
-                .next()
-                .is_none(),
-            "{none} shows no badge"
-        );
-    }
+    assert!(lumen.shows("Monitor Vox: In"));
+    assert!(
+        lumen
+            .harness
+            .query_all_by_label_contains("Monitor Keys")
+            .next()
+            .is_none(),
+        "Auto shows no badge"
+    );
 }
 
 #[test]

@@ -400,8 +400,8 @@ impl AsioBackend {
         };
         let driver = self.load(&config.device.id)?;
         let (input_count, output_count) = driver.channels().map_err(asio)?;
-        if let Some(&bad) = config
-            .input_channels
+        let input_channels = config.inputs_on(input_count.max(0) as usize);
+        if let Some(&bad) = input_channels
             .iter()
             .find(|&&c| c >= input_count.max(0) as usize)
             .or_else(|| {
@@ -439,8 +439,7 @@ impl AsioBackend {
         if !allowed.allows(frames as u32) {
             return Err(AudioError::Unsupported(format!("buffer size {frames}")));
         }
-        let mut infos: Vec<AsioBufferInfo> = config
-            .input_channels
+        let mut infos: Vec<AsioBufferInfo> = input_channels
             .iter()
             .map(|&c| (1, c))
             .chain(config.output_channels.iter().map(|&c| (0, c)))
@@ -469,7 +468,7 @@ impl AsioBackend {
                 sample_type,
             })
         };
-        let split = config.input_channels.len();
+        let split = input_channels.len();
         let inputs = infos[..split]
             .iter()
             .map(&channel)

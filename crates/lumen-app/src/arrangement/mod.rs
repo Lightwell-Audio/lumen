@@ -25,6 +25,7 @@
 //! bottom, under a divider (`pinned`): rows carry the [`Zone`] they are
 //! drawn in, and each zone clips its own.
 
+pub(crate) mod audio_in;
 pub(crate) mod auto_envelope;
 pub(crate) mod auto_params;
 pub(crate) mod auto_scale;
@@ -360,6 +361,9 @@ pub struct Arrangement {
     /// The device's outputs, as the strips' output menus offer them (M4
     /// slice 5), lent by the app.
     pub(crate) outputs: OutputChoices,
+    /// The device's inputs, as the audio tracks' input menus offer them (M9 slice
+    /// R1), lent by the app.
+    pub(crate) inputs: audio_in::InputChoices,
     /// How far the mixer's strips are scrolled, and how hard a strip drag
     /// near their edge pushes them (-1 to 1).
     mixer_offset: f32,

@@ -463,10 +463,22 @@ impl Arrangement {
             pos2(auto_rect.left() - 6.0 - 54.0, center_y - 10.0),
             pos2(auto_rect.left() - 6.0, center_y + 10.0),
         );
+        let chip = (track.kind == lumen_project::model::TrackKind::Audio
+            && !super::audio_in::on_top_row(track))
+        .then(|| {
+            Rect::from_center_size(
+                pos2(left + super::audio_in::chip_size().x / 2.0, center_y),
+                super::audio_in::chip_size(),
+            )
+        });
+        let slider_left = chip.map_or(left, |c| c.right() + 6.0);
         let volume_rect = Rect::from_min_max(
-            pos2(left, center_y - 10.0),
+            pos2(slider_left, center_y - 10.0),
             pos2(pan_rect.left() - 6.0, center_y + 10.0),
         );
+        if let Some(chip) = chip {
+            self.input_chip(ui, doc, track, chip, id);
+        }
         let gain = self.shown(doc, track, Target::Volume, track.gain_db);
         let db = widgets::value_slider_styled(
             ui,

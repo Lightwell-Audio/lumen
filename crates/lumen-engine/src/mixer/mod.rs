@@ -64,7 +64,7 @@ use meter::{LoudnessReader, LoudnessTap, MeterBank, SIDE_KEY};
 use plan::{Pass, Ramp};
 
 use crate::declick::fade_frames;
-use crate::source::{Jump, Mode, Output, RenderContext, Source};
+use crate::source::{Inputs, Jump, Mode, Output, RenderContext, Source};
 use crate::timeline::Timeline;
 
 const QUEUE: usize = 4;
@@ -79,6 +79,10 @@ pub trait TrackSource: Send {
     /// Adds `buses.frames()` frames from timeline sample `cx.start` to the
     /// buses of the tracks that play. A track with no bus is not heard.
     fn render(&mut self, cx: &RenderContext<'_>, buses: &mut Buses<'_>);
+
+    /// The block about to be rendered brings these inputs, as
+    /// [`Source::input`].
+    fn input(&mut self, _inputs: &Inputs<'_>) {}
 
     /// Playback starts or jumps, as [`Source::locate`].
     fn locate(&mut self, _timeline: &Timeline, _sample_rate: u32, _sample: i64, _jump: Jump) {}
@@ -125,6 +129,11 @@ impl<A: TrackSource, B: TrackSource> TrackSource for Layered<A, B> {
     fn begin(&mut self, cx: &RenderContext<'_>, frames: usize) {
         self.0.begin(cx, frames);
         self.1.begin(cx, frames);
+    }
+
+    fn input(&mut self, inputs: &Inputs<'_>) {
+        self.0.input(inputs);
+        self.1.input(inputs);
     }
 
     fn hosted(&self) -> bool {
@@ -497,6 +506,10 @@ impl<T> Mixer<T> {
 }
 
 impl<T: TrackSource> Source for Mixer<T> {
+    fn input(&mut self, inputs: &Inputs<'_>) {
+        self.tracks.input(inputs);
+    }
+
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Output<'_>) {
         if !cx.tail {
             self.take_new(true);

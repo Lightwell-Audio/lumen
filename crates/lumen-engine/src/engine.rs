@@ -45,7 +45,7 @@ use crate::metronome::{self, CountIn, Metronome, MetronomeSettings, TestTone};
 use crate::playhead::Playhead;
 use crate::scrub::{ScrubStyle, Scrubber};
 use crate::snapshot::{Shared, TransportSnapshot};
-use crate::source::{Jump, Mode, Output, RenderContext, Source};
+use crate::source::{Inputs, Jump, Mode, Output, RenderContext, Source};
 use crate::timeline::Timeline;
 
 const COMMAND_CAPACITY: usize = 256;
@@ -286,6 +286,21 @@ impl<S: Source> Engine<S> {
     /// samples, overwritten). `sample_rate` is the device's current rate;
     /// when it changes, the position is kept musically.
     pub fn process(&mut self, sample_rate: u32, data: &mut [f32], channels: usize, frames: usize) {
+        self.process_with_input(sample_rate, &[], 0, data, channels, frames);
+    }
+
+    /// As [`Engine::process`], with the device's `inputs` for the block
+    /// (`input_channels × frames` samples, channel after channel; M9 slice
+    /// R1): the source meters and monitors them first.
+    pub fn process_with_input(
+        &mut self,
+        sample_rate: u32,
+        inputs: &[f32],
+        input_channels: usize,
+        data: &mut [f32],
+        channels: usize,
+        frames: usize,
+    ) {
         let _denormals = DenormalGuard::new();
         // The clock is read only while a host is attached (B3), so a project
         // without plugins costs what it did.
@@ -297,6 +312,15 @@ impl<S: Source> Engine<S> {
             Instant::now() + Duration::from_nanos(period * HOST_SHARE.0 / HOST_SHARE.1)
         });
         data[..channels * frames].fill(0.0);
+        if input_channels > 0 {
+            self.source.input(&Inputs {
+                device: self.stream,
+                sample_rate,
+                channels: input_channels,
+                frames,
+                data: inputs,
+            });
+        }
         self.retry_stash();
         self.swap_timeline(channels);
         if sample_rate != self.sample_rate && sample_rate > 0 {

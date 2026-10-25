@@ -168,6 +168,24 @@ impl Window {
                 .map_err(Clone::clone)
         })
     }
+    /// The input channel names of `driver`'s device `id` (the counterpart of
+    /// [`Window::output_names`]). `None` while looking.
+    pub fn input_names(
+        &mut self,
+        driver: &str,
+        id: &str,
+        ctx: &egui::Context,
+    ) -> Option<Result<Vec<String>, String>> {
+        self.catalog.poll();
+        if driver != "asio" {
+            self.catalog.list(driver, ctx);
+        }
+        self.catalog.details(driver, id, ctx).map(|d| {
+            d.as_ref()
+                .map(|i| i.input_channels.clone())
+                .map_err(Clone::clone)
+        })
+    }
 }
 
 /// Fixed, so a notice or a long device name never resizes the window.
@@ -367,6 +385,7 @@ impl Window {
                             sample_rate: None,
                             buffer_frames: None,
                             input_channels: Vec::new(),
+                            all_inputs: true,
                             output_channels: vec![0, 1],
                             cue_channels: Vec::new(),
                         }));
@@ -642,29 +661,45 @@ impl Window {
                 );
             });
         });
-        if chosen == "asio" && !info.input_channels.is_empty() {
+        if !info.input_channels.is_empty() {
             let input_names = &info.input_channels;
             ui.add_space(theme::space::S);
             row(ui, "Input", |ui| {
                 ui.vertical(|ui| {
-                    let none = current.input_channels.is_empty();
-                    if widgets::choice_row(ui, "None", none).clicked() && !none {
+                    // All inputs (the default) lets every track pick any
+                    // input; a pair or None narrows what the device opens.
+                    if widgets::choice_row(ui, "All inputs", current.all_inputs).clicked()
+                        && !current.all_inputs
+                    {
                         actions.push(Action::Apply(AudioSettings {
                             input_channels: Vec::new(),
+                            all_inputs: true,
                             ..current.clone()
                         }));
                     }
                     for (pair, label) in pairs(input_names, "In") {
                         let channels = channels_of(pair, input_names);
-                        let on = current.input_channels == channels;
+                        let on = !current.all_inputs && current.input_channels == channels;
                         if widgets::choice_row(ui, &label, on).clicked() && !on {
                             actions.push(Action::Apply(AudioSettings {
                                 input_channels: channels,
+                                all_inputs: false,
                                 ..current.clone()
                             }));
                         }
                     }
-                    hint(ui, "Recording and input meters arrive in Milestone 9");
+                    let none = !current.all_inputs && current.input_channels.is_empty();
+                    if widgets::choice_row(ui, "None", none).clicked() && !none {
+                        actions.push(Action::Apply(AudioSettings {
+                            input_channels: Vec::new(),
+                            all_inputs: false,
+                            ..current.clone()
+                        }));
+                    }
+                    hint(
+                        ui,
+                        "The inputs tracks can record from and monitor; choose one in a track's In menu",
+                    );
                 });
             });
         }

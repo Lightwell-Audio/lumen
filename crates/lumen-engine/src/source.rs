@@ -61,6 +61,22 @@ impl<'a> Output<'a> {
     }
 }
 
+/// One block of audio input from the device, handed to the source before the
+/// block is rendered (M9 slice R1).
+#[derive(Debug, Clone, Copy)]
+pub struct Inputs<'a> {
+    /// The device's frame count at the block's first frame, as
+    /// [`RenderContext::device`] counts.
+    pub device: u64,
+    pub sample_rate: u32,
+    /// Input channels, as many as the stream opened.
+    pub channels: usize,
+    /// Frames per channel.
+    pub frames: usize,
+    /// `channels × frames` samples, channel after channel.
+    pub data: &'a [f32],
+}
+
 /// Why a part is rendered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
@@ -135,6 +151,10 @@ pub trait Source: Send {
     /// `cx.start` to `out`. Called while playing, and while scrubbing at
     /// any position (M3 slice 5e).
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Output<'_>);
+
+    /// The block about to be rendered brings these inputs from the device.
+    /// Called first in every block that has some, playing or not.
+    fn input(&mut self, _inputs: &Inputs<'_>) {}
 
     /// Playback starts or jumps to `sample`, for the reason given. Sources
     /// reposition here. The engine crossfades every jump while

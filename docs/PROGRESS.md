@@ -180,7 +180,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 complete 2026-10-16 (report below; ADR-0069 accepted, the callback's wait on trial) and slice 1 built (MT-VST-1 passed on Windows, owner-reported); slice 2 built and its walkthrough passed (owner-reported; ADR-0069 measurements outstanding); slices 3 to 6 built; slice 7 (compatibility and closeout) under way: the probe, the fault soak, the callback benchmark and the combined walkthrough are built (branch `m6-s7-compatibility-closeout`), the review is done and its seven High findings fixed (`docs/audits/2026-10-18-m6.md`); the owner's MT-VST-7 runs, the Medium and Low findings and the M6 report remain | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
 | 7 | Automation & Envelopes | 🟡 Built 2026-10-22 (slices A0 to A8; ADRs 0081 to 0091; formats v22 to v25). MT-AUTO-1 to 10 passed (owner; MT-AUTO-2 but for step 12; MT-AUTO-8 and MT-AUTO-10 on 2026-10-22, no step detail, two findings logged in KNOWN_ISSUES); the owner's approval of the milestone is still to come. Report below; review `docs/audits/2026-10-22-m7.md`; plan: `docs/milestones/M7.md` |
 | 7b | Advanced Editing & Render | E0 to E2 merged (format v28); E3 consolidate built, MT-EDIT-4 passed. E4 bounce is built (MT-EDIT-5 passed); E5 freeze is built (format v29, MT-EDIT-6 passed (owner)). Static pitch remains deferred by the owner | [Plan](milestones/M7b.md), ADR-0092–0095 |
-| 9 | Recording, Media, Export & Production Workflow | 🟡 Plan proposed 2026-10-24, choices made 2026-10-24 (all recommendations); slice R0 (render consistency) built, ADR-0099 | Owner-approved to precede M8 (2026-10-23). Plan: [milestones/M9.md](milestones/M9.md) |
+| 9 | Recording, Media, Export & Production Workflow | 🟡 Plan proposed 2026-10-24, choices made 2026-10-24 (all recommendations); slice R0 (render consistency) built, ADR-0099; slice R1 (audio input) built, ADR-0100, MT-REC-1 pending | Owner-approved to precede M8 (2026-10-23). Plan: [milestones/M9.md](milestones/M9.md) |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | Follows M9 per owner priority (2026-10-23) |
 | 10 | Hardening, Performance & Release | 🔲 | |
 | S | Stretch goals (unscheduled; pulled into a milestone only with owner approval) | 🔲 | VST3 scanning and hosting on macOS and Linux |
@@ -323,7 +323,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Glitch-free playback, seamless loops, instant seeking | M | 🟡 Clips play sample-exactly from memory, with click-free crossfaded loops and locates (slice 6; golden renders; MT-MEDIA-1 passes by ear). Large sessions need disk streaming (M9) | 2 |
 | Disk streaming of clip audio with read-ahead, so large sessions need not fit in RAM; in-memory playback becomes a per-clip RAM option (owner decision 2026-10-06: memory in M2, streaming in M9) | M | 🔲 | 9 |
 | Crisp, fast waveforms at every zoom | M | ✅ | 3 | M3 slice 4c (ADR-0027): peak pyramids built at load, drawn per pixel on the GPU; no measurable frame cost with 10,000 waveforms. Disk cache deferred to M9 with disk streaming (owner approved); drawn sample by sample below 16 frames per pixel (4d, ADR-0028) |
-| Recording: multi-arm, monitoring, multichannel, crash-safe capture, latency compensation and offset, punch, count-in, input meters | M | 🔲 | 9 |
+| Recording: multi-arm, monitoring, multichannel, crash-safe capture, latency compensation and offset, punch, count-in, input meters | M | 🟡 Input, per-track input routing (format v30), input meters with clip lights and monitoring In/Auto/Off through the track's chain built in M9 R1 (ADR-0100; MT-REC-1 pending on the Focusrite). Capture, offset, punch and count-in for audio are R2 | 9 |
 | Loop recording into takes; capture MIDI | S | 🟡 Loop passes layer into one MIDI clip (M5 slice 6, ADR-0055); takes and Capture MIDI are M9 | 9 |
 | Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🟡 Clip gain and fades along free curves, with four presets (M3 6d, ADR-0031; golden renders, and E2E scenarios that listen). Reverse, polarity and normalize are built (M7b E1, ADR-0093; MT-EDIT-2 waits for the owner); automatic join crossfades are built (M7b E2, ADR-0094; MT-EDIT-3 passed, owner, 2026-10-24). The clip's static pitch needs a pitch engine; the owner deferred it with the audio pitch envelope (2026-10-19, M7b plan, Y1) until warp and time-stretch | 3, 7b |
 | Warp and time-stretch with quality modes | S | 🔲 Not in M7 or M7b. It also carries the audio pitch envelope (deferred by the owner, 2026-10-19) and, if the owner defers it, the clip's static pitch | — |
@@ -469,7 +469,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Warp, transient and tempo detection, pitch shift | S | 🔲 |
 | Take lanes and comping | S | 🔲 |
 | Unlimited undo/redo with visible history | M | 🟡 Undo and redo for imports, tempo and time signature (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y), a History window, and a note after each undo (M3 slice 3, ADR-0024). Every later edit joins it as it is built |
-| Audio recording with monitoring, multitrack, input meters | M | 🔲 |
+| Audio recording with monitoring, multitrack, input meters | M | 🟡 Monitoring, input routing and input meters (M9 R1, ADR-0100); recording itself is R2 |
 | Latency compensation with manual offset; crash-safe capture | M | 🟡 MIDI recording takes off the output latency automatically and commits takes about once a second (M5 slice 6, ADR-0055); the manual offset and audio capture are M9 |
 | MIDI recording: overdub/replace, count-in, punch | M | 🟡 Built in M5 slice 6 (ADR-0055): Record (F9 or the button) on armed MIDI tracks, a count-in of 1, 2 or 4 bars, Replace and Overdub, punch from the loop brace's switches, loop passes that layer, commits about once a second, one undo step per take, and autosave every 10 s while recording. Real-controller timing is unverified: MT-MIDI-7 waits for the owner |
 | Computer keyboard as MIDI input | M | 🟡 Built in M5 slice 2 (ADR-0046): the computer-keyboard MIDI layout in a mode (Ctrl+Shift+K), octave and velocity keys, lit transport button and readout; E2E hears it. MT-MIDI-3 waits |
@@ -656,8 +656,8 @@ workstation names.
   MT-VST-6 and MT-VST-7. The real Windows editor window is compile-checked only in
   the cloud container; its behavior was seen by the owner in MT-VST-4 run 1.
 - **ADR-0069's measurements.** The callback numbers at 64 and 128 frames with 16 and
-  64 hosted tracks (MT-VST-7 steps 7 to 9). **Monitoring through an effect waits for
-  audio input in M9.** Until both exist the callback's wait stays on trial.
+  64 hosted tracks (MT-VST-7 steps 7 to 9). **Monitoring through an effect is possible since
+  M9 R1 (MT-REC-1 step 8).** Until that run the callback's wait stays on trial.
 - **Installed plugins.** Twelve anonymous labels (RP-1 to RP-12) have been tried in
   parts; the probe has not been run over the installed library. This is not a
   compatibility claim.
@@ -1157,7 +1157,7 @@ clean.
 **Not verified:**
 - macOS and Linux audio on real hardware (CI compiles and unit-tests it;
   stretch milestone);
-- WASAPI and cpal input (deferred to M9, owner decision);
+- cpal (macOS, Linux) input: compile-only (M9 D8); WASAPI input is built (M9 R1) and waits on MT-REC-1;
 - a mid-range machine;
 - long-session soak testing (M10).
 

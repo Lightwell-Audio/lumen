@@ -408,6 +408,20 @@ and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
 **Now (2026-10-24)**
+- **Branch `m9-s1-audio-input`: M9 slice R1 (audio input) is built** (ADR-0100;
+  format **v30**; cut from `m9-s0-render-consistency`; not pushed). Input reaches
+  the engine (`Source::input`, `Engine::process_with_input`); an audio track routes a
+  mono input or a pair (`Track.input`; arming picks the first free one, one undo
+  step); the In chip sits beside M while armed or monitoring In, else on the
+  unfolded second row (owner's choice E), with a menu of inputs by name, a level
+  bar and a clip light that stays until clicked; monitoring Auto/In/Off plays the
+  input through the track's chain; commands `track.input_next` and
+  `track.monitor_next`. WASAPI input reads the capture endpoints of the device's
+  adapter in shared mode, kept in step with the render clock by rubato's `Slip`
+  (`drift.rs`, `wasapi_input.rs`); All inputs is the new default. cpal input is
+  compile-only. Not hardware-verified: MT-REC-1 (`docs/manual-tests/M9.md`) waits
+  on the owner's Focusrite, and ADR-0069's trial through an effect is step 8.
+  Next: R2 (audio recording) per `docs/milestones/M9.md`.
 - **Branch `m9-s0-render-consistency`: M9 slice R0 is built** (ADR-0099; no
   format change; not pushed; it contains the M9 plan from `m9-plan`, merged in).
   Consolidate is stale if any clip touching its span changed; normalize applies

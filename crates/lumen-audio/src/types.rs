@@ -59,6 +59,15 @@ pub struct DeviceInfo {
     pub buffer_sizes: Option<BufferSizes>,
 }
 
+/// As the only entry of [`StreamConfig::input_channels`]: every input the
+/// device has, up to [`MOST_INPUTS`] (M9 slice R1), so a track can record from
+/// any of them. A driver model that has no input opens none for it; naming
+/// channels explicitly on one that cannot is an error.
+pub const ALL_INPUTS: usize = usize::MAX;
+
+/// The most inputs opened for [`ALL_INPUTS`].
+pub const MOST_INPUTS: usize = 32;
+
 /// What the user asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StreamConfig {
@@ -71,6 +80,24 @@ pub struct StreamConfig {
     /// Device channel indices, in the order the callback sees them.
     pub input_channels: Vec<usize>,
     pub output_channels: Vec<usize>,
+}
+
+impl StreamConfig {
+    /// Whether every input is asked for ([`ALL_INPUTS`]).
+    pub fn wants_all_inputs(&self) -> bool {
+        self.input_channels == [ALL_INPUTS]
+    }
+
+    /// The device channels to open as inputs on a device with `available`
+    /// of them: the list asked for, or the first [`MOST_INPUTS`] of them
+    /// for [`ALL_INPUTS`].
+    pub fn inputs_on(&self, available: usize) -> Vec<usize> {
+        if self.wants_all_inputs() {
+            (0..available.min(MOST_INPUTS)).collect()
+        } else {
+            self.input_channels.clone()
+        }
+    }
 }
 
 /// What the device actually granted.

@@ -88,6 +88,9 @@ pub struct Document {
     /// deleted (M7 slice A7, the owner's E3: off by default, so automation
     /// follows its clip). The app sets it from the settings.
     lock_envelopes: bool,
+    /// Inputs the audio device has open (M9 slice R1): arming an audio track
+    /// that has none gives it the first free one. Set by the app each frame.
+    open_inputs: u16,
 }
 
 impl Document {
@@ -109,7 +112,13 @@ impl Document {
             touched: Vec::new(),
             rests: BTreeMap::new(),
             lock_envelopes: false,
+            open_inputs: 0,
         }
+    }
+
+    /// How many inputs the audio device has open, for arming to route.
+    pub fn set_open_inputs(&mut self, open: u16) {
+        self.open_inputs = open;
     }
 
     /// Whether clip edits leave the track's automation where it is.
@@ -446,7 +455,17 @@ impl Document {
     pub fn set_armed(&mut self, ids: &[Id], armed: bool) {
         let label = if armed { "Arm for recording" } else { "Disarm" };
         let ids = self.armable(ids);
-        self.edit_tracks(label, &ids, |t| t.armed = armed);
+        let open = self.open_inputs;
+        self.history.apply(label, None, |project| {
+            for track in &mut project.tracks {
+                if ids.contains(&track.id) && track.armed != armed {
+                    Arc::make_mut(track).armed = armed;
+                }
+            }
+            if armed {
+                lumen_project::edit::input::route_armed(project, &ids, open);
+            }
+        });
     }
 
     /// Arms tracks and disarms every other track, in one step: pressing a
@@ -455,6 +474,7 @@ impl Document {
     /// ([`Document::set_armed`]).
     pub fn arm_only(&mut self, ids: &[Id]) {
         let ids = self.armable(ids);
+        let open = self.open_inputs;
         self.history.apply("Arm for recording", None, |project| {
             for track in &mut project.tracks {
                 let armed = ids.contains(&track.id);
@@ -462,6 +482,7 @@ impl Document {
                     Arc::make_mut(track).armed = armed;
                 }
             }
+            lumen_project::edit::input::route_armed(project, &ids, open);
         });
     }
 

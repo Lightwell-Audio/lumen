@@ -5,7 +5,9 @@
 //! and choosing an instrument switches the track back to it.
 
 use lumen_devices::Preset;
-use lumen_project::model::{Device, FromSource, Id, MidiFrom, MidiTo, Monitor, TrackKind};
+use lumen_project::model::{
+    AudioInput, Device, FromSource, Id, MidiFrom, MidiTo, Monitor, TrackKind,
+};
 
 use super::Document;
 
@@ -104,6 +106,29 @@ impl Document {
             None => format!("MIDI From: {source}"),
         };
         self.edit_tracks(&label, &midi, |track| track.midi_from = from.clone());
+    }
+
+    /// Chooses the device inputs audio tracks among `ids` record from and
+    /// monitor (format v30, M9 slice R1), or takes the input away (`None`).
+    pub fn set_audio_input(&mut self, ids: &[Id], input: Option<AudioInput>) {
+        let audio: Vec<Id> = self
+            .project()
+            .tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Audio && ids.contains(&t.id))
+            .map(|t| t.id)
+            .collect();
+        if audio.is_empty()
+            || input.is_some_and(|i| i.channels().end > lumen_project::MAX_INPUT_CHANNELS)
+        {
+            return;
+        }
+        let label = match input {
+            Some(i) if i.stereo => format!("Input: {}+{}", i.channel + 1, i.channel + 2),
+            Some(i) => format!("Input: {}", i.channel + 1),
+            None => "Input: None".to_owned(),
+        };
+        self.edit_tracks(&label, &audio, |track| track.input = input);
     }
 
     /// Sets when tracks among `ids` monitor their input (format v13).
@@ -265,5 +290,58 @@ mod tests {
         let b = track(&doc, copies[0]).devices[0].id;
         assert_ne!(a, b);
         assert!(lumen_project::to_bytes(doc.project()).is_ok());
+    }
+    fn audio_doc() -> (Document, Id, Id) {
+        let mut doc = Document::new(crate::empty_project());
+        let a = doc.add_track(TrackKind::Audio, None);
+        let b = doc.add_track(TrackKind::Audio, None);
+        (doc, a, b)
+    }
+
+    #[test]
+    fn an_audio_tracks_input_is_one_undo_step_and_midi_tracks_take_none() {
+        let (mut doc, a, _) = audio_doc();
+        let midi = doc.add_track(TrackKind::Midi, None);
+        doc.set_audio_input(&[a, midi], Some(AudioInput::pair(2)));
+        assert_eq!(track(&doc, a).input, Some(AudioInput::pair(2)));
+        assert_eq!(track(&doc, midi).input, None);
+        assert_eq!(doc.undo().as_deref(), Some("Input: 3+4"));
+        assert_eq!(track(&doc, a).input, None);
+        doc.redo();
+        doc.set_audio_input(&[a], None);
+        assert_eq!(track(&doc, a).input, None);
+        // Beyond the most inputs a project routes is ignored, not stored.
+        let before = doc.state();
+        doc.set_audio_input(
+            &[a],
+            Some(AudioInput::mono(lumen_project::MAX_INPUT_CHANNELS)),
+        );
+        assert_eq!(doc.state(), before);
+    }
+
+    #[test]
+    fn arming_an_unrouted_track_picks_the_first_free_input_in_the_same_step() {
+        let (mut doc, a, b) = audio_doc();
+        doc.set_open_inputs(2);
+        doc.set_audio_input(&[a], Some(AudioInput::mono(0)));
+        doc.set_armed(&[b], true);
+        assert_eq!(track(&doc, b).input, Some(AudioInput::mono(1)));
+        // One undo takes the arm and the input back together.
+        doc.undo();
+        assert!(!track(&doc, b).armed);
+        assert_eq!(track(&doc, b).input, None);
+        // A track that already has an input keeps it.
+        doc.set_audio_input(&[b], Some(AudioInput::mono(0)));
+        doc.set_armed(&[b], true);
+        assert_eq!(track(&doc, b).input, Some(AudioInput::mono(0)));
+    }
+
+    #[test]
+    fn arming_with_no_inputs_open_routes_nothing() {
+        let (mut doc, a, _) = audio_doc();
+        doc.set_open_inputs(0);
+        doc.set_armed(&[a], true);
+        assert!(track(&doc, a).armed);
+        assert_eq!(track(&doc, a).input, None);
     }
 }

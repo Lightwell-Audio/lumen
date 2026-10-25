@@ -19,6 +19,7 @@ mod clips;
 mod declick;
 mod engine;
 mod envelope;
+mod input;
 mod metronome;
 mod midi;
 mod mixer;
@@ -33,6 +34,10 @@ mod timeline;
 pub use clips::{Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, FadeFrames, clip_player};
 pub use engine::{Command, Engine, EngineHandle, HOST_SHARE, OFFLINE_WAIT, Region, engine};
 pub use envelope::ClipEnvelope;
+pub use input::{
+    CLIP_LEVEL as INPUT_CLIP_LEVEL, InputHandle, InputLevel, InputPlayer, InputRoute, MAX_INPUTS,
+    MAX_ROUTES as MAX_INPUT_ROUTES, Monitoring, input_player,
+};
 pub use metronome::{ClickSound, MetronomeSettings};
 pub use midi::{
     AUDITION, CLOCK_TICKS, Captured, INPUT_SLOTS, InstrumentSpec, KEYBOARD, Listen, LiveIn,
@@ -51,5 +56,5 @@ pub use render::{
 };
 pub use scrub::{MAX_SPEED as MAX_SCRUB_SPEED, ScrubStyle};
 pub use snapshot::TransportSnapshot;
-pub use source::{Jump, Mode, Output, RenderContext, Source};
+pub use source::{Inputs, Jump, Mode, Output, RenderContext, Source};
 pub use timeline::Timeline;

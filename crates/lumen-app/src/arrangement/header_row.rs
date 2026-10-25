@@ -282,24 +282,31 @@ impl Arrangement {
         kind.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Label, true, kind_words.clone())
         });
-        // A MIDI track whose Monitor is not Auto shows a badge before M.
+        // An audio track's In chip sits before M (M9 slice R1).
+        let chip =
+            (track.kind == TrackKind::Audio && super::audio_in::on_top_row(&track)).then(|| {
+                Rect::from_center_size(
+                    pos2(
+                        mute_rect.left() - BUTTON_GAP - super::audio_in::chip_size().x / 2.0,
+                        mid,
+                    ),
+                    super::audio_in::chip_size(),
+                )
+                .round_to_pixels(ppp)
+            });
+        let before = chip.map_or(mute_rect.left(), |c| c.left());
+        // A track whose Monitor is not Auto shows a badge before that.
         let silent = note.as_ref().filter(|n| n.warn).map(|n| n.text.clone());
         let badge = (super::monitor_badge::shown(&track) || silent.is_some()).then(|| {
             Rect::from_center_size(
-                pos2(
-                    mute_rect.left() - BUTTON_GAP - theme::size::BADGE_W / 2.0,
-                    mid,
-                ),
+                pos2(before - BUTTON_GAP - theme::size::BADGE_W / 2.0, mid),
                 vec2(theme::size::BADGE_W, theme::size::BADGE_H),
             )
             .round_to_pixels(ppp)
         });
         let mut name_rect = Rect::from_min_max(
             pos2(left + NAME_X, mid - 10.0),
-            pos2(
-                badge.map_or(mute_rect.left(), |b| b.left()) - 6.0,
-                mid + 10.0,
-            ),
+            pos2(badge.map_or(before, |b| b.left()) - 6.0, mid + 10.0),
         );
         // A return's letter (A, B, C), in its colour: its sends carry
         // the same letter and colour (slice 4).
@@ -357,6 +364,9 @@ impl Arrangement {
             } else if let Some(next) = super::monitor_badge::badge(ui, badge, id, &track, look) {
                 doc.set_monitor(&self.targets(track.id), next);
             }
+        }
+        if let Some(chip) = chip {
+            self.input_chip(ui, doc, &track, chip, id);
         }
         self.mute_solo(
             ui,

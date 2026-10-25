@@ -18,7 +18,7 @@ use eframe::emath::GuiRounding as _;
 
 /// Whether `track` shows the badge.
 pub(super) fn shown(track: &Track) -> bool {
-    track.kind == TrackKind::Midi && track.monitor != Monitor::Auto
+    matches!(track.kind, TrackKind::Midi | TrackKind::Audio) && track.monitor != Monitor::Auto
 }
 
 /// Draws the badge in `rect`; returns the Monitor a click chose.

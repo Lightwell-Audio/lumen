@@ -1,5 +1,6 @@
-//! WASAPI backend (Windows): shared and exclusive mode, event-driven, output
-//! only for now (input arrives with the device selector, M2 slice 8).
+//! WASAPI backend (Windows): shared and exclusive mode, event-driven. Input
+//! comes from the capture endpoints of the same adapter, read beside the
+//! render stream (`wasapi_input`, M9 slice R1).
 //!
 //! Each stream runs on its own render thread with the "Pro Audio" MMCSS
 //! class. Shared mode runs at the rate and period Windows chooses; Lumen
@@ -35,9 +36,10 @@ use windows_sys::Win32::System::Threading::{
 use crate::backend::{Backend, OpenError, Stream, StreamEvent};
 use crate::convert::{SampleFormat, interleave_bytes};
 use crate::types::{
-    AudioCallback, AudioError, Block, BufferSizes, DeviceId, DeviceInfo, DriverKind, StreamConfig,
-    StreamInfo,
+    AudioCallback, AudioError, Block, BufferSizes, DeviceId, DeviceInfo, DriverKind, MOST_INPUTS,
+    StreamConfig, StreamInfo,
 };
+use crate::wasapi_input::{self, Capture};
 
 // HRESULTs from audioclient.h and winerror.h.
 const DEVICE_INVALIDATED: u32 = 0x8889_0004;
@@ -76,7 +78,7 @@ fn hresult(error: &WasapiError) -> Option<u32> {
     }
 }
 
-fn map_error(error: &WasapiError, name: &str) -> AudioError {
+pub(crate) fn map_error(error: &WasapiError, name: &str) -> AudioError {
     match hresult(error) {
         Some(DEVICE_IN_USE | EXCLUSIVE_MODE_NOT_ALLOWED) => AudioError::DeviceBusy(name.into()),
         Some(DEVICE_INVALIDATED | NOT_FOUND | FILE_NOT_FOUND | PATH_NOT_FOUND) => {
@@ -90,7 +92,7 @@ fn map_error(error: &WasapiError, name: &str) -> AudioError {
 }
 
 /// 100-ns units to whole frames, rounded to nearest.
-fn hns_to_frames(hns: i64, rate: u32) -> u32 {
+pub(crate) fn hns_to_frames(hns: i64, rate: u32) -> u32 {
     ((hns as f64 * f64::from(rate) / 1e7).round()) as u32
 }
 
@@ -158,6 +160,9 @@ impl WasapiBackend {
         let mix = client.get_mixformat().ok()?;
         let channels = usize::from(mix.get_nchannels());
         let (default_period, min_period) = client.get_device_period().ok()?;
+        let inputs = DeviceEnumerator::new().map_or(0, |enumerator| {
+            wasapi_input::channel_count(&enumerator, device)
+        });
         let (sample_rates, rate, buffer_sizes) = if self.exclusive {
             let rate = device
                 .get_device_format()
@@ -192,7 +197,9 @@ impl WasapiBackend {
                 id,
             },
             name,
-            input_channels: Vec::new(),
+            input_channels: (1..=inputs.min(MOST_INPUTS))
+                .map(|c| format!("In {c}"))
+                .collect(),
             output_channels: (1..=channels).map(|c| format!("Out {c}")).collect(),
             sample_rates,
             current_sample_rate: Some(rate),
@@ -225,14 +232,6 @@ impl Backend for WasapiBackend {
         if config.device.kind != self.kind() {
             return Err(OpenError {
                 error: AudioError::DeviceNotFound(config.device.id.clone()),
-                callback,
-            });
-        }
-        if !config.input_channels.is_empty() {
-            return Err(OpenError {
-                error: AudioError::Unsupported(
-                    "WASAPI input is not available yet; it arrives with the device selector".into(),
-                ),
                 callback,
             });
         }
@@ -303,6 +302,9 @@ fn render_thread(
     let _ = ready.send(Ok(render.info.clone()));
     render.run(callback.as_mut(), flags);
     let _ = render.client.stop_stream();
+    if let Some(capture) = render.capture.as_mut() {
+        capture.stop();
+    }
     Some(callback)
 }
 
@@ -340,6 +342,9 @@ struct Render {
     /// Frames per callback block.
     period: usize,
     info: StreamInfo,
+    /// The inputs, beside the render stream.
+    capture: Option<Capture>,
+    inputs: Vec<f32>,
     outputs: Vec<f32>,
     bytes: Vec<u8>,
     position: u64,
@@ -472,6 +477,8 @@ impl Render {
             buffer
         };
         let outputs = config.output_channels.len();
+        let capture = Capture::open(config, &enumerator, &device, rate, period)?;
+        let input_channels = capture.as_ref().map_or(0, Capture::channels);
         Ok(Self {
             client,
             render,
@@ -486,11 +493,13 @@ impl Render {
             info: StreamInfo {
                 sample_rate: rate,
                 buffer_frames: period as u32,
-                input_latency: 0,
+                input_latency: capture.as_ref().map_or(0, Capture::latency),
                 output_latency: fill_limit as u32,
-                input_channels: 0,
+                input_channels,
                 output_channels: outputs,
             },
+            capture,
+            inputs: vec![0.0; input_channels * period],
             outputs: vec![0.0; outputs * period],
             bytes: vec![0; buffer * block_align],
             position: 0,
@@ -552,6 +561,12 @@ impl Render {
     }
 
     fn run(&mut self, callback: &mut dyn AudioCallback, flags: &Flags) {
+        if let Some(capture) = self.capture.as_mut()
+            && capture.start().is_err()
+        {
+            flags.reset.store(true, Ordering::Release);
+            return;
+        }
         let period_ms = self.period as u64 * 1000 / u64::from(self.info.sample_rate.max(1));
         let timeout = (period_ms * 50).max(500) as u32;
         if self.event.is_none() {
@@ -612,13 +627,16 @@ impl Render {
     }
 
     fn render_block(&mut self, callback: &mut dyn AudioCallback) -> Result<(), WasapiError> {
+        if let Some(capture) = self.capture.as_mut() {
+            capture.fill(&mut self.inputs, self.period)?;
+        }
         self.outputs.fill(0.0);
         let mut block = Block {
             sample_rate: self.info.sample_rate,
             frames: self.period,
-            inputs: &[],
+            inputs: &self.inputs,
             outputs: &mut self.outputs,
-            input_channels: 0,
+            input_channels: self.info.input_channels,
             output_channels: self.map.len(),
             position: Some(self.position),
         };
@@ -720,6 +738,54 @@ mod tests {
         };
         let listed = WasapiBackend::new(false).devices();
         assert!(listed.iter().any(|d| d.id == default), "{default:?}");
+    }
+
+    /// On a machine whose first shared-mode device has inputs: opens it for
+    /// all of them, plays silence for half a second and checks that blocks
+    /// arrive with every listed input in them, finite. Elsewhere it has
+    /// nothing to open and passes.
+    #[test]
+    fn the_inputs_of_a_device_that_has_them_reach_the_callback() {
+        use std::sync::atomic::AtomicUsize;
+        let mut backend = WasapiBackend::new(false);
+        let Some(device) = backend
+            .devices()
+            .into_iter()
+            .find(|d| !d.input_channels.is_empty())
+        else {
+            return;
+        };
+        let blocks = Arc::new(AtomicUsize::new(0));
+        let bad = Arc::new(AtomicBool::new(false));
+        let wanted = device.input_channels.len();
+        let (seen, broken) = (Arc::clone(&blocks), Arc::clone(&bad));
+        let config = StreamConfig {
+            device: device.id.clone(),
+            sample_rate: None,
+            buffer_frames: None,
+            input_channels: vec![crate::types::ALL_INPUTS],
+            output_channels: vec![0, 1],
+        };
+        let callback = move |block: &mut Block<'_>| {
+            if block.input_channels != wanted
+                || block.inputs.len() != wanted * block.frames
+                || block.inputs.iter().any(|s| !s.is_finite())
+            {
+                broken.store(true, Ordering::Relaxed);
+            }
+            seen.fetch_add(1, Ordering::Relaxed);
+        };
+        let Ok(stream) = backend.open(&config, Box::new(callback)) else {
+            return; // busy, or a privacy setting: nothing to check
+        };
+        assert_eq!(stream.info().input_channels, wanted);
+        std::thread::sleep(Duration::from_millis(500));
+        let _ = stream.close();
+        assert!(blocks.load(Ordering::Relaxed) > 10, "blocks arrived");
+        assert!(
+            !bad.load(Ordering::Relaxed),
+            "every block carried the inputs"
+        );
     }
 
     /// Runs wherever Windows audio exists; CI runners may have no devices,

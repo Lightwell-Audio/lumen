@@ -58,6 +58,10 @@ pub struct Track {
     /// kind of track; audio tracks use it from M9.
     #[serde(default, skip_serializing_if = "Monitor::is_default")]
     pub monitor: Monitor,
+    /// The device inputs an audio track records from and monitors (format
+    /// v30, M9 R1). Written only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<AudioInput>,
     /// The plugin output this audio track plays, if it plays one (format
     /// v21): an auxiliary output of an instrument, which Lumen made the track
     /// for. Written only when set.
@@ -74,6 +78,45 @@ pub struct Track {
     pub frozen: Option<Frozen>,
     #[serde(default)]
     pub clips: Vec<Arc<Clip>>,
+}
+
+/// Where an audio track gets its sound from (format v30, M9 R1): the device's
+/// input channel `channel` (0 is input 1), and the one after it when `stereo`.
+/// A mono input plays on both sides of the track, as a mono file does. The
+/// channels are the device's own, so the choice survives changing which inputs
+/// are open; a device without them leaves the track silent and says why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioInput {
+    pub channel: u16,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub stereo: bool,
+}
+
+impl AudioInput {
+    pub fn mono(channel: u16) -> Self {
+        Self {
+            channel,
+            stereo: false,
+        }
+    }
+
+    pub fn pair(channel: u16) -> Self {
+        Self {
+            channel,
+            stereo: true,
+        }
+    }
+
+    /// The device channels it takes: one, or two.
+    pub fn channels(&self) -> std::ops::Range<u16> {
+        self.channel..self.channel + 1 + u16::from(self.stereo)
+    }
+
+    /// Whether the two share a device channel.
+    pub fn overlaps(&self, other: &AudioInput) -> bool {
+        let (a, b) = (self.channels(), other.channels());
+        a.start < b.end && b.start < a.end
+    }
 }
 
 /// A frozen track's rendered sound (format v29, M7b E5): what its instrument,
@@ -127,6 +170,7 @@ impl Track {
             midi_to: None,
             midi_from: MidiFrom::default(),
             monitor: Monitor::default(),
+            input: None,
             plugin_output: None,
             automation: Vec::new(),
             frozen: None,
