@@ -33,6 +33,7 @@ fn rig(monitoring: Monitoring) -> Rig {
         channel: 1,
         stereo: false,
         monitoring,
+        record: false,
     }]));
     let (mut routing, source) = mixer(player);
     let nodes = vec![
@@ -169,12 +170,14 @@ fn input_never_touches_the_heap() {
                     channel: 1,
                     stereo: block % 3 == 0,
                     monitoring,
+                    record: block % 2 == 0,
                 },
                 InputRoute {
                     track: 77,
                     channel: 0,
                     stereo: false,
                     monitoring: Monitoring::Armed,
+                    record: true,
                 },
             ];
             assert!(

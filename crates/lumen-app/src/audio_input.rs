@@ -39,6 +39,7 @@ pub fn routes(project: &Project, open: &[usize]) -> Vec<InputRoute> {
                 channel: place(input, open)?,
                 stereo: input.stereo,
                 monitoring: monitoring(t),
+                record: t.armed,
             })
         })
         .collect()
@@ -144,13 +145,15 @@ mod tests {
                     track: 1,
                     channel: 1,
                     stereo: false,
-                    monitoring: Monitoring::Armed
+                    monitoring: Monitoring::Armed,
+                    record: true,
                 },
                 InputRoute {
                     track: 2,
                     channel: 0,
                     stereo: true,
-                    monitoring: Monitoring::Always
+                    monitoring: Monitoring::Always,
+                    record: false,
                 },
             ]
         );
