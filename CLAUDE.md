@@ -410,7 +410,7 @@ per slice and move what is no longer current out of it.
 **Now (2026-10-25)**
 - **Branch `m9-s1b-track-headers`: M9 slice R1b (track headers) is built**
   (ADR-0101, the owner's B·1 from mocks; no format change; cut from `main`
-  after PR #61; not pushed). M, S and arm are pieces of one sunk well
+  after PR #61; pushed). M, S and arm are pieces of one sunk well
   (`buttons::Style::Well`, `headers::arm_button(.., (look, true))`); a 3 pt
   level strip beside the rail replaces the hairline and slider meters
   (`levels.rs`); the type icon is the fold button; unfolded tracks are 88 pt
