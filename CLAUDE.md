@@ -412,9 +412,9 @@ per slice and move what is no longer current out of it.
   format **v30**; cut from `m9-s0-render-consistency`; not pushed). Input reaches
   the engine (`Source::input`, `Engine::process_with_input`); an audio track routes a
   mono input or a pair (`Track.input`; arming picks the first free one, one undo
-  step); the In chip sits beside M while armed or monitoring In, else on the
-  unfolded second row (owner's choice E), with a menu of inputs by name, a level
-  bar and a clip light that stays until clicked; monitoring Auto/In/Off plays the
+  step); the In chip sits on the unfolded second row before the volume field
+  (layout A, from the owner's note that the top row was congested), with a menu of
+  inputs by name, a level bar and a clip light that stays until clicked; monitoring Auto/In/Off plays the
   input through the track's chain; commands `track.input_next` and
   `track.monitor_next`. WASAPI input reads the capture endpoints of the device's
   adapter in shared mode, kept in step with the render clock by rubato's `Slip`

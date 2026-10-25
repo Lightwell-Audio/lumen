@@ -460,12 +460,10 @@ impl Arrangement {
             vec2(BUTTON, BUTTON),
         );
         let pan_rect = Rect::from_min_max(
-            pos2(auto_rect.left() - 6.0 - 54.0, center_y - 10.0),
+            pos2(auto_rect.left() - 6.0 - 42.0, center_y - 10.0),
             pos2(auto_rect.left() - 6.0, center_y + 10.0),
         );
-        let chip = (track.kind == lumen_project::model::TrackKind::Audio
-            && !super::audio_in::on_top_row(track))
-        .then(|| {
+        let chip = (track.kind == lumen_project::model::TrackKind::Audio).then(|| {
             Rect::from_center_size(
                 pos2(left + super::audio_in::chip_size().x / 2.0, center_y),
                 super::audio_in::chip_size(),

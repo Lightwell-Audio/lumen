@@ -23,18 +23,14 @@ use crate::{light, motion, theme, widgets};
 /// The level bar along the chip's bottom.
 const BAR: f32 = 2.0;
 
-/// The chip's size on a header.
+/// The chip's size on a header: as tall as the volume field beside it.
 pub(super) fn chip_size() -> egui::Vec2 {
-    vec2(34.0, 18.0)
+    vec2(40.0, 20.0)
 }
 
-/// Whether the chip sits on the header's top row, beside M: while the track
-/// is armed or monitors In, when its input matters at a glance (the owner's
-/// choice E). Otherwise it sits on the unfolded second row, so names stay
-/// whole.
-pub(super) fn on_top_row(track: &Track) -> bool {
-    track.armed || track.monitor == Monitor::In
-}
+/// How far the chip's text sits above its centre: the volume field's own
+/// lift, so the two read on one line (the level runs along the foot of both).
+const TEXT_LIFT: f32 = 3.0;
 
 /// The device's inputs, as the menus offer them, lent by the app each frame.
 #[derive(Debug, Clone, Default)]
@@ -267,10 +263,7 @@ impl Arrangement {
             chip_text(track.input)
         };
         ui.painter().text(
-            pos2(
-                body.center().x,
-                body.top() + (body.height() - BAR) / 2.0 - 1.0,
-            ),
+            body.center() - vec2(0.0, TEXT_LIFT),
             Align2::CENTER_CENTER,
             widgets::fit(
                 ui.painter(),
@@ -309,7 +302,7 @@ impl Arrangement {
     fn clip_pip(&mut self, ui: &mut Ui, body: Rect, track: &Track, id: EguiId) {
         let palette = theme::p();
         let mark =
-            Rect::from_center_size(pos2(body.right() - 4.0, body.top() + 4.0), vec2(4.0, 4.0));
+            Rect::from_center_size(pos2(body.right() - 5.0, body.top() + 5.0), vec2(4.0, 4.0));
         light::halo_around(ui.painter(), light::FLARE, mark, 1.0, palette.record);
         ui.painter().rect_filled(mark, 1.0, palette.record);
         let area = mark.expand(3.0);

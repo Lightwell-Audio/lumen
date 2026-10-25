@@ -8778,10 +8778,14 @@ audit asked for the condition to be proven rejected.
 WASAPI and cpal refused input. R1 has to make input audible and visible (routing,
 meters, monitoring) before R2 records it. The owner chose, on 2026-10-24: an In
 chip on the track header with a menu of pairs and mono inputs by friendly name
-(R1 A), Auto monitoring (R2 A), and, when the chip did not fit beside the name on
-the 204 pt header, chip placement E: beside the mute button while the track is
-armed or monitors In, otherwise on the unfolded second row. The level bar and
-clip light stay as drawn in the specimen.
+(R1 A) and Auto monitoring (R2 A). The chip first went beside the mute button
+while a track was armed or monitored In (placement E); on the owner's own run at
+the smallest header width that squeezed the name to "V…" and crowded the row, so
+(2026-10-24, from a rendered mock, layout A) the chip is always on the unfolded
+second row, before the volume field, as tall as it, with its text on the same
+line as the volume text; the top row is as before the input existed. A folded
+track shows no chip. The level bar stays as drawn in the specimen, and the clip
+light moved to the chip's top-right corner.
 
 **Decision.**
 - **Engine.** `Engine::process_with_input` takes the block's input, channel after

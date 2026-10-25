@@ -1,5 +1,5 @@
 //! Audio input (M9 slice R1, ADR-0100): arming an unrouted audio track picks
-//! the first free input, the In chip chooses the input from a menu of
+//! the first free input, the In chip (on the unfolded second row) chooses the input from a menu of
 //! the device's pairs and mono inputs, the input meters move and their clip
 //! light stays until clicked, and an armed track is heard stopped (Auto
 //! monitoring) and a disarmed one is not. They share the process-wide input
@@ -83,7 +83,7 @@ fn listen(lumen: &mut Lumen, ms: u64) {
     }
 }
 
-/// Clicks the top edge of `name`'s header, clear of its buttons and the In chip.
+/// Clicks the top edge of `name`'s header, clear of its buttons.
 fn select(lumen: &mut Lumen, name: &str) {
     let header = lumen
         .harness
@@ -117,7 +117,7 @@ fn arming_picks_the_first_free_input_and_one_undo_takes_both_back() {
 fn the_in_chip_chooses_a_stereo_pair_or_a_mono_input_and_none() {
     let (mut lumen, _turn) = launch("input-chip");
     lumen.wait_for("the device's inputs", |app| app.open_inputs() == 2);
-    // Unarmed, the chip is on the unfolded second row.
+    // The chip is on the unfolded second row, armed or not.
     assert!(!lumen.shows("Vox input: None"));
     unfold(&mut lumen, "Vox");
     assert!(lumen.shows("Vox input: None"));
@@ -192,6 +192,8 @@ fn an_input_clip_light_stays_until_it_is_clicked() {
     let (mut lumen, _turn) = launch("input-clip");
     lumen.wait_for("the device's inputs", |app| app.open_inputs() == 2);
     lumen.click("Arm Vox");
+    // The chip is on the unfolded second row.
+    unfold(&mut lumen, "Vox");
     play_input(&[1.0, 0.0]);
     lumen.wait_for("the clip light", |app| app.input_meter(0).clipped);
     play_input(&[0.0, 0.0]);

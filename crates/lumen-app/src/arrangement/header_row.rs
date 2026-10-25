@@ -282,19 +282,7 @@ impl Arrangement {
         kind.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Label, true, kind_words.clone())
         });
-        // An audio track's In chip sits before M (M9 slice R1).
-        let chip =
-            (track.kind == TrackKind::Audio && super::audio_in::on_top_row(&track)).then(|| {
-                Rect::from_center_size(
-                    pos2(
-                        mute_rect.left() - BUTTON_GAP - super::audio_in::chip_size().x / 2.0,
-                        mid,
-                    ),
-                    super::audio_in::chip_size(),
-                )
-                .round_to_pixels(ppp)
-            });
-        let before = chip.map_or(mute_rect.left(), |c| c.left());
+        let before = mute_rect.left();
         // A track whose Monitor is not Auto shows a badge before that.
         let silent = note.as_ref().filter(|n| n.warn).map(|n| n.text.clone());
         let badge = (super::monitor_badge::shown(&track) || silent.is_some()).then(|| {
@@ -364,9 +352,6 @@ impl Arrangement {
             } else if let Some(next) = super::monitor_badge::badge(ui, badge, id, &track, look) {
                 doc.set_monitor(&self.targets(track.id), next);
             }
-        }
-        if let Some(chip) = chip {
-            self.input_chip(ui, doc, &track, chip, id);
         }
         self.mute_solo(
             ui,
