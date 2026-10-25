@@ -379,13 +379,13 @@ impl Arrangement {
                 &track,
                 hears,
                 (mute, solo),
-                (id, controls, " in the mixer"),
+                (id, controls, " in the mixer", super::buttons::Style::Raised),
             );
         }
         if arms && let Some(i) = index {
             let arm = nesting::arm_look(doc.project(), i, &self.selected);
             let name = format!("{} in the mixer", track.name);
-            if headers::arm_button(ui, next(), id, &name, arm, controls) {
+            if headers::arm_button(ui, next(), id, &name, arm, (controls, false)) {
                 self.press_arm(ui, doc, track.id, arm.on());
             }
         }

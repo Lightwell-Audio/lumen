@@ -141,6 +141,16 @@ impl Arrangement {
             self.toggle_fold(id);
             ui.close();
         }
+        // The lane over the clips (the header's A button until ADR-0101).
+        let lane = if self.auto.shown.contains_key(&id) {
+            "Hide automation lane"
+        } else {
+            "Show automation lane"
+        };
+        if item(ui, lane, Command::AutomationShow) {
+            self.selected = targets.clone();
+            self.track_command = Some(Command::AutomationShow);
+        }
         self.midi_menus(ui, doc, id, &targets);
         self.audio_menus(ui, doc, id);
         widgets::submenu(ui, "Colour", |ui| {

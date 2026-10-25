@@ -88,10 +88,10 @@ pub const STEP: f32 = crate::theme::size::TRACK_STEP;
 /// A folded track: two steps.
 pub const FOLDED: f32 = 2.0 * STEP;
 
-/// An unfolded track, and the smallest one: room for the volume row and the
-/// row of pan (and the input, on audio tracks) under it. Five steps (the
-/// owner's choice with the In chip, M9 slice R1).
-pub const UNFOLDED: f32 = 5.0 * STEP;
+/// An unfolded track, and the smallest one: the name row, volume and pan,
+/// then the sends and the input, with even margins. Four steps (the owner's
+/// B·1, M9 slice R1b, ADR-0101; five in R1).
+pub const UNFOLDED: f32 = 4.0 * STEP;
 
 /// The tallest a track can be dragged: fourteen steps.
 const MAX_HEIGHT: f32 = 14.0 * STEP;
@@ -145,10 +145,6 @@ pub(crate) fn indent(depth: usize) -> f32 {
     // stops stepping in there, so names keep room.
     INDENT * depth.min(lumen_project::groups::MAX_NESTING) as f32
 }
-
-/// M, S and arm on a header (the interface audit's S4: 19, against the
-/// strip's 20).
-const BUTTON: f32 = crate::theme::size::CONTROL_SMALL;
 
 /// One row of the arrangement, in content coordinates (on screen at the
 /// lanes' top + `y` − the scroll), drawn inside its zone.
@@ -325,9 +321,6 @@ pub struct Arrangement {
     /// last frame), and the one hovered this frame.
     hot_return: Option<Id>,
     hot_return_next: Option<Id>,
-    /// Tracks that show sends (audio, MIDI and groups, while the project
-    /// has returns): they unfold a step taller.
-    with_sends: BTreeSet<Id>,
     /// The rows each return's senders take: it unfolds tall enough for
     /// them.
     senders: BTreeMap<Id, usize>,
@@ -485,7 +478,7 @@ mod tests {
         assert_eq!(snap_height(95.0), 4.0 * STEP);
         assert_eq!(snap_height(100.0), 5.0 * STEP);
         assert_eq!(FOLDED, 2.0 * STEP);
-        assert_eq!(UNFOLDED, 5.0 * STEP);
+        assert_eq!(UNFOLDED, 4.0 * STEP);
         // An opened project with an odd height (an older build) snaps.
         let mut view = lumen_project::model::ViewState::default();
         view.track_heights.insert(Id(1), 150.0);

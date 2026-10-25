@@ -1,7 +1,7 @@
-//! Sends on track headers (M4 slice 4, the owner's K1 comet): a knob per
-//! return on an unfolded track; dragged, silenced with a double-click,
-//! switched pre-fader from its menu, and heard through a soloed return
-//! (wet only).
+//! Sends on track headers (M4 slice 4, the owner's K1 comet; slots in a
+//! send well since M9 R1b, ADR-0101): one per return on an unfolded track;
+//! dragged, silenced with a double-click, switched pre-fader from its menu,
+//! and heard through a soloed return (wet only).
 
 use std::time::Duration;
 
@@ -167,33 +167,48 @@ fn a_send_at_the_bottom_is_silent_and_leaves_the_level_alone() {
 }
 
 #[test]
-fn sends_past_the_headers_width_are_set_from_the_plus_list() {
-    // MT-MIX-4 run 1 (owner): the "+N" could not be reached (the owner's O1).
-    let (mut lumen, track) = with_a_return("send-more");
-    for _ in 0..9 {
+fn twelve_returns_all_have_a_slot_in_the_headers_send_well() {
+    // ADR-0101 (the owner's B\u{b7}1): every return has a slot on the
+    // header, up to twelve; there is no "+N" list on a header any more.
+    let (mut lumen, track) = with_a_return("send-well");
+    for _ in 0..11 {
         lumen.click("Add track");
         lumen.click("Add return track");
     }
     lumen.frames(20);
-    let more = format!("more sends from {track}");
-    assert!(lumen.harness.query_by_label_contains(&more).is_some());
-    // The tenth return's knob is not on the header.
+    for (letter, n) in ('A'..='L').zip(1..=12) {
+        let slot = format!("Send {track} to {letter} Return {n}");
+        assert!(
+            lumen.harness.query_by_label_contains(&slot).is_some(),
+            "{slot}"
+        );
+    }
     assert!(
         lumen
             .harness
-            .query_by_label_contains("to J Return 10")
+            .query_by_label_contains(&format!("more sends from {track}"))
             .is_none()
     );
-    lumen.harness.get_by_label_contains(&more).click();
-    lumen.frames(3);
-    lumen
+    // The slots sit side by side in one row, inside the header.
+    let first = lumen
         .harness
-        .get_by_label_contains("to J Return 10")
-        .click();
-    lumen.frames(2);
-    lumen.harness.event(eframe::egui::Event::Text("-9".into()));
-    lumen.frames(2);
-    lumen.key(Modifiers::NONE, Key::Enter);
+        .get_by_label_contains(&format!("Send {track} to A Return 1"))
+        .rect();
+    let last = lumen
+        .harness
+        .get_by_label_contains(&format!("Send {track} to L Return 12"))
+        .rect();
+    assert!((first.center().y - last.center().y).abs() < 0.5);
+    assert!(last.left() > first.right());
+    // ...left of the In chip, on the same row.
+    let chip = lumen
+        .harness
+        .get_by_label_contains(&format!("{track} input:"))
+        .rect();
+    assert!(last.right() < chip.left(), "{last:?} before {chip:?}");
+    assert!((chip.center().y - last.center().y).abs() < 0.5);
+    // A narrow slot is still set by clicking and typing.
+    type_into(&mut lumen, &format!("Send {track} to J Return 10"), "-9");
     let project = lumen.app().project();
     let ret = project
         .tracks

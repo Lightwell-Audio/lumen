@@ -38,13 +38,6 @@ impl Arrangement {
         doc.overrides().contains(track.id, target)
             && !self.auto.recording.contains(&(track.id, target))
     }
-
-    /// Whether `track` has any lane taken over.
-    pub(crate) fn any_taken_over(&self, doc: &Document, track: &Track) -> bool {
-        doc.overrides()
-            .targets_of(track.id)
-            .any(|target| !self.auto.recording.contains(&(track.id, target)))
-    }
 }
 
 /// The amber ring around a control whose lane the user has taken over.

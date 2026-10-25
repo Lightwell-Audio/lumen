@@ -8852,3 +8852,63 @@ audio settings opens none. The latency figures for WASAPI input are estimates (t
 queue and one packet; the converter and driver add more) until MT-REC-1 measures
 them with the interface. ADR-0069's trial (monitoring through an effect at 64 and
 128 frames) waits on that run.
+
+## ADR-0101 — Track headers redesigned: one well, a level strip, a send well (M9 R1b)
+
+**Context.** After R1 the owner found the track headers crowded: three raised
+buttons per row down the right side, about 74 pt left for a name at the smallest
+width, a fold arrow and a type icon before every name, a hairline meter under
+every row, and unfolded rows of three different widths (110 pt). The owner asked
+for a complete redesign (2026-10-25). Three directions were shown as interactive
+mocks: A (quiet rows: buttons on hover), B (one well), C (two lines). The owner
+picked B and asked for three things: up to twelve returns must look good, the
+input chip must not change width between inputs, and the spacing must be even
+(the In chip had no bottom margin). Two refinements of B were mocked (B·1, a
+send well; B·2, knobs for the sends in use) and the owner chose B·1.
+
+**Decision.**
+- **One well for M, S and ●.** The three buttons become pieces cut into one sunk
+  well (20 pt, 2 pt padding, 1 pt gaps, 18 × 16 pieces), drawn like the
+  segmented control; a return's well has M and S only. Off pieces are bare and
+  take the Ember wash on hover; lit pieces fill (M grey, S accent, ● keeps the
+  armed ring that breathes). The hollow states (silenced by a solo, partly armed)
+  stay. Mixer strips keep raised buttons.
+- **A level strip beside the rail.** The hairline meter goes: the level rises in
+  a 3 pt strip beside the colour rail, the full height of the row less 5 pt at
+  each end (two 1 pt sides for a stereo track, peak and RMS, a hold tick, a clip
+  mark at the top that stays until clicked). Unfolded rows lose the meter inside
+  the volume slider for the same strip.
+- **The type icon is the fold button.** It turns into the arrow under the
+  pointer; a group always shows its arrow. Content starts 12 pt after the rail.
+- **Unfolded is four steps (88 pt)**, with 8 pt above the name row, 6 pt between
+  rows and 8 pt below the last. Row 2: volume, then pan in a 60 pt column. Row 3:
+  the send well, then the In chip in the same 60 pt column (a MIDI track or a
+  group leaves it empty, so the sends line up). The extra sends row and the
+  taller "with sends" height go; a return's senders start on row 3. The lane
+  floor stays at six steps.
+- **The send well.** Every send is a slot in one sunk well, in its return's
+  colour, filling from the bottom with the level; an empty slot shows a short
+  baseline. A slot is `min(18, (width − 4 − (n − 1)) / n)` wide (8.5 pt for twelve
+  returns at the narrowest column) and shows the return's letter at 12 pt or
+  wider. A slot acts as the send knob did: drag up and down (Shift fine),
+  double-click silences, click and type, arrow keys, wheel, right-click for pre
+  or post-fader and automation. Pointing at a slot shows its letter, name and
+  level.
+- **The In chip is a fixed 60 pt.** "In" in the hint colour, then the input
+  ("1+2", "2", "15+16") from a fixed place, ending in "…" if too long; the
+  caret is pinned right. A track with no input reads "In None", both words in
+  the hint colour.
+- **The A button leaves the header.** Automation is reached with the A key, the
+  track's right-click menu ("Show automation lane", added for the mouse), the
+  lane chooser and the right-click menus of the sliders; a taken-over control
+  still shows its ring and the lane's Re-enable button stays.
+
+**Options not taken.** A (buttons only on hover): off buttons were invisible
+until pointed at. C (a volume fader on every folded row): the busiest rows and
+1 pt of margin. B·2 (knobs only for the sends in use): a send at zero was two
+clicks away and knobs moved as sends turned on.
+
+**Consequences.** No format change: header heights live in the view state, and
+saved heights of 110 pt stay as saved (a taller row is still valid). Unfolding
+now gives 88 pt. Twelve 8.5 pt slots are narrow targets; each is 16 pt tall,
+has a name and keys, and the flag names it.

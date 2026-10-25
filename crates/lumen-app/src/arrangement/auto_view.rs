@@ -22,7 +22,10 @@ use super::auto_scale as scale;
 use super::auto_state::{ParamChooser, Picked};
 use super::clips::INSET;
 use super::strip_output::row_button;
-use super::{Arrangement, Row, RowKind, STEP, UNFOLDED};
+use super::{Arrangement, Row, RowKind, STEP};
+
+/// The least height of a track shown with a lane: six steps.
+const LANE_FLOOR: f32 = 6.0 * STEP;
 use crate::document::Document;
 use crate::timeview::TimeView;
 use crate::{ruler, theme};
@@ -634,10 +637,11 @@ impl Arrangement {
     }
 
     /// The height a track shown with a lane needs: room for the chip and a
-    /// readable curve under it.
+    /// readable curve under it (six steps, kept when unfolded tracks became
+    /// four, ADR-0101).
     pub(super) fn lane_floor(&self, id: Id, height: f32) -> f32 {
         if self.auto.shown.contains_key(&id) {
-            height.max(UNFOLDED + STEP)
+            height.max(LANE_FLOOR)
         } else {
             height
         }

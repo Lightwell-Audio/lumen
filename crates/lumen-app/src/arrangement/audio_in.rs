@@ -24,6 +24,10 @@ use crate::{light, motion, theme, widgets};
 /// field's, so the text sits exactly centred.
 const BAR: f32 = 1.5;
 const BAR_INSET: f32 = 1.5;
+/// The chip's text inset, the gap after "In", and its caret's size.
+const TEXT_PAD: f32 = theme::space::XS;
+const VALUE_GAP: f32 = theme::space::XS;
+const CARET: egui::Vec2 = vec2(5.0, 3.0);
 
 /// The device's inputs, as the menus offer them, lent by the app each frame.
 #[derive(Debug, Clone, Default)]
@@ -61,11 +65,11 @@ impl InputChoices {
     }
 }
 
-/// An input as the chip shows it: "In" for none, "3" or "1+2" by device
-/// channel number.
+/// An input as the chip shows it after "In": "None", or "3" and "1+2" by
+/// device channel number.
 pub(super) fn chip_text(input: Option<AudioInput>) -> String {
     match input {
-        None => "In".to_owned(),
+        None => "None".to_owned(),
         Some(i) if i.stereo => format!("{}+{}", i.channel + 1, i.channel + 2),
         Some(i) => (i.channel + 1).to_string(),
     }
@@ -245,32 +249,47 @@ impl Arrangement {
             palette.warning
         } else if track.input.is_some() {
             palette
-                .text_secondary
+                .text
                 .lerp_to_gamma(theme::lit(Tone::On).text, face.lit)
         } else {
             palette.text_hint
         };
-        let mut text = if trouble.is_some() {
-            format!("\u{25B2}{}", chip_text(track.input))
-        } else {
-            chip_text(track.input)
+        // A fixed layout (ADR-0101): "In", the input from a fixed place and
+        // the caret at the right, so the chip never changes as inputs do.
+        let font = FontId::proportional(theme::size::CAPTION);
+        let painter = ui.painter();
+        let label = painter.text(
+            pos2(body.left() + TEXT_PAD, body.center().y),
+            Align2::LEFT_CENTER,
+            "In",
+            font.clone(),
+            palette.text_hint,
+        );
+        let caret = pos2(body.right() - TEXT_PAD - CARET.x / 2.0, body.center().y);
+        painter.add(egui::Shape::convex_polygon(
+            vec![
+                caret + vec2(-CARET.x / 2.0, -CARET.y / 2.0),
+                caret + vec2(CARET.x / 2.0, -CARET.y / 2.0),
+                caret + vec2(0.0, CARET.y / 2.0),
+            ],
+            if hover > 0.5 || open {
+                palette.text_secondary
+            } else {
+                palette.text_hint
+            },
+            egui::Stroke::NONE,
+        ));
+        let value = match trouble {
+            Some(_) => format!("\u{25B2}{}", chip_text(track.input)),
+            None => chip_text(track.input),
         };
-        if rect.width() > 60.0 {
-            text = match track.input {
-                Some(_) => format!("In  {text}"),
-                None => "In: none".to_owned(),
-            };
-        }
-        ui.painter().text(
-            body.center(),
-            Align2::CENTER_CENTER,
-            widgets::fit(
-                ui.painter(),
-                &text,
-                FontId::proportional(theme::size::CAPTION),
-                body.width() - 6.0,
-            ),
-            FontId::proportional(theme::size::CAPTION),
+        let from = label.right() + VALUE_GAP;
+        let room = caret.x - CARET.x / 2.0 - VALUE_GAP - from;
+        painter.text(
+            pos2(from, body.center().y),
+            Align2::LEFT_CENTER,
+            widgets::fit(painter, &value, font.clone(), room),
+            font,
             ink,
         );
         raised::focus_ring(ui.painter(), &response, rect);
@@ -409,7 +428,7 @@ mod tests {
 
     #[test]
     fn the_chip_names_inputs_by_device_channel_number() {
-        assert_eq!(chip_text(None), "In");
+        assert_eq!(chip_text(None), "None");
         assert_eq!(chip_text(Some(AudioInput::mono(2))), "3");
         assert_eq!(chip_text(Some(AudioInput::pair(0))), "1+2");
     }

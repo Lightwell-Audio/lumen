@@ -21,11 +21,8 @@ impl Arrangement {
     /// The height a track has before a lane shown over it asks for room.
     fn unlaned_height(&self, id: Id) -> f32 {
         if self.expanded.contains(&id) {
-            // A track with sends to show opens a step taller, so the
-            // knobs have their own row (slice 4).
-            let unfolded = if self.with_sends.contains(&id) {
-                UNFOLDED + STEP
-            } else if let Some(&rows) = self.senders.get(&id) {
+            // The sends share the third row with the input (ADR-0101).
+            let unfolded = if let Some(&rows) = self.senders.get(&id) {
                 // A return opens tall enough to list what sends to it
                 // (MT-MIX-4 runs 1 and 2, the owner's R2 and L4).
                 (UNFOLDED + rows.saturating_sub(1) as f32 * STEP).min(MAX_HEIGHT)
@@ -197,13 +194,6 @@ impl Arrangement {
         self.expanded.retain(exists);
         self.collapsed.retain(exists);
         self.auto.prune(project);
-        let returns = project.tracks.iter().any(|t| t.kind == TrackKind::Return);
-        self.with_sends = project
-            .tracks
-            .iter()
-            .filter(|t| returns && sends::has_sends(t.kind))
-            .map(|t| t.id)
-            .collect();
         self.senders = project
             .tracks
             .iter()

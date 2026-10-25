@@ -1015,8 +1015,8 @@ fn dropouts() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn sends() {
-    // MT-MIX-4 run 1: knobs on a selected row (C4), the "+N" list (O1)
-    // and a return's senders (R2).
+    // MT-MIX-4 run 1: sends on a selected row (C4) and a return's senders
+    // (R2); the header's sends are a well of slots since ADR-0101.
     use egui_kittest::kittest::Queryable;
     for (appearance, scale) in [("dark", 1.0), ("light", 1.0), ("dark", 1.5)] {
         let dir = TempDir::new("shots-sends");
@@ -1089,16 +1089,102 @@ fn sends() {
         save(&mut h, &format!("send-dragging-{appearance}-{scale}"));
         h.drop_at(knob.center() - vec2(0.0, 20.0));
         h.run_steps(3);
-        h.get_by_label_contains("more sends from kick").click();
-        h.run_steps(5);
-        save(&mut h, &format!("sends-list-{appearance}-{scale}"));
-        h.key_press(Key::Escape);
-        h.run_steps(3);
         h.get_by_label_contains("more tracks sending into A")
             .click();
         h.run_steps(5);
         save(&mut h, &format!("senders-list-{appearance}-{scale}"));
         h.key_press(Key::Escape);
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn track_headers() {
+    // M9 slice R1b (the owner's B\u{b7}1, ADR-0101): the well of M S \u{25CF},
+    // the level strip, the send well with three and then twelve returns,
+    // a slot's flag, and the In chip at a fixed width, in both themes at
+    // 100, 150 and 200%.
+    use egui_kittest::kittest::Queryable;
+    let type_in = |h: &mut Harness<'static, App>, label: &str, text: &str| {
+        h.get_by_label_contains(label).click();
+        h.run_steps(2);
+        h.event(Event::Text(text.into()));
+        h.run_steps(2);
+        h.key_press(Key::Enter);
+        h.run_steps(2);
+    };
+    for appearance in ["dark", "light"] {
+        for scale in [1.0, 1.5, 2.0] {
+            let dir = TempDir::new("shots-track-headers");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .with_input_device();
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 1300.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(10);
+            drop_files(&mut h, &dir, 1.5);
+            lumen_app::testing::input_device().set(|d| d.input_levels = vec![0.4, 0.1]);
+            for _ in 0..3 {
+                h.get_by_label("Add track").click();
+                h.run_steps(3);
+                h.get_by_label_contains("Add return track").click();
+                h.run_steps(3);
+            }
+            for name in ["kick", "snare"] {
+                h.get_by_label(&format!("Fold {name}")).click();
+                h.run_steps(30);
+            }
+            type_in(&mut h, "Send kick to A ", "-6");
+            type_in(&mut h, "Send kick to B ", "-20");
+            type_in(&mut h, "Send snare to C ", "0");
+            h.get_by_label("Arm kick").click();
+            h.run_steps(5);
+            h.get_by_label("snare input: None").click();
+            h.run_steps(5);
+            h.get_by_label("1+2  In 1 + In 2").click();
+            h.run_steps(5);
+            h.get_by_label("Mute bass").click();
+            h.run_steps(5);
+            // A return lists its senders on the same rows; the master has
+            // volume and pan.
+            for name in ["Return 1", "Master"] {
+                h.get_by_label(&format!("Fold {name}")).click();
+                h.run_steps(30);
+            }
+            h.hover_at(Pos2::new(900.0, 1250.0));
+            h.run_steps(30);
+            save(&mut h, &format!("track-headers-{appearance}-{scale}"));
+            // A slot under the pointer shows its flag.
+            let slot = h.get_by_label_contains("Send kick to A ").rect();
+            h.hover_at(slot.center());
+            h.run_steps(20);
+            save(&mut h, &format!("track-headers-flag-{appearance}-{scale}"));
+            // Twelve returns: every one has a slot.
+            h.hover_at(Pos2::new(900.0, 1250.0));
+            h.run_steps(10);
+            for _ in 0..9 {
+                h.get_by_label("Add track").click();
+                h.run_steps(3);
+                h.get_by_label_contains("Add return track").click();
+                h.run_steps(3);
+            }
+            h.hover_at(Pos2::new(900.0, 1250.0));
+            h.run_steps(30);
+            save(&mut h, &format!("track-headers-12-{appearance}-{scale}"));
+            lumen_app::testing::input_device().set(|d| d.input_levels = Vec::new());
+        }
     }
 }
 

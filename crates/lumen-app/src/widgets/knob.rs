@@ -9,6 +9,11 @@
 //! (Enter applies, Esc cancels), arrow keys when focused; the right-click
 //! menu switches pre- and post-fader. The wheel turns it a dB a notch
 //! (Shift a tenth) when its gesture starts on the knob (`wheel.rs`).
+//!
+//! On a track header the same control is a slot in the send well (M9 slice
+//! R1b, ADR-0101): a narrow bar in the return's colour that fills from the
+//! bottom, dragged up and down; pointing at it shows a flag with the
+//! return's letter, name and the level.
 
 use std::f32::consts::PI;
 
@@ -55,9 +60,20 @@ pub fn level(position: f32) -> f32 {
     (TAPER * (position.min(1.0) / UNITY_AT).log10()).min(MAX_DB)
 }
 
+/// How a send is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Style<'a> {
+    /// The comet knob (strips, lists).
+    Ring,
+    /// A slot in a header's send well; `title` is the return's name, for
+    /// its flag.
+    Slot { title: &'a str },
+}
+
 /// What a knob shows.
 #[derive(Debug, Clone, Copy)]
 pub struct SendKnob<'a> {
+    pub style: Style<'a>,
     /// The return's letter.
     pub letter: &'a str,
     /// The return's colour.
@@ -130,12 +146,16 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
         return out;
     }
 
+    let slot = matches!(knob.style, Style::Slot { .. });
     let response = ui
         .interact(rect, id, Sense::click_and_drag())
         .on_hover_text(
             "Send: drag up (Shift for fine), double-click for silence, or click and type. \
          Right-click for pre- or post-fader",
         );
+    if slot && response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+    }
     response.widget_info(|| {
         egui::WidgetInfo::slider(
             true,
@@ -163,7 +183,10 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
                 (position(knob.db), origin)
             });
         let d = pointer - last;
-        travel = (travel + (d.x - d.y) / 160.0 * if fine { 0.1 } else { 1.0 }).clamp(0.0, 1.0);
+        // A slot moves up and down only: across, the pointer is on the
+        // next slot.
+        let moved = if slot { -d.y } else { d.x - d.y };
+        travel = (travel + moved / 160.0 * if fine { 0.1 } else { 1.0 }).clamp(0.0, 1.0);
         ui.data_mut(|data| data.insert_temp(drag_id, (travel, pointer)));
         at = travel;
     } else {
@@ -245,6 +268,17 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
 
     let shown = out.db.map_or(at, position);
     let hot = motion::hover(ui.ctx(), id.with("hot"), out.hovered || knob.linked);
+    if let Style::Slot { title } = knob.style {
+        let point = motion::hover(ui.ctx(), id.with("point"), out.hovered);
+        draw_slot(ui.painter(), rect, &knob, shown, (point, hot));
+        if response.has_focus() {
+            raised::paint_focus(ui.painter(), rect, SLOT_RADIUS);
+        }
+        if knob.live_value && (out.hovered || response.has_focus()) {
+            flag(ui, rect, id, &knob, (title, level(shown)));
+        }
+        return out;
+    }
     draw(ui.painter(), rect, &knob, shown, hot);
     if response.has_focus() {
         raised::paint_focus(ui.painter(), rect, theme::radius::FULL);
@@ -362,6 +396,170 @@ pub(super) fn draw(painter: &egui::Painter, rect: Rect, knob: &SendKnob<'_>, at:
         );
     }
 }
+
+/// A slot's corner: the 20 pt well's radius less its 2 pt inset.
+const SLOT_RADIUS: u8 = theme::radius::SMALL - theme::space::XXS as u8;
+/// The line along an empty slot's bottom, and how strong its colour is.
+const SLOT_BASELINE: f32 = 2.0;
+const SLOT_BASELINE_ALPHA: f32 = 0.6;
+/// How much lighter a slot's fill is at its top than at its bottom.
+const SLOT_SHEEN: f32 = 0.08;
+/// How strongly a send that is not heard shows (as the knob's trail).
+const NOT_HEARD: f32 = 0.4;
+
+/// Paints a send slot: an Ember wash while pointed at (`point`), the fill in
+/// the return's colour from the bottom up to `at` of the travel (a short
+/// baseline when silent), its letter when there is room, a ring in its
+/// colour while its return is lit (`hot`), and a dot at the top for a
+/// pre-fader send.
+fn draw_slot(
+    painter: &egui::Painter,
+    rect: Rect,
+    knob: &SendKnob<'_>,
+    at: f32,
+    (point, hot): (f32, f32),
+) {
+    let palette = *theme::p();
+    let r = f32::from(SLOT_RADIUS);
+    let strength = if knob.heard { 1.0 } else { NOT_HEARD };
+    if point > 0.0 {
+        painter.rect_filled(rect, r, palette.ember.gamma_multiply(point));
+    }
+    if at > 0.0 {
+        let fill = Rect::from_min_max(
+            pos2(rect.left(), rect.bottom() - at * rect.height()),
+            rect.max,
+        );
+        let top = knob.color.lerp_to_gamma(Color32::WHITE, SLOT_SHEEN);
+        raised::gradient(
+            painter,
+            fill,
+            r.min(fill.height() / 2.0),
+            top.gamma_multiply(strength),
+            knob.color.gamma_multiply(strength),
+        );
+    } else {
+        let line = Rect::from_min_max(
+            pos2(rect.left() + 1.0, rect.bottom() - SLOT_BASELINE),
+            pos2(rect.right() - 1.0, rect.bottom()),
+        );
+        painter.rect_filled(
+            line,
+            1.0,
+            knob.color.gamma_multiply(SLOT_BASELINE_ALPHA * strength),
+        );
+    }
+    if hot > 0.0 {
+        painter.rect_stroke(
+            rect,
+            r,
+            Stroke::new(
+                theme::stroke::HAIRLINE,
+                knob.color.gamma_multiply(0.7 * hot),
+            ),
+            egui::StrokeKind::Inside,
+        );
+    }
+    if rect.width() >= theme::size::SEND_SLOT_LETTER {
+        // On the fill once it reaches the letter; quiet in the well below.
+        let ink = if at >= 0.5 {
+            theme::text_on(knob.color)
+        } else if knob.selected {
+            palette.text_secondary
+        } else {
+            palette.text_hint
+        };
+        painter.text(
+            rect.center(),
+            Align2::CENTER_CENTER,
+            knob.letter,
+            fonts::medium(theme::size::SCALE),
+            ink,
+        );
+    }
+    if knob.pre_fader {
+        painter.circle_filled(
+            pos2(rect.center().x, rect.top() + 2.5),
+            1.2,
+            palette.text_secondary,
+        );
+    }
+}
+
+/// The flag above a slot: the return's letter badge in its colour, its
+/// name, and the level, over everything.
+fn flag(ui: &Ui, slot: Rect, id: EguiId, knob: &SendKnob<'_>, (title, db): (&str, f32)) {
+    let palette = *theme::p();
+    let layer = egui::LayerId::new(egui::Order::Tooltip, id.with("flag"));
+    let painter = ui.ctx().layer_painter(layer);
+    let bounds = ui.ctx().content_rect();
+    let name = painter.layout_no_wrap(
+        title.to_owned(),
+        FontId::proportional(theme::size::CAPTION),
+        palette.text,
+    );
+    let level = painter.layout_no_wrap(
+        db_text(db.max(-60.0)),
+        FontId::monospace(theme::size::MONO_SMALL),
+        palette.text_secondary,
+    );
+    let on_badge = theme::text_on(knob.color);
+    let letter = painter.layout_no_wrap(
+        knob.letter.to_owned(),
+        fonts::medium(theme::size::CAPTION),
+        on_badge,
+    );
+    let badge_w = FLAG_BADGE.max(letter.size().x + 2.0 * theme::space::XS);
+    let width = FLAG_PAD_LEFT
+        + badge_w
+        + FLAG_GAP
+        + name.size().x
+        + FLAG_GAP
+        + level.size().x
+        + FLAG_PAD_RIGHT;
+    // Centred over the slot, kept inside the panel the slot is in.
+    let x = (slot.center().x - width / 2.0)
+        .min(bounds.right() - width)
+        .max(bounds.left().max(ui.clip_rect().left()));
+    let rect = Rect::from_min_size(
+        pos2(x, slot.top() - FLAG_RISE - FLAG_H),
+        vec2(width, FLAG_H),
+    );
+    painter.rect(
+        rect,
+        theme::radius::MEDIUM,
+        palette.raised,
+        Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
+        egui::StrokeKind::Inside,
+    );
+    let mid = rect.center().y;
+    let badge = Rect::from_min_size(
+        pos2(rect.left() + FLAG_PAD_LEFT, mid - FLAG_BADGE / 2.0),
+        vec2(badge_w, FLAG_BADGE),
+    );
+    painter.rect_filled(badge, theme::radius::SMALL, knob.color);
+    let letter_size = letter.size();
+    painter.galley(badge.center() - letter_size / 2.0, letter, on_badge);
+    let name_x = badge.right() + FLAG_GAP;
+    let name_w = name.size().x;
+    let name_h = name.size().y;
+    painter.galley(pos2(name_x, mid - name_h / 2.0), name, palette.text);
+    let level_h = level.size().y;
+    painter.galley(
+        pos2(name_x + name_w + FLAG_GAP, mid - level_h / 2.0),
+        level,
+        palette.text_secondary,
+    );
+}
+
+/// The flag: its height, how far above the slot it floats, its padding and
+/// gaps, and the letter badge's size.
+const FLAG_H: f32 = 22.0;
+const FLAG_RISE: f32 = 6.0;
+const FLAG_PAD_LEFT: f32 = 3.0;
+const FLAG_PAD_RIGHT: f32 = 7.0;
+const FLAG_GAP: f32 = 6.0;
+const FLAG_BADGE: f32 = 16.0;
 
 #[cfg(test)]
 mod tests {

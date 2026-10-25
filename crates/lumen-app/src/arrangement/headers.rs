@@ -1,6 +1,7 @@
-//! The track header column (M3 slice 4a): rail, fold arrow, type icon,
-//! name, M S and the record-arm button; the unfolded volume and pan row;
-//! resizing. Design: DESIGN §7a, ADR-0025. Groups step their tracks in
+//! The track header column (M3 slice 4a; redrawn in M9 slice R1b,
+//! ADR-0101): rail and level strip, the fold button, name, the well of M S
+//! and arm; an unfolded track's rows and columns; resizing. Design: DESIGN
+//! §7a, ADR-0025. Groups step their tracks in
 //! (`nesting`, M4 slice 3); the menus are in `menus`; each track's row is
 //! drawn by `header_row`.
 
@@ -13,20 +14,41 @@ use super::control_menu::{control_menu_for, waiting_ring};
 use super::follow;
 use super::header_row::HeaderRow;
 use super::nesting::Arm;
-use super::{Arrangement, BUTTON, FOLDED, RowKind, STEP, Zone};
+use super::{Arrangement, FOLDED, RowKind, Zone};
 use crate::commands::{Command, Keymap};
 use crate::document::Document;
 use crate::lanes::Lanes;
 use crate::widgets::{self, SliderKind, draw_arrow, value_slider};
 
-/// A header's content: the arrow, type icon and name, from its left (after
-/// the rail and any indent).
-pub(super) const ARROW_X: f32 = 16.0;
-pub(super) const ICON_X: f32 = 34.0;
-pub(super) const NAME_X: f32 = 48.0;
+/// A header's content starts this far right of its rail's left edge (after
+/// the rail and the level strip beside it, ADR-0101), and ends this far
+/// inside the header's right edge.
+pub(super) const CONTENT_X: f32 = 12.0;
+pub(super) const CONTENT_RIGHT: f32 = 8.0;
+/// The fold button (the type icon, an arrow under the pointer), and the
+/// gap after it and between the parts of a row.
+pub(super) const FOLD: f32 = 16.0;
+pub(super) const GAP: f32 = 6.0;
 
-/// The pan field beside the In chip on an audio track's third row.
-const PAN_WIDTH: f32 = 56.0;
+/// An unfolded header's rows: 8 pt above the first, 6 pt between (and 8 pt
+/// under the last: the owner's even spacing, ADR-0101).
+const ROW_TOP: f32 = 8.0;
+const ROW: f32 = theme::size::CONTROL_SMALL;
+
+/// The centre of row `n` (from 0) of an unfolded header whose top is `top`.
+pub(super) fn row_center(top: f32, n: usize) -> f32 {
+    top + ROW_TOP + n as f32 * (ROW + GAP) + ROW / 2.0
+}
+
+/// Where the name row sits in a header `height` tall whose top is `top`: in
+/// the middle of a folded row, and moving up to the first unfolded row's
+/// centre as the track opens (the move follows the height as it glides).
+pub(super) fn name_center(top: f32, height: f32) -> f32 {
+    let open = ((height - FOLDED) / (super::UNFOLDED - FOLDED)).clamp(0.0, 1.0);
+    let folded = top + FOLDED / 2.0;
+    folded + (row_center(top, 0) - folded) * open
+}
+
 /// How much of its strength a silenced track's name and type icon keep
 /// (the design system's `.is-dim`).
 pub(super) const SILENCED: f32 = 0.45;
@@ -438,42 +460,36 @@ impl Arrangement {
         Some(response)
     }
 
-    /// Volume and pan, for an unfolded track. Double-click resets either.
+    /// The second row of an unfolded track: volume, then pan in the right
+    /// column; and on an audio track the In chip under pan (the owner's
+    /// B·1, ADR-0101). `left` is where the header's rail starts. Both
+    /// sliders show their value inside (owner request): volume fills from
+    /// the left; pan fills from the centre and grows more saturated the
+    /// harder it pans. Double-click resets either.
     pub(super) fn mixer_row(
         &mut self,
         ui: &mut Ui,
         doc: &mut Document,
         track: &lumen_project::model::Track,
-        rect: Rect,
-        id: EguiId,
-        look: theme::Controls,
+        (rect, left): (Rect, f32),
+        (id, look): (EguiId, theme::Controls),
     ) {
-        // Volume on a row of its own with the A button at its end (M7
-        // slice A1); the row under it holds pan, and on an audio track the
-        // In chip before it (M9 slice R1, the owner's choice of layout R).
-        // Both sliders show their value inside (owner request): volume fills
-        // from the left; pan fills from the centre and grows more saturated
-        // the harder it pans.
-        let center_y = rect.top() + FOLDED + STEP / 2.0;
-        let third_y = center_y + STEP;
-        let left = rect.left() + 30.0;
-        let right = rect.right() - 8.0;
-        let auto_rect = Rect::from_min_size(
-            pos2(right - BUTTON, center_y - BUTTON / 2.0),
-            vec2(BUTTON, BUTTON),
-        );
+        let second = row_center(rect.top(), 1);
+        let (start, side, _) = columns(rect, left);
+        let right = rect.right() - CONTENT_RIGHT;
         let volume_rect = Rect::from_min_max(
-            pos2(left, center_y - 10.0),
-            pos2(auto_rect.left() - 6.0, center_y + 10.0),
+            pos2(start, second - ROW / 2.0),
+            pos2(side - GAP, second + ROW / 2.0),
         );
-        let is_audio = track.kind == lumen_project::model::TrackKind::Audio;
-        let pan_left = if is_audio { right - PAN_WIDTH } else { left };
-        let pan_rect =
-            Rect::from_min_max(pos2(pan_left, third_y - 10.0), pos2(right, third_y + 10.0));
-        if is_audio {
+        let pan_rect = Rect::from_min_max(
+            pos2(side, second - ROW / 2.0),
+            pos2(right, second + ROW / 2.0),
+        );
+        if track.kind == lumen_project::model::TrackKind::Audio {
+            let third = row_center(rect.top(), 2);
             let chip = Rect::from_min_max(
-                pos2(left, third_y - 10.0),
-                pos2(pan_rect.left() - 6.0, third_y + 10.0),
+                pos2(side, third - ROW / 2.0),
+                pos2(right, third + ROW / 2.0),
             );
             self.input_chip(ui, doc, track, chip, id);
         }
@@ -502,8 +518,6 @@ impl Arrangement {
             Target::Volume,
         );
         waiting_ring(ui, &self.auto, volume_rect, track.id, Target::Volume);
-        // The level under the value that sets it (the owner's H2).
-        self.slider_meter(ui, volume_rect, track, id);
         let shown_pan = self.shown(doc, track, Target::Pan, track.pan);
         let pan = value_slider(
             ui,
@@ -529,8 +543,22 @@ impl Arrangement {
             Target::Pan,
         );
         waiting_ring(ui, &self.auto, pan_rect, track.id, Target::Pan);
-        self.auto_button(ui, doc, track, auto_rect, id, look);
     }
+}
+
+/// An unfolded header's columns, for a header in `rect` whose rail starts at
+/// `left`: where the left column starts, where the right column (pan, the
+/// In chip) starts, and the third row's left column (the sends, a return's
+/// senders), which ends a gap before the right column.
+pub(super) fn columns(rect: Rect, left: f32) -> (f32, f32, Rect) {
+    let start = left + CONTENT_X;
+    let side = rect.right() - CONTENT_RIGHT - theme::size::HEADER_SIDE;
+    let third = row_center(rect.top(), 2);
+    let sends = Rect::from_min_max(
+        pos2(start, third - ROW / 2.0),
+        pos2((side - GAP).max(start), third + ROW / 2.0),
+    );
+    (start, side, sends)
 }
 
 /// "· 4": how many tracks a folded group hides.
@@ -548,13 +576,15 @@ fn painter_count(ui: &Ui, n: usize) -> std::sync::Arc<egui::Galley> {
 /// `record` body at 25% with a solid dot, a ring just outside that breathes
 /// (the owner's pulse, kept) and two glows. A group's lights when everything
 /// inside it is armed, and shows the dot with half a ring when only some is.
+/// `piece`: drawn as a piece of a header's well (ADR-0101), where the body is
+/// the piece and the ring breathes inside it.
 pub(super) fn arm_button(
     ui: &mut Ui,
     rect: Rect,
     id: EguiId,
     name: &str,
     arm: Arm,
-    look: theme::Controls,
+    (look, piece): (theme::Controls, bool),
 ) -> bool {
     let armed = arm.on();
     let palette = theme::p();
@@ -581,18 +611,19 @@ pub(super) fn arm_button(
     // Every circle shares this exact centre (owner: the ring must sit
     // centred on the dot).
     let center = rect.center();
+    if piece {
+        arm_piece(ui, rect, arm, hover);
+        if response.has_focus() {
+            raised::paint_focus(p, rect, super::buttons::PIECE_RADIUS);
+        }
+        return response.clicked();
+    }
     let radius = rect.width() / 2.0;
     if armed {
         // The one deliberate loop in Lumen (owner's choice): while armed, a
         // ring breathes slowly around the button. Reduce motion holds it
         // still; frames are requested only while a track is armed.
-        let breath = if motion::reduced() {
-            0.5
-        } else {
-            let t = ui.input(|i| i.time) as f32;
-            ui.ctx().request_repaint_after(motion::BREATH_FRAME);
-            0.5 - 0.5 * (t * std::f32::consts::TAU / ARM_BREATH).cos()
-        };
+        let breath = breath(ui);
         for (spread, alpha) in [(ARM_GLOW, 0.10), (ARM_GLOW * 0.7, 0.18)] {
             p.circle_filled(
                 center,
@@ -645,6 +676,71 @@ pub(super) fn arm_button(
     response.clicked()
 }
 
+/// The arm button as a piece of a header's well: armed, a `record` body at
+/// 25% with a solid dot and a ring inside the piece that breathes (no glow
+/// beyond it, which would spill over S); otherwise as the round button,
+/// with the piece's Ember wash under the pointer.
+fn arm_piece(ui: &Ui, rect: Rect, arm: Arm, hover: f32) {
+    let palette = theme::p();
+    let p = ui.painter();
+    let center = rect.center();
+    let r = f32::from(super::buttons::PIECE_RADIUS);
+    let ring = rect.height() / 2.0 - PIECE_RING_INSET;
+    match arm {
+        Arm::All => {
+            let breath = breath(ui);
+            p.rect_filled(rect, r, palette.record.gamma_multiply(ARM_BODY));
+            p.circle_stroke(
+                center,
+                ring - 0.5 + 0.5 * breath,
+                Stroke::new(
+                    theme::stroke::LIT,
+                    palette.record.gamma_multiply(0.45 + 0.3 * breath),
+                ),
+            );
+            p.circle_filled(center, PIECE_DOT, palette.record);
+        }
+        Arm::Partly => {
+            p.rect_filled(rect, r, palette.record.gamma_multiply(ARM_BODY));
+            p.add(egui::Shape::line(
+                half_ring(center, ring),
+                Stroke::new(theme::stroke::LIT, palette.record.gamma_multiply(0.6)),
+            ));
+            p.circle_filled(center, PIECE_DOT, palette.record);
+        }
+        Arm::Listening => {
+            p.rect_filled(rect, r, palette.ember.gamma_multiply(hover));
+            p.circle_stroke(
+                center,
+                PIECE_DOT,
+                Stroke::new(theme::stroke::LIT, palette.record),
+            );
+        }
+        Arm::Off => {
+            p.rect_filled(rect, r, palette.ember.gamma_multiply(hover));
+            let rest = palette.text_secondary.gamma_multiply(ARM_REST_DOT);
+            p.circle_filled(center, PIECE_DOT, rest.lerp_to_gamma(palette.record, hover));
+        }
+    }
+}
+
+/// How far the armed ring breathes, 0 to 1. Reduce motion holds it still;
+/// frames are requested only while a track is armed.
+fn breath(ui: &Ui) -> f32 {
+    if motion::reduced() {
+        0.5
+    } else {
+        let t = ui.input(|i| i.time) as f32;
+        ui.ctx().request_repaint_after(motion::BREATH_FRAME);
+        0.5 - 0.5 * (t * std::f32::consts::TAU / ARM_BREATH).cos()
+    }
+}
+
+/// The dot of an arm piece (the mock's 8 pt), and how far inside the
+/// piece's height its ring sits.
+const PIECE_DOT: f32 = 4.0;
+const PIECE_RING_INSET: f32 = 2.0;
+
 /// The right half of a ring around `center`.
 fn half_ring(center: egui::Pos2, radius: f32) -> Vec<egui::Pos2> {
     use std::f32::consts::PI;
@@ -668,10 +764,6 @@ const ARM_DOT: f32 = 4.5;
 const ARM_BODY: f32 = 0.25;
 /// How strong the resting dot's grey is.
 const ARM_REST_DOT: f32 = 0.55;
-
-/// The space between M, S and the arm button, wider than the armed glow
-/// (4 pt), so the glow only touches S as a faint halo.
-pub(super) const BUTTON_GAP: f32 = 8.0;
 
 /// What a screen reader says for a header; a group adds how many tracks
 /// it holds and whether they are hidden: "Track Drums, Group track, 3
@@ -721,5 +813,50 @@ pub(super) fn kind_name(kind: TrackKind) -> &'static str {
         TrackKind::Group => "Group track",
         TrackKind::Return => "Return track",
         TrackKind::Master => "Master track",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_unfolded_track_has_even_margins_around_its_three_rows() {
+        // 8 above, three 20 pt rows (the name; volume and pan; the sends
+        // and the input) 6 apart, 8 below: four steps.
+        assert_eq!(
+            ROW_TOP + 3.0 * ROW + 2.0 * GAP + 8.0,
+            super::super::UNFOLDED
+        );
+        assert_eq!(row_center(0.0, 0), 18.0);
+        assert_eq!(row_center(0.0, 1), 44.0);
+        assert_eq!(row_center(0.0, 2), 70.0);
+        // The last row ends 8 pt above the track's bottom.
+        assert_eq!(
+            super::super::UNFOLDED - (row_center(0.0, 2) + ROW / 2.0),
+            8.0
+        );
+    }
+
+    #[test]
+    fn the_name_row_moves_up_as_the_track_opens() {
+        assert_eq!(name_center(100.0, FOLDED), 122.0);
+        assert_eq!(name_center(100.0, super::super::UNFOLDED), 118.0);
+        assert_eq!(name_center(100.0, 300.0), 118.0);
+        let half = name_center(100.0, (FOLDED + super::super::UNFOLDED) / 2.0);
+        assert!(half > 118.0 && half < 122.0);
+    }
+
+    #[test]
+    fn the_columns_line_up_at_every_width() {
+        for width in [204.0, 280.0, 480.0] {
+            let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(width, 88.0));
+            let (start, side, sends) = columns(rect, 0.0);
+            assert_eq!(start, 12.0);
+            assert_eq!(side, width - 8.0 - 60.0);
+            assert_eq!(sends.left(), start);
+            assert_eq!(sends.right(), side - GAP);
+            assert_eq!(sends.center().y, 70.0);
+        }
     }
 }
