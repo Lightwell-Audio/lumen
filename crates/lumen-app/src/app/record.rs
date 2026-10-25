@@ -301,6 +301,14 @@ impl App {
     /// arrangement which clips are being recorded.
     pub(crate) fn update_recording(&mut self) {
         self.step_recording();
+        // While a take is written into a track, edits to that track's clips
+        // would be undone by the next commit: they are refused, with a note.
+        let recording = self
+            .record
+            .session
+            .as_ref()
+            .map_or(&[][..], |session| session.tracks.as_slice());
+        self.document.guard_recording(recording);
         let head = self.transport.state().ticks;
         let bar = self.document.project().meter_map().meter_at(head).bar();
         self.arrangement.recording = self

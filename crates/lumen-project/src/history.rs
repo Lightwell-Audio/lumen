@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::automation::AutomationLane;
 use crate::edit::freeze::{self, Violation};
-use crate::model::{Project, Track};
+use crate::model::{Id, Project, Track};
 
 /// Steps kept by default; the oldest are dropped beyond this.
 pub const DEFAULT_LIMIT: usize = 10_000;
@@ -36,6 +36,9 @@ pub struct History {
     open_gesture: Option<String>,
     /// What the latest refused edit tried to change on a frozen track.
     refused: Vec<Violation>,
+    /// The tracks a recording is writing a take into: their clips may change
+    /// only by the take's own commits ([`apply_take`](Self::apply_take)).
+    recording: Vec<Id>,
     limit: usize,
 }
 
@@ -49,6 +52,7 @@ impl History {
             redo: Vec::new(),
             open_gesture: None,
             refused: Vec::new(),
+            recording: Vec::new(),
             limit: DEFAULT_LIMIT,
         }
     }
@@ -78,13 +82,48 @@ impl History {
         merge: Option<&str>,
         edit: impl FnOnce(&mut Project),
     ) -> bool {
+        self.apply_checked(label, merge, true, edit)
+    }
+
+    /// [`apply`](Self::apply) for a recording's own commit of its take: the
+    /// clips of the tracks it records into may change.
+    pub fn apply_take(
+        &mut self,
+        label: &str,
+        merge: Option<&str>,
+        edit: impl FnOnce(&mut Project),
+    ) -> bool {
+        self.apply_checked(label, merge, false, edit)
+    }
+
+    /// Sets the tracks a recording writes a take into (empty when none is):
+    /// until then an edit that changes their clips, or removes them, is
+    /// refused like one on a frozen track, because the next commit would put
+    /// the clips back as they were when recording began.
+    pub fn guard_recording(&mut self, tracks: &[Id]) {
+        if self.recording != tracks {
+            self.recording = tracks.to_vec();
+        }
+    }
+
+    fn apply_checked(
+        &mut self,
+        label: &str,
+        merge: Option<&str>,
+        guard_takes: bool,
+        edit: impl FnOnce(&mut Project),
+    ) -> bool {
         let mut next = self.current.clone();
         edit(&mut next);
         crate::edit::crossfade::tidy(&mut next);
-        let broken = freeze::violations(&self.current, &next);
+        let mut broken = freeze::violations(&self.current, &next);
+        if guard_takes {
+            broken.extend(self.recording_violations(&next));
+        }
         if !broken.is_empty() {
-            // A frozen track is read-only (owner's FR2): the edit is dropped and
-            // the interface says why.
+            // A frozen track is read-only (owner's FR2), and so are the clips
+            // of a track being recorded: the edit is dropped and the interface
+            // says why.
             self.refused = broken;
             return false;
         }
@@ -111,8 +150,33 @@ impl History {
         true
     }
 
+    /// The tracks being recorded whose clips `next` changes or removes.
+    fn recording_violations(&self, next: &Project) -> Vec<Violation> {
+        self.recording
+            .iter()
+            .filter(|&&id| {
+                let Some(before) = self.current.tracks.iter().find(|t| t.id == id) else {
+                    return false;
+                };
+                match next.tracks.iter().find(|t| t.id == id) {
+                    None => true,
+                    Some(after) => {
+                        !Arc::ptr_eq(before, after)
+                            && (before.clips.len() != after.clips.len()
+                                || !before
+                                    .clips
+                                    .iter()
+                                    .zip(&after.clips)
+                                    .all(|(a, b)| Arc::ptr_eq(a, b) || a == b))
+                    }
+                }
+            })
+            .map(|&id| Violation::Recording(id))
+            .collect()
+    }
+
     /// What the latest edit that was refused tried to change on a frozen
-    /// track, taken: empty until another is refused.
+    /// track or a track being recorded, taken: empty until another is refused.
     pub fn take_refused(&mut self) -> Vec<Violation> {
         std::mem::take(&mut self.refused)
     }
@@ -607,5 +671,43 @@ mod tests {
         assert!(history.apply("Delete clips", None, |p| {
             Arc::make_mut(&mut p.tracks[2]).clips.clear();
         }));
+    }
+
+    #[test]
+    fn the_clips_of_a_track_being_recorded_change_only_by_its_own_take() {
+        use crate::edit::freeze::Violation;
+        let project = crate::testing::synthetic(3, 4, 2, 1, 0);
+        let (id, other) = (project.tracks[1].id, project.tracks[2].id);
+        let mut history = History::new(project);
+        history.guard_recording(&[id]);
+        let before = history.project().clone();
+        // Deleting, adding or removing the track's clips is refused.
+        assert!(!history.apply("Delete clips", None, |p| {
+            Arc::make_mut(&mut p.tracks[1]).clips.clear();
+        }));
+        assert_eq!(history.project(), &before);
+        assert!(!history.can_undo());
+        assert_eq!(history.take_refused(), vec![Violation::Recording(id)]);
+        assert!(!history.apply("Delete track", None, |p| {
+            p.tracks.remove(1);
+        }));
+        assert_eq!(history.take_refused(), vec![Violation::Recording(id)]);
+        // The fader, another track, and the take's own commit are not.
+        assert!(history.apply("Fader", None, |p| {
+            Arc::make_mut(&mut p.tracks[1]).gain_db = -6.0;
+        }));
+        assert!(history.apply("Delete clips", None, |p| {
+            Arc::make_mut(&mut p.tracks[2]).clips.clear();
+        }));
+        assert_eq!(history.project().tracks[2].id, other);
+        assert!(history.apply_take("Record", None, |p| {
+            Arc::make_mut(&mut p.tracks[1]).clips.truncate(1);
+        }));
+        // When the recording ends the track is free again.
+        history.guard_recording(&[]);
+        assert!(history.apply("Delete clips", None, |p| {
+            Arc::make_mut(&mut p.tracks[1]).clips.clear();
+        }));
+        assert!(history.take_refused().is_empty());
     }
 }

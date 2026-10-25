@@ -6,8 +6,7 @@
 use std::time::Instant;
 
 use eframe::egui;
-use lumen_project::edit::normalize::{gain_for_peak, window};
-use lumen_project::edit::tempo_of;
+use lumen_project::edit::normalize::{gain_for_peak, is_current, source_of};
 use lumen_project::model::ClipContent;
 
 use crate::App;
@@ -29,7 +28,6 @@ impl App {
             return;
         }
         let project = self.document.project();
-        let tempo = tempo_of(project);
         let mut jobs = Vec::new();
         let mut left_out = 0;
         for clip in project.tracks.iter().flat_map(|t| &t.clips) {
@@ -53,22 +51,14 @@ impl App {
                     State::Ready(audio) => Some(std::sync::Arc::clone(audio)),
                     _ => None,
                 });
-            let rate = project
-                .media
-                .iter()
-                .find(|m| m.id == *media)
-                .map(|m| f64::from(m.sample_rate.max(1)));
-            let (Some(audio), Some(rate)) = (audio, rate) else {
+            let (Some(audio), Some(source)) = (audio, source_of(project, clip)) else {
                 left_out += 1;
-                continue;
-            };
-            let Some(window) = window(clip, rate, &tempo) else {
                 continue;
             };
             jobs.push(Job {
                 clip: clip.id,
                 audio,
-                window,
+                source,
             });
         }
         if jobs.is_empty() {
@@ -115,23 +105,62 @@ impl App {
                 self.normalizing = None;
                 let mut gains = Vec::new();
                 let mut silent = 0;
+                let mut changed = 0;
                 for found in &found {
+                    // An edit while the scan ran (a trim, a slip, a reverse,
+                    // a tempo change) means the peak is of other audio.
+                    if !is_current(self.document.project(), found.clip, &found.source) {
+                        changed += 1;
+                        continue;
+                    }
                     match gain_for_peak(found.peak) {
                         Some(db) => gains.push((found.clip, db)),
                         None => silent += 1,
                     }
                 }
                 let limited = self.document.normalize_clips(&gains);
-                self.say(normalized_words(gains.len(), silent, limited, left_out));
+                self.say(normalized_words(Words {
+                    done: gains.len(),
+                    silent,
+                    limited,
+                    left_out,
+                    changed,
+                }));
             }
         }
     }
 }
 
+/// What a scan came to, for the note after it.
+struct Words {
+    /// Clips given a gain.
+    done: usize,
+    /// Clips whose stretch is silent.
+    silent: usize,
+    /// Clips asked for more gain than a clip can have.
+    limited: usize,
+    /// Clips left out because their audio was still loading.
+    left_out: usize,
+    /// Clips edited while the scan ran, so their peak was not applied.
+    changed: usize,
+}
+
 /// What to tell the user after a scan.
-fn normalized_words(done: usize, silent: usize, limited: usize, left_out: usize) -> String {
+fn normalized_words(
+    Words {
+        done,
+        silent,
+        limited,
+        left_out,
+        changed,
+    }: Words,
+) -> String {
     if done == 0 {
-        return "Nothing to normalize: the clips are silent".to_owned();
+        return if changed > 0 {
+            "Normalize not applied: the clips were edited while it ran. Run it again".to_owned()
+        } else {
+            "Nothing to normalize: the clips are silent".to_owned()
+        };
     }
     let mut words = if done == 1 {
         "Normalized".to_owned()
@@ -147,6 +176,9 @@ fn normalized_words(done: usize, silent: usize, limited: usize, left_out: usize)
     if left_out > 0 {
         words.push_str(" \u{b7} clips still loading left out");
     }
+    if changed > 0 {
+        words.push_str(" \u{b7} clips edited while it ran left as they were");
+    }
     words
 }
 
@@ -154,13 +186,32 @@ fn normalized_words(done: usize, silent: usize, limited: usize, left_out: usize)
 mod tests {
     use super::*;
 
+    fn words(
+        done: usize,
+        silent: usize,
+        limited: usize,
+        left_out: usize,
+        changed: usize,
+    ) -> String {
+        normalized_words(Words {
+            done,
+            silent,
+            limited,
+            left_out,
+            changed,
+        })
+    }
+
     #[test]
     fn the_note_names_what_was_left_as_it_was() {
-        assert_eq!(normalized_words(1, 0, 0, 0), "Normalized");
-        assert_eq!(normalized_words(3, 0, 0, 0), "Normalized 3 clips");
-        assert!(normalized_words(2, 1, 0, 0).contains("silent"));
-        assert!(normalized_words(2, 0, 1, 0).contains("largest clip gain"));
-        assert!(normalized_words(2, 0, 0, 1).contains("still loading"));
-        assert!(normalized_words(0, 2, 0, 0).contains("silent"));
+        assert_eq!(words(1, 0, 0, 0, 0), "Normalized");
+        assert_eq!(words(3, 0, 0, 0, 0), "Normalized 3 clips");
+        assert!(words(2, 1, 0, 0, 0).contains("silent"));
+        assert!(words(2, 0, 1, 0, 0).contains("largest clip gain"));
+        assert!(words(2, 0, 0, 1, 0).contains("still loading"));
+        assert!(words(0, 2, 0, 0, 0).contains("silent"));
+        assert!(words(2, 0, 0, 0, 1).contains("edited while it ran"));
+        let none = words(0, 0, 0, 0, 2);
+        assert!(none.contains("not applied") && none.contains("Run it again"));
     }
 }

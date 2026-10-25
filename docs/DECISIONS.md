@@ -109,6 +109,8 @@ irreversible or external) · *Superseded*.
 | [0095](#adr-0095--consolidate-and-the-offline-clip-render-m7b-e3) | Consolidate and the offline clip render (M7b E3) | Accepted 2026-10-24 | No |
 | [0096](#adr-0096--plugins-render-offline-the-r2-spike-m7b-e4) | Plugins render offline: the R2 spike (M7b E4) | Accepted 2026-10-24 | No |
 | [0097](#adr-0097--bounce-m7b-e4) | Bounce (M7b E4) | Accepted 2026-10-24 | No |
+| [0098](#adr-0098--freeze-unfreeze-and-flatten-m7b-e5) | Freeze, unfreeze and flatten (M7b E5) | Accepted 2026-10-24 | Yes (v29) |
+| [0099](#adr-0099--a-render-or-scan-result-is-applied-only-to-what-it-read-m9-r0) | A render or scan result is applied only to what it read; the clips of a track being recorded are read-only (M9 R0) | Accepted 2026-10-24 | No |
 
 ---
 
@@ -8724,3 +8726,47 @@ into `to_bytes` and compiled differently (callgrind showed the extra
 instructions in it). It is now `#[inline(never)]`, which brings the count back to
 that of `main` (+1.73% against the stored baseline, +1.74% on `main` itself;
 the baseline is not updated and is close to its limit).
+
+## ADR-0099 — A render or scan result is applied only to what it read (M9 R0)
+
+**Context.** Background work (consolidate's render, normalize's scan) starts from
+a selection and commits later. The M7b audit (M2, M3) found two results that
+could land on a project that had moved on: consolidate compared only its
+selected clips, so an unselected clip moved or drawn into the span while the file
+rendered was cut away by the old result; normalize carried clip ids and peaks,
+so a trim, slip, reverse or tempo change during the scan gave a gain from other
+audio. KNOWN_ISSUES also held the M5 note that an edit to the clips of a track
+being recorded was lost at the next commit, which places the take over the
+clips the track had when recording began.
+
+**Decision.**
+- **Consolidate.** A `Part` keeps `span_clips`, every clip of the track touching
+  its span at planning. `is_current` holds only if the clips touching the span
+  now are those, unchanged and in order, and the selected ones among them.
+  Edits outside the span do not matter. Bounce and freeze already compare the
+  whole track and are unchanged.
+- **Normalize.** The scan carries a `normalize::Source` (media, reversed,
+  window) per clip. When it ends, a clip's peak is applied only if
+  `normalize::is_current` finds the clip still plays that source; the others keep
+  their gain and the note says how many were edited while it ran. A change of
+  gain does not count: the scan sets an absolute gain.
+- **Recording.** `History::guard_recording(tracks)` names the tracks a take is
+  written into. While it is set, an edit that changes their clips, or removes
+  them, is refused as a frozen track's edits are (`Violation::Recording`, taken
+  with `take_refused`, said in the note: "<track> is recording, so its clips can't
+  be changed until the recording stops and nothing was"). The take's own commit
+  uses `apply_take`, which skips the guard. The app sets the guard every frame from
+  the session, so any end of a recording lifts it. Mixer values, lanes and devices
+  stay editable (since M7 A5 they are kept by the commit).
+
+**Options not taken.** Merging an edit into the take (rebasing the commit on
+the track's current clips) is larger and risks a take that no longer matches
+what was played; refusing is simple and says why. Version numbers on the
+document to reject any stale result would also reject harmless edits (a fader
+move during a bounce).
+
+**Consequences.** No format change. The consolidate check is stricter on
+purpose: moving any clip into the span while it renders now discards the
+result with the existing stale-result path (nothing recorded). Not reproduced
+with a real timing race; the tests build the changed project directly, as the
+audit asked for the condition to be proven rejected.

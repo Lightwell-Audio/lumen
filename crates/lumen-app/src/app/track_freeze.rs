@@ -364,27 +364,39 @@ impl App {
             .iter()
             .filter_map(|v| match v {
                 Violation::Track(id) => Some(self.track_name(*id)),
-                Violation::Timing => None,
+                Violation::Timing | Violation::Recording(_) => None,
+            })
+            .collect();
+        let recording: Vec<String> = refused
+            .iter()
+            .filter_map(|v| match v {
+                Violation::Recording(id) => Some(self.track_name(*id)),
+                _ => None,
             })
             .collect();
         let timing = refused.contains(&Violation::Timing);
-        let mut words = String::new();
+        let mut sentences = Vec::new();
+        if !recording.is_empty() {
+            sentences.push(format!(
+                "{} is recording, so its clips can't be changed until the recording stops \
+                 and nothing was",
+                recording.join(", ")
+            ));
+        }
         if !names.is_empty() {
-            words = format!(
+            sentences.push(format!(
                 "{} is frozen, so its clips, notes and devices can't be changed and nothing was. \
                  Click the lit Frozen badge on its header (or use Unfreeze track) to unfreeze it",
                 names.join(", ")
-            );
+            ));
         }
         if timing {
-            let frozen = "Tempo and time signature can't change while a track is frozen, \
-                          as its file would stay behind the music. Unfreeze the frozen tracks first";
-            words = if words.is_empty() {
-                frozen.to_owned()
-            } else {
-                format!("{words}. {frozen}")
-            };
+            sentences.push(
+                "Tempo and time signature can't change while a track is frozen, \
+                 as its file would stay behind the music. Unfreeze the frozen tracks first"
+                    .to_owned(),
+            );
         }
-        self.say(words);
+        self.say(sentences.join(". "));
     }
 }
