@@ -57,7 +57,14 @@ jobs:
       # --all-targets also runs every divan benchmark once as a smoke test.
       # --no-fail-fast runs every test binary, so one run shows all failures.
       - name: Tests
-        run: cargo test --workspace --all-targets --locked --no-fail-fast
+        run: cargo test --workspace --all-targets --locked --no-fail-fast -- --skip walkthrough_plugins::
+      # Five live plugin hosts share the callback deadline in this flow.
+      # Run it without competing E2E scenarios: peer tests can starve a
+      # host and trigger the intended dry fallback, resetting peak meters.
+      # Keep its audio deadlines and sound assertions unchanged.
+      - name: Plugin routing walkthrough
+        if: ${{ !cancelled() }}
+        run: cargo test -p lumen-app --test e2e --locked walkthrough_plugins::
       - name: Doc tests
         run: cargo test --workspace --doc --locked
       # Scanner isolation: crashing, hanging and broken VST3 modules must be

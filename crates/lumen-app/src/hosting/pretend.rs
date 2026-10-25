@@ -5,6 +5,14 @@
 use super::*;
 
 impl Hosting {
+    /// Blocks this device's current host missed, without clearing counters.
+    pub(crate) fn late_blocks(&self, device: Id) -> Option<u32> {
+        self.tracked
+            .get(&device.0)
+            .and_then(|t| t.status.as_ref())
+            .map(|status| status.late_blocks())
+    }
+
     /// Shows `device` in `state` whatever its host is doing: for tests and
     /// screenshots of the cards' faces. Only a device already tracked
     /// (after a frame with the project open) changes.

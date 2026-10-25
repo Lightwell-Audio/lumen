@@ -260,6 +260,12 @@ impl App {
         self.hosting.latency(device)
     }
 
+    /// Blocks this device's current host missed. Reads without resetting
+    /// the audio budget counters, for diagnosing timing-sensitive scenarios.
+    pub fn device_late_blocks(&self, device: Id) -> Option<u32> {
+        self.hosting.late_blocks(device)
+    }
+
     /// Starts a failed device's host again, as its card's Reload will.
     pub fn reload_device(&mut self, device: Id) {
         self.hosting.reload(device);

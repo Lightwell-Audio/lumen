@@ -114,6 +114,7 @@ fn loudest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
 /// lets a block through sends it back up and it needs a few quiet seconds
 /// again: the limit is generous, and a run that is not stalled leaves early.
 fn quietest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
+    let late_before = PLUGINS.map(|device| lumen.app().device_late_blocks(device));
     let mut least = f32::MAX;
     for _ in 0..150 {
         lumen.listen(Duration::from_millis(100), 4_800);
@@ -124,6 +125,17 @@ fn quietest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
         least = least.min(lumen.app().meter(track).peak_db);
         if least < db {
             break;
+        }
+    }
+    if least >= db {
+        for (device, before) in PLUGINS.into_iter().zip(late_before) {
+            eprintln!(
+                "device {}: state {:?}, late blocks before {:?}, after {:?}",
+                device.0,
+                lumen.app().device_state(device),
+                before,
+                lumen.app().device_late_blocks(device)
+            );
         }
     }
     least
