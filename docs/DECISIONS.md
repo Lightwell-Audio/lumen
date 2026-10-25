@@ -9036,3 +9036,42 @@ scenarios that carried their own copy of "open the page, wait 400 frames"
 macOS failure that was not a known flake was `crossfades::project_menu_…`,
 which looked for the label "New Ctrl" where macOS writes "New Cmd"; it was
 already failing on `main` and now uses `keys()`.
+
+## ADR-0103 - Poll plugin answers within the audio deadline on macOS
+
+**Status:** Accepted 2026-10-25; macOS runtime and CPU measurements pending CI
+and hardware verification. Amends ADR-0069's wake policy on macOS only.
+
+**Context.** PR #63 run `40241497848` reproduced a sidechain walkthrough
+failure even when it ran alone. All five hosts stayed ready, but their late
+block counters increased by 88, 89, 98, 124 and 156 during the quiet-level
+measurement. The bass's minimum displayed peak was -57.55 dB, above the
+unchanged -60 dB assertion. This establishes deadline misses, rather than a
+host that failed to load; it does not establish how much each source of
+scheduling latency contributed.
+
+The 2048-frame callback at 48 kHz has a shared 32 ms plugin deadline. It
+renders eight 256-frame chunks, with up to five plugin completions per chunk.
+The macOS callback-side event wait uses `sem_trywait` followed by 50 microsecond
+sleeps because timed POSIX semaphore waits are unavailable there. Repeated
+sleeps and scheduling delays can accumulate across the serial dependency
+paths. The host worker already blocks directly on its request semaphore.
+
+**Options.** Keep sleep polling; increase deadlines or relax the test;
+implement another native cross-process signaling mechanism; or use the
+existing asymmetric event/spin mode on macOS.
+
+**Choice.** On macOS only, keep the host on event waits and poll its answer
+on the callback until the existing absolute deadline. Other platforms keep
+event/event waits. No deadline, fallback, routing assertion or audio buffer
+size changes. Existing shared-memory and real-time allocation tests exercise
+this asymmetric mode against real instrument and effect host processes.
+
+**Consequences.** The callback no longer sleeps between answer checks. It
+can consume CPU while an active callback awaits a host, up to its remaining
+deadline; idle host workers still block. This is a deliberate latency/CPU
+tradeoff, not a claim that the original event/event measurements apply to
+macOS. CI logs the walkthrough's before/after late-block counts even on
+success. macOS callback CPU use, small-buffer behavior and native hardware
+still need measurement; a bounded native signal wait remains a possible
+replacement if those measurements warrant it.

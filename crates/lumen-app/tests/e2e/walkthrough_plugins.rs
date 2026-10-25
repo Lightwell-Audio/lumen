@@ -127,16 +127,15 @@ fn quietest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
             break;
         }
     }
-    if least >= db {
-        for (device, before) in PLUGINS.into_iter().zip(late_before) {
-            eprintln!(
-                "device {}: state {:?}, late blocks before {:?}, after {:?}",
-                device.0,
-                lumen.app().device_state(device),
-                before,
-                lumen.app().device_late_blocks(device)
-            );
-        }
+    eprintln!("track {}: lowest peak {least} dB, required < {db}", track.0);
+    for (device, before) in PLUGINS.into_iter().zip(late_before) {
+        eprintln!(
+            "device {}: state {:?}, late blocks before {:?}, after {:?}",
+            device.0,
+            lumen.app().device_state(device),
+            before,
+            lumen.app().device_late_blocks(device)
+        );
     }
     least
 }

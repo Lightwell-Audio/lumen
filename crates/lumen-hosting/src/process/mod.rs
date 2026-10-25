@@ -28,7 +28,18 @@ use crate::link::{Counts, Link, Pair};
 /// How the audio loop and the host wait for each other. The setting
 /// ADR-0069's runs support (inside the budget to 100 µs of plugin work per
 /// track); one constant, to re-measure in MT-VST-2.
+#[cfg(not(target_os = "macos"))]
 pub const WAKE: Wake = Wake::EVENT;
+
+/// Darwin's client-side event wait polls a POSIX semaphore with sleeps;
+/// across many serial host calls those sleeps consume the callback budget.
+/// Poll answers only until that same deadline; the host still sleeps on its
+/// request semaphore when idle (ADR-0103).
+#[cfg(target_os = "macos")]
+pub const WAKE: Wake = Wake {
+    host: lumen_plugin_host::shm::Waiting::Event,
+    lumen: lumen_plugin_host::shm::Waiting::Spin,
+};
 
 /// The step a failure happened in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,5 +1,11 @@
 # Lumen — Architecture
 
+Plugin reply waits (ADR-0103, 2026-10-25): on macOS the callback polls until
+its existing absolute deadline while each plugin worker blocks on its
+request semaphore when idle. Other platforms retain event/event waits.
+This avoids repeated sleep polling in Darwin's callback-side semaphore
+fallback; it trades CPU during an active wait for response latency.
+
 **As built:** M9 R2 audio recording (2026-10-25; no format change; ADR-0102). Engine `capture.rs`: two SPSC rings (samples and chunk headers) that `InputPlayer` fills while recording (`CaptureSink::push`, all or nothing, drops counted); `lumen-media/src/take.rs`: `TakeWriter` (a WAV valid at every moment, header refreshed once a second) and `repair`; App `take_worker.rs` (the thread that drains the ring and writes one file per armed track, with punch window, latency shift, loop continuation, gap padding, live peaks, sidecars and `unfinished`), `app/audio_record.rs` (the audio half of Record: the plan, the `Recordings` folder, placement, recovery, the disk notice), `document/audio_takes.rs` and `lumen-project/src/edit/audio_take.rs` (one undo step, locked clip to a new track), `arrangement/audio_take_look.rs` (the growing clip), `files.rs` (`Samples/Recorded`), `lumen-audio/src/fake.rs` (`input_ramp`).
 **Before it:** M9 R1 audio input (2026-10-24; format v30; ADR-0100). Engine
 `input.rs`: the `InputPlayer` track source reads the device channels a track
