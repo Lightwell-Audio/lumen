@@ -3695,7 +3695,7 @@ fn audio_input_chip() {
                     .with_input_device()
                     .opening(path);
                 let mut h = Harness::builder()
-                    .with_size(vec2(560.0, 470.0))
+                    .with_size(vec2(560.0, 560.0))
                     .with_pixels_per_point(scale)
                     .with_theme(if appearance == "light" {
                         eframe::egui::Theme::Light
@@ -3721,6 +3721,8 @@ fn audio_input_chip() {
                 h.run_steps(20);
                 h.get_by_label("Fold Vocals").click();
                 h.get_by_label("Fold Guitar DI").click();
+                h.run_steps(30);
+                h.get_by_label("Fold Drum overheads").click();
                 h.run_steps(40);
                 save(&mut h, &format!("chip-{appearance}-{scale}"));
             }

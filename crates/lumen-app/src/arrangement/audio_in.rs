@@ -20,8 +20,10 @@ use crate::theme::Tone;
 use crate::widgets::raised;
 use crate::{light, motion, theme, widgets};
 
-/// The level bar along the chip's bottom.
-const BAR: f32 = 2.0;
+/// The level bar along the chip's bottom, thin and low like the volume
+/// field's, so the text sits exactly centred.
+const BAR: f32 = 1.5;
+const BAR_INSET: f32 = 1.5;
 
 /// The chip's size on a header: as tall as the volume field beside it.
 pub(super) fn chip_size() -> egui::Vec2 {
@@ -193,7 +195,7 @@ fn draw_level(ui: &Ui, body: Rect, reading: &Reading, base: egui::Color32) {
         return;
     }
     let span = Rangef::new(body.left() + 3.0, body.right() - 3.0);
-    let ys = Rangef::new(body.bottom() - 2.0 - BAR, body.bottom() - 2.0);
+    let ys = Rangef::new(body.bottom() - BAR_INSET - BAR, body.bottom() - BAR_INSET);
     let painter = ui.painter_at(body);
     let peak = reading.peak[0].max(reading.peak[1]);
     let rms = reading.rms[0].max(reading.rms[1]);
@@ -259,7 +261,7 @@ impl Arrangement {
             chip_text(track.input)
         };
         ui.painter().text(
-            body.center() - vec2(0.0, super::headers::METER_LIFT),
+            body.center(),
             Align2::CENTER_CENTER,
             widgets::fit(
                 ui.painter(),

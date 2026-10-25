@@ -146,11 +146,7 @@ pub fn value_slider(
         value,
         kind,
         name,
-        SliderStyle {
-            look,
-            lift: 0.0,
-            comet: false,
-        },
+        SliderStyle { look, comet: false },
     )
 }
 
@@ -159,9 +155,6 @@ pub fn value_slider(
 pub struct SliderStyle {
     /// Its colours, from [`theme::controls`].
     pub look: theme::Controls,
-    /// Points the value text is raised, for a slider that draws something
-    /// along its bottom (a header's level meter).
-    pub lift: f32,
     /// Draw the filled part as the send knob's comet (M5 slice 5, the
     /// owner's request): a trail of the accent that brightens towards a
     /// glowing head, in place of the grey fill and the line handle. Only
@@ -186,11 +179,7 @@ pub fn comet_slider(
         value,
         kind,
         name,
-        SliderStyle {
-            look,
-            lift: 0.0,
-            comet: true,
-        },
+        SliderStyle { look, comet: true },
     )
 }
 
@@ -204,7 +193,7 @@ pub fn value_slider_styled(
     name: &str,
     style: SliderStyle,
 ) -> f32 {
-    let SliderStyle { look, lift, comet } = style;
+    let SliderStyle { look, comet } = style;
     let palette = *theme::p();
     let (lo, hi) = kind.range();
     let typing_id = id.with("typing");
@@ -336,8 +325,7 @@ pub fn value_slider_styled(
         FontId::monospace(theme::size::MONO_SMALL),
         palette.text,
     );
-    let text_rect =
-        Align2::CENTER_CENTER.anchor_size(rect.center() - vec2(0.0, lift), galley.size());
+    let text_rect = Align2::CENTER_CENTER.anchor_size(rect.center(), galley.size());
     match kind {
         SliderKind::Volume
         | SliderKind::ClipGain
