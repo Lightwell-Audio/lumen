@@ -118,6 +118,7 @@ irreversible or external) · *Superseded*.
 
 | Question | Decision |
 |---|---|
+| M9 plan choices (2026-10-24) | R1 A, R2 A, R3 A, R4 A, R5 A, X1 A, X2 A, X3 A: every recommendation in `docs/milestones/M9.md` §4. |
 | Milestone sequence (2026-10-23) | After M7 and M7b, deliver the existing M9 (Recording, Media, Export & Production Workflow) before M8 (Drum Maps, Drum Editor & Built-In Devices), because audio recording has higher priority than drum maps. Keep the milestone IDs and scopes unchanged; this only changes delivery order. Recorded in `docs/ROADMAP.md` and `docs/PROGRESS.md`. |
 | Native macOS VST3 hosting (2026-10-19, ADR-0085) | Bring the stretch goal forward now: the full existing workflow, including native editors, for plugins matching the host architecture. Intel bridging remains outside this slice. |
 | Product-neutral documentation (2026-10-14) | Do not use third-party products or vendors as design references, comparisons, endorsements or examples; describe the behavior directly. Preserve technical identifiers, exact protocol requirements, hardware names and required legal attribution. |

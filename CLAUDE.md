@@ -408,6 +408,10 @@ and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
 **Now (2026-10-24)**
+- **Branch `m9-plan`: the M9 plan is written** (`docs/milestones/M9.md`; not
+  pushed; nothing built). Order per the owner: recording before export before
+  streaming, with the render-consistency fixes (slice R0) first. The owner
+  took every recommendation for R1 to R5 and X1 to X3 (2026-10-24); R0 is next.
 - **Branch `m7b-s6-close`: E6 audit and small UX corrections are built.**
   Report: `docs/audits/2026-10-24-m7b.md`; repeatable visual check MT-EDIT-7.
   Shared menus scroll within the window, crossfades use a switch, track
