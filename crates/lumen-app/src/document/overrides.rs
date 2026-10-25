@@ -29,14 +29,6 @@ impl Overrides {
         entry.enabled && !self.contains(track.id, entry.target)
     }
 
-    /// The targets of `track`'s lanes that are taken over.
-    pub fn targets_of(&self, track: Id) -> impl Iterator<Item = Target> + '_ {
-        self.0
-            .range((track, Target::Volume)..)
-            .take_while(move |(t, _)| *t == track)
-            .map(|&(_, target)| target)
-    }
-
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -135,7 +127,6 @@ mod tests {
         assert!(doc.overrides().is_empty());
         doc.set_volume(track, -3.0);
         assert!(doc.overrides().contains(track, Target::Volume));
-        assert!(doc.overrides().targets_of(track).next().is_some());
     }
 
     #[test]

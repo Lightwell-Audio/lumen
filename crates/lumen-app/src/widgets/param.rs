@@ -307,6 +307,7 @@ pub fn param_knob(
     let hot = motion::hover(ui.ctx(), id.with("hot"), out.hovered);
     let palette = *theme::p();
     let knob = SendKnob {
+        style: super::knob::Style::Ring,
         letter: "",
         color: palette.accent,
         db: 0.0,

@@ -1,7 +1,11 @@
 //! Sends on track headers (M4 slice 4, the owner's K1 comet): on an
-//! unfolded audio, MIDI or group track, a knob per return, lettered and
-//! coloured as the return is. Hovering a knob lights its return's header,
-//! and hovering a return lights every knob that feeds it.
+//! unfolded audio, MIDI or group track, a control per return, lettered and
+//! coloured as the return is. Hovering one lights its return's header, and
+//! hovering a return lights every send that feeds it.
+//!
+//! M9 slice R1b (the owner's B·1, ADR-0101): on a header the sends are
+//! slots in one sunk well, every return always shown (up to twelve), on the
+//! third row beside the In chip. Strips and lists keep the knobs.
 //!
 //! MT-MIX-4 run 1 (the owner's choices from mock-ups): knobs step up on a
 //! selected row (C4); sends past the header's width are reached from a
@@ -19,16 +23,18 @@ use lumen_project::automation::Target;
 use lumen_project::model::{Id, Level, Project, Track, TrackKind};
 use lumen_project::solo::Heard;
 
-use super::{Arrangement, FOLDED, STEP, color_of, pinned};
+use super::{Arrangement, STEP, color_of, pinned};
 use crate::document::Document;
 use crate::theme::Tone;
-use crate::widgets::knob::{SendKnob, send_knob};
+use crate::widgets::knob::{SendKnob, Style, send_knob};
 use crate::widgets::{db_text, draw_arrow, raised};
 use crate::{fonts, motion, theme, widgets};
 
-/// A send knob's size, and the gap between knobs.
-const KNOB: f32 = theme::size::KNOB;
-const GAP: f32 = theme::space::XS;
+/// The gap between the slots of a send well, and its padding.
+const SLOT_GAP: f32 = 1.0;
+const WELL_PAD: f32 = theme::space::XXS;
+/// The narrowest a slot gets (a deeply nested track with twelve returns).
+const SLOT_MIN: f32 = 4.0;
 /// A knob in a list (the "+N" list, a return's senders): small enough
 /// that knobs on 22 pt rows never touch.
 const SMALL_KNOB: f32 = theme::size::KNOB_SMALL;
@@ -42,10 +48,17 @@ pub(super) fn has_sends(kind: TrackKind) -> bool {
     matches!(kind, TrackKind::Audio | TrackKind::Midi | TrackKind::Group)
 }
 
-/// The height a header needs to show its sends: the folded row, volume
-/// then pan (with the input), then a row for the knobs (such tracks unfold
-/// this tall).
-pub(super) const SENDS_FROM: f32 = FOLDED + 4.0 * STEP;
+/// How wide each of `count` slots is in a send well given `room` points,
+/// and how wide the well is: as wide as fits, up to `SEND_SLOT`.
+pub(super) fn slot_layout(count: usize, room: f32) -> (f32, f32) {
+    if count == 0 {
+        return (0.0, 0.0);
+    }
+    let n = count as f32;
+    let slot = ((room - 2.0 * WELL_PAD - (n - 1.0) * SLOT_GAP) / n)
+        .clamp(SLOT_MIN, theme::size::SEND_SLOT);
+    (slot, 2.0 * WELL_PAD + n * slot + (n - 1.0) * SLOT_GAP)
+}
 
 /// A return, as its sends show it.
 #[derive(Debug, Clone)]
@@ -205,6 +218,8 @@ impl Arrangement {
         } = knob;
         let send = track.sends.iter().find(|s| s.to == to.id);
         let id = EguiId::new(("send", track.id, to.id, place));
+        // On a header the send is a slot in the well (ADR-0101).
+        let slot = place == "header";
         let target = Target::Send { to: to.id };
         let own = send.map_or(f32::NEG_INFINITY, |s| s.level.0);
         let out = send_knob(
@@ -212,6 +227,11 @@ impl Arrangement {
             rect,
             id,
             SendKnob {
+                style: if slot {
+                    Style::Slot { title: &to.name }
+                } else {
+                    Style::Ring
+                },
                 letter: &to.letter,
                 color: to.color,
                 db: self.shown(doc, track, target, own),
@@ -232,13 +252,21 @@ impl Arrangement {
             super::control_menu::ask(&mut self.auto, asked, track.id, target);
         }
         if self.auto.learning == Some((track.id, target)) {
-            super::follow::ring_round_with(ui, rect, crate::theme::p().accent);
+            if slot {
+                super::follow::ring_with(ui, rect, crate::theme::p().accent);
+            } else {
+                super::follow::ring_round_with(ui, rect, crate::theme::p().accent);
+            }
         }
         if out.hovered {
             self.hot_return_next = Some(to.id);
         }
         if self.taken_over(doc, track, target) {
-            super::follow::ring_round(ui, rect);
+            if slot {
+                super::follow::ring(ui, rect);
+            } else {
+                super::follow::ring_round(ui, rect);
+            }
         }
         if let Some(db) = out.db {
             let level = if db.is_finite() {
@@ -258,14 +286,15 @@ impl Arrangement {
         out.active
     }
 
-    /// The row of send knobs under volume and pan; past the header's width,
-    /// a "+N ▾" button that lists every send.
-    pub(super) fn sends_row(
+    /// The send well of an unfolded track in `room` (the third row's left
+    /// column): one sunk well, a slot per return in its colour, filling
+    /// from the bottom with the send's level (the owner's B·1, ADR-0101).
+    pub(super) fn send_well(
         &mut self,
         ui: &mut Ui,
         doc: &mut Document,
         track: &Track,
-        rect: Rect,
+        room: Rect,
         selected: bool,
     ) {
         let returns = returns(doc.project());
@@ -273,23 +302,17 @@ impl Arrangement {
             return;
         }
         let heard = lumen_project::solo::hearing(doc.project());
-        // Under volume and pan, with room to breathe above the row's edge.
-        let center_y = rect.top() + FOLDED + 3.0 * STEP - 2.0;
-        let left = rect.left() + 30.0;
-        let right = rect.right() - 8.0;
-        let fits = (((right - left) + GAP) / (KNOB + GAP)).floor().max(0.0) as usize;
-        // Room for the "+N" button after the knobs when they do not all
-        // fit: it takes about a knob and a half.
-        let shown = if returns.len() > fits {
-            fits.saturating_sub(2)
-        } else {
-            returns.len()
-        };
         let ppp = ui.ctx().pixels_per_point();
-        for (n, to) in returns.iter().take(shown).enumerate() {
-            let x = left + n as f32 * (KNOB + GAP);
-            let rect = Rect::from_min_size(pos2(x, center_y - KNOB / 2.0), vec2(KNOB, KNOB))
-                .round_to_pixels(ppp);
+        let (slot, width) = slot_layout(returns.len(), room.width());
+        let well = Rect::from_min_size(room.min, vec2(width, room.height())).round_to_pixels(ppp);
+        raised::paint_sunken(ui.painter(), well, theme::radius::SMALL);
+        for (n, to) in returns.iter().enumerate() {
+            let x = well.left() + WELL_PAD + n as f32 * (slot + SLOT_GAP);
+            let rect = Rect::from_min_max(
+                pos2(x, well.top() + WELL_PAD),
+                pos2(x + slot, well.bottom() - WELL_PAD),
+            )
+            .round_to_pixels(ppp);
             let name = format!("Send {} to {} {}", track.name, to.letter, to.name);
             self.send_control(
                 ui,
@@ -303,17 +326,6 @@ impl Arrangement {
                     name,
                     place: "header",
                 },
-            );
-        }
-        if shown < returns.len() {
-            let x = left + shown as f32 * (KNOB + GAP);
-            self.more_sends(
-                ui,
-                doc,
-                track,
-                &returns,
-                (shown, pos2(x, center_y)),
-                (selected, false),
             );
         }
     }
@@ -427,15 +439,16 @@ impl Arrangement {
     }
 
     /// An unfolded return lists the tracks sending to it, each with its send
-    /// knob and level (the owner's R2), from the third step down: the four
-    /// loudest, then "+N more" for them all (L4). A send turned down to
-    /// silence leaves the list once let go (S1).
+    /// knob and level (the owner's R2), from the third row down (`first`,
+    /// the third row's left column): the four loudest, then "+N more" for
+    /// them all (L4). A send turned down to silence leaves the list once let
+    /// go (S1).
     pub(super) fn senders_rows(
         &mut self,
         ui: &mut Ui,
         doc: &mut Document,
         ret: &Track,
-        rect: Rect,
+        (rect, first): (Rect, Rect),
     ) {
         let palette = *theme::p();
         let Some(to) = returns(doc.project()).into_iter().find(|r| r.id == ret.id) else {
@@ -444,9 +457,9 @@ impl Arrangement {
         let project = doc.project().clone();
         let held = self.held_send.filter(|(_, r)| *r == ret.id);
         let senders = senders(&project, ret.id, held);
-        let top = rect.top() + FOLDED + 2.0 * STEP;
-        let left = rect.left() + 30.0;
-        let right = rect.right() - 8.0;
+        let top = first.center().y - STEP / 2.0;
+        let left = first.left();
+        let right = rect.right() - super::headers::CONTENT_RIGHT;
         if senders.is_empty() {
             ui.painter().text(
                 pos2(left, top + STEP / 2.0),
@@ -642,4 +655,31 @@ fn letter_badge(ui: &Ui, at: egui::Pos2, to: &Return) -> Rect {
         theme::text_on(to.color),
     );
     badge
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn twelve_sends_fit_the_narrowest_header() {
+        // 204 pt column: 118 pt for the sends.
+        let (slot, width) = slot_layout(12, 118.0);
+        assert!((slot - 103.0 / 12.0).abs() < 1e-4, "{slot}");
+        assert!(width <= 118.0 + 1e-4);
+        assert!(
+            slot < theme::size::SEND_SLOT_LETTER,
+            "no letters this narrow"
+        );
+        // A few returns get full slots, with their letters.
+        let (slot, width) = slot_layout(3, 118.0);
+        assert_eq!(slot, theme::size::SEND_SLOT);
+        assert_eq!(width, 4.0 + 3.0 * 18.0 + 2.0);
+        // A wider column shows letters for twelve.
+        let (slot, _) = slot_layout(12, 194.0);
+        assert!(slot >= theme::size::SEND_SLOT_LETTER);
+        // Never narrower than a few points, never nothing.
+        assert_eq!(slot_layout(12, 10.0).0, SLOT_MIN);
+        assert_eq!(slot_layout(0, 118.0), (0.0, 0.0));
+    }
 }

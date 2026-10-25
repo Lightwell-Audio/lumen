@@ -407,7 +407,19 @@ short: the history of every slice is in `docs/HANDOFF_ARCHIVE.md`
 and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
-**Now (2026-10-24)**
+**Now (2026-10-25)**
+- **Branch `m9-s1b-track-headers`: M9 slice R1b (track headers) is built**
+  (ADR-0101, the owner's B·1 from mocks; no format change; cut from `main`
+  after PR #61; pushed). M, S and arm are pieces of one sunk well
+  (`buttons::Style::Well`, `headers::arm_button(.., (look, true))`); a 3 pt
+  level strip beside the rail replaces the hairline and slider meters
+  (`levels.rs`); the type icon is the fold button; unfolded tracks are 88 pt
+  (`UNFOLDED = 4 * STEP`, lanes still floor at 132); rows and columns come
+  from `headers::{row_center, name_center, columns}`; the sends are slots in
+  one well (`sends::send_well`, `knob::Style::Slot`, up to twelve, a flag on
+  hover); the In chip is a fixed 60 pt; the A button is gone (A key, track
+  menu "Show automation lane", palette). E2E updated (`lane_view`, `sends`,
+  `audio_input`), shot `track_headers`. MT-REC-4 waits on the owner.
 - **Branch `m9-s1-audio-input`: M9 slice R1 (audio input) is built** (ADR-0100;
   format **v30**; cut from `m9-s0-render-consistency`; not pushed). Input reaches
   the engine (`Source::input`, `Engine::process_with_input`); an audio track routes a

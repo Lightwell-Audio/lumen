@@ -1,5 +1,6 @@
 //! Audio input (M9 slice R1, ADR-0100): arming an unrouted audio track picks
-//! the first free input, the In chip (on the unfolded second row) chooses the input from a menu of
+//! the first free input, the In chip (on the unfolded third row, a fixed
+//! 60 pt since ADR-0101) chooses the input from a menu of
 //! the device's pairs and mono inputs, the input meters move and their clip
 //! light stays until clicked, and an armed track is heard stopped (Auto
 //! monitoring) and a disarmed one is not. They share the process-wide input
@@ -56,7 +57,7 @@ fn input_of(lumen: &Lumen, id: Id) -> Option<AudioInput> {
         .input
 }
 
-/// Unfolds `track`'s header and waits for its second row.
+/// Unfolds `track`'s header and waits for its rows.
 fn unfold(lumen: &mut Lumen, track: &str) {
     lumen.click(&format!("Fold {track}"));
     for _ in 0..100 {
@@ -117,20 +118,31 @@ fn arming_picks_the_first_free_input_and_one_undo_takes_both_back() {
 fn the_in_chip_chooses_a_stereo_pair_or_a_mono_input_and_none() {
     let (mut lumen, _turn) = launch("input-chip");
     lumen.wait_for("the device's inputs", |app| app.open_inputs() == 2);
-    // The chip is on the unfolded second row, armed or not.
+    // The chip is on the unfolded third row, armed or not.
     assert!(!lumen.shows("Vox input: None"));
     unfold(&mut lumen, "Vox");
     assert!(lumen.shows("Vox input: None"));
+    let chip = |lumen: &Lumen, words: &str| {
+        lumen
+            .harness
+            .get_by_label(&format!("Vox input: {words}"))
+            .rect()
+    };
+    let none = chip(&lumen, "None");
     lumen.click("Vox input: None");
     assert!(lumen.shows("1+2  In 1 + In 2"));
     lumen.click("1+2  In 1 + In 2");
     assert_eq!(input_of(&lumen, VOX), Some(AudioInput::pair(0)));
     assert_eq!(lumen.app().undo_label(), Some("Input: 1+2"));
     assert!(lumen.shows("Vox input: In 1 + In 2"));
+    // The chip does not change size or place as the input does (the
+    // owner's finding on R1).
+    assert_eq!(chip(&lumen, "In 1 + In 2"), none);
 
     lumen.click("Vox input: In 1 + In 2");
     lumen.click("2  In 2");
     assert_eq!(input_of(&lumen, VOX), Some(AudioInput::mono(1)));
+    assert_eq!(chip(&lumen, "In 2"), none);
     lumen.click("Vox input: In 2");
     lumen.click("None");
     assert_eq!(input_of(&lumen, VOX), None);
@@ -192,7 +204,7 @@ fn an_input_clip_light_stays_until_it_is_clicked() {
     let (mut lumen, _turn) = launch("input-clip");
     lumen.wait_for("the device's inputs", |app| app.open_inputs() == 2);
     lumen.click("Arm Vox");
-    // The chip is on the unfolded second row.
+    // The chip is on the unfolded third row.
     unfold(&mut lumen, "Vox");
     play_input(&[1.0, 0.0]);
     lumen.wait_for("the clip light", |app| app.input_meter(0).clipped);

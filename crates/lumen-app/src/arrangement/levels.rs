@@ -1,99 +1,48 @@
-//! Meters on the track headers (M4 slice 5, the owner's H2, ADR-0040).
+//! Meters on the track headers (M4 slice 5, ADR-0040; redrawn in M9 slice
+//! R1b, ADR-0101).
 //!
-//! An unfolded track's level runs along the bottom of its volume slider, on
-//! the slider's own scale, so the level sits under the value that sets it:
-//! the peak faint, the RMS solid, both sides, and a hold tick. A folded
-//! track has no slider, so its level is a hairline along the header's
-//! bottom edge. Either way, a clip lights a red mark at the right end that
-//! stays until clicked (Alt+click clears every track's).
+//! A track's level rises in a thin strip beside its colour rail, the full
+//! height of the row less a margin at each end, folded or not: both sides,
+//! the peak faint, the RMS solid with a light at its head, and a hold
+//! tick, on the mixer strips' scale. A clip lights a red mark at the
+//! strip's top that stays until clicked (Alt+click clears every track's).
 
-use eframe::egui::{self, Color32, CursorIcon, Id as EguiId, Painter, Rangef, Rect, Sense, Ui};
+use eframe::egui::{self, CursorIcon, Id as EguiId, Rect, Sense, Ui, pos2, vec2};
+use eframe::emath::GuiRounding as _;
 use lumen_project::model::Track;
 
 use super::Arrangement;
+use super::nesting::RAIL;
 use crate::app::info::{Held, Info, Mouse};
-use crate::meters::{FLOOR_DB, Reading};
 use crate::widgets::raised;
 use crate::{light, theme};
 
-/// The top of the volume slider's range (`SliderKind::Volume`): the meter
-/// in it shares the slider's scale.
-const TOP_DB: f32 = 6.0;
-/// The two sides' bars inside the slider: 1 pt each, 0.5 pt apart, ending
-/// 1.5 pt above its bottom. Thin and low, so the value text can sit exactly
-/// centred (the owner's choice A, M9 R1: lifted text crowded the top edge).
-const BAR: f32 = 1.0;
-const BAR_INSET: f32 = 1.5;
-const BAR_GAP: f32 = 0.5;
-/// The folded hairline: 1.5 pt a side, 6 pt above the row's bottom (clear
-/// of the resize edge).
-const HAIRLINE: f32 = 1.5;
-const HAIRLINE_ABOVE: f32 = 3.0;
-/// The trough behind the hairline is too thin for more than a soft corner.
-const HAIRLINE_RADIUS: u8 = 1;
+/// The strip sits this far right of the rail's left edge (1 pt clear of
+/// the 4 pt rail), and this far inside the row's top and bottom.
+const STRIP_X: f32 = RAIL + 1.0;
+const STRIP_INSET: f32 = 5.0;
+/// The two sides are 1 pt bars with 1 pt between them.
+const SIDE_GAP: f32 = 1.0;
+/// The clip mark at the strip's top.
+const CLIP_MARK: f32 = 3.0;
+/// The trough is too thin for more than a soft corner.
+const STRIP_RADIUS: u8 = 1;
 
-/// Where `db` falls along `span`, on the volume slider's scale.
-fn x_at(span: Rangef, db: f32) -> f32 {
-    let t = (db.clamp(FLOOR_DB, TOP_DB) - FLOOR_DB) / (TOP_DB - FLOOR_DB);
-    span.min + t * span.span()
-}
-
-/// One side's bar from the floor up to `db`, in its zones' colours.
-fn bar(painter: &Painter, span: Rangef, ys: Rangef, db: f32, base: Color32, alpha: f32) {
-    for (from, to, color) in crate::widgets::meter::zones(db, base) {
-        let rect = Rect::from_x_y_ranges(x_at(span, from)..=x_at(span, to), ys);
-        painter.rect_filled(rect, 0.0, color.gamma_multiply(alpha));
-    }
-}
-
-/// Peak, RMS and hold for both sides, the sides stacked in `ys`.
-fn draw(
-    painter: &Painter,
-    span: Rangef,
-    ys: Rangef,
-    thickness: f32,
-    reading: &Reading,
-    base: Color32,
-) {
-    for side in 0..2 {
-        let top = ys.min + side as f32 * (thickness + BAR_GAP);
-        let side_ys = Rangef::new(top, top + thickness);
-        bar(
-            painter,
-            span,
-            side_ys,
-            reading.peak[side],
-            base,
-            theme::METER_PEAK_ALPHA,
-        );
-        bar(painter, span, side_ys, reading.rms[side], base, 1.0);
-        // The head: the level is light rising (ADR-0043).
-        let rms = reading.rms[side];
-        if rms > FLOOR_DB {
-            let color = theme::meter(rms, base);
-            light::vline(painter, light::BEAM, x_at(span, rms), side_ys, color, 1.0);
-        }
-    }
-    let hold = reading.hold_db();
-    if hold > FLOOR_DB {
-        let palette = theme::p();
-        let color = if hold > 0.0 {
-            palette.record
-        } else {
-            palette.text
-        };
-        let x = x_at(span, hold);
-        painter.rect_filled(
-            Rect::from_x_y_ranges(x - 0.75..=x + 0.75, ys.min - 1.0..=ys.max + 1.0),
-            0.0,
-            color,
-        );
-    }
+/// Where the level strip of a row in `row` goes, its rail starting at
+/// `rail_left`.
+pub(super) fn strip_rect(row: Rect, rail_left: f32) -> Rect {
+    Rect::from_min_max(
+        pos2(rail_left + STRIP_X, row.top() + STRIP_INSET),
+        pos2(
+            rail_left + STRIP_X + theme::size::LEVEL_STRIP,
+            row.bottom() - STRIP_INSET,
+        ),
+    )
 }
 
 impl Arrangement {
     /// The colour meters are drawn in below the warning level.
-    fn meter_base(&self, track: &Track) -> Color32 {
+    fn meter_base(&self, track: &Track) -> egui::Color32 {
         if self.track_colour_meters {
             theme::wave(super::color_of(track.color))
         } else {
@@ -101,76 +50,46 @@ impl Arrangement {
         }
     }
 
-    /// An unfolded track: its level along the bottom of `slider`.
-    pub(super) fn slider_meter(&mut self, ui: &mut Ui, slider: Rect, track: &Track, id: EguiId) {
-        let reading = self.meters.reading(track.id.0);
-        let painter = ui.painter_at(slider.shrink2(egui::vec2(1.0, 0.0)));
-        let bottom = slider.bottom() - BAR_INSET;
-        let ys = Rangef::new(bottom - 2.0 * BAR - BAR_GAP, bottom);
-        draw(
-            &painter,
-            slider.x_range(),
-            ys,
-            BAR,
-            &reading,
-            self.meter_base(track),
-        );
-        if reading.clipped {
-            let mark = Rect::from_x_y_ranges(
-                slider.right() - 5.0..=slider.right() - 2.0,
-                slider.top() + 3.0..=slider.bottom() - 3.0,
-            );
-            self.clip_mark(ui, mark, slider.right() - 10.0..=slider.right(), track, id);
-        }
-    }
-
-    /// A folded track: its level as a hairline along the header's bottom,
-    /// from `left` to `right`.
-    pub(super) fn hairline_meter(
+    /// The level strip of `track` beside its rail (which starts at
+    /// `rail_left`) in `row`. `heard`: quieter when the track is not heard.
+    pub(super) fn level_strip(
         &mut self,
         ui: &mut Ui,
         row: Rect,
-        (left, right): (f32, f32),
+        rail_left: f32,
         track: &Track,
-        id: EguiId,
+        (id, heard): (EguiId, bool),
     ) {
+        let strip = strip_rect(row, rail_left).round_to_pixels(ui.pixels_per_point());
+        if strip.height() <= 2.0 * CLIP_MARK {
+            return;
+        }
         let reading = self.meters.reading(track.id.0);
-        let bottom = row.bottom() - HAIRLINE_ABOVE;
-        let ys = Rangef::new(bottom - 2.0 * HAIRLINE - BAR_GAP, bottom);
-        let span = Rangef::new(left, right);
-        let painter = ui.painter_at(Rect::from_x_y_ranges(span, ys.expand(1.0)));
-        // The level runs in a sunken trough (the design system's `.hair`).
-        raised::paint_sunken(&painter, Rect::from_x_y_ranges(span, ys), HAIRLINE_RADIUS);
+        let painter = ui.painter_at(strip.expand(1.0));
+        raised::paint_sunken(&painter, strip, STRIP_RADIUS);
         if !reading.at_rest() {
-            draw(
+            crate::widgets::meter::vertical(
                 &painter,
-                span,
-                ys,
-                HAIRLINE,
+                strip,
+                SIDE_GAP,
                 &reading,
                 self.meter_base(track),
+                heard,
             );
         }
         if reading.clipped {
-            let mark = Rect::from_x_y_ranges(right - 4.0..=right, ys.expand(1.0));
-            self.clip_mark(ui, mark, right - 10.0..=right, track, id);
+            let mark = Rect::from_min_size(strip.min, vec2(strip.width(), CLIP_MARK));
+            self.clip_mark(ui, mark, track, id);
         }
     }
 
     /// The red clip mark, lit until clicked: a click clears this track's,
     /// Alt+click every track's.
-    fn clip_mark(
-        &mut self,
-        ui: &mut Ui,
-        mark: Rect,
-        hit: std::ops::RangeInclusive<f32>,
-        track: &Track,
-        id: EguiId,
-    ) {
+    fn clip_mark(&mut self, ui: &mut Ui, mark: Rect, track: &Track, id: EguiId) {
         let palette = theme::p();
         light::halo_around(ui.painter(), light::FLARE, mark, 1.0, palette.record);
         ui.painter().rect_filled(mark, 1.0, palette.record);
-        let area = Rect::from_x_y_ranges(hit, mark.y_range().expand(3.0));
+        let area = mark.expand2(vec2(4.0, 3.0));
         let response = ui
             .interact(area, id.with("clip mark"), Sense::click())
             .on_hover_cursor(CursorIcon::PointingHand);
@@ -198,13 +117,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_meter_shares_the_volume_sliders_scale() {
-        let span = Rangef::new(0.0, 66.0);
-        assert_eq!(x_at(span, -60.0), 0.0);
-        assert_eq!(x_at(span, 0.0), 60.0);
-        assert_eq!(x_at(span, 6.0), 66.0);
-        // Out of range stays on the slider.
-        assert_eq!(x_at(span, -90.0), 0.0);
-        assert_eq!(x_at(span, 12.0), 66.0);
+    fn the_strip_sits_beside_the_rail_inside_the_row() {
+        let row = Rect::from_min_size(pos2(100.0, 50.0), vec2(204.0, 44.0));
+        let strip = strip_rect(row, 112.0);
+        // 1 pt clear of the 4 pt rail, 3 pt wide, 5 pt in at each end.
+        assert_eq!(strip.left(), 117.0);
+        assert_eq!(strip.width(), 3.0);
+        assert_eq!(strip.top(), 55.0);
+        assert_eq!(strip.bottom(), 89.0);
+        // Content starts 12 pt after the rail: 4 pt clear of the strip.
+        assert!(strip.right() + 4.0 <= 112.0 + super::super::headers::CONTENT_X);
     }
 }

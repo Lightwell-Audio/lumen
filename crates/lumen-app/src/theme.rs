@@ -544,7 +544,19 @@ pub mod size {
     /// Monitor is not Auto): width and height.
     pub const BADGE_W: f32 = 16.0;
     pub const BADGE_H: f32 = 14.0;
-    /// Send knobs on headers and strips.
+    /// The right column of an unfolded track header (pan over the In
+    /// chip), so their edges line up (ADR-0101).
+    pub const HEADER_SIDE: f32 = 60.0;
+    /// A piece cut into a header's well (M, S and arm): width and height,
+    /// 2 pt inside a 20 pt well, 1 pt apart.
+    pub const WELL_PIECE_W: f32 = 18.0;
+    pub const WELL_PIECE_H: f32 = 16.0;
+    /// The level strip beside a header's colour rail.
+    pub const LEVEL_STRIP: f32 = 3.0;
+    /// A send slot's widest, and the least width that shows its letter.
+    pub const SEND_SLOT: f32 = 18.0;
+    pub const SEND_SLOT_LETTER: f32 = 12.0;
+    /// Send knobs on strips.
     pub const KNOB: f32 = 24.0;
     /// Knobs in lists (a return's senders, the "+N" list).
     pub const KNOB_SMALL: f32 = 18.0;

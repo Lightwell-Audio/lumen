@@ -1,8 +1,8 @@
 //! One track's header (M3 slice 4a, groups in M4 slice 3, sends and
-//! returns in slice 4): the background that selects and drags, the rails,
-//! the fold arrow, type icon and name, M S and arm, the volume and pan row
-//! or the hairline meter, sends, a return's senders, and the edge that
-//! resizes. Split from `headers.rs` (M4 review M1); the column around the
+//! returns in slice 4; redrawn in M9 slice R1b, ADR-0101): the background
+//! that selects and drags, the rails and level strip, the fold button and
+//! name, the well of M S and arm, the volume and pan row, the send well
+//! and input, a return's senders, and the edge that resizes. Split from `headers.rs` (M4 review M1); the column around the
 //! rows stays there.
 
 use std::sync::Arc;
@@ -15,21 +15,38 @@ use eframe::emath::GuiRounding as _;
 use lumen_project::model::{Id, Track, TrackKind};
 use lumen_project::solo::Heard;
 
+use super::buttons::Style;
 use super::headers::{
-    ARROW_X, BUTTON_GAP, ICON_X, NAME_X, SILENCED, arm_button, group_description, kind_name,
+    CONTENT_RIGHT, CONTENT_X, FOLD, GAP, SILENCED, arm_button, columns, group_description,
+    kind_name, name_center,
 };
 use super::nesting;
-use super::{Arrangement, BUTTON, FOLD_BELOW, FOLDED, MAX_HEIGHT, STEP, snap_height};
+use super::{Arrangement, FOLD_BELOW, FOLDED, MAX_HEIGHT, snap_height};
 use crate::commands::{Command, Keymap};
 use crate::document::Document;
 use crate::icons::draw_type_icon;
-use crate::widgets::{self, draw_arrow, draw_edge_glow, gradient};
+use crate::widgets::{self, draw_arrow, draw_edge_glow, gradient, raised};
 use crate::{fonts, motion, theme};
 
 /// The armed wash: this strong at the rail, fading across this share of
 /// the header (the design system's `.is-armed`).
 const ARMED_WASH: f32 = 0.10;
 const ARMED_WASH_SPAN: f32 = 0.55;
+
+/// The pieces of the M S ● well: their width, and the gap between them.
+const PIECE_W: f32 = theme::size::WELL_PIECE_W;
+const PIECE_GAP: f32 = 1.0;
+
+/// The well holding `pieces` pieces, its right edge at `right` and centred
+/// on `mid`: 60 pt for M S ●, 41 pt for a return's M S.
+fn well_rect(right: f32, mid: f32, pieces: usize) -> Rect {
+    let n = pieces as f32;
+    let width = 2.0 * theme::space::XXS + n * PIECE_W + (n - 1.0) * PIECE_GAP;
+    Rect::from_min_max(
+        pos2(right - width, mid - theme::size::CONTROL_SMALL / 2.0),
+        pos2(right, mid + theme::size::CONTROL_SMALL / 2.0),
+    )
+}
 
 /// Where a header row is, and what it shows.
 pub(super) struct HeaderRow<'a> {
@@ -191,25 +208,38 @@ impl Arrangement {
             );
         }
 
-        // Top row: fold arrow, name, M S ●. A group's arrow hides or
-        // shows its tracks (Alt+click: every group's); a track's
-        // unfolds it.
-        let mid = rect.top() + FOLDED / 2.0;
+        // The name row: the fold button, the name, the monitor badge and
+        // the well of M S ●. It sits in the middle of a folded row and
+        // moves up to the first unfolded row as the track opens (ADR-0101).
+        let mid = name_center(rect.top(), row_height);
+        let ppp = ui.ctx().pixels_per_point();
         let open = if group {
             !collapsed
         } else {
             self.expanded.contains(&track.id)
         };
         let unfolded = motion::glide(&ctx, id.with("fold"), if open { 1.0 } else { 0.0 }, true);
-        let arrow = Rect::from_center_size(pos2(left + ARROW_X, mid), vec2(16.0, 18.0));
+        let note = self.output_notes.get(&track.id).cloned();
+        let kind_words = match &note {
+            Some(note) => format!("{} \u{b7} {}", kind_name(track.kind), note.text),
+            None => kind_name(track.kind).to_owned(),
+        };
+        // The type icon is the fold button: it turns into the arrow under
+        // the pointer (a group always shows its arrow).
+        let fold_rect =
+            Rect::from_min_size(pos2(left + CONTENT_X, mid - FOLD / 2.0), vec2(FOLD, FOLD))
+                .round_to_pixels(ppp);
         let fold = ui
-            .interact(arrow, id.with("fold button"), Sense::click())
-            .on_hover_text(match (group, open) {
-                (true, true) => "Hide the group's tracks (Alt+click: every group's)",
-                (true, false) => "Show the group's tracks (Alt+click: every group's)",
-                (false, true) => "Fold the track",
-                (false, false) => "Unfold the track (volume and pan; more detail in the lane)",
-            });
+            .interact(fold_rect, id.with("fold button"), Sense::click())
+            .on_hover_text(format!(
+                "{kind_words} \u{b7} {}",
+                match (group, open) {
+                    (true, true) => "hide the group's tracks (Alt+click: every group's)",
+                    (true, false) => "show the group's tracks (Alt+click: every group's)",
+                    (false, true) => "fold the track",
+                    (false, false) => "unfold the track (volume, pan and sends)",
+                }
+            ));
         fold.widget_info(|| {
             if group {
                 egui::WidgetInfo::selected(
@@ -235,66 +265,68 @@ impl Arrangement {
                 self.toggle_collapsed(doc.project(), track.id);
             }
         }
-        draw_arrow(
-            &painter,
-            arrow.center(),
-            unfolded,
-            if fold.hovered() {
-                palette.text
-            } else {
-                palette.text_secondary
-            },
-        );
-
-        // M, S and arm sit evenly spaced, snapped to whole pixels
-        // together, so the arm button's dot sits on the same line as the
-        // letters of M and S (owner, after slice 4a).
-        let ppp = ui.ctx().pixels_per_point();
-        let button = |x: f32| {
-            Rect::from_min_size(pos2(x, mid - BUTTON / 2.0), vec2(BUTTON, BUTTON))
-                .round_to_pixels(ppp)
+        let pointed = group || fold.has_focus() || ui.rect_contains_pointer(rect);
+        let arrow = motion::hover(&ctx, id.with("fold shows arrow"), pointed);
+        let ink = if fold.hovered() {
+            palette.text
+        } else if heard {
+            palette.text_secondary
+        } else {
+            // Silenced: dimmed to 45% (the design system's `.is-dim`).
+            palette.text_secondary.gamma_multiply(SILENCED)
         };
-        let arm_rect = button(rect.right() - 10.0 - BUTTON);
-        let solo_rect = button(arm_rect.left() - BUTTON_GAP - BUTTON);
-        let mute_rect = button(solo_rect.left() - BUTTON_GAP - BUTTON);
+        if arrow < 1.0 {
+            draw_type_icon(
+                &painter,
+                fold_rect.center(),
+                track.kind,
+                ink.gamma_multiply(1.0 - arrow),
+            );
+        }
+        if arrow > 0.0 {
+            draw_arrow(
+                &painter,
+                fold_rect.center(),
+                unfolded,
+                ink.gamma_multiply(arrow),
+            );
+        }
+        raised::focus_ring(&painter, &fold, fold_rect);
 
-        // The track type, then the name, with room after the arrow.
-        draw_type_icon(
-            &painter,
-            pos2(left + ICON_X, mid),
-            track.kind,
-            if heard {
-                palette.text_secondary
-            } else {
-                // Silenced: dimmed to 45% (the design system's `.is-dim`).
-                palette.text_secondary.gamma_multiply(SILENCED)
-            },
-        );
-        let kind_hover = Rect::from_center_size(pos2(left + ICON_X, mid), vec2(16.0, 16.0));
-        let note = self.output_notes.get(&track.id).cloned();
-        let kind_words = match &note {
-            Some(note) => format!("{} \u{b7} {}", kind_name(track.kind), note.text),
-            None => kind_name(track.kind).to_owned(),
+        // M, S and arm: pieces of one sunk well at the right (a return's
+        // has M and S only), snapped to whole pixels together.
+        let pieces = if track.kind == TrackKind::Return {
+            2
+        } else {
+            3
         };
-        let kind = ui
-            .interact(kind_hover, id.with("kind"), Sense::hover())
-            .on_hover_text(&kind_words);
-        kind.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, kind_words.clone())
-        });
-        let before = mute_rect.left();
+        let trough = well_rect(rect.right() - CONTENT_RIGHT, mid, pieces).round_to_pixels(ppp);
+        raised::paint_sunken(&painter, trough, theme::radius::SMALL);
+        let piece = |n: usize| {
+            Rect::from_min_size(
+                pos2(
+                    trough.left() + theme::space::XXS + n as f32 * (PIECE_W + PIECE_GAP),
+                    trough.top() + theme::space::XXS,
+                ),
+                vec2(PIECE_W, theme::size::WELL_PIECE_H),
+            )
+            .round_to_pixels(ppp)
+        };
+        let (mute_rect, solo_rect, arm_rect) = (piece(0), piece(1), piece(2));
+
+        let before = trough.left();
         // A track whose Monitor is not Auto shows a badge before that.
         let silent = note.as_ref().filter(|n| n.warn).map(|n| n.text.clone());
         let badge = (super::monitor_badge::shown(&track) || silent.is_some()).then(|| {
             Rect::from_center_size(
-                pos2(before - BUTTON_GAP - theme::size::BADGE_W / 2.0, mid),
+                pos2(before - GAP - theme::size::BADGE_W / 2.0, mid),
                 vec2(theme::size::BADGE_W, theme::size::BADGE_H),
             )
             .round_to_pixels(ppp)
         });
         let mut name_rect = Rect::from_min_max(
-            pos2(left + NAME_X, mid - 10.0),
-            pos2(badge.map_or(before, |b| b.left()) - 6.0, mid + 10.0),
+            pos2(fold_rect.right() + GAP, mid - 10.0),
+            pos2(badge.map_or(before, |b| b.left()) - GAP, mid + 10.0),
         );
         // A return's letter (A, B, C), in its colour: its sends carry
         // the same letter and colour (slice 4).
@@ -305,7 +337,7 @@ impl Arrangement {
                 pos2(name_rect.left(), mid - 8.0),
                 vec2(16.0_f32.max(9.0 * letter.len() as f32 + 7.0), 16.0),
             )
-            .round_to_pixels(ui.ctx().pixels_per_point());
+            .round_to_pixels(ppp);
             let fill = super::color_of(track.color);
             painter.rect_filled(badge, theme::radius::SMALL, fill);
             painter.text(
@@ -315,7 +347,7 @@ impl Arrangement {
                 fonts::medium(theme::size::CAPTION),
                 theme::text_on(fill),
             );
-            name_rect.min.x = badge.right() + 6.0;
+            name_rect.min.x = badge.right() + GAP;
         }
         // The name is on top of the header's background: it gets the
         // same menu, so a right-click on it opens the track's menu too.
@@ -359,27 +391,29 @@ impl Arrangement {
             &track,
             hears,
             (mute_rect, solo_rect),
-            (id, look, ""),
+            (id, look, "", Style::Well),
         );
-        // Returns record nothing: no arm button.
-        if track.kind != TrackKind::Return && arm_button(ui, arm_rect, id, &track.name, arm, look) {
+        // Returns record nothing: no arm piece.
+        if track.kind != TrackKind::Return
+            && arm_button(ui, arm_rect, id, &track.name, arm, (look, true))
+        {
             self.press_arm(ui, doc, track.id, arm.on());
         }
 
-        // Unfolded: volume and pan on a second row, then the sends.
+        // The level rises beside the rail, folded or not (ADR-0101).
+        self.level_strip(ui, rect, left, &track, (id, heard));
+        // Unfolded: volume and pan, then the sends and the input (or a
+        // return's senders) on the third row.
         if row_height >= FOLDED + 22.0 {
-            self.mixer_row(ui, doc, &track, rect, id, look);
-        } else {
-            // Folded: the level as a hairline (the owner's H2).
-            let span = (rect.left() + 30.0, rect.right() - 8.0);
-            self.hairline_meter(ui, rect, span, &track, id);
-        }
-        if row_height >= super::sends::SENDS_FROM && super::sends::has_sends(track.kind) {
-            self.sends_row(ui, doc, &track, rect, selected);
-        }
-        // An unfolded return lists what sends to it (the owner's R2).
-        if track.kind == TrackKind::Return && row_height >= FOLDED + 3.0 * STEP {
-            self.senders_rows(ui, doc, &track, rect);
+            self.mixer_row(ui, doc, &track, (rect, left), (id, look));
+            let (_, _, third) = columns(rect, left);
+            if super::sends::has_sends(track.kind) {
+                self.send_well(ui, doc, &track, third, selected);
+            }
+            // An unfolded return lists what sends to it (the owner's R2).
+            if track.kind == TrackKind::Return {
+                self.senders_rows(ui, doc, &track, (rect, third));
+            }
         }
         // A return lights with the sends that feed it, and the other
         // way round (the owner's K1).
@@ -448,5 +482,19 @@ impl Arrangement {
             draw_edge_glow(&painter, column.x_range(), rect.bottom(), glow);
         }
         (glow > 0.0).then_some((track.id, glow))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_well_holds_m_s_and_arm_or_a_returns_m_and_s() {
+        let well = well_rect(196.0, 22.0, 3);
+        assert_eq!(well.width(), 60.0);
+        assert_eq!(well.right(), 196.0);
+        assert_eq!((well.top(), well.bottom()), (12.0, 32.0));
+        assert_eq!(well_rect(196.0, 22.0, 2).width(), 41.0);
     }
 }

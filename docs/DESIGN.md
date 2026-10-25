@@ -238,8 +238,12 @@ Sentence case for every label ("Audio settings", not
   square icon buttons in a `TRANSPORT_BAR` 44 pt bar;
   `CONTROL_SMALL` 20 pt in dense rows (M, S and arm on headers and strips,
   switches, segmented controls, strip rows, the clip card's rows); knobs
-  `KNOB` 24 pt and, in lists, `KNOB_SMALL` 18 pt. A module never invents its
-  own size for these. The Monitor badge on a MIDI header (`BADGE_W` 16 ×
+  `KNOB` 24 pt and, in lists, `KNOB_SMALL` 18 pt. Track headers (M9 R1b,
+  ADR-0101): `HEADER_SIDE` 60 pt for the right column (pan, the In chip),
+  `WELL_PIECE_W` 18 × `WELL_PIECE_H` 16 pt for the pieces of the M S ●
+  well, `LEVEL_STRIP` 3 pt for the level beside the rail, and `SEND_SLOT`
+  18 pt for the widest slot of the send well, which shows its letter from
+  `SEND_SLOT_LETTER` 12 pt. A module never invents its own size for these. The Monitor badge on a MIDI header (`BADGE_W` 16 ×
   `BADGE_H` 14 pt) is a speaker before M, shown only when Monitor is In
   (accent on `accent_muted`, a hairline when the row is selected, no glow)
   or Off (struck-through speaker, hint grey); Auto shows nothing. A click
@@ -390,8 +394,8 @@ Helpers: `light::hline`, `vline`, `rect`, `halo_around`, `polyline`,
   the lanes it passes.
 - **Play** while playing: the button's icon in `core`, with the beam's
   halo around the button.
-- **Meter heads:** the top of every RMS bar (strips, header sliders,
-  hairlines) has a `BEAM` head in its zone's colour, so a level reads as
+- **Meter heads:** the top of every RMS bar (strips, header level
+  strips) has a `BEAM` head in its zone's colour, so a level reads as
   light rising.
 - **Clip lights** flare.
 - **The mark** (§6b) in the transport bar is a meter of the master, and
@@ -473,23 +477,41 @@ segmented control (`widgets::segmented`), longer lists choice rows
 Chosen from rendered options on 2026-10-07: option A's headers with option
 B's clips. The owner refined the design after MT-APP-9 run 1.
 
-- **Header** (204 pt wide):
-  - a 4 pt colour rail;
-  - the fold arrow;
-  - a **track-type icon** (waveform for audio, keys for MIDI, stacked bars
-    for a group, a return arrow for a return; its tooltip names the type);
-  - the name, with room after the arrow, shortened with "…" and renamed by
-    double-click or F2;
-  - **M**, **S** and a round record-arm button, always visible.
-  - At rest M and S are raised (§5a). Lit: **S** is filled accent
-    (`accent_hi` to `accent_lo`, an `on_accent` letter, no halo) and **M**
-    is `mute` with an `on_mute` letter (ADR-0052).
-  - M, S and arm are evenly spaced (8 pt) and snapped to whole pixels
-    together, so the round button lines up with the square ones at every
-    scale.
+- **Header** (204 pt wide; redrawn in M9 R1b from the owner's B·1,
+  ADR-0101). Content runs from 12 pt after the header's left edge to 8 pt
+  before its right, on three rows 20 pt tall, 6 pt apart, 8 pt from the top
+  and bottom:
+  - a 4 pt colour rail, and beside it a 3 pt sunk **level strip** (5 pt
+    after the rail, 5 pt in from the top and bottom) in which the track's
+    level rises, folded or not, with a 3 pt clip mark at its top that stays
+    until clicked;
+  - a 16 pt **fold button** showing the **track-type icon** (waveform for
+    audio, keys for MIDI, stacked bars for a group, a return arrow for a
+    return); under the pointer, or focused, the icon cross-fades into the
+    fold arrow (a group always shows its arrow). Its tooltip names the type
+    and what a click does;
+  - the name, 6 pt after it, shortened with "…" and renamed by
+    double-click or F2. The name row sits in the middle of a folded header
+    and glides up to the first row as the track opens;
+  - **M**, **S** and arm as pieces of **one sunk well** at the right
+    (60 pt; a return's M and S, 41 pt): 18 × 16 pt pieces, 1 pt apart,
+    2 pt in from the well's edge, 2 pt corners, snapped to whole pixels
+    together. At rest a piece is flat on the well; under the pointer it
+    takes the Ember wash. Lit: **S** is filled accent (`accent_hi` to
+    `accent_lo`, an `on_accent` letter) and **M** is `mute` with an
+    `on_mute` letter (ADR-0052). Arm is a dot: grey at rest, red under the
+    pointer; armed, record red at 25% with a red dot and the breathing ring.
+    Strips keep raised M and S and the round arm button.
   - A selected header is `selected_row`, and its controls step up (§3).
-- **Unfolded header:** one row of sliders that show their value inside, with
-  no separate labels:
+- **Unfolded header:** two more rows of controls that show their value
+  inside, with no separate labels, in two columns: the left from the name's
+  start to 6 pt before a 60 pt right column (`HEADER_SIDE`):
+  - row 2: **volume** at the left, **pan** at the right;
+  - row 3: the **send well** at the left and, on audio tracks, the **In
+    chip** at the right (60 pt whatever the input: "In" in the hint colour,
+    the input from a fixed place after it, shortened with "…", and the
+    caret at the right; "None" in the hint colour without an input). A
+    return lists its senders there instead;
   - **volume** fills from the left, with a handle line and the value in
     dB. The line is solid; within 8 pt of the value's box its middle opens,
     smoothly with the distance, until only a tick above and below the
@@ -503,8 +525,9 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
     value (Enter applies, Esc cancels), arrow keys when focused.
 - **Record arm ("glow and breathe")**, the owner's choice:
   - the rail turns red and glows into the header;
-  - the button is round (no border or edge light: ADR-0052 keeps it off
-    the raised material); armed, its body is record red at 25% with a red
+  - on a strip the button is round (no border or edge light: ADR-0052 keeps
+    it off the raised material; on a header it is the well's third piece,
+    drawn the same way inside it); armed, its body is record red at 25% with a red
     dot and a ring around it. The ring breathes
     slowly (2.4 s) while armed, its glow reaching at most 4 pt, inside the
     gap to S. Every circle shares one centre;
@@ -515,11 +538,12 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
 - **Folding and resizing**:
   - heights come in **22 pt steps**, so anything later drawn by track
     height (automation lanes, meters) lines up;
-  - folded is 2 steps (44 pt); unfolded starts at 5 steps (110 pt: volume on the second row, pan and, on audio tracks, the In chip on the third) and
-    goes up to 14;
+  - folded is 2 steps (44 pt); unfolded starts at 4 steps (88 pt: the
+    name, then volume and pan, then the sends and the In chip; ADR-0101)
+    and goes up to 14. Heights saved taller (110 pt from R1) stay as saved;
   - drag the bottom edge to resize. The handle glows with the accent
     (header and lane) while hovered or dragged. A folded track dragged
-    taller unfolds; an unfolded one dragged below 5 steps folds;
+    taller unfolds; an unfolded one dragged below 4 steps folds;
   - heights glide (`GLIDE`) and are saved with the project.
 - **Group tracks** (M4 slice 3, the owner's H1 and L1, ADR-0037):
   - groups go **three deep at most**; a refused Ctrl+G or drop says why
@@ -692,9 +716,24 @@ Chosen from interactive specimens (ADR-0038):
   its lanes have a quieter ground (`canvas` at 70%). A return's name
   follows a 16 pt **letter badge** in its colour (text by `text_on`); no
   arm button on returns or the master.
-- **Send knobs (K1 "comet"):** 24 pt knobs, 4 pt apart, under volume and
-  pan on unfolded audio, MIDI and group tracks (such tracks unfold five
-  steps tall). A 270° ring in `control_press`; the level a trail in the
+- **The send well (B·1, ADR-0101):** on an unfolded audio, MIDI or
+  group header, one sunk well on the third row holds a **slot** per return,
+  every return always shown (up to twelve): 2 pt padding, 1 pt between
+  slots, each as wide as fits up to `SEND_SLOT` 18 pt (8.6 pt for twelve
+  at the default width, never under 4 pt). A slot fills from the bottom
+  with the send's level in the return's colour (a gradient with an 8%
+  sheen, at 40% strength while the send is not heard); a silent one is a
+  2 pt baseline in its colour at 60%. The return's letter shows on slots
+  at least `SEND_SLOT_LETTER` 12 pt wide (`text_on` over a fill at least
+  half full, `text_hint` otherwise, `text_secondary` on a selected row); a
+  pre-fader send has a dot. Drag up or down (Shift for fine), double-click
+  for silence, click and type, right-click for pre- or post-fader. Under
+  the pointer or focused, a **flag** rises 6 pt above the slot: a raised
+  22 pt tag with the letter badge, the return's name and the level in mono,
+  kept inside the header column. Hovering a slot lights its return's
+  header, as a knob does.
+- **Send knobs (K1 "comet"):** 24 pt knobs on the mixer strips (and 18 pt
+  in lists). A 270° ring in `control_press`; the level a trail in the
   return's colour, from 18% to full strength and thickening towards a
   glowing head (two soft circles, a white core, a colour centre); the
   return's letter in the middle (`text` when sending, `text_hint` when
@@ -706,13 +745,13 @@ Chosen from interactive specimens (ADR-0038):
     the way from the control colour to the text colour, and a silent
     knob's letter is `text_secondary`, so the knobs stay clear of the
     row in both themes.
-  - **"+N ▾" (O1):** past the header's width, a 20 pt button drawn as
+  - **"+N ▾" (O1):** past a strip's two knobs, a 20 pt button drawn as
     "+ Add track ▾" is (control fill, 6 pt corners, the filled arrow, an
     accent edge on hover and while open), with a dot in a return's colour
     before the number while a hidden send is up. It opens "Sends from …":
     a 20 pt knob, the letter badge, the name and the level per return.
   - **A return's senders (R2, L4, S1):** an unfolded return lists, from
-    its third step, the tracks sending to it: a 4 × 14 pt bar in the
+    its third row, the tracks sending to it: a 4 × 14 pt bar in the
     track's colour, its name, an 18 pt knob (no hover ring there) and the
     level, the four loudest first, then "+N more ▾" opening "Sends into …"
     with them all. A send at −∞ leaves the list when let go. It unfolds
@@ -1190,9 +1229,9 @@ rests (0 dB, centre); the line is the accent at `stroke::LIT`, and a lane that i
 inside, an accent ring), a point larger under the pointer, and the picked one solid with a
 ring round it so it never rests on colour alone. Values are drawn under the chip, which
 sits at the top-left, a raised combo naming the parameter ("Volume", "Send to Reverb",
-"Pan · off") with its menu. A track with a lane is at least six steps tall. The **A**
-button ends the unfolded header's second row (`size::CONTROL_SMALL`, lit with `Tone::On`
-while a lane is shown). Sizes are `size::AUTO_*`.
+"Pan · off") with its menu. A track with a lane is at least six steps tall. The lane is
+shown and hidden with the A key, the track's menu or the command palette (the header's
+**A** button left in M9 R1b, ADR-0101). Sizes are `size::AUTO_*`.
 
 Lane editing (M7 slice A2, ADR-0083). To the right of the chip, a **tool strip** (a
 `widgets::segmented` with the MIDI lane's pointer, pencil and curve glyphs: Pointer, Pencil,

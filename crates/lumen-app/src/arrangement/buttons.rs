@@ -1,5 +1,6 @@
 //! The M and S buttons (S is a headphone button on Cue), shared by track
-//! headers and mixer strips (M4 slice 5): lit when set on that track, a
+//! headers and mixer strips (M4 slice 5): raised on strips, pieces of one
+//! sunk well on headers (M9 slice R1b, ADR-0101); lit when set on that track, a
 //! hollow ring when the track is silenced by another's solo or a muted
 //! group (M), or heard through a soloed group (S) (the owner's choice,
 //! slice 4).
@@ -22,6 +23,52 @@ use crate::{fonts, motion};
 const HOLLOW_MUTE: f32 = 0.14;
 const HOLLOW_SOLO: f32 = 0.12;
 
+/// How M, S and arm are drawn: raised buttons (mixer strips), or pieces cut
+/// into one sunk well (track headers, ADR-0101).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Style {
+    Raised,
+    Well,
+}
+
+/// A piece's corner: the 20 pt well's radius less its 2 pt inset.
+pub(super) const PIECE_RADIUS: u8 = theme::radius::SMALL - theme::space::XXS as u8;
+
+/// Paints a piece of a header's well in `rect`: bare while off, with the
+/// Ember wash under the pointer, `look.press` while pressed, and filled in
+/// `tone` by `lit` (a lit M is `mute`, a lit S accent). Returns the colour
+/// for its letter.
+pub(super) fn paint_piece(
+    painter: &egui::Painter,
+    rect: Rect,
+    face: &raised::Face,
+) -> egui::Color32 {
+    let palette = theme::p();
+    let r = f32::from(PIECE_RADIUS);
+    if face.pressed {
+        painter.rect_filled(rect, r, face.surface.press);
+    } else if face.hover > 0.0 {
+        painter.rect_filled(rect, r, palette.ember.gamma_multiply(face.hover));
+    }
+    if face.lit > 0.0 {
+        let on = theme::lit(face.tone);
+        raised::gradient(
+            painter,
+            rect,
+            r,
+            on.top.gamma_multiply(face.lit),
+            on.bottom.gamma_multiply(face.lit),
+        );
+        raised::lip(
+            painter,
+            rect,
+            PIECE_RADIUS,
+            on.light.gamma_multiply(face.lit),
+        );
+    }
+    face.text()
+}
+
 /// The M and S buttons; S is a headphone button on Cue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Toggle {
@@ -42,7 +89,7 @@ impl Arrangement {
         track: &Track,
         hears: Hearing,
         (mute_rect, solo_rect): (Rect, Rect),
-        (id, look, place): (EguiId, theme::Controls, &str),
+        (id, look, place, style): (EguiId, theme::Controls, &str, Style),
     ) {
         let palette = *theme::p();
         let modifiers = ui.input(|i| i.modifiers);
@@ -116,14 +163,21 @@ impl Arrangement {
                 .pressed(response.is_pointer_button_down_on())
                 .lit(lit, tone);
             let r = r.round_to_pixels(ui.pixels_per_point());
-            // Radius follows height: 4 on a header's 20 pt, 6 on a strip's 24.
-            let radius = theme::radius::for_height(r.height());
-            let body = raised::paint(ui.painter(), r, radius, &face);
+            // Radius follows height: 6 on a strip's 24 pt; a header's
+            // pieces take their well's radius less its inset.
+            let (radius, body, ink) = match style {
+                Style::Raised => {
+                    let radius = theme::radius::for_height(r.height());
+                    let body = raised::paint(ui.painter(), r, radius, &face);
+                    (radius, body, face.text())
+                }
+                Style::Well => (PIECE_RADIUS, r, paint_piece(ui.painter(), r, &face)),
+            };
             if mute_over && button == Toggle::Mute {
                 super::follow::ring(ui, r);
             }
             let p = ui.painter();
-            let mut text = face.text();
+            let mut text = ink;
             if implied && !on {
                 // Hollow: the state's colour as a ring, the letter in it.
                 p.rect_filled(r, f32::from(radius), accent.gamma_multiply(faint));
@@ -180,70 +234,6 @@ impl Arrangement {
             }
         } else if toggle(ui, solo_rect, Toggle::Solo, Tone::Accent) {
             doc.set_solo(&self.targets(track.id), !track.solo, exclusive);
-        }
-    }
-
-    /// The A button of an unfolded header (M7 slice A1): shows or hides the
-    /// automation lane over the track's clips. Lit while one is shown; it
-    /// acts on the selection when the track is in it, like M and S.
-    pub(super) fn auto_button(
-        &mut self,
-        ui: &mut Ui,
-        doc: &Document,
-        track: &Track,
-        rect: Rect,
-        id: EguiId,
-        look: theme::Controls,
-    ) {
-        let on = self.auto.shown.contains_key(&track.id);
-        let response = ui
-            .interact(rect, id.with("automation"), Sense::click())
-            .on_hover_text(if self.any_taken_over(doc, track) {
-                "A lane is taken over by a control you moved: show the lane to re-enable it (A)"
-            } else if on {
-                "Hide the automation lane (A)"
-            } else {
-                "Show the automation lane over the clips (A)"
-            });
-        response.widget_info(|| {
-            egui::WidgetInfo::selected(
-                egui::WidgetType::Checkbox,
-                true,
-                on,
-                format!("Automation {}", track.name),
-            )
-        });
-        let hover = motion::hover(ui.ctx(), id.with("automation hover"), response.hovered());
-        let lit = motion::hover(ui.ctx(), id.with("automation lit"), on);
-        let face = raised::Face::new(look)
-            .hover(hover)
-            .pressed(response.is_pointer_button_down_on())
-            .lit(lit, Tone::On);
-        let r = rect.round_to_pixels(ui.pixels_per_point());
-        let radius = theme::radius::for_height(r.height());
-        let body = raised::paint(ui.painter(), r, radius, &face);
-        // Amber while a lane of the track is taken over (M7 slice A4a, the
-        // owner's look A): the shape of the button is the same, the letter
-        // stays, and the colour says the lane is not being heard.
-        let over = self.any_taken_over(doc, track);
-        let ink = if over {
-            let amber = theme::p().warning;
-            ui.painter().rect_filled(r, f32::from(radius), amber);
-            theme::text_on(amber)
-        } else {
-            face.text()
-        };
-        ui.painter().text(
-            body.center(),
-            Align2::CENTER_CENTER,
-            "A",
-            fonts::medium(theme::size::CAPTION),
-            ink,
-        );
-        raised::focus_ring(ui.painter(), &response, r);
-        if response.clicked() {
-            let tracks = self.targets(track.id);
-            self.auto.toggle(doc.project(), &tracks);
         }
     }
 }

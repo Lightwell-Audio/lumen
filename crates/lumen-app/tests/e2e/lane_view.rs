@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use eframe::egui::{Event, Key, Modifiers, Pos2};
+use egui_kittest::kittest::Queryable;
 use lumen_core::automation::{Lane, Point};
 use lumen_core::time::Ticks;
 use lumen_project::automation::Target;
@@ -123,17 +124,44 @@ fn the_a_key_shows_a_lane_over_the_clips_and_makes_room_for_it() {
 }
 
 #[test]
-fn the_a_button_in_an_unfolded_header_shows_and_hides_the_lane() {
+fn an_unfolded_header_has_no_a_button_and_the_a_key_still_shows_the_lane() {
+    // ADR-0101: the A button left the header; the A key, the track's menu
+    // and the command palette show the lane.
     let (mut lumen, track) = tone("lane-button");
+    let ctx = lumen.harness.ctx.clone();
+    let folded = lumen.app().tracks_height(&ctx);
     lumen.click("Fold tone");
     lumen.frames(40);
-    assert!(lumen.shows("Automation tone"), "unfolded headers have it");
-    assert!(!lumen.is_on("Automation tone"));
-    lumen.click("Automation tone");
-    assert!(lumen.is_on("Automation tone"));
+    assert!(
+        lumen
+            .harness
+            .query_by_label_contains("Volume tone:")
+            .is_some(),
+        "unfolded"
+    );
+    let grew = lumen.app().tracks_height(&ctx) - folded;
+    assert!(
+        (grew - 44.0).abs() < 0.5,
+        "an unfolded track is 88 pt: {grew}"
+    );
+    assert!(!lumen.shows("Automation tone"), "no A button");
+    lumen.key(Modifiers::NONE, Key::A);
+    lumen.frames(5);
     assert_eq!(lumen.app().automation_shown(track), Some(Target::Volume));
-    lumen.click("Automation tone");
+    lumen.key(Modifiers::NONE, Key::A);
+    lumen.frames(5);
     assert_eq!(lumen.app().automation_shown(track), None);
+    // The mouse's way: the track's right-click menu.
+    let name = lumen
+        .harness
+        .query_by_label_contains("Track tone,")
+        .expect("the header")
+        .rect();
+    lumen.right_click(Pos2::new(name.left() + 60.0, name.top() + 18.0));
+    lumen.frames(3);
+    lumen.click("Show automation lane A");
+    lumen.frames(5);
+    assert_eq!(lumen.app().automation_shown(track), Some(Target::Volume));
 }
 
 #[test]

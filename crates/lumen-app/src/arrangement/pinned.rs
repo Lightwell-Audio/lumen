@@ -374,7 +374,10 @@ impl Arrangement {
     /// (Audio settings) it is quiet and says why when clicked.
     pub(super) fn cue_switch(&mut self, ui: &mut Ui, rect: Rect, mid: f32, place: &str) {
         let switch = Rect::from_min_size(
-            pos2(rect.right() - 10.0 - 46.0, mid - 9.0),
+            pos2(
+                rect.right() - super::headers::CONTENT_RIGHT - 46.0,
+                mid - 9.0,
+            ),
             vec2(46.0, 18.0),
         );
         let ready = self.cue.ready;
@@ -444,8 +447,8 @@ impl Arrangement {
         raised::focus_ring(painter, &response, switch);
     }
 
-    /// The master's header: its rail and name, the fold arrow, and volume
-    /// and pan when unfolded. The Solo/Cue switch joins it with the cue
+    /// The master's header: its rail, level strip and name, the fold
+    /// button, and volume and pan when unfolded. The Solo/Cue switch joins it with the cue
     /// (slice 4d).
     pub(super) fn master_header(&mut self, ui: &mut Ui, doc: &mut Document, rect: Rect) {
         let palette = *theme::p();
@@ -479,17 +482,26 @@ impl Arrangement {
         );
         let alt = ui.input(|i| i.modifiers.alt);
         self.device_drop_target(ui.ctx(), &painter, doc, rect, master.id, alt);
-        let rail = Rect::from_min_size(rect.min, vec2(4.0, rect.height()));
+        let rail = Rect::from_min_size(rect.min, vec2(super::nesting::RAIL, rect.height()));
         painter.rect_filled(rail, 0.0, palette.text_hint);
-        let mid = rect.top() + FOLDED / 2.0;
+        let mid = super::headers::name_center(rect.top(), rect.height());
         let open = self.expanded.contains(&master.id);
-        let arrow = Rect::from_center_size(pos2(rect.left() + 4.0 + 14.0, mid), vec2(16.0, 18.0));
+        // The type icon is the fold button, the arrow under the pointer, as
+        // on every track (ADR-0101).
+        let fold_rect = Rect::from_min_size(
+            pos2(
+                rect.left() + super::headers::CONTENT_X,
+                mid - super::headers::FOLD / 2.0,
+            ),
+            vec2(super::headers::FOLD, super::headers::FOLD),
+        )
+        .round_to_pixels(ui.pixels_per_point());
         let fold = ui
-            .interact(arrow, id.with("fold button"), Sense::click())
+            .interact(fold_rect, id.with("fold button"), Sense::click())
             .on_hover_text(if open {
-                "Fold the master"
+                "Master track \u{b7} fold the master"
             } else {
-                "Unfold the master (volume and pan)"
+                "Master track \u{b7} unfold the master (volume and pan)"
             });
         fold.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Fold Master")
@@ -503,24 +515,33 @@ impl Arrangement {
             if open { 1.0 } else { 0.0 },
             true,
         );
-        draw_arrow(
-            &painter,
-            arrow.center(),
-            unfolded,
-            if fold.hovered() {
-                palette.text
-            } else {
-                palette.text_secondary
-            },
-        );
-        crate::icons::draw_type_icon(
-            &painter,
-            pos2(rect.left() + 4.0 + 34.0, mid),
-            TrackKind::Master,
-            palette.text_secondary,
-        );
+        let pointed = fold.has_focus() || ui.rect_contains_pointer(rect);
+        let arrow = motion::hover(ui.ctx(), id.with("fold shows arrow"), pointed);
+        let ink = if fold.hovered() {
+            palette.text
+        } else {
+            palette.text_secondary
+        };
+        if arrow < 1.0 {
+            crate::icons::draw_type_icon(
+                &painter,
+                fold_rect.center(),
+                TrackKind::Master,
+                ink.gamma_multiply(1.0 - arrow),
+            );
+        }
+        if arrow > 0.0 {
+            draw_arrow(
+                &painter,
+                fold_rect.center(),
+                unfolded,
+                ink.gamma_multiply(arrow),
+            );
+        }
+        raised::focus_ring(&painter, &fold, fold_rect);
+        let name_left = fold_rect.right() + super::headers::GAP;
         painter.text(
-            pos2(rect.left() + 4.0 + 48.0, mid),
+            pos2(name_left, mid),
             Align2::LEFT_CENTER,
             &master.name,
             fonts::medium(theme::size::BODY),
@@ -532,7 +553,7 @@ impl Arrangement {
         );
         let name = ui.interact(
             Rect::from_min_max(
-                pos2(rect.left() + 48.0, mid - 10.0),
+                pos2(name_left, mid - 10.0),
                 pos2(rect.right() - 10.0, mid + 10.0),
             ),
             id.with("name"),
@@ -542,19 +563,15 @@ impl Arrangement {
             egui::WidgetInfo::labeled(egui::WidgetType::Label, true, "Master track")
         });
         self.cue_switch(ui, rect, mid, "");
+        self.level_strip(ui, rect, rect.left(), &master, (id, true));
         if rect.height() >= FOLDED + 22.0 {
-            self.mixer_row(ui, doc, &master, rect, id, look);
-        } else {
-            let span = (rect.left() + 30.0, rect.right() - 8.0);
-            self.hairline_meter(ui, rect, span, &master, id);
+            self.mixer_row(ui, doc, &master, (rect, rect.left()), (id, look));
         }
-        // The cue level, under volume and pan, while a cue pair is open.
-        if self.cue.ready && rect.height() >= FOLDED + 3.0 * super::STEP {
-            let y = rect.top() + FOLDED + 2.0 * super::STEP + super::STEP / 2.0;
-            let label = Rect::from_min_max(
-                pos2(rect.left() + 30.0, y - 10.0),
-                pos2(rect.left() + 64.0, y + 10.0),
-            );
+        // The cue level, on the third row, while a cue pair is open.
+        let (start, _, third) = super::headers::columns(rect, rect.left());
+        if self.cue.ready && rect.height() >= third.bottom() - rect.top() {
+            let y = third.center().y;
+            let label = Rect::from_min_max(pos2(start, y - 10.0), pos2(start + 34.0, y + 10.0));
             painter.text(
                 label.left_center(),
                 Align2::LEFT_CENTER,
@@ -564,7 +581,7 @@ impl Arrangement {
             );
             let slider = Rect::from_min_max(
                 pos2(label.right(), y - 10.0),
-                pos2(rect.right() - 8.0, y + 10.0),
+                pos2(rect.right() - super::headers::CONTENT_RIGHT, y + 10.0),
             );
             let db = crate::widgets::value_slider(
                 ui,
