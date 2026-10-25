@@ -18,6 +18,7 @@ use lumen_core::time::{TempoMap, Ticks};
 use crate::model::EventKind;
 use crate::model::{Clip, ClipContent, ClipEvent, Id, Note, Project};
 
+pub mod audio_take;
 pub mod automation;
 pub mod bounce;
 pub mod carry;

@@ -57,6 +57,10 @@ pub struct Transport {
     pub settings_window: crate::audio_settings::Window,
     /// What the MIDI chip's popover asked for, taken by `windows`.
     midi_asked: Vec<crate::midi::Action>,
+    /// The recording offset the audio window shows, lent by the app, and
+    /// the one it asked for, taken by the app (M9 slice R2).
+    pub record_offset_ms: f32,
+    pub offset_asked: Option<f32>,
     /// What the chip's lights showed when last drawn.
     pub midi_lights: MidiLights,
     /// CPU load shown: the peak over the last second, refreshed once a second.
@@ -127,6 +131,8 @@ impl Transport {
             test_tone: false,
             settings_window: Default::default(),
             midi_asked: Vec::new(),
+            record_offset_ms: 0.0,
+            offset_asked: None,
             midi_lights: Default::default(),
             cpu_peak: 0.0,
             cpu_taken: None,

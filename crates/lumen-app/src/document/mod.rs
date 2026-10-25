@@ -18,6 +18,7 @@ use lumen_project::model::{Color, Device, Id, Marker, Project, Track, TrackKind}
 /// The most beats a bar may have (`lumen_project::validate`).
 pub const MAX_BEATS_PER_BAR: u32 = 64;
 
+mod audio_takes;
 mod automation;
 mod bounce;
 mod clip_ops;

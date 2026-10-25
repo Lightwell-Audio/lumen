@@ -34,6 +34,10 @@ const PERC_PLUGIN: Id = Id(11);
 const BASS_PLUGIN: Id = Id(12);
 const KEYED: Id = Id(13);
 const VERB_PLUGIN: Id = Id(14);
+// Playback stays live through several routing, save/reopen, and crash checks.
+// Keep these notes alive past the walkthrough's slowest wait path.
+const NOTE_LENGTH: i64 = 600;
+const CLIP_LENGTH: i64 = 640;
 /// Frames in a block of the test device. The hosts get three quarters of a
 /// block to answer; at the other scenarios' 1024 (21 ms) a stall of the
 /// machine's scheduler a little over 16 ms makes the keyed effect late, and
@@ -50,22 +54,24 @@ const PLUGINS: [Id; 5] = [KICK_PLUGIN, PERC_PLUGIN, BASS_PLUGIN, KEYED, VERB_PLU
 /// its pitch picks (pitch mod 3): the kick's 69 and the percussion's 61 are
 /// outputs 0 and 1.
 fn song() -> Project {
-    let held = |pitch| vec![Note::new(Ticks::ZERO, Ticks::quarters(60), pitch, 100)];
+    let end = Ticks::quarters(NOTE_LENGTH);
+    let held = |pitch| vec![Note::new(Ticks::ZERO, end, pitch, 100)];
+    let clip = (0, CLIP_LENGTH);
     let loud = |id| {
         let mut device = instrument_device(id);
         device.params.insert(lumen_test_plugin::params::LEVEL, 1.0);
         device
     };
-    let mut kick = midi_track(KICK.0, "Kick", "poly", (0, 64), None, held(69), vec![]);
+    let mut kick = midi_track(KICK.0, "Kick", "poly", clip, None, held(69), vec![]);
     kick.devices = vec![loud(KICK_PLUGIN)];
-    let mut perc = midi_track(PERC.0, "Perc", "poly", (0, 64), None, held(61), vec![]);
+    let mut perc = midi_track(PERC.0, "Perc", "poly", clip, None, held(61), vec![]);
     perc.devices = vec![loud(PERC_PLUGIN)];
     let mut perc_out = Track::new(PERC_OUT, "Perc out", TrackKind::Audio, Color(0x5FA89A));
     perc_out.plugin_output = Some(PluginOutput {
         device: PERC_PLUGIN,
         bus: 1,
     });
-    let mut bass = midi_track(BASS.0, "Bass", "poly", (0, 64), None, held(40), vec![]);
+    let mut bass = midi_track(BASS.0, "Bass", "poly", clip, None, held(40), vec![]);
     let mut keyed = effect_device(KEYED);
     keyed.sidechain = Some(Sidechain {
         from: KICK,
@@ -90,6 +96,10 @@ fn loudest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
     let mut best = f32::MIN;
     for _ in 0..150 {
         lumen.listen(Duration::from_millis(100), 4_800);
+        assert!(
+            lumen.app().playhead() < Ticks::quarters(NOTE_LENGTH),
+            "the walkthrough's held notes ended before the level was measured"
+        );
         best = best.max(lumen.app().meter(track).peak_db);
         if best > db {
             break;
@@ -104,13 +114,28 @@ fn loudest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
 /// lets a block through sends it back up and it needs a few quiet seconds
 /// again: the limit is generous, and a run that is not stalled leaves early.
 fn quietest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
+    let late_before = PLUGINS.map(|device| lumen.app().device_late_blocks(device));
     let mut least = f32::MAX;
     for _ in 0..150 {
         lumen.listen(Duration::from_millis(100), 4_800);
+        assert!(
+            lumen.app().playhead() < Ticks::quarters(NOTE_LENGTH),
+            "the walkthrough's held notes ended before the level was measured"
+        );
         least = least.min(lumen.app().meter(track).peak_db);
         if least < db {
             break;
         }
+    }
+    eprintln!("track {}: lowest peak {least} dB, required < {db}", track.0);
+    for (device, before) in PLUGINS.into_iter().zip(late_before) {
+        eprintln!(
+            "device {}: state {:?}, late blocks before {:?}, after {:?}",
+            device.0,
+            lumen.app().device_state(device),
+            before,
+            lumen.app().device_late_blocks(device)
+        );
     }
     least
 }

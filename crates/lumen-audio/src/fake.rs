@@ -42,6 +42,11 @@ pub struct FakeDevice {
     /// the device's channel: a channel past the list hears silence. Read at
     /// every block, so a test changes it while the stream runs.
     pub input_levels: Vec<f32>,
+    /// Every input channel hears a ramp instead of `input_levels`: the
+    /// stream's frame count (counted from its start position) times a
+    /// millionth, wrapping at a million, so a recording shows to the sample
+    /// where each frame came from ([`ramp_at`]).
+    pub input_ramp: bool,
     /// Keep a pace: each poll runs every block the time since the stream
     /// opened owes (up to [`CATCH_UP`]), so a poll that came late is made up
     /// for, as a hardware driver's clock would be. `None`, a poll runs one
@@ -61,6 +66,11 @@ pub enum Pace {
     Every(Duration),
 }
 
+/// What the ramp input holds at stream frame `frame`.
+pub fn ramp_at(frame: u64) -> f32 {
+    (frame % 1_000_000) as f32 * 1e-6
+}
+
 /// The most blocks a paced device runs in one poll.
 pub const CATCH_UP: u64 = 16;
 
@@ -68,9 +78,11 @@ pub const CATCH_UP: u64 = 16;
 #[derive(Debug, Clone)]
 pub struct FakeControl(pub Arc<Mutex<FakeDevice>>);
 
-impl FakeControl {
-    pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(FakeDevice {
+impl FakeDevice {
+    /// The device as it first is: present, silent, four outputs and two
+    /// inputs, with nothing scripted.
+    fn initial() -> Self {
+        FakeDevice {
             present: true,
             reset_pending: false,
             stalled: false,
@@ -83,6 +95,7 @@ impl FakeControl {
             outputs: 4,
             inputs: 2,
             input_levels: Vec::new(),
+            input_ramp: false,
             pace: None,
             buffer_sizes: BufferSizes {
                 min: 32,
@@ -90,7 +103,19 @@ impl FakeControl {
                 preferred: 128,
                 granularity: None,
             },
-        })))
+        }
+    }
+}
+
+impl FakeControl {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(FakeDevice::initial())))
+    }
+
+    /// Puts the device back as [`FakeControl::new`] made it, whatever a
+    /// scenario scripted: for a device shared by scenarios that take turns.
+    pub fn reset(&self) {
+        *self.0.lock().expect("fake device lock") = FakeDevice::initial();
     }
 
     pub fn set(&self, f: impl FnOnce(&mut FakeDevice)) {
@@ -218,7 +243,7 @@ impl Stream for FakeStream {
     }
 
     fn poll(&mut self) -> Option<StreamEvent> {
-        let (present, reset, stalled, every, skip, resync, pace) = {
+        let (present, reset, stalled, every, skip, resync, pace, ramp) = {
             let device = self.control.0.lock().expect("fake device lock");
             let frames = self.info.buffer_frames as usize;
             for (i, &channel) in self.input_map.iter().enumerate() {
@@ -237,6 +262,7 @@ impl Stream for FakeStream {
                 skip,
                 device.resync_jump.take(),
                 device.pace,
+                device.input_ramp,
             )
         };
         self.position += skip + resync.unwrap_or(0);
@@ -254,6 +280,14 @@ impl Stream for FakeStream {
         let blocks = pace.map_or(1, |pace| self.owed(pace));
         if let Some(callback) = self.callback.as_mut() {
             for n in 0..blocks {
+                if ramp {
+                    let frames = self.info.buffer_frames as usize;
+                    for channel in self.inputs.chunks_mut(frames) {
+                        for (i, sample) in channel.iter_mut().enumerate() {
+                            *sample = ramp_at(self.position + i as u64);
+                        }
+                    }
+                }
                 self.outputs.fill(0.0);
                 let mut block = Block {
                     sample_rate: self.info.sample_rate,

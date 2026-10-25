@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use eframe::egui::{self, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, pos2, vec2};
+use lumen_core::time::Ticks;
 use lumen_media::Peaks;
 use lumen_project::model::{Clip, ClipContent, Project, TrackKind};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
@@ -39,7 +40,7 @@ const UNDER_LANE: f32 = 0.45;
 /// Space between the title bar and the waveform, and below it.
 pub(super) const WAVE_GAP: f32 = 2.0;
 /// Below this height (in points), stereo is drawn as one waveform.
-const SPLIT_BELOW: f32 = 40.0;
+pub(super) const SPLIT_BELOW: f32 = 40.0;
 /// Clips narrower than this show no name: a letter or two is noise, and
 /// at wide zooms thousands of names cost more than the clips.
 const NAME_MIN_WIDTH: f32 = 24.0;
@@ -64,6 +65,33 @@ pub(super) fn span(view: TimeView, canvas: Rect, clip: &Clip) -> (f32, f32) {
         view.x(canvas.left(), clip.start.as_quarters()),
         view.x(canvas.left(), (clip.start + clip.length).as_quarters()),
     )
+}
+
+/// The x range of a span of the timeline.
+pub(super) fn span_of(view: TimeView, canvas: Rect, from: Ticks, to: Ticks) -> (f32, f32) {
+    (
+        view.x(canvas.left(), from.as_quarters()),
+        view.x(canvas.left(), to.as_quarters()),
+    )
+}
+
+/// The body and title of an audio take being recorded (M9 slice R2), in
+/// record red; its waveform is drawn over it by `audio_take_look`. The body is
+/// a tint, so an opaque base goes under it: a clip the take is recording over
+/// is hidden exactly as far as the take has gone, however fast it grows.
+pub(super) fn draw_recording_take(painter: &Painter, rect: Rect, lane: Rect, name: &str) {
+    painter.rect_filled(rect, theme::radius::SMALL, theme::p().lane);
+    let look = ClipLook {
+        name,
+        color: theme::p().record,
+        state: ClipState::Ready,
+        progress: None,
+        alpha: 1.0,
+        locked: false,
+        paint: recording_look::take_paint(theme::p()),
+    };
+    draw_body(painter, rect, &look);
+    draw_name(painter, rect, lane, &look);
 }
 
 /// The clip bodies and waveforms on the GPU, and what they were built
@@ -378,6 +406,14 @@ impl Arrangement {
                             draw_name(painter, rect, lane, &look);
                         }
                     }
+                    super::audio_take_look::draw(
+                        painter,
+                        &self.audio_takes,
+                        track.id,
+                        lane,
+                        time,
+                        canvas,
+                    );
                     // Files dropped on this track, while they load (slice
                     // 6e), side by side from where they were dropped.
                     let landing: Vec<Landing> = lanes

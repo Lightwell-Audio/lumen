@@ -99,26 +99,11 @@ fn eventually(lumen: &mut Lumen, mut measure: impl FnMut(&mut Lumen) -> f32) -> 
 
 /// Opens the settings' MIDI page and switches the input on for tracks.
 pub(super) fn switch_on_for_tracks(lumen: &mut Lumen, fake: &FakeControl, port: &str) {
-    lumen.click("Lumen");
-    lumen.click("Audio and MIDI settings\u{2026}");
-    lumen.click("MIDI tab");
+    lumen.open_midi_settings();
     let label = format!("Track {port} input");
-    for _ in 0..400 {
-        lumen.frames(1);
-        if lumen.shows(&label) {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    lumen.run_until(&format!("{label:?} showing"), |l| l.shows(&label));
     lumen.click(&label);
-    for _ in 0..400 {
-        lumen.frames(1);
-        if fake.open_inputs() == 1 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    assert_eq!(fake.open_inputs(), 1);
+    lumen.run_until("the input opening", |_| fake.open_inputs() == 1);
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(10);
 }

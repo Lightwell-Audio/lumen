@@ -283,13 +283,23 @@ fn a_plugin_gesture_is_recorded_from_its_begin_to_its_end() {
         .pretend_plugin_edits(FX, &[(LEVEL, 0.3, "begin"), (LEVEL, 0.3, "perform")]);
     lumen.frames(2);
     assert!(lumen.app().recording_automation(KEYS, target), "held");
+    let mut through = lumen.app().playhead();
     for value in [0.4, 0.6, 0.8] {
-        std::thread::sleep(Duration::from_millis(40));
+        // A later sample at the same audio position replaces the earlier one
+        // when the recorded points are reduced to ticks. Let the audio clock
+        // advance past the last value before injecting the next one.
+        lumen.wait_for("a new audio position between plugin moves", |app| {
+            app.playhead() > through
+        });
         lumen
             .app_mut()
             .pretend_plugin_edits(FX, &[(LEVEL, value, "perform")]);
         lumen.frames(2);
+        through = lumen.app().playhead();
     }
+    lumen.wait_for("the final value to occupy an audio position", |app| {
+        app.playhead() > through
+    });
     assert!(
         lumen.app().recording_automation(KEYS, target),
         "no end yet: still held with no pointer down"

@@ -22,6 +22,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
+use crate::capture::{CaptureReader, CaptureSink, capture};
 use crate::mixer::{Buses, TrackSource};
 use crate::source::{Inputs, Mode, RenderContext};
 
@@ -64,6 +65,9 @@ pub struct InputRoute {
     /// plays on both sides.
     pub stereo: bool,
     pub monitoring: Monitoring,
+    /// The track records this input while the transport records: the engine
+    /// keeps what arrives (see [`crate::capture`]).
+    pub record: bool,
 }
 
 /// What an input channel read since it was last taken.
@@ -100,6 +104,7 @@ pub struct InputHandle {
     incoming: rtrb::Producer<Box<[InputRoute]>>,
     retired: rtrb::Consumer<Box<[InputRoute]>>,
     meters: Arc<Meters>,
+    capture: Option<CaptureReader>,
 }
 
 impl InputHandle {
@@ -122,6 +127,12 @@ impl InputHandle {
             rms: f32::from_bits(slot.power.load(Ordering::Relaxed)).sqrt(),
             clipped: slot.clipped.swap(false, Ordering::Relaxed),
         }
+    }
+
+    /// The reading end of what recording tracks keep, to hand to the worker
+    /// that writes it. Once: later calls return `None`.
+    pub fn take_capture(&mut self) -> Option<CaptureReader> {
+        self.capture.take()
     }
 
     /// Blocks so far that were larger than the monitoring buffer.
@@ -163,12 +174,14 @@ pub struct InputPlayer {
     held_frames: usize,
     /// The device frame the held block began on.
     held_at: u64,
+    capture: CaptureSink,
 }
 
 /// Makes the pair. Allocates: call it off the audio thread.
 pub fn input_player() -> (InputHandle, InputPlayer) {
     let (incoming_tx, incoming_rx) = rtrb::RingBuffer::new(QUEUE);
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(QUEUE + 1);
+    let (reader, sink) = capture();
     let meters = Arc::new(Meters {
         slots: std::array::from_fn(|_| Slot::default()),
         oversized: AtomicU64::new(0),
@@ -178,6 +191,7 @@ pub fn input_player() -> (InputHandle, InputPlayer) {
             incoming: incoming_tx,
             retired: retired_rx,
             meters: Arc::clone(&meters),
+            capture: Some(reader),
         },
         InputPlayer {
             incoming: incoming_rx,
@@ -190,6 +204,7 @@ pub fn input_player() -> (InputHandle, InputPlayer) {
             held_channels: 0,
             held_frames: 0,
             held_at: 0,
+            capture: sink,
         },
     )
 }
@@ -221,6 +236,25 @@ impl InputPlayer {
             if let Err(rtrb::PushError::Full(routes)) = self.retired.push(routes) {
                 self.stash = Some(routes);
             }
+        }
+    }
+
+    /// Keeps the part's frames of every route that records, stamped with the
+    /// timeline sample heard at the part's first frame: the render position
+    /// leads what is heard by the read ahead.
+    fn keep(&mut self, cx: &RenderContext<'_>, from: usize, frames: usize) {
+        let ahead = cx.stream.saturating_sub(cx.device) as i64;
+        let at = cx.start - ahead;
+        let held = self.held_frames;
+        for playing in &self.playing {
+            let route = &playing.route;
+            if !route.record || !self.has(route) {
+                continue;
+            }
+            let side = |channel: usize| &self.held[channel * held + from..][..frames];
+            let right = route.stereo.then(|| side(route.channel + 1));
+            self.capture
+                .push(route.track, cx.device, at, side(route.channel), right);
         }
     }
 
@@ -287,6 +321,9 @@ impl TrackSource for InputPlayer {
         };
         if from + frames > held {
             return;
+        }
+        if cx.recording && cx.mode == Mode::Play {
+            self.keep(cx, from, frames);
         }
         let step = 1.0 / (cx.sample_rate / GLIDE_PER_SECOND).max(1) as f32;
         for index in 0..self.playing.len() {
@@ -365,6 +402,7 @@ mod tests {
             channel,
             stereo,
             monitoring,
+            record: false,
         }
     }
 
@@ -488,6 +526,152 @@ mod tests {
             render(&mut player, Mode::Play, false, 999, 8)[0]
                 .iter()
                 .all(|&x| x == 0.0)
+        );
+    }
+
+    /// A route that records.
+    fn recording(channel: usize, stereo: bool, monitoring: Monitoring) -> InputRoute {
+        InputRoute {
+            record: true,
+            ..route(channel, stereo, monitoring)
+        }
+    }
+
+    /// Renders one part of `frames` at device frame `device`, where the
+    /// timeline is at `start` and the stream leads the device by `lead`.
+    fn part(
+        player: &mut InputPlayer,
+        cx: (Mode, bool, bool),
+        start: i64,
+        lead: u64,
+        device: u64,
+        frames: usize,
+    ) {
+        let (mode, recording, tail) = cx;
+        let timeline = crate::Timeline::default();
+        let cx = RenderContext {
+            timeline: &timeline,
+            sample_rate: RATE,
+            start,
+            tail,
+            stopping: false,
+            mode,
+            stream: device + lead,
+            device,
+            recording,
+            looping: None,
+            deadline: None,
+        };
+        let by_id = [(TRACK, 0u32)];
+        let mut data = vec![0.0; 2 * CHUNK];
+        player.render(&cx, &mut Buses::over(&by_id, &mut data, frames));
+    }
+
+    fn kept(handle: &mut InputHandle) -> (Vec<crate::capture::Chunk>, Vec<Vec<f32>>) {
+        let mut reader = handle.take_capture().unwrap();
+        let (mut chunks, mut samples) = (Vec::new(), Vec::new());
+        let mut buf = Vec::new();
+        while let Some(chunk) = reader.next(&mut buf) {
+            chunks.push(chunk);
+            samples.push(buf.clone());
+        }
+        (chunks, samples)
+    }
+
+    #[test]
+    fn recording_keeps_a_routes_frames_with_the_sample_heard_at_the_first() {
+        // Monitoring Never: the take is kept all the same.
+        let (mut handle, mut player) = fed(&[recording(1, false, Monitoring::Never)], 2, 128);
+        // The render position is 1000 and leads what is heard by 300.
+        part(&mut player, (Mode::Play, true, false), 1_000, 300, 0, 128);
+        let (chunks, samples) = kept(&mut handle);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(
+            chunks[0],
+            crate::capture::Chunk {
+                track: TRACK,
+                device: 0,
+                at: 700,
+                frames: 128,
+                channels: 1
+            }
+        );
+        assert!(samples[0].iter().all(|&x| (x - 0.02).abs() < 1e-6));
+    }
+
+    #[test]
+    fn a_pair_is_kept_as_two_channels_and_a_part_reads_its_place_in_the_block() {
+        let (mut handle, mut player) = input_player();
+        handle.set_routes(&[recording(0, true, Monitoring::Armed)]);
+        let left: Vec<f32> = (0..256).map(|i| i as f32).collect();
+        let right: Vec<f32> = (0..256).map(|i| -(i as f32)).collect();
+        let data = [left.clone(), right.clone()].concat();
+        player.input(&Inputs {
+            device: 5_000,
+            sample_rate: RATE,
+            channels: 2,
+            frames: 256,
+            data: &data,
+        });
+        part(&mut player, (Mode::Play, true, false), 40, 0, 5_100, 64);
+        let (chunks, samples) = kept(&mut handle);
+        assert_eq!(
+            (chunks[0].device, chunks[0].at, chunks[0].channels),
+            (5_100, 40, 2)
+        );
+        assert_eq!(&samples[0][..64], &left[100..164]);
+        assert_eq!(&samples[0][64..], &right[100..164]);
+    }
+
+    #[test]
+    fn nothing_is_kept_unless_the_transport_records_a_playing_part_for_a_route_that_records() {
+        let armed = [recording(0, false, Monitoring::Armed)];
+        for (name, cx) in [
+            ("not recording", (Mode::Play, false, false)),
+            ("stopped", (Mode::Ring, true, false)),
+            ("scrubbing", (Mode::Scrub, true, false)),
+            ("a tail", (Mode::Play, true, true)),
+        ] {
+            let (mut handle, mut player) = fed(&armed, 1, 128);
+            part(&mut player, cx, 0, 0, 0, 128);
+            assert!(kept(&mut handle).0.is_empty(), "{name}");
+        }
+        let (mut handle, mut player) = fed(&[route(0, false, Monitoring::Armed)], 1, 128);
+        part(&mut player, (Mode::Play, true, false), 0, 0, 0, 128);
+        assert!(
+            kept(&mut handle).0.is_empty(),
+            "a route that does not record"
+        );
+        let (mut handle, mut player) = fed(&[recording(5, false, Monitoring::Armed)], 1, 128);
+        part(&mut player, (Mode::Play, true, false), 0, 0, 0, 128);
+        assert!(kept(&mut handle).0.is_empty(), "a channel the stream lacks");
+    }
+
+    #[test]
+    fn consecutive_parts_follow_each_other_and_two_routes_keep_two_chunks() {
+        let routes = [
+            recording(0, false, Monitoring::Never),
+            InputRoute {
+                track: 8,
+                ..recording(1, false, Monitoring::Never)
+            },
+        ];
+        let (mut handle, mut player) = fed(&routes, 2, 128);
+        part(&mut player, (Mode::Play, true, false), 10, 0, 0, 100);
+        part(&mut player, (Mode::Play, true, false), 110, 0, 100, 28);
+        let (chunks, _) = kept(&mut handle);
+        let seen: Vec<_> = chunks
+            .iter()
+            .map(|c| (c.track, c.device, c.at, c.frames))
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                (TRACK, 0, 10, 100),
+                (8, 0, 10, 100),
+                (TRACK, 100, 110, 28),
+                (8, 100, 110, 28)
+            ]
         );
     }
 

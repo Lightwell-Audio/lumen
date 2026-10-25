@@ -13,6 +13,7 @@
 
 mod access;
 mod audio_input;
+mod audio_record;
 mod audition;
 mod automation;
 mod barfit;
@@ -206,6 +207,49 @@ impl Lumen {
                 return;
             }
             assert!(started.elapsed() < PATIENCE, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Runs frames until `done` holds, for as long as background work may
+    /// take ([`PATIENCE`]), never a count of frames: a worker thread answers
+    /// in its own time, and on a loaded machine that can take far longer
+    /// than a few hundred frames. For state that is drawn or that the test
+    /// holds; [`wait_for`](Self::wait_for) reads the app's.
+    #[track_caller]
+    pub fn run_until(&mut self, what: &str, done: impl Fn(&Lumen) -> bool) {
+        let started = Instant::now();
+        loop {
+            self.frames(1);
+            if done(self) {
+                return;
+            }
+            assert!(started.elapsed() < PATIENCE, "{what} never happened");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Opens the settings window on its MIDI page. The tab is clicked until
+    /// it is the chosen one, never a fixed number of frames after the window
+    /// opens: a click that lands while the window is still being laid out
+    /// does nothing (as it would for a user), and on a loaded machine that
+    /// was enough to leave the page unopened.
+    #[track_caller]
+    pub fn open_midi_settings(&mut self) {
+        self.click("Lumen");
+        self.click("Audio and MIDI settings\u{2026}");
+        let started = Instant::now();
+        loop {
+            self.harness.get_by_label("MIDI tab").click();
+            self.frames(3);
+            // A chosen tab reports as on.
+            if self.is_on("MIDI tab") {
+                return;
+            }
+            assert!(
+                started.elapsed() < PATIENCE,
+                "timed out waiting for the MIDI page"
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
     }

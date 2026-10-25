@@ -2,8 +2,6 @@
 //! the settings' MIDI page, the switches open them, are saved, and come
 //! back with the device; a port that will not open says so.
 
-use std::time::Duration;
-
 use lumen_midi::Direction;
 use lumen_midi::fake::FakeControl;
 
@@ -18,25 +16,14 @@ fn start(name: &str, fake: &FakeControl) -> Lumen {
 }
 
 fn open_midi_page(lumen: &mut Lumen) {
-    lumen.click("Lumen");
-    lumen.click("Audio and MIDI settings\u{2026}");
-    lumen.click("MIDI tab");
+    lumen.open_midi_settings();
 }
 
 /// Runs frames until the page shows (or no longer shows) `label`.
 #[track_caller]
 fn until_shown(lumen: &mut Lumen, label: &str, shown: bool) {
-    for _ in 0..400 {
-        lumen.frames(1);
-        if lumen.shows(label) == shown {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    panic!(
-        "{label:?} never {}",
-        if shown { "appeared" } else { "left" }
-    );
+    let what = format!("{label:?} {}", if shown { "appearing" } else { "leaving" });
+    lumen.run_until(&what, |l| l.shows(label) == shown);
 }
 
 /// Runs frames until the switch named `label` is (or is no longer) on. A
@@ -44,14 +31,14 @@ fn until_shown(lumen: &mut Lumen, label: &str, shown: bool) {
 /// only after a round trip to that thread: never read it straight after one.
 #[track_caller]
 fn until_on(lumen: &mut Lumen, label: &str, on: bool) {
-    for _ in 0..400 {
-        lumen.frames(1);
-        if lumen.is_on(label) == on {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    panic!("{label:?} never turned {}", if on { "on" } else { "off" });
+    let what = format!("{label:?} turning {}", if on { "on" } else { "off" });
+    lumen.run_until(&what, |l| l.is_on(label) == on);
+}
+
+/// Runs frames until `open` input ports are open on the fake system.
+#[track_caller]
+fn until_open_inputs(lumen: &mut Lumen, fake: &FakeControl, open: usize) {
+    lumen.run_until("the input ports opening", |_| fake.open_inputs() == open);
 }
 
 #[test]
@@ -88,13 +75,7 @@ fn a_switch_opens_the_port_and_is_remembered_with_the_device() {
     assert_eq!(fake.open_inputs(), 0, "off until switched on");
     lumen.click("Track Keystation input");
     until_on(&mut lumen, "Track Keystation input", true);
-    for _ in 0..200 {
-        if fake.open_inputs() == 1 {
-            break;
-        }
-        lumen.frames(1);
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    until_open_inputs(&mut lumen, &fake, 1);
     assert_eq!(fake.open_inputs(), 1);
     assert_eq!(
         lumen.app().saved_midi_ports(),
@@ -107,13 +88,7 @@ fn a_switch_opens_the_port_and_is_remembered_with_the_device() {
     assert_eq!(fake.open_inputs(), 0);
     fake.plug(Direction::Input, "Keystation");
     until_shown(&mut lumen, "Track Keystation input", true);
-    for _ in 0..200 {
-        if fake.open_inputs() == 1 {
-            break;
-        }
-        lumen.frames(1);
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    until_open_inputs(&mut lumen, &fake, 1);
     assert_eq!(fake.open_inputs(), 1);
     until_on(&mut lumen, "Track Keystation input", true);
 }

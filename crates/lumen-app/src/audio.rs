@@ -20,6 +20,7 @@ use lumen_engine::{
 
 use crate::midi_out::StreamClock;
 use crate::settings::AudioSettings;
+use crate::take_worker::TakeWorker;
 
 /// What the test device's tap holds: 40 seconds of the fake device's
 /// playback (it runs at about a quarter of real time), left and right.
@@ -146,16 +147,54 @@ fn test_backend(pace: Pace) -> Box<dyn Backend> {
 }
 
 /// The one device behind [`TEST_INPUT_DRIVER`]: a scenario sets its
-/// `input_levels` while the stream runs.
+/// `input_levels` while the stream runs. Scenarios that script it take
+/// [`input_device_turn`], which hands it over clean.
 pub fn input_device() -> lumen_audio::fake::FakeControl {
     static DEVICE: std::sync::OnceLock<lumen_audio::fake::FakeControl> = std::sync::OnceLock::new();
     DEVICE
         .get_or_init(|| {
             let control = lumen_audio::fake::FakeControl::new();
-            control.set(|device| device.pace = Some(Pace::Every(TEST_BLOCK_EVERY)));
+            as_a_test_device(&control);
             control
         })
         .clone()
+}
+
+/// What makes a fake device the test input device: its slow, steady pace.
+fn as_a_test_device(control: &lumen_audio::fake::FakeControl) {
+    control.set(|device| device.pace = Some(Pace::Every(TEST_BLOCK_EVERY)));
+}
+
+/// A scenario's turn on the input test device, which every scenario that
+/// plays it shares (it is one device per process). Held for the scenario's
+/// life: the next one waits for it to be dropped.
+pub struct InputDeviceTurn {
+    device: lumen_audio::fake::FakeControl,
+    _turn: std::sync::MutexGuard<'static, ()>,
+}
+
+impl InputDeviceTurn {
+    /// Scripts the device (`FakeDevice::input_levels`, `input_ramp`, ...).
+    pub fn set(&self, f: impl FnOnce(&mut lumen_audio::fake::FakeDevice)) {
+        self.device.set(f);
+    }
+}
+
+/// Waits for the input test device and takes it, put back as it first was:
+/// nothing a scenario before this one scripted (a ramp, levels, a missing
+/// device) is left on it, whichever scenario ran before and whatever it set.
+pub fn input_device_turn() -> InputDeviceTurn {
+    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // A scenario that failed holds the turn while it unwinds; the device is
+    // reset below, so a poisoned turn is as good as a free one.
+    let turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let device = input_device();
+    device.reset();
+    as_a_test_device(&device);
+    InputDeviceTurn {
+        device,
+        _turn: turn,
+    }
 }
 
 /// Whether `driver` is one of the silent test devices.
@@ -359,6 +398,8 @@ pub struct Audio {
     /// Where audio tracks take their input from, and what the inputs read
     /// (M9 slice R1).
     pub inputs: InputHandle,
+    /// Writes what recording audio tracks take to disk (M9 slice R2).
+    pub(crate) takes: TakeWorker,
     /// What the test device played, left and right frame by frame, for the
     /// end-to-end tests to listen to (`testing`). Real devices have none.
     pub(crate) heard: Option<rtrb::Consumer<f32>>,
@@ -415,7 +456,12 @@ impl Audio {
     pub fn start(choice: &Choice, timeline: Timeline) -> Self {
         let (clips, player) = clip_player();
         let (midi, midi_play) = midi_player();
-        let (inputs, input_play) = input_player();
+        let (mut inputs, input_play) = input_player();
+        let takes = TakeWorker::spawn(
+            inputs
+                .take_capture()
+                .expect("a new input player still has its capture end"),
+        );
         let (mixer, source) = mixer(Layered(player, Layered(midi_play, input_play)));
         let (engine_handle, mut engine) = engine(timeline, source, 48_000);
         let testing = match choice {
@@ -458,6 +504,7 @@ impl Audio {
             clock,
             mixer,
             inputs,
+            takes,
             heard,
             status: Status::Off(String::new()),
             driver: String::new(),
@@ -848,6 +895,30 @@ impl Audio {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_turn_on_the_input_device_starts_from_a_clean_one() {
+        // A scenario scripts everything it can and ends, as one that fails does.
+        {
+            let turn = input_device_turn();
+            turn.set(|d| {
+                d.input_ramp = true;
+                d.input_levels = vec![0.5, 0.25];
+                d.present = false;
+                d.inputs = 8;
+                d.pace = None;
+            });
+        }
+        // The next one finds none of it.
+        let turn = input_device_turn();
+        let device = input_device();
+        let mut seen = None;
+        device.set(|d| seen = Some((d.input_ramp, d.input_levels.clone(), d.present, d.inputs)));
+        assert_eq!(seen, Some((false, Vec::new(), true, 2)));
+        // And it is still the slow, steady test device.
+        device.set(|d| assert_eq!(d.pace, Some(Pace::Every(TEST_BLOCK_EVERY))));
+        drop(turn);
+    }
+
     use super::*;
 
     #[test]

@@ -11,9 +11,13 @@
 //! progress.
 
 mod peaks;
+pub mod take;
 pub mod wav;
 
-pub use peaks::{BASE as PEAK_BASE, Bucket, FACTOR as PEAK_FACTOR, LEVELS as PEAK_LEVELS, Peaks};
+pub use peaks::{
+    BASE as PEAK_BASE, Bucket, FACTOR as PEAK_FACTOR, Growing as GrowingPeaks,
+    LEVELS as PEAK_LEVELS, Peaks,
+};
 
 use std::fs::File;
 use std::path::Path;

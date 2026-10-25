@@ -26,6 +26,8 @@ pub enum Action {
     Apply(AudioSettings),
     ControlPanel,
     TestTone(bool),
+    /// The recording offset, in milliseconds (M9 slice R2).
+    RecordOffset(f32),
     DismissNotice,
     /// Something on the MIDI page.
     Midi(crate::midi::Action),
@@ -199,6 +201,35 @@ pub(crate) fn section(ui: &mut Ui, title: &str) {
 }
 
 /// A label in the left column and `contents` beside it.
+/// The recording offset field: milliseconds added to the latency the driver
+/// reports, for drivers that report it wrongly.
+fn record_offset(ui: &mut Ui, offset_ms: f32, actions: &mut Vec<Action>) {
+    row(ui, "Recording offset", |ui| {
+        let mut ms = offset_ms;
+        let field = ui
+            .add(
+                egui::DragValue::new(&mut ms)
+                    .range(-500.0..=500.0)
+                    .update_while_editing(false)
+                    .speed(0.1)
+                    .max_decimals(1)
+                    .suffix(" ms"),
+            )
+            .on_hover_text(
+                "Moves what you record earlier (positive) or later (negative), after the latency the driver reports has been removed. Double-click to reset.",
+            );
+        field.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, "Recording offset")
+        });
+        if field.double_clicked() {
+            ms = 0.0;
+        }
+        if (ms - offset_ms).abs() > f32::EPSILON {
+            actions.push(Action::RecordOffset(ms));
+        }
+    });
+}
+
 fn row(ui: &mut Ui, label: &str, contents: impl FnOnce(&mut Ui)) {
     ui.horizontal(|ui| {
         ui.allocate_ui_with_layout(
@@ -277,6 +308,7 @@ impl Window {
         audio: &Audio,
         midi: crate::midi_settings::Shown<'_>,
         test_tone: bool,
+        record_offset_ms: f32,
     ) -> Vec<Action> {
         let mut actions = Vec::new();
         if !self.open {
@@ -313,7 +345,7 @@ impl Window {
                         ui.ctx()
                             .request_repaint_after(std::time::Duration::from_millis(300));
                     } else {
-                        self.contents(ui, audio, test_tone, &mut actions);
+                        self.contents(ui, audio, test_tone, record_offset_ms, &mut actions);
                     }
                 });
         let open = !close;
@@ -321,7 +353,14 @@ impl Window {
         actions
     }
 
-    fn contents(&mut self, ui: &mut Ui, audio: &Audio, test_tone: bool, actions: &mut Vec<Action>) {
+    fn contents(
+        &mut self,
+        ui: &mut Ui,
+        audio: &Audio,
+        test_tone: bool,
+        record_offset_ms: f32,
+        actions: &mut Vec<Action>,
+    ) {
         let ctx = ui.ctx().clone();
         let current = audio.settings();
         let driver = self
@@ -740,6 +779,9 @@ impl Window {
                         "As the driver reports them, including its safety buffers",
                     );
                 });
+                if i.input_channels > 0 {
+                    record_offset(ui, record_offset_ms, actions);
+                }
             }
             None => row(ui, "", |ui| hint(ui, "Shown once the device is running")),
         }

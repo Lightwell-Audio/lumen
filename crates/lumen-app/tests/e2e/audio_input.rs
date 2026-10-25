@@ -6,19 +6,16 @@
 //! monitoring) and a disarmed one is not. They share the process-wide input
 //! test device, so they take turns.
 
-use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers, Pos2};
 use egui_kittest::kittest::Queryable;
+use lumen_app::testing::InputDeviceTurn;
 use lumen_project::model::{AudioInput, Color, Id, Monitor, Project, Track, TrackKind};
 use lumen_project::testing::{TempDir, project_of};
 
 use super::Lumen;
 use super::midi_play::palette;
-
-/// The scenarios take turns on the one input device.
-static DEVICE: Mutex<()> = Mutex::new(());
 
 const VOX: Id = Id(21);
 const GTR: Id = Id(22);
@@ -34,9 +31,10 @@ fn project() -> Project {
 }
 
 /// Starts on the input device with both tracks, and nothing on its inputs.
-fn launch(name: &str) -> (Lumen, MutexGuard<'static, ()>) {
-    let turn = DEVICE.lock().unwrap_or_else(|e| e.into_inner());
-    lumen_app::testing::input_device().set(|d| d.input_levels = Vec::new());
+fn launch(name: &str) -> (Lumen, InputDeviceTurn) {
+    // The device is shared, so the scenario waits for its turn; it is handed
+    // over silent.
+    let turn = lumen_app::testing::input_device_turn();
     let dir = TempDir::new(&format!("e2e-{name}"));
     let path = dir.path().join("song.lumen");
     lumen_project::save(&project(), &path, &Default::default()).expect("save");

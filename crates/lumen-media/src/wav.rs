@@ -54,13 +54,13 @@ pub struct Spec {
 
 /// The size of the header in front of the audio: `RIFF`, `fmt ` and the start
 /// of `data`.
-const HEADER: u64 = 44;
+pub(crate) const HEADER: u64 = 44;
 
-fn header(spec: Spec, data: u32) -> [u8; HEADER as usize] {
+pub(crate) fn header(spec: Spec, data: u32) -> [u8; HEADER as usize] {
     let block = spec.channels * spec.sample.bytes();
     let mut out = Vec::with_capacity(HEADER as usize);
     out.extend(b"RIFF");
-    out.extend((36 + data).to_le_bytes());
+    out.extend(36_u32.saturating_add(data).to_le_bytes());
     out.extend(b"WAVEfmt ");
     out.extend(16_u32.to_le_bytes());
     out.extend(spec.sample.tag().to_le_bytes());
@@ -84,7 +84,7 @@ fn whole(v: f32, bits: u32) -> i32 {
         .clamp(-scale, scale - 1.0) as i32
 }
 
-fn io(error: std::io::Error) -> MediaError {
+pub(crate) fn io(error: std::io::Error) -> MediaError {
     MediaError::Io(error.to_string())
 }
 

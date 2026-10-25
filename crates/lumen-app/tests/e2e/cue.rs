@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_core::time::Ticks;
 
 use super::{Lumen, wav};
@@ -32,21 +32,40 @@ fn choose_cue_pair(lumen: &mut Lumen) {
     // The pair is listed under Output and under Cue: the second is the cue.
     let label = "3/4   Out 3 / Out 4";
     // The window lists the device's outputs once its background look-up
-    // answers (under a busy test run, a few frames later).
-    for _ in 0..200 {
-        if lumen.harness.query_all_by_label(label).count() >= 2 {
+    // answers, which on a loaded machine can take a while: wait for both
+    // lists, or the last one found would be the Output list's.
+    lumen.run_until("the outputs listed under Output and Cue", |l| {
+        l.harness.query_all_by_label(label).count() >= 2
+    });
+    // The lookup changes the window's height. egui can reposition it on
+    // the next frame, so a click at the first reported rectangle may miss.
+    // Keep the window open and select the pair until the control confirms
+    // the choice, just as open_midi_settings waits for its tab to be on.
+    let started = std::time::Instant::now();
+    loop {
+        let cue = lumen
+            .harness
+            .query_all_by_label(label)
+            .last()
+            .expect("the cue pair is offered");
+        cue.click();
+        lumen.frames(3);
+        let chosen = lumen
+            .harness
+            .query_all_by_label(label)
+            .last()
+            .is_some_and(|cue| {
+                cue.accesskit_node().toggled() == Some(eframe::egui::accesskit::Toggled::True)
+            });
+        if chosen {
             break;
         }
-        lumen.frames(1);
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert!(
+            started.elapsed() < super::PATIENCE,
+            "the cue pair selection was not accepted"
+        );
+        std::thread::sleep(Duration::from_millis(5));
     }
-    let cue = lumen
-        .harness
-        .query_all_by_label(label)
-        .last()
-        .expect("the cue pair is offered");
-    cue.click();
-    lumen.frames(3);
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.wait_for("the cue pair to open", |app| app.cue_ready());
 }

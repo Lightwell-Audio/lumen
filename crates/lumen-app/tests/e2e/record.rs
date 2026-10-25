@@ -31,6 +31,7 @@ use lumen_project::model::{
 use lumen_project::testing::{TempDir, midi_track, project_of};
 
 use super::Lumen;
+use super::midi_from::switch_on_for_tracks;
 use super::midi_play::{palette, wait_open};
 
 /// The fake keyboard's input port.
@@ -185,32 +186,6 @@ pub(super) fn launch(name: &str, project: &Project, fake: &FakeControl) -> Lumen
     lumen.frames(30);
     switch_on_for_tracks(&mut lumen, fake, PORT);
     lumen
-}
-
-/// Opens the settings' MIDI page and switches the input on for tracks.
-fn switch_on_for_tracks(lumen: &mut Lumen, fake: &FakeControl, port: &str) {
-    lumen.click("Lumen");
-    lumen.click("Audio and MIDI settings\u{2026}");
-    lumen.click("MIDI tab");
-    let label = format!("Track {port} input");
-    for _ in 0..400 {
-        lumen.frames(1);
-        if lumen.shows(&label) {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    lumen.click(&label);
-    for _ in 0..400 {
-        lumen.frames(1);
-        if fake.open_inputs() == 1 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    assert_eq!(fake.open_inputs(), 1, "the input opened");
-    lumen.key(Modifiers::NONE, Key::Escape);
-    lumen.frames(10);
 }
 
 /// Record (F9) from stop, with no count-in: runs until the playhead moves.
@@ -595,7 +570,7 @@ fn a_count_in_holds_the_playhead_and_keeps_nothing_played_during_it() {
 
 /// Record with nothing armed does not start, and says why.
 #[test]
-fn record_with_no_armed_midi_track_does_not_start_and_says_so() {
+fn record_with_no_armed_track_does_not_start_and_says_so() {
     let fake = keyboard();
     let project = project_of("Record", vec![track(None, false)]);
     let mut lumen = launch("unarmed", &project, &fake);
@@ -607,7 +582,7 @@ fn record_with_no_armed_midi_track_does_not_start_and_says_so() {
         lumen
             .app()
             .record_notice()
-            .is_some_and(|n| n.contains("Arm a MIDI track")),
+            .is_some_and(|n| n.contains("Arm a track")),
         "the notice says to arm a track: {:?}",
         lumen.app().record_notice()
     );
