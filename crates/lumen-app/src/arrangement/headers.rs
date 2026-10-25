@@ -28,8 +28,10 @@ pub(super) const NAME_X: f32 = 48.0;
 /// (the design system's `.is-dim`).
 pub(super) const SILENCED: f32 = 0.45;
 /// The volume slider's value text rises this far, clear of the level bars
-/// drawn along its bottom (the owner's report: the meter sat against it).
-const METER_LIFT: f32 = 3.0;
+/// drawn along its bottom (the owner's report: the meter sat against it), and
+/// no further, or the text crowds the top edge (the owner's report on the
+/// idle field). The In chip's text lifts the same.
+pub(super) const METER_LIFT: f32 = 1.5;
 use crate::theme::Tone;
 use crate::widgets::raised;
 use crate::{fonts, motion, theme};

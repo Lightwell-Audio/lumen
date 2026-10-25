@@ -28,10 +28,6 @@ pub(super) fn chip_size() -> egui::Vec2 {
     vec2(40.0, 20.0)
 }
 
-/// How far the chip's text sits above its centre: the volume field's own
-/// lift, so the two read on one line (the level runs along the foot of both).
-const TEXT_LIFT: f32 = 3.0;
-
 /// The device's inputs, as the menus offer them, lent by the app each frame.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct InputChoices {
@@ -263,7 +259,7 @@ impl Arrangement {
             chip_text(track.input)
         };
         ui.painter().text(
-            body.center() - vec2(0.0, TEXT_LIFT),
+            body.center() - vec2(0.0, super::headers::METER_LIFT),
             Align2::CENTER_CENTER,
             widgets::fit(
                 ui.painter(),
