@@ -3,18 +3,79 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lumen · Where songs come to light</title>
+<title>Lumen · Where songs come to light · Open-source DAW</title>
 <meta name="description" content="Lumen is a free, open-source digital audio workstation written in Rust: one arrangement view, VST3 instruments and effects, a piano roll, automation and a mixer. In early development.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://gummycookie.github.io/lumen/">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0B0D10">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="canonical" href="https://gummycookie.github.io/lumen/">
+<link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="Lumen">
+<meta property="og:locale" content="en_US">
 <meta property="og:title" content="Lumen · Where songs come to light">
 <meta property="og:description" content="Lumen is a free, open-source digital audio workstation written in Rust: one arrangement view, VST3 instruments and effects, a piano roll, automation and a mixer. In early development.">
 <meta property="og:url" content="https://gummycookie.github.io/lumen/">
-<meta property="og:image" content="https://gummycookie.github.io/lumen/assets/video/hero.webp">
+<meta property="og:image" content="https://gummycookie.github.io/lumen/og.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Lumen: where songs come to light. The arrangement view with drums, bass, keys, pad, lead and vocal tracks.">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Lumen · Where songs come to light">
+<meta name="twitter:description" content="Lumen is a free, open-source digital audio workstation written in Rust: one arrangement view, VST3 instruments and effects, a piano roll, automation and a mixer. In early development.">
+<meta name="twitter:image" content="https://gummycookie.github.io/lumen/og.jpg">
+<meta name="twitter:image:alt" content="Lumen: where songs come to light. The arrangement view with drums, bass, keys, pad, lead and vocal tracks.">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "WebSite",
+   "@id": "https://gummycookie.github.io/lumen/#website",
+   "url": "https://gummycookie.github.io/lumen/",
+   "name": "Lumen",
+   "description": "Lumen is a free, open-source digital audio workstation written in Rust: one arrangement view, VST3 instruments and effects, a piano roll, automation and a mixer. In early development.",
+   "inLanguage": "en"
+  },
+  {
+   "@type": "SoftwareApplication",
+   "@id": "https://gummycookie.github.io/lumen/#app",
+   "name": "Lumen",
+   "url": "https://gummycookie.github.io/lumen/",
+   "description": "Lumen is a free, open-source digital audio workstation written in Rust: one arrangement view, VST3 instruments and effects, a piano roll, automation and a mixer. In early development.",
+   "applicationCategory": "MultimediaApplication",
+   "applicationSubCategory": "Digital audio workstation",
+   "operatingSystem": "Windows 10, Windows 11, macOS, Linux",
+   "image": "https://gummycookie.github.io/lumen/og.jpg",
+   "screenshot": "https://gummycookie.github.io/lumen/assets/video/hero.webp",
+   "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+   "isAccessibleForFree": true,
+   "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+   },
+   "sameAs": [
+    "https://github.com/gummycookie/lumen"
+   ]
+  },
+  {
+   "@type": "SoftwareSourceCode",
+   "name": "Lumen",
+   "codeRepository": "https://github.com/gummycookie/lumen",
+   "programmingLanguage": "Rust",
+   "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+   "targetProduct": {
+    "@id": "https://gummycookie.github.io/lumen/#app"
+   }
+  }
+ ]
+}
+</script>
 <link rel="preload" href="assets/fonts/Inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/Unbounded.woff2" as="font" type="font/woff2" crossorigin>
 <style>
@@ -164,7 +225,7 @@ a{color:#8CC4FF}a:hover{color:#FFD99E}
       <div class="lm-up" style="flex: 0 1 300px; position: relative; display: flex; justify-content: center; align-items: center; min-height: 300px; animation-delay: .3s;">
         <div class="lm-halo" aria-hidden="true" style="position: absolute; width: 280px; height: 280px; border-radius: 50%; background: radial-gradient(closest-side, rgba(255,196,107,.55), rgba(255,160,72,.18) 55%, transparent 75%);"></div>
         <div class="lm-halo" aria-hidden="true" style="position: absolute; width: 300px; height: 300px; border-radius: 50%; border: 1px solid rgba(255,214,150,.25); animation-delay: -2.5s;"></div>
-        <img class="lm-bob" src="assets/img/lumi-wave.webp" alt="Lumi, Lumen's amber light-spirit mascot, waving in blue headphones" style="position: relative; width: 240px; height: auto; filter: drop-shadow(0 18px 30px rgba(0,0,0,.45));">
+        <img class="lm-bob" src="assets/img/lumi-wave.webp" width="240" height="240" alt="Lumi, Lumen's amber light-spirit mascot, waving in blue headphones" style="position: relative; width: 240px; height: auto; filter: drop-shadow(0 18px 30px rgba(0,0,0,.45));">
       </div>
     </section>
 
@@ -307,7 +368,7 @@ a{color:#8CC4FF}a:hover{color:#FFD99E}
   </section>
   <section id="download" style="max-width: 1160px; margin: 0 auto; padding: 0 24px 104px;">
     <div class="lm-reveal" style="position: relative; overflow: hidden; border-radius: 20px; padding: 48px 36px; display: flex; flex-wrap: wrap; gap: 24px; align-items: center; background: radial-gradient(ellipse at 100% 0%, rgba(255,170,72,.45), transparent 55%), radial-gradient(ellipse at 0% 100%, rgba(79,163,255,.3), transparent 60%), #14161A; border: 1px solid rgba(255,196,107,.3);">
-      <img class="lm-bob" src="assets/img/lumi-headphones.webp" alt="Lumi adjusting its headphones" style="width: 120px; height: auto; position: relative;">
+      <img class="lm-bob" src="assets/img/lumi-headphones.webp" width="120" height="120" alt="Lumi adjusting its headphones" style="width: 120px; height: auto; position: relative;">
       <div style="flex: 1 1 380px; display: flex; flex-direction: column; gap: 8px; position: relative;">
         <h2 style="margin: 0; font-family: Unbounded, Inter, sans-serif; font-weight: 600; font-size: 28px;">No installer yet</h2>
         <p style="margin: 0; color: #C3C8D2; line-height: 1.6;">Lumen is open source under GPL-3.0. You can build it from source today on Windows, macOS or Linux; installers arrive with 1.0.</p>
