@@ -1,0 +1,26 @@
+{
+  "name": "Lumen",
+  "short_name": "Lumen",
+  "description": "Lumen is a free, open-source digital audio workstation written in Rust: one arrangement view, VST3 instruments and effects, a piano roll, automation and a mixer. In early development.",
+  "start_url": "./",
+  "display": "browser",
+  "background_color": "#0B0D10",
+  "theme_color": "#0B0D10",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

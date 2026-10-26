@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://gummycookie.github.io/lumen/sitemap.xml
