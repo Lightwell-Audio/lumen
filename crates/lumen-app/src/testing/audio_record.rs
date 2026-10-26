@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 
+use lumen_core::time::Ticks;
 use lumen_project::model::Id;
 
 use crate::App;
@@ -35,6 +36,12 @@ impl App {
     /// The audio tracks whose old clips are silenced for the take under way.
     pub fn audio_tracks_recorded_over(&self) -> Vec<Id> {
         self.lanes.masked_tracks()
+    }
+
+    /// The span of `track` silenced in what the engine was last sent, for a
+    /// take under way or being placed: from, and until (`None`: no end).
+    pub fn audio_recorded_over(&self, track: Id) -> Option<(Ticks, Option<Ticks>)> {
+        self.lanes.masked_span(track)
     }
 
     /// Where the file of media `id` is on disk.

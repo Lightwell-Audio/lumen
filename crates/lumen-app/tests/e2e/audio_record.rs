@@ -545,3 +545,118 @@ fn looping_over_a_clip_that_reaches_outside_the_loop_replaces_only_the_loop() {
         );
     }
 }
+
+/// Moves the play marker to `quarters` by clicking the ruler.
+fn locate(lumen: &mut Lumen, quarters: i64) {
+    use egui_kittest::kittest::Queryable;
+    let ruler = lumen
+        .harness
+        .get_by_label("Ruler: click to move the playhead")
+        .rect();
+    let zoom = lumen.app().view().zoom as f32;
+    let at = eframe::egui::Pos2::new(ruler.left() + quarters as f32 * zoom, ruler.center().y);
+    lumen.drag(at, at, Modifiers::NONE);
+    let target = Ticks::quarters(quarters);
+    lumen.wait_for("the playhead", move |app| app.playhead() == target);
+}
+
+/// The owner's fifth run: a take begun half-way into a loop over an old
+/// clip. The old audio in the whole loop is silent from the first sample, so
+/// it is not heard when the playhead wraps to the loop's start; after Stop
+/// the late first pass is a take like the others and nothing old is left
+/// under the clip.
+#[test]
+fn a_take_begun_inside_a_loop_over_a_clip_silences_the_whole_loop_and_keeps_the_late_pass() {
+    let mut p = project_with_old_clip();
+    // A beat is 24,000 frames: the loop is beats 2 to 4, two beats long.
+    p.transport.loop_start = Ticks::quarters(2);
+    p.transport.loop_end = Ticks::quarters(4);
+    p.transport.loop_enabled = true;
+    let (mut lumen, _turn) = launch("inside-loop", &p, |l| l);
+    locate(&mut lumen, 3);
+    lumen.click("Arm Vox");
+    lumen.key(Modifiers::NONE, Key::F9);
+    lumen.wait_for("the recording to begin", |app| {
+        app.recording() && app.is_playing()
+    });
+    // Before the playhead has reached the loop's end, the whole loop is
+    // already silent in what the engine plays.
+    assert_eq!(
+        lumen.app().audio_recorded_over(VOX),
+        Some((Ticks::quarters(2), Some(Ticks::quarters(4)))),
+        "the loop from its start, not from where recording began"
+    );
+    // Half a pass, two whole passes and a little.
+    lumen.wait_for("frames to be written", |app| {
+        app.audio_take_frames(VOX)
+            .is_some_and(|f| f >= 24_000 + 2 * 48_000 + 4_000)
+    });
+    assert_eq!(
+        lumen.app().audio_recorded_over(VOX),
+        Some((Ticks::quarters(2), Some(Ticks::quarters(4)))),
+        "the same after the wraps"
+    );
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("the clip", |app| {
+        !app.recording() && clips_of_app(app, VOX).iter().any(|c| c.name != "Old")
+    });
+    lumen.wait_for("the old audio to play again outside the take", |app| {
+        app.audio_tracks_recorded_over().is_empty()
+    });
+    let clips = clips_of(&lumen, VOX);
+    assert!(
+        !clips.iter().any(|c| c.name.ends_with("lead-in")),
+        "begun inside the loop: no lead-in"
+    );
+    let take = clips.iter().find(|c| c.name != "Old").expect("the take");
+    assert_eq!(take.start, Ticks::quarters(2), "exactly over the loop");
+    assert_eq!(take.length, Ticks::quarters(2), "one loop long");
+    let takes = take.takes.as_ref().expect("the passes are takes");
+    assert!(
+        takes.count >= 3,
+        "the late first pass is a take: {}",
+        takes.count
+    );
+    assert_ne!(takes.active, 0, "a whole pass plays, not the late one");
+    // The late first pass is the file from its start (silence, then what was
+    // played from beat 3, the latency in), one loop before the second.
+    let offset = |k: u32| match takes.other(k) {
+        Some(lumen_project::model::Pass::Audio { offset, .. }) => *offset,
+        None => match take.content {
+            lumen_project::model::ClipContent::Audio { offset, .. } => offset,
+            _ => panic!("an audio clip"),
+        },
+        other => panic!("take {k}: {other:?}"),
+    };
+    assert!(offset(0) < 4_800, "the file's start: {}", offset(0));
+    assert_eq!(offset(1) - offset(0), 48_000);
+    let end = take.start + take.length;
+    for old in clips.iter().filter(|c| c.name == "Old") {
+        let old_end = old.start + old.length;
+        assert!(
+            old_end <= take.start || old.start >= end,
+            "old clip {:?}..{old_end:?} sits under the take",
+            old.start
+        );
+    }
+    assert!(
+        clips
+            .iter()
+            .any(|c| c.name == "Old" && c.start == Ticks::ZERO),
+        "the old audio before the loop plays on"
+    );
+    assert!(
+        clips
+            .iter()
+            .any(|c| c.name == "Old" && c.start + c.length == Ticks::quarters(8)),
+        "and after it"
+    );
+}
+
+fn clips_of_app(app: &App, id: Id) -> Vec<std::sync::Arc<Clip>> {
+    app.project()
+        .tracks
+        .iter()
+        .find(|t| t.id == id)
+        .map_or_else(Vec::new, |t| t.clips.clone())
+}

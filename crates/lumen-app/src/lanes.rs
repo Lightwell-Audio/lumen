@@ -375,6 +375,14 @@ impl Lanes {
         self.masked.iter().map(|r| r.track).collect()
     }
 
+    /// The span cut from `track`'s clips in that list (test seam).
+    pub fn masked_span(&self, track: Id) -> Option<(Ticks, Option<Ticks>)> {
+        self.masked
+            .iter()
+            .find(|r| r.track == track)
+            .map(|r| (r.from, r.until))
+    }
+
     pub fn is_loading(&self) -> bool {
         !self.pending.is_empty() || !self.landing.is_empty()
     }
@@ -971,7 +979,6 @@ mod tests {
                 track: first,
                 from: Ticks::quarters(1),
                 until,
-                take: None,
             }];
             let sounding = without_replaced(std::borrow::Cow::Borrowed(doc.project()), &replacing);
             engine_clips(&sounding, 48_000, |_| Some((audio.clone(), 48_000)))
@@ -1002,7 +1009,6 @@ mod tests {
                 track: id,
                 from: Ticks::ZERO,
                 until: None,
-                take: None,
             });
         }
         let masked = audio_replacing(doc.project(), &inputs);

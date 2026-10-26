@@ -135,8 +135,6 @@ pub struct Replacing {
     /// Where punch-out ends the Replace window. `None` means recording has
     /// no known end yet, so old material stays silent after `from`.
     pub until: Option<Ticks>,
-    /// The take's own clip, which plays on (loop passes hear each other).
-    pub take: Option<Id>,
 }
 
 impl Inputs {
@@ -147,7 +145,7 @@ impl Inputs {
         let cut = self
             .replacing
             .iter()
-            .find(|r| r.track == track && r.take != Some(clip.id))
+            .find(|r| r.track == track)
             .filter(|r| r.until.is_none())
             .map_or(clip.length, |r| clip.length.min(r.from - clip.start));
         (cut.0 > 0).then_some(cut)
@@ -163,7 +161,6 @@ impl Inputs {
                 r.until.map(|until| crate::midi_runs::Suppression {
                     from: r.from,
                     until,
-                    exempt: r.take,
                 })
             })
     }
@@ -751,7 +748,6 @@ mod tests {
             track: Id(5),
             from: Ticks::quarters(6),
             until: None,
-            take: None,
         }];
         assert_eq!(
             inputs.playing_length(Id(5), &clip),
@@ -762,10 +758,8 @@ mod tests {
         assert_eq!(inputs.playing_length(Id(5), &clip), None);
         inputs.replacing[0].from = Ticks::ZERO;
         assert_eq!(inputs.playing_length(Id(5), &clip), None);
-        // Another track is not touched, and neither is the take's own clip.
+        // Another track is not touched.
         assert_eq!(inputs.playing_length(Id(6), &clip), Some(clip.length));
-        inputs.replacing[0].take = Some(Id(7));
-        assert_eq!(inputs.playing_length(Id(5), &clip), Some(clip.length));
     }
 
     #[test]
@@ -779,7 +773,6 @@ mod tests {
                 track: Id(5),
                 from: Ticks::quarters(4),
                 until: Some(Ticks::quarters(8)),
-                take: None,
             }],
             ..Inputs::default()
         };
@@ -789,7 +782,6 @@ mod tests {
             Some(crate::midi_runs::Suppression {
                 from: Ticks::quarters(4),
                 until: Ticks::quarters(8),
-                exempt: None,
             })
         );
         assert_eq!(inputs.playing_length(Id(6), &clip), Some(clip.length));

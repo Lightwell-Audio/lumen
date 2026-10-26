@@ -418,8 +418,12 @@ per slice and move what is no longer current out of it.
   the takes, said in a notice). Capture MIDI (Shift+F9): the engine also reports
   notes played while not recording, the app keeps ten minutes in memory
   (`played.rs`, switch `record.keep_played`), and the command places the newest
-  phrase with Overdub placement, one undo step. E2E (`capture_midi.rs`,
-  `audio_record.rs`, `record.rs`) pass. Not hardware-verified: MT-REC-3
+  phrase with Overdub placement, one undo step. The owner's runs found four
+  edge cases of loop takes; the fifth fix replaced them with one model
+  (ADR-0104, last section): `record_span` fixes what a take replaces when
+  Record is pressed, and `loop_passes::cut` cuts every pass by one rule, a
+  take begun inside the loop being lined up with it by leading silence.
+  E2E (`capture_midi.rs`, `audio_record.rs`, `record.rs`) pass. Not hardware-verified: MT-REC-3
   (`docs/manual-tests/M9.md`) waits on the owner's Focusrite and keyboard.
   Next: R4 (project lifecycle) per `docs/milestones/M9.md`.
 - **Branch `m9-s1b-track-headers`: M9 slice R1b (track headers) is built**

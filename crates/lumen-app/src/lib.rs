@@ -94,6 +94,7 @@ mod position;
 mod preset_files;
 mod probe;
 mod record_settings;
+mod record_span;
 mod recorder;
 mod routing;
 mod ruler;

@@ -21,6 +21,10 @@
 //!   on in the same file. With Loop on, the file frame and placed position of
 //!   each wrap are kept ([`Wrap`]), so the file can be cut into passes
 //!   (`loop_passes.rs`, M9 slice R3).
+//! - With Loop on, a take whose first frame is inside the loop begins with
+//!   silence back to the loop's start, so the file lines up with the loop
+//!   like every later pass, and the first pass is a pass like the others
+//!   (one you began late, with silence where you had not begun).
 //! - A gap (a chunk the ring had to drop, seen as a jump in `device`) is
 //!   filled with silence so the rest stays in time.
 //! - The first frame past the punch-out ends that track's take.
@@ -77,8 +81,10 @@ pub(crate) struct Plan {
     pub shift: i64,
     /// Placed samples `[in, out)` that are kept (the punch range), or all.
     pub window: Option<(i64, i64)>,
-    /// Loop is on: a jump back in the timeline is a wrap, a new pass.
-    pub looped: bool,
+    /// With Loop on, the loop's start and end as timeline samples: a jump
+    /// back in the timeline is a wrap, a new pass, and a take that begins
+    /// inside the loop is lined up with it.
+    pub looped: Option<(i64, i64)>,
 }
 
 /// Where a loop pass begins in a take's file.
@@ -148,6 +154,10 @@ pub(crate) struct TrackResult {
     pub error: Option<String>,
     /// Where each later loop pass begins in the file.
     pub wraps: Vec<Wrap>,
+    /// Frames of silence the file begins with, lining it up with the loop.
+    pub silence: u64,
+    /// The loop it was recorded in, with Loop on (`Plan::looped`).
+    pub looped: Option<(i64, i64)>,
 }
 
 /// The file beside a take that says it is unfinished.
@@ -162,6 +172,16 @@ pub(crate) struct Sidecar {
     /// The loop wraps so far, as of the last refresh.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wraps: Vec<Wrap>,
+    /// Frames of silence the file begins with.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub silence: u64,
+    /// The loop it is recorded in, with Loop on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub looped: Option<(i64, i64)>,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 pub(crate) fn sidecar_path(file: &Path) -> PathBuf {
@@ -214,7 +234,12 @@ struct Lane {
     writer: Option<TakeWriter>,
     /// The device frame the next chunk should begin on.
     next: Option<u64>,
+    /// The placed sample of the file's first frame.
     start: Option<i64>,
+    /// Frames of silence the file begins with.
+    silence: u64,
+    /// The loop, for the sidecar (`Plan::looped`).
+    looped: Option<(i64, i64)>,
     dropped: u64,
     error: Option<String>,
     refreshed: Instant,
@@ -245,6 +270,8 @@ impl Takes {
                 writer: None,
                 next: None,
                 start: None,
+                silence: 0,
+                looped: plan.looped,
                 dropped: 0,
                 error: None,
                 refreshed: Instant::now(),
@@ -300,7 +327,7 @@ impl Takes {
         let placed = chunk.at - shift;
         // A jump back in the timeline while Loop is on is a wrap: a new pass
         // begins at this chunk's first frame.
-        if self.plan.looped
+        if self.plan.looped.is_some()
             && lane.state == State::Writing
             && lane.expected.is_some_and(|e| placed + WRAP_SLACK < e)
         {
@@ -312,11 +339,11 @@ impl Takes {
             // What is drawn while recording is the pass under way, from the
             // loop's start, as it will be placed.
             // The pass that ended was whole if it began at the loop's start:
-            // the file did, or an earlier wrap did.
+            // the file's sound did, or an earlier wrap did.
             let whole = lane.wraps.len() > 1
-                || lane
-                    .start
-                    .is_some_and(|s| (s - placed).unsigned_abs() <= u64::from(rate / 50));
+                || lane.start.is_some_and(|s| {
+                    (s + lane.silence as i64 - placed).unsigned_abs() <= u64::from(rate / 50)
+                });
             if let Ok(mut live) = lane.job.live.lock() {
                 live.restart(placed.max(0), whole);
             }
@@ -335,8 +362,21 @@ impl Takes {
             }
             return;
         }
-        if lane.state == State::Waiting && lane.open(rate, placed + from as i64).is_err() {
-            return;
+        if lane.state == State::Waiting {
+            let at = placed + from as i64;
+            // Begun inside the loop: silence back to its start, placed as the
+            // wraps will place it, and never before the window.
+            let silence = self.plan.looped.map_or(0, |(start, _)| {
+                let pad = at - (start - shift).max(lo);
+                if pad > i64::from(rate / 50) {
+                    pad as u64
+                } else {
+                    0
+                }
+            });
+            if lane.open(rate, at, silence).is_err() {
+                return;
+            }
         }
         let left = &data[from..to];
         let right = (chunk.channels == 2).then(|| &data[frames + from..frames + to]);
@@ -393,6 +433,8 @@ impl Takes {
                     dropped: lane.dropped,
                     error: lane.error.take(),
                     wraps: std::mem::take(&mut lane.wraps),
+                    silence: lane.silence,
+                    looped: self.plan.looped,
                 }
             })
             .collect()
@@ -400,16 +442,24 @@ impl Takes {
 }
 
 impl Lane {
-    /// Creates the file and its sidecar for a take beginning at `start`.
-    fn open(&mut self, rate: u32, start: i64) -> Result<(), ()> {
+    /// Creates the file and its sidecar for a take whose first played frame
+    /// is at `start`, after `silence` frames of silence.
+    fn open(&mut self, rate: u32, start: i64, silence: u64) -> Result<(), ()> {
         let made = (|| -> Result<TakeWriter, String> {
             if let Some(dir) = self.job.path.parent() {
                 fs::create_dir_all(dir).map_err(|e| e.to_string())?;
             }
-            self.start = Some(start);
+            self.start = Some(start - silence as i64);
+            self.silence = silence;
             self.rate = rate;
             self.write_sidecar_now().map_err(|e| e.to_string())?;
-            TakeWriter::create(&self.job.path, rate, self.job.channels).map_err(|e| e.to_string())
+            let mut writer = TakeWriter::create(&self.job.path, rate, self.job.channels)
+                .map_err(|e| e.to_string())?;
+            writer
+                .write_silence(silence as usize)
+                .map_err(|e| e.to_string())?;
+            self.written = silence;
+            Ok(writer)
         })();
         match made {
             Ok(writer) => {
@@ -437,6 +487,8 @@ impl Lane {
             rate: self.rate,
             channels: self.job.channels,
             wraps: self.wraps.clone(),
+            silence: self.silence,
+            looped: self.looped,
         })
     }
 
@@ -608,6 +660,8 @@ mod tests {
             rate: 48_000,
             channels: 1,
             wraps: Vec::new(),
+            silence: 0,
+            looped: None,
         };
         for (name, session, track) in [("a", "s1", 1), ("b", "s2", 2), ("c", "s1", 3)] {
             fs::write(dir.join(format!("{name}.wav")), b"x").unwrap();
@@ -651,7 +705,7 @@ mod tests {
             rate: 48_000,
             shift,
             window,
-            looped: false,
+            looped: None,
         }
     }
 
@@ -782,11 +836,61 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    /// With Loop on, the loop starting at timeline sample 1_000.
     fn looping(jobs: Vec<Job>, shift: i64) -> Plan {
         Plan {
-            looped: true,
+            looped: Some((1_000, 1_200)),
             ..plan(jobs, shift, None)
         }
+    }
+
+    #[test]
+    fn a_take_begun_inside_the_loop_begins_with_silence_back_to_its_start() {
+        let dir = folder("lineup");
+        let j = job(&dir, 1, 1);
+        let mut takes = Takes::new(looping(vec![j.clone()], 10));
+        // Begun 2_000 into a loop from 1_000, then one wrap.
+        for (k, at) in [3_000, 1_000, 1_100].into_iter().enumerate() {
+            let (chunk, data) = mono(1, k as u64 * 100, at, 100);
+            takes.feed(chunk, &data);
+        }
+        // Drawn from where it was played, not from the silence.
+        assert_eq!(j.live.lock().unwrap().previous.as_ref().map(|p| p.0), None);
+        takes.lanes[0].write_sidecar_now().unwrap();
+        let side: Sidecar =
+            serde_json::from_slice(&fs::read(sidecar_path(&j.path)).unwrap()).unwrap();
+        assert_eq!(
+            (side.start, side.silence),
+            (990, 2_000),
+            "recovery lines it up too"
+        );
+        let r = takes.finish().remove(0);
+        // The file begins where the loop's start is placed, with 2_000 frames
+        // of silence: its frames line up with the loop as a later pass's do.
+        assert_eq!((r.start, r.silence, r.frames), (Some(990), 2_000, 2_300));
+        assert_eq!(
+            r.wraps,
+            [Wrap {
+                frame: 2_100,
+                at: 990
+            }]
+        );
+        let audio = read(&j.path);
+        assert!(audio[..2_000].iter().all(|&a| a == 0.0));
+        assert_eq!((audio[2_001], audio[2_100]), (1.0, 100.0));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_take_begun_at_or_before_the_loop_has_no_silence() {
+        let dir = folder("nolineup");
+        let j = job(&dir, 1, 1);
+        let mut takes = Takes::new(looping(vec![j.clone()], 10));
+        let (chunk, data) = mono(1, 0, 400, 100);
+        takes.feed(chunk, &data);
+        let r = takes.finish().remove(0);
+        assert_eq!((r.start, r.silence), (Some(390), 0));
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -29,6 +29,7 @@ use crate::arrangement::recording_look::RecordingLook;
 use crate::auto_record::Mode as AutoMode;
 use crate::document::Recording;
 use crate::played::Played;
+use crate::record_span::{self, Kind, Span};
 use crate::recorder::Capture;
 
 use super::audio_record::{AudioRecord, Lane};
@@ -165,42 +166,55 @@ impl Session {
     }
 }
 
+impl Session {
+    /// What this recording replaces on a track of `kind` (`record_span`):
+    /// fixed when it begins, so the same from the first sample to the last.
+    fn span(&self, kind: Kind) -> Span {
+        record_span::span(kind, self.start, self.looped, self.punch)
+    }
+
+    /// What its audio tracks recorded over, now that it has ended with the
+    /// playhead at `head`: silent until the takes are placed.
+    fn recorded_over(&self, head: Ticks) -> Vec<crate::midi_play::Replacing> {
+        // A wrap in the frame recording ended in is not yet noted.
+        let wrapped = self.wrapped || (self.looped.is_some() && head < self.last);
+        let Some(span) = self.span(Kind::Audio).recorded(self.start, head, wrapped) else {
+            return Vec::new();
+        };
+        self.audio
+            .iter()
+            .map(|lane| replacing(lane.track, span))
+            .collect()
+    }
+}
+
+fn replacing(track: Id, span: Span) -> crate::midi_play::Replacing {
+    crate::midi_play::Replacing {
+        track,
+        from: span.from,
+        until: span.until,
+    }
+}
+
 impl App {
     /// The tracks a Replace take is recording over: what they held from the
     /// take's start on is not played, so the old notes do not sound under
     /// the new ones.
+    /// After it ends, until its files are placed, an audio take keeps silent
+    /// what it recorded over.
     pub(crate) fn replacing(&self) -> Vec<crate::midi_play::Replacing> {
         let Some(session) = self.record.session.as_ref() else {
-            return Vec::new();
+            return self.finishing_replaced();
         };
-        let from = session
-            .punch
-            .map_or(session.from(), |(a, _)| session.from().max(a));
-        let until = session
-            .punch
-            .map(|(_, end)| end)
-            .filter(|&end| end < Ticks(i64::MAX / 4))
-            .or_else(|| session.looped.map(|(_, end)| end));
         // Recorded audio always goes in as a clip that cuts what it covers,
         // whatever the MIDI mode is, so the old audio is not played under it.
-        // The file begins where recording did, even before the loop.
-        let audio_from = session
-            .punch
-            .map_or(session.start, |(a, _)| session.start.max(a));
-        let audio = session.audio.iter().map(|lane| lane.track);
+        let audio = session.audio.iter().map(|lane| (lane.track, Kind::Audio));
         let midi = (session.mode == Mode::Replace)
-            .then_some(session.tracks.iter().copied())
+            .then_some(session.tracks.iter().map(|&track| (track, Kind::Midi)))
             .into_iter()
             .flatten();
-        midi.map(|track| (track, session.rec.take_clip(track)))
-            .map(|(track, take)| (track, take, from))
-            .chain(audio.map(|track| (track, None, audio_from)))
-            .map(|(track, take, from)| crate::midi_play::Replacing {
-                track,
-                from,
-                take,
-                until,
-            })
+        midi.chain(audio)
+            .map(|(track, kind)| replacing(track, session.span(kind)))
             .collect()
     }
 
@@ -287,7 +301,7 @@ impl App {
                 .count_in
                 .beats(project.meter_map().meter_at(start).numerator)
         };
-        let audio = self.begin_audio_takes(punch, looped.is_some());
+        let audio = self.begin_audio_takes(punch, looped);
         if tracks.is_empty() && audio.is_empty() {
             return;
         }
@@ -423,7 +437,8 @@ impl App {
         if snap.playing && snap.recording {
             if head < session.last && session.looped.is_some() {
                 session.wrapped = true;
-                // The next pass hears this one: commit what it played now.
+                // Commit what this pass played now: in Overdub the next pass
+                // hears it; in Replace it becomes a take.
                 session.committed = Instant::now() - COMMIT_EVERY;
             }
             session.last = head;
@@ -522,7 +537,8 @@ impl App {
     /// commits the last take.
     fn finish(&mut self, mut session: Session, head: Ticks) {
         self.unlatch(&session.latched);
-        self.end_audio_takes(std::mem::take(&mut session.audio), false);
+        let over = session.recorded_over(head);
+        self.end_audio_takes(std::mem::take(&mut session.audio), false, over);
         let end = session.end(head);
         // Notes still held end where the playhead is, in the pass it is in.
         // The visible loop window is a snapshot, but Loop can be switched
@@ -551,7 +567,12 @@ impl App {
     /// Drops a recording without a last commit (what was committed stays).
     fn abandon(&mut self, mut session: Session, discard: bool) {
         self.unlatch(&session.latched);
-        self.end_audio_takes(std::mem::take(&mut session.audio), discard);
+        let over = if discard {
+            Vec::new()
+        } else {
+            session.recorded_over(self.transport.state().ticks)
+        };
+        self.end_audio_takes(std::mem::take(&mut session.audio), discard, over);
         drop(session);
         self.transport.end_record();
         self.restore_autosave();

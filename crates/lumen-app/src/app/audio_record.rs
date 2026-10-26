@@ -46,6 +46,9 @@ struct Finishing {
     since: Instant,
     /// The takes as they were drawn, kept drawn until the clips are placed.
     lanes: Vec<Lane>,
+    /// What they recorded over, kept silent until the clips are placed, so
+    /// the old audio is not heard there in between.
+    replaced: Vec<crate::midi_play::Replacing>,
 }
 
 /// What the app keeps for audio recording.
@@ -107,12 +110,12 @@ impl App {
 
     /// The armed audio tracks that can record, with the worker told what to
     /// write. Tracks that cannot are named in a notice. `punch` is the range
-    /// that is kept, if there is one; `looped` says Loop is on, so jumps back are
-    /// passes.
+    /// that is kept, if there is one; `looped` is the loop when Loop is on, so
+    /// jumps back are passes and a take begun inside it lines up with it.
     pub(super) fn begin_audio_takes(
         &mut self,
         punch: Option<(Ticks, Ticks)>,
-        looped: bool,
+        looped: Option<(Ticks, Ticks)>,
     ) -> Vec<Lane> {
         let project = self.document.project();
         let armed: Vec<_> = project
@@ -184,7 +187,7 @@ impl App {
             rate,
             shift: i64::from(info.input_latency) + i64::from(info.output_latency) + offset as i64,
             window,
-            looped,
+            looped: looped.map(|(a, b)| (timeline.sample_at(a, rate), timeline.sample_at(b, rate))),
         });
         lanes
     }
@@ -217,6 +220,8 @@ impl App {
                     dropped: 0,
                     error: None,
                     wraps: lost.sidecar.wraps.clone(),
+                    silence: lost.sidecar.silence,
+                    looped: lost.sidecar.looped,
                 }),
                 Some(r) if r.frames == 0 => remove(&lost.file),
                 _ => {
@@ -302,7 +307,12 @@ impl App {
     /// Recording has ended: the worker closes the files and
     /// [`Self::poll_audio_takes`] puts them in. With `discard` they are
     /// thrown away instead.
-    pub(super) fn end_audio_takes(&mut self, lanes: Vec<Lane>, discard: bool) {
+    pub(super) fn end_audio_takes(
+        &mut self,
+        lanes: Vec<Lane>,
+        discard: bool,
+        replaced: Vec<crate::midi_play::Replacing>,
+    ) {
         if lanes.is_empty() {
             return;
         }
@@ -312,7 +322,17 @@ impl App {
             discard,
             since: Instant::now(),
             lanes,
+            replaced,
         });
+    }
+
+    /// What the takes being finished recorded over (see [`Finishing`]).
+    pub(super) fn finishing_replaced(&self) -> Vec<crate::midi_play::Replacing> {
+        self.record
+            .audio
+            .finishing
+            .as_ref()
+            .map_or_else(Vec::new, |f| f.replaced.clone())
     }
 
     /// The takes to draw while their files are closed: what the arrangement
@@ -384,20 +404,35 @@ impl App {
                 remove(&result.path);
                 continue;
             };
-            // With Loop on and two or more passes, the clip is one pass long,
-            // plays the last whole one, and the others are its takes.
-            let region = self.document.project().transport;
-            let loop_frames = {
+            // One rule makes the clip, with Loop on or off (`loop_passes`), in
+            // the loop the recording carries. A take left by a build that did
+            // not keep it is cut in the project's loop.
+            let looped = result.looped.or_else(|| {
+                let region = self.document.project().transport;
                 let timeline = &self.transport.timeline;
-                (timeline.sample_at(region.loop_end, rate)
-                    - timeline.sample_at(region.loop_start, rate))
-                .max(0) as u64
-            };
-            let cut = loop_passes::cut(start, result.frames, &result.wraps, rate, loop_frames);
-            let (lead, (start, frames, passes, active)) = match cut {
-                Some(c) => (c.lead, (c.start, c.frames, c.passes, c.active)),
-                None => (None, (start, result.frames, Vec::new(), 0)),
-            };
+                (!result.wraps.is_empty()).then(|| {
+                    (
+                        timeline.sample_at(region.loop_start, rate),
+                        timeline.sample_at(region.loop_end, rate),
+                    )
+                })
+            });
+            let loop_passes::Cut {
+                start,
+                frames,
+                passes,
+                active,
+                lead,
+            } = loop_passes::cut(
+                loop_passes::Recorded {
+                    start,
+                    silence: result.silence,
+                    frames: result.frames,
+                    wraps: &result.wraps,
+                    looped,
+                },
+                rate,
+            );
             let timeline = &self.transport.timeline;
             let from = timeline.ticks_at(start, rate);
             let to = timeline.ticks_at(start + frames as i64, rate);
