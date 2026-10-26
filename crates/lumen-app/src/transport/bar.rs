@@ -37,11 +37,12 @@ fn unit_font() -> egui::FontId {
 }
 
 /// The room beside a readout's values inside its well (`.lm-display`:
-/// `space_m`; the compact bar tightens it to `space_xs`, so Record and
-/// Overdub fit beside the position at 960).
+/// `space_m`; the compact bar tightens it to `space_s`, so Record and
+/// Overdub fit beside the position at 960 and the values keep clear of the
+/// well's rounded ends; `space_xs` read as about to overflow, owner).
 fn well_pad(compact: bool) -> f32 {
     if compact {
-        theme::space::XS
+        theme::space::S
     } else {
         theme::space::M
     }
