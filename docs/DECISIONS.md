@@ -119,6 +119,7 @@ irreversible or external) · *Superseded*.
 | Question | Decision |
 |---|---|
 | Take lanes deferred (M9 R3, 2026-10-26) | Pitched after the owner's runs of R3 (each pass a clip on its own lane under the track, a comp lane that plays, comping by dragging across a lane): the owner likes individual take lanes and **deferred them, with comping, until after M9's must-have slices**, as recommended. Until then a take is a whole pass inside one clip (ADR-0104), reached from the Takes menu; the passes are windows on one file, so dragging a clip's edge past its pass shows the pass beside it (intended, as in common workstations). When lanes are built, the takes inside a clip become lanes by migration. Open for then: whether a comp segment is a copied clip or a reference to its take, whether recording over any material (not only loop passes) makes a lane, and MIDI lanes. |
+| M9 R4 choices (2026-10-26) | P1 A (renders follow the project rate), P2 A (Revert reloads the saved file after a quiet prompt, keeping the unsaved version in `Backups/Reverted`), S A (R4 is the save family and project settings; the media pool, relink and purge are R4b): every recommendation in `docs/milestones/M9-R4.md` §3.  After MT-PROJ-1 run 1 (2026-10-26): projects and templates get their own folders in `Documents/Lumen` (option A of four pitched), and the app menu is grouped (layout A of three pitched as specimens): ADR-0105. |
 | M9 plan choices (2026-10-24) | R1 A, R2 A, R3 A, R4 A, R5 A, X1 A, X2 A, X3 A: every recommendation in `docs/milestones/M9.md` §4. |
 | Milestone sequence (2026-10-23) | After M7 and M7b, deliver the existing M9 (Recording, Media, Export & Production Workflow) before M8 (Drum Maps, Drum Editor & Built-In Devices), because audio recording has higher priority than drum maps. Keep the milestone IDs and scopes unchanged; this only changes delivery order. Recorded in `docs/ROADMAP.md` and `docs/PROGRESS.md`. |
 | Native macOS VST3 hosting (2026-10-19, ADR-0085) | Bring the stretch goal forward now: the full existing workflow, including native editors, for plugins matching the host architecture. Intel bridging remains outside this slice. |
@@ -9228,3 +9229,93 @@ tooltip.
 on Linux). The performance gate moves nothing past the threshold: the largest
 change is `project_parse` at +1.03% (the new optional field); no baseline
 update.
+
+## ADR-0105 - Project lifecycle: save a copy, collect, templates, revert, settings (M9 R4)
+
+**Status:** Accepted 2026-10-26 (built; MT-PROJ-1 passed by the owner, 2026-10-26). Format
+**v32**. The owner took every recommendation of the plan (2026-10-26; the table
+of owner decisions): P1 A, P2 A, S A. Plan: `milestones/M9-R4.md`.
+
+**Context.** A project could be saved, saved as and opened, but not copied
+without moving the open document, not gathered into one folder, not kept as a
+starting point, not reverted without losing the unsaved version, and its own
+settings (rate, pan law, crossfades) had no home. Renders (join, bounce,
+freeze) were written at the audio device's rate, so the same project made a
+different file on a different interface.
+
+**Decision.**
+
+1. **One copy worker** (`files::collect`, driven by `app::copies`) serves Save a
+   copy, Collect and save, Save as template and Revert's safety copy. Each file
+   is written under a temporary name and renamed when whole; the project file is
+   written after the last copy, so Esc or a full disk changes nothing in the
+   project and leaves no half file under a real name. A missing file is listed
+   and left. Progress is in the toast. Collect never deletes what it copied from.
+   Save a copy leaves the open document as it is: its path, its unsaved mark, the
+   recent list and the autosave. None of these is an undo step (they are file
+   operations).
+2. **Templates** are whole projects in `<Templates>/<Name>/<Name>.lumen`, audio
+   inside (`templates.rs`; listing runs on a worker). They live in
+   `Documents/Lumen/Templates` and projects start in `Documents/Lumen/Projects`
+   (`Launch::user_dir`, `--user-dir`; owner, MT-PROJ-1 run 1, 2026-10-26: both
+   were plain folders in different hidden places and could not be told apart;
+   option A of the pitch). A run with its own `--autosave-dir` has no user
+   folder and keeps templates beside the autosaves, so isolated runs and tests
+   never touch the owner's files. Templates saved in the old place (local
+   application data) are not listed; they are moved by hand. The
+   same name replaces only after a second Enter in the same small window. New
+   from template opens it as an unsaved Untitled project whose audio still lives
+   in the template, so the first Save copies it in whatever the copy preference
+   says: the rule already used for renders and recordings, now a list of
+   Lumen-owned folders (`files::owned_folder`). Templates are renamed or deleted
+   in the file manager (Open templates folder); not inside Lumen in R4.
+3. **Revert reloads the saved file** (P2 A), after a quiet prompt that is not a
+   modal. A plugin keeps state in its own window that the history does not
+   hold, so reloading is the one way to bring it back too. Nothing is lost: the
+   unsaved version is first written to `Backups/Reverted` beside the project
+   (plugins read as for any save), and a banner offers to open it. Undo history
+   starts from the reloaded project.
+4. **Project settings** (a floating window: Audio, Mixing, New tracks, Notes).
+   Each change is a named `Document` method and one undo step; typing in the
+   notes merges into one. Format **v32** adds `notes` and `new_track_color`,
+   each written only when set; the migration changes nothing in older files. The
+   sample rate field already existed. A new project takes the device's rate when
+   it is made; older projects say 48,000 whatever they were made on, and the
+   window is the way to change it. Tempo and time signature stay out of the
+   window.
+5. **Renders follow the project rate** (P1 A, `render_audio.rs`). The clip player
+   holds every file converted to the device's rate; converting that again would
+   be a second conversion. So when the project's and the device's rates differ,
+   the render's worker reads each file it plays from disk again and converts it
+   once, to the project's rate. When they are the same nothing is read twice.
+   The model-to-engine translation is the same pure function playback uses
+   (`lanes::engine_clips`).
+
+5b. **The app menu is grouped** (owner, 2026-10-26, layout A of three pitched
+   as rendered specimens): top level New, New from template ▸, Open…, Open
+   recent ▸; Save, Save as…, **More ways to save ▸** (Save a copy, Collect and
+   save, Save as template, Revert to saved, the copy-imported switch); Project
+   settings, Import, Export MIDI; Undo, Redo, History; **Appearance ▸** (theme,
+   interface size, Reduce motion), **Mixing ▸** (additive solo, track-colour
+   meters); Audio and MIDI settings, Keyboard shortcuts. 26 rows became 17.
+   The Appearance and Mixing submenus are what the Preferences window of R7
+   (layout C) will take over.
+
+**Commands** (all at the end of `Command`, no default keys): `file.save_copy`,
+`file.collect_and_save`, `file.save_template`, `file.open_templates_folder`,
+`file.revert`, `file.project_settings`, plus one palette entry per template.
+
+**Consequences.** `Project` has two more optional fields (the serialize and
+parse benchmarks may move slightly). A template is as large as its audio; its
+window says how much before it saves. The second decode is the one new cost of
+a render at a rate other than the device's; it runs on the worker with progress
+and stops on Esc. Revert restarts plugin hosts as any open does. Relink, the
+media pool and purge are R4b, which also has to decide what happens to the
+`Renders` and `Recordings` folders over time.
+
+**Verified here:** unit and E2E tests on the fake devices (`tests/e2e/copies.rs`,
+`templates.rs`, `revert.rs`, `project_settings.rs`, `render_rate.rs`; the
+migration and golden in `lumen-project`), at 44.1 and 48 kHz. **Not verified
+here** (tests answer the dialogs and the device is fake): the system's real file
+dialogs and a real interface at two rates; MT-PROJ-1 on the owner's machine
+passed (2026-10-26, no step detail).
