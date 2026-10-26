@@ -14,6 +14,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
+use lumen_app::App;
 use lumen_app::testing::InputDeviceTurn;
 use lumen_core::time::Ticks;
 use lumen_project::model::{Clip, Color, Id, Project, Track, TrackKind};
@@ -71,6 +72,12 @@ fn clips_of(lumen: &Lumen, id: Id) -> Vec<std::sync::Arc<Clip>> {
 
 /// Arms Vox, records until `frames` have been written, and stops.
 fn record(lumen: &mut Lumen, frames: u64) {
+    record_checking(lumen, frames, |_| {});
+}
+
+/// As [`record`], and runs `while_recording` once the frames are written,
+/// before stopping.
+fn record_checking(lumen: &mut Lumen, frames: u64, while_recording: impl Fn(&App)) {
     lumen.click("Arm Vox");
     lumen.key(Modifiers::NONE, Key::F9);
     lumen.wait_for("the recording to begin", |app| {
@@ -79,6 +86,7 @@ fn record(lumen: &mut Lumen, frames: u64) {
     lumen.wait_for("frames to be written", move |app| {
         app.audio_take_frames(VOX).is_some_and(|f| f >= frames)
     });
+    while_recording(lumen.app());
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("the clip", |app| {
         !app.recording()
@@ -236,23 +244,26 @@ fn looping_while_recording_keeps_one_long_file() {
     p.transport.loop_end = Ticks::quarters(1);
     p.transport.loop_enabled = true;
     let (mut lumen, _turn) = launch("loop", &p, |l| l);
-    // A beat is 24,000 frames: two passes and a bit.
-    record(&mut lumen, 52_000);
+    // A beat is 24,000 frames: two passes and a tail long enough to offer.
+    record_checking(&mut lumen, 62_000, |app| {
+        // What is drawn is the pass under way, which stays inside the loop
+        // (a block or two over, while the wrap is being noticed).
+        let drawn = app.audio_take_drawn_frames(VOX).expect("a take is drawn");
+        assert!(drawn <= 24_000 + 4_096, "{drawn} frames drawn");
+    });
     let clips = clips_of(&lumen, VOX);
     assert_eq!(clips.len(), 1, "the passes are one clip");
     let media = lumen.app().project().media[0].clone();
-    assert!(media.frames >= 52_000);
+    assert!(media.frames >= 62_000);
     let path = lumen.app().media_file(media.id).expect("the file");
     assert_eq!(assert_unbroken(&path) as u64, media.frames);
     // The file is one stretch, cut into passes of a beat (24,000 frames):
-    // the clip sits over the loop and plays the last, partial pass.
-    assert!(
-        clips[0].length <= Ticks::quarters(1),
-        "no longer than the loop"
-    );
+    // the clip is the loop long and plays the last whole pass; stopping
+    // part-way into a pass leaves a partial one after it.
+    assert_eq!(clips[0].length, Ticks::quarters(1), "exactly the loop");
     let takes = clips[0].takes.as_ref().expect("the passes are takes");
     assert!(takes.count >= 3, "{} takes", takes.count);
-    assert_eq!(takes.active, takes.count - 1, "the last pass plays");
+    assert!(takes.active + 2 >= takes.count, "a late, whole pass plays");
     // Pass k begins 24,000 frames after pass k - 1 in the file.
     let offsets: Vec<i64> = (0..takes.count)
         .map(|k| {
@@ -284,7 +295,10 @@ fn a_take_of_a_loop_recording_swaps_undoes_and_survives_a_save() {
     let (mut lumen, _turn) = launch("takes", &p, |l| l);
     record(&mut lumen, 52_000);
     let clip = clips_of(&lumen, VOX)[0].clone();
-    let count = clip.takes.as_ref().expect("takes").count;
+    let (count, active) = {
+        let takes = clip.takes.as_ref().expect("takes");
+        (takes.count, takes.active)
+    };
     let offset = |c: &Clip| match c.content {
         ClipContent::Audio { offset, .. } => offset,
         _ => panic!("an audio clip"),
@@ -295,7 +309,7 @@ fn a_take_of_a_loop_recording_swaps_undoes_and_survives_a_save() {
     lumen.frames(2);
     palette(&mut lumen, "Play previous take");
     let swapped = clips_of(&lumen, VOX)[0].clone();
-    assert_eq!(swapped.takes.as_ref().unwrap().active, count - 2);
+    assert_eq!(swapped.takes.as_ref().unwrap().active, active - 1);
     assert_eq!(offset(&swapped), last - 24_000, "the pass before it plays");
     assert_eq!((swapped.start, swapped.length), (clip.start, clip.length));
     lumen.key(Modifiers::COMMAND, Key::Z);

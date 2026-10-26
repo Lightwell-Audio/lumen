@@ -62,6 +62,7 @@ mod tests {
             start: Ticks::quarters(2),
             length: Ticks::quarters(2),
             passes: Vec::new(),
+            active: 0,
         }
     }
 

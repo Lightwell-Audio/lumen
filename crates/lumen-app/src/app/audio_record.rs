@@ -367,12 +367,12 @@ impl App {
                 remove(&result.path);
                 continue;
             };
-            // With Loop on and two or more whole passes, the clip is the last
-            // pass over the loop and the others are its takes.
+            // With Loop on and two or more passes, the clip is one pass long,
+            // plays the last whole one, and the others are its takes.
             let cut = loop_passes::cut(start, result.frames, &result.wraps, rate);
-            let (start, frames, passes) = match cut {
-                Some(c) => (c.start, c.frames, c.passes),
-                None => (start, result.frames, Vec::new()),
+            let (start, frames, passes, active) = match cut {
+                Some(c) => (c.start, c.frames, c.passes, c.active),
+                None => (start, result.frames, Vec::new(), 0),
             };
             let timeline = &self.transport.timeline;
             let from = timeline.ticks_at(start, rate);
@@ -396,6 +396,7 @@ impl App {
                 start: from,
                 length: to - from,
                 passes,
+                active,
             });
         }
         if !takes.is_empty() {

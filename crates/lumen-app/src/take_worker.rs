@@ -95,19 +95,32 @@ pub(crate) struct Wrap {
 pub(crate) struct Live {
     /// The placed sample of the file's first frame; `None` before it begins.
     pub start: Option<i64>,
-    /// Frames written.
+    /// Frames of the pass under way: all of them without Loop.
     pub frames: u64,
+    /// Frames written in all, across the loop's passes.
+    pub written: u64,
     /// The waveform of what has been written, in the finished waveform's
     /// own buckets (`lumen_media::GrowingPeaks`).
     pub peaks: lumen_media::GrowingPeaks,
 }
 
 impl Live {
+    /// Starts the summary again at placed sample `start`: a new loop pass.
+    fn restart(&mut self, start: i64) {
+        *self = Live {
+            start: Some(start),
+            written: self.written,
+            ..Live::default()
+        };
+    }
+
     fn add(&mut self, channels: &[&[f32]]) {
         if let Some(left) = channels.first() {
             self.peaks.add(left, channels.get(1).copied());
         }
-        self.frames += channels.first().map_or(0, |c| c.len()) as u64;
+        let n = channels.first().map_or(0, |c| c.len()) as u64;
+        self.frames += n;
+        self.written += n;
     }
 }
 
@@ -289,6 +302,11 @@ impl Takes {
                 at: placed,
             });
             lane.sidecar_current = false;
+            // What is drawn while recording is the pass under way, from the
+            // loop's start, as it will be placed.
+            if let Ok(mut live) = lane.job.live.lock() {
+                live.restart(placed.max(0));
+            }
         }
         let (lo, hi) = window.unwrap_or((0, i64::MAX));
         // Frames before the window are skipped only until the take begins.
@@ -784,6 +802,24 @@ mod tests {
                 }
             ]
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn what_is_drawn_while_looping_is_the_pass_under_way() {
+        let dir = folder("livewraps");
+        let j = job(&dir, 1, 1);
+        let mut takes = Takes::new(looping(vec![j.clone()], 10));
+        for (k, at) in [1_000, 1_100, 1_000].into_iter().enumerate() {
+            let (chunk, data) = mono(1, k as u64 * 100, at, 100);
+            takes.feed(chunk, &data);
+        }
+        let live = j.live.lock().unwrap();
+        assert_eq!(live.start, Some(990), "from the loop's start");
+        assert_eq!(live.frames, 100, "the new pass so far");
+        assert!(live.peaks.frames() > 0 && live.peaks.frames() <= 100);
+        drop(live);
+        takes.finish();
         fs::remove_dir_all(dir).unwrap();
     }
 

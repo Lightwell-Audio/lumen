@@ -29,6 +29,8 @@ pub struct Take {
     /// start for each pass, in order. The clip plays the last and keeps the
     /// others as takes. Fewer than two leave the clip as a single take.
     pub passes: Vec<i64>,
+    /// The pass the clip plays, an index into `passes`.
+    pub active: usize,
 }
 
 /// What [`apply`] did.
@@ -86,8 +88,8 @@ pub fn apply(project: &mut Project, takes: &[Take], fresh: &mut impl FnMut() -> 
                     audio_phase_seconds: 0.0,
                 })
                 .collect::<Vec<_>>();
-            let last = passes.len() - 1;
-            takes::with_passes(&mut clip, passes, last);
+            let active = take.active.min(passes.len() - 1);
+            takes::with_passes(&mut clip, passes, active);
         }
         let clip = Arc::new(clip);
         if !project.media.iter().any(|m| m.id == take.media.id) {
@@ -155,6 +157,7 @@ mod tests {
             start: q(start),
             length: q(length),
             passes: Vec::new(),
+            active: 0,
         }
     }
 
@@ -190,6 +193,7 @@ mod tests {
         let mut p = song();
         let mut t = take(&p, 2, 0, 2);
         t.passes = vec![0, 96_000, 192_000];
+        t.active = 2;
         let placed = apply(&mut p, &[t], &mut ids());
         let clip = p.tracks[2]
             .clips

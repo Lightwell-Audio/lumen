@@ -17,6 +17,18 @@ impl App {
             .iter()
             .find(|t| t.track == track)?;
         let live = take.live.lock().ok()?;
+        Some(live.written)
+    }
+
+    /// The frames of the take under way that the arrangement draws: with
+    /// Loop on, the pass under way, not everything written.
+    pub fn audio_take_drawn_frames(&self, track: Id) -> Option<u64> {
+        let take = self
+            .arrangement
+            .audio_takes
+            .iter()
+            .find(|t| t.track == track)?;
+        let live = take.live.lock().ok()?;
         Some(live.frames)
     }
 

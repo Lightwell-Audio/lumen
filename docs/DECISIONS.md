@@ -9099,10 +9099,17 @@ clip are windows on the same media file; the file is never split.
 
 **Audio.** The take worker records the file frame of each loop wrap (`Wrap`,
 also in the sidecar, so a take recovered after a crash is cut into passes too);
-`loop_passes::cut` turns them into one clip over the loop window that plays the
-last pass. A first pass that began part-way into the loop is not offered (the
+`loop_passes::cut` turns them into one clip over the loop window, one pass long.
+A first pass that began part-way into the loop is not offered (the
 model never lets a clip begin before its file; its audio stays in the file).
-**MIDI.** `recorder::Capture` keeps a pass per note and `edit::record::replace`
+The clip plays the last pass that lasted the whole loop; stopping part-way into
+a pass leaves a partial last pass, which is offered as a take (it plays up to
+where recording stopped) only if it lasted a quarter of a second. (First built
+as "the last pass plays" and found by the owner's first run: the clip was
+only as long as the partial last pass, a sliver. Fixed the same day.) While
+recording with Loop on, the growing clip shows the pass under way, from the
+loop's start, and starts again at each wrap, instead of running on past the
+loop. **MIDI.** `recorder::Capture` keeps a pass per note and `edit::record::replace`
 makes takes of them; Overdub is unchanged.
 
 **What edits do to takes.** Move, copy, trim, fades, gain, notes, rename and the
