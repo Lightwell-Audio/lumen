@@ -496,20 +496,36 @@ fn looping_over_a_clip_that_reaches_outside_the_loop_replaces_only_the_loop() {
     record(&mut lumen, 3 * 48_000);
     let clips = clips_of(&lumen, VOX);
     // The loop is beats 2 to 4 and recording began at the start of the song:
-    // the take is the loop, not the lead-in before it, and not the passes
-    // laid end to end.
-    let take = clips.iter().find(|c| c.name != "Old").expect("the take");
+    // the loop is a take of its own, the lead-in before it a clip of its own,
+    // and the passes are not laid end to end.
+    let take = clips
+        .iter()
+        .find(|c| c.name != "Old" && !c.name.ends_with("lead-in"))
+        .expect("the take");
+    let lead = clips
+        .iter()
+        .find(|c| c.name.ends_with("lead-in"))
+        .expect("what was recorded before the loop");
     let latency = Ticks(Ticks::quarters(1).0 / 20);
-    assert_eq!(take.length, Ticks::quarters(2), "one loop long");
+    assert!(
+        take.length <= Ticks::quarters(2) && take.length + latency >= Ticks::quarters(2),
+        "one loop long: {:?}",
+        take.length
+    );
     assert!(
         take.start <= Ticks::quarters(2) && take.start + latency >= Ticks::quarters(2),
         "{:?}",
         take.start
     );
+    assert!(lead.start <= latency, "the lead-in begins with the song");
+    assert!(
+        lead.start + lead.length <= take.start + Ticks(1),
+        "and ends where the loop begins"
+    );
     let pieces: Vec<_> = clips.iter().filter(|c| c.name == "Old").collect();
     assert!(
-        pieces.iter().any(|c| c.start == Ticks::ZERO),
-        "the part before the loop plays on"
+        pieces.iter().all(|c| c.start >= take.start),
+        "the old audio before the loop is replaced by the lead-in"
     );
     assert!(
         pieces

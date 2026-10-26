@@ -183,14 +183,19 @@ impl App {
             .or_else(|| session.looped.map(|(_, end)| end));
         // Recorded audio always goes in as a clip that cuts what it covers,
         // whatever the MIDI mode is, so the old audio is not played under it.
+        // The file begins where recording did, even before the loop.
+        let audio_from = session
+            .punch
+            .map_or(session.start, |(a, _)| session.start.max(a));
         let audio = session.audio.iter().map(|lane| lane.track);
         let midi = (session.mode == Mode::Replace)
             .then_some(session.tracks.iter().copied())
             .into_iter()
             .flatten();
         midi.map(|track| (track, session.rec.take_clip(track)))
-            .chain(audio.map(|track| (track, None)))
-            .map(|(track, take)| crate::midi_play::Replacing {
+            .map(|(track, take)| (track, take, from))
+            .chain(audio.map(|track| (track, None, audio_from)))
+            .map(|(track, take, from)| crate::midi_play::Replacing {
                 track,
                 from,
                 take,
@@ -313,6 +318,16 @@ impl App {
         if let Some(autosave) = self.autosave.as_mut() {
             autosave.set_delay(AUTOSAVE_DELAY);
         }
+        // The old audio under the take is cut before the take begins, not a
+        // frame later (a clip still sounding there pops when it is removed).
+        let inputs = self.listen_inputs();
+        let rate = self.lanes.rate();
+        self.lanes.send_clips(
+            &self.document,
+            &mut self.transport.audio.clips,
+            rate,
+            &inputs,
+        );
         self.transport.record(beats);
     }
 

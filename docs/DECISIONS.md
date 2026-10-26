@@ -9150,6 +9150,18 @@ pass is a plain clip that plays from its frame; a take stopped just after a
 wrap from inside the loop is kept as the stretch it was played. Only the loop's
 span is replaced: the part of an old clip outside it plays on.
 
+**Before the loop, and before the first sample (the owner's fourth run).**
+With punch in off a take can begin before the loop. The old audio was cut only
+from the loop's start, so it kept playing until the loop began, and the cut was
+sent on the first frame after Record, so a clip still sounding there was removed
+mid-wave (a pop). Now audio tracks are cut from where the take begins (the
+punch-in if there is one), and `Lanes::send_clips` runs inside `start_recording`
+before the transport records. What the take recorded before the loop is placed
+as its own clip, "... lead-in", sharing the take's file (`Cut::lead`), so no
+recorded audio is lost and no old audio is left under it. The pop's cause is
+verified only as ordering on the test device; MT-REC-3 step 7 asks the owner to
+listen on the interface.
+
 **Left as it was.** Audio and MIDI recorded together are still two undo steps
 (KNOWN_ISSUES). Extract to a new track is audio only (a new MIDI track would
 have no instrument).

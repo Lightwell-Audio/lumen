@@ -394,29 +394,46 @@ impl App {
                 .max(0) as u64
             };
             let cut = loop_passes::cut(start, result.frames, &result.wraps, rate, loop_frames);
-            let (start, frames, passes, active) = match cut {
-                Some(c) => (c.start, c.frames, c.passes, c.active),
-                None => (start, result.frames, Vec::new(), 0),
+            let (lead, (start, frames, passes, active)) = match cut {
+                Some(c) => (c.lead, (c.start, c.frames, c.passes, c.active)),
+                None => (None, (start, result.frames, Vec::new(), 0)),
             };
             let timeline = &self.transport.timeline;
             let from = timeline.ticks_at(start, rate);
             let to = timeline.ticks_at(start + frames as i64, rate);
             let size = fs::metadata(&result.path).map_or(0, |m| m.len());
+            let media = Media {
+                id: self.document.fresh_id(),
+                path: result.path.to_string_lossy().into_owned(),
+                original_path: None,
+                frames: result.frames,
+                channels: result.channels,
+                sample_rate: result.rate,
+                size_bytes: size,
+            };
+            let name = result
+                .path
+                .file_stem()
+                .map_or_else(|| name.clone(), |s| s.to_string_lossy().into_owned());
+            // What was recorded before the loop began is a clip of its own,
+            // from the start of the file, where it was played.
+            if let Some((at, lead_frames)) = lead {
+                let lead_from = timeline.ticks_at(at, rate);
+                let lead_to = timeline.ticks_at(at + lead_frames as i64, rate);
+                takes.push(Take {
+                    track: Id(result.track),
+                    media: media.clone(),
+                    name: format!("{name} lead-in"),
+                    start: lead_from,
+                    length: lead_to - lead_from,
+                    passes: Vec::new(),
+                    active: 0,
+                });
+            }
             takes.push(Take {
                 track: Id(result.track),
-                media: Media {
-                    id: self.document.fresh_id(),
-                    path: result.path.to_string_lossy().into_owned(),
-                    original_path: None,
-                    frames: result.frames,
-                    channels: result.channels,
-                    sample_rate: result.rate,
-                    size_bytes: size,
-                },
-                name: result
-                    .path
-                    .file_stem()
-                    .map_or_else(|| name.clone(), |s| s.to_string_lossy().into_owned()),
+                media,
+                name,
                 start: from,
                 length: to - from,
                 passes,

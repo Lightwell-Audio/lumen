@@ -8,6 +8,9 @@
 //! last pass: it is offered as a take, and plays up to where it stopped, if
 //! it is long enough to be worth choosing.
 //!
+//! What a take recorded before the loop's start is placed as a clip of its
+//! own, where it was played.
+//!
 //! A clip cannot begin before its file, so a first pass that began part-way
 //! into the loop is not offered as a take; its audio stays in the file. When
 //! fewer than two passes are left the recording is one clip, as without Loop.
@@ -34,6 +37,9 @@ pub(crate) struct Cut {
     pub passes: Vec<i64>,
     /// The pass the clip plays: the last one that lasts the whole loop.
     pub active: usize,
+    /// What a take that began before the loop recorded before it: the placed
+    /// sample it begins at and its frames, to be placed as a clip of its own.
+    pub lead: Option<(i64, u64)>,
 }
 
 /// Cuts a take that began at placed sample `start`, holds `frames` and saw
@@ -55,7 +61,7 @@ pub(crate) fn cut(
     let slack = i64::from(rate / START_SLACK);
     let mut begins: Vec<(u64, i64)> = Vec::with_capacity(wraps.len() + 1);
     // The first pass has the whole loop in it if it began at or before the
-    // loop's start; what it recorded before the loop stays in the file.
+    // loop's start; what it recorded before the loop is a clip of its own.
     let first_whole = start <= last.at + slack;
     if first_whole {
         begins.push((0, start));
@@ -84,13 +90,17 @@ pub(crate) fn cut(
             frames: last.frame,
             passes: vec![0],
             active: 0,
+            lead: None,
         });
     }
+    let lead = (clip_start - start).max(0) as u64;
+    let lead = (first_whole && lead > slack as u64).then_some((start.max(0), lead));
     Some(Cut {
         start: clip_start,
         frames: if passes.len() > 1 { length } else { played },
         passes,
         active,
+        lead,
     })
 }
 
@@ -179,6 +189,17 @@ mod tests {
         assert_eq!(cut.start, 10_000, "the clip is the loop, not the lead-in");
         assert_eq!(cut.passes, [10_000, 58_000, 106_000]);
         assert_eq!((cut.frames, cut.active), (48_000, 1));
+        assert_eq!(
+            cut.lead,
+            Some((0, 10_000)),
+            "the lead-in is a clip of its own"
+        );
+    }
+
+    #[test]
+    fn a_take_that_began_at_the_loop_has_no_lead_in() {
+        let wraps = [wrap(48_000, 10_000), wrap(96_000, 10_000)];
+        assert_eq!(cut(10_000, 120_000, &wraps).unwrap().lead, None);
     }
 
     #[test]
