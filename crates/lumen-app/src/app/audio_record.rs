@@ -386,7 +386,14 @@ impl App {
             };
             // With Loop on and two or more passes, the clip is one pass long,
             // plays the last whole one, and the others are its takes.
-            let cut = loop_passes::cut(start, result.frames, &result.wraps, rate);
+            let region = self.document.project().transport;
+            let loop_frames = {
+                let timeline = &self.transport.timeline;
+                (timeline.sample_at(region.loop_end, rate)
+                    - timeline.sample_at(region.loop_start, rate))
+                .max(0) as u64
+            };
+            let cut = loop_passes::cut(start, result.frames, &result.wraps, rate, loop_frames);
             let (start, frames, passes, active) = match cut {
                 Some(c) => (c.start, c.frames, c.passes, c.active),
                 None => (start, result.frames, Vec::new(), 0),

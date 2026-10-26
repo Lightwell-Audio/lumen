@@ -27,7 +27,7 @@ pub struct Take {
     pub length: Ticks,
     /// A loop recording's passes (M9 R3): the frame of the file at the clip's
     /// start for each pass, in order. The clip plays the last and keeps the
-    /// others as takes. Fewer than two leave the clip as a single take.
+    /// others as takes. One makes a plain clip that plays from that frame.
     pub passes: Vec<i64>,
     /// The pass the clip plays, an index into `passes`.
     pub active: usize,
@@ -79,7 +79,7 @@ pub fn apply(project: &mut Project, takes: &[Take], fresh: &mut impl FnMut() -> 
                 gain_db: 0.0,
             },
         };
-        if take.passes.len() >= 2 {
+        if !take.passes.is_empty() {
             let passes = take
                 .passes
                 .iter()
@@ -220,14 +220,18 @@ mod tests {
     }
 
     #[test]
-    fn one_pass_is_the_single_take_of_before() {
+    fn one_pass_is_a_plain_clip_that_plays_from_its_frame() {
         let mut p = song();
         let mut t = take(&p, 2, 0, 2);
         t.passes = vec![480];
         apply(&mut p, &[t], &mut ids());
         let clip = &p.tracks[2].clips[0];
         assert!(clip.takes.is_none());
-        assert!(matches!(clip.content, ClipContent::Audio { offset: 0, .. }));
+        assert!(matches!(
+            clip.content,
+            ClipContent::Audio { offset: 480, .. }
+        ));
+        assert!(crate::validate(&p).is_ok());
     }
 
     #[test]

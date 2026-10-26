@@ -9138,6 +9138,18 @@ note lands on the playhead and the clip starts on the bar. One undo step,
 `record.keep_played` (default on; the transport bar's record menu, command
 `transport.keep_played_notes`) turns the buffer off and empties it.
 
+**Where a loop take begins (the owner's third run).** The first version fell
+back to one clip laid out along the timeline whenever fewer than two clean
+passes were found, which put the audio at the wrong time and left an old clip
+playing when the take began before the loop or inside it. Now every take that
+wrapped is cut by the loop's own length (`loop_passes::cut` takes it, and
+prefers the spacing of the wraps once there are two): a take that began at or
+before the loop's start offers its first pass (what was recorded before the
+loop stays in the file); one that began inside the loop does not; a single
+pass is a plain clip that plays from its frame; a take stopped just after a
+wrap from inside the loop is kept as the stretch it was played. Only the loop's
+span is replaced: the part of an old clip outside it plays on.
+
 **Left as it was.** Audio and MIDI recorded together are still two undo steps
 (KNOWN_ISSUES). Extract to a new track is audio only (a new MIDI track would
 have no instrument).

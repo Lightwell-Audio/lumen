@@ -484,3 +484,48 @@ fn a_crash_while_recording_leaves_a_take_the_next_start_puts_back() {
     // One undo takes it away again.
     assert_eq!(again.app().undo_label(), Some("Record"));
 }
+
+#[test]
+fn looping_over_a_clip_that_reaches_outside_the_loop_replaces_only_the_loop() {
+    let mut p = project_with_old_clip();
+    p.transport.loop_start = Ticks::quarters(2);
+    p.transport.loop_end = Ticks::quarters(4);
+    p.transport.loop_enabled = true;
+    let (mut lumen, _turn) = launch("over-loop", &p, |l| l);
+    // Two beats are 48,000 frames: record two passes and a half.
+    record(&mut lumen, 3 * 48_000);
+    let clips = clips_of(&lumen, VOX);
+    // The loop is beats 2 to 4 and recording began at the start of the song:
+    // the take is the loop, not the lead-in before it, and not the passes
+    // laid end to end.
+    let take = clips.iter().find(|c| c.name != "Old").expect("the take");
+    let latency = Ticks(Ticks::quarters(1).0 / 20);
+    assert_eq!(take.length, Ticks::quarters(2), "one loop long");
+    assert!(
+        take.start <= Ticks::quarters(2) && take.start + latency >= Ticks::quarters(2),
+        "{:?}",
+        take.start
+    );
+    let pieces: Vec<_> = clips.iter().filter(|c| c.name == "Old").collect();
+    assert!(
+        pieces.iter().any(|c| c.start == Ticks::ZERO),
+        "the part before the loop plays on"
+    );
+    assert!(
+        pieces
+            .iter()
+            .any(|c| c.start + c.length == Ticks::quarters(8)),
+        "the part after the loop plays on"
+    );
+    for old in clips.iter().filter(|c| c.name == "Old") {
+        let end = old.start + old.length;
+        assert!(
+            end <= take.start || old.start >= take.start + take.length,
+            "old clip {:?}..{:?} sits under the take {:?}..{:?}",
+            old.start,
+            end,
+            take.start,
+            take.start + take.length
+        );
+    }
+}
