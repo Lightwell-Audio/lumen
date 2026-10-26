@@ -102,20 +102,27 @@ tests, manual tests on real hardware where needed, and a written report. The
 owner reviews each milestone before the next one starts. Milestone 9 is being
 built before milestone 8 (owner decision, 2026-10-23).
 
+Status below is from [docs/PROGRESS.md](docs/PROGRESS.md), last updated
+2026-10-25. Manual tests (MT-*) are listed in
+[docs/MANUAL_TESTS.md](docs/MANUAL_TESTS.md).
+
 | Milestone | Scope | Status |
 |---|---|---|
 | 1. Foundations | Repository, CI, benchmarks, and the prototypes that settled the architecture | Complete |
-| 2. Audio engine and devices | Device selector, ASIO, transport, playback | Complete |
-| 3. Arrangement and project system | Tracks, clips, editing, undo, save and open, autosave | Complete |
-| 4. Mixer, routing and groups | Mixer graph, groups, sends, returns, metering, delay compensation | Complete |
-| 4.5. Polish pass | Interface audit fixes: controls, motion, light layer | Built; manual tests pending |
-| 5. MIDI and piano roll | MIDI devices, recording, piano roll, quantize, Standard MIDI Files, clock out | Built; owner closeout pending |
-| 6. VST3 hosting | Plugin scanning, instruments and effects, a separate process per plugin, editors, presets and state | Built; real-plugin tests and report pending |
-| 7. Automation and envelopes | Automation lanes, Read/Write/Touch/Latch, clip envelopes, MIDI learn | Built; owner approval pending |
-| 7b. Advanced editing | Join, crop, crossfades, bounce, freeze and related editing | Built; owner closeout pending |
-| 9. Recording, media and export | Audio input and recording built; takes, Capture MIDI, export and disk streaming to come | In progress |
-| 8. Drum maps and built-in devices | Drum maps, drum editor, step sequencer, EQ, compressor, limiter, delay, reverb, sampler | Planned; a five-preset synth is already built |
+| 2. Audio engine and devices | Device selector, ASIO, transport, playback | Complete; approved 2026-10-07 |
+| 3. Arrangement and project system | Tracks, clips, editing, undo, save and open, autosave | Complete; approved 2026-10-09 |
+| 4. Mixer, routing and groups | Mixer graph, groups, sends, returns, metering, delay compensation | Complete, 2026-10-10 |
+| 4.5. Polish pass | Interface audit fixes: controls, motion, light layer | Built; MT-POL-5 and MT-POL-6 pending |
+| 5. MIDI and piano roll | MIDI devices, recording, piano roll, quantize, Standard MIDI Files, clock out | Slices 0 to 7 built; slice 8 close and MT-MIDI-7 to 9 pending |
+| 6. VST3 hosting | Plugin scanning, instruments and effects, a separate process per plugin, editors, presets and state | Slices 0 to 6 built; closeout under way: MT-VST-7 on real plugins, the review's Medium and Low findings, and the report |
+| 7. Automation and envelopes | Automation lanes, Read/Write/Touch/Latch, clip envelopes, MIDI learn | Built, 2026-10-22; manual tests passed; owner approval pending |
+| 7b. Advanced editing and render | Join, crop, crossfades, consolidate, bounce, freeze and related editing | Slices E0 to E6 built; E6 closeout (MT-EDIT-7) and owner sign-off pending |
+| 9. Recording, media and export | Audio input, audio recording, takes, Capture MIDI, export, disk streaming | In progress: render consistency, audio input and recording built; hardware tests MT-REC-1, MT-REC-2 and MT-REC-4 pending; takes and Capture MIDI are next, then export and disk streaming |
+| 8. Drum maps and built-in devices | Drum maps, drum editor, step sequencer, EQ, compressor, limiter, delay, reverb, sampler | Planned, after milestone 9; a five-preset synth is already built |
 | 10. Hardening and release | Plugin isolation hardening, performance tuning, installers | Planned |
+
+Not scheduled: VST3 hosting on macOS and Linux. The owner approved native
+macOS hosting on 2026-10-19; see [docs/milestones/macOS-VST3.md](docs/milestones/macOS-VST3.md).
 
 The full requirements, with the status of each, are in
 [docs/PROGRESS.md](docs/PROGRESS.md). The product specification is in
