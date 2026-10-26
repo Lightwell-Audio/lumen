@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumen · Where songs come to light · Open-source DAW</title>
+<meta name="description" content="Lumen is a free, open-source digital audio workstation written in Rust: one arrangement view, VST3 instruments and effects, a piano roll, automation and a mixer. In early development.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://gummycookie.github.io/lumen/">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0B0D10">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Lumen">
+<meta property="og:locale" content="en_US">
+<meta property="og:title" content="Lumen · Where songs come to light">
+<meta property="og:description" content="Lumen is a free, open-source digital audio workstation written in Rust: one arrangement view, VST3 instruments and effects, a piano roll, automation and a mixer. In early development.">
+<meta property="og:url" content="https://gummycookie.github.io/lumen/">
+<meta property="og:image" content="https://gummycookie.github.io/lumen/og.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Lumen: where songs come to light. The arrangement view with drums, bass, keys, pad, lead and vocal tracks.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Lumen · Where songs come to light">
+<meta name="twitter:description" content="Lumen is a free, open-source digital audio workstation written in Rust: one arrangement view, VST3 instruments and effects, a piano roll, automation and a mixer. In early development.">
+<meta name="twitter:image" content="https://gummycookie.github.io/lumen/og.jpg">
+<meta name="twitter:image:alt" content="Lumen: where songs come to light. The arrangement view with drums, bass, keys, pad, lead and vocal tracks.">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "WebSite",
+   "@id": "https://gummycookie.github.io/lumen/#website",
+   "url": "https://gummycookie.github.io/lumen/",
+   "name": "Lumen",
+   "description": "Lumen is a free, open-source digital audio workstation written in Rust: one arrangement view, VST3 instruments and effects, a piano roll, automation and a mixer. In early development.",
+   "inLanguage": "en"
+  },
+  {
+   "@type": "SoftwareApplication",
+   "@id": "https://gummycookie.github.io/lumen/#app",
+   "name": "Lumen",
+   "url": "https://gummycookie.github.io/lumen/",
+   "description": "Lumen is a free, open-source digital audio workstation written in Rust: one arrangement view, VST3 instruments and effects, a piano roll, automation and a mixer. In early development.",
+   "applicationCategory": "MultimediaApplication",
+   "applicationSubCategory": "Digital audio workstation",
+   "operatingSystem": "Windows 10, Windows 11, macOS, Linux",
+   "image": "https://gummycookie.github.io/lumen/og.jpg",
+   "screenshot": "https://gummycookie.github.io/lumen/assets/video/hero.webp",
+   "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+   "isAccessibleForFree": true,
+   "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+   },
+   "sameAs": [
+    "https://github.com/gummycookie/lumen"
+   ]
+  },
+  {
+   "@type": "SoftwareSourceCode",
+   "name": "Lumen",
+   "codeRepository": "https://github.com/gummycookie/lumen",
+   "programmingLanguage": "Rust",
+   "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+   "targetProduct": {
+    "@id": "https://gummycookie.github.io/lumen/#app"
+   }
+  }
+ ]
+}
+</script>
+<link rel="preload" href="assets/fonts/Inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/Unbounded.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+@font-face{font-family:Inter;src:url(assets/fonts/Inter.woff2) format("woff2");font-weight:100 900;font-display:swap}
+@font-face{font-family:Unbounded;src:url(assets/fonts/Unbounded.woff2) format("woff2");font-weight:200 900;font-display:swap}
+@font-face{font-family:'Martian Mono';src:url(assets/fonts/MartianMono.woff2) format("woff2");font-weight:100 800;font-stretch:75% 112.5%;font-display:swap}
+body{margin:0;background:#0B0D10}
+a{color:#8CC4FF}a:hover{color:#FFD99E}
+@keyframes lm-breathe{0%,100%{opacity:.7;transform:translateX(-50%) scale(1)}50%{opacity:1;transform:translateX(-50%) scale(1.08)}}
+@keyframes lm-spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+@keyframes lm-rise{0%{transform:translateY(0);opacity:0}12%{opacity:.9}100%{transform:translateY(-560px);opacity:0}}
+@keyframes lm-shimmer{to{background-position:-200% center}}
+@keyframes lm-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+@keyframes lm-halo{0%,100%{opacity:.55;transform:scale(.94)}50%{opacity:.95;transform:scale(1.04)}}
+@keyframes lm-sweep{from{left:0%}to{left:100%}}
+@keyframes lm-meter{0%,100%{transform:scaleY(.3)}25%{transform:scaleY(.95)}55%{transform:scaleY(.5)}80%{transform:scaleY(.75)}}
+@keyframes lm-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,196,107,.6)}60%{box-shadow:0 0 0 12px rgba(255,196,107,0)}}
+@keyframes lm-run{from{transform:translateX(-120%)}to{transform:translateX(420%)}}
+@keyframes lm-up{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
+@keyframes lm-wave{0%,100%{transform:scaleY(.45)}50%{transform:scaleY(1)}}
+.lm-glow{position:absolute;left:50%;top:-260px;width:1300px;height:900px;border-radius:50%;background:radial-gradient(closest-side,rgba(255,170,72,.42),rgba(255,140,60,.16) 38%,rgba(79,163,255,.12) 62%,transparent 80%);animation:lm-breathe 9s ease-in-out infinite;pointer-events:none}
+.lm-rays{position:absolute;left:50%;top:0;width:1800px;height:1800px;background:repeating-conic-gradient(from 0deg,rgba(255,214,150,.07) 0 3deg,transparent 3deg 15deg);-webkit-mask:radial-gradient(closest-side,#000 0,rgba(0,0,0,.6) 30%,transparent 62%);mask:radial-gradient(closest-side,#000 0,rgba(0,0,0,.6) 30%,transparent 62%);animation:lm-spin 160s linear infinite;pointer-events:none}
+.lm-mote{position:absolute;bottom:-20px;border-radius:50%;background:#FFE2B0;box-shadow:0 0 12px 3px rgba(255,196,107,.7);animation:lm-rise linear infinite;pointer-events:none}
+.lm-shine{background:linear-gradient(100deg,#FFC46B 0%,#FFF3DE 25%,#8CC4FF 50%,#FFC46B 75%,#FFF3DE 100%);background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:lm-shimmer 7s linear infinite}
+.lm-up{animation:lm-up .9s cubic-bezier(.2,.7,.2,1) both}
+.lm-bob{animation:lm-bob 5s ease-in-out infinite}
+.lm-halo{animation:lm-halo 5s ease-in-out infinite}
+.lm-sweep{animation:lm-sweep 7.74s linear infinite}
+.lm-meter{transform-origin:bottom;animation:lm-meter 1.1s ease-in-out infinite}
+.lm-pulse{animation:lm-pulse 2.4s ease-out infinite}
+.lm-run{animation:lm-run 3.2s cubic-bezier(.5,0,.5,1) infinite}
+.lm-wave{transform-origin:center;animation:lm-wave 1.6s ease-in-out infinite}
+.lm-btn{transition:transform .18s ease,box-shadow .18s ease,filter .18s ease}
+.lm-btn:hover{transform:translateY(-2px);filter:brightness(1.08)}
+.lm-card{transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease}
+.lm-card:hover{transform:translateY(-4px);border-color:rgba(255,196,107,.55)!important;box-shadow:0 18px 50px -18px rgba(255,170,72,.45),0 0 0 1px rgba(255,196,107,.15)}
+@supports (animation-timeline: view()){.lm-reveal{animation:lm-up linear both;animation-timeline:view();animation-range:entry 0% cover 28%}}
+@media (prefers-reduced-motion: reduce){.lm-glow,.lm-rays,.lm-mote,.lm-shine,.lm-up,.lm-bob,.lm-halo,.lm-sweep,.lm-meter,.lm-pulse,.lm-run,.lm-wave,.lm-reveal{animation:none!important}.lm-mote{display:none}}
+.lm-vid{position:relative;display:block;width:100%;height:auto;background:#15171B}
+.lm-vid video,.lm-vid img{display:block;width:100%;height:auto}
+.lm-vid .lm-still{display:none}
+.lm-kbd{font-family:'Martian Mono',monospace;font-size:11px;color:#E6E8EC;background:#1F2228;border:1px solid #2E323A;border-bottom-width:2px;border-radius:6px;padding:2px 7px}
+@media (prefers-reduced-motion: reduce){.lm-vid video{display:none}.lm-vid .lm-still{display:block}}
+.lm-tour{position:relative;height:2900px;view-timeline:--tour block}
+.lm-mark{position:absolute;left:0;width:1px;height:1px}
+.lm-stage{position:sticky;top:24px;width:min(100%, calc((100vh - 250px) * 1.7778));margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.lm-tabs{display:flex;flex-wrap:wrap;gap:8px}
+.lm-tab{display:inline-flex;align-items:center;gap:8px;min-height:44px;box-sizing:border-box;padding:0 16px;border-radius:255px;border:1px solid #2E323A;color:#B4BAC6;text-decoration:none;font-size:14px;transition:filter .18s ease}
+.lm-tab:hover{filter:brightness(1.2);color:#E6E8EC}
+.lm-tab b{font-family:'Martian Mono',monospace;font-weight:500;font-size:11px;opacity:.8}
+.lm-tab1{background:#FFC46B;color:#1A1206;border-color:#FFC46B}
+.lm-rail{height:2px;background:#1F2228;border-radius:2px;overflow:hidden}
+.lm-rail span{display:block;height:100%;width:100%;transform-origin:left;transform:scaleX(.25);background:linear-gradient(90deg,#4FA3FF,#FFC46B)}
+.lm-stack{display:grid}
+.lm-stack>.lm-ch{grid-area:1/1;display:flex;flex-direction:column;gap:18px;margin:0}
+.lm-frame{position:relative;padding:1px;border-radius:18px;background:linear-gradient(135deg,rgba(255,196,107,.7),rgba(255,255,255,.08) 35%,rgba(79,163,255,.6));box-shadow:0 40px 120px -40px rgba(255,170,72,.4)}
+.lm-frame>.lm-vid{border-radius:17px;overflow:hidden}
+.lm-cap{display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px 24px}
+.lm-ch:not(.lm-ch1) .lm-frame,.lm-ch:not(.lm-ch1) .lm-cap{opacity:0}
+.lm-drift{position:absolute;border-radius:50%;filter:blur(50px);pointer-events:none}
+@keyframes lm-f-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(-28px) scale(.95)}}
+@keyframes lm-f-in{from{opacity:0;transform:translateY(56px) scale(1.04)}to{opacity:1;transform:none}}
+@keyframes lm-f-io{0%{opacity:0;transform:translateY(56px) scale(1.04)}19%,81%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-28px) scale(.95)}}
+@keyframes lm-c-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(-64px)}}
+@keyframes lm-c-in{from{opacity:0;transform:translateY(120px)}to{opacity:1;transform:none}}
+@keyframes lm-c-io{0%{opacity:0;transform:translateY(120px)}19%,81%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-64px)}}
+@keyframes lm-t-out{from{background:#FFC46B;color:#1A1206;border-color:#FFC46B}to{background:transparent;color:#B4BAC6;border-color:#2E323A}}
+@keyframes lm-t-in{from{background:transparent;color:#B4BAC6;border-color:#2E323A}to{background:#FFC46B;color:#1A1206;border-color:#FFC46B}}
+@keyframes lm-t-io{0%{background:transparent;color:#B4BAC6;border-color:#2E323A}19%,81%{background:#FFC46B;color:#1A1206;border-color:#FFC46B}100%{background:transparent;color:#B4BAC6;border-color:#2E323A}}
+@keyframes lm-rail{from{transform:scaleX(.25)}to{transform:scaleX(1)}}
+@keyframes lm-drift-a{from{transform:translateY(240px)}to{transform:translateY(-320px)}}
+@keyframes lm-drift-b{from{transform:translateY(-120px)}to{transform:translateY(260px)}}
+@supports (animation-timeline: view()){@media (prefers-reduced-motion: no-preference){
+.lm-tour .lm-frame,.lm-tour .lm-cap,.lm-tab,.lm-rail span,.lm-drift{animation-timing-function:linear;animation-fill-mode:both;animation-timeline:--tour}
+.lm-ch1 .lm-frame{animation-name:lm-f-out;animation-range:contain 22% contain 28%}
+.lm-ch1 .lm-cap{animation-name:lm-c-out;animation-range:contain 22% contain 28%}
+.lm-ch2 .lm-frame,.lm-ch3 .lm-frame{animation-name:lm-f-io}
+.lm-ch2 .lm-cap,.lm-ch3 .lm-cap{animation-name:lm-c-io}
+.lm-ch2 .lm-frame,.lm-ch2 .lm-cap,.lm-tab2{animation-range:contain 22% contain 53%}
+.lm-ch3 .lm-frame,.lm-ch3 .lm-cap,.lm-tab3{animation-range:contain 47% contain 78%}
+.lm-ch4 .lm-frame{animation-name:lm-f-in;animation-range:contain 72% contain 78%}
+.lm-ch4 .lm-cap{animation-name:lm-c-in;animation-range:contain 72% contain 78%}
+.lm-tab1{animation-name:lm-t-out;animation-range:contain 22% contain 28%}
+.lm-tab2,.lm-tab3{animation-name:lm-t-io}
+.lm-tab4{animation-name:lm-t-in;animation-range:contain 72% contain 78%}
+.lm-rail span{animation-name:lm-rail;animation-range:contain 0% contain 100%}
+.lm-drift-a{animation-name:lm-drift-a;animation-range:cover 0% cover 100%}
+.lm-drift-b{animation-name:lm-drift-b;animation-range:cover 0% cover 100%}
+}}
+@supports not (animation-timeline: view()){.lm-tour{height:auto}.lm-mark,.lm-tabs,.lm-rail{display:none}.lm-stage{position:static;width:100%}.lm-stack{display:flex;flex-direction:column;gap:72px}.lm-ch .lm-frame,.lm-ch .lm-cap{opacity:1!important}}
+@media (prefers-reduced-motion: reduce){.lm-tour{height:auto}.lm-mark,.lm-tabs,.lm-rail{display:none}.lm-stage{position:static;width:100%}.lm-stack{display:flex;flex-direction:column;gap:72px}.lm-ch .lm-frame,.lm-ch .lm-cap{opacity:1!important}}
+</style>
+</head>
+<body>
+<div style="background: #0B0D10; color: #E6E8EC; font-family: Inter, system-ui, sans-serif; min-height: 100vh; overflow: clip;">
+
+  <div style="position: relative; overflow: hidden;">
+    <div class="lm-rays" aria-hidden="true"></div>
+    <div class="lm-glow" aria-hidden="true"></div>
+    <div aria-hidden="true" style="position: absolute; inset: 0; pointer-events: none;">
+      <span class="lm-mote" style="left: 8%; width: 4px; height: 4px; animation-duration: 14s; animation-delay: -2s;"></span>
+      <span class="lm-mote" style="left: 16%; width: 3px; height: 3px; animation-duration: 18s; animation-delay: -9s;"></span>
+      <span class="lm-mote" style="left: 24%; width: 5px; height: 5px; animation-duration: 12s; animation-delay: -5s;"></span>
+      <span class="lm-mote" style="left: 33%; width: 3px; height: 3px; animation-duration: 16s; animation-delay: -12s;"></span>
+      <span class="lm-mote" style="left: 41%; width: 4px; height: 4px; animation-duration: 20s; animation-delay: -3s;"></span>
+      <span class="lm-mote" style="left: 52%; width: 3px; height: 3px; animation-duration: 13s; animation-delay: -7s;"></span>
+      <span class="lm-mote" style="left: 60%; width: 5px; height: 5px; animation-duration: 17s; animation-delay: -14s;"></span>
+      <span class="lm-mote" style="left: 69%; width: 3px; height: 3px; animation-duration: 15s; animation-delay: -1s;"></span>
+      <span class="lm-mote" style="left: 77%; width: 4px; height: 4px; animation-duration: 19s; animation-delay: -10s;"></span>
+      <span class="lm-mote" style="left: 86%; width: 3px; height: 3px; animation-duration: 12s; animation-delay: -6s;"></span>
+      <span class="lm-mote" style="left: 93%; width: 4px; height: 4px; animation-duration: 16s; animation-delay: -11s;"></span>
+    </div>
+
+    <header style="position: relative; max-width: 1160px; margin: 0 auto; padding: 20px 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 32px;">
+      <a href="#top" style="display: flex; align-items: center; gap: 10px; text-decoration: none; color: #E6E8EC;">
+        <svg width="38" height="29" viewBox="3 8 58 44" aria-hidden="true"><defs><radialGradient id="lm-dawn-sun" cx="32" cy="32" r="16" gradientUnits="userSpaceOnUse"><stop offset="0.4" stop-color="#FFFFFF"></stop><stop offset="1" stop-color="#FFC46B"></stop></radialGradient><linearGradient id="lm-dawn-horizon" x1="5" y1="0" x2="59" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4FA3FF" stop-opacity="0.14"></stop><stop offset="0.5" stop-color="#FFFFFF"></stop><stop offset="1" stop-color="#4FA3FF" stop-opacity="0.14"></stop></linearGradient><clipPath id="lm-dawn-sky"><rect x="0" y="0" width="64" height="32"></rect></clipPath></defs><g clip-path="url(#lm-dawn-sky)"><circle cx="32" cy="32" r="23" fill="#FFC46B" fill-opacity="0.12"></circle><circle cx="32" cy="32" r="19.5" fill="#FFC46B" fill-opacity="0.24"></circle><circle cx="32" cy="32" r="16" fill="url(#lm-dawn-sun)"></circle></g><rect x="5" y="30" width="54" height="4" fill="url(#lm-dawn-horizon)"></rect><g stroke="#4FA3FF" stroke-width="4" stroke-linecap="round"><line x1="19" y1="40" x2="45" y2="40" stroke-opacity="0.85"></line><line x1="25.5" y1="48" x2="38.5" y2="48" stroke-opacity="0.6"></line></g></svg>
+        <span style="font-family: Unbounded, Inter, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.01em;">Lumen</span>
+      </a>
+      <nav aria-label="Main" style="display: flex; flex-wrap: wrap; gap: 4px 24px; flex: 1 1 auto; font-size: 14px;">
+        <a href="#tour" style="color: #B4BAC6; text-decoration: none;">Tour</a>
+        <a href="#features" style="color: #B4BAC6; text-decoration: none;">Features</a>
+        <a href="#roadmap" style="color: #B4BAC6; text-decoration: none;">Roadmap</a>
+        <a href="#download" style="color: #B4BAC6; text-decoration: none;">Download</a>
+      </nav>
+      <a class="lm-btn" href="https://github.com/gummycookie/lumen" style="font-size: 14px; color: #E6E8EC; text-decoration: none; padding: 0 16px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.04); border-radius: 10px; min-height: 44px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px;">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+        GitHub
+      </a>
+    </header>
+
+    <section id="top" style="position: relative; max-width: 1160px; margin: 0 auto; padding: 64px 24px 56px; display: flex; flex-wrap: wrap; align-items: center; gap: 32px;">
+      <div style="flex: 1 1 600px; display: flex; flex-direction: column; gap: 24px;">
+        <span class="lm-up" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 10px; font-family: 'Martian Mono', monospace; font-size: 12px; color: #FFD99E; border: 1px solid rgba(255,196,107,.35); background: rgba(255,196,107,.08); padding: 7px 12px; border-radius: 255px;"><span class="lm-pulse" style="width: 7px; height: 7px; border-radius: 50%; background: #FFC46B;"></span>Early development · not yet released</span>
+        <h1 class="lm-up" style="margin: 0; font-family: Unbounded, Inter, sans-serif; font-weight: 700; font-size: clamp(42px, 6.4vw, 84px); line-height: 1.02; letter-spacing: -0.025em; animation-delay: .08s;">Where songs<br><span class="lm-shine">come to light.</span></h1>
+        <p class="lm-up" style="margin: 0; font-size: 19px; line-height: 1.55; color: #B4BAC6; max-width: 600px; animation-delay: .16s;">Lumen is an arrangement-first digital audio workstation written in Rust. VST3 instruments and effects, low-latency ASIO on Windows, and every edit undoable.</p>
+        <div class="lm-up" style="display: flex; flex-wrap: wrap; gap: 12px; padding-top: 8px; animation-delay: .24s;">
+          <a class="lm-btn" href="https://github.com/gummycookie/lumen" style="background: linear-gradient(135deg, #FFC46B 0%, #FF9F4A 100%); color: #1A1206; font-weight: 600; font-size: 15px; text-decoration: none; padding: 0 22px; min-height: 50px; border-radius: 12px; display: inline-flex; align-items: center; gap: 10px; box-shadow: 0 10px 40px -10px rgba(255,160,72,.75), inset 0 1px 0 rgba(255,255,255,.45);">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+            Follow on GitHub
+          </a>
+          <a class="lm-btn" href="#tour" style="background: rgba(255,255,255,.05); color: #E6E8EC; font-weight: 500; font-size: 15px; text-decoration: none; padding: 0 20px; min-height: 50px; border-radius: 12px; border: 1px solid rgba(255,255,255,.16); display: inline-flex; align-items: center; gap: 10px;">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7.25" fill="none" stroke="#8CC4FF" stroke-width="1.5"></circle><path d="M6.5 5.2v5.6L11 8z" fill="#8CC4FF"></path></svg>
+            Take the tour
+          </a>
+        </div>
+      </div>
+      <div class="lm-up" style="flex: 0 1 300px; position: relative; display: flex; justify-content: center; align-items: center; min-height: 300px; animation-delay: .3s;">
+        <div class="lm-halo" aria-hidden="true" style="position: absolute; width: 280px; height: 280px; border-radius: 50%; background: radial-gradient(closest-side, rgba(255,196,107,.55), rgba(255,160,72,.18) 55%, transparent 75%);"></div>
+        <div class="lm-halo" aria-hidden="true" style="position: absolute; width: 300px; height: 300px; border-radius: 50%; border: 1px solid rgba(255,214,150,.25); animation-delay: -2.5s;"></div>
+        <img class="lm-bob" src="assets/img/lumi-wave.webp" width="240" height="240" alt="Lumi, Lumen's amber light-spirit mascot, waving in blue headphones" style="position: relative; width: 240px; height: auto; filter: drop-shadow(0 18px 30px rgba(0,0,0,.45));">
+      </div>
+    </section>
+
+    <section aria-label="The arrangement, playing" style="position: relative; max-width: 1160px; margin: 0 auto; padding: 0 24px 104px;">
+      <div aria-hidden="true" style="position: absolute; left: 10%; right: 10%; top: 40px; bottom: 60px; background: radial-gradient(closest-side, rgba(79,163,255,.35), transparent 70%); filter: blur(40px);"></div>
+      <div class="lm-up" style="position: relative; padding: 1px; border-radius: 16px; background: linear-gradient(135deg, rgba(255,196,107,.7), rgba(255,255,255,.08) 35%, rgba(79,163,255,.6)); box-shadow: 0 40px 120px -40px rgba(255,170,72,.45); animation-delay: .36s;">
+        <div style="background: #15171B; border-radius: 15px; overflow: hidden;">
+          <div class="lm-vid" role="img" aria-label="Lumen playing a nine-track arrangement in the dark theme: drums, bass, keys, pad, lead and vocal clips with the playhead moving through four bars"><video autoplay muted loop playsinline preload="auto" poster="assets/video/hero.webp" aria-hidden="true"><source src="assets/video/hero.mp4" type="video/mp4"></video><img class="lm-still" src="assets/video/hero.webp" alt=""></div>
+        </div>
+      </div>
+      <p style="position: relative; margin: 14px 0 0; font-size: 13px; color: #6E7480;">Four bars of a demo project, playing in the current build. Silent: recorded on a test audio device.</p>
+    </section>
+  </div>
+
+  <section id="tour" style="position: relative; max-width: 1320px; margin: 0 auto; padding: 0 24px 104px;">
+    <div style="max-width: 1112px; margin: 0 auto;">
+      <h2 class="lm-reveal" style="margin: 0 0 12px; font-family: Unbounded, Inter, sans-serif; font-weight: 600; font-size: 36px; letter-spacing: -0.015em;">See it <span class="lm-shine">work</span></h2>
+      <p class="lm-reveal" style="margin: 0 0 32px; color: #9AA0AC; font-size: 17px;">Short loops recorded from the current build, mouse and keyboard as they happened. Scroll to step through them.</p>
+    </div>
+    <div class="lm-tour">
+      <span id="tour-1" class="lm-mark" style="top: 0px;"></span><span id="tour-2" class="lm-mark" style="top: calc(1087.5px - 37.5vh);"></span><span id="tour-3" class="lm-mark" style="top: calc(1812.5px - 62.5vh);"></span><span id="tour-4" class="lm-mark" style="top: calc(2610px - 90vh);"></span>
+      <div class="lm-stage">
+        <span class="lm-drift lm-drift-a" aria-hidden="true" style="left: -8%; top: 10%; width: 420px; height: 420px; background: rgba(255,170,72,.22);"></span>
+        <span class="lm-drift lm-drift-b" aria-hidden="true" style="right: -6%; top: 30%; width: 480px; height: 480px; background: rgba(79,163,255,.2);"></span>
+        <nav class="lm-tabs" aria-label="Walkthroughs" style="position: relative;"><a class="lm-tab lm-tab1" href="#tour-1"><b>01</b>Piano roll</a><a class="lm-tab lm-tab2" href="#tour-2"><b>02</b>Split and fade</a><a class="lm-tab lm-tab3" href="#tour-3"><b>03</b>Mixer</a><a class="lm-tab lm-tab4" href="#tour-4"><b>04</b>Command palette</a></nav>
+        <div class="lm-rail" aria-hidden="true" style="position: relative;"><span></span></div>
+        <div class="lm-stack" style="position: relative;">
+          <figure class="lm-ch lm-ch1">
+            <div class="lm-frame"><div class="lm-vid" role="img" aria-label="Piano roll: four notes drawn, selected, moved down three semitones and given a velocity ramp"><video autoplay muted loop playsinline preload="auto" poster="assets/video/piano.webp" aria-hidden="true"><source src="assets/video/piano.mp4" type="video/mp4"></video><img class="lm-still" src="assets/video/piano.webp" alt=""></div></div>
+            <figcaption class="lm-cap">
+              <span style="font-family: 'Martian Mono', monospace; font-size: 28px; line-height: 1; color: #FFC46B; padding-top: 2px;">01</span>
+              <span style="flex: 1 1 420px; display: flex; flex-direction: column; gap: 6px;">
+                <span style="font-size: 20px; font-weight: 600; color: #E6E8EC;">Draw, move, shape</span>
+                <span style="font-size: 15px; line-height: 1.55; color: #9AA0AC; max-width: 640px;">Double-click a clip to open the piano roll. Draw notes, box-select them, drag them down, then ramp their velocities with one stroke.</span>
+              </span>
+              <span style="display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px;"><span class="lm-kbd">Double-click</span><span class="lm-kbd">B</span><span class="lm-kbd">Drag</span></span>
+            </figcaption>
+          </figure>
+          <figure class="lm-ch lm-ch2">
+            <div class="lm-frame"><div class="lm-vid" role="img" aria-label="Arrangement: a hi-hat clip zoomed into, split in two at bar 15, then given a fade-out and a fade-in"><video autoplay muted loop playsinline preload="auto" poster="assets/video/edit.webp" aria-hidden="true"><source src="assets/video/edit.mp4" type="video/mp4"></video><img class="lm-still" src="assets/video/edit.webp" alt=""></div></div>
+            <figcaption class="lm-cap">
+              <span style="font-family: 'Martian Mono', monospace; font-size: 28px; line-height: 1; color: #FFC46B; padding-top: 2px;">02</span>
+              <span style="flex: 1 1 420px; display: flex; flex-direction: column; gap: 6px;">
+                <span style="font-size: 20px; font-weight: 600; color: #E6E8EC;">Split and fade</span>
+                <span style="font-size: 15px; line-height: 1.55; color: #9AA0AC; max-width: 640px;">Zoom to a clip, split it at the playhead, and pull the fade handles. Every edit is one undo step.</span>
+              </span>
+              <span style="display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px;"><span class="lm-kbd">Z</span><span class="lm-kbd">Ctrl+E</span><span class="lm-kbd">X</span></span>
+            </figcaption>
+          </figure>
+          <figure class="lm-ch lm-ch3">
+            <div class="lm-frame"><div class="lm-vid" role="img" aria-label="Mixer panel during playback: the pad fader rides its automation and the meters move"><video autoplay muted loop playsinline preload="auto" poster="assets/video/mixer.webp" aria-hidden="true"><source src="assets/video/mixer.mp4" type="video/mp4"></video><img class="lm-still" src="assets/video/mixer.webp" alt=""></div></div>
+            <figcaption class="lm-cap">
+              <span style="font-family: 'Martian Mono', monospace; font-size: 28px; line-height: 1; color: #FFC46B; padding-top: 2px;">03</span>
+              <span style="flex: 1 1 420px; display: flex; flex-direction: column; gap: 6px;">
+                <span style="font-size: 20px; font-weight: 600; color: #E6E8EC;">A mixer that moves</span>
+                <span style="font-size: 15px; line-height: 1.55; color: #9AA0AC; max-width: 640px;">Faders follow their automation while meters run. Groups, returns and the master's loudness readout share the same panel.</span>
+              </span>
+              <span style="display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px;"><span class="lm-kbd">Shift+Tab</span></span>
+            </figcaption>
+          </figure>
+          <figure class="lm-ch lm-ch4">
+            <div class="lm-frame"><div class="lm-vid" role="img" aria-label="Command palette: typing add midi adds a MIDI track during playback, then undo removes it"><video autoplay muted loop playsinline preload="auto" poster="assets/video/palette.webp" aria-hidden="true"><source src="assets/video/palette.mp4" type="video/mp4"></video><img class="lm-still" src="assets/video/palette.webp" alt=""></div></div>
+            <figcaption class="lm-cap">
+              <span style="font-family: 'Martian Mono', monospace; font-size: 28px; line-height: 1; color: #FFC46B; padding-top: 2px;">04</span>
+              <span style="flex: 1 1 420px; display: flex; flex-direction: column; gap: 6px;">
+                <span style="font-size: 20px; font-weight: 600; color: #E6E8EC;">Every command, one search away</span>
+                <span style="font-size: 15px; line-height: 1.55; color: #9AA0AC; max-width: 640px;">The command palette finds any action by name, with its shortcut beside it. Here it adds a MIDI track mid-playback, and undo takes it back.</span>
+              </span>
+              <span style="display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px;"><span class="lm-kbd">Ctrl+K</span><span class="lm-kbd">Ctrl+Z</span></span>
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" style="max-width: 1160px; margin: 0 auto; padding: 0 24px 104px;">
+    <h2 class="lm-reveal" style="margin: 0 0 12px; font-family: Unbounded, Inter, sans-serif; font-weight: 600; font-size: 36px; letter-spacing: -0.015em;">Built for staying <span class="lm-shine">in flow</span></h2>
+    <p class="lm-reveal" style="margin: 0 0 36px; color: #9AA0AC; font-size: 17px;">What works in the current build.</p>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px;">
+      <div class="lm-card lm-reveal" style="position: relative; overflow: hidden; background: linear-gradient(160deg, #181B21, #121418); border: 1px solid #262A31; border-radius: 14px; padding: 26px; display: flex; flex-direction: column; gap: 10px;">
+        <div aria-hidden="true" style="position: absolute; left: -60px; top: -60px; width: 180px; height: 180px; background: radial-gradient(closest-side, rgba(255,196,107,.18), transparent);"></div>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FFC46B" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 7h10M3 12h16M3 17h7"></path></svg>
+        <h3 style="margin: 0; font-size: 18px; font-weight: 600;">The timeline is the product</h3>
+        <p style="margin: 0; font-size: 15px; line-height: 1.55; color: #9AA0AC;">Tracks, clips and time-range selection, fades on free curves, zoom down to single samples with waveforms that stay crisp.</p>
+      </div>
+      <div class="lm-card lm-reveal" style="position: relative; overflow: hidden; background: linear-gradient(160deg, #181B21, #121418); border: 1px solid #262A31; border-radius: 14px; padding: 26px; display: flex; flex-direction: column; gap: 10px;">
+        <div aria-hidden="true" style="position: absolute; left: -60px; top: -60px; width: 180px; height: 180px; background: radial-gradient(closest-side, rgba(79,163,255,.2), transparent);"></div>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8CC4FF" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M8 5v8M12 5v8M16 5v8"></path></svg>
+        <h3 style="margin: 0; font-size: 18px; font-weight: 600;">Piano roll and quantize</h3>
+        <p style="margin: 0; font-size: 15px; line-height: 1.55; color: #9AA0AC;">Record with overdub and replace, edit with velocity and controller lanes, quantize with strength and swing, import and export MIDI files.</p>
+      </div>
+      <div class="lm-card lm-reveal" style="position: relative; overflow: hidden; background: linear-gradient(160deg, #181B21, #121418); border: 1px solid #262A31; border-radius: 14px; padding: 26px; display: flex; flex-direction: column; gap: 10px;">
+        <div aria-hidden="true" style="position: absolute; left: -60px; top: -60px; width: 180px; height: 180px; background: radial-gradient(closest-side, rgba(255,196,107,.18), transparent);"></div>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FFC46B" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M9 9h6v6H9z"></path></svg>
+        <h3 style="margin: 0; font-size: 18px; font-weight: 600;">VST3 in its own process</h3>
+        <p style="margin: 0; font-size: 15px; line-height: 1.55; color: #9AA0AC;">Instruments and effects run sandboxed, so a plugin that crashes is flagged and reloaded instead of taking the session with it.</p>
+      </div>
+      <div class="lm-card lm-reveal" style="position: relative; overflow: hidden; background: linear-gradient(160deg, #181B21, #121418); border: 1px solid #262A31; border-radius: 14px; padding: 26px; display: flex; flex-direction: column; gap: 10px;">
+        <div aria-hidden="true" style="position: absolute; left: -60px; top: -60px; width: 180px; height: 180px; background: radial-gradient(closest-side, rgba(79,163,255,.2), transparent);"></div>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8CC4FF" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 4v16M12 4v16M18 4v16"></path><rect x="4" y="13" width="4" height="3" rx="1"></rect><rect x="10" y="7" width="4" height="3" rx="1"></rect><rect x="16" y="10" width="4" height="3" rx="1"></rect></svg>
+        <h3 style="margin: 0; font-size: 18px; font-weight: 600;">Groups, sends, sidechains</h3>
+        <p style="margin: 0; font-size: 15px; line-height: 1.55; color: #9AA0AC;">Nested group tracks, returns, automatic delay compensation, and LUFS and true-peak metering on the master.</p>
+      </div>
+      <div class="lm-card lm-reveal" style="position: relative; overflow: hidden; background: linear-gradient(160deg, #181B21, #121418); border: 1px solid #262A31; border-radius: 14px; padding: 26px; display: flex; flex-direction: column; gap: 10px;">
+        <div aria-hidden="true" style="position: absolute; left: -60px; top: -60px; width: 180px; height: 180px; background: radial-gradient(closest-side, rgba(255,196,107,.18), transparent);"></div>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FFC46B" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 17c3 0 4-10 7-10s3 8 6 8 3-5 5-5"></path></svg>
+        <h3 style="margin: 0; font-size: 18px; font-weight: 600;">Everything with a value</h3>
+        <p style="margin: 0; font-size: 15px; line-height: 1.55; color: #9AA0AC;">Lanes for mixer and plugin parameters, clip envelopes, and Read, Write, Touch and Latch recording.</p>
+      </div>
+      <div class="lm-card lm-reveal" style="position: relative; overflow: hidden; background: linear-gradient(160deg, #181B21, #121418); border: 1px solid #262A31; border-radius: 14px; padding: 26px; display: flex; flex-direction: column; gap: 10px;">
+        <div aria-hidden="true" style="position: absolute; left: -60px; top: -60px; width: 180px; height: 180px; background: radial-gradient(closest-side, rgba(79,163,255,.2), transparent);"></div>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8CC4FF" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"></path></svg>
+        <h3 style="margin: 0; font-size: 18px; font-weight: 600;">Work is never lost</h3>
+        <p style="margin: 0; font-size: 15px; line-height: 1.55; color: #9AA0AC;">Atomic saves, rolling backups, autosave and crash recovery, and unlimited undo where each edit is one step.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="roadmap" style="max-width: 1160px; margin: 0 auto; padding: 0 24px 104px;">
+    <h2 class="lm-reveal" style="margin: 0 0 8px; font-family: Unbounded, Inter, sans-serif; font-weight: 600; font-size: 36px; letter-spacing: -0.015em;">Where Lumen is</h2>
+    <p class="lm-reveal" style="margin: 0 0 40px; color: #9AA0AC; font-size: 17px;">Built in milestones. Each ends with a working build, automated tests and hands-on hardware tests.</p>
+    <div class="lm-reveal" style="position: relative; height: 6px; border-radius: 255px; background: #1F2228; margin: 0 0 28px; overflow: hidden;">
+      <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 62%; border-radius: 255px; background: linear-gradient(90deg, #4FA3FF, #8CC4FF 55%, #FFC46B); box-shadow: 0 0 18px rgba(255,196,107,.6);"></div>
+      <div class="lm-run" style="position: absolute; left: 0; top: 0; bottom: 0; width: 15%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.9), transparent);"></div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px;">
+      <div class="lm-reveal" style="background: #121418; border: 1px solid #262A31; border-radius: 12px; padding: 18px;"><div style="font-family: 'Martian Mono', monospace; font-size: 11px; color: #6E7480;">M1–M4</div><div style="font-weight: 600; margin: 6px 0;">Engine, arrangement, mixer</div><div style="font-size: 13px; color: #5DCB8A;">● Done</div></div>
+      <div class="lm-reveal" style="background: #121418; border: 1px solid #262A31; border-radius: 12px; padding: 18px;"><div style="font-family: 'Martian Mono', monospace; font-size: 11px; color: #6E7480;">M5–M7</div><div style="font-weight: 600; margin: 6px 0;">MIDI, VST3, automation, editing</div><div style="font-size: 13px; color: #8CC4FF;">● Built, in final testing</div></div>
+      <div class="lm-reveal" style="position: relative; background: linear-gradient(160deg, #221B10, #121418); border: 1px solid rgba(255,196,107,.5); border-radius: 12px; padding: 18px; box-shadow: 0 0 40px -12px rgba(255,170,72,.6);"><div style="font-family: 'Martian Mono', monospace; font-size: 11px; color: #FFC46B;">M9 · NOW</div><div style="font-weight: 600; margin: 6px 0;">Recording and export</div><div style="font-size: 13px; color: #FFD99E; display: flex; align-items: center; gap: 8px;"><span class="lm-pulse" style="width: 7px; height: 7px; border-radius: 50%; background: #FFC46B;"></span>In progress</div></div>
+      <div class="lm-reveal" style="background: #121418; border: 1px solid #262A31; border-radius: 12px; padding: 18px;"><div style="font-family: 'Martian Mono', monospace; font-size: 11px; color: #6E7480;">M8</div><div style="font-weight: 600; margin: 6px 0;">Drum maps, built-in devices</div><div style="font-size: 13px; color: #9AA0AC;">○ Next</div></div>
+      <div class="lm-reveal" style="background: #121418; border: 1px solid #262A31; border-radius: 12px; padding: 18px;"><div style="font-family: 'Martian Mono', monospace; font-size: 11px; color: #6E7480;">M10</div><div style="font-weight: 600; margin: 6px 0;">Hardening and 1.0</div><div style="font-size: 13px; color: #9AA0AC;">○ Planned</div></div>
+    </div>
+  </section>
+  <section id="download" style="max-width: 1160px; margin: 0 auto; padding: 0 24px 104px;">
+    <div class="lm-reveal" style="position: relative; overflow: hidden; border-radius: 20px; padding: 48px 36px; display: flex; flex-wrap: wrap; gap: 24px; align-items: center; background: radial-gradient(ellipse at 100% 0%, rgba(255,170,72,.45), transparent 55%), radial-gradient(ellipse at 0% 100%, rgba(79,163,255,.3), transparent 60%), #14161A; border: 1px solid rgba(255,196,107,.3);">
+      <img class="lm-bob" src="assets/img/lumi-headphones.webp" width="120" height="120" alt="Lumi adjusting its headphones" style="width: 120px; height: auto; position: relative;">
+      <div style="flex: 1 1 380px; display: flex; flex-direction: column; gap: 8px; position: relative;">
+        <h2 style="margin: 0; font-family: Unbounded, Inter, sans-serif; font-weight: 600; font-size: 28px;">No installer yet</h2>
+        <p style="margin: 0; color: #C3C8D2; line-height: 1.6;">Lumen is open source under GPL-3.0. You can build it from source today on Windows, macOS or Linux; installers arrive with 1.0.</p>
+      </div>
+      <a class="lm-btn" href="https://github.com/gummycookie/lumen#getting-started" style="position: relative; background: #F4F5F7; color: #0B0D10; font-weight: 600; text-decoration: none; padding: 0 22px; min-height: 50px; border-radius: 12px; display: inline-flex; align-items: center; gap: 10px; box-shadow: 0 10px 40px -12px rgba(255,255,255,.5);">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+        Build from source
+      </a>
+    </div>
+  </section>
+
+  <footer style="border-top: 1px solid #1F2228;">
+    <div style="max-width: 1160px; margin: 0 auto; padding: 32px 24px 48px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px; font-size: 13px; color: #9AA0AC;">
+      <span>Lumen · GPL-3.0-or-later</span>
+      <a href="https://github.com/gummycookie/lumen" style="color: #9AA0AC; display: inline-flex; align-items: center; gap: 6px;"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>GitHub</a>
+      <p style="flex: 1 1 100%; margin: 8px 0 0; font-size: 12px; color: #6E7480; line-height: 1.6;">VST is a registered trademark of Steinberg Media Technologies GmbH. ASIO is a trademark and software of Steinberg Media Technologies GmbH.</p>
+    </div>
+  </footer>
+</div>
+</body>
+</html>
