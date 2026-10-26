@@ -1,6 +1,6 @@
 # Lumen
 
-[![CI](https://github.com/andrewl913/lumen/actions/workflows/ci.yml/badge.svg)](https://github.com/andrewl913/lumen/actions/workflows/ci.yml)
+[![CI](https://github.com/gummycookie/lumen/actions/workflows/ci.yml/badge.svg)](https://github.com/gummycookie/lumen/actions/workflows/ci.yml)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
 
 <p align="center">
@@ -13,45 +13,80 @@
 
 Lumen is a desktop digital audio workstation written in Rust. It is built
 around one timeline: the arrangement is the whole product, and the browser,
-device chain, clip editors and mixer exist to support it. The aim is
-an arrangement-first workflow with a clean, polished interface.
+device chain, clip editors and mixer exist to support it. There is no session
+view and no clip launcher.
 
-> **Status: early development.** Lumen can play, record and edit MIDI, work
-> with audio clips, mix and save projects. Audio recording, VST3 hosting and
-> drum editing are still to come. See [Roadmap](#roadmap).
+Lumen is free software under GPL-3.0-or-later. A public project page is at
+[gummycookie.github.io/lumen](https://gummycookie.github.io/lumen/).
+
+> **Status: early development, not yet 1.0.** Lumen records and edits MIDI,
+> plays and edits audio clips, hosts VST3 instruments and effects in separate
+> processes, automates parameters, and mixes and saves projects. Audio
+> recording is built and awaiting hardware tests. Export of audio masters and
+> stems, drum maps and the built-in instruments and effects are still to come.
+> See [Roadmap](#roadmap) and [What is not built yet](#what-is-not-built-yet).
 
 ## What works today
 
-- **Audio devices:** ASIO (with a device selector and driver control panel),
-  WASAPI shared and exclusive on Windows, and CoreAudio or Linux audio
-  through cpal. Lumen recovers when a device is lost, and switches device,
-  sample rate and buffer size without restarting.
-- **Transport:** a sample-accurate transport with loop, punch region,
-  metronome, test tone, scrubbing and locators.
-- **Arrangement:** tracks with folding and resizing, audio clips with move,
-  trim, slip, loop-extend, fades along free curves, clip gain and colour,
-  time-range selection, and the clip overlap rule.
-- **Editing:** unlimited undo and redo, where each edit is one step; a
-  command palette (Ctrl+K); a rebindable keyboard map with conflict checks.
-- **MIDI:** live input and monitoring, MIDI recording, a piano roll with
-  velocity and controller lanes, quantize and editing tools, Standard MIDI
-  File import and export, and MIDI clock out. MIDI learn and drum editing
-  are planned for later milestones.
-- **Grid and zoom:** an editing grid with snapping, zoom down to single
-  samples, and waveforms that stay crisp at every zoom level.
-- **Mixer:** group tracks (nested up to three deep), sends and returns,
-  a master track, output routing, sidechain inputs, automatic delay
-  compensation, and a cue bus. Metering includes peak, RMS and, on the
-  master, LUFS and true peak.
-- **Projects:** a versioned, human-readable `.lumen` folder format with
-  relative media paths, atomic saves, rolling backups, autosave and crash
-  recovery. Older project versions open through migrations.
+- **Audio devices:** ASIO with a device selector and the driver's control
+  panel; WASAPI in shared and exclusive mode on Windows; CoreAudio on macOS and
+  the cpal backend on Linux. Lumen recovers when a device is lost, and it
+  switches device, sample rate and buffer size without restarting. Audio input
+  is available from ASIO and WASAPI.
+- **Transport:** sample-accurate playback with loop, punch region, metronome
+  with count-in, test tone, scrubbing and locators.
+- **Arrangement:** audio, MIDI, group, return and master tracks; folding and
+  resizing; clips with move, trim, slip, loop-extend, fades, clip gain and
+  colour; time-range selection; and crossfades, which are true overlaps.
+- **Editing:** undo and redo, where each edit is one step. Join merges
+  selected clips in place, and Join into new file renders a selection into one
+  new file. There are also crop, unloop, nudge, reverse, polarity, normalize,
+  bounce, and freeze, unfreeze and flatten for tracks. A command palette opens with Ctrl+K, and the keyboard map can be
+  rebound, with conflict checks.
+- **Recording:** MIDI recording with replace or overdub, count-in and loop
+  passes. Audio recording writes one crash-safe WAV per armed track, with
+  latency compensation and a manual offset, and is awaiting hardware tests.
+- **MIDI:** device listing with hot-plug, a MIDI From and MIDI To setting per
+  track, live input and monitoring, and the computer keyboard as a MIDI
+  keyboard. The piano roll has velocity and controller lanes. Quantize has
+  strength, swing and a sensitivity window, and there are humanize, legato,
+  fixed length, transpose, scale constraint and reverse. Standard MIDI File
+  import and export, MIDI clock out and panic are included.
+- **Automation:** lanes for track controls, plugin parameters, sends and
+  tempo, with Read, Write, Touch and Latch modes. Clip envelopes work on audio
+  and MIDI clips. MIDI learn feeds a mapping list, and a manual move overrides
+  automation until it is re-enabled.
+- **Plugins (VST3):** scanning runs in the background, in a separate process,
+  with a cache and a blocklist. Each plugin device runs in its own process, so
+  a crashing plugin is isolated, flagged and can be reloaded from its last good
+  state. Hosted plugins have a generic parameter UI and floating editors, and
+  their state and presets are saved in the project. Safe mode starts Lumen
+  without loading any plugin. Testing with real third-party plugins is still
+  in progress; see [docs/PLUGIN_COMPATIBILITY.md](docs/PLUGIN_COMPATIBILITY.md).
+- **Built-in instrument:** a polyphonic synth with five presets.
+- **Mixer:** group tracks nested up to three deep, sends and returns, a master
+  track, output routing, sidechain inputs, automatic delay compensation and a
+  cue bus. Metering includes peak and RMS, and the master adds LUFS and true
+  peak.
+- **Projects:** a versioned `.lumen` project folder with relative media paths,
+  atomic saves, rolling backups, autosave and crash recovery. Older project
+  versions open through migrations.
+- **Files:** WAV, AIFF, FLAC, MP3 and Ogg Vorbis import by drag and drop or
+  from the menu, and Standard MIDI Files.
 - **Interface:** dark and light themes, 100 to 200% UI scale, keyboard
   navigation, and a design system written down in
   [docs/DESIGN.md](docs/DESIGN.md).
 
-Audio files can be imported by drag and drop or from the menu. WAV, AIFF,
-FLAC, MP3 and Ogg Vorbis are supported.
+### What is not built yet
+
+- Export of the master and stems to audio files (WAV and FLAC), with
+  sample-rate conversion, dither and loudness reporting.
+- Takes, loop recording into takes, and Capture MIDI.
+- Disk streaming for clips too large for memory.
+- Drum maps, the drum editor and the step sequencer.
+- Built-in EQ, compressor, limiter, delay, reverb and sampler.
+- Warp and time stretch, ripple delete and insert silence.
+- Installers, and VST3 hosting on macOS and Linux.
 
 ## Roadmap
 
@@ -63,7 +98,9 @@ FLAC, MP3 and Ogg Vorbis are supported.
 > then explore the milestone plans for the details.
 
 Lumen is built in milestones. Each one ends with a working build, automated
-tests, manual tests on real hardware where needed, and a written report.
+tests, manual tests on real hardware where needed, and a written report. The
+owner reviews each milestone before the next one starts. Milestone 9 is being
+built before milestone 8 (owner decision, 2026-10-23).
 
 | Milestone | Scope | Status |
 |---|---|---|
@@ -72,16 +109,18 @@ tests, manual tests on real hardware where needed, and a written report.
 | 3. Arrangement and project system | Tracks, clips, editing, undo, save and open, autosave | Complete |
 | 4. Mixer, routing and groups | Mixer graph, groups, sends, returns, metering, delay compensation | Complete |
 | 4.5. Polish pass | Interface audit fixes: controls, motion, light layer | Built; manual tests pending |
-| 5. MIDI and piano roll | MIDI devices, recording, piano roll, quantize, Standard MIDI Files and clock out | In progress — slices 0–7 built; slice 8 close underway |
-| 6. VST3 hosting | Plugin scanning, instruments and effects, sandboxed plugin processes | Planned |
-| 7. Automation and advanced editing | Automation lanes, clip envelopes, consolidate, bounce, freeze | Planned |
-| 8. Drum maps and built-in devices | Drum maps, drum editor, step sequencer, EQ, compressor, synth, sampler | Planned |
-| 9. Recording, media and export | Multi-channel recording, disk streaming, stem export | Planned |
-| 10. Hardening and release | Plugin isolation, performance tuning, installers | Planned |
+| 5. MIDI and piano roll | MIDI devices, recording, piano roll, quantize, Standard MIDI Files, clock out | Built; owner closeout pending |
+| 6. VST3 hosting | Plugin scanning, instruments and effects, a separate process per plugin, editors, presets and state | Built; real-plugin tests and report pending |
+| 7. Automation and envelopes | Automation lanes, Read/Write/Touch/Latch, clip envelopes, MIDI learn | Built; owner approval pending |
+| 7b. Advanced editing | Join, crop, crossfades, bounce, freeze and related editing | Built; owner closeout pending |
+| 9. Recording, media and export | Audio input and recording built; takes, Capture MIDI, export and disk streaming to come | In progress |
+| 8. Drum maps and built-in devices | Drum maps, drum editor, step sequencer, EQ, compressor, limiter, delay, reverb, sampler | Planned; a five-preset synth is already built |
+| 10. Hardening and release | Plugin isolation hardening, performance tuning, installers | Planned |
 
 The full requirements, with the status of each, are in
 [docs/PROGRESS.md](docs/PROGRESS.md). The product specification is in
-[CLAUDE.md](CLAUDE.md).
+[CLAUDE.md](CLAUDE.md), and the plan for each milestone is in
+[docs/milestones/](docs/milestones/).
 
 ## Getting started
 
@@ -116,10 +155,15 @@ Windows build notes, including a setup without admin rights, are in
 ### Build and run
 
 ```bash
-git clone https://github.com/andrewl913/lumen.git
+git clone https://github.com/gummycookie/lumen.git
 cd lumen
+cargo build --release -p lumen-plugin-host
 cargo run --release -p lumen-app
 ```
+
+Build the plugin host first, as above. It is a separate program that scanning
+and hosting need beside the application, so after a change to its protocol,
+close Lumen and rebuild it.
 
 To run without an audio device, or on a machine without an interface, start
 Lumen with the test device:
@@ -127,6 +171,9 @@ Lumen with the test device:
 ```bash
 cargo run --release -p lumen-app -- --audio test:fake
 ```
+
+Start with Shift held (Windows) or with `--safe-mode` to open Lumen without
+loading any plugin, for example after a plugin has stopped Lumen from starting.
 
 ### Test
 
@@ -149,8 +196,14 @@ committed baseline in `perf/baseline.json`. See
 | Path | Contents |
 |---|---|
 | `crates/lumen-app` | The `lumen` application: interface, commands, settings, end-to-end tests |
-| `crates/lumen-engine` | Real-time engine: transport, clip player, mixer graph, metronome |
-| `crates/lumen-audio` | Audio device layer: ASIO, WASAPI, cpal backends and the device supervisor |
+| `crates/lumen-engine` | Real-time engine: transport, clip player, mixer graph, MIDI and recording |
+| `crates/lumen-audio` | Audio device layer: ASIO, WASAPI and cpal backends, and the device supervisor |
+| `crates/lumen-midi` | MIDI device layer: ports listed, hot-plugged and opened off the UI thread |
+| `crates/lumen-devices` | Built-in devices (the synth), with real-time-safe DSP |
+| `crates/lumen-hosting` | Lumen's side of plugin hosting: one process per plugin device, loaded in the background |
+| `crates/lumen-plugin-host` | The plugin host: loads a VST3 module in its own process over a versioned protocol |
+| `crates/lumen-plugin-catalog` | Finding, scanning and caching plugins, without loading them into Lumen |
+| `crates/lumen-test-plugin` | Deterministic VST3 test plugins, with injectable faults |
 | `crates/lumen-project` | Document model, `.lumen` format, migrations, undo history, editing rules |
 | `crates/lumen-media` | Audio decoding, sample-rate conversion and waveform peaks |
 | `crates/lumen-core` | Time base, tempo and meter maps, grid, curves, fades, pan laws, loudness |
@@ -158,7 +211,9 @@ committed baseline in `perf/baseline.json`. See
 | `crates/lumen-rt` | Real-time safety tools: allocation guard and sanitizer hooks |
 | `crates/lumen-perf` | Performance-gate scenarios |
 | `crates/lumen-shader-check` | Build-time checks for the WGSL shaders |
-| `docs/` | Architecture, design, decisions, progress, milestone plans and reports |
+| `prototypes/` | The early prototypes that settled the architecture, kept for reference |
+| `site/` | The public project page, published with GitHub Pages |
+| `docs/` | Architecture, design, decisions, progress, milestone plans, audits and manual tests |
 
 ## Documentation
 
@@ -171,6 +226,7 @@ committed baseline in `perf/baseline.json`. See
 | [docs/PROGRESS.md](docs/PROGRESS.md) | Status of every requirement and each milestone's report |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | The ten-milestone plan |
 | [docs/milestones/](docs/milestones/) | Milestone plans |
+| [docs/audits/](docs/audits/) | Milestone reviews and their findings |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Toolchain setup, everyday commands, test and benchmark tools |
 | [docs/MANUAL_TESTS.md](docs/MANUAL_TESTS.md) | Tests that need a person or hardware, with each run's results |
 | [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | Problems found and not yet fixed |
@@ -203,6 +259,10 @@ Before you open a pull request:
   format version with a migration and a golden fixture.
 - Put UI colours, sizes and durations in the theme, motion and font modules,
   never inline (see [docs/DESIGN.md](docs/DESIGN.md)).
+- Write documentation in product-neutral language. Name no third-party
+  products, plugins or vendors as comparisons, references or examples; keep
+  the technical names, platforms, formats and legal notices that accuracy
+  requires.
 - Record a decision in [docs/DECISIONS.md](docs/DECISIONS.md) when you change
   the architecture, a dependency's licence, or the on-disk format.
 
