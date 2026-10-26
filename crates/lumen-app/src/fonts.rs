@@ -82,6 +82,32 @@ pub fn install(ctx: &egui::Context) {
     ctx.set_fonts(definitions());
 }
 
+/// Inter's cap height and x-height, as fractions of the size (1490 and
+/// 1118 of 2048 units).
+const CAP_HEIGHT: f32 = 0.7275;
+const X_HEIGHT: f32 = 0.5459;
+
+/// How far below the top of a one-line `galley` its words look centred:
+/// halfway between the middle of its capitals and the middle of its
+/// lower-case letters. An icon or keycap beside a label is centred here;
+/// centred on the galley's box (the capitals' middle in Inter) it reads high
+/// beside mixed-case words such as "Pointer".
+pub fn optical_middle(galley: &egui::Galley) -> f32 {
+    let size = galley
+        .job
+        .sections
+        .first()
+        .map_or(0.0, |section| section.format.font_id.size);
+    let baseline = galley
+        .rows
+        .first()
+        .and_then(|row| row.row.glyphs.first().map(|glyph| row.pos.y + glyph.pos.y));
+    match baseline {
+        Some(baseline) => baseline - size * (CAP_HEIGHT + X_HEIGHT) / 4.0,
+        None => galley.size().y / 2.0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +128,37 @@ mod tests {
             }
         }
         assert_eq!(defs.families[&FontFamily::Monospace][0], "martian-mono");
+    }
+
+    #[test]
+    fn the_optical_middle_is_between_the_capitals_and_the_lower_case() {
+        let ctx = egui::Context::default();
+        install(&ctx);
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let size = crate::theme::size::BODY;
+        let galley = ctx.fonts_mut(|fonts| {
+            fonts.layout_no_wrap(
+                "Pointer".to_owned(),
+                FontId::proportional(size),
+                egui::Color32::WHITE,
+            )
+        });
+        let row = &galley.rows[0];
+        let baseline = row.pos.y + row.row.glyphs[0].pos.y;
+        let capitals = baseline - size * CAP_HEIGHT / 2.0;
+        let lower_case = baseline - size * X_HEIGHT / 2.0;
+        let middle = optical_middle(&galley);
+        assert!(
+            capitals < middle && middle < lower_case,
+            "{capitals} {middle} {lower_case}"
+        );
+        // The box's middle is the capitals' in Inter, which reads high.
+        assert!(
+            middle > galley.size().y / 2.0,
+            "{middle} {:?}",
+            galley.size()
+        );
     }
 }

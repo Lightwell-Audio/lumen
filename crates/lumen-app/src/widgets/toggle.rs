@@ -12,7 +12,7 @@ use eframe::emath::GuiRounding as _;
 
 use super::raised;
 use crate::theme::Tone;
-use crate::{light, motion, theme};
+use crate::{fonts, light, motion, theme};
 
 /// A switch's track: the knob travels along it.
 const TRACK: egui::Vec2 = vec2(30.0, 16.0);
@@ -482,7 +482,8 @@ pub fn segmented_styled<T: PartialEq + Copy>(
         } else {
             controls.text
         };
-        // Icon and label share one centre line, snapped to whole pixels.
+        // The label is centred in the piece; its icon and keycap are centred
+        // on the label's optical middle, snapped to whole pixels.
         let icon = if choice.icon.is_some() {
             ICON + ICON_GAP
         } else {
@@ -490,15 +491,12 @@ pub fn segmented_styled<T: PartialEq + Copy>(
         };
         let content = galley.size().x + icon + cap_width(cap.as_deref());
         let left = (segment.center().x - content / 2.0).round();
-        let mid = segment.center().y.round();
+        let top = segment.center().y.round() - (galley.size().y / 2.0).round();
+        let mid = (top + fonts::optical_middle(&galley)).round_to_pixels(ppp);
         if let Some(draw) = choice.icon {
             draw(painter, pos2(left + ICON / 2.0, mid), colour);
         }
-        painter.galley_with_override_text_color(
-            pos2(left + icon, mid - (galley.size().y / 2.0).round()),
-            galley.clone(),
-            colour,
-        );
+        painter.galley_with_override_text_color(pos2(left + icon, top), galley.clone(), colour);
         if let Some(cap) = cap {
             let at = pos2(left + icon + galley.size().x + CAP_GAP, mid);
             paint_cap(painter, at, cap, colour);
@@ -852,6 +850,57 @@ mod tests {
         assert_eq!(first, still);
         let moved = thumb_left(&frame(&ctx, 0.032, 37.0, &mut draw));
         assert!((moved - still - 37.0).abs() < 1e-3, "{still} -> {moved}");
+    }
+
+    #[test]
+    fn icons_and_keycaps_sit_on_the_labels_optical_middle() {
+        let ctx = context();
+        let dot: fn(&egui::Painter, egui::Pos2, egui::Color32) = |painter, at, colour| {
+            painter.circle_filled(at, 1.0, colour);
+        };
+        let list = [
+            Choice::new(0, "Pointer").icon(dot),
+            Choice::new(1, "Draw").icon(dot).hint(Some("B")),
+        ];
+        let shapes = frame(&ctx, 0.0, 0.0, &mut |ui| {
+            segmented_styled(ui, EguiId::new("tool"), 0, &list, Some(Tone::Accent));
+        });
+        let dots: Vec<f32> = shapes
+            .iter()
+            .filter_map(|shape| match shape {
+                egui::Shape::Circle(circle) if circle.radius == 1.0 => Some(circle.center.y),
+                _ => None,
+            })
+            .collect();
+        let labels: Vec<f32> = shapes
+            .iter()
+            .filter_map(|shape| match shape {
+                egui::Shape::Text(text) if text.galley.text() != "B" => {
+                    Some(text.pos.y + crate::fonts::optical_middle(&text.galley))
+                }
+                _ => None,
+            })
+            .collect();
+        let cap = shapes
+            .iter()
+            .find_map(|shape| match shape {
+                egui::Shape::Rect(rect) if rect.stroke.width > 0.0 => Some(rect.rect.center().y),
+                _ => None,
+            })
+            .expect("the keycap's outline");
+        assert_eq!(dots.len(), 2);
+        assert_eq!(labels.len(), 2);
+        for (dot, label) in dots.iter().zip(&labels) {
+            assert!(
+                (dot - label).abs() <= 0.5,
+                "icon at {dot}, label's middle at {label}"
+            );
+        }
+        assert!(
+            (cap - labels[1]).abs() <= 1.0,
+            "keycap at {cap}, label's middle at {}",
+            labels[1]
+        );
     }
 
     #[test]
