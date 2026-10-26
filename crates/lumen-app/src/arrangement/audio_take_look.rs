@@ -22,6 +22,9 @@ use crate::timeview::TimeView;
 /// The take's name while it is being recorded.
 const NAME: &str = "Recording";
 
+/// How strongly the pass before a loop's new pass is drawn behind it.
+const BEHIND: f32 = 0.45;
+
 /// An audio track being recorded, lent by the app each frame.
 #[derive(Debug, Clone)]
 pub(crate) struct AudioTakeLook {
@@ -117,7 +120,7 @@ pub(super) fn draw(
         let Ok(live) = take.live.lock() else {
             continue;
         };
-        if live.peaks.frames() == 0 || x1 <= x0 {
+        if (live.peaks.frames() == 0 && live.previous.is_none()) || x1 <= x0 {
             continue;
         }
         // Everything below is in physical pixels, as the finished clip's
@@ -138,7 +141,11 @@ pub(super) fn draw(
             &[(top + height * 0.5, 0.5 * height - 0.5)]
         };
         let origin = (f64::from(x0) * f64::from(ppp)).floor();
-        let per_pixel = live.frames as f64 / ((f64::from(x1) - f64::from(x0)) * f64::from(ppp));
+        // The pass before, in a loop recording, fills what this pass has not
+        // reached and the clip is the loop long.
+        let before = live.previous.as_ref();
+        let extent = live.frames.max(before.map_or(0, |(f, _)| *f));
+        let per_pixel = extent as f64 / ((f64::from(x1) - f64::from(x0)) * f64::from(ppp));
         let first = origin.max((f64::from(canvas.left()) * f64::from(ppp)).floor());
         let last = (f64::from(x1) * f64::from(ppp))
             .min(f64::from(canvas.right()) * f64::from(ppp))
@@ -149,7 +156,15 @@ pub(super) fn draw(
         let mut px = first;
         while px < last {
             let a = (px - origin) * per_pixel;
-            let [l_min, l_max, r_min, r_max] = live.peaks.extent(a, a + per_pixel);
+            let (peaks, fade) = if a < live.frames as f64 {
+                (&live.peaks, 1.0)
+            } else if let Some((_, peaks)) = before {
+                (peaks, BEHIND)
+            } else {
+                px += 1.0;
+                continue;
+            };
+            let [l_min, l_max, r_min, r_max] = peaks.extent(a, a + per_pixel);
             for (n, &(middle, amp)) in halves.iter().enumerate() {
                 let (lo, hi) = if !split {
                     // One line: both channels together, as the shader joins them.
@@ -167,7 +182,7 @@ pub(super) fn draw(
                             pos2(px as f32 / ppp, run.first as f32 / ppp),
                             pos2((px as f32 + 1.0) / ppp, run.end as f32 / ppp),
                         ),
-                        colour.gamma_multiply(run.coverage),
+                        colour.gamma_multiply(run.coverage * fade),
                     );
                 }
             }

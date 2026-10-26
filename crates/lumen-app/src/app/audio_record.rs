@@ -44,6 +44,8 @@ struct Finishing {
     /// wanted.
     discard: bool,
     since: Instant,
+    /// The takes as they were drawn, kept drawn until the clips are placed.
+    lanes: Vec<Lane>,
 }
 
 /// What the app keeps for audio recording.
@@ -281,7 +283,11 @@ impl App {
             .filter_map(|lane| {
                 let (start, frames) = {
                     let live = lane.live.lock().ok()?;
-                    (live.start?, live.frames)
+                    // With Loop on, the clip is the loop long from the first
+                    // wrap: the pass before shows where this one has not
+                    // reached.
+                    let loop_frames = live.previous.as_ref().map_or(0, |(f, _)| *f);
+                    (live.start?, live.frames.max(loop_frames))
                 };
                 Some(AudioTakeLook {
                     track: lane.track,
@@ -305,7 +311,18 @@ impl App {
             document: self.document.session(),
             discard,
             since: Instant::now(),
+            lanes,
         });
+    }
+
+    /// The takes to draw while their files are closed: what the arrangement
+    /// showed while recording, until the clips are placed.
+    pub(super) fn finishing_lanes(&self) -> Vec<Lane> {
+        self.record
+            .audio
+            .finishing
+            .as_ref()
+            .map_or_else(Vec::new, |f| f.lanes.clone())
     }
 
     /// Every frame: when the worker has handed over the files of a recording

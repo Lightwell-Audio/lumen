@@ -9107,9 +9107,11 @@ a pass leaves a partial last pass, which is offered as a take (it plays up to
 where recording stopped) only if it lasted a quarter of a second. (First built
 as "the last pass plays" and found by the owner's first run: the clip was
 only as long as the partial last pass, a sliver. Fixed the same day.) While
-recording with Loop on, the growing clip shows the pass under way, from the
-loop's start, and starts again at each wrap, instead of running on past the
-loop. **MIDI.** `recorder::Capture` keeps a pass per note and `edit::record::replace`
+recording with Loop on, the growing clip is the loop long from the first wrap: the
+pass under way is drawn from the loop's start, replacing the whole pass before
+it (dimmed, behind) as the playhead goes, instead of running on past the loop
+or dropping what was recorded (the owner's second run). After Stop it stays
+drawn until the clip is placed, with no gap. **MIDI.** `recorder::Capture` keeps a pass per note and `edit::record::replace`
 makes takes of them; Overdub is unchanged.
 
 **What edits do to takes.** Move, copy, trim, fades, gain, notes, rename and the

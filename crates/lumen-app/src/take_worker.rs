@@ -99,6 +99,10 @@ pub(crate) struct Live {
     pub frames: u64,
     /// Frames written in all, across the loop's passes.
     pub written: u64,
+    /// With Loop on, the pass before the one under way (its frames and
+    /// waveform), drawn behind it until the new pass has replaced it. Only
+    /// when it lasted the whole loop.
+    pub previous: Option<(u64, lumen_media::GrowingPeaks)>,
     /// The waveform of what has been written, in the finished waveform's
     /// own buckets (`lumen_media::GrowingPeaks`).
     pub peaks: lumen_media::GrowingPeaks,
@@ -106,10 +110,13 @@ pub(crate) struct Live {
 
 impl Live {
     /// Starts the summary again at placed sample `start`: a new loop pass.
-    fn restart(&mut self, start: i64) {
+    /// `whole`: the pass that ended lasted the whole loop.
+    fn restart(&mut self, start: i64, whole: bool) {
+        let ended = std::mem::take(&mut self.peaks);
         *self = Live {
             start: Some(start),
             written: self.written,
+            previous: whole.then_some((self.frames, ended)),
             ..Live::default()
         };
     }
@@ -304,8 +311,14 @@ impl Takes {
             lane.sidecar_current = false;
             // What is drawn while recording is the pass under way, from the
             // loop's start, as it will be placed.
+            // The pass that ended was whole if it began at the loop's start:
+            // the file did, or an earlier wrap did.
+            let whole = lane.wraps.len() > 1
+                || lane
+                    .start
+                    .is_some_and(|s| (s - placed).unsigned_abs() <= u64::from(rate / 50));
             if let Ok(mut live) = lane.job.live.lock() {
-                live.restart(placed.max(0));
+                live.restart(placed.max(0), whole);
             }
         }
         let (lo, hi) = window.unwrap_or((0, i64::MAX));
@@ -819,6 +832,39 @@ mod tests {
         assert_eq!(live.frames, 100, "the new pass so far");
         assert!(live.peaks.frames() > 0 && live.peaks.frames() <= 100);
         drop(live);
+        takes.finish();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_whole_pass_before_the_one_under_way_is_kept_to_draw_behind_it() {
+        let dir = folder("livebefore");
+        let j = job(&dir, 1, 1);
+        let mut takes = Takes::new(looping(vec![j.clone()], 10));
+        for (k, at) in [1_000, 1_100, 1_000].into_iter().enumerate() {
+            let (chunk, data) = mono(1, k as u64 * 100, at, 100);
+            takes.feed(chunk, &data);
+        }
+        let live = j.live.lock().unwrap();
+        let (frames, peaks) = live.previous.as_ref().expect("the first pass");
+        assert_eq!(*frames, 200);
+        assert!(peaks.frames() > 0);
+        drop(live);
+        takes.finish();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_pass_that_began_inside_the_loop_is_not_drawn_behind_the_next() {
+        let dir = folder("livepartial");
+        let j = job(&dir, 1, 1);
+        let mut takes = Takes::new(looping(vec![j.clone()], 10));
+        // Begins 5_000 samples into the loop.
+        for (k, at) in [6_000, 1_000, 1_100].into_iter().enumerate() {
+            let (chunk, data) = mono(1, k as u64 * 100, at, 100);
+            takes.feed(chunk, &data);
+        }
+        assert!(j.live.lock().unwrap().previous.is_none());
         takes.finish();
         fs::remove_dir_all(dir).unwrap();
     }

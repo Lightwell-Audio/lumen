@@ -338,7 +338,13 @@ impl App {
             .as_ref()
             .map_or_else(Vec::new, |session| session.audio.clone());
         self.watch_audio_takes(&lanes);
-        self.arrangement.audio_takes = self.audio_take_looks(&lanes);
+        // After Stop the takes stay drawn until their clips are placed.
+        let drawn = if lanes.is_empty() {
+            self.finishing_lanes()
+        } else {
+            lanes
+        };
+        self.arrangement.audio_takes = self.audio_take_looks(&drawn);
         let head = self.transport.state().ticks;
         let bar = self.document.project().meter_map().meter_at(head).bar();
         self.arrangement.recording = self
