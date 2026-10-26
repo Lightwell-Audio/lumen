@@ -146,6 +146,12 @@ impl Keys {
     }
 }
 
+/// Switches Overdub on from the palette.
+pub(super) fn overdub_on(lumen: &mut Lumen) {
+    palette(lumen, "Overdub");
+    assert!(lumen.app().overdub_on(), "Overdub is on");
+}
+
 /// A fake keyboard with one input, plugged in before Lumen starts.
 pub(super) fn keyboard() -> FakeControl {
     let fake = FakeControl::new();
@@ -698,6 +704,7 @@ fn a_note_held_across_the_loop_wrap_goes_on_from_the_loop_start() {
     project.transport.loop_enabled = true;
     slowly(&mut project);
     let mut lumen = launch("loop-held", &project, &fake);
+    overdub_on(&mut lumen);
     let keys = Keys::new(&fake);
     record(&mut lumen);
     reach(&mut lumen, beats(1.6));
@@ -800,6 +807,7 @@ fn loop_passes_layer_into_one_clip_that_spans_the_loop() {
     project.transport.loop_end = beats(2.0);
     project.transport.loop_enabled = true;
     let mut lumen = launch("loop", &project, &fake);
+    overdub_on(&mut lumen);
     let keys = Keys::new(&fake);
     record(&mut lumen);
 
@@ -1045,6 +1053,8 @@ fn looping_with_punch_keeps_pre_loop_capture_and_records_the_next_pass() {
     project.transport.punch_out = true;
     slowly(&mut project);
     let mut lumen = launch("loop-window", &project, &fake);
+    // Passes layer into one clip in Overdub; Replace makes takes of them.
+    overdub_on(&mut lumen);
     let keys = Keys::new(&fake);
     record(&mut lumen);
     reach(&mut lumen, beats(0.5));
@@ -1356,4 +1366,72 @@ fn editing_the_clips_of_a_track_being_recorded_is_refused_and_says_why() {
     lumen.app_mut().select_clip(old_clip);
     lumen.key(Modifiers::NONE, Key::Delete);
     assert!(!clips_of(&lumen).iter().any(|c| c.id == old_clip));
+}
+
+/// In Replace the passes of a loop are takes of one clip (M9 slice R3): the
+/// last pass plays, the earlier ones are one swap away, and the swap is one
+/// undo step.
+#[test]
+fn replace_keeps_each_loop_pass_as_a_take_and_the_last_one_plays() {
+    let fake = keyboard();
+    let mut project = project_of("Record", vec![track(None, true)]);
+    project.transport.loop_start = Ticks::ZERO;
+    project.transport.loop_end = beats(2.0);
+    project.transport.loop_enabled = true;
+    let mut lumen = launch("loop-takes", &project, &fake);
+    let keys = Keys::new(&fake);
+    record(&mut lumen);
+
+    reach(&mut lumen, beats(0.5));
+    keys.on(60, 90);
+    reach(&mut lumen, beats(0.9));
+    keys.off(60);
+    lumen.wait_for("the loop to wrap", |app| app.playhead() < beats(0.5));
+    reach(&mut lumen, beats(1.0));
+    keys.on(64, 100);
+    reach(&mut lumen, beats(1.4));
+    keys.off(64);
+    reach(&mut lumen, beats(1.8));
+    stop(&mut lumen);
+
+    let clips = clips_of(&lumen);
+    assert_eq!(clips.len(), 1, "one clip for every pass");
+    assert_eq!(clips[0].length, beats(2.0), "the clip spans the loop");
+    let takes = clips[0].takes.as_ref().expect("the passes are takes");
+    assert_eq!((takes.active, takes.count), (1, 2), "the last pass plays");
+    let played: Vec<u8> = placed(&clips[0]).iter().map(|n| n.pitch).collect();
+    assert_eq!(played, [64], "only the last pass is heard");
+
+    let id = clips[0].id;
+    // The clip's menu lists the takes, and a clip without any lists none.
+    let ctx = lumen.harness.ctx.clone();
+    let rect = lumen.app().clip_rect(&ctx, id).expect("the clip is drawn");
+    lumen.right_click(rect.center());
+    lumen.frames(3);
+    assert!(lumen.shows("Takes (2)"), "the menu has a Takes submenu");
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.app_mut().select_clip(id);
+    lumen.frames(2);
+    palette(&mut lumen, "Play previous take");
+    let clips = clips_of(&lumen);
+    let played: Vec<u8> = placed(&clips[0]).iter().map(|n| n.pitch).collect();
+    assert_eq!(played, [60], "the first take plays now");
+    assert_eq!(clips[0].takes.as_ref().unwrap().active, 0);
+    assert_eq!(lumen.app().undo_label(), Some("Previous take"));
+
+    // One undo puts the last take back; the swap added a single step.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    let played: Vec<u8> = placed(&clips_of(&lumen)[0])
+        .iter()
+        .map(|n| n.pitch)
+        .collect();
+    assert_eq!(played, [64]);
+    assert_eq!(lumen.app().undo_label(), Some("Record"));
+
+    // Keeping only the take that plays drops the other.
+    lumen.app_mut().select_clip(id);
+    lumen.frames(2);
+    palette(&mut lumen, "Keep only this take");
+    assert!(clips_of(&lumen)[0].takes.is_none());
+    assert_eq!(placed(&clips_of(&lumen)[0]).len(), 1);
 }

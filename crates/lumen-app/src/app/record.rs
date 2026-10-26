@@ -50,7 +50,7 @@ pub(crate) struct Record {
     /// The audio half: files being closed after a recording (M9 slice R2).
     pub(super) audio: AudioRecord,
     /// What was played while not recording, for Capture MIDI (M9 slice R3).
-    pub(super) played: Played,
+    pub(crate) played: Played,
     /// The document session the buffer belongs to: another one empties it.
     played_for: u64,
 }

@@ -118,7 +118,6 @@ impl Played {
             .retain(|e| !(e.phrase == phrase.id && e.message.track == phrase.track));
     }
 
-    #[cfg(test)]
     /// How many messages are kept.
     pub fn len(&self) -> usize {
         self.entries.len()

@@ -9075,3 +9075,66 @@ macOS. CI logs the walkthrough's before/after late-block counts even on
 success. macOS callback CPU use, small-buffer behavior and native hardware
 still need measurement; a bounded native signal wait remains a possible
 replacement if those measurements warrant it.
+
+## ADR-0104 - Takes of a loop recording, and Capture MIDI (M9 R3)
+
+**Status:** Accepted 2026-10-25. Format **v31**. Alignment by ear on a real
+interface and Capture MIDI from a real keyboard wait on MT-REC-3.
+
+**Context.** Loop recording (audio in R2, MIDI since M5) either made one long
+clip or layered every pass into one. A producer wants to keep every pass and
+choose. Separately, a phrase played while not recording is lost. The owner
+chose (2026-10-25): audio takes A (the last pass plays; a Takes menu swaps or
+extracts), MIDI takes A (Replace makes takes; Overdub keeps layering), Capture
+MIDI A (a rolling in-memory buffer that lands where the notes were played).
+Plan: `milestones/M9-R3.md`.
+
+**Model.** `Clip.takes: Option<Takes>` (written only when set):
+`Takes { active, count, others: Vec<OtherTake { take, Pass }> }` with
+`Pass::Audio { offset, audio_phase_seconds }` and `Pass::Midi { notes, events }`.
+The clip's own content is the active pass, so editing it never leaves a stale
+copy; playing pass `k` swaps the clip's content with slot `k` (`edit::takes`).
+The engine sees an ordinary clip: playback is unchanged. All passes of an audio
+clip are windows on the same media file; the file is never split.
+
+**Audio.** The take worker records the file frame of each loop wrap (`Wrap`,
+also in the sidecar, so a take recovered after a crash is cut into passes too);
+`loop_passes::cut` turns them into one clip over the loop window that plays the
+last pass. A first pass that began part-way into the loop is not offered (the
+model never lets a clip begin before its file; its audio stays in the file).
+**MIDI.** `recorder::Capture` keeps a pass per note and `edit::record::replace`
+makes takes of them; Overdub is unchanged.
+
+**What edits do to takes.** Move, copy, trim, fades, gain, notes, rename and the
+rest keep them. A cut or a trim of the start moves the other passes with it
+(`takes::advance`); a slip moves each pass by the same amount (`takes::slipped`);
+split and join return the original. Edits that rewrite what the clip plays
+(reverse, unloop, merge of MIDI clips) **settle** the clip: it keeps the pass it
+plays and drops the others, in the same undo step, with a notice that says so.
+This is the default taken for the open question in the plan (the alternative,
+refusing those edits, was not chosen).
+
+**Capture MIDI.** The engine pushes the messages of listening tracks while not
+recording too (`Captured.frame`, `Captured.state: Heard::{Recording, Playing,
+Stopped}`), under the same allocation guard and bounded queue; recording is
+unaffected (the recorder ignores idle messages). The app's `Played` buffer keeps
+the last 10 minutes and at most 20,000 messages, in memory only, never saved.
+It cuts phrases when the transport state changes or time runs backwards while
+playing. The command (Shift+F9, id `transport.capture_midi`) places the newest
+phrase with notes on the selected MIDI track, else an armed one, else the one
+played last, using Overdub placement so nothing under it is lost; played while
+the transport moved, the notes land where they were heard, otherwise the first
+note lands on the playhead and the clip starts on the bar. One undo step,
+"Capture MIDI". What a take recorded is not offered again. The setting
+`record.keep_played` (default on; the transport bar's record menu, command
+`transport.keep_played_notes`) turns the buffer off and empties it.
+
+**Left as it was.** Audio and MIDI recorded together are still two undo steps
+(KNOWN_ISSUES). Extract to a new track is audio only (a new MIDI track would
+have no instrument).
+
+**Consequences.** Every `Clip` has one more field (the serialize benchmark may
+move through inlining, as in ADR-0098). A project with takes holds every MIDI
+pass; Keep only this take is the way out. The buffer holds what the owner plays
+for ten minutes: memory only, switchable, documented here and in the switch's
+tooltip.
