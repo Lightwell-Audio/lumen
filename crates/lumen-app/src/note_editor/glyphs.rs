@@ -42,15 +42,13 @@ impl Grid {
     }
 }
 
+/// The pointer's arrow, its height centred on the grid (3 to 13) so it sits
+/// on a label's middle like the other tools (owner, it read high at 2 to 12).
+const ARROW: [(f32, f32); 4] = [(3.0, 3.0), (12.0, 8.0), (8.0, 9.2), (6.8, 13.0)];
+
 /// The pointer: an arrow.
 pub(crate) fn pointer(painter: &Painter, c: Pos2, colour: Color32) {
-    let g = Grid::new(c);
-    g.path(
-        painter,
-        &[(3.0, 2.0), (12.0, 7.0), (8.0, 8.2), (6.8, 12.0)],
-        colour,
-        true,
-    );
+    Grid::new(c).path(painter, &ARROW, colour, true);
 }
 
 /// The pencil, for drawing notes and lane values.
@@ -160,4 +158,16 @@ pub(crate) fn dock(painter: &Painter, c: Pos2, colour: Color32) {
         colour,
         false,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_arrow_is_centred_on_the_grid_from_top_to_bottom() {
+        let top = ARROW.iter().map(|p| p.1).fold(f32::MAX, f32::min);
+        let bottom = ARROW.iter().map(|p| p.1).fold(f32::MIN, f32::max);
+        assert_eq!((top + bottom) / 2.0, 8.0, "{top} to {bottom}");
+    }
 }
