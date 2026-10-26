@@ -33,8 +33,12 @@ use std::collections::BTreeMap;
 use lumen_core::midi::Kind;
 use lumen_core::time::Ticks;
 use lumen_engine::{Captured, WRAP, record_position};
-use lumen_project::edit::record::{Take, TakeEvent, TakeNote};
+use lumen_project::edit::record::{PassTake, Take, TakeEvent, TakeNote};
 use lumen_project::model::EventKind;
+
+/// Most passes a held note is spread over, so a key held for a very long
+/// time cannot make a very long list.
+const MOST_PASSES_HELD: i32 = 1_024;
 
 /// A note that is sounding: when it began and how hard it was struck.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,13 +49,23 @@ struct Held {
     pass: u32,
 }
 
+/// A note, or a piece of one, with the loop pass it was played in.
+#[derive(Debug, Clone, Copy)]
+struct Piece {
+    pass: u32,
+    note: TakeNote,
+    /// Left out of the layered take: a note held across more than one wrap
+    /// is one full-loop note there, but one for each pass in a pass's own.
+    extra: bool,
+}
+
 /// One track's part of a capture.
 #[derive(Debug, Default)]
 struct Lane {
     /// Notes that have ended, in the order they ended.
-    notes: Vec<TakeNote>,
-    /// Events, in the order they arrived.
-    events: Vec<TakeEvent>,
+    notes: Vec<Piece>,
+    /// Events, in the order they arrived, with their pass.
+    events: Vec<(u32, TakeEvent)>,
     /// Notes still sounding, by (channel, key).
     held: BTreeMap<(u8, u8), Held>,
     /// The newest loop pass this track has seen.
@@ -83,24 +97,46 @@ impl Lane {
     ) {
         let across = pass.wrapping_sub(open.pass) as i32;
         let Some((from, to)) = looped.filter(|_| across > 0) else {
-            self.note(pitch, open.start, end, open.velocity);
+            self.note(open.pass, pitch, (open.start, end), open.velocity, false);
             return;
         };
-        self.note(pitch, open.start, to, open.velocity);
-        if across > 1 {
-            self.note(pitch, from, to, open.velocity);
+        self.note(open.pass, pitch, (open.start, to), open.velocity, false);
+        for between in 1..across.min(MOST_PASSES_HELD) {
+            let layered = between == 1;
+            self.note(
+                open.pass.wrapping_add(between as u32),
+                pitch,
+                (from, to),
+                open.velocity,
+                !layered,
+            );
         }
         if end > from {
-            self.note(pitch, from, end, open.velocity);
+            self.note(pass, pitch, (from, end), open.velocity, false);
         }
     }
 
-    fn note(&mut self, pitch: u8, start: Ticks, end: Ticks, velocity: u8) {
-        self.notes.push(TakeNote {
-            start,
-            length: (end - start).max(Ticks(1)),
-            pitch,
-            velocity,
+    fn event(&mut self, pass: u32, at: Ticks, kind: EventKind) {
+        self.events.push((pass, TakeEvent { at, kind }));
+    }
+
+    fn note(
+        &mut self,
+        pass: u32,
+        pitch: u8,
+        (start, end): (Ticks, Ticks),
+        velocity: u8,
+        extra: bool,
+    ) {
+        self.notes.push(Piece {
+            pass,
+            note: TakeNote {
+                start,
+                length: (end - start).max(Ticks(1)),
+                pitch,
+                velocity,
+            },
+            extra,
         });
     }
 }
@@ -206,25 +242,19 @@ impl Capture {
                     lane.finish(key, open, (at, pass), looped);
                 }
             }
-            Kind::Controller { number, value } => lane.events.push(TakeEvent {
+            Kind::Controller { number, value } => {
+                lane.event(pass, at, EventKind::Controller { number, value });
+            }
+            Kind::PitchBend { value } => lane.event(pass, at, EventKind::PitchBend { value }),
+            Kind::Pressure { value } => lane.event(pass, at, EventKind::Pressure { value }),
+            Kind::Program { program } => lane.event(
+                pass,
                 at,
-                kind: EventKind::Controller { number, value },
-            }),
-            Kind::PitchBend { value } => lane.events.push(TakeEvent {
-                at,
-                kind: EventKind::PitchBend { value },
-            }),
-            Kind::Pressure { value } => lane.events.push(TakeEvent {
-                at,
-                kind: EventKind::Pressure { value },
-            }),
-            Kind::Program { program } => lane.events.push(TakeEvent {
-                at,
-                kind: EventKind::Program {
+                EventKind::Program {
                     program,
                     bank: None,
                 },
-            }),
+            ),
             Kind::KeyPressure { .. } | Kind::Other => {}
         }
     }
@@ -246,23 +276,54 @@ impl Capture {
     }
 
     fn snapshot(&self, track: u64, range: (Ticks, Ticks), now: Option<Ticks>) -> Take {
-        let (mut notes, events) = match self.lanes.get(&track) {
-            Some(lane) => (lane.notes.clone(), lane.events.clone()),
-            None => (Vec::new(), Vec::new()),
-        };
-        if let (Some(now), Some(lane)) = (now, self.lanes.get(&track)) {
-            let mut open = Lane::default();
-            for (&(_, pitch), &held) in &lane.held {
-                open.finish(pitch, held, (now, lane.pass), self.looped);
+        let mut pieces = Vec::new();
+        let mut events = Vec::new();
+        let mut newest = 0;
+        if let Some(lane) = self.lanes.get(&track) {
+            pieces.clone_from(&lane.notes);
+            events.clone_from(&lane.events);
+            newest = lane.pass;
+            if let Some(now) = now {
+                let mut open = Lane::default();
+                for (&(_, pitch), &held) in &lane.held {
+                    open.finish(pitch, held, (now, lane.pass), self.looped);
+                }
+                pieces.extend(open.notes);
             }
-            notes.extend(open.notes);
         }
+        // The passes of a loop, when there were at least two: each one's
+        // own notes and events, numbered from the first the recording saw.
+        let passes = match (self.looped, self.first_pass) {
+            (Some(_), Some(first)) if newest.wrapping_sub(first) as i32 > 0 => {
+                let count = newest.wrapping_sub(first) as usize + 1;
+                let mut passes = vec![PassTake::default(); count.min(MOST_PASSES_HELD as usize)];
+                let slot = |pass: u32| {
+                    let n = pass.wrapping_sub(first) as i32;
+                    (n.max(0) as usize).min(passes.len() - 1)
+                };
+                let places: Vec<_> = pieces.iter().map(|p| slot(p.pass)).collect();
+                let event_places: Vec<_> = events.iter().map(|(p, _)| slot(*p)).collect();
+                for (piece, n) in pieces.iter().zip(places) {
+                    passes[n].notes.push(piece.note);
+                }
+                for ((_, event), n) in events.iter().zip(event_places) {
+                    passes[n].events.push(*event);
+                }
+                for pass in &mut passes {
+                    pass.notes.sort_by_key(|n| (n.start, n.pitch));
+                }
+                passes
+            }
+            _ => Vec::new(),
+        };
+        let mut notes: Vec<TakeNote> = pieces.iter().filter(|p| !p.extra).map(|p| p.note).collect();
         notes.sort_by_key(|n| (n.start, n.pitch));
         Take {
             start: range.0,
             end: range.1,
             notes,
-            events,
+            events: events.into_iter().map(|(_, e)| e).collect(),
+            passes,
         }
     }
 
@@ -597,6 +658,7 @@ mod tests {
                 start: Ticks(5),
                 end: Ticks(9),
                 notes: Vec::new(),
+                passes: Vec::new(),
                 events: Vec::new(),
             }
         );
@@ -615,6 +677,54 @@ mod tests {
     /// The loop is ticks 0 to 1,000 (samples 0 to 100).
     fn looped() -> Capture {
         Capture::looping(Some((Ticks(0), Ticks(1_000))))
+    }
+
+    #[test]
+    fn each_pass_of_a_loop_keeps_what_it_played_besides_the_layered_take() {
+        let mut c = looped();
+        c.push(&cap(1, 10, Msg::note_on(0, 60, 90)), 0, &ticks);
+        c.push(&cap(1, 20, Msg::note_off(0, 60)), 0, &ticks);
+        c.push(&wrap(1, 1), 0, &ticks);
+        c.push(&in_pass(1, cap(1, 30, Msg::note_on(0, 62, 90))), 0, &ticks);
+        c.push(&in_pass(1, cap(1, 35, Msg::controller(0, 1, 5))), 0, &ticks);
+        c.push(&in_pass(1, cap(1, 40, Msg::note_off(0, 62))), 0, &ticks);
+        c.push(&wrap(1, 2), 0, &ticks);
+        let take = c.take(1, (Ticks(0), Ticks(1_000)));
+        assert_eq!(take.notes.len(), 2, "layered: both notes");
+        assert_eq!(take.passes.len(), 3, "the silent third pass counts");
+        assert_eq!(take.passes[0].notes, vec![note(100, 100, 60, 90)]);
+        assert_eq!(take.passes[1].notes, vec![note(300, 100, 62, 90)]);
+        assert_eq!(take.passes[1].events.len(), 1);
+        assert!(take.passes[0].events.is_empty());
+        assert!(take.passes[2].notes.is_empty());
+    }
+
+    #[test]
+    fn one_pass_or_no_loop_is_no_passes() {
+        let mut c = looped();
+        c.push(&cap(1, 10, Msg::note_on(0, 60, 90)), 0, &ticks);
+        c.push(&cap(1, 20, Msg::note_off(0, 60)), 0, &ticks);
+        assert!(c.take(1, (Ticks(0), Ticks(1_000))).passes.is_empty());
+        let mut c = Capture::new();
+        c.push(&cap(1, 10, Msg::note_on(0, 60, 90)), 0, &ticks);
+        c.push(&wrap(1, 1), 0, &ticks);
+        c.push(&in_pass(1, cap(1, 20, Msg::note_off(0, 60))), 0, &ticks);
+        assert!(c.take(1, (Ticks(0), Ticks(1_000))).passes.is_empty());
+    }
+
+    #[test]
+    fn a_note_held_across_wraps_is_in_every_pass_it_sounds_in() {
+        let mut c = looped();
+        c.push(&in_pass(0, cap(1, 50, Msg::note_on(0, 60, 90))), 0, &ticks);
+        c.push(&wrap(1, 1), 0, &ticks);
+        c.push(&wrap(1, 2), 0, &ticks);
+        c.push(&in_pass(2, cap(1, 30, Msg::note_off(0, 60))), 0, &ticks);
+        let take = c.take(1, (Ticks(0), Ticks(1_000)));
+        assert_eq!(take.passes.len(), 3);
+        assert_eq!(take.passes[0].notes, vec![note(500, 500, 60, 90)]);
+        assert_eq!(take.passes[1].notes, vec![note(0, 1_000, 60, 90)]);
+        assert_eq!(take.passes[2].notes, vec![note(0, 300, 60, 90)]);
+        assert_eq!(take.notes.len(), 3, "the layered take is as it was");
     }
 
     #[test]

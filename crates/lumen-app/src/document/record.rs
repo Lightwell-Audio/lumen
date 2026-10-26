@@ -178,6 +178,7 @@ mod tests {
             start: q(start),
             end: q(end),
             notes,
+            passes: Vec::new(),
             events: Vec::new(),
         }
     }

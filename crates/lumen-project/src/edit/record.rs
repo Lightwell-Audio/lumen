@@ -42,8 +42,10 @@ use std::sync::Arc;
 use lumen_core::time::Ticks;
 
 use super::notes::MIN_NOTE;
-use super::{in_window, overwrite, repeats, shown, to_arrangement};
-use crate::model::{Clip, ClipContent, ClipEvent, EventKind, Id, Note, Project, Track, TrackKind};
+use super::{in_window, overwrite, repeats, shown, takes, to_arrangement};
+use crate::model::{
+    Clip, ClipContent, ClipEvent, EventKind, Id, Note, Pass, Project, Track, TrackKind,
+};
 
 /// How a take lands on the clips under its range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +80,18 @@ pub struct TakeEvent {
 pub struct Take {
     pub start: Ticks,
     pub end: Ticks,
+    /// Everything played, the passes of a loop layered into one.
+    pub notes: Vec<TakeNote>,
+    pub events: Vec<TakeEvent>,
+    /// What each pass of a loop played, in order, when there were two or
+    /// more (M9 R3); empty otherwise. [`Mode::Replace`] makes them the clip's
+    /// takes, the last one playing; [`Mode::Overdub`] uses `notes`.
+    pub passes: Vec<PassTake>,
+}
+
+/// What one pass of a loop played, at absolute project ticks like the take.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PassTake {
     pub notes: Vec<TakeNote>,
     pub events: Vec<TakeEvent>,
 }
@@ -239,12 +253,37 @@ fn replace(
     take_clip: Id,
     fresh: &mut impl FnMut() -> Id,
 ) -> Vec<Id> {
-    let (active_notes, hidden_notes, events) = capture_parts(take, a, b - a);
-    let mut notes = settle(Vec::new(), active_notes);
-    notes.extend(hidden_notes);
-    notes.sort_by_key(|n| (n.start(), n.pitch()));
-    let content = (notes, events);
-    add_clips(project, track, vec![new_clip(take_clip, a, b - a, content)]);
+    let content = |take: &Take| {
+        let (active_notes, hidden_notes, events) = capture_parts(take, a, b - a);
+        let mut notes = settle(Vec::new(), active_notes);
+        notes.extend(hidden_notes);
+        notes.sort_by_key(|n| (n.start(), n.pitch()));
+        (notes, events)
+    };
+    let mut clip;
+    if take.passes.len() >= 2 {
+        // A loop recording: the last pass plays and the others are takes.
+        let passes: Vec<Pass> = take
+            .passes
+            .iter()
+            .map(|pass| {
+                let (notes, events) = content(&Take {
+                    start: take.start,
+                    end: take.end,
+                    notes: pass.notes.clone(),
+                    events: pass.events.clone(),
+                    passes: Vec::new(),
+                });
+                Pass::Midi { notes, events }
+            })
+            .collect();
+        let last = passes.len() - 1;
+        clip = new_clip(take_clip, a, b - a, (Vec::new(), Vec::new()));
+        takes::with_passes(&mut clip, passes, last);
+    } else {
+        clip = new_clip(take_clip, a, b - a, content(take));
+    }
+    add_clips(project, track, vec![clip]);
     overwrite(project, &[take_clip], fresh);
     vec![take_clip]
 }
@@ -298,6 +337,7 @@ fn heard_in(track: &Track, (a, b): (Ticks, Ticks)) -> Take {
         end: b,
         notes: Vec::new(),
         events: Vec::new(),
+        passes: Vec::new(),
     };
     for clip in track
         .clips
