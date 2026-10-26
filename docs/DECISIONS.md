@@ -9138,3 +9138,8 @@ move through inlining, as in ADR-0098). A project with takes holds every MIDI
 pass; Keep only this take is the way out. The buffer holds what the owner plays
 for ten minutes: memory only, switchable, documented here and in the switch's
 tooltip.
+
+**Gates (2026-10-25).** WSL clippy and tests pass on the pushed branch (683 E2E
+on Linux). The performance gate moves nothing past the threshold: the largest
+change is `project_parse` at +1.03% (the new optional field); no baseline
+update.
