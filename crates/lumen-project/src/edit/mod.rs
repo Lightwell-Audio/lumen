@@ -40,6 +40,7 @@ pub mod record;
 pub mod reverse;
 pub mod seams;
 pub mod split;
+pub mod takes;
 pub mod velocity;
 mod windows;
 
@@ -194,6 +195,12 @@ pub fn trim(
                 start = start.max(earliest);
             }
             let moved = start - clip.start;
+            if moved > Ticks::ZERO && clip.loop_length.is_none_or(|p| p.0 <= 0) {
+                let seconds = tempo.seconds_at(start) - tempo.seconds_at(clip.start);
+                let rate = audio.map(|(rate, _, _)| f64::from(rate));
+                // Trimming hides notes, it does not mark them: as the active pass.
+                takes::advance(&mut c, moved, seconds, rate, &|_| false);
+            }
             c.start = start;
             c.length = end - start;
             if clip.loop_length.is_some_and(|period| period.0 > 0) {
@@ -285,6 +292,9 @@ fn shift_events(events: &mut [ClipEvent], by: Ticks) {
 /// than the file allows.
 pub fn slip(project: &Project, tempo: &TempoMap, clip: &Clip, by: Ticks) -> Clip {
     let mut c = clip.clone();
+    if clip.takes.is_some() && by != Ticks::ZERO {
+        takes::slipped(project, tempo, clip, &mut c, by);
+    }
     match &mut c.content {
         ClipContent::Audio { offset, .. } => {
             let Some((rate, frames, _)) = audio_of(project, clip) else {
@@ -476,6 +486,7 @@ mod tests {
                 reversed: false,
                 inverted: false,
                 envelopes: Default::default(),
+                takes: None,
                 content: ClipContent::Audio {
                     media: Id(900),
                     offset: 1_000,

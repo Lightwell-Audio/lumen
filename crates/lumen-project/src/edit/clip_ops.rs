@@ -175,6 +175,7 @@ fn merge_midi(first: &Clip, second: &Clip) -> Option<Clip> {
         loop_length: None,
         loop_phase: Ticks::ZERO,
         envelopes: Default::default(),
+        takes: None,
         content: ClipContent::Midi { notes, events },
         ..first.clone()
     })
@@ -309,6 +310,8 @@ fn unlooped(
             piece.id = fresh();
         }
         piece.loop_length = None;
+        // Each repeat is a clip of its own; the other passes stay with none.
+        piece.takes = None;
         let in_loop = if index == 0 {
             clip.loop_phase
         } else {
@@ -391,6 +394,96 @@ mod tests {
         assert_eq!(done.clips, [original.id]);
         assert_eq!(clip_at(&project, 0, 0), original);
         assert_eq!(project.tracks[0].clips.len(), 1);
+    }
+
+    fn with_takes(project: &mut Project, track: usize) {
+        use crate::model::Pass;
+        set(project, track, 0, |c| {
+            let passes: Vec<Pass> = match &c.content {
+                ClipContent::Audio { offset, .. } => (1..=2)
+                    .map(|k| Pass::Audio {
+                        offset: offset + k * 1_000,
+                        audio_phase_seconds: 0.25 * k as f64,
+                    })
+                    .collect(),
+                ClipContent::Midi { .. } => (1..=2)
+                    .map(|k| Pass::Midi {
+                        notes: vec![
+                            Note::new(q(1), q(1), 60 + k as u8, 90),
+                            Note::new(q(5), q(1), 70 + k as u8, 90),
+                        ],
+                        events: Vec::new(),
+                    })
+                    .collect(),
+            };
+            let mut all = vec![Pass::of(c).unwrap()];
+            all.extend(passes);
+            assert!(crate::edit::takes::with_passes(c, all, 0));
+        });
+    }
+
+    #[test]
+    fn splitting_then_joining_a_clip_with_takes_returns_it_with_its_takes() {
+        for (track, cuts) in [(0, [q(6), q(9)]), (1, [q(3), q(6)])] {
+            let mut project = song();
+            with_takes(&mut project, track);
+            let original = clip_at(&project, track, 0);
+            assert_eq!(original.takes.as_ref().map(|t| t.count), Some(3));
+            let parts = split::clips(&mut project, &[original.id], &cuts, &mut ids());
+            assert_eq!(parts.len(), 3);
+            assert!(crate::validate(&project).is_ok(), "track {track}");
+            let done = join(&mut project, &parts);
+            assert_eq!(done.merged, 2, "track {track}");
+            assert_eq!(clip_at(&project, track, 0), original, "track {track}");
+        }
+    }
+
+    #[test]
+    fn a_cut_clip_keeps_each_take_where_it_was() {
+        let mut project = song();
+        with_takes(&mut project, 0);
+        let original = clip_at(&project, 0, 0);
+        let parts = split::clips(&mut project, &[original.id], &[q(6)], &mut ids());
+        let right = project.tracks[0]
+            .clips
+            .iter()
+            .find(|c| c.id == parts[1])
+            .unwrap();
+        let tempo = tempo_of(&project);
+        let seconds = tempo.seconds_at(right.start) - tempo.seconds_at(original.start);
+        let Some(crate::model::Pass::Audio {
+            audio_phase_seconds,
+            ..
+        }) = right.takes.as_ref().and_then(|t| t.other(1)).cloned()
+        else {
+            panic!("an audio take");
+        };
+        assert!((audio_phase_seconds - (0.25 + seconds)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn unlooping_and_reversing_settle_the_takes() {
+        let mut project = song();
+        with_takes(&mut project, 0);
+        let id = clip_at(&project, 0, 0).id;
+        let flipped = crate::edit::reverse::reverse(&mut project, &[id]);
+        assert_eq!(flipped.refused, 0);
+        assert!(clip_at(&project, 0, 0).takes.is_none());
+
+        let mut project = song();
+        with_takes(&mut project, 0);
+        set(&mut project, 0, 0, |c| {
+            c.loop_length = Some(q(3));
+        });
+        let id = clip_at(&project, 0, 0).id;
+        let _ = unloop(&mut project, &[id], &mut ids());
+        assert!(
+            project
+                .tracks
+                .iter()
+                .flat_map(|t| t.clips.iter())
+                .all(|c| c.takes.is_none())
+        );
     }
 
     #[test]

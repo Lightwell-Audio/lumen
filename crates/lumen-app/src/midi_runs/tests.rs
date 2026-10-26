@@ -26,6 +26,7 @@ fn clip(id: u64, start: i64, length: i64, notes: Vec<Note>) -> Arc<Clip> {
         audio_phase_seconds: 0.0,
         reversed: false,
         inverted: false,
+        takes: None,
         content: ClipContent::Midi {
             notes,
             events: Vec::new(),
@@ -299,7 +300,6 @@ fn bounded_replace_suppresses_only_inside_the_punch_window() {
     let suppression = Suppression {
         from: q(4),
         until: q(8),
-        exempt: None,
     };
     let actual = run_notes_masked(&whole(std::slice::from_ref(&clip)), Some(suppression));
     let mut played: Vec<_> = actual
@@ -314,31 +314,12 @@ fn bounded_replace_suppresses_only_inside_the_punch_window() {
 }
 
 #[test]
-fn bounded_replace_keeps_the_take_audible() {
-    let take = clip(20, 0, 12, vec![note(5, 1, 60)]);
-    let suppression = Suppression {
-        from: q(4),
-        until: q(8),
-        exempt: Some(Id(20)),
-    };
-    assert_eq!(
-        played(&runs(whole(std::slice::from_ref(&take)))[0]),
-        vec![(5, 1, 60)],
-        "the unsuppressed baseline contains the take note"
-    );
-    let actual = run_notes_masked(&whole(std::slice::from_ref(&take)), Some(suppression));
-    assert_eq!(actual.len(), 1);
-    assert_eq!(actual[0].pitch, 60);
-}
-
-#[test]
 fn bounded_replace_splits_looping_clip_without_expanding_repeats() {
     let mut looping = clip(21, 0, 12, vec![note(0, 1, 60), note(1, 1, 62)]);
     Arc::make_mut(&mut looping).loop_length = Some(q(2));
     let suppression = Suppression {
         from: q(4),
         until: q(8),
-        exempt: None,
     };
     let mut cache = Cache::default();
     let engine = cache
@@ -376,6 +357,7 @@ fn a_huge_looping_clip_stays_constant_size_during_a_narrow_replace() {
         audio_phase_seconds: 0.0,
         reversed: false,
         inverted: false,
+        takes: None,
         content: ClipContent::Midi {
             notes: vec![Note::new(Ticks::ZERO, Ticks(1), 60, 100)],
             events: Vec::new(),
@@ -389,7 +371,6 @@ fn a_huge_looping_clip_stays_constant_size_during_a_narrow_replace() {
             Some(Suppression {
                 from: mask_start,
                 until: mask_start + Ticks(1),
-                exempt: None,
             }),
         )
         .to_vec();
@@ -431,7 +412,6 @@ fn nonaligned_loop_bounds_rotate_the_first_suffix_cycle_and_controls() {
             Some(Suppression {
                 from: q(3),
                 until: q(7),
-                exempt: None,
             }),
         )
         .to_vec();
@@ -464,7 +444,6 @@ fn full_loop_mask_has_no_output_and_unchanged_windows_reuse_cache() {
         Some(Suppression {
             from: q(0),
             until: q(8),
-            exempt: None,
         }),
     );
     assert!(full.is_empty());
@@ -474,7 +453,6 @@ fn full_loop_mask_has_no_output_and_unchanged_windows_reuse_cache() {
             Some(Suppression {
                 from: q(2),
                 until: q(4),
-                exempt: None,
             }),
         )
         .to_vec();
@@ -484,7 +462,6 @@ fn full_loop_mask_has_no_output_and_unchanged_windows_reuse_cache() {
             Some(Suppression {
                 from: q(2),
                 until: q(4),
-                exempt: None,
             }),
         )
         .to_vec();
@@ -504,7 +481,6 @@ fn moving_loop_window_reuses_unchanged_periodic_pattern() {
             Some(Suppression {
                 from: q(3),
                 until: q(7),
-                exempt: None,
             }),
         )
         .to_vec();
@@ -514,7 +490,6 @@ fn moving_loop_window_reuses_unchanged_periodic_pattern() {
             Some(Suppression {
                 from: q(5),
                 until: q(9),
-                exempt: None,
             }),
         )
         .to_vec();
@@ -534,7 +509,6 @@ fn carried_note_does_not_resume_after_a_bounded_replace_window() {
     let suppression = Suppression {
         from: q(3),
         until: q(6),
-        exempt: None,
     };
     let actual = run_notes_masked(&whole(&clips), Some(suppression));
     assert_eq!(actual.len(), 1);

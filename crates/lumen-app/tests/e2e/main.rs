@@ -19,6 +19,7 @@ mod automation;
 mod barfit;
 mod bench_callback;
 mod bounce;
+mod capture_midi;
 mod chrome;
 mod clip_commands;
 mod clip_envelopes;

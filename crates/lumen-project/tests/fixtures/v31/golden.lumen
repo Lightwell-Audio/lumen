@@ -1,0 +1,166 @@
+{
+  "format": "lumen-project",
+  "version": 31,
+  "generator": "Lumen 0.0.1",
+  "project": {
+    "name": "Golden v31",
+    "sample_rate": 48000,
+    "tempo": [
+      {
+        "at": 0,
+        "bpm": 120.0
+      }
+    ],
+    "meter": [
+      {
+        "at": 0,
+        "meter": {
+          "numerator": 4,
+          "denominator": 4
+        }
+      }
+    ],
+    "tracks": [
+      {
+        "id": "0000000000000c1c",
+        "name": "Vocal",
+        "kind": "audio",
+        "color": "#4F81BD",
+        "gain_db": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [],
+        "clips": [
+          {
+            "id": "0000000000000c1d",
+            "name": "Take",
+            "start": 5644800,
+            "length": 11289600,
+            "muted": false,
+            "takes": {
+              "active": 2,
+              "count": 3,
+              "others": [
+                {
+                  "take": 0,
+                  "type": "audio",
+                  "offset": 0,
+                  "audio_phase_seconds": 0.5
+                },
+                {
+                  "take": 1,
+                  "type": "audio",
+                  "offset": 96000
+                }
+              ]
+            },
+            "content": {
+              "type": "audio",
+              "media": "0000000000000c1e",
+              "offset": 192000,
+              "gain_db": 0.0
+            }
+          }
+        ]
+      },
+      {
+        "id": "0000000000000c1f",
+        "name": "Keys",
+        "kind": "midi",
+        "color": "#C0504D",
+        "gain_db": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [],
+        "clips": [
+          {
+            "id": "0000000000000c20",
+            "name": "Take",
+            "start": 5644800,
+            "length": 11289600,
+            "muted": false,
+            "takes": {
+              "active": 1,
+              "count": 2,
+              "others": [
+                {
+                  "take": 0,
+                  "type": "midi",
+                  "notes": [
+                    [0, 1411200, 60, 90],
+                    [0, 1411200, 62, 90]
+                  ]
+                }
+              ]
+            },
+            "content": {
+              "type": "midi",
+              "notes": [
+                [0, 1411200, 64, 90]
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "master": {
+      "id": "00000000000003e7",
+      "name": "Master",
+      "kind": "master",
+      "color": "#8A8F99",
+      "gain_db": 0.0,
+      "pan": 0.0,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "devices": [],
+      "clips": []
+    },
+    "pan_law": "constant_power",
+    "media": [
+      {
+        "id": "0000000000000c1e",
+        "path": "Samples/Recorded/Vocal 1.wav",
+        "frames": 384000,
+        "channels": 1,
+        "sample_rate": 48000,
+        "size_bytes": 0
+      }
+    ],
+    "markers": [],
+    "transport": {
+      "loop_start": 0,
+      "loop_end": 22579200,
+      "loop_enabled": false,
+      "punch_in": false,
+      "punch_out": false
+    },
+    "view": {
+      "left_beat": 0.0,
+      "px_per_beat": 24.0,
+      "browser_open": true,
+      "detail_open": true,
+      "browser_size": 220.0,
+      "detail_size": 220.0,
+      "top": 0.0,
+      "track_heights": {},
+      "expanded": [],
+      "grid": {
+        "fixed": false,
+        "width": "narrow",
+        "size": {
+          "note": 16
+        },
+        "feel": "straight",
+        "snap": true
+      },
+      "collapsed": [],
+      "header_width": 204.0,
+      "returns_folded": false
+    }
+  }
+}

@@ -1,5 +1,8 @@
 //! Recording MIDI: what armed tracks are sent while the transport records
-//! (M5 slice 6, ADR-0055).
+//! (M5 slice 6, ADR-0055). Not recording, the player keeps the same messages
+//! of every track that listens or is armed, flagged by whether the transport
+//! was moving, for Capture MIDI (M9 slice R3, ADR-0104); the app decides
+//! whether to keep them.
 //!
 //! The player keeps every live message a recording track takes, with the
 //! timeline sample the player *heard* when playing it, and queues it for the
@@ -53,6 +56,17 @@ pub fn record_position(
     (at, pass)
 }
 
+/// What the transport was doing when a message was played.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Heard {
+    /// Recording: the message belongs to the take.
+    Recording,
+    /// Playing, not recording: only Capture MIDI keeps it.
+    Playing,
+    /// Stopped: only Capture MIDI keeps it, by its device frame.
+    Stopped,
+}
+
 /// A live message kept for the take.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Captured {
@@ -68,6 +82,12 @@ pub struct Captured {
     /// pass (and one less than the playing pass for a message played just
     /// before a wrap). Only differences mean anything.
     pub pass: u32,
+    /// The device frame the message was played at (the driver's stamp), so
+    /// messages played while the transport is stopped, which all share one
+    /// `at`, keep their time apart (Capture MIDI, M9 slice R3).
+    pub frame: u64,
+    /// What the transport was doing when it was played.
+    pub state: Heard,
     pub msg: Msg,
 }
 

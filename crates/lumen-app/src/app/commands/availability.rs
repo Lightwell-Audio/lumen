@@ -244,6 +244,18 @@ impl App {
                 self.can_freeze_targets(),
                 "Select an audio or MIDI track to freeze",
             ),
+            Command::CaptureMidi => self.capture_midi_ready(),
+            Command::TakeNext | Command::TakePrevious | Command::TakeKeepOnly => need(
+                self.document
+                    .project()
+                    .tracks
+                    .iter()
+                    .flat_map(|t| &t.clips)
+                    .any(|c| {
+                        self.arrangement.clips.contains(&c.id) && !c.locked && c.takes.is_some()
+                    }),
+                "Select a clip that has takes",
+            ),
             Command::NextTrackInput | Command::NextTrackMonitor => need(
                 !self.selected_audio_tracks().is_empty(),
                 "Select an audio track first",
@@ -459,6 +471,7 @@ impl App {
             | Command::CountInTwoBars
             | Command::CountInFourBars
             | Command::RecordOnlyMetronome
+            | Command::KeepPlayedNotes
             | Command::ComputerKeyboard
             | Command::ToggleFollow
             | Command::AddAudioTrack

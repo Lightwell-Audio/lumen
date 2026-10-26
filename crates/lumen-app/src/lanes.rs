@@ -375,6 +375,14 @@ impl Lanes {
         self.masked.iter().map(|r| r.track).collect()
     }
 
+    /// The span cut from `track`'s clips in that list (test seam).
+    pub fn masked_span(&self, track: Id) -> Option<(Ticks, Option<Ticks>)> {
+        self.masked
+            .iter()
+            .find(|r| r.track == track)
+            .map(|r| (r.from, r.until))
+    }
+
     pub fn is_loading(&self) -> bool {
         !self.pending.is_empty() || !self.landing.is_empty()
     }
@@ -463,6 +471,28 @@ impl Lanes {
         self.notice = Some(notice);
     }
 
+    /// Sends the engine its clips when they, or the tracks being recorded
+    /// over, changed. Recording calls it before the transport starts, so
+    /// the audio under a take is already cut when the take begins.
+    pub fn send_clips(
+        &mut self,
+        doc: &Document,
+        clips: &mut ClipsHandle,
+        rate: u32,
+        inputs: &crate::midi_play::Inputs,
+    ) {
+        let masked = audio_replacing(doc.project(), inputs);
+        if self.dirty || self.built != Some(doc.state()) || self.masked != masked {
+            // A full queue means the engine has not caught up; retry next frame.
+            // A frozen track plays its file (M7b E5), not its clips.
+            let sounding = lumen_project::edit::freeze::played(doc.project());
+            let list = self.engine_clips(&without_replaced(sounding, &masked), rate);
+            self.dirty = clips.set(list).is_err();
+            self.built = Some(doc.state());
+            self.masked = masked;
+        }
+    }
+
     /// Applies finished loads (adding them to the project), loads media the
     /// project needs, and keeps the engine's clips in step. Call every
     /// frame.
@@ -508,16 +538,7 @@ impl Lanes {
             }
         }
 
-        let masked = audio_replacing(doc.project(), inputs);
-        if self.dirty || self.built != Some(doc.state()) || self.masked != masked {
-            // A full queue means the engine has not caught up; retry next frame.
-            // A frozen track plays its file (M7b E5), not its clips.
-            let sounding = lumen_project::edit::freeze::played(doc.project());
-            let list = self.engine_clips(&without_replaced(sounding, &masked), rate);
-            self.dirty = clips.set(list).is_err();
-            self.built = Some(doc.state());
-            self.masked = masked;
-        }
+        self.send_clips(doc, clips, rate, inputs);
         // Sent again when the project, the selection or the inputs change
         // (which tracks listen to what), never every frame.
         // The lanes of plugin instruments are baked for the device's rate.
@@ -958,7 +979,6 @@ mod tests {
                 track: first,
                 from: Ticks::quarters(1),
                 until,
-                take: None,
             }];
             let sounding = without_replaced(std::borrow::Cow::Borrowed(doc.project()), &replacing);
             engine_clips(&sounding, 48_000, |_| Some((audio.clone(), 48_000)))
@@ -989,7 +1009,6 @@ mod tests {
                 track: id,
                 from: Ticks::ZERO,
                 until: None,
-                take: None,
             });
         }
         let masked = audio_replacing(doc.project(), &inputs);

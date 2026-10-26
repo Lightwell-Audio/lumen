@@ -39,18 +39,18 @@ pub(crate) struct Member<'a> {
     pub length: Ticks,
 }
 
-/// Arrangement interval hidden while a bounded Replace take is recorded.
-/// The take's clip stays audible so loop passes can hear their own notes.
+/// Arrangement interval hidden while a bounded Replace take is recorded,
+/// the take's own clip included: in Replace a pass replaces the one before
+/// it, so it is not heard under the new one (`record_span`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Suppression {
     pub from: Ticks,
     pub until: Ticks,
-    pub exempt: Option<Id>,
 }
 
 impl Suppression {
-    fn hides(self, clip: &model::Clip, at: Ticks) -> bool {
-        self.from < self.until && self.exempt != Some(clip.id) && self.from <= at && at < self.until
+    fn hides(self, at: Ticks) -> bool {
+        self.from < self.until && self.from <= at && at < self.until
     }
 }
 
@@ -139,17 +139,14 @@ fn run_notes_masked(run: &[Member<'_>], suppression: Option<Suppression>) -> Vec
         for &i in &carried {
             let n = notes[i];
             let at = m.clip.start + n.start();
-            if suppression.is_some_and(|s| s.hides(m.clip, at)) {
+            if suppression.is_some_and(|s| s.hides(at)) {
                 continue;
             }
             if let Some(&(_, _, e)) = reaching.iter().find(|r| (r.0, r.1) == (at, n.pitch())) {
                 let mut end = n.end().min(m.length);
-                if let Some(s) = suppression.filter(|s| {
-                    s.exempt != Some(m.clip.id)
-                        && s.from < s.until
-                        && at < s.from
-                        && m.clip.start + end > s.from
-                }) {
+                if let Some(s) = suppression
+                    .filter(|s| s.from < s.until && at < s.from && m.clip.start + end > s.from)
+                {
                     end = end.min(s.from - m.clip.start);
                 }
                 out[e].length = offset + end - out[e].start;
@@ -160,7 +157,7 @@ fn run_notes_masked(run: &[Member<'_>], suppression: Option<Suppression>) -> Vec
         }
         for n in notes.iter().filter(|n| !n.muted() && shows(m, n.start())) {
             let arrangement_start = m.clip.start + n.start();
-            if suppression.is_some_and(|s| s.hides(m.clip, arrangement_start)) {
+            if suppression.is_some_and(|s| s.hides(arrangement_start)) {
                 continue;
             }
             let mut length = if loops(m) {
@@ -170,8 +167,7 @@ fn run_notes_masked(run: &[Member<'_>], suppression: Option<Suppression>) -> Vec
             };
             if !loops(m)
                 && let Some(s) = suppression.filter(|s| {
-                    s.exempt != Some(m.clip.id)
-                        && s.from < s.until
+                    s.from < s.until
                         && arrangement_start < s.from
                         && arrangement_start + length > s.from
                 })
@@ -206,7 +202,7 @@ fn run_controls(run: &[Member<'_>], suppression: Option<Suppression>) -> Vec<Mid
         let offset = m.clip.start - head.clip.start;
         let (_, events) = content(m.clip);
         for e in events.iter().filter(|e| {
-            shows(m, e.at) && !suppression.is_some_and(|s| s.hides(m.clip, m.clip.start + e.at))
+            shows(m, e.at) && !suppression.is_some_and(|s| s.hides(m.clip.start + e.at))
         }) {
             out.extend(control(e).into_iter().map(|mut c| {
                 c.at = offset + c.at;
@@ -440,17 +436,11 @@ impl Cache {
             let (start, total_length, _) = extent(run);
             let split_loop = period.is_some()
                 && suppression.is_some_and(|s| {
-                    s.exempt != Some(head.id)
-                        && s.from < s.until
-                        && s.from < start + total_length
-                        && start < s.until
+                    s.from < s.until && s.from < start + total_length && start < s.until
                 });
             let suppression_applies = suppression.is_some_and(|s| {
-                run.iter().any(|m| {
-                    s.exempt != Some(m.clip.id)
-                        && s.from < m.clip.start + m.clip.length
-                        && m.clip.start < s.until
-                })
+                run.iter()
+                    .any(|m| s.from < m.clip.start + m.clip.length && m.clip.start < s.until)
             });
             let seams: Vec<Ticks> = run[1..].iter().map(|m| m.clip.start - head.start).collect();
             let mut clips = Vec::new();

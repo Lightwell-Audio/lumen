@@ -53,6 +53,8 @@ const BODY_OPACITY: f32 = 0.55;
 /// A locked clip's padlock, and the narrowest title that shows it.
 const LOCK_ICON: f32 = 9.0;
 const LOCK_MIN_WIDTH: f32 = 30.0;
+/// A clip's title bar shows which take plays from this width.
+const TAKES_MIN_WIDTH: f32 = 72.0;
 /// A locked clip's clamps: bars this wide at both ends (the owner's K3).
 pub(super) const CLAMP: f32 = 3.0;
 /// The "REC" tag's dot: its radius, and the room it takes before the name.
@@ -83,6 +85,7 @@ pub(super) fn draw_recording_take(painter: &Painter, rect: Rect, lane: Rect, nam
     painter.rect_filled(rect, theme::radius::SMALL, theme::p().lane);
     let look = ClipLook {
         name,
+        takes: None,
         color: theme::p().record,
         state: ClipState::Ready,
         progress: None,
@@ -435,6 +438,7 @@ impl Arrangement {
                             .map_or_else(String::new, |i| i.name.clone());
                         let look = ClipLook {
                             name: &name,
+                            takes: None,
                             color: color_of(track.color),
                             state: lanes.library.get(id).map_or(ClipState::Loading, item_state),
                             progress: lanes.library.progress(id),
@@ -466,6 +470,7 @@ impl Arrangement {
                         theme::CLIP_COLORS[(project.tracks.len() + i) % theme::CLIP_COLORS.len()];
                     let look = ClipLook {
                         name: &name,
+                        takes: None,
                         color,
                         state,
                         progress,
@@ -680,6 +685,9 @@ fn item_state(item: &Item) -> ClipState {
 /// which fades it in and dims it when the track cannot be heard.
 struct ClipLook<'a> {
     name: &'a str,
+    /// The take playing and how many there are (counted from 1), for a clip
+    /// that keeps the passes of a loop recording.
+    takes: Option<(u32, u32)>,
     color: Color32,
     state: ClipState,
     progress: Option<f32>,
@@ -711,6 +719,7 @@ fn look_of<'a>(
     };
     ClipLook {
         name: &clip.name,
+        takes: clip.takes.as_ref().map(|t| (t.active + 1, t.count)),
         color: clip_color(track, clip),
         state,
         progress,
@@ -851,16 +860,35 @@ fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLook<'_>) {
         ));
         room.max.x = at.left() - 3.0;
     }
+    let ink = if alpha < 0.9 {
+        palette.text_secondary.gamma_multiply(alpha.max(0.6))
+    } else {
+        theme::CLIP_TEXT.gamma_multiply(alpha)
+    };
+    // Which take plays, as "2/5" at the right end of the bar.
+    if let Some((now, all)) = look.takes
+        && visible.width() >= TAKES_MIN_WIDTH
+    {
+        let galley = painter.layout_no_wrap(
+            format!("{now}/{all}"),
+            FontId::proportional(theme::size::CAPTION),
+            ink,
+        );
+        let width = galley.size().x;
+        let right = room.max.x;
+        painter.with_clip_rect(room).galley(
+            pos2(right - width, title.center().y - galley.size().y / 2.0),
+            galley,
+            ink,
+        );
+        room.max.x = right - width - 4.0;
+    }
     painter.with_clip_rect(room).text(
         pos2(text_left, title.center().y),
         Align2::LEFT_CENTER,
         label,
         FontId::proportional(theme::size::CAPTION),
         // Dimmed clips keep a readable name in both themes.
-        if alpha < 0.9 {
-            palette.text_secondary.gamma_multiply(alpha.max(0.6))
-        } else {
-            theme::CLIP_TEXT.gamma_multiply(alpha)
-        },
+        ink,
     );
 }

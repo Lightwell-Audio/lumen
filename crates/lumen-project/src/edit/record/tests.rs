@@ -43,6 +43,7 @@ fn take(start: i64, end: i64, notes: Vec<TakeNote>) -> Take {
         start: q(start),
         end: q(end),
         notes,
+        passes: Vec::new(),
         events: Vec::new(),
     }
 }
@@ -65,6 +66,7 @@ fn clip(id: u64, start: i64, length: i64, notes: Vec<Note>) -> Clip {
         reversed: false,
         inverted: false,
         envelopes: Default::default(),
+        takes: None,
         content: midi(notes),
     }
 }
@@ -715,6 +717,7 @@ fn identical_and_shorter_hidden_captures_do_not_carry_at_a_seam() {
                     pitch: 60,
                     velocity: 100,
                 }],
+                passes: Vec::new(),
                 events: Vec::new(),
             },
             Placement {
@@ -746,6 +749,7 @@ fn punch_keeps_full_capture_in_both_modes_and_trim_recovers_it() {
         start: q(0),
         end: q(8),
         notes: vec![tn(1, 4, 60), tn(2, 5, 62), tn(3, 1, 64), tn(5, 2, 65)],
+        passes: Vec::new(),
         events: vec![ev(1, 11), ev(3, 33), ev(5, 55)],
     };
     for mode in [Mode::Replace, Mode::Overdub] {
@@ -854,6 +858,7 @@ fn capture_wholly_outside_punch_gets_a_hidden_anchor_clip() {
                 start: q(0),
                 end: q(2),
                 notes: vec![tn(1, 3, 60)],
+                passes: Vec::new(),
                 events: vec![ev(1, 11)],
             },
             (q(4), q(8)),
@@ -864,6 +869,7 @@ fn capture_wholly_outside_punch_gets_a_hidden_anchor_clip() {
                 start: q(9),
                 end: q(11),
                 notes: vec![tn(9, 3, 62)],
+                passes: Vec::new(),
                 events: vec![ev(10, 22)],
             },
             (q(4), q(8)),
@@ -916,6 +922,7 @@ fn capture_wholly_outside_punch_gets_a_hidden_anchor_clip() {
         start: q(0),
         end: q(2),
         notes: vec![],
+        passes: Vec::new(),
         events: vec![],
     };
     assert_eq!(range_of(&empty, Some((q(4), q(8)))), None);
@@ -926,6 +933,7 @@ fn capture_wholly_outside_punch_gets_a_hidden_anchor_clip() {
         start: q(4),
         end: q(2),
         notes: vec![tn(2, 2, 64)],
+        passes: Vec::new(),
         events: vec![ev(2, 44)],
     };
     assert_eq!(range_of(&loop_capture, None), Some((q(4), q(4) + Ticks(1))));
@@ -1132,4 +1140,82 @@ fn what_else_changed_on_the_track_while_it_recorded_is_kept() {
     )
     .unwrap();
     assert_eq!(p.tracks[0].clips.len(), first.len());
+}
+
+/// A loop of four quarters recorded for three passes: the pass numbers are
+/// 0, 1 and 2, each with a note of its own.
+fn three_passes() -> Take {
+    let pass = |notes: Vec<TakeNote>| PassTake {
+        notes,
+        events: Vec::new(),
+    };
+    let mut take = take(0, 4, vec![tn(0, 1, 60), tn(1, 1, 62), tn(2, 1, 64)]);
+    take.passes = vec![
+        pass(vec![tn(0, 1, 60)]),
+        pass(vec![tn(1, 1, 62)]),
+        pass(vec![tn(2, 1, 64)]),
+    ];
+    take
+}
+
+fn midi_notes(clip: &Clip) -> Vec<Note> {
+    let ClipContent::Midi { notes, .. } = &clip.content else {
+        panic!("a MIDI clip");
+    };
+    notes.clone()
+}
+
+#[test]
+fn replace_keeps_each_loop_pass_as_a_take_and_plays_the_last() {
+    let base = base(vec![]);
+    let mut p = base.clone();
+    put(&mut p, &base, &three_passes(), Mode::Replace).unwrap();
+    let placed = p.tracks[0].clips.iter().find(|c| c.id == Id(50)).unwrap();
+    assert_eq!(midi_notes(placed), vec![note(2, 1, 64)], "the last pass");
+    let takes = placed.takes.as_ref().expect("takes");
+    assert_eq!((takes.active, takes.count), (2, 3));
+    let Some(Pass::Midi { notes, .. }) = takes.other(0) else {
+        panic!("the first pass");
+    };
+    assert_eq!(notes, &vec![note(0, 1, 60)]);
+    assert!(crate::validate(&p).is_ok());
+}
+
+#[test]
+fn placing_a_growing_loop_take_again_gives_what_one_placement_would() {
+    let base = base(vec![]);
+    let mut once = base.clone();
+    put(&mut once, &base, &three_passes(), Mode::Replace).unwrap();
+    let mut grown = base.clone();
+    let mut early = three_passes();
+    early.passes.truncate(2);
+    early.notes.truncate(2);
+    put(&mut grown, &base, &early, Mode::Replace).unwrap();
+    put(&mut grown, &base, &three_passes(), Mode::Replace).unwrap();
+    assert_eq!(once.tracks[0].clips, grown.tracks[0].clips);
+}
+
+#[test]
+fn overdub_layers_the_passes_as_before() {
+    let base = base(vec![]);
+    let mut p = base.clone();
+    put(&mut p, &base, &three_passes(), Mode::Overdub).unwrap();
+    let placed = p.tracks[0].clips.iter().find(|c| c.id == Id(50)).unwrap();
+    assert!(placed.takes.is_none());
+    assert_eq!(
+        midi_notes(placed),
+        vec![note(0, 1, 60), note(1, 1, 62), note(2, 1, 64)]
+    );
+}
+
+#[test]
+fn a_take_of_one_pass_has_no_takes() {
+    let base = base(vec![]);
+    let mut p = base.clone();
+    let mut one = take(0, 4, vec![tn(0, 1, 60)]);
+    one.passes = vec![PassTake::default()];
+    put(&mut p, &base, &one, Mode::Replace).unwrap();
+    let placed = p.tracks[0].clips.iter().find(|c| c.id == Id(50)).unwrap();
+    assert!(placed.takes.is_none());
+    assert_eq!(midi_notes(placed), vec![note(0, 1, 60)]);
 }

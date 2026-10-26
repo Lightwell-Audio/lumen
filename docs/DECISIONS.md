@@ -118,6 +118,7 @@ irreversible or external) · *Superseded*.
 
 | Question | Decision |
 |---|---|
+| Take lanes deferred (M9 R3, 2026-10-26) | Pitched after the owner's runs of R3 (each pass a clip on its own lane under the track, a comp lane that plays, comping by dragging across a lane): the owner likes individual take lanes and **deferred them, with comping, until after M9's must-have slices**, as recommended. Until then a take is a whole pass inside one clip (ADR-0104), reached from the Takes menu; the passes are windows on one file, so dragging a clip's edge past its pass shows the pass beside it (intended, as in common workstations). When lanes are built, the takes inside a clip become lanes by migration. Open for then: whether a comp segment is a copied clip or a reference to its take, whether recording over any material (not only loop passes) makes a lane, and MIDI lanes. |
 | M9 plan choices (2026-10-24) | R1 A, R2 A, R3 A, R4 A, R5 A, X1 A, X2 A, X3 A: every recommendation in `docs/milestones/M9.md` §4. |
 | Milestone sequence (2026-10-23) | After M7 and M7b, deliver the existing M9 (Recording, Media, Export & Production Workflow) before M8 (Drum Maps, Drum Editor & Built-In Devices), because audio recording has higher priority than drum maps. Keep the milestone IDs and scopes unchanged; this only changes delivery order. Recorded in `docs/ROADMAP.md` and `docs/PROGRESS.md`. |
 | Native macOS VST3 hosting (2026-10-19, ADR-0085) | Bring the stretch goal forward now: the full existing workflow, including native editors, for plugins matching the host architecture. Intel bridging remains outside this slice. |
@@ -9075,3 +9076,155 @@ macOS. CI logs the walkthrough's before/after late-block counts even on
 success. macOS callback CPU use, small-buffer behavior and native hardware
 still need measurement; a bounded native signal wait remains a possible
 replacement if those measurements warrant it.
+
+## ADR-0104 - Takes of a loop recording, and Capture MIDI (M9 R3)
+
+**Status:** Accepted 2026-10-25. Format **v31**. MT-REC-3 passed (owner,
+2026-10-26, on the Focusrite with a MIDI keyboard). Take lanes are deferred
+(owner, 2026-10-26; the table of owner decisions).
+
+**Context.** Loop recording (audio in R2, MIDI since M5) either made one long
+clip or layered every pass into one. A producer wants to keep every pass and
+choose. Separately, a phrase played while not recording is lost. The owner
+chose (2026-10-25): audio takes A (the last pass plays; a Takes menu swaps or
+extracts), MIDI takes A (Replace makes takes; Overdub keeps layering), Capture
+MIDI A (a rolling in-memory buffer that lands where the notes were played).
+Plan: `milestones/M9-R3.md`.
+
+**Model.** `Clip.takes: Option<Takes>` (written only when set):
+`Takes { active, count, others: Vec<OtherTake { take, Pass }> }` with
+`Pass::Audio { offset, audio_phase_seconds }` and `Pass::Midi { notes, events }`.
+The clip's own content is the active pass, so editing it never leaves a stale
+copy; playing pass `k` swaps the clip's content with slot `k` (`edit::takes`).
+The engine sees an ordinary clip: playback is unchanged. All passes of an audio
+clip are windows on the same media file; the file is never split.
+
+**Audio.** The take worker records the file frame of each loop wrap (`Wrap`,
+also in the sidecar, so a take recovered after a crash is cut into passes too);
+`loop_passes::cut` turns them into one clip over the loop window, one pass long.
+A first pass that began part-way into the loop is not offered (the
+model never lets a clip begin before its file; its audio stays in the file).
+The clip plays the last pass that lasted the whole loop; stopping part-way into
+a pass leaves a partial last pass, which is offered as a take (it plays up to
+where recording stopped) only if it lasted a quarter of a second. (First built
+as "the last pass plays" and found by the owner's first run: the clip was
+only as long as the partial last pass, a sliver. Fixed the same day.) While
+recording with Loop on, the growing clip is the loop long from the first wrap: the
+pass under way is drawn from the loop's start, replacing the whole pass before
+it (dimmed, behind) as the playhead goes, instead of running on past the loop
+or dropping what was recorded (the owner's second run). After Stop it stays
+drawn until the clip is placed, with no gap. **MIDI.** `recorder::Capture` keeps a pass per note and `edit::record::replace`
+makes takes of them; Overdub is unchanged.
+
+**What edits do to takes.** Move, copy, trim, fades, gain, notes, rename and the
+rest keep them. A cut or a trim of the start moves the other passes with it
+(`takes::advance`); a slip moves each pass by the same amount (`takes::slipped`);
+split and join return the original. Edits that rewrite what the clip plays
+(reverse, unloop, merge of MIDI clips) **settle** the clip: it keeps the pass it
+plays and drops the others, in the same undo step, with a notice that says so.
+This is the default taken for the open question in the plan (the alternative,
+refusing those edits, was not chosen).
+
+**Capture MIDI.** The engine pushes the messages of listening tracks while not
+recording too (`Captured.frame`, `Captured.state: Heard::{Recording, Playing,
+Stopped}`), under the same allocation guard and bounded queue; recording is
+unaffected (the recorder ignores idle messages). The app's `Played` buffer keeps
+the last 10 minutes and at most 20,000 messages, in memory only, never saved.
+It cuts phrases when the transport state changes or time runs backwards while
+playing. The command (Shift+F9, id `transport.capture_midi`) places the newest
+phrase with notes on the selected MIDI track, else an armed one, else the one
+played last, using Overdub placement so nothing under it is lost; played while
+the transport moved, the notes land where they were heard, otherwise the first
+note lands on the playhead and the clip starts on the bar. One undo step,
+"Capture MIDI". What a take recorded is not offered again. The setting
+`record.keep_played` (default on; the transport bar's record menu, command
+`transport.keep_played_notes`) turns the buffer off and empties it.
+
+**Where a loop take begins (the owner's third run).** The first version fell
+back to one clip laid out along the timeline whenever fewer than two clean
+passes were found, which put the audio at the wrong time and left an old clip
+playing when the take began before the loop or inside it. Now every take that
+wrapped is cut by the loop's own length (`loop_passes::cut` takes it, and
+prefers the spacing of the wraps once there are two): a take that began at or
+before the loop's start offers its first pass (what was recorded before the
+loop stays in the file); one that began inside the loop does not; a single
+pass is a plain clip that plays from its frame; a take stopped just after a
+wrap from inside the loop is kept as the stretch it was played. Only the loop's
+span is replaced: the part of an old clip outside it plays on.
+
+**Before the loop, and before the first sample (the owner's fourth run).**
+With punch in off a take can begin before the loop. The old audio was cut only
+from the loop's start, so it kept playing until the loop began, and the cut was
+sent on the first frame after Record, so a clip still sounding there was removed
+mid-wave (a pop). Now audio tracks are cut from where the take begins (the
+punch-in if there is one), and `Lanes::send_clips` runs inside `start_recording`
+before the transport records. What the take recorded before the loop is placed
+as its own clip, "... lead-in", sharing the take's file (`Cut::lead`), so no
+recorded audio is lost and no old audio is left under it. The pop's cause is
+verified only as ordering on the test device; MT-REC-3 step 7 asks the owner to
+listen on the interface.
+
+**One rule for what a loop take replaces and how it is cut (the owner's fifth
+run).** Begun half-way into a loop over a clip, the old clip played again when
+the playhead wrapped to the loop's start. This was the fourth bug of one kind:
+the mute while recording (`App::replacing`), the MIDI window (`Session::from`,
+which changed when the UI noticed a wrap, a frame or more late) and the cut at
+Stop (`loop_passes::cut`, with a branch for each way a take could begin) each
+decided what a take covers, and they disagreed at the edges. They now share
+one model:
+
+- *What a take replaces* is one span, fixed when Record is pressed
+  (`record_span::span`): from where recording began, or the loop's start if
+  earlier, to the loop's end (on until Stop without Loop), inside the punch
+  range. MIDI keeps no lead-in, so its span starts at the loop. The old
+  material over the whole span is silent from the first sample. It sounds
+  the same as a mute that grows with the take, because the playhead only
+  reaches a part of the span once the take is recording over it. Nothing
+  depends on noticing a wrap in time any more.
+- *After Stop*, until the files are placed, only what was recorded stays
+  silent (`Span::recorded`: the whole span after a wrap, else from where it
+  began to the playhead), so the old audio neither plays under the take for
+  those frames nor stays silent where the take never reached.
+- *The take's own MIDI clip is masked too.* It was exempt so that loop
+  passes heard each other. In Replace each pass is now a take that replaces
+  the one before, and the exemption let the old pass play for up to a second
+  after each wrap. Overdub still layers and hears every pass.
+- *Every pass is the same shape.* A take begun inside the loop begins its
+  file with silence back to the loop's start (`take_worker`, `Sidecar.silence`),
+  so the late first pass is a take like the others instead of being dropped.
+  A pass is the loop's length of the file from the frame at the loop's start;
+  the latency puts that frame just after the wrap, so a pass ends in the head
+  of the next one (what was played while the loop's end was heard). The clip
+  sits exactly on the loop. Passes holding at least a quarter of a second are
+  offered; the clip plays the last whole one, or with none whole the one that
+  holds most; one pass is a plain clip over what it holds; what was played
+  before the loop is the lead-in clip. Without a wrap the take is one stretch
+  from where its sound began.
+- *The recording carries its loop* (`Plan::looped`, `TrackResult`, the
+  sidecar), so moving the loop after Stop or recovering after a crash cuts the
+  take in the loop it was recorded in. A sidecar written before this keeps
+  working with the project's loop, and a file from then that began inside the
+  loop keeps its later passes (its first stays in the file).
+
+Not changed: the pass drawn behind the one under way is still only a whole
+pass, so the late first pass is not drawn behind the second. Moving the loop
+*while* recording is not supported by the cut (the passes would not be one
+length); the wraps follow the engine, the cut follows the loop recording began
+with. Comping (choosing parts of several takes) stays deferred with take
+lanes (M9 plan, option B); a take is still a whole pass, and the model of one
+file with passes as windows on it is what comping would build on.
+
+**Left as it was.** Audio and MIDI recorded together are still two undo steps
+(KNOWN_ISSUES). Extract to a new track is audio only (a new MIDI track would
+have no instrument).
+
+**Consequences.** Every `Clip` has one more field (the serialize benchmark may
+move through inlining, as in ADR-0098). A project with takes holds every MIDI
+pass; Keep only this take is the way out. The buffer holds what the owner plays
+for ten minutes: memory only, switchable, documented here and in the switch's
+tooltip.
+
+**Gates (2026-10-25).** WSL clippy and tests pass on the pushed branch (683 E2E
+on Linux). The performance gate moves nothing past the threshold: the largest
+change is `project_parse` at +1.03% (the new optional field); no baseline
+update.

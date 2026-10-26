@@ -3890,3 +3890,87 @@ fn record_wave_heights() {
         save(&mut h, &format!("final-{height}-{scale}"));
     }
 }
+
+/// A loop recording (M9 slice R3): the pass before is drawn behind the new
+/// one, the clip stays the loop long, and Stop leaves it drawn until the
+/// clip is placed.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn record_loop_passes() {
+    use lumen_core::time::Ticks;
+    use lumen_project::model::{Color, Id, Track, TrackKind};
+    use lumen_project::testing::project_of;
+    for (appearance, scale) in [("dark", 1.0_f32), ("light", 1.0), ("dark", 1.5)] {
+        let dir = TempDir::new(&format!("shots-rec-loop-{appearance}-{scale}"));
+        let vox = Id(21);
+        let mut project = project_of(
+            "Take",
+            vec![Track::new(vox, "Vox", TrackKind::Audio, Color(0x4F81BD))],
+        );
+        project.view.track_heights.insert(vox, 200.0);
+        project.view.expanded.insert(vox);
+        project.transport.loop_start = Ticks::ZERO;
+        project.transport.loop_end = Ticks::quarters(8);
+        project.transport.loop_enabled = true;
+        let path = dir.path().join("song.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        lumen_app::testing::input_device().set(|d| {
+            d.input_levels = Vec::new();
+            d.input_ramp = true;
+        });
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .with_input_device()
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(vec2(1280.0, 760.0))
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        let wait = |h: &mut Harness<'static, App>, what: &str, ok: &dyn Fn(&App) -> bool| {
+            for _ in 0..1500 {
+                h.run_steps(2);
+                if ok(h.state()) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            panic!("timed out waiting for {what}");
+        };
+        wait(&mut h, "the project", &|a| a.project().tracks.len() == 1);
+        wait(&mut h, "inputs", &|a| a.open_inputs() == 2);
+        h.run_steps(30);
+        {
+            use egui_kittest::kittest::Queryable;
+            h.get_by_label("Arm Vox").click();
+        }
+        h.run_steps(5);
+        h.key_press(Key::F9);
+        wait(&mut h, "recording", &|a| a.recording() && a.is_playing());
+        // Two bars are 192,000 frames: this is part-way through the second pass.
+        wait(&mut h, "frames", &|a| {
+            a.audio_take_frames(vox).is_some_and(|f| f >= 250_000)
+        });
+        save(&mut h, &format!("loop-live-{appearance}-{scale}"));
+        h.key_press(Key::Space);
+        h.run_steps(2);
+        save(&mut h, &format!("loop-stopped-{appearance}-{scale}"));
+        wait(&mut h, "the clip", &|a| {
+            !a.recording() && a.project().tracks[0].clips.len() == 1
+        });
+        for _ in 0..30 {
+            h.run_steps(5);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        save(&mut h, &format!("loop-final-{appearance}-{scale}"));
+    }
+}

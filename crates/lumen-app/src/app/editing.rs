@@ -498,6 +498,7 @@ impl App {
                         self.menu_command(ui, Command::SelectToEnd, "To end");
                     });
                 });
+                self.takes_menu(ui);
                 ui.separator();
                 self.clip_menu(ui);
             }
@@ -548,6 +549,58 @@ impl App {
         {
             self.run(ui.ctx(), Command::ToggleAutoCrossfade);
         }
+    }
+
+    /// The Takes submenu for the selected clip that has takes (a loop
+    /// recording keeps every pass): one row for each take, then the commands.
+    /// A selection with no takes lists nothing.
+    fn takes_menu(&mut self, ui: &mut egui::Ui) {
+        let held = self
+            .document
+            .project()
+            .tracks
+            .iter()
+            .flat_map(|t| t.clips.iter().map(move |c| (t, c)))
+            .find(|(_, c)| self.arrangement.clips.contains(&c.id) && c.takes.is_some())
+            .and_then(|(t, c)| {
+                let takes = c.takes.as_ref()?;
+                Some((
+                    c.id,
+                    takes.active,
+                    takes.count,
+                    t.kind == lumen_project::model::TrackKind::Audio,
+                    c.locked,
+                ))
+            });
+        let Some((clip, active, count, audio, locked)) = held else {
+            return;
+        };
+        widgets::submenu(ui, format!("Takes ({count})"), |ui| {
+            for take in 0..count {
+                let mut label = format!("Take {} of {}", take + 1, count);
+                if take == active {
+                    label.push_str(" (playing)");
+                }
+                if widgets::menu_item(ui, &label, None, !locked && take != active).clicked() {
+                    self.play_clip_take(clip, take);
+                }
+            }
+            ui.separator();
+            self.menu_command(ui, Command::TakeNext, "Play next take");
+            self.menu_command(ui, Command::TakePrevious, "Play previous take");
+            if audio {
+                widgets::submenu(ui, "Extract to new track", |ui| {
+                    for take in 0..count {
+                        let label = format!("Take {}", take + 1);
+                        if widgets::menu_item(ui, &label, None, true).clicked() {
+                            self.extract_clip_take(clip, take);
+                        }
+                    }
+                });
+            }
+            ui.separator();
+            self.menu_command(ui, Command::TakeKeepOnly, "Keep only this take");
+        });
     }
 
     /// Menu items for the `commands` that can run now; whether any could.

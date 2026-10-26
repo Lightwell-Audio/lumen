@@ -124,6 +124,7 @@ mod tests {
             audio_phase_seconds: 0.0,
             reversed: false,
             inverted: false,
+            takes: None,
             content: ClipContent::Midi {
                 notes: Vec::new(),
                 events: Vec::new(),

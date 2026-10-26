@@ -137,6 +137,7 @@ mod tests {
             reversed: false,
             inverted: false,
             envelopes: Default::default(),
+            takes: None,
             content: ClipContent::Midi {
                 notes,
                 events: Vec::new(),

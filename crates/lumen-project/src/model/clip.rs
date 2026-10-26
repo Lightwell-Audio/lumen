@@ -60,6 +60,10 @@ pub struct Clip {
     /// the clip's start. Written only when there are some.
     #[serde(default, skip_serializing_if = "ClipEnvelopes::is_empty")]
     pub envelopes: ClipEnvelopes,
+    /// The other passes of a loop recording (format v31). The clip's own
+    /// content is the pass it plays. Written only when there are some.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub takes: Option<Takes>,
     pub content: ClipContent,
 }
 

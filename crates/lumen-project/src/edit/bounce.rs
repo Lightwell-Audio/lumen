@@ -257,6 +257,7 @@ pub fn apply(project: &mut Project, baked: &[Baked], fresh: &mut impl FnMut() ->
             audio_phase_seconds: 0.0,
             reversed: false,
             inverted: false,
+            takes: None,
             content: ClipContent::Audio {
                 media: media.id,
                 offset: 0,

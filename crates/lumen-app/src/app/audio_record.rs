@@ -23,6 +23,7 @@ use lumen_project::model::{Id, Media, TrackKind};
 use crate::App;
 use crate::arrangement::audio_take_look::AudioTakeLook;
 use crate::audio_input;
+use crate::loop_passes;
 use crate::take_worker::{Job, Live, Plan, TrackResult, sidecar_path, unfinished};
 
 /// How long the worker has to hand the files over after recording ends
@@ -43,6 +44,11 @@ struct Finishing {
     /// wanted.
     discard: bool,
     since: Instant,
+    /// The takes as they were drawn, kept drawn until the clips are placed.
+    lanes: Vec<Lane>,
+    /// What they recorded over, kept silent until the clips are placed, so
+    /// the old audio is not heard there in between.
+    replaced: Vec<crate::midi_play::Replacing>,
 }
 
 /// What the app keeps for audio recording.
@@ -104,8 +110,13 @@ impl App {
 
     /// The armed audio tracks that can record, with the worker told what to
     /// write. Tracks that cannot are named in a notice. `punch` is the range
-    /// that is kept, if there is one.
-    pub(super) fn begin_audio_takes(&mut self, punch: Option<(Ticks, Ticks)>) -> Vec<Lane> {
+    /// that is kept, if there is one; `looped` is the loop when Loop is on, so
+    /// jumps back are passes and a take begun inside it lines up with it.
+    pub(super) fn begin_audio_takes(
+        &mut self,
+        punch: Option<(Ticks, Ticks)>,
+        looped: Option<(Ticks, Ticks)>,
+    ) -> Vec<Lane> {
         let project = self.document.project();
         let armed: Vec<_> = project
             .tracks
@@ -176,6 +187,7 @@ impl App {
             rate,
             shift: i64::from(info.input_latency) + i64::from(info.output_latency) + offset as i64,
             window,
+            looped: looped.map(|(a, b)| (timeline.sample_at(a, rate), timeline.sample_at(b, rate))),
         });
         lanes
     }
@@ -207,6 +219,9 @@ impl App {
                     frames: r.frames,
                     dropped: 0,
                     error: None,
+                    wraps: lost.sidecar.wraps.clone(),
+                    silence: lost.sidecar.silence,
+                    looped: lost.sidecar.looped,
                 }),
                 Some(r) if r.frames == 0 => remove(&lost.file),
                 _ => {
@@ -273,7 +288,11 @@ impl App {
             .filter_map(|lane| {
                 let (start, frames) = {
                     let live = lane.live.lock().ok()?;
-                    (live.start?, live.frames)
+                    // With Loop on, the clip is the loop long from the first
+                    // wrap: the pass before shows where this one has not
+                    // reached.
+                    let loop_frames = live.previous.as_ref().map_or(0, |(f, _)| *f);
+                    (live.start?, live.frames.max(loop_frames))
                 };
                 Some(AudioTakeLook {
                     track: lane.track,
@@ -288,7 +307,12 @@ impl App {
     /// Recording has ended: the worker closes the files and
     /// [`Self::poll_audio_takes`] puts them in. With `discard` they are
     /// thrown away instead.
-    pub(super) fn end_audio_takes(&mut self, lanes: Vec<Lane>, discard: bool) {
+    pub(super) fn end_audio_takes(
+        &mut self,
+        lanes: Vec<Lane>,
+        discard: bool,
+        replaced: Vec<crate::midi_play::Replacing>,
+    ) {
         if lanes.is_empty() {
             return;
         }
@@ -297,7 +321,33 @@ impl App {
             document: self.document.session(),
             discard,
             since: Instant::now(),
+            lanes,
+            replaced,
         });
+    }
+
+    /// What the takes being finished recorded over (see [`Finishing`]).
+    pub(super) fn finishing_replaced(&self) -> Vec<crate::midi_play::Replacing> {
+        self.record
+            .audio
+            .finishing
+            .as_ref()
+            .map_or_else(Vec::new, |f| f.replaced.clone())
+    }
+
+    /// Recording has stopped and its takes are not placed yet.
+    pub(crate) fn audio_takes_finishing(&self) -> bool {
+        self.record.audio.finishing.is_some()
+    }
+
+    /// The takes to draw while their files are closed: what the arrangement
+    /// showed while recording, until the clips are placed.
+    pub(super) fn finishing_lanes(&self) -> Vec<Lane> {
+        self.record
+            .audio
+            .finishing
+            .as_ref()
+            .map_or_else(Vec::new, |f| f.lanes.clone())
     }
 
     /// Every frame: when the worker has handed over the files of a recording
@@ -359,27 +409,75 @@ impl App {
                 remove(&result.path);
                 continue;
             };
+            // One rule makes the clip, with Loop on or off (`loop_passes`), in
+            // the loop the recording carries. A take left by a build that did
+            // not keep it is cut in the project's loop.
+            let looped = result.looped.or_else(|| {
+                let region = self.document.project().transport;
+                let timeline = &self.transport.timeline;
+                (!result.wraps.is_empty()).then(|| {
+                    (
+                        timeline.sample_at(region.loop_start, rate),
+                        timeline.sample_at(region.loop_end, rate),
+                    )
+                })
+            });
+            let loop_passes::Cut {
+                start,
+                frames,
+                passes,
+                active,
+                lead,
+            } = loop_passes::cut(
+                loop_passes::Recorded {
+                    start,
+                    silence: result.silence,
+                    frames: result.frames,
+                    wraps: &result.wraps,
+                    looped,
+                },
+                rate,
+            );
             let timeline = &self.transport.timeline;
             let from = timeline.ticks_at(start, rate);
-            let to = timeline.ticks_at(start + result.frames as i64, rate);
+            let to = timeline.ticks_at(start + frames as i64, rate);
             let size = fs::metadata(&result.path).map_or(0, |m| m.len());
+            let media = Media {
+                id: self.document.fresh_id(),
+                path: result.path.to_string_lossy().into_owned(),
+                original_path: None,
+                frames: result.frames,
+                channels: result.channels,
+                sample_rate: result.rate,
+                size_bytes: size,
+            };
+            let name = result
+                .path
+                .file_stem()
+                .map_or_else(|| name.clone(), |s| s.to_string_lossy().into_owned());
+            // What was recorded before the loop began is a clip of its own,
+            // from the start of the file, where it was played.
+            if let Some((at, lead_frames)) = lead {
+                let lead_from = timeline.ticks_at(at, rate);
+                let lead_to = timeline.ticks_at(at + lead_frames as i64, rate);
+                takes.push(Take {
+                    track: Id(result.track),
+                    media: media.clone(),
+                    name: format!("{name} lead-in"),
+                    start: lead_from,
+                    length: lead_to - lead_from,
+                    passes: Vec::new(),
+                    active: 0,
+                });
+            }
             takes.push(Take {
                 track: Id(result.track),
-                media: Media {
-                    id: self.document.fresh_id(),
-                    path: result.path.to_string_lossy().into_owned(),
-                    original_path: None,
-                    frames: result.frames,
-                    channels: result.channels,
-                    sample_rate: result.rate,
-                    size_bytes: size,
-                },
-                name: result
-                    .path
-                    .file_stem()
-                    .map_or_else(|| name.clone(), |s| s.to_string_lossy().into_owned()),
+                media,
+                name,
                 start: from,
                 length: to - from,
+                passes,
+                active,
             });
         }
         if !takes.is_empty() {

@@ -217,6 +217,11 @@ pub(crate) enum Command {
     FlattenTracks,
     NextTrackInput,
     NextTrackMonitor,
+    TakeNext,
+    TakePrevious,
+    TakeKeepOnly,
+    CaptureMidi,
+    KeepPlayedNotes,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -499,6 +504,11 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::FlattenTracks, "track.flatten", "Flatten track", Area::Track, &[], "Turns a frozen track into a plain audio track that holds the rendered file. Its clips, notes, instrument and devices are removed; its name, colour, fader, pan, sends and output stay. A MIDI track becomes an audio track. Undo brings everything back."),
     info(Command::NextTrackInput, "track.input_next", "Next track input", Area::Track, &[], "Steps the selected audio tracks to the next input of the audio device: none, each stereo pair, then each mono input. Arming a track without an input picks the first free one for you."),
     info(Command::NextTrackMonitor, "track.monitor_next", "Next monitor mode", Area::Track, &[], "Steps the selected audio tracks through Auto, In and Off. Auto plays what the input hears while the track is armed and the transport is stopped or recording; In always does; Off never does."),
+    info(Command::TakeNext, "clip.take_next", "Play next take", Area::Clip, &[], "Plays the next take of the selected clips that have takes (a loop recording keeps every pass), round the set. The clip stays where it is; only the pass it plays changes."),
+    info(Command::TakePrevious, "clip.take_previous", "Play previous take", Area::Clip, &[], "Plays the take before the one playing on the selected clips that have takes, round the set."),
+    info(Command::TakeKeepOnly, "clip.take_keep", "Keep only this take", Area::Clip, &[], "Throws away the other takes of the selected clips and keeps the one each plays. Audio stays in the media pool. Undo brings the takes back."),
+    info(Command::CaptureMidi, "transport.capture_midi", "Capture MIDI", Area::Transport, &[shift(Key::F9)], "Turns the notes you last played on a MIDI track, while not recording, into a clip. Played while the song was moving, they land where you heard them; played while stopped, the first note lands on the playhead. Nothing under the clip is lost, and Undo takes it away. The last ten minutes of what you play are kept, in memory only."),
+    info(Command::KeepPlayedNotes, "transport.keep_played_notes", "Keep played notes for Capture MIDI", Area::Transport, &[], "Keeps the notes you play on MIDI tracks while not recording, in memory for ten minutes, so Capture MIDI can turn them into a clip. Off, nothing is kept and what was kept is forgotten."),
 ];
 
 const fn info(
@@ -548,7 +558,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::NextTrackMonitor as usize + 1,
+            Command::KeepPlayedNotes as usize + 1,
             ALL.len(),
             "a command is missing"
         );

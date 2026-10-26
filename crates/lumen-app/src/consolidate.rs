@@ -239,6 +239,7 @@ mod tests {
             audio_phase_seconds: 0.0,
             reversed: false,
             inverted: false,
+            takes: None,
             content: ClipContent::Audio {
                 media: Id(9),
                 offset: 0,

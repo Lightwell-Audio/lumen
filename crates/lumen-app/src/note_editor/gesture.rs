@@ -243,6 +243,7 @@ mod tests {
             audio_phase_seconds: 0.0,
             reversed: false,
             inverted: false,
+            takes: None,
             content: lumen_project::model::ClipContent::midi(),
         })
     }

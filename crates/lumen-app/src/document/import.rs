@@ -162,6 +162,7 @@ impl Document {
                     audio_phase_seconds: 0.0,
                     reversed: false,
                     inverted: false,
+                    takes: None,
                     content: ClipContent::Audio {
                         media: file.media,
                         offset: 0,

@@ -20,6 +20,17 @@ impl App {
         self.take_so_far()
     }
 
+    /// Whether the notes played while not recording are kept for Capture
+    /// MIDI (M9 slice R3).
+    pub fn keeps_played_notes(&self) -> bool {
+        self.settings.record.keep_played
+    }
+
+    /// How many messages Capture MIDI is keeping (M9 slice R3).
+    pub fn played_messages(&self) -> usize {
+        self.record.played.len()
+    }
+
     /// The pitch range the first track recording is laid out to in what the
     /// arrangement draws this frame, the take included
     /// (`piano_roll::mini::Fit`). None before a note is played.

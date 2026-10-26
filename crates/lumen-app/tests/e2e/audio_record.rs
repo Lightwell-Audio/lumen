@@ -14,12 +14,14 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
+use lumen_app::App;
 use lumen_app::testing::InputDeviceTurn;
 use lumen_core::time::Ticks;
 use lumen_project::model::{Clip, Color, Id, Project, Track, TrackKind};
 use lumen_project::testing::{TempDir, project_of};
 
 use super::Lumen;
+use super::midi_play::palette;
 
 const VOX: Id = Id(21);
 const GTR: Id = Id(22);
@@ -70,6 +72,12 @@ fn clips_of(lumen: &Lumen, id: Id) -> Vec<std::sync::Arc<Clip>> {
 
 /// Arms Vox, records until `frames` have been written, and stops.
 fn record(lumen: &mut Lumen, frames: u64) {
+    record_checking(lumen, frames, |_| {});
+}
+
+/// As [`record`], and runs `while_recording` once the frames are written,
+/// before stopping.
+fn record_checking(lumen: &mut Lumen, frames: u64, while_recording: impl Fn(&App)) {
     lumen.click("Arm Vox");
     lumen.key(Modifiers::NONE, Key::F9);
     lumen.wait_for("the recording to begin", |app| {
@@ -78,9 +86,12 @@ fn record(lumen: &mut Lumen, frames: u64) {
     lumen.wait_for("frames to be written", move |app| {
         app.audio_take_frames(VOX).is_some_and(|f| f >= frames)
     });
+    while_recording(lumen.app());
     lumen.key(Modifiers::NONE, Key::Space);
+    // The track may hold clips already: wait until the take is placed too.
     lumen.wait_for("the clip", |app| {
         !app.recording()
+            && !app.audio_takes_placing()
             && app
                 .project()
                 .tracks
@@ -175,6 +186,7 @@ fn project_with_old_clip() -> Project {
         audio_phase_seconds: 0.0,
         reversed: false,
         inverted: false,
+        takes: None,
         content: ClipContent::Audio {
             media: Id(900),
             offset: 0,
@@ -234,15 +246,91 @@ fn looping_while_recording_keeps_one_long_file() {
     p.transport.loop_end = Ticks::quarters(1);
     p.transport.loop_enabled = true;
     let (mut lumen, _turn) = launch("loop", &p, |l| l);
-    // A beat is 24,000 frames: two passes and a bit.
-    record(&mut lumen, 52_000);
+    // A beat is 24,000 frames: two passes and a tail long enough to offer.
+    record_checking(&mut lumen, 62_000, |app| {
+        // What is drawn is the pass under way, which stays inside the loop
+        // (a block or two over, while the wrap is being noticed).
+        let drawn = app.audio_take_drawn_frames(VOX).expect("a take is drawn");
+        assert!(drawn <= 24_000 + 4_096, "{drawn} frames drawn");
+    });
     let clips = clips_of(&lumen, VOX);
-    assert_eq!(clips.len(), 1, "the passes are one clip until they are cut");
+    assert_eq!(clips.len(), 1, "the passes are one clip");
     let media = lumen.app().project().media[0].clone();
-    assert!(media.frames >= 52_000);
+    assert!(media.frames >= 62_000);
     let path = lumen.app().media_file(media.id).expect("the file");
     assert_eq!(assert_unbroken(&path) as u64, media.frames);
-    assert!(clips[0].length > Ticks::quarters(2), "longer than the loop");
+    // The file is one stretch, cut into passes of a beat (24,000 frames):
+    // the clip is the loop long and plays the last whole pass; stopping
+    // part-way into a pass leaves a partial one after it.
+    assert_eq!(clips[0].length, Ticks::quarters(1), "exactly the loop");
+    let takes = clips[0].takes.as_ref().expect("the passes are takes");
+    assert!(takes.count >= 3, "{} takes", takes.count);
+    assert!(takes.active + 2 >= takes.count, "a late, whole pass plays");
+    // Pass k begins 24,000 frames after pass k - 1 in the file.
+    let offsets: Vec<i64> = (0..takes.count)
+        .map(|k| {
+            if k == takes.active {
+                match clips[0].content {
+                    lumen_project::model::ClipContent::Audio { offset, .. } => offset,
+                    _ => panic!("an audio clip"),
+                }
+            } else {
+                match takes.other(k) {
+                    Some(lumen_project::model::Pass::Audio { offset, .. }) => *offset,
+                    other => panic!("take {k}: {other:?}"),
+                }
+            }
+        })
+        .collect();
+    for pair in offsets.windows(2) {
+        assert_eq!(pair[1] - pair[0], 24_000, "{offsets:?}");
+    }
+}
+
+#[test]
+fn a_take_of_a_loop_recording_swaps_undoes_and_survives_a_save() {
+    use lumen_project::model::ClipContent;
+    let mut p = project();
+    p.transport.loop_start = Ticks::ZERO;
+    p.transport.loop_end = Ticks::quarters(1);
+    p.transport.loop_enabled = true;
+    let (mut lumen, _turn) = launch("takes", &p, |l| l);
+    record(&mut lumen, 52_000);
+    let clip = clips_of(&lumen, VOX)[0].clone();
+    let (count, active) = {
+        let takes = clip.takes.as_ref().expect("takes");
+        (takes.count, takes.active)
+    };
+    let offset = |c: &Clip| match c.content {
+        ClipContent::Audio { offset, .. } => offset,
+        _ => panic!("an audio clip"),
+    };
+    let last = offset(&clip);
+
+    lumen.app_mut().select_clip(clip.id);
+    lumen.frames(2);
+    palette(&mut lumen, "Play previous take");
+    let swapped = clips_of(&lumen, VOX)[0].clone();
+    assert_eq!(swapped.takes.as_ref().unwrap().active, active - 1);
+    assert_eq!(offset(&swapped), last - 24_000, "the pass before it plays");
+    assert_eq!((swapped.start, swapped.length), (clip.start, clip.length));
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(offset(&clips_of(&lumen, VOX)[0]), last, "undone");
+
+    // The takes survive Save and open.
+    let out = lumen.dir().join("Out").join("Out.lumen");
+    lumen.app_mut().save_to(out.clone());
+    lumen.wait_for("the save", |app| !app.is_dirty() && !app.is_busy());
+    let dir = lumen.crash();
+    let mut again = Lumen::start_with(dir, move |l| l.with_input_device().opening(out));
+    again.wait_for("the project", |app| {
+        !app.is_busy() && app.project().tracks.len() == 2
+    });
+    again.frames(10);
+    assert_eq!(
+        clips_of(&again, VOX)[0].takes.as_ref().map(|t| t.count),
+        Some(count)
+    );
 }
 
 #[test]
@@ -275,6 +363,7 @@ fn punch_keeps_only_the_punched_range_in_the_file() {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("the clip", |app| {
         !app.recording()
+            && !app.audio_takes_placing()
             && app
                 .project()
                 .tracks
@@ -397,4 +486,180 @@ fn a_crash_while_recording_leaves_a_take_the_next_start_puts_back() {
     assert_eq!(left, 0, "it is no longer unfinished");
     // One undo takes it away again.
     assert_eq!(again.app().undo_label(), Some("Record"));
+}
+
+#[test]
+fn looping_over_a_clip_that_reaches_outside_the_loop_replaces_only_the_loop() {
+    let mut p = project_with_old_clip();
+    p.transport.loop_start = Ticks::quarters(2);
+    p.transport.loop_end = Ticks::quarters(4);
+    p.transport.loop_enabled = true;
+    let (mut lumen, _turn) = launch("over-loop", &p, |l| l);
+    // Two beats are 48,000 frames: record two passes and a half.
+    record(&mut lumen, 3 * 48_000);
+    let clips = clips_of(&lumen, VOX);
+    // The loop is beats 2 to 4 and recording began at the start of the song:
+    // the loop is a take of its own, the lead-in before it a clip of its own,
+    // and the passes are not laid end to end.
+    let take = clips
+        .iter()
+        .find(|c| c.name != "Old" && !c.name.ends_with("lead-in"))
+        .expect("the take");
+    let lead = clips
+        .iter()
+        .find(|c| c.name.ends_with("lead-in"))
+        .expect("what was recorded before the loop");
+    let latency = Ticks(Ticks::quarters(1).0 / 20);
+    assert!(
+        take.length <= Ticks::quarters(2) && take.length + latency >= Ticks::quarters(2),
+        "one loop long: {:?}",
+        take.length
+    );
+    assert!(
+        take.start <= Ticks::quarters(2) && take.start + latency >= Ticks::quarters(2),
+        "{:?}",
+        take.start
+    );
+    assert!(lead.start <= latency, "the lead-in begins with the song");
+    assert!(
+        lead.start + lead.length <= take.start + Ticks(1),
+        "and ends where the loop begins"
+    );
+    let pieces: Vec<_> = clips.iter().filter(|c| c.name == "Old").collect();
+    assert!(
+        pieces.iter().all(|c| c.start >= take.start),
+        "the old audio before the loop is replaced by the lead-in"
+    );
+    assert!(
+        pieces
+            .iter()
+            .any(|c| c.start + c.length == Ticks::quarters(8)),
+        "the part after the loop plays on"
+    );
+    for old in clips.iter().filter(|c| c.name == "Old") {
+        let end = old.start + old.length;
+        assert!(
+            end <= take.start || old.start >= take.start + take.length,
+            "old clip {:?}..{:?} sits under the take {:?}..{:?}",
+            old.start,
+            end,
+            take.start,
+            take.start + take.length
+        );
+    }
+}
+
+/// Moves the play marker to `quarters` by clicking the ruler.
+fn locate(lumen: &mut Lumen, quarters: i64) {
+    use egui_kittest::kittest::Queryable;
+    let ruler = lumen
+        .harness
+        .get_by_label("Ruler: click to move the playhead")
+        .rect();
+    let zoom = lumen.app().view().zoom as f32;
+    let at = eframe::egui::Pos2::new(ruler.left() + quarters as f32 * zoom, ruler.center().y);
+    lumen.drag(at, at, Modifiers::NONE);
+    let target = Ticks::quarters(quarters);
+    lumen.wait_for("the playhead", move |app| app.playhead() == target);
+}
+
+/// The owner's fifth run: a take begun half-way into a loop over an old
+/// clip. The old audio in the whole loop is silent from the first sample, so
+/// it is not heard when the playhead wraps to the loop's start; after Stop
+/// the late first pass is a take like the others and nothing old is left
+/// under the clip.
+#[test]
+fn a_take_begun_inside_a_loop_over_a_clip_silences_the_whole_loop_and_keeps_the_late_pass() {
+    let mut p = project_with_old_clip();
+    // A beat is 24,000 frames: the loop is beats 2 to 4, two beats long.
+    p.transport.loop_start = Ticks::quarters(2);
+    p.transport.loop_end = Ticks::quarters(4);
+    p.transport.loop_enabled = true;
+    let (mut lumen, _turn) = launch("inside-loop", &p, |l| l);
+    locate(&mut lumen, 3);
+    lumen.click("Arm Vox");
+    lumen.key(Modifiers::NONE, Key::F9);
+    lumen.wait_for("the recording to begin", |app| {
+        app.recording() && app.is_playing()
+    });
+    // Before the playhead has reached the loop's end, the whole loop is
+    // already silent in what the engine plays.
+    assert_eq!(
+        lumen.app().audio_recorded_over(VOX),
+        Some((Ticks::quarters(2), Some(Ticks::quarters(4)))),
+        "the loop from its start, not from where recording began"
+    );
+    // Half a pass, two whole passes and a little.
+    lumen.wait_for("frames to be written", |app| {
+        app.audio_take_frames(VOX)
+            .is_some_and(|f| f >= 24_000 + 2 * 48_000 + 4_000)
+    });
+    assert_eq!(
+        lumen.app().audio_recorded_over(VOX),
+        Some((Ticks::quarters(2), Some(Ticks::quarters(4)))),
+        "the same after the wraps"
+    );
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("the clip", |app| {
+        !app.recording() && clips_of_app(app, VOX).iter().any(|c| c.name != "Old")
+    });
+    lumen.wait_for("the old audio to play again outside the take", |app| {
+        app.audio_tracks_recorded_over().is_empty()
+    });
+    let clips = clips_of(&lumen, VOX);
+    assert!(
+        !clips.iter().any(|c| c.name.ends_with("lead-in")),
+        "begun inside the loop: no lead-in"
+    );
+    let take = clips.iter().find(|c| c.name != "Old").expect("the take");
+    assert_eq!(take.start, Ticks::quarters(2), "exactly over the loop");
+    assert_eq!(take.length, Ticks::quarters(2), "one loop long");
+    let takes = take.takes.as_ref().expect("the passes are takes");
+    assert!(
+        takes.count >= 3,
+        "the late first pass is a take: {}",
+        takes.count
+    );
+    assert_ne!(takes.active, 0, "a whole pass plays, not the late one");
+    // The late first pass is the file from its start (silence, then what was
+    // played from beat 3, the latency in), one loop before the second.
+    let offset = |k: u32| match takes.other(k) {
+        Some(lumen_project::model::Pass::Audio { offset, .. }) => *offset,
+        None => match take.content {
+            lumen_project::model::ClipContent::Audio { offset, .. } => offset,
+            _ => panic!("an audio clip"),
+        },
+        other => panic!("take {k}: {other:?}"),
+    };
+    assert!(offset(0) < 4_800, "the file's start: {}", offset(0));
+    assert_eq!(offset(1) - offset(0), 48_000);
+    let end = take.start + take.length;
+    for old in clips.iter().filter(|c| c.name == "Old") {
+        let old_end = old.start + old.length;
+        assert!(
+            old_end <= take.start || old.start >= end,
+            "old clip {:?}..{old_end:?} sits under the take",
+            old.start
+        );
+    }
+    assert!(
+        clips
+            .iter()
+            .any(|c| c.name == "Old" && c.start == Ticks::ZERO),
+        "the old audio before the loop plays on"
+    );
+    assert!(
+        clips
+            .iter()
+            .any(|c| c.name == "Old" && c.start + c.length == Ticks::quarters(8)),
+        "and after it"
+    );
+}
+
+fn clips_of_app(app: &App, id: Id) -> Vec<std::sync::Arc<Clip>> {
+    app.project()
+        .tracks
+        .iter()
+        .find(|t| t.id == id)
+        .map_or_else(Vec::new, |t| t.clips.clone())
 }

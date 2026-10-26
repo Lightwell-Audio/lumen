@@ -78,7 +78,7 @@ impl<'de> Deserialize<'de> for CountIn {
 
 /// The record page of the settings. Every field has a default, so older
 /// files read as before (no version change).
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RecordSettings {
     pub count_in: CountIn,
@@ -92,6 +92,22 @@ pub struct RecordSettings {
     /// driver's own latencies (M9 slice R2): for drivers that misreport.
     /// Negative moves it later.
     pub offset_ms: f32,
+    /// Keep the notes played on MIDI tracks while not recording, in memory,
+    /// for Capture MIDI (M9 slice R3). On by default; off, nothing is kept
+    /// and what was is forgotten.
+    pub keep_played: bool,
+}
+
+impl Default for RecordSettings {
+    fn default() -> Self {
+        Self {
+            count_in: CountIn::Off,
+            only_while_recording: false,
+            overdub: false,
+            offset_ms: 0.0,
+            keep_played: true,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -167,7 +183,15 @@ mod tests {
                 only_while_recording: false,
                 overdub: true,
                 offset_ms: 0.0,
+                keep_played: true,
             }
         );
+    }
+
+    #[test]
+    fn played_notes_are_kept_unless_the_setting_says_not() {
+        assert!(RecordSettings::default().keep_played);
+        let off: RecordSettings = serde_json::from_str(r#"{"keep_played": false}"#).unwrap();
+        assert!(!off.keep_played);
     }
 }
