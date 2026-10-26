@@ -26,6 +26,11 @@ pub fn slice(
     part.length = end - start;
 
     let looping = clip.loop_length.is_some_and(|period| period.0 > 0);
+    if cut > Ticks::ZERO && !looping {
+        // The other passes of a loop recording move with the one that plays.
+        let seconds = tempo.seconds_at(start) - tempo.seconds_at(clip.start);
+        super::takes::advance(&mut part, cut, seconds, None, &|at| in_window(clip, at));
+    }
     if looping {
         part.loop_phase = Ticks(clip.loop_phase.0.saturating_add(cut.0));
     }

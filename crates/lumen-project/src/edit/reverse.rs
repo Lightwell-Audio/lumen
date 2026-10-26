@@ -105,6 +105,8 @@ fn mirrored(clip: &Clip, file: &Media, tempo: &TempoMap) -> Option<Clip> {
     let to = to.max(0.0);
     let (new_offset, phase) = anchor(to, rate);
     let mut out = clip.clone();
+    // The other passes were measured in the file as it was.
+    out.takes = None;
     out.reversed = !clip.reversed;
     out.audio_phase_seconds = phase;
     if let ClipContent::Audio { offset, .. } = &mut out.content {

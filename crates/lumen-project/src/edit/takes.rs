@@ -8,6 +8,8 @@
 
 use std::sync::Arc;
 
+use lumen_core::time::{TempoMap, Ticks};
+
 use crate::model::{Clip, Id, OtherTake, Pass, Project, Takes, TrackKind};
 
 use super::audio_take;
@@ -80,6 +82,72 @@ pub fn swap(clip: &mut Clip, take: u32) -> bool {
     takes.others.sort_by_key(|o| o.take);
     clip.takes = Some(takes);
     true
+}
+
+/// Moves the origin of every pass the clip is not playing the way its own
+/// content's was: the clip's start was cut later by `cut` ticks, which is
+/// `seconds` of the file. Audio passes advance into their file (not before
+/// its first frame, with the file's `rate`); MIDI passes' notes and events
+/// move earlier, and `carries(start)` says which notes, by their start before
+/// the move, become the ones that carry across the new seam.
+pub fn advance(
+    clip: &mut Clip,
+    cut: Ticks,
+    seconds: f64,
+    rate: Option<f64>,
+    carries: &dyn Fn(Ticks) -> bool,
+) {
+    let Some(takes) = &mut clip.takes else {
+        return;
+    };
+    for other in &mut takes.others {
+        match &mut other.pass {
+            Pass::Audio {
+                offset,
+                audio_phase_seconds,
+            } => {
+                *audio_phase_seconds += seconds;
+                if let Some(rate) = rate {
+                    *audio_phase_seconds = audio_phase_seconds.max(-(*offset as f64) / rate);
+                }
+            }
+            Pass::Midi { notes, events } => {
+                for note in notes.iter_mut() {
+                    if carries(note.start()) {
+                        *note = note.with_carries_on(true);
+                    }
+                    note.0 = note.0 - cut;
+                }
+                for event in events.iter_mut() {
+                    event.at = event.at - cut;
+                }
+            }
+        }
+    }
+}
+
+/// Moves the content of every pass the clip is not playing as `by` slides the
+/// playing one (see `slip`): each pass slips by the same amount, within its
+/// own file.
+pub fn slipped(project: &Project, tempo: &TempoMap, before: &Clip, after: &mut Clip, by: Ticks) {
+    let Some(takes) = before.takes.clone() else {
+        return;
+    };
+    let mut out = takes;
+    for other in &mut out.others {
+        let mut probe = Clip {
+            takes: None,
+            ..before.clone()
+        };
+        if !other.pass.clone().put_on(&mut probe) {
+            continue;
+        }
+        let slid = super::slip(project, tempo, &probe, by);
+        if let Some(pass) = Pass::of(&slid) {
+            other.pass = pass;
+        }
+    }
+    after.takes = Some(out);
 }
 
 /// Plays pass `take` on the unlocked clip `id`.
