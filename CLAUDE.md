@@ -408,6 +408,20 @@ and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
 **Now (2026-10-25)**
+- **Branch `m9-s3-takes-capture`: M9 slice R3 (takes and Capture MIDI) is built**
+  (ADR-0104; format **v31**; cut from `main` after PR #63; not pushed). Loop
+  recording keeps each pass as a take of one clip (`Clip.takes`): audio always,
+  MIDI in Replace (Overdub still layers); the clip plays the last pass, shows an
+  n/m chip, and a Takes menu plus commands `clip` take next/previous/keep
+  only/extract (audio) swap them, one undo step. Split, trim and slip carry the
+  other passes with the cut; reverse, unloop and MIDI join settle the clip (drop
+  the takes, said in a notice). Capture MIDI (Shift+F9): the engine also reports
+  notes played while not recording, the app keeps ten minutes in memory
+  (`played.rs`, switch `record.keep_played`), and the command places the newest
+  phrase with Overdub placement, one undo step. E2E (`capture_midi.rs`,
+  `audio_record.rs`, `record.rs`) pass. Not hardware-verified: MT-REC-3
+  (`docs/manual-tests/M9.md`) waits on the owner's Focusrite and keyboard.
+  Next: R4 (project lifecycle) per `docs/milestones/M9.md`.
 - **Branch `m9-s1b-track-headers`: M9 slice R1b (track headers) is built**
   (ADR-0101, the owner's B·1 from mocks; no format change; cut from `main`
   after PR #61; pushed). M, S and arm are pieces of one sunk well
