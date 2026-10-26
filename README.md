@@ -23,7 +23,7 @@ Lumen is free software under GPL-3.0-or-later. A public project page is at
 > plays and edits audio clips, hosts VST3 instruments and effects in separate
 > processes, automates parameters, and mixes and saves projects. Audio
 > recording is built and awaiting hardware tests. Export of audio masters and
-> stems, drum maps and the built-in instruments and effects are still to come.
+> stems, drum maps and the built-in effects are still to come.
 > See [Roadmap](#roadmap) and [What is not built yet](#what-is-not-built-yet).
 
 ## What works today
@@ -38,11 +38,12 @@ Lumen is free software under GPL-3.0-or-later. A public project page is at
 - **Arrangement:** audio, MIDI, group, return and master tracks; folding and
   resizing; clips with move, trim, slip, loop-extend, fades, clip gain and
   colour; time-range selection; and crossfades, which are true overlaps.
-- **Editing:** undo and redo, where each edit is one step. Join merges
-  selected clips in place, and Join into new file renders a selection into one
-  new file. There are also crop, unloop, nudge, reverse, polarity, normalize,
-  bounce, and freeze, unfreeze and flatten for tracks. A command palette opens with Ctrl+K, and the keyboard map can be
-  rebound, with conflict checks.
+- **Editing:** undo and redo, where each edit is one step. Join (Ctrl+J)
+  merges selected clips, and Join into new file renders selected audio clips
+  into one new file. There are also crop, unloop, nudge, reverse, polarity,
+  normalize, bounce, and freeze, unfreeze and flatten for tracks. A command
+  palette opens with Ctrl+K, and the keyboard map can be rebound, with conflict
+  checks.
 - **Recording:** MIDI recording with replace or overdub, count-in and loop
   passes. Audio recording writes one crash-safe WAV per armed track, with
   latency compensation and a manual offset, and is awaiting hardware tests.
@@ -86,7 +87,8 @@ Lumen is free software under GPL-3.0-or-later. A public project page is at
 - Drum maps, the drum editor and the step sequencer.
 - Built-in EQ, compressor, limiter, delay, reverb and sampler.
 - Warp and time stretch, ripple delete and insert silence.
-- Installers, and VST3 hosting on macOS and Linux.
+- Installers, and VST3 hosting on macOS and Linux. macOS hosting is approved
+  and in progress; Linux hosting is not scheduled.
 
 ## Roadmap
 
@@ -121,8 +123,8 @@ Status below is from [docs/PROGRESS.md](docs/PROGRESS.md), last updated
 | 8. Drum maps and built-in devices | Drum maps, drum editor, step sequencer, EQ, compressor, limiter, delay, reverb, sampler | Planned, after milestone 9; a five-preset synth is already built |
 | 10. Hardening and release | Plugin isolation hardening, performance tuning, installers | Planned |
 
-Not scheduled: VST3 hosting on macOS and Linux. The owner approved native
-macOS hosting on 2026-10-19; see [docs/milestones/macOS-VST3.md](docs/milestones/macOS-VST3.md).
+Not scheduled: VST3 hosting on Linux. VST3 hosting on macOS is approved
+(2026-10-19) and in progress; see [docs/milestones/macOS-VST3.md](docs/milestones/macOS-VST3.md).
 
 The full requirements, with the status of each, are in
 [docs/PROGRESS.md](docs/PROGRESS.md). The product specification is in
