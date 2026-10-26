@@ -88,8 +88,10 @@ fn record_checking(lumen: &mut Lumen, frames: u64, while_recording: impl Fn(&App
     });
     while_recording(lumen.app());
     lumen.key(Modifiers::NONE, Key::Space);
+    // The track may hold clips already: wait until the take is placed too.
     lumen.wait_for("the clip", |app| {
         !app.recording()
+            && !app.audio_takes_placing()
             && app
                 .project()
                 .tracks
@@ -361,6 +363,7 @@ fn punch_keeps_only_the_punched_range_in_the_file() {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("the clip", |app| {
         !app.recording()
+            && !app.audio_takes_placing()
             && app
                 .project()
                 .tracks

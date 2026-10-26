@@ -335,6 +335,11 @@ impl App {
             .map_or_else(Vec::new, |f| f.replaced.clone())
     }
 
+    /// Recording has stopped and its takes are not placed yet.
+    pub(crate) fn audio_takes_finishing(&self) -> bool {
+        self.record.audio.finishing.is_some()
+    }
+
     /// The takes to draw while their files are closed: what the arrangement
     /// showed while recording, until the clips are placed.
     pub(super) fn finishing_lanes(&self) -> Vec<Lane> {
