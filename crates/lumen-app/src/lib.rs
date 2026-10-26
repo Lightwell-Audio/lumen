@@ -71,6 +71,7 @@ mod launch;
 mod light;
 mod live;
 mod live_tap;
+mod loop_passes;
 mod media;
 mod meters;
 mod midi;

@@ -18,7 +18,9 @@
 //! - A file begins at the first frame whose placed position is inside the
 //!   window (the punch range, or the whole timeline from sample 0) and is then
 //!   written without a break, whatever the timeline does: a loop wrap carries
-//!   on in the same file (the take is one long clip, R3 cuts it into passes).
+//!   on in the same file. With Loop on, the file frame and placed position of
+//!   each wrap are kept ([`Wrap`]), so the file can be cut into passes
+//!   (`loop_passes.rs`, M9 slice R3).
 //! - A gap (a chunk the ring had to drop, seen as a jump in `device`) is
 //!   filled with silence so the rest stays in time.
 //! - The first frame past the punch-out ends that track's take.
@@ -44,6 +46,9 @@ use serde::{Deserialize, Serialize};
 const POLL: Duration = Duration::from_millis(5);
 /// How often a file's header is brought up to date.
 const REFRESH: Duration = Duration::from_secs(1);
+/// How far back the timeline must jump, in samples, to be a loop wrap rather
+/// than rounding.
+const WRAP_SLACK: i64 = 64;
 /// The extension of a take's sidecar, after `.wav`.
 const SIDECAR: &str = "take";
 
@@ -72,6 +77,17 @@ pub(crate) struct Plan {
     pub shift: i64,
     /// Placed samples `[in, out)` that are kept (the punch range), or all.
     pub window: Option<(i64, i64)>,
+    /// Loop is on: a jump back in the timeline is a wrap, a new pass.
+    pub looped: bool,
+}
+
+/// Where a loop pass begins in a take's file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Wrap {
+    /// The file frame of the pass's first frame.
+    pub frame: u64,
+    /// The placed timeline sample of that frame.
+    pub at: i64,
 }
 
 /// The summary of a take as it grows.
@@ -110,6 +126,8 @@ pub(crate) struct TrackResult {
     pub dropped: u64,
     /// Why the take ended early, if it did.
     pub error: Option<String>,
+    /// Where each later loop pass begins in the file.
+    pub wraps: Vec<Wrap>,
 }
 
 /// The file beside a take that says it is unfinished.
@@ -121,6 +139,9 @@ pub(crate) struct Sidecar {
     pub start: i64,
     pub rate: u32,
     pub channels: u16,
+    /// The loop wraps so far, as of the last refresh.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wraps: Vec<Wrap>,
 }
 
 pub(crate) fn sidecar_path(file: &Path) -> PathBuf {
@@ -177,6 +198,14 @@ struct Lane {
     dropped: u64,
     error: Option<String>,
     refreshed: Instant,
+    rate: u32,
+    /// Frames written to the file, silence for gaps included.
+    written: u64,
+    /// The placed sample the next frame should have if the timeline ran on.
+    expected: Option<i64>,
+    wraps: Vec<Wrap>,
+    /// The sidecar holds `wraps` as they are now.
+    sidecar_current: bool,
 }
 
 /// The takes of one recording.
@@ -199,6 +228,11 @@ impl Takes {
                 dropped: 0,
                 error: None,
                 refreshed: Instant::now(),
+                rate: plan.rate,
+                written: 0,
+                expected: None,
+                wraps: Vec::new(),
+                sidecar_current: true,
             })
             .collect();
         Self { plan, lanes }
@@ -234,6 +268,9 @@ impl Takes {
                 lane.fail(error.to_string());
                 return;
             }
+            lane.written += gap;
+            // The timeline ran on while the chunks were lost.
+            lane.expected = lane.expected.map(|e| e + gap as i64);
             if let Ok(mut live) = lane.job.live.lock() {
                 live.add(&[&vec![0.0; gap as usize]]);
             }
@@ -241,6 +278,18 @@ impl Takes {
         lane.next = Some(chunk.device + frames as u64);
 
         let placed = chunk.at - shift;
+        // A jump back in the timeline while Loop is on is a wrap: a new pass
+        // begins at this chunk's first frame.
+        if self.plan.looped
+            && lane.state == State::Writing
+            && lane.expected.is_some_and(|e| placed + WRAP_SLACK < e)
+        {
+            lane.wraps.push(Wrap {
+                frame: lane.written,
+                at: placed,
+            });
+            lane.sidecar_current = false;
+        }
         let (lo, hi) = window.unwrap_or((0, i64::MAX));
         // Frames before the window are skipped only until the take begins.
         let from = if lane.state == State::Waiting {
@@ -269,6 +318,8 @@ impl Takes {
             lane.fail(error.to_string());
             return;
         }
+        lane.written += left.len() as u64;
+        lane.expected = Some(placed + to as i64);
         if let Ok(mut live) = lane.job.live.lock() {
             match right {
                 Some(r) => live.add(&[left, r]),
@@ -289,6 +340,7 @@ impl Takes {
                 if let Some(Err(error)) = lane.writer.as_mut().map(TakeWriter::refresh) {
                     lane.fail(error.to_string());
                 }
+                lane.write_sidecar();
             }
         }
     }
@@ -309,6 +361,7 @@ impl Takes {
                     frames,
                     dropped: lane.dropped,
                     error: lane.error.take(),
+                    wraps: std::mem::take(&mut lane.wraps),
                 }
             })
             .collect()
@@ -322,22 +375,15 @@ impl Lane {
             if let Some(dir) = self.job.path.parent() {
                 fs::create_dir_all(dir).map_err(|e| e.to_string())?;
             }
-            let side = Sidecar {
-                session: self.job.session.clone(),
-                track: self.job.track,
-                start,
-                rate,
-                channels: self.job.channels,
-            };
-            let json = serde_json::to_vec(&side).map_err(|e| e.to_string())?;
-            fs::write(sidecar_path(&self.job.path), json).map_err(|e| e.to_string())?;
+            self.start = Some(start);
+            self.rate = rate;
+            self.write_sidecar_now().map_err(|e| e.to_string())?;
             TakeWriter::create(&self.job.path, rate, self.job.channels).map_err(|e| e.to_string())
         })();
         match made {
             Ok(writer) => {
                 self.writer = Some(writer);
                 self.state = State::Writing;
-                self.start = Some(start);
                 self.refreshed = Instant::now();
                 if let Ok(mut live) = self.job.live.lock() {
                     live.start = Some(start);
@@ -348,6 +394,36 @@ impl Lane {
                 self.fail(format!("Could not start the recording file: {error}"));
                 Err(())
             }
+        }
+    }
+
+    /// The sidecar as the take stands.
+    fn sidecar(&self) -> Option<Sidecar> {
+        Some(Sidecar {
+            session: self.job.session.clone(),
+            track: self.job.track,
+            start: self.start?,
+            rate: self.rate,
+            channels: self.job.channels,
+            wraps: self.wraps.clone(),
+        })
+    }
+
+    fn write_sidecar_now(&mut self) -> std::io::Result<()> {
+        let Some(side) = self.sidecar() else {
+            return Ok(());
+        };
+        let json = serde_json::to_vec(&side).map_err(std::io::Error::other)?;
+        fs::write(sidecar_path(&self.job.path), json)?;
+        self.sidecar_current = true;
+        Ok(())
+    }
+
+    /// Brings the sidecar up to date if a wrap has been noted since it was
+    /// written. A failure is not the take's: the file is what matters.
+    fn write_sidecar(&mut self) {
+        if !self.sidecar_current && self.writer.is_some() {
+            let _ = self.write_sidecar_now();
         }
     }
 
@@ -500,6 +576,7 @@ mod tests {
             start: 480,
             rate: 48_000,
             channels: 1,
+            wraps: Vec::new(),
         };
         for (name, session, track) in [("a", "s1", 1), ("b", "s2", 2), ("c", "s1", 3)] {
             fs::write(dir.join(format!("{name}.wav")), b"x").unwrap();
@@ -543,6 +620,7 @@ mod tests {
             rate: 48_000,
             shift,
             window,
+            looped: false,
         }
     }
 
@@ -670,6 +748,81 @@ mod tests {
         assert_eq!((r.start, r.frames), (Some(0), 290));
         let audio = read(&j.path);
         assert_eq!((audio[189], audio[190], audio[289]), (199.0, 200.0, 299.0));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn looping(jobs: Vec<Job>, shift: i64) -> Plan {
+        Plan {
+            looped: true,
+            ..plan(jobs, shift, None)
+        }
+    }
+
+    #[test]
+    fn each_jump_back_with_loop_on_notes_where_the_new_pass_begins() {
+        let dir = folder("wraps");
+        let j = job(&dir, 1, 1);
+        let mut takes = Takes::new(looping(vec![j.clone()], 10));
+        // A loop from 1_000 to 1_200, recorded from its start: two passes
+        // and a half, in blocks of 100.
+        for (k, at) in [1_000, 1_100, 1_000, 1_100, 1_000].into_iter().enumerate() {
+            let (chunk, data) = mono(1, k as u64 * 100, at, 100);
+            takes.feed(chunk, &data);
+        }
+        let r = takes.finish().remove(0);
+        assert_eq!((r.start, r.frames), (Some(990), 500));
+        assert_eq!(
+            r.wraps,
+            [
+                Wrap {
+                    frame: 200,
+                    at: 990
+                },
+                Wrap {
+                    frame: 400,
+                    at: 990
+                }
+            ]
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn without_loop_a_jump_back_is_no_pass() {
+        let dir = folder("nowraps");
+        let j = job(&dir, 1, 1);
+        let mut takes = Takes::new(plan(vec![j], 0, None));
+        let (a, da) = mono(1, 0, 1_000, 100);
+        let (b, db) = mono(1, 100, 1_000, 100);
+        takes.feed(a, &da);
+        takes.feed(b, &db);
+        assert!(takes.finish()[0].wraps.is_empty());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_dropped_chunk_is_not_taken_for_a_wrap_and_the_sidecar_follows_the_wraps() {
+        let dir = folder("sidecar");
+        let j = job(&dir, 1, 1);
+        let mut takes = Takes::new(looping(vec![j.clone()], 0));
+        let (a, da) = mono(1, 0, 1_000, 100);
+        // 100..200 never arrived: the timeline ran on to 1_200.
+        let (b, db) = mono(1, 200, 1_200, 100);
+        let (c, dc) = mono(1, 300, 1_000, 100);
+        takes.feed(a, &da);
+        takes.feed(b, &db);
+        takes.feed(c, &dc);
+        takes.lanes[0].write_sidecar();
+        let side: Sidecar =
+            serde_json::from_slice(&fs::read(sidecar_path(&j.path)).unwrap()).unwrap();
+        assert_eq!(
+            side.wraps,
+            [Wrap {
+                frame: 300,
+                at: 1_000
+            }]
+        );
+        assert_eq!(takes.finish()[0].wraps.len(), 1);
         fs::remove_dir_all(dir).unwrap();
     }
 

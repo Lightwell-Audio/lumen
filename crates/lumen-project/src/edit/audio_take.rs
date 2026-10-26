@@ -10,9 +10,9 @@ use std::sync::Arc;
 
 use lumen_core::time::Ticks;
 
-use crate::model::{Clip, ClipContent, Id, Media, Project, Track, TrackKind};
+use crate::model::{Clip, ClipContent, Id, Media, Pass, Project, Track, TrackKind};
 
-use super::overwrite;
+use super::{overwrite, takes};
 
 /// A recorded file to put on a track.
 #[derive(Debug, Clone, PartialEq)]
@@ -25,6 +25,10 @@ pub struct Take {
     pub start: Ticks,
     /// How long the file plays.
     pub length: Ticks,
+    /// A loop recording's passes (M9 R3): the frame of the file at the clip's
+    /// start for each pass, in order. The clip plays the last and keeps the
+    /// others as takes. Fewer than two leave the clip as a single take.
+    pub passes: Vec<i64>,
 }
 
 /// What [`apply`] did.
@@ -49,7 +53,7 @@ pub fn apply(project: &mut Project, takes: &[Take], fresh: &mut impl FnMut() -> 
             continue;
         };
         let id = fresh();
-        let clip = Arc::new(Clip {
+        let mut clip = Clip {
             id,
             name: take.name.clone(),
             start: take.start,
@@ -66,12 +70,26 @@ pub fn apply(project: &mut Project, takes: &[Take], fresh: &mut impl FnMut() -> 
             audio_phase_seconds: 0.0,
             reversed: false,
             inverted: false,
+            takes: None,
             content: ClipContent::Audio {
                 media: take.media.id,
                 offset: 0,
                 gain_db: 0.0,
             },
-        });
+        };
+        if take.passes.len() >= 2 {
+            let passes = take
+                .passes
+                .iter()
+                .map(|&offset| Pass::Audio {
+                    offset,
+                    audio_phase_seconds: 0.0,
+                })
+                .collect::<Vec<_>>();
+            let last = passes.len() - 1;
+            takes::with_passes(&mut clip, passes, last);
+        }
+        let clip = Arc::new(clip);
         if !project.media.iter().any(|m| m.id == take.media.id) {
             project.media.push(take.media.clone());
         }
@@ -97,7 +115,7 @@ pub fn apply(project: &mut Project, takes: &[Take], fresh: &mut impl FnMut() -> 
 
 /// A new audio track after the source (and its group's other tracks), in the
 /// source's group, holding the clip.
-fn put_on_new_track(project: &mut Project, at: usize, id: Id, clip: Arc<Clip>) {
+pub(super) fn put_on_new_track(project: &mut Project, at: usize, id: Id, clip: Arc<Clip>) {
     let source = Arc::clone(&project.tracks[at]);
     let index = crate::groups::span(&project.tracks, at).end;
     let mut track = Track::new(
@@ -136,6 +154,7 @@ mod tests {
             name: "Vox take".into(),
             start: q(start),
             length: q(length),
+            passes: Vec::new(),
         }
     }
 
@@ -164,6 +183,47 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn a_loop_recording_plays_its_last_pass_and_keeps_the_others() {
+        let mut p = song();
+        let mut t = take(&p, 2, 0, 2);
+        t.passes = vec![0, 96_000, 192_000];
+        let placed = apply(&mut p, &[t], &mut ids());
+        let clip = p.tracks[2]
+            .clips
+            .iter()
+            .find(|c| c.id == placed.clips[0])
+            .unwrap();
+        assert!(matches!(
+            clip.content,
+            ClipContent::Audio {
+                offset: 192_000,
+                ..
+            }
+        ));
+        let takes = clip.takes.as_ref().unwrap();
+        assert_eq!((takes.active, takes.count), (2, 3));
+        assert_eq!(
+            takes.other(0),
+            Some(&Pass::Audio {
+                offset: 0,
+                audio_phase_seconds: 0.0
+            })
+        );
+        assert!(crate::validate(&p).is_ok());
+    }
+
+    #[test]
+    fn one_pass_is_the_single_take_of_before() {
+        let mut p = song();
+        let mut t = take(&p, 2, 0, 2);
+        t.passes = vec![480];
+        apply(&mut p, &[t], &mut ids());
+        let clip = &p.tracks[2].clips[0];
+        assert!(clip.takes.is_none());
+        assert!(matches!(clip.content, ClipContent::Audio { offset: 0, .. }));
     }
 
     #[test]

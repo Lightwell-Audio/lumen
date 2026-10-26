@@ -23,6 +23,7 @@ use lumen_project::model::{Id, Media, TrackKind};
 use crate::App;
 use crate::arrangement::audio_take_look::AudioTakeLook;
 use crate::audio_input;
+use crate::loop_passes;
 use crate::take_worker::{Job, Live, Plan, TrackResult, sidecar_path, unfinished};
 
 /// How long the worker has to hand the files over after recording ends
@@ -104,8 +105,13 @@ impl App {
 
     /// The armed audio tracks that can record, with the worker told what to
     /// write. Tracks that cannot are named in a notice. `punch` is the range
-    /// that is kept, if there is one.
-    pub(super) fn begin_audio_takes(&mut self, punch: Option<(Ticks, Ticks)>) -> Vec<Lane> {
+    /// that is kept, if there is one; `looped` says Loop is on, so jumps back are
+    /// passes.
+    pub(super) fn begin_audio_takes(
+        &mut self,
+        punch: Option<(Ticks, Ticks)>,
+        looped: bool,
+    ) -> Vec<Lane> {
         let project = self.document.project();
         let armed: Vec<_> = project
             .tracks
@@ -176,6 +182,7 @@ impl App {
             rate,
             shift: i64::from(info.input_latency) + i64::from(info.output_latency) + offset as i64,
             window,
+            looped,
         });
         lanes
     }
@@ -207,6 +214,7 @@ impl App {
                     frames: r.frames,
                     dropped: 0,
                     error: None,
+                    wraps: lost.sidecar.wraps.clone(),
                 }),
                 Some(r) if r.frames == 0 => remove(&lost.file),
                 _ => {
@@ -359,9 +367,16 @@ impl App {
                 remove(&result.path);
                 continue;
             };
+            // With Loop on and two or more whole passes, the clip is the last
+            // pass over the loop and the others are its takes.
+            let cut = loop_passes::cut(start, result.frames, &result.wraps, rate);
+            let (start, frames, passes) = match cut {
+                Some(c) => (c.start, c.frames, c.passes),
+                None => (start, result.frames, Vec::new()),
+            };
             let timeline = &self.transport.timeline;
             let from = timeline.ticks_at(start, rate);
-            let to = timeline.ticks_at(start + result.frames as i64, rate);
+            let to = timeline.ticks_at(start + frames as i64, rate);
             let size = fs::metadata(&result.path).map_or(0, |m| m.len());
             takes.push(Take {
                 track: Id(result.track),
@@ -380,6 +395,7 @@ impl App {
                     .map_or_else(|| name.clone(), |s| s.to_string_lossy().into_owned()),
                 start: from,
                 length: to - from,
+                passes,
             });
         }
         if !takes.is_empty() {

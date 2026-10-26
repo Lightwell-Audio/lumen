@@ -65,6 +65,7 @@ fn clip(id: u64, start: i64, length: i64, notes: Vec<Note>) -> Clip {
         reversed: false,
         inverted: false,
         envelopes: Default::default(),
+        takes: None,
         content: midi(notes),
     }
 }

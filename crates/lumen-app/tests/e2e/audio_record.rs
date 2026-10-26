@@ -175,6 +175,7 @@ fn project_with_old_clip() -> Project {
         audio_phase_seconds: 0.0,
         reversed: false,
         inverted: false,
+        takes: None,
         content: ClipContent::Audio {
             media: Id(900),
             offset: 0,

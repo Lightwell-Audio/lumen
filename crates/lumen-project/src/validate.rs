@@ -9,7 +9,8 @@ use lumen_core::time::{TempoMap, Ticks};
 
 use crate::edit::maps::MOST_CHANGES;
 use crate::model::{
-    ClipContent, Device, Id, MAX_DEVICE_STATE, Output, PluginRef, Project, Track, TrackKind,
+    Clip, ClipContent, ClipEvent, Device, Id, MAX_DEVICE_STATE, Note, Output, Pass, PluginRef,
+    Project, Takes, Track, TrackKind,
 };
 
 /// The furthest a position or length may reach: about 3 billion beats, past
@@ -376,24 +377,11 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     if clip.reversed || clip.inverted {
                         return Err(format!("{}: reverse or polarity on MIDI clip", at()));
                     }
-                    // Notes and events may lie outside the clip's window,
-                    // before its start or past its end (format v15).
-                    for (n, event) in events.iter().enumerate() {
-                        if !event.kind.in_range() || !within(event.at) {
-                            return Err(format!("{}: event {n} is out of range", at()));
-                        }
-                    }
-                    for (n, note) in notes.iter().enumerate() {
-                        if note.pitch() > 127
-                            || !(1..=127).contains(&note.velocity())
-                            || note.length() <= Ticks::ZERO
-                            || !within(note.start())
-                            || !within(note.length())
-                        {
-                            return Err(format!("{}: note {n} is out of range", at()));
-                        }
-                    }
+                    midi_content(notes, events).map_err(|e| format!("{}: {e}", at()))?;
                 }
+            }
+            if let Some(takes) = &clip.takes {
+                clip_takes(clip, takes, project).map_err(|e| format!("{}: {e}", at()))?;
             }
         }
     }
@@ -422,6 +410,67 @@ pub fn validate(project: &Project) -> Result<(), String> {
     }
     if crate::routing::has_loop(project) {
         return Err("the routing feeds back into itself".into());
+    }
+    Ok(())
+}
+
+/// Most passes a clip keeps.
+const MOST_TAKES: u32 = 1_024;
+
+/// Notes and events may lie outside the clip's window, before its start or
+/// past its end (format v15), but inside the song's range.
+fn midi_content(notes: &[Note], events: &[ClipEvent]) -> Result<(), String> {
+    for (n, event) in events.iter().enumerate() {
+        if !event.kind.in_range() || !within(event.at) {
+            return Err(format!("event {n} is out of range"));
+        }
+    }
+    for (n, note) in notes.iter().enumerate() {
+        if note.pitch() > 127
+            || !(1..=127).contains(&note.velocity())
+            || note.length() <= Ticks::ZERO
+            || !within(note.start())
+            || !within(note.length())
+        {
+            return Err(format!("note {n} is out of range"));
+        }
+    }
+    Ok(())
+}
+
+/// A clip's other passes: the numbers make a set, each pass is of the
+/// clip's kind and holds what a clip of that kind may.
+fn clip_takes(clip: &Clip, takes: &Takes, project: &Project) -> Result<(), String> {
+    if takes.count < 2 || takes.count > MOST_TAKES || !takes.is_sound() {
+        return Err("its takes are not a set of passes".into());
+    }
+    for other in &takes.others {
+        match (&other.pass, &clip.content) {
+            (
+                Pass::Audio {
+                    offset,
+                    audio_phase_seconds,
+                },
+                ClipContent::Audio { media, .. },
+            ) => {
+                let rate = project
+                    .media
+                    .iter()
+                    .find(|m| m.id == *media)
+                    .map_or(project.sample_rate, |m| m.sample_rate)
+                    .max(1);
+                if *offset < 0
+                    || !audio_phase_seconds.is_finite()
+                    || *offset as f64 / f64::from(rate) + audio_phase_seconds < 0.0
+                {
+                    return Err(format!("take {} starts before its file", other.take + 1));
+                }
+            }
+            (Pass::Midi { notes, events }, ClipContent::Midi { .. }) => {
+                midi_content(notes, events).map_err(|e| format!("take {}: {e}", other.take + 1))?;
+            }
+            _ => return Err(format!("take {} is not of the clip's kind", other.take + 1)),
+        }
     }
     Ok(())
 }

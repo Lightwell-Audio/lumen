@@ -23,10 +23,12 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 mod clip;
 mod device;
+mod takes;
 mod track;
 
 pub use clip::*;
 pub use device::*;
+pub use takes::*;
 pub use track::*;
 
 /// Stable identity of an object within a project. Written as 16 hex digits

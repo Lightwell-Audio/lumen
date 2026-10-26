@@ -75,6 +75,7 @@ impl Document {
                     audio_phase_seconds: 0.0,
                     reversed: false,
                     inverted: false,
+                    takes: None,
                     content: ClipContent::midi(),
                 }));
                 t.clips.sort_by_key(|c| c.start);

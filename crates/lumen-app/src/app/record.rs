@@ -277,7 +277,7 @@ impl App {
                 .count_in
                 .beats(project.meter_map().meter_at(start).numerator)
         };
-        let audio = self.begin_audio_takes(punch);
+        let audio = self.begin_audio_takes(punch, looped.is_some());
         if tracks.is_empty() && audio.is_empty() {
             return;
         }

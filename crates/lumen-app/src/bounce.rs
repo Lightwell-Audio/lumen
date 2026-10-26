@@ -747,6 +747,7 @@ mod tests {
             audio_phase_seconds: 0.0,
             reversed: false,
             inverted: false,
+            takes: None,
             content: ClipContent::Midi {
                 notes: vec![Note::new(q(1) + Ticks(77), q(1), 60, 100)],
                 events: Vec::new(),

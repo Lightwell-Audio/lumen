@@ -40,6 +40,7 @@ pub mod record;
 pub mod reverse;
 pub mod seams;
 pub mod split;
+pub mod takes;
 pub mod velocity;
 mod windows;
 
@@ -476,6 +477,7 @@ mod tests {
                 reversed: false,
                 inverted: false,
                 envelopes: Default::default(),
+                takes: None,
                 content: ClipContent::Audio {
                     media: Id(900),
                     offset: 1_000,

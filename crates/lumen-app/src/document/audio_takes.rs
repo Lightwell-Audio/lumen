@@ -61,6 +61,7 @@ mod tests {
             name: "Vox 1".into(),
             start: Ticks::quarters(2),
             length: Ticks::quarters(2),
+            passes: Vec::new(),
         }
     }
 

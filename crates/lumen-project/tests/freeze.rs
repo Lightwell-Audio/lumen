@@ -38,6 +38,7 @@ fn golden_v29_expected() -> Project {
         reversed: false,
         inverted: false,
         envelopes: Default::default(),
+        takes: None,
         content: ClipContent::Audio {
             media: Id(2_902),
             offset: 0,
