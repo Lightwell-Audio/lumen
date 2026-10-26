@@ -230,7 +230,7 @@ fn record_offset(ui: &mut Ui, offset_ms: f32, actions: &mut Vec<Action>) {
     });
 }
 
-fn row(ui: &mut Ui, label: &str, contents: impl FnOnce(&mut Ui)) {
+pub(crate) fn row(ui: &mut Ui, label: &str, contents: impl FnOnce(&mut Ui)) {
     ui.horizontal(|ui| {
         ui.allocate_ui_with_layout(
             egui::vec2(LABEL_WIDTH, theme::size::CONTROL_SMALL),
@@ -270,7 +270,7 @@ pub(crate) fn hint(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).small().weak());
 }
 
-fn khz(rate: u32) -> String {
+pub(crate) fn khz(rate: u32) -> String {
     format!("{:.1} kHz", f64::from(rate) / 1000.0)
 }
 

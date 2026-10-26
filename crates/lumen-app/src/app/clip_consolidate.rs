@@ -16,6 +16,7 @@ use lumen_project::model::Id;
 
 use crate::App;
 use crate::consolidate::{Job, Poll, Render, remove_files};
+use crate::render_audio::RenderAudio;
 
 /// A render under way.
 pub(crate) struct Running {
@@ -57,21 +58,27 @@ impl App {
             self.finish_consolidation(&[], &midi);
             return;
         }
-        let rate = self.lanes.rate();
+        // The file is made at the project's rate (Project settings); the
+        // worker reads the audio again when the device runs at another.
+        let audio = RenderAudio::new(
+            &self.lanes,
+            self.document.project(),
+            parts.iter().flat_map(|p| p.clips.iter().map(|c| &**c)),
+        );
+        let rate = audio.rate;
         let timeline = self.transport.timeline.clone();
-        let playing = self.lanes.engine_clips(self.document.project(), rate);
         let dir = self.renders_dir();
         let mut jobs = Vec::new();
         for part in parts {
-            let clips: Vec<_> = playing
-                .iter()
-                .filter(|c| part.clips.iter().any(|p| p.id.0 == c.id))
-                .cloned()
-                .collect();
-            if clips.len() != part.clips.len() {
+            if !part.clips.iter().all(|c| audio.has(c.id)) {
                 self.say("Wait for the audio to finish loading, then join".to_owned());
                 return;
             }
+            let clips: Vec<_> = audio
+                .clips()
+                .into_iter()
+                .filter(|c| part.clips.iter().any(|p| p.id.0 == c.id))
+                .collect();
             let from = timeline.sample_at(part.start, rate);
             let frames = timeline.sample_at(part.end, rate) - from;
             if frames <= 0 {
@@ -89,7 +96,7 @@ impl App {
             });
         }
         self.consolidating = Some(Running {
-            render: Render::start(jobs, timeline, rate, ctx),
+            render: Render::start(jobs, timeline, rate, audio.again(), ctx),
             midi,
         });
     }

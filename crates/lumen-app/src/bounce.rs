@@ -34,6 +34,7 @@ use lumen_project::model::{Id, Media, Project, TrackKind};
 use crate::hosting::{HOSTED_KIND, OfflinePlugin, stand_in};
 use crate::midi_play::{self, Hosts, Inputs, PortTable};
 use crate::midi_runs::Cache;
+use crate::render_audio::Again;
 use crate::routing::{self, Devices};
 
 /// How long a plugin's host may take to load before the bounce gives up.
@@ -445,8 +446,9 @@ pub fn render_job(
 
 impl Render {
     /// Starts rendering `jobs` one after another on a worker; `ctx` is woken
-    /// as it goes.
-    pub fn start(jobs: Vec<Job>, ctx: &egui::Context) -> Self {
+    /// as it goes. `again` makes the jobs' clips on the worker, at the jobs'
+    /// rate, when the loaded audio is at another one (`render_audio`).
+    pub fn start(jobs: Vec<Job>, again: Option<Arc<Again>>, ctx: &egui::Context) -> Self {
         let (tx, results) = channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let progress = Arc::new(AtomicU32::new(0f32.to_bits()));
@@ -456,7 +458,22 @@ impl Render {
             .name("lumen-bounce".into())
             .spawn(move || {
                 let mut made: Vec<Rendered> = Vec::with_capacity(jobs.len());
-                for job in jobs {
+                for mut job in jobs {
+                    if let Some(again) = &again {
+                        match again.clips(&stop) {
+                            Ok(Some(clips)) => job.clips = clips,
+                            Ok(None) => {
+                                remove_files(&made);
+                                return;
+                            }
+                            Err(e) => {
+                                remove_files(&made);
+                                let _ = tx.send(Err(e));
+                                ctx.request_repaint();
+                                return;
+                            }
+                        }
+                    }
                     let before = made.len() as f32;
                     let result = render_job(job, &stop, &mut |part| {
                         let fraction = (before + part) / count;

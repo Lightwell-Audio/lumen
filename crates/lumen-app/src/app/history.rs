@@ -38,6 +38,7 @@ impl App {
             && !crate::widgets::wheel::adjusting(ctx)
             && !self.hosting.gesture_open()
             && !self.controllers.holding()
+            && !self.project_settings.editing
         {
             self.document.seal();
         }

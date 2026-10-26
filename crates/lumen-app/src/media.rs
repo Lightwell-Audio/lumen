@@ -15,9 +15,7 @@ use lumen_engine::ClipAudio;
 use lumen_media::{MediaError, Peaks};
 
 mod twins;
-#[cfg(test)]
-pub use twins::mirror;
-pub use twins::reversed_key;
+pub use twins::{mirror, reversed_key};
 
 /// What the user sees about a file: from its name and size at once, the
 /// rest when it has been decoded.

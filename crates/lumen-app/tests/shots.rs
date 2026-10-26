@@ -714,6 +714,18 @@ fn menus_and_tips_looking(appearance: &str, scale: f32) {
     click(&mut h, lumen.center());
     h.run_steps(30);
     save(&mut h, "menu-app");
+    // Its submenus (layout A, 2026-10-26).
+    let more = h.get_by_label("More ways to save").rect();
+    click(&mut h, more.center());
+    h.run_steps(20);
+    save(&mut h, "menu-app-saving");
+    let appearance = h.get_by_label("Appearance").rect();
+    click(&mut h, appearance.center());
+    h.run_steps(20);
+    save(&mut h, "menu-app-appearance");
+    let mixing = h.get_by_label("Mixing").rect();
+    click(&mut h, mixing.center());
+    h.run_steps(20);
     // A change keeps it open; leaving it fades it (the owner's C).
     let additive = h.get_by_label("Additive solo").rect();
     click(&mut h, additive.center());
@@ -1305,6 +1317,10 @@ fn polish_sweep() {
             click(&mut h, lumen.center());
             h.run_steps(30);
             save(&mut h, &name("menu-app"));
+            let appearance = h.get_by_label("Appearance").rect();
+            click(&mut h, appearance.center());
+            h.run_steps(30);
+            save(&mut h, &name("menu-app-appearance"));
             h.key_press(Key::Escape);
             h.run_steps(30);
             // The clip card.
@@ -1496,6 +1512,80 @@ fn live_sweep() {
         h.state_mut().set_detail_size(size.y * 0.55);
         h.run_steps(60);
         save(&mut h, &format!("live-mixer-{tag}"));
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn project_windows() {
+    // M9 slice R4 (ADR-0105): the Project settings window with a colour
+    // chosen, a rate other than the device's and notes typed; its rate list;
+    // the window that names a template, with a name that exists; and the
+    // prompt before Revert to saved. Both themes, at 100, 150 and 200%.
+    use egui_kittest::kittest::Queryable;
+    let command = |h: &mut Harness<'static, App>, name: &str| {
+        h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+        h.run_steps(3);
+        h.event(Event::Text(name.into()));
+        h.run_steps(3);
+        h.key_press(Key::Enter);
+        h.run_steps(20);
+    };
+    for appearance in ["dark", "light"] {
+        for scale in [1.0, 1.5, 2.0] {
+            let tag = format!("{appearance}-{}", (scale * 100.0) as u32);
+            let dir = TempDir::new("shots-project-windows");
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(960.0, 700.0));
+
+            command(&mut h, "Project settings");
+            h.get_by_label("Sample rate: 48.0 kHz").click();
+            h.run_steps(10);
+            h.get_by_label("44.1 kHz").click();
+            h.run_steps(10);
+            h.get_by_label("New track colour 3").click();
+            h.run_steps(10);
+            h.get_by_label("Project notes").click();
+            h.run_steps(3);
+            h.event(Event::Text(
+                "Verse in D minor, 92 bpm.\nVocals to record.".into(),
+            ));
+            h.run_steps(10);
+            save(&mut h, &format!("project-settings-{tag}"));
+            h.get_by_label("Sample rate: 44.1 kHz").click();
+            h.run_steps(20);
+            save(&mut h, &format!("project-settings-rates-{tag}"));
+            h.key_press(Key::Escape);
+            h.run_steps(5);
+            h.key_press(Key::Escape);
+            h.run_steps(20);
+
+            // A template that exists, named again.
+            command(&mut h, "Save as template");
+            h.event(Event::Text("Beat".into()));
+            h.run_steps(5);
+            h.key_press(Key::Enter);
+            h.run_steps(60);
+            command(&mut h, "Save as template");
+            h.event(Event::Text("Beat".into()));
+            h.run_steps(20);
+            save(&mut h, &format!("save-template-{tag}"));
+            h.key_press(Key::Escape);
+            h.run_steps(20);
+
+            // Revert asks first.
+            let file = lumen_app::testing::project_file(dir.path(), "Song");
+            h.state_mut().save_to(file);
+            h.run_steps(60);
+            h.key_press_modifiers(Modifiers::COMMAND, Key::T);
+            h.run_steps(10);
+            command(&mut h, "Revert to saved");
+            save(&mut h, &format!("revert-{tag}"));
+        }
+        // The smallest window: the settings scroll instead of being cut off.
+        let dir = TempDir::new("shots-project-windows-small");
+        let mut h = lumen_looking_sized(&dir, appearance, 1.0, vec2(960.0, 540.0));
+        command(&mut h, "Project settings");
+        save(&mut h, &format!("project-settings-small-{appearance}"));
     }
 }
 

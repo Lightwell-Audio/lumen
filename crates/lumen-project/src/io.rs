@@ -308,7 +308,7 @@ fn back_up_at(path: &Path, dir: &Path, name: &str, keep: usize, stamp: &str) -> 
 }
 
 /// `2026-10-05T183012.345Z`: sortable and valid in Windows file names.
-fn utc_timestamp() -> String {
+pub fn utc_timestamp() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();

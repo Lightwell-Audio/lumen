@@ -25,6 +25,6 @@ mod validate;
 pub use history::History;
 pub use io::{
     FORMAT_ID, LoadError, MediaLocation, SaveError, SaveOptions, from_bytes, load, locate_media,
-    media_path_for, save, to_bytes, write_atomic,
+    media_path_for, save, to_bytes, utc_timestamp, write_atomic,
 };
 pub use validate::{MAX_INPUT_CHANNELS, validate};

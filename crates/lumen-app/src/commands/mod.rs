@@ -222,6 +222,12 @@ pub(crate) enum Command {
     TakeKeepOnly,
     CaptureMidi,
     KeepPlayedNotes,
+    SaveCopy,
+    CollectAndSave,
+    SaveTemplate,
+    OpenTemplatesFolder,
+    Revert,
+    ProjectSettings,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -509,6 +515,12 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::TakeKeepOnly, "clip.take_keep", "Keep only this take", Area::Clip, &[], "Throws away the other takes of the selected clips and keeps the one each plays. Audio stays in the media pool. Undo brings the takes back."),
     info(Command::CaptureMidi, "transport.capture_midi", "Capture MIDI", Area::Transport, &[shift(Key::F9)], "Turns the notes you last played on a MIDI track, while not recording, into a clip. Played while the song was moving, they land where you heard them; played while stopped, the first note lands on the playhead. Nothing under the clip is lost, and Undo takes it away. The last ten minutes of what you play are kept, in memory only."),
     info(Command::KeepPlayedNotes, "transport.keep_played_notes", "Keep played notes for Capture MIDI", Area::Transport, &[], "Keeps the notes you play on MIDI tracks while not recording, in memory for ten minutes, so Capture MIDI can turn them into a clip. Off, nothing is kept and what was kept is forgotten."),
+    info(Command::SaveCopy, "file.save_copy", "Save a copy…", Area::File, &[], "Saves a complete copy of the project, with every audio file it uses, under a new name or in a new place, and leaves this project as it is: it keeps its own file, its unsaved changes and its place in the recent list. Esc stops it."),
+    info(Command::CollectAndSave, "file.collect_and_save", "Collect and save", Area::File, &[], "Copies every audio file the project uses from outside its folder into the project's Samples/Imported folder, then saves, so the project holds everything it plays and can be moved or shared. Files that cannot be found are listed and left as they are. Esc stops it; the project file is written last, so a stopped collect changes nothing."),
+    info(Command::SaveTemplate, "file.save_template", "Save as template…", Area::File, &[], "Keeps this project, with all its audio, as a template to start new projects from. Asks for a name; a name that is already a template is replaced when you confirm. The template holds everything in the project and none of its undo history."),
+    info(Command::OpenTemplatesFolder, "file.open_templates_folder", "Open templates folder", Area::File, &[], "Shows the folder the templates are kept in. To rename or delete a template, rename or delete its folder there."),
+    info(Command::Revert, "file.revert", "Revert to saved…", Area::File, &[], "Drops every change made since the last save and reads the saved project back, so everything, including what a plugin keeps inside its own window, is as it was saved. Asks first. The unsaved version is put away before anything is dropped, in the project's Backups/Reverted folder, and a message offers to open it."),
+    info(Command::ProjectSettings, "file.project_settings", "Project settings…", Area::File, &[], "Opens the project's own settings: the sample rate of the files the app makes for it, the pan law, automatic crossfades, the colour new tracks take, and notes about the project. Each change is saved in the project and is one undo step."),
 ];
 
 const fn info(
@@ -558,7 +570,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::KeepPlayedNotes as usize + 1,
+            Command::ProjectSettings as usize + 1,
             ALL.len(),
             "a command is missing"
         );

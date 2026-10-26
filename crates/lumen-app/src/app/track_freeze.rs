@@ -16,6 +16,7 @@ use lumen_project::model::{ClipContent, Device, Id, TrackKind};
 
 use crate::App;
 use crate::bounce::{Bake, Job, Poll, Render, remove_files};
+use crate::render_audio::RenderAudio;
 
 /// How long the plugins are waited for before a freeze starts with the states
 /// it has.
@@ -130,13 +131,14 @@ impl App {
             return;
         }
         // Audio has to be loaded for the clip player to render it.
-        let rate = self.lanes.rate();
-        let playing = self.lanes.engine_clips(self.document.project(), rate);
+        let audio = RenderAudio::of_tracks(
+            &self.lanes,
+            self.document.project(),
+            found.parts.iter().map(|p| &*p.planned),
+        );
         for part in &found.parts {
             let missing = part.planned.clips.iter().any(|c| {
-                matches!(c.content, ClipContent::Audio { .. })
-                    && !c.muted
-                    && !playing.iter().any(|p| p.id == c.id.0)
+                matches!(c.content, ClipContent::Audio { .. }) && !c.muted && !audio.has(c.id)
             });
             if missing {
                 self.say("Wait for the audio to finish loading, then freeze".to_owned());
@@ -162,9 +164,15 @@ impl App {
         refused: Vec<(String, Refusal)>,
         ctx: &egui::Context,
     ) {
-        let rate = self.lanes.rate();
+        // The files are made at the project's rate; the worker reads the
+        // audio again when the device runs at another.
+        let audio = RenderAudio::of_tracks(
+            &self.lanes,
+            self.document.project(),
+            parts.iter().map(|p| &*p.planned),
+        );
+        let rate = audio.rate;
         let timeline = self.transport.timeline.clone();
-        let playing = self.lanes.engine_clips(self.document.project(), rate);
         let mut project = self.document.project().clone();
         self.hosting.stamp(&mut project);
         let dir = self.renders_dir();
@@ -197,7 +205,7 @@ impl App {
             jobs.push(Job {
                 project: project.clone(),
                 track: part.track,
-                clips: playing.clone(),
+                clips: audio.clips(),
                 plugins,
                 bake: Bake::Sound,
                 mono: part.mono,
@@ -211,7 +219,7 @@ impl App {
             });
         }
         self.freezing = Some(Running {
-            render: Render::start(jobs, ctx),
+            render: Render::start(jobs, audio.again(), ctx),
             parts,
             refused,
             states,
@@ -278,11 +286,12 @@ impl App {
             states,
             ..
         } = running;
-        let rate = self.lanes.rate();
         let timeline = self.transport.timeline.clone();
         let baked: Vec<Baked> = made
             .iter()
             .filter_map(|r| {
+                // The file's own rate: the project's, not the device's.
+                let rate = r.media.sample_rate;
                 let part = parts.iter().find(|p| p.track == r.track)?.clone();
                 let from = timeline.sample_at(part.end, rate);
                 let end = timeline.ticks_at(from + r.tail_frames as i64, rate);

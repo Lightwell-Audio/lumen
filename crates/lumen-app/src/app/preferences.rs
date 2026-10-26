@@ -27,10 +27,11 @@ impl App {
                 )
                 .selected(open),
             )
-            .on_hover_text("Appearance, interface size and audio settings");
+            .on_hover_text("Files, undo, appearance, mixing and audio settings");
         widgets::Menu::below(&button).show(|ui| {
             let ctx = ui.ctx().clone();
             self.menu_command(ui, Command::NewProject, "New");
+            self.template_menu(ui);
             self.menu_command(ui, Command::OpenProject, "Open\u{2026}");
             let recent = self.settings.projects.recent.clone();
             ui.add_enabled_ui(!recent.is_empty(), |ui| {
@@ -51,78 +52,89 @@ impl App {
             });
             self.menu_command(ui, Command::Save, "Save");
             self.menu_command(ui, Command::SaveAs, "Save as\u{2026}");
+            widgets::submenu(ui, "More ways to save", |ui| {
+                self.menu_command(ui, Command::SaveCopy, "Save a copy\u{2026}");
+                self.menu_command(ui, Command::CollectAndSave, "Collect and save");
+                self.menu_command(ui, Command::SaveTemplate, "Save as template\u{2026}");
+                self.menu_command(ui, Command::Revert, "Revert to saved\u{2026}");
+                ui.separator();
+                if widgets::switch(
+                    ui,
+                    &mut self.settings.projects.copy_imported,
+                    "Copy imported audio into the project",
+                    true,
+                )
+                .on_hover_text("Saving copies outside audio into Samples/Imported")
+                .changed()
+                {
+                    self.settings_changed = Some(Instant::now());
+                }
+            });
+            ui.separator();
+            self.menu_command(ui, Command::ProjectSettings, "Project settings\u{2026}");
             self.menu_command(ui, Command::Import, "Import audio or MIDI\u{2026}");
             self.menu_command(ui, Command::ExportMidiFile, "Export MIDI file\u{2026}");
-            if widgets::switch(
-                ui,
-                &mut self.settings.projects.copy_imported,
-                "Copy imported audio into the project",
-                true,
-            )
-            .on_hover_text("Saving copies outside audio into Samples/Imported")
-            .changed()
-            {
-                self.settings_changed = Some(Instant::now());
-            }
             ui.separator();
             self.menu_command(ui, Command::Undo, "Undo");
             self.menu_command(ui, Command::Redo, "Redo");
-            if ui.button("History…").clicked() {
+            if widgets::menu_item(ui, "History\u{2026}", None, true).clicked() {
                 self.show_history = true;
                 ui.close();
             }
             ui.separator();
-            widgets::menu_caption(ui, "Theme");
-            let chosen = theme::Appearance::from_key(&self.settings.appearance.theme);
-            let themes = theme::Appearance::ALL.map(|a| widgets::Choice::new(a, a.name()));
-            if let Some(picked) = widgets::segmented(ui, ui.id().with("theme"), chosen, &themes) {
-                self.settings.appearance.theme = picked.key().to_owned();
-            }
-            ui.separator();
-            widgets::menu_caption(ui, "Interface size");
-            let scale = self.settings.appearance.scale();
-            let labels = settings::UI_SCALES.map(|s| format!("{:.0}%", s * 100.0));
-            let sizes: Vec<_> = settings::UI_SCALES
-                .iter()
-                .zip(&labels)
-                .map(|(s, label)| widgets::Choice::new(*s, label))
-                .collect();
-            if let Some(picked) = widgets::segmented(ui, ui.id().with("scale"), scale, &sizes) {
-                self.settings.appearance.ui_scale = picked;
-            }
-            ui.separator();
-            widgets::switch(
-                ui,
-                &mut self.settings.appearance.reduce_motion,
-                "Reduce motion",
-                true,
-            )
-            .on_hover_text("Things change in place instead of sliding or fading");
-            ui.separator();
-            widgets::menu_caption(ui, "Mixing");
-            if widgets::switch(
-                ui,
-                &mut self.settings.mixing.additive_solo,
-                "Additive solo",
-                true,
-            )
-            .on_hover_text("A click on Solo adds the track; Ctrl+click solos it alone")
-            .changed()
-            {
-                self.settings_changed = Some(Instant::now());
-            }
-            if widgets::switch(
-                ui,
-                &mut self.settings.mixing.track_colour_meters,
-                "Meters in track colours",
-                true,
-            )
-            .on_hover_text("Meters take their track's colour instead of the accent")
-            .changed()
-            {
-                self.settings_changed = Some(Instant::now());
-            }
-            ui.separator();
+            widgets::submenu(ui, "Appearance", |ui| {
+                widgets::menu_caption(ui, "Theme");
+                let chosen = theme::Appearance::from_key(&self.settings.appearance.theme);
+                let themes = theme::Appearance::ALL.map(|a| widgets::Choice::new(a, a.name()));
+                if let Some(picked) = widgets::segmented(ui, ui.id().with("theme"), chosen, &themes)
+                {
+                    self.settings.appearance.theme = picked.key().to_owned();
+                }
+                ui.separator();
+                widgets::menu_caption(ui, "Interface size");
+                let scale = self.settings.appearance.scale();
+                let labels = settings::UI_SCALES.map(|s| format!("{:.0}%", s * 100.0));
+                let sizes: Vec<_> = settings::UI_SCALES
+                    .iter()
+                    .zip(&labels)
+                    .map(|(s, label)| widgets::Choice::new(*s, label))
+                    .collect();
+                if let Some(picked) = widgets::segmented(ui, ui.id().with("scale"), scale, &sizes) {
+                    self.settings.appearance.ui_scale = picked;
+                }
+                ui.separator();
+                widgets::switch(
+                    ui,
+                    &mut self.settings.appearance.reduce_motion,
+                    "Reduce motion",
+                    true,
+                )
+                .on_hover_text("Things change in place instead of sliding or fading");
+            });
+            widgets::submenu(ui, "Mixing", |ui| {
+                if widgets::switch(
+                    ui,
+                    &mut self.settings.mixing.additive_solo,
+                    "Additive solo",
+                    true,
+                )
+                .on_hover_text("A click on Solo adds the track; Ctrl+click solos it alone")
+                .changed()
+                {
+                    self.settings_changed = Some(Instant::now());
+                }
+                if widgets::switch(
+                    ui,
+                    &mut self.settings.mixing.track_colour_meters,
+                    "Meters in track colours",
+                    true,
+                )
+                .on_hover_text("Meters take their track's colour instead of the accent")
+                .changed()
+                {
+                    self.settings_changed = Some(Instant::now());
+                }
+            });
             if crate::widgets::menu_item(ui, "Audio and MIDI settings\u{2026}", None, true)
                 .clicked()
             {

@@ -13,6 +13,7 @@ fn the_copy_imported_audio_switch_saves_without_another_setting_change() {
     let file = dir.path().join("settings.json");
     let mut lumen = Lumen::start_with(dir, |launch| launch.with_settings_file(&file));
     lumen.click("Lumen");
+    lumen.click("More ways to save");
     lumen.click("Copy imported audio into the project");
     lumen.wait_for("copy setting saved", |_| {
         std::fs::read_to_string(&file).is_ok_and(|text| text.contains("\"copy_imported\": false"))
@@ -20,6 +21,7 @@ fn the_copy_imported_audio_switch_saves_without_another_setting_change() {
     let dir = lumen.crash();
     let mut again = Lumen::start_with(dir, |launch| launch.with_settings_file(&file));
     again.click("Lumen");
+    again.click("More ways to save");
     assert!(!again.is_on("Copy imported audio into the project"));
 }
 

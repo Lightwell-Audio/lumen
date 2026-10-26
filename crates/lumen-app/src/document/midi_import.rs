@@ -185,7 +185,7 @@ impl Document {
             for (k, ((part, track_name), &(track, synth, clip_id))) in added.enumerate() {
                 let (notes, events) = merged([*part]);
                 let length = bars_for(project, at, part.end());
-                let color = track_color(project.tracks.len());
+                let color = track_color(project.new_track_color, project.tracks.len());
                 project.tracks.insert(
                     first + k,
                     Arc::new(Track {

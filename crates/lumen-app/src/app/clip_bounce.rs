@@ -16,6 +16,7 @@ use lumen_project::edit::bounce::{Baked, Mode, Moved, Options, Part, Scope, plan
 use lumen_project::model::{ClipContent, Id};
 
 use crate::bounce::{Bake, Job, Poll, Render, Rendered, remove_files};
+use crate::render_audio::RenderAudio;
 use crate::widgets::{self, Choice, Dialog, raised};
 use crate::{App, theme};
 
@@ -189,15 +190,18 @@ impl App {
             return;
         }
         // Audio has to be loaded for the clip player to render it.
-        let rate = self.lanes.rate();
-        let playing = self.lanes.engine_clips(self.document.project(), rate);
+        let audio = RenderAudio::of_tracks(
+            &self.lanes,
+            self.document.project(),
+            parts.iter().map(|p| &*p.planned),
+        );
         for part in &parts {
             let missing = part.planned.clips.iter().any(|c| {
                 c.start < part.end
                     && c.start + c.length > part.start
                     && matches!(c.content, ClipContent::Audio { .. })
                     && !c.muted
-                    && !playing.iter().any(|p| p.id == c.id.0)
+                    && !audio.has(c.id)
             });
             if missing {
                 self.say("Wait for the audio to finish loading, then bounce".to_owned());
@@ -217,9 +221,15 @@ impl App {
 
     /// Hands the parts to the worker, with the project as the plugins hold it.
     fn launch_bounce(&mut self, parts: Vec<Part>, ctx: &egui::Context) {
-        let rate = self.lanes.rate();
+        // The files are made at the project's rate; the worker reads the
+        // audio again when the device runs at another.
+        let audio = RenderAudio::of_tracks(
+            &self.lanes,
+            self.document.project(),
+            parts.iter().map(|p| &*p.planned),
+        );
+        let rate = audio.rate;
         let timeline = self.transport.timeline.clone();
-        let playing = self.lanes.engine_clips(self.document.project(), rate);
         let mut project = self.document.project().clone();
         self.hosting.stamp(&mut project);
         let dir = self.renders_dir();
@@ -248,7 +258,7 @@ impl App {
             jobs.push(Job {
                 project: project.clone(),
                 track: part.track,
-                clips: playing.clone(),
+                clips: audio.clips(),
                 plugins,
                 bake: if part.effects { Bake::Mix } else { Bake::Plain },
                 mono: false,
@@ -262,7 +272,7 @@ impl App {
             });
         }
         self.bouncing = Some(Running {
-            render: Render::start(jobs, ctx),
+            render: Render::start(jobs, audio.again(), ctx),
             parts,
         });
     }
@@ -320,11 +330,12 @@ impl App {
     /// Puts the rendered files into the project as one step, selects the
     /// result, and says what happened.
     fn finish_bounce(&mut self, parts: Vec<Part>, made: Vec<Rendered>) {
-        let rate = self.lanes.rate();
         let timeline = self.transport.timeline.clone();
         let baked: Vec<Baked> = made
             .iter()
             .filter_map(|r| {
+                // The file's own rate: the project's, not the device's.
+                let rate = r.media.sample_rate;
                 let part = parts.iter().find(|p| p.track == r.track)?.clone();
                 let from = timeline.sample_at(part.end, rate);
                 let end = timeline.ticks_at(from + r.tail_frames as i64, rate);

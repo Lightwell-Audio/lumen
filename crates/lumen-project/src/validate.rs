@@ -9,8 +9,8 @@ use lumen_core::time::{TempoMap, Ticks};
 
 use crate::edit::maps::MOST_CHANGES;
 use crate::model::{
-    Clip, ClipContent, ClipEvent, Device, Id, MAX_DEVICE_STATE, Note, Output, Pass, PluginRef,
-    Project, Takes, Track, TrackKind,
+    Clip, ClipContent, ClipEvent, Device, Id, MAX_DEVICE_STATE, MOST_NOTES_BYTES, Note, Output,
+    Pass, PluginRef, Project, Takes, Track, TrackKind,
 };
 
 /// The furthest a position or length may reach: about 3 billion beats, past
@@ -107,6 +107,9 @@ pub fn validate(project: &Project) -> Result<(), String> {
             "sample rate {} is out of range",
             project.sample_rate
         ));
+    }
+    if project.notes.len() > MOST_NOTES_BYTES {
+        return Err("the project's notes are too long".into());
     }
     TempoMap::new(project.tempo.clone()).map_err(|e| format!("tempo: {e}"))?;
     MeterMap::new(project.meter.clone()).map_err(|e| format!("meter: {e}"))?;

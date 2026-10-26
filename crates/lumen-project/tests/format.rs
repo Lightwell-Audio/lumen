@@ -145,6 +145,8 @@ fn golden_v1_expected() -> Project {
         transport: Default::default(),
         view: Default::default(),
         mappings: Vec::new(),
+        notes: String::new(),
+        new_track_color: None,
     }
 }
 

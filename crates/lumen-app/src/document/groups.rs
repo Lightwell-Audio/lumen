@@ -39,7 +39,7 @@ impl Document {
         let first = *members.first().ok_or(Refused::Invalid)?;
         let outer = groups::common_group(tracks, &members);
         let number = tracks.iter().filter(|t| t.kind == TrackKind::Group).count() + 1;
-        let color = track_color(tracks.len());
+        let color = track_color(self.project().new_track_color, tracks.len());
         let id = self.fresh_id();
         let group = Arc::new(Track {
             parent: outer,

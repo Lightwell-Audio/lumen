@@ -177,7 +177,7 @@ impl Document {
                     placed.push(clip);
                     continue;
                 }
-                let color = track_color(project.tracks.len());
+                let color = track_color(project.new_track_color, project.tracks.len());
                 let (before, group) = match file.into {
                     DropInto::NewTracks { before, group } => (before, group),
                     DropInto::Track(_) => (None, None),

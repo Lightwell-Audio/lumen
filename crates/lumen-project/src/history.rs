@@ -270,8 +270,12 @@ fn unchanged(a: &Project, b: &Project) -> bool {
         transport,
         view,
         mappings,
+        notes,
+        new_track_color,
     } = a;
     *name == b.name
+        && *notes == b.notes
+        && *new_track_color == b.new_track_color
         && *sample_rate == b.sample_rate
         && *tempo == b.tempo
         && *auto_crossfade == b.auto_crossfade
