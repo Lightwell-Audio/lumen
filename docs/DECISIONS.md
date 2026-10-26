@@ -118,6 +118,7 @@ irreversible or external) · *Superseded*.
 
 | Question | Decision |
 |---|---|
+| Take lanes deferred (M9 R3, 2026-10-26) | Pitched after the owner's runs of R3 (each pass a clip on its own lane under the track, a comp lane that plays, comping by dragging across a lane): the owner likes individual take lanes and **deferred them, with comping, until after M9's must-have slices**, as recommended. Until then a take is a whole pass inside one clip (ADR-0104), reached from the Takes menu; the passes are windows on one file, so dragging a clip's edge past its pass shows the pass beside it (intended, as in common workstations). When lanes are built, the takes inside a clip become lanes by migration. Open for then: whether a comp segment is a copied clip or a reference to its take, whether recording over any material (not only loop passes) makes a lane, and MIDI lanes. |
 | M9 plan choices (2026-10-24) | R1 A, R2 A, R3 A, R4 A, R5 A, X1 A, X2 A, X3 A: every recommendation in `docs/milestones/M9.md` §4. |
 | Milestone sequence (2026-10-23) | After M7 and M7b, deliver the existing M9 (Recording, Media, Export & Production Workflow) before M8 (Drum Maps, Drum Editor & Built-In Devices), because audio recording has higher priority than drum maps. Keep the milestone IDs and scopes unchanged; this only changes delivery order. Recorded in `docs/ROADMAP.md` and `docs/PROGRESS.md`. |
 | Native macOS VST3 hosting (2026-10-19, ADR-0085) | Bring the stretch goal forward now: the full existing workflow, including native editors, for plugins matching the host architecture. Intel bridging remains outside this slice. |
@@ -9078,8 +9079,9 @@ replacement if those measurements warrant it.
 
 ## ADR-0104 - Takes of a loop recording, and Capture MIDI (M9 R3)
 
-**Status:** Accepted 2026-10-25. Format **v31**. Alignment by ear on a real
-interface and Capture MIDI from a real keyboard wait on MT-REC-3.
+**Status:** Accepted 2026-10-25. Format **v31**. MT-REC-3 passed (owner,
+2026-10-26, on the Focusrite with a MIDI keyboard). Take lanes are deferred
+(owner, 2026-10-26; the table of owner decisions).
 
 **Context.** Loop recording (audio in R2, MIDI since M5) either made one long
 clip or layered every pass into one. A producer wants to keep every pass and

@@ -408,8 +408,11 @@ and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
 **Now (2026-10-25)**
-- **Branch `m9-s3-takes-capture`: M9 slice R3 (takes and Capture MIDI) is built**
-  (ADR-0104; format **v31**; cut from `main` after PR #63; not pushed). Loop
+- **Branch `m9-s3-takes-capture`: M9 slice R3 (takes and Capture MIDI) is done**
+  (ADR-0104; format **v31**; cut from `main` after PR #63; pushed, with `main`
+  merged in, and a pull request opened 2026-10-26). MT-REC-3 passed (owner,
+  2026-10-26). Take lanes and comping were pitched and deferred by the owner
+  until after M9's must-have slices (DECISIONS, owner table). Loop
   recording keeps each pass as a take of one clip (`Clip.takes`): audio always,
   MIDI in Replace (Overdub still layers); the clip plays the last pass, shows an
   n/m chip, and a Takes menu plus commands `clip` take next/previous/keep
@@ -423,8 +426,7 @@ per slice and move what is no longer current out of it.
   (ADR-0104, last section): `record_span` fixes what a take replaces when
   Record is pressed, and `loop_passes::cut` cuts every pass by one rule, a
   take begun inside the loop being lined up with it by leading silence.
-  E2E (`capture_midi.rs`, `audio_record.rs`, `record.rs`) pass. Not hardware-verified: MT-REC-3
-  (`docs/manual-tests/M9.md`) waits on the owner's Focusrite and keyboard.
+  E2E (`capture_midi.rs`, `audio_record.rs`, `record.rs`) pass.
   Next: R4 (project lifecycle) per `docs/milestones/M9.md`.
 - **Branch `m9-s1b-track-headers`: M9 slice R1b (track headers) is built**
   (ADR-0101, the owner's B·1 from mocks; no format change; cut from `main`
