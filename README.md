@@ -115,8 +115,8 @@ Status below is from [docs/PROGRESS.md](docs/PROGRESS.md), last updated
 | 3. Arrangement and project system | Tracks, clips, editing, undo, save and open, autosave | Complete; approved 2026-10-09 |
 | 4. Mixer, routing and groups | Mixer graph, groups, sends, returns, metering, delay compensation | Complete, 2026-10-10 |
 | 4.5. Polish pass | Interface audit fixes: controls, motion, light layer | Built; MT-POL-5 and MT-POL-6 pending |
-| 5. MIDI and piano roll | MIDI devices, recording, piano roll, quantize, Standard MIDI Files, clock out | Slices 0 to 7 built; slice 8 close and MT-MIDI-7 to 9 pending |
-| 6. VST3 hosting | Plugin scanning, instruments and effects, a separate process per plugin, editors, presets and state | Slices 0 to 6 built; closeout under way: MT-VST-7 on real plugins, the review's Medium and Low findings, and the report |
+| 5. MIDI and piano roll | MIDI devices, recording, piano roll, quantize, Standard MIDI Files, clock out | Complete; owner sign-off 2026-10-26 |
+| 6. VST3 hosting | Plugin scanning, instruments and effects, a separate process per plugin, editors, presets and state | Complete; owner sign-off 2026-10-26 |
 | 7. Automation and envelopes | Automation lanes, Read/Write/Touch/Latch, clip envelopes, MIDI learn | Built, 2026-10-22; manual tests passed; owner approval pending |
 | 7b. Advanced editing and render | Join, crop, crossfades, consolidate, bounce, freeze and related editing | Slices E0 to E6 built; E6 closeout (MT-EDIT-7) and owner sign-off pending |
 | 9. Recording, media and export | Audio input, audio recording, takes, Capture MIDI, export, disk streaming | In progress: render consistency, audio input and recording built; hardware tests MT-REC-1, MT-REC-2 and MT-REC-4 pending; takes and Capture MIDI are next, then export and disk streaming |
