@@ -154,7 +154,6 @@ pub struct Capture {
 }
 
 impl Capture {
-    #[cfg(test)]
     pub fn new() -> Self {
         Self::default()
     }
@@ -365,6 +364,7 @@ impl Capture {
 #[cfg(test)]
 mod tests {
     use lumen_core::midi::Msg;
+    use lumen_engine::Heard;
 
     use super::*;
 
@@ -374,6 +374,8 @@ mod tests {
             source: 0,
             at,
             pass: 0,
+            frame: 0,
+            state: Heard::Recording,
             msg,
         }
     }
@@ -389,6 +391,8 @@ mod tests {
             source: WRAP,
             at: 0,
             pass,
+            frame: 0,
+            state: Heard::Recording,
             msg: Msg([0, 0, 0]),
         }
     }

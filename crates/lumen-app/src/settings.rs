@@ -581,6 +581,7 @@ mod tests {
                 only_while_recording: true,
                 overdub: true,
                 offset_ms: -2.5,
+                keep_played: false,
             },
             plugins: crate::plugins::PluginSettings {
                 scan_at_startup: false,

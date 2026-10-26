@@ -31,7 +31,7 @@ mod player;
 mod recording;
 mod tracks;
 
-pub use capture::{Captured, WRAP, record_position};
+pub use capture::{Captured, Heard, WRAP, record_position};
 pub use clock::CLOCK_TICKS;
 pub use live::{AUDITION, INPUT_SLOTS, KEYBOARD, Listen, LiveIn, LiveInput, SOURCES};
 pub use player::{MidiHandle, MidiPlayer, midi_player};

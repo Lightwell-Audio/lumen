@@ -322,7 +322,7 @@ impl App {
         self.say(words);
     }
 
-    fn track_name(&self, id: Id) -> String {
+    pub(crate) fn track_name(&self, id: Id) -> String {
         self.document
             .project()
             .tracks

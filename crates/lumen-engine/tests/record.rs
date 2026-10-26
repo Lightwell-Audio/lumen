@@ -9,9 +9,10 @@ use std::sync::{Arc, Mutex};
 use lumen_core::midi::Msg;
 use lumen_core::time::Ticks;
 use lumen_engine::{
-    Captured, Command, Destination, Engine, EngineHandle, Layered, Listen, LiveIn, LiveInput,
-    MidiClip, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack, Mixer, MixerHandle, NodeSpec,
-    RecordTiming, Region, Routing, Target, Timeline, WRAP, clip_player, engine, midi_player, mixer,
+    Captured, Command, Destination, Engine, EngineHandle, Heard, Layered, Listen, LiveIn,
+    LiveInput, MidiClip, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack, Mixer, MixerHandle,
+    NodeSpec, RecordTiming, Region, Routing, Target, Timeline, WRAP, clip_player, engine,
+    midi_player, mixer,
 };
 
 const MASTER: u64 = 100;
@@ -55,6 +56,9 @@ struct Rig {
     engine: Engine<Mixer<Layered<lumen_engine::ClipPlayer, MidiPlayer>>>,
     live: Script,
     captured: rtrb::Consumer<Captured>,
+    /// What the take did not keep: played while not recording, for Capture
+    /// MIDI (M9 slice R3).
+    idle: Vec<Captured>,
     output: rtrb::Consumer<MidiOut>,
     #[allow(dead_code)]
     midi: MidiHandle,
@@ -98,6 +102,7 @@ fn rig(tracks: Vec<MidiTrack>) -> Rig {
         engine,
         live,
         captured,
+        idle: Vec::new(),
         output,
         midi,
         routing,
@@ -123,12 +128,24 @@ impl Rig {
         out
     }
 
+    /// What the take keeps; what was played while not recording is put
+    /// aside for [`Rig::played`].
     fn taken(&mut self) -> Vec<Captured> {
         let mut out = Vec::new();
         while let Ok(c) = self.captured.pop() {
-            out.push(c);
+            if c.state == Heard::Recording {
+                out.push(c);
+            } else {
+                self.idle.push(c);
+            }
         }
         out
+    }
+
+    /// What was played while not recording, once.
+    fn played(&mut self) -> Vec<Captured> {
+        let _ = self.taken();
+        std::mem::take(&mut self.idle)
     }
 }
 
@@ -783,4 +800,75 @@ fn a_key_after_the_first_wrap_uses_the_saved_loop_window_before_ui_refresh() {
             .any(|&(frame, msg)| frame == 24_200 && msg == Msg::note_off(0, 60)),
         "the clip note must yield at the post-wrap live key: {sent:?}"
     );
+}
+
+#[test]
+fn notes_played_while_stopped_are_kept_for_capture_with_their_device_frames() {
+    // A track that only listens (not armed) keeps what it hears too.
+    let mut rig = rig(vec![
+        MidiTrack::new(A, Target::Instrument, None, Vec::new()).listening(keys()),
+    ]);
+    rig.live.send(1_000, 1_000, Msg::note_on(0, 60, 100));
+    rig.live.send(5_000, 5_000, Msg::note_off(0, 60));
+    rig.run(8_000, 128);
+    assert!(rig.taken().is_empty(), "nothing for a take");
+    let played = rig.played();
+    assert_eq!(
+        played
+            .iter()
+            .map(|c| (c.track, c.frame, c.state, c.msg))
+            .collect::<Vec<_>>(),
+        vec![
+            (A, 1_000, Heard::Stopped, Msg::note_on(0, 60, 100)),
+            (A, 5_000, Heard::Stopped, Msg::note_off(0, 60)),
+        ]
+    );
+}
+
+#[test]
+fn notes_played_while_the_song_moves_are_kept_with_the_position_heard() {
+    let mut rig = rig(vec![
+        MidiTrack::new(A, Target::Instrument, None, Vec::new()).listening(keys()),
+    ]);
+    rig.transport.send(Command::Play).unwrap();
+    rig.run(128, 128);
+    rig.live.send(2_000, 2_000, Msg::note_on(0, 62, 90));
+    rig.run(4_000, 128);
+    let played = rig.played();
+    assert_eq!(played.len(), 1);
+    assert_eq!(played[0].state, Heard::Playing);
+    assert!(played[0].at > 0, "{:?}", played[0]);
+}
+
+#[test]
+fn a_track_that_neither_listens_nor_is_armed_keeps_nothing_for_capture() {
+    let mut rig = rig(vec![MidiTrack::new(
+        A,
+        Target::Instrument,
+        None,
+        Vec::new(),
+    )]);
+    rig.live.send(1_000, 1_000, Msg::note_on(0, 60, 100));
+    rig.run(4_000, 128);
+    assert!(rig.played().is_empty());
+}
+
+#[test]
+fn an_armed_track_keeps_what_it_is_sent_for_capture_whatever_its_monitor() {
+    // Recording route only: it does not listen (its monitor is Off).
+    let mut rig = rig(vec![recorder(A)]);
+    rig.live.send(1_000, 1_000, Msg::note_on(0, 60, 100));
+    rig.run(4_000, 128);
+    assert_eq!(rig.played().len(), 1);
+}
+
+#[test]
+fn what_a_take_keeps_is_not_also_offered_to_capture() {
+    let mut rig = rig(vec![recorder(A)]);
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    rig.run(128, 128);
+    rig.live.send(1_000, 1_000, Msg::note_on(0, 60, 100));
+    rig.run(4_000, 128);
+    assert_eq!(rig.taken().len(), 1);
+    assert!(rig.played().is_empty());
 }

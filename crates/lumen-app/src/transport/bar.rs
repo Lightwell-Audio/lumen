@@ -436,6 +436,15 @@ impl Transport {
                 if widgets::switch(ui, &mut only, "Only while recording", true).clicked() {
                     self.requests.push(Run::RecordOnlyMetronome);
                 }
+                let mut keep = record.keep_played;
+                if widgets::switch(ui, &mut keep, "Keep played notes", true)
+                    .on_hover_text(
+                        "Keeps the last ten minutes of notes you play while not recording,                          in memory only, for Capture MIDI",
+                    )
+                    .clicked()
+                {
+                    self.requests.push(Run::KeepPlayedNotes);
+                }
                 // Its own output, never through the master (the owner's D6):
                 // the main pair, or the cue pair for the headphones.
                 ui.separator();

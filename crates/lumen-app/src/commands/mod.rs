@@ -220,6 +220,8 @@ pub(crate) enum Command {
     TakeNext,
     TakePrevious,
     TakeKeepOnly,
+    CaptureMidi,
+    KeepPlayedNotes,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -505,6 +507,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::TakeNext, "clip.take_next", "Play next take", Area::Clip, &[], "Plays the next take of the selected clips that have takes (a loop recording keeps every pass), round the set. The clip stays where it is; only the pass it plays changes."),
     info(Command::TakePrevious, "clip.take_previous", "Play previous take", Area::Clip, &[], "Plays the take before the one playing on the selected clips that have takes, round the set."),
     info(Command::TakeKeepOnly, "clip.take_keep", "Keep only this take", Area::Clip, &[], "Throws away the other takes of the selected clips and keeps the one each plays. Audio stays in the media pool. Undo brings the takes back."),
+    info(Command::CaptureMidi, "transport.capture_midi", "Capture MIDI", Area::Transport, &[shift(Key::F9)], "Turns the notes you last played on a MIDI track, while not recording, into a clip. Played while the song was moving, they land where you heard them; played while stopped, the first note lands on the playhead. Nothing under the clip is lost, and Undo takes it away. Lumen keeps the last ten minutes of what you play, in memory only."),
+    info(Command::KeepPlayedNotes, "transport.keep_played_notes", "Keep played notes for Capture MIDI", Area::Transport, &[], "Keeps the notes you play on MIDI tracks while not recording, in memory for ten minutes, so Capture MIDI can turn them into a clip. Off, nothing is kept and what was kept is forgotten."),
 ];
 
 const fn info(
@@ -554,7 +558,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::TakeKeepOnly as usize + 1,
+            Command::KeepPlayedNotes as usize + 1,
             ALL.len(),
             "a command is missing"
         );

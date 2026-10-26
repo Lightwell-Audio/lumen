@@ -268,6 +268,11 @@ impl App {
             Command::TakeNext => self.step_selected_takes(1),
             Command::TakePrevious => self.step_selected_takes(-1),
             Command::TakeKeepOnly => self.keep_only_selected_take(),
+            Command::CaptureMidi => self.capture_midi(),
+            Command::KeepPlayedNotes => {
+                let record = &mut self.settings.record;
+                record.keep_played = !record.keep_played;
+            }
             Command::NudgeEarlierFine => self.note_op(NoteOp::Nudge {
                 direction: -1,
                 fine: true,

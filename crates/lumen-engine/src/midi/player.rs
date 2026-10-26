@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use super::capture::{self, Captured};
+use super::capture::{self, Captured, Heard};
 use super::clock::ClockOut;
 use super::hold::{self, Clock, MAX_EVENTS};
 use super::live::{AUDITION, LiveIn, LiveInput};
@@ -344,6 +344,8 @@ impl MidiPlayer {
                         source: down.source,
                         at,
                         pass,
+                        frame: start,
+                        state: Heard::Recording,
                         msg,
                     });
                     if kept.is_err() {
@@ -394,11 +396,38 @@ impl MidiPlayer {
                             source: m.source,
                             at,
                             pass: pass.wrapping_sub(u32::from(back)),
+                            frame: m.played,
+                            state: Heard::Recording,
                             msg: m.msg,
                         });
                         if kept.is_err() {
                             *lost = lost.saturating_add(1);
                         }
+                    }
+                }
+                // Not recording, what a track hears or is armed for is kept
+                // for Capture MIDI: its device frame, and whether the
+                // transport moved.
+                if !cx.recording
+                    && m.source != AUDITION
+                    && (track.record.takes(m.source, m.msg) || track.listen.takes(m.source, m.msg))
+                {
+                    let (at, _) = capture::heard(cx, m.played, wrapped);
+                    let kept = capture.push(Captured {
+                        track: track.id,
+                        source: m.source,
+                        at,
+                        pass,
+                        frame: m.played,
+                        state: if cx.mode == Mode::Play {
+                            Heard::Playing
+                        } else {
+                            Heard::Stopped
+                        },
+                        msg: m.msg,
+                    });
+                    if kept.is_err() {
+                        *lost = lost.saturating_add(1);
                     }
                 }
                 if !track.sounds() {
@@ -610,6 +639,8 @@ impl MidiPlayer {
                 source: capture::WRAP,
                 at: 0,
                 pass: self.pass,
+                frame: 0,
+                state: Heard::Recording,
                 msg: Msg([0, 0, 0]),
             };
             if self.capture.push(marker).is_err() {

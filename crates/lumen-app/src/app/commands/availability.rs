@@ -244,6 +244,7 @@ impl App {
                 self.can_freeze_targets(),
                 "Select an audio or MIDI track to freeze",
             ),
+            Command::CaptureMidi => self.capture_midi_ready(),
             Command::TakeNext | Command::TakePrevious | Command::TakeKeepOnly => need(
                 self.document
                     .project()
@@ -470,6 +471,7 @@ impl App {
             | Command::CountInTwoBars
             | Command::CountInFourBars
             | Command::RecordOnlyMetronome
+            | Command::KeepPlayedNotes
             | Command::ComputerKeyboard
             | Command::ToggleFollow
             | Command::AddAudioTrack

@@ -87,6 +87,7 @@ mod note_editor;
 mod owner;
 mod panels;
 mod piano_roll;
+mod played;
 mod playhead;
 mod plugins;
 mod position;

@@ -10,6 +10,7 @@ mod auto_keys;
 mod auto_params;
 pub(crate) mod auto_recording;
 mod bench_callback;
+pub(crate) mod capture_midi;
 pub(crate) mod clip_bounce;
 pub(crate) mod clip_card;
 mod clip_commands;

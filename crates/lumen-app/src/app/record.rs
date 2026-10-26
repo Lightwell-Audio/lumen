@@ -20,7 +20,7 @@
 use std::time::{Duration, Instant};
 
 use lumen_core::time::Ticks;
-use lumen_engine::Captured;
+use lumen_engine::{Captured, Heard};
 use lumen_project::edit::record::Mode;
 use lumen_project::model::{Id, TrackKind};
 
@@ -28,6 +28,7 @@ use crate::App;
 use crate::arrangement::recording_look::RecordingLook;
 use crate::auto_record::Mode as AutoMode;
 use crate::document::Recording;
+use crate::played::Played;
 use crate::recorder::Capture;
 
 use super::audio_record::{AudioRecord, Lane};
@@ -48,6 +49,10 @@ pub(crate) struct Record {
     session: Option<Session>,
     /// The audio half: files being closed after a recording (M9 slice R2).
     pub(super) audio: AudioRecord,
+    /// What was played while not recording, for Capture MIDI (M9 slice R3).
+    pub(super) played: Played,
+    /// The document session the buffer belongs to: another one empties it.
+    played_for: u64,
 }
 
 impl Record {
@@ -381,10 +386,9 @@ impl App {
         // The metronome sounds only while recording, when so asked.
         self.transport
             .gate_metronome(self.settings.record.only_while_recording && !snap.recording);
+        self.tidy_played();
         let Some(mut session) = self.record.session.take() else {
-            if let Some(queue) = self.record.queue.as_mut() {
-                while queue.pop().is_ok() {}
-            }
+            self.keep_played_only();
             return;
         };
         if session.document != self.document.session() {
@@ -420,8 +424,37 @@ impl App {
         self.record.session = Some(session);
     }
 
+    /// Empties the buffer of Capture MIDI when its setting is off or another
+    /// project was opened.
+    fn tidy_played(&mut self) {
+        let document = self.document.session();
+        let record = &mut self.record;
+        if record.played_for != document || !self.settings.record.keep_played {
+            record.played.clear();
+            record.played_for = document;
+        }
+        record.played.forget(Instant::now());
+    }
+
+    /// With no recording, everything the engine kept is for Capture MIDI
+    /// (or thrown away, when that is off).
+    fn keep_played_only(&mut self) {
+        let keep = self.settings.record.keep_played;
+        let record = &mut self.record;
+        let Some(queue) = record.queue.as_mut() else {
+            return;
+        };
+        let now = Instant::now();
+        while let Ok(captured) = queue.pop() {
+            if keep && captured.state != Heard::Recording {
+                record.played.push(&captured, now);
+            }
+        }
+    }
+
     /// Turns what the engine kept into notes and events.
     fn keep_captured(&mut self, session: &mut Session, rate: u32) {
+        let keep = self.settings.record.keep_played;
         let Some(queue) = self.record.queue.as_mut() else {
             return;
         };
@@ -435,8 +468,14 @@ impl App {
             .map_or(0, |i| i64::from(i.output_latency));
         let timeline = &self.transport.timeline;
         let ticks = |sample: i64| timeline.ticks_at(sample, rate.max(1));
+        let now = Instant::now();
         while let Ok(captured) = queue.pop() {
-            if rate > 0 {
+            if captured.state != Heard::Recording {
+                // Played during the count-in: for Capture MIDI, not the take.
+                if keep {
+                    self.record.played.push(&captured, now);
+                }
+            } else if rate > 0 {
                 session.capture.push(&captured, latency, &ticks);
             }
         }
@@ -624,6 +663,8 @@ mod tests {
                 source: 0,
                 at: 150,
                 pass: 2,
+                frame: 0,
+                state: Heard::Recording,
                 msg: Msg::note_on(0, 60, 90),
             },
             0,

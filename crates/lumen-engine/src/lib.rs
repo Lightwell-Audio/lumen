@@ -44,7 +44,7 @@ pub use input::{
 };
 pub use metronome::{ClickSound, MetronomeSettings};
 pub use midi::{
-    AUDITION, CLOCK_TICKS, Captured, INPUT_SLOTS, InstrumentSpec, KEYBOARD, Listen, LiveIn,
+    AUDITION, CLOCK_TICKS, Captured, Heard, INPUT_SLOTS, InstrumentSpec, KEYBOARD, Listen, LiveIn,
     LiveInput, MidiClip, MidiControl, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack,
     RecordTiming, SOURCES as LIVE_SOURCES, Target, WRAP, control_list, midi_player, note_list,
     record_position,

@@ -149,6 +149,38 @@ impl Document {
     }
 }
 
+impl Document {
+    /// Places the phrase `take` captured on the MIDI track `track` as one
+    /// clip, one undo step (Capture MIDI, M9 slice R3). It is placed as an
+    /// Overdub, so what the track plays under it is kept in the clip.
+    /// Returns the id of the clip; a locked clip in the way gives `Blocked`
+    /// and nothing changes.
+    pub fn capture_midi(&mut self, track: Id, take: &Take) -> Result<Id, Blocked> {
+        let take_clip = self.fresh_id();
+        let base = self.project().clone();
+        let mut next = base.clone();
+        let mut fresh = fresh_ids(&mut self.next_id);
+        let placed = record::place(
+            &mut next,
+            &base,
+            track,
+            take,
+            Placement {
+                mode: Mode::Overdub,
+                punch: None,
+                take_clip,
+            },
+            &mut fresh,
+        )?;
+        let Some(&clip) = placed.first() else {
+            return Err(Blocked);
+        };
+        self.history
+            .apply("Capture MIDI", None, |project| *project = next);
+        Ok(clip)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
