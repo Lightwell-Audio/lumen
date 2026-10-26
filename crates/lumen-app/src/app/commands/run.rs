@@ -265,6 +265,9 @@ impl App {
             Command::FlattenTracks => self.flatten_selected_tracks(),
             Command::NextTrackInput => self.next_input_for_selected(),
             Command::NextTrackMonitor => self.next_monitor_for_selected(),
+            Command::TakeNext => self.step_selected_takes(1),
+            Command::TakePrevious => self.step_selected_takes(-1),
+            Command::TakeKeepOnly => self.keep_only_selected_take(),
             Command::NudgeEarlierFine => self.note_op(NoteOp::Nudge {
                 direction: -1,
                 fine: true,

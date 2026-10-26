@@ -71,7 +71,9 @@ impl App {
             self.say("Select two or more clips to join".to_owned());
             return;
         }
+        let held = self.other_takes_held();
         let joined = self.document.join_clips(&ids);
+        self.say_dropped_takes(held);
         if joined.merged > 0 {
             self.arrangement.clips = joined.clips.iter().copied().collect();
             self.arrangement.clip_cursor = None;
@@ -100,7 +102,9 @@ impl App {
     /// Turns the selected looping clips into real clips.
     pub(crate) fn unloop_selected_clips(&mut self) {
         let ids = self.selected_clip_ids();
+        let held = self.other_takes_held();
         let (now, too_long) = self.document.unloop_clips(&ids);
+        self.say_dropped_takes(held);
         if too_long {
             self.say("A clip repeats too many times to unloop".to_owned());
         }
@@ -110,10 +114,96 @@ impl App {
         }
     }
 
+    /// How many passes the project's clips hold besides the ones they play.
+    fn other_takes_held(&self) -> u32 {
+        self.document
+            .project()
+            .tracks
+            .iter()
+            .flat_map(|t| &t.clips)
+            .filter_map(|c| c.takes.as_ref())
+            .map(|t| t.count - 1)
+            .sum()
+    }
+
+    /// Says so when an edit that rewrites clips left them with fewer takes
+    /// than `before` (see `other_takes_held`): the clip keeps the pass it
+    /// plays, and undo brings the rest back.
+    fn say_dropped_takes(&mut self, before: u32) {
+        let dropped = before.saturating_sub(self.other_takes_held());
+        if dropped > 0 {
+            self.say(format!(
+                "{} other {} removed with the clip's change. Undo brings {} back.",
+                dropped,
+                if dropped == 1 {
+                    "take was"
+                } else {
+                    "takes were"
+                },
+                if dropped == 1 { "it" } else { "them" },
+            ));
+        }
+    }
+
+    /// Plays the next or previous take of the selected clips that have them.
+    pub(crate) fn step_selected_takes(&mut self, by: i32) {
+        let ids = self.selected_clip_ids();
+        let Some(now) = self.document.step_takes(&ids, by) else {
+            self.say("Select a clip that has takes".to_owned());
+            return;
+        };
+        let count = self
+            .document
+            .project()
+            .tracks
+            .iter()
+            .flat_map(|t| &t.clips)
+            .find_map(|c| c.takes.as_ref().filter(|_| ids.contains(&c.id)))
+            .map_or(0, |t| t.count);
+        self.say(format!("Take {} of {}", now + 1, count));
+    }
+
+    /// Plays take `take` (from 0) of the clip, from its Takes menu.
+    pub(crate) fn play_clip_take(&mut self, clip: Id, take: u32) {
+        if self.document.play_take(clip, take) {
+            self.say(format!("Playing take {}", take + 1));
+        }
+    }
+
+    /// Throws away the other takes of the selected clips.
+    pub(crate) fn keep_only_selected_take(&mut self) {
+        let ids = self.selected_clip_ids();
+        let dropped = self.document.keep_only_take(&ids);
+        if dropped > 0 {
+            self.say(format!(
+                "Kept the playing take; {} other {} removed. Undo brings {} back.",
+                dropped,
+                if dropped == 1 {
+                    "take was"
+                } else {
+                    "takes were"
+                },
+                if dropped == 1 { "it" } else { "them" },
+            ));
+        }
+    }
+
+    /// Puts take `take` (from 0) of the audio clip on a new track after its
+    /// own.
+    pub(crate) fn extract_clip_take(&mut self, clip: Id, take: u32) {
+        if let Some(made) = self.document.extract_take(clip, take) {
+            self.arrangement.clips = std::iter::once(made.clip).collect();
+            self.arrangement.clip_cursor = None;
+            self.say(format!("Take {} is on a new track", take + 1));
+        }
+    }
+
     /// Plays the selected audio clips backwards, or forwards again.
     pub(crate) fn reverse_selected_clips(&mut self) {
         let ids = self.selected_clip_ids();
+        let held = self.other_takes_held();
         let done = self.document.reverse_clips(&ids);
+        self.say_dropped_takes(held);
         if done.refused > 0 {
             self.say(if done.changed > 0 {
                 "Some clips were left as they were: they reach past the end of their file"

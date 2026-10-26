@@ -217,6 +217,9 @@ pub(crate) enum Command {
     FlattenTracks,
     NextTrackInput,
     NextTrackMonitor,
+    TakeNext,
+    TakePrevious,
+    TakeKeepOnly,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -499,6 +502,9 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::FlattenTracks, "track.flatten", "Flatten track", Area::Track, &[], "Turns a frozen track into a plain audio track that holds the rendered file. Its clips, notes, instrument and devices are removed; its name, colour, fader, pan, sends and output stay. A MIDI track becomes an audio track. Undo brings everything back."),
     info(Command::NextTrackInput, "track.input_next", "Next track input", Area::Track, &[], "Steps the selected audio tracks to the next input of the audio device: none, each stereo pair, then each mono input. Arming a track without an input picks the first free one for you."),
     info(Command::NextTrackMonitor, "track.monitor_next", "Next monitor mode", Area::Track, &[], "Steps the selected audio tracks through Auto, In and Off. Auto plays what the input hears while the track is armed and the transport is stopped or recording; In always does; Off never does."),
+    info(Command::TakeNext, "clip.take_next", "Play next take", Area::Clip, &[], "Plays the next take of the selected clips that have takes (a loop recording keeps every pass), round the set. The clip stays where it is; only the pass it plays changes."),
+    info(Command::TakePrevious, "clip.take_previous", "Play previous take", Area::Clip, &[], "Plays the take before the one playing on the selected clips that have takes, round the set."),
+    info(Command::TakeKeepOnly, "clip.take_keep", "Keep only this take", Area::Clip, &[], "Throws away the other takes of the selected clips and keeps the one each plays. Audio stays in the media pool. Undo brings the takes back."),
 ];
 
 const fn info(
@@ -548,7 +554,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::NextTrackMonitor as usize + 1,
+            Command::TakeKeepOnly as usize + 1,
             ALL.len(),
             "a command is missing"
         );
