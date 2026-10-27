@@ -394,8 +394,7 @@ fn draw_device(
     // Right to left: the star, then what the row says of itself. At rest
     // a row is its name alone, a favourite keeping its star; the tag and
     // star show under the pointer and on the selected row (the interface
-    // audit's B4), so names get the width. A flat list (Recent) always
-    // says each row's vendor, as no header does.
+    // audit's B4), so names get the width.
     let shown = hovered || selected;
     let mut right = rect.right() - PAD;
     if favorite || shown {

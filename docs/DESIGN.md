@@ -1253,7 +1253,8 @@ names).
 - **Rows:** the star shows on a favourite, and on the hovered or selected
   row; elsewhere the column is empty. A hovered or selected row also shows
   its category as a tag when the pane is wide enough. A flat list (Recent)
-  has no vendor headers, so every row there says its vendor instead. On a
+  has no vendor headers, so every row there says its vendor, always and at
+  any width. On a
   selected row the tag steps up to `text_secondary` so it stays readable on
   the highlight.
 - **Group headers:** the count sits centred on the star column.

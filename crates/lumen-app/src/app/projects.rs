@@ -575,8 +575,10 @@ impl App {
     }
 
     /// While the save question is up, takes a plain Enter for it before the
-    /// keymap or any other window can read the key, when nothing has the
-    /// keyboard (a focused button answers its own Enter).
+    /// keymap and the main window's other windows read the key, when nothing
+    /// has the keyboard (a focused button answers its own Enter). A
+    /// popped-out editor reads its own keys; `command_keys` leaves Enter
+    /// alone there while the question is up.
     pub(crate) fn take_prompt_enter(&mut self, ctx: &egui::Context) {
         self.prompt_enter = self.prompt.is_some()
             && !self.typing
@@ -628,9 +630,10 @@ impl App {
                     });
                 });
             });
+        let entered = std::mem::take(&mut self.prompt_enter);
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             choice = Some(2);
-        } else if std::mem::take(&mut self.prompt_enter) && choice.is_none() {
+        } else if entered && choice.is_none() {
             choice = Some(0);
         }
         match choice {

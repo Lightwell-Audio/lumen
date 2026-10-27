@@ -317,4 +317,5 @@ fn enter_for_the_save_question_reaches_no_other_window() {
         lumen.shows("Include effects") && !lumen.app().bounce_started(),
         "and reached no other window"
     );
+    assert!(lumen.app().project_path().is_none() && lumen.app().is_dirty());
 }

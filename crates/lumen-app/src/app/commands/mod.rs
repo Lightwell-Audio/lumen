@@ -175,6 +175,13 @@ impl App {
             if (focused && chord.used_by_controls()) || self.availability(ctx, command).is_err() {
                 continue;
             }
+            // While the save question is up, a plain Enter is its (Save),
+            // also in a popped-out editor's window, which reads its own keys.
+            if self.prompt.is_some()
+                && chord == Chord::pressed(egui::Modifiers::NONE, egui::Key::Enter)
+            {
+                continue;
+            }
             ctx.input_mut(|i| {
                 let at = i.events.iter().position(|event| {
                     matches!(*event, egui::Event::Key { key, pressed: true, modifiers, .. }

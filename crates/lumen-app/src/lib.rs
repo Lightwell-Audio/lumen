@@ -164,8 +164,9 @@ pub struct App {
     opening: Option<std::sync::mpsc::Receiver<Result<files::Opened, String>>>,
     /// What to do once unsaved changes are dealt with.
     prompt: Option<Next>,
-    /// Enter answered the save question this frame: taken before anything
-    /// else could read the key (the interface audit's W1).
+    /// Enter answered the save question this frame: taken before the keymap
+    /// and the main window's other windows read the key (the interface
+    /// audit's W1).
     prompt_enter: bool,
     /// What to do after the save in progress succeeds.
     after_save: Option<Next>,
