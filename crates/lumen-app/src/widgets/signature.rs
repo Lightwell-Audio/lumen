@@ -1,15 +1,15 @@
 //! The time signature as one field, "4 / 4" (the interface audit's S7): it
-//! was a drag value and a combo box side by side. A field of the design
-//! system (the Field card, ADR-0052): a well with a border, its digits in
-//! Martian Mono, the Ember wash on the half under the pointer. Drag up or down, or turn
+//! was a drag value and a combo box side by side. A piece of the transport
+//! bar's numeric well (the interface audit's TB1): its digits in Martian
+//! Mono, the Ember wash on the half under the pointer. Drag up or down, or turn
 //! the wheel, over the top number to change the beats; over the bottom one
 //! to change the beat unit. Click and type "7/8" (Enter applies, Esc
 //! cancels); double-click for 4/4; arrow keys when focused.
 
-use eframe::egui::{self, Align2, FontId, Id as EguiId, Key, Rect, Sense, Ui, pos2, vec2};
+use eframe::egui::{self, Align2, FontId, Id as EguiId, Key, Rect, Sense, Ui, pos2};
 use eframe::emath::GuiRounding as _;
 
-use super::{raised, wheel};
+use super::{raised, well, wheel};
 use crate::{motion, theme};
 
 /// The beat units a signature can have.
@@ -17,7 +17,7 @@ pub const UNITS: [u32; 7] = [1, 2, 4, 8, 16, 32, 64];
 /// Points of drag for one step.
 const DRAG_STEP: f32 = 12.0;
 /// The field's width: room for "12 / 16".
-const WIDTH: f32 = 56.0;
+pub const WIDTH: f32 = 56.0;
 
 /// Reads "7/8", "7 / 8", "7 8" or "7" (keeping `unit`); `None` when it is
 /// not a signature Lumen has.
@@ -36,9 +36,11 @@ pub fn parse(text: &str, unit: u32, max_beats: u32) -> Option<(u32, u32)> {
     Some((beats, unit))
 }
 
-/// The time signature field; returns a new signature when it changed.
+/// The time signature field, in `rect` (a piece of a well the caller has
+/// painted); returns a new signature when it changed.
 pub fn time_signature(
     ui: &mut Ui,
+    rect: Rect,
     id: EguiId,
     (beats, unit): (u32, u32),
     max_beats: u32,
@@ -46,15 +48,21 @@ pub fn time_signature(
     let palette = theme::p();
     let font = FontId::monospace(theme::size::BODY);
     let typing_id = id.with("typing");
-    let size = vec2(WIDTH, theme::size::CONTROL);
+    let rect = rect.round_to_pixels(ui.pixels_per_point());
+    let radius = well::piece_radius(rect.height());
     if let Some(mut text) = ui.data(|d| d.get_temp::<String>(typing_id)) {
-        let edit = ui.add_sized(
-            size,
+        // Typed in place: the piece keeps its size, the well is its ground.
+        let mut field = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+        let edit = field.add_sized(
+            rect.size(),
             egui::TextEdit::singleline(&mut text)
                 .id(id.with("edit"))
                 .font(font)
+                .frame(egui::Frame::NONE)
+                .vertical_align(egui::Align::Center)
                 .horizontal_align(egui::Align::Center),
         );
+        raised::paint_focus(ui.painter(), rect, radius);
         if !edit.has_focus() && !edit.lost_focus() {
             edit.request_focus();
         }
@@ -70,9 +78,12 @@ pub fn time_signature(
         return None;
     }
 
-    let (rect, response) = ui.allocate_exact_size(size, Sense::click_and_drag());
-    let response = response.on_hover_text(
-        "Time signature: drag or wheel over a number to change it, click to type 7/8, double-click for 4/4",
+    let response = ui.interact(rect, id, Sense::click_and_drag());
+    let response = super::tip(
+        response,
+        "Time signature",
+        None,
+        Some("Drag or wheel over a number to change it, click to type 7/8, double-click for 4/4"),
     );
     response.widget_info(|| {
         egui::WidgetInfo::labeled(
@@ -141,10 +152,7 @@ pub fn time_signature(
             response.hovered() || response.dragged(),
         );
         let controls = theme::controls(false);
-        let rect = rect.round_to_pixels(ui.pixels_per_point());
-        let radius = theme::radius::for_height(rect.height());
         let painter = ui.painter();
-        raised::paint_field(painter, rect, radius, hover);
         // Ember on the half the wheel or a drag would change.
         if hover > 0.0 {
             let half = if over_unit {
@@ -189,7 +197,9 @@ pub fn time_signature(
             font,
             colour(true),
         );
-        raised::focus_ring(painter, &response, rect);
+        if response.has_focus() {
+            raised::paint_focus(painter, rect, radius);
+        }
     }
     (out != (beats, unit)).then_some(out)
 }

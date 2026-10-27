@@ -4,6 +4,7 @@
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, RichText, Ui};
+use eframe::emath::GuiRounding as _;
 
 use lumen_engine::Command;
 use lumen_project::model::Project;
@@ -14,6 +15,9 @@ use crate::{theme, widgets};
 
 use super::Transport;
 use super::{compensation, dropouts};
+
+/// The audio light's radius, in the status chip.
+const DOT_RADIUS: f32 = 4.0;
 
 /// What dropouts mean, and what helps.
 const DROPOUT_HELP: &str =
@@ -202,9 +206,8 @@ impl Transport {
 
     fn audio_panel_rows(&mut self, ui: &mut Ui, project: &Project) {
         match &self.audio.status {
-            Status::Running { device, detail } => {
+            Status::Running { device, .. } => {
                 ui.label(RichText::new(device).strong());
-                ui.label(RichText::new(detail).small());
                 self.latency(ui, project);
             }
             Status::Starting => {
@@ -325,19 +328,24 @@ impl Transport {
         }
     }
 
-    /// The panel's Latency rows: the device's, then delay compensation
-    /// (D1: always here, even at 0) and the path that sets it.
+    /// The device's rows, one label and value each (the interface audit's
+    /// T2): rate, buffer and latencies, then delay compensation (D1:
+    /// always here, even at 0) and the path that sets it.
     fn latency(&self, ui: &mut Ui, project: &Project) {
         let rate = self.state().sample_rate;
         let found = self.audio.mixer.compensation();
         let frames = found.frames;
-        ui.separator();
-        ui.label(RichText::new("Latency").small().strong());
         egui::Grid::new("audio latency")
             .num_columns(2)
             .show(ui, |ui| {
                 if let Some(info) = &self.audio.info {
-                    ui.label("Output");
+                    ui.label("Sample rate");
+                    ui.label(format!("{:.1} kHz", f64::from(info.sample_rate) / 1000.0));
+                    ui.end_row();
+                    ui.label("Buffer");
+                    ui.label(format!("{} samples", info.buffer_frames));
+                    ui.end_row();
+                    ui.label("Output latency");
                     ui.label(format!(
                         "{:.1} ms",
                         compensation::ms(info.output_latency, info.sample_rate)
@@ -386,9 +394,7 @@ impl Transport {
             Status::Running { device, detail } => (
                 format!("{device} · {detail}"),
                 theme::p().text_secondary,
-                "Audio device, sample rate, buffer and round-trip latency. Choose the device \
-                 with --audio until the device selector arrives"
-                    .to_owned(),
+                "Audio device, sample rate, buffer and round-trip latency".to_owned(),
             ),
             Status::Lost(why) => (
                 "Audio device lost: reconnecting…".to_owned(),
@@ -426,61 +432,80 @@ impl Transport {
             Status::Running { .. } => compensation::readout(found.frames, rate),
             _ => None,
         };
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
-        ui.painter().circle_filled(rect.center(), 4.0, dot);
-        if response.hovered() {
-            ui.painter()
-                .circle_stroke(rect.center(), 6.0, egui::Stroke::new(1.0, theme::p().text));
-        }
         let name = match &extra {
             Some(extra) => format!("Audio: {text} · {extra}"),
             None => format!("Audio: {text}"),
         };
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+        // The chip shows the device and its rate; the buffer and the round
+        // trip are in the tooltip and the panel (the interface audit's TB1).
+        let shown = match &self.audio.status {
+            Status::Running { device, detail } => {
+                let rate = detail.split(" · ").next().unwrap_or(detail);
+                format!("{device} · {rate}")
+            }
+            _ => text,
+        };
+        let small = egui::TextStyle::Small.resolve(ui.style());
+        let gap = theme::space::XS;
+        // The device text, shortened to its room (`fit`'s plan).
+        let device = (self.fit.plan.device > gap).then(|| {
+            let mut job = egui::text::LayoutJob::single_section(
+                shown,
+                egui::TextFormat::simple(small.clone(), color),
+            );
+            job.wrap = egui::text::TextWrapping::truncate_at_width(self.fit.plan.device - gap);
+            ui.fonts_mut(|fonts| fonts.layout_job(job))
+        });
         // The compensation readout, a step brighter than the device text.
         let tail = extra
             .as_ref()
             .filter(|_| self.fit.plan.compensation)
             .map(|extra| {
                 let mut tail = egui::text::LayoutJob::default();
-                let small = egui::TextStyle::Small.resolve(ui.style());
                 let section = |colour| egui::TextFormat::simple(small.clone(), colour);
                 tail.append(" · ", 0.0, section(theme::p().text_hint));
                 tail.append(extra, 0.0, section(theme::p().text));
                 ui.fonts_mut(|fonts| fonts.layout_job(tail))
             });
-        let device_room = self.fit.plan.device;
-        let before = ui.cursor().left();
-        let label = ui
-            .scope(|ui| {
-                ui.spacing_mut().item_spacing.x = 0.0;
-                let mut label: Option<egui::Response> = None;
-                if device_room > 0.0 {
-                    let device = ui
-                        .scope(|ui| {
-                            ui.set_max_width(device_room);
-                            ui.add(
-                                egui::Label::new(RichText::new(text).small().color(color))
-                                    .truncate()
-                                    .sense(egui::Sense::click()),
-                            )
-                        })
-                        .inner;
-                    label = Some(device);
-                }
-                if let Some(tail) = tail {
-                    let compensation = ui.add(egui::Label::new(tail).sense(egui::Sense::click()));
-                    label = Some(match label {
-                        Some(device) => device.union(compensation),
-                        None => compensation,
-                    });
-                }
-                label
-            })
-            .inner
-            .map(|label| label.on_hover_text(tip.as_str()));
-        self.fit.took(ui, before);
-        if extra.is_some() && label.as_ref().is_some_and(|l| l.hovered()) {
+        // What the text takes beyond the dot is `fit`'s optional room.
+        let texts = device.as_ref().map_or(0.0, |g| gap + g.size().x)
+            + tail.as_ref().map_or(0.0, |g| g.size().x);
+        // A raised chip holding the light and the text: the light always
+        // fits and shows the state at a glance (the owner kept it, TB1).
+        let pad = theme::space::S;
+        let light = 2.0 * DOT_RADIUS;
+        let size = egui::vec2(2.0 * pad + light + texts, theme::size::CONTROL);
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+        self.fit.spent(texts);
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+        if ui.is_rect_visible(rect) {
+            let open = widgets::Menu::is_open_for(ui.ctx(), response.id);
+            let hover = crate::motion::hover(
+                ui.ctx(),
+                response.id.with("hover"),
+                response.hovered() || response.has_focus() || open,
+            );
+            let rect = rect.round_to_pixels(ui.pixels_per_point());
+            let face = widgets::raised::Face::new(theme::controls(false))
+                .hover(hover)
+                .pressed(response.is_pointer_button_down_on());
+            let radius = theme::radius::for_height(rect.height());
+            widgets::raised::paint(ui.painter(), rect, radius, &face);
+            widgets::raised::focus_ring(ui.painter(), &response, rect);
+            let painter = ui.painter();
+            let centre = egui::pos2(rect.left() + pad + DOT_RADIUS, rect.center().y);
+            painter.circle_filled(centre, DOT_RADIUS, dot);
+            let mut x = rect.left() + pad + light;
+            if device.is_some() {
+                x += gap;
+            }
+            for galley in [device, tail].into_iter().flatten() {
+                let at = egui::pos2(x, rect.center().y - galley.size().y / 2.0).round();
+                x += galley.size().x;
+                painter.galley(at, galley, color);
+            }
+        }
+        if extra.is_some() && response.hovered() {
             self.info = Some(Info::new(compensation::about(project, &found, rate)).on(
                 Held::NONE,
                 Mouse::Click,
@@ -488,9 +513,6 @@ impl Transport {
             ));
         }
         let mut response = response.on_hover_text(tip);
-        if let Some(label) = label {
-            response = response.union(label);
-        }
         if let Some(chip) = chip {
             response = response.union(chip);
         }

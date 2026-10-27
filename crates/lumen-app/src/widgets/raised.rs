@@ -146,8 +146,16 @@ pub fn paint(painter: &Painter, rect: Rect, radius: u8, face: &Face) -> Rect {
 /// A well cut into the surface (a segmented control's trough, a groove, a
 /// meter): `well` with the `shade` lip along its top.
 pub fn paint_sunken(painter: &Painter, rect: Rect, radius: u8) {
-    painter.rect_filled(rect, f32::from(radius), theme::p().well);
-    lip(painter, rect, radius, theme::p().shade);
+    painter.extend(sunken_shapes(rect, radius));
+}
+
+/// The shapes [`paint_sunken`] paints, for a well drawn under what it
+/// holds once that is placed (`widgets::well::row`).
+pub fn sunken_shapes(rect: Rect, radius: u8) -> [Shape; 2] {
+    [
+        Shape::rect_filled(rect, f32::from(radius), theme::p().well),
+        lip_shape(rect, radius, theme::p().shade),
+    ]
 }
 
 /// A field (a value field, a readout): sunk, with a 1 pt `border` that
@@ -170,15 +178,19 @@ pub fn paint_field(painter: &Painter, rect: Rect, radius: u8, hover: f32) {
 /// its rounded corners: the edge light on what is raised, the lip on what
 /// is sunk.
 pub fn lip(painter: &Painter, rect: Rect, radius: u8, colour: Color32) {
+    painter.add(lip_shape(rect, radius, colour));
+}
+
+fn lip_shape(rect: Rect, radius: u8, colour: Color32) -> Shape {
     if colour.a() == 0 {
-        return;
+        return Shape::Noop;
     }
     let inset = f32::from(radius).min(rect.width() / 2.0).max(1.0);
-    painter.hline(
+    Shape::hline(
         (rect.left() + inset)..=(rect.right() - inset),
         rect.top() + 1.5 * stroke::HAIRLINE,
         Stroke::new(stroke::HAIRLINE, colour),
-    );
+    )
 }
 
 /// A vertical gradient inside a rounded rectangle: a convex fan with the

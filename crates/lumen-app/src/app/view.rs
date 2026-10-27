@@ -231,7 +231,7 @@ report: {}",
             self.transport.midi_chip(ui, &midi);
             crate::transport::divider(ui);
             let keys = self.keymap.keys(Command::OpenPalette);
-            if icons::button(
+            if icons::toggle(
                 ui,
                 Icon::Search,
                 "Command palette",
@@ -240,21 +240,20 @@ report: {}",
                     hint: None,
                 },
                 self.palette.is_open(),
-                true,
-                "",
             )
             .clicked()
             {
                 self.toggle_palette();
             }
-            // The two panel toggles are icon buttons of the palette's size,
-            // lit while their panel is open.
+            // The two panel toggles are quiet like the palette's: an accent
+            // icon over a short underline while their panel is open (the
+            // interface audit's TB1).
             let panel = |ui: &mut egui::Ui, icon, shown: &mut bool, label, hint, keys| {
                 let tip = widgets::Tip {
                     keys,
                     hint: Some(hint),
                 };
-                if icons::button(ui, icon, label, tip, *shown, true, "").clicked() {
+                if icons::toggle(ui, icon, label, tip, *shown).clicked() {
                     *shown = !*shown;
                 }
             };

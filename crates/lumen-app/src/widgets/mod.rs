@@ -27,7 +27,7 @@ pub mod param;
 mod pills;
 pub mod raised;
 mod scroll_bar;
-mod signature;
+pub(crate) mod signature;
 mod slider;
 mod toggle;
 pub mod well;

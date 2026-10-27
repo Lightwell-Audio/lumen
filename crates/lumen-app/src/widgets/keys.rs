@@ -500,6 +500,9 @@ pub fn tip(
     hint: Option<&str>,
 ) -> egui::Response {
     let show = |ui: &mut Ui| {
+        // A long hint wraps rather than running wide (the interface
+        // audit's TT1).
+        ui.set_max_width(theme::size::TIP_WIDTH);
         ui.horizontal(|ui| {
             ui.label(label);
             if let Some(keys) = keys {
@@ -507,7 +510,9 @@ pub fn tip(
             }
         });
         if let Some(hint) = hint {
-            ui.label(egui::RichText::new(hint).color(theme::p().text_secondary));
+            ui.add(
+                egui::Label::new(egui::RichText::new(hint).color(theme::p().text_secondary)).wrap(),
+            );
         }
     };
     if response.enabled() {

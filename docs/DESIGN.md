@@ -238,7 +238,10 @@ Sentence case for every label ("Audio settings", not
   square icon buttons in a `TRANSPORT_BAR` 44 pt bar;
   `CONTROL_SMALL` 20 pt in dense rows (M, S and arm on headers and strips,
   switches, segmented controls, strip rows, the clip card's rows); knobs
-  `KNOB` 24 pt and, in lists, `KNOB_SMALL` 18 pt. Track headers (M9 R1b,
+  `KNOB` 24 pt and, in lists, `KNOB_SMALL` 18 pt. The transport bar's
+  wells are `CONTROL_LARGE` tall, so their pieces are `WELL_CELL` 26 pt
+  (§7, "The transport bar"). A tooltip grows to `TIP_WIDTH` 280 pt, then
+  its hint wraps. Track headers (M9 R1b,
   ADR-0101): `HEADER_SIDE` 60 pt for the right column (pan, the In chip),
   `WELL_PIECE_W` 18 pt for the pieces of the M S ● well, the magnet and
   the locator arrows (as tall as the well less `space::XXS` each side), `CORNER_ICON` for an icon in a piece
@@ -452,11 +455,27 @@ focusable control (`raised::focus_ring`).
 is painted by `widgets::raised` as §5a says; on states are
 `theme::Tone`: `On` (toggles, pills, the transport's toggles, the Monitor
 badge), `Accent` (filled: the one primary, a lit S, cue, the chosen tool),
-`Mute` (a lit M) and `Record` (recording). Transport icon buttons, the
-solo chip, the MIDI chip, the Monitor badge, dialog and banner buttons,
+`Mute` (a lit M) and `Record` (recording). The Monitor badge, dialog and banner buttons,
 preferences-window buttons, Reset and Panic use `raised::button`,
 `button_inked` or `paint`. Menu rows stay menu rows; value fields stay
 fields.
+
+**The transport bar (the interface audit's TB1, T1, T2 and TT1).** Its
+controls are pieces of sunk wells (`widgets::well::row`), as the header's
+M S ● well is: each piece `space::XXS` inside a `CONTROL_LARGE` well,
+`WELL_CELL` tall, 1 pt from the next, bare at rest, the Ember wash under
+the pointer and filled in its tone while on. Three wells, divided by
+hairlines: go to start, Stop, Play and Record; the modes (Overdub, Loop,
+Metronome, Follow, the computer keyboard with its octave, and the solo
+piece, which clears every solo); and the numbers, tempo, meter and
+position in one well with hairlines between them (`well::dividers`). The
+icon wells have no dividers. The position is typed in its own piece:
+click or Enter, Esc puts it back. The audio status is one raised chip with
+its light and the device and rate; its tooltip has the whole status line,
+and the panel it opens lists the sample rate, buffer, output latency,
+round trip and delay compensation under the device's name. The palette
+and panel toggles are bare icons with a 2 pt accent underline while on
+(`icons::toggle`).
 
 Dropdowns (`widgets::Dropdown`) replace egui's
 `ComboBox`, which stays flat: a closed dropdown is a raised button with the

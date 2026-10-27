@@ -226,13 +226,18 @@ impl Transport {
                 response.hovered() || response.has_focus() || open,
             );
             let rect = rect.round_to_pixels(ui.pixels_per_point());
-            let face = widgets::raised::Face::new(controls)
-                .hover(hover)
-                .pressed(response.is_pointer_button_down_on());
-            let body = widgets::raised::paint(ui.painter(), rect, theme::radius::SMALL, &face);
+            // Quiet, like the panel toggles beside it (the interface
+            // audit's TB1): bare at rest, the Ember wash under the pointer,
+            // sunk while pressed; the lights carry it.
+            let r = f32::from(theme::radius::SMALL);
+            if response.is_pointer_button_down_on() {
+                ui.painter().rect_filled(rect, r, controls.press);
+            } else if hover > 0.0 {
+                ui.painter()
+                    .rect_filled(rect, r, palette.ember.gamma_multiply(hover));
+            }
             widgets::raised::focus_ring(ui.painter(), &response, rect);
             let painter = ui.painter();
-            let rect = body;
             let glyph = egui::Rect::from_center_size(
                 egui::pos2(rect.left() + 12.0, rect.center().y),
                 vec2(12.0, 12.0),

@@ -551,9 +551,14 @@ pub mod size {
     /// arrows): its width; it is as tall as the well less `space::XXS` each
     /// side.
     pub const WELL_PIECE_W: f32 = 18.0;
+    /// A cell of the transport bar's wells (a button, a readout): as tall
+    /// as a 30 pt well less 2 pt each side (the interface audit's TB1).
+    pub const WELL_CELL: f32 = CONTROL_LARGE - 2.0 * super::space::XXS;
     /// An icon in a piece of the ruler corner's wells (the tool, the
     /// magnet, tempo lanes): a step above the caption it sits beside.
     pub const CORNER_ICON: f32 = CAPTION + 3.0;
+    /// The widest a tooltip grows before its hint wraps.
+    pub const TIP_WIDTH: f32 = 280.0;
     /// The level strip beside a header's colour rail.
     pub const LEVEL_STRIP: f32 = 3.0;
     /// A send slot's widest, and the least width that shows its letter.
