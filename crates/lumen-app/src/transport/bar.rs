@@ -597,8 +597,11 @@ impl Transport {
 
         self.position_piece(ui, pieces[2], position);
         if let Some(error) = &self.error {
-            ui.label(RichText::new("⚠").color(theme::p().warning))
+            let warn = ui
+                .label(RichText::new("⚠").color(theme::p().warning))
                 .on_hover_text(error.as_str());
+            let name = format!("Position error: {error}");
+            warn.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &name));
         }
     }
 

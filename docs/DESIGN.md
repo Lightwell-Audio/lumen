@@ -235,13 +235,14 @@ Sentence case for every label ("Audio settings", not
 - **Control sizes** (`theme::size`, M4.5): `CONTROL` 24 pt for buttons,
   fields and combos (egui's `interact_size`); `CONTROL_LARGE` 30 pt for the
   transport's readouts and detail-panel toolbars; `TRANSPORT_ICON` 28 pt
-  square icon buttons in a `TRANSPORT_BAR` 44 pt bar;
+  wide icon buttons in a `TRANSPORT_BAR` 44 pt bar (the toggles square,
+  the wells' pieces `WELL_CELL` tall);
   `CONTROL_SMALL` 20 pt in dense rows (M, S and arm on headers and strips,
   switches, segmented controls, strip rows, the clip card's rows); knobs
   `KNOB` 24 pt and, in lists, `KNOB_SMALL` 18 pt. The transport bar's
   wells are `CONTROL_LARGE` tall, so their pieces are `WELL_CELL` 26 pt
-  (§7, "The transport bar"). A tooltip grows to `TIP_WIDTH` 280 pt, then
-  its hint wraps. Track headers (M9 R1b,
+  (§7, "The transport bar"). A tooltip from `widgets::tip` grows to
+  `TIP_WIDTH` 280 pt, then its hint wraps. Track headers (M9 R1b,
   ADR-0101): `HEADER_SIDE` 60 pt for the right column (pan, the In chip),
   `WELL_PIECE_W` 18 pt for the pieces of the M S ● well, the magnet and
   the locator arrows (as tall as the well less `space::XXS` each side), `CORNER_ICON` for an icon in a piece
@@ -260,7 +261,8 @@ Sentence case for every label ("Audio settings", not
   trough takes the trough's radius less its 2 pt inset.
 - **Strokes** (`theme::stroke`): `HAIRLINE 1` for separators, outlines,
   edge lights and lips; `LIT 1.5` for a Lit or Flare line and icons;
-  `FOCUS 2` for the focus ring and a Beam.
+  `FOCUS 2` for the focus ring and a Beam; `UNDERLINE 2` for the accent
+  line under a toggle that is on.
 - **Elevation:** only windows and popovers float. They get `overlay` fill,
   a `border_strong` outline, the edge light and one soft shadow (offset
   0, 6, blur 18). Nothing else has a shadow.
@@ -464,12 +466,13 @@ fields.
 controls are pieces of sunk wells (`widgets::well::row`), as the header's
 M S ● well is: each piece `space::XXS` inside a `CONTROL_LARGE` well,
 `WELL_CELL` tall, 1 pt from the next, bare at rest, the Ember wash under
-the pointer and filled in its tone while on. Three wells, divided by
-hairlines: go to start, Stop, Play and Record; the modes (Overdub, Loop,
+the pointer and filled in its tone while on. Three wells, with a
+hairline between one well and the next: go to start, Stop, Play and Record; the modes (Overdub, Loop,
 Metronome, Follow, the computer keyboard with its octave, and the solo
 piece, which clears every solo); and the numbers, tempo, meter and
 position in one well with hairlines between them (`well::dividers`). The
-icon wells have no dividers. The position is typed in its own piece:
+pieces of the icon wells have no hairlines between them. The position's
+wash covers its bars, the part a click types into. The position is typed in its own piece:
 click or Enter, Esc puts it back. The audio status is one raised chip with
 its light and the device and rate; its tooltip has the whole status line,
 and the panel it opens lists the sample rate, buffer, output latency,
@@ -952,9 +955,10 @@ The Clip tab uses the shared controls (§5a, ADR-0052).
 - **The magnet piece** is the "Snap to grid" checkbox: `Icon::Magnet` in
   `accent` while snapping, `Icon::MagnetOff` in the piece's ink when not
   (owner's choice C1, MT-APP-13 run 1).
-- **Tool keys:** V picks Pointer, B switches between Pointer and Draw,
-  and D, C and U pick Erase, Split and Mute (the interface audit's M6). While the computer keyboard plays
-  notes, it takes V, D, C and U, as it does Z and X.
+- **Tool keys:** V picks Pointer, B picks Draw (and from Draw goes back
+  to Pointer), and D, C and U pick Erase, Split and Mute (the interface
+  audit's M6). While the computer keyboard plays notes, it takes V, D, C
+  and U, as it does Z and X.
 - **The grid value piece** ("Grid: 1/16", with ", snap off" while
   snapping is off) shows the step in the monospace caption ("1/16",
   "1/8T", "4 bars") and a ▾ (`widgets::ARROW_SIZE`), and opens the grid

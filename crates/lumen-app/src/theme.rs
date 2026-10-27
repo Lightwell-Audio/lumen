@@ -502,6 +502,9 @@ pub mod stroke {
     pub const LIT: f32 = 1.5;
     /// The keyboard focus ring, and a Beam's line.
     pub const FOCUS: f32 = 2.0;
+    /// The accent line under a toggle that is on (the palette and panel
+    /// toggles).
+    pub const UNDERLINE: f32 = 2.0;
 }
 
 /// Type sizes (`DESIGN.md` §4).
@@ -605,6 +608,8 @@ pub mod size {
     pub const AUTO_REENABLE: f32 = 84.0;
     /// The record-red dot in the chip of a mode that can write.
     pub const AUTO_REC_DOT: f32 = 3.5;
+    /// The audio light's radius in the transport's status chip.
+    pub const STATUS_DOT: f32 = 4.0;
     /// The chooser's least width.
     pub const AUTO_MENU: f32 = 220.0;
     /// The tempo and meter lanes under the bar ruler (M7 slice A6): their

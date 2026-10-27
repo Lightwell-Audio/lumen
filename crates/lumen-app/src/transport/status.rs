@@ -17,7 +17,7 @@ use super::Transport;
 use super::{compensation, dropouts};
 
 /// The audio light's radius, in the status chip.
-const DOT_RADIUS: f32 = 4.0;
+const DOT_RADIUS: f32 = theme::size::STATUS_DOT;
 
 /// What dropouts mean, and what helps.
 const DROPOUT_HELP: &str =
@@ -391,7 +391,7 @@ impl Transport {
                 theme::p().text_hint,
                 String::new(),
             ),
-            Status::Running { device, detail } => (
+            Status::Running { device, detail, .. } => (
                 format!("{device} · {detail}"),
                 theme::p().text_secondary,
                 "Audio device, sample rate, buffer and round-trip latency".to_owned(),
@@ -439,10 +439,7 @@ impl Transport {
         // The chip shows the device and its rate; the buffer and the round
         // trip are in the tooltip and the panel (the interface audit's TB1).
         let shown = match &self.audio.status {
-            Status::Running { device, detail } => {
-                let rate = detail.split(" · ").next().unwrap_or(detail);
-                format!("{device} · {rate}")
-            }
+            Status::Running { device, rate, .. } => format!("{device} · {rate}"),
             _ => text,
         };
         let small = egui::TextStyle::Small.resolve(ui.style());

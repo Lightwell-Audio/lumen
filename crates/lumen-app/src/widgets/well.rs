@@ -16,7 +16,7 @@ use crate::{motion, theme};
 pub const PIECE_RADIUS: u8 = theme::radius::SMALL - theme::space::XXS as u8;
 
 /// The gap between two pieces.
-pub const PIECE_GAP: f32 = 1.0;
+pub const PIECE_GAP: f32 = theme::stroke::HAIRLINE;
 
 /// How wide a well is that holds pieces `widths` wide.
 pub fn width(widths: &[f32]) -> f32 {

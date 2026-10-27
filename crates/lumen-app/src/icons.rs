@@ -772,14 +772,14 @@ fn paint_underlined(painter: &Painter, rect: Rect, face: &crate::widgets::raised
         painter.rect_filled(rect, f32::from(radius), c.ember.gamma_multiply(face.hover));
     }
     if face.lit > 0.0 {
-        let y = rect.bottom() - theme::stroke::HAIRLINE - theme::stroke::FOCUS / 2.0;
+        let y = rect.bottom() - theme::stroke::HAIRLINE - theme::stroke::UNDERLINE / 2.0;
         let half = UNDERLINE / 2.0;
         painter.line_segment(
             [
                 Pos2::new(rect.center().x - half, y),
                 Pos2::new(rect.center().x + half, y),
             ],
-            Stroke::new(theme::stroke::FOCUS, c.accent.gamma_multiply(face.lit)),
+            Stroke::new(theme::stroke::UNDERLINE, c.accent.gamma_multiply(face.lit)),
         );
     }
     rect

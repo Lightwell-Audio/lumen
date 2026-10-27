@@ -110,16 +110,15 @@ impl Arrangement {
     /// The tracks a move takes and where they go, or `None` when they are
     /// already at that end of their group.
     fn planned_move(&self, tracks: &[Arc<Track>], by: isize) -> Option<(Vec<Id>, Place)> {
-        let ids = lumen_project::groups::outermost(tracks, &self.selected);
-        // Returns stay pinned in their own order (KNOWN_ISSUES).
+        // Returns stay pinned below the tracks and are reordered by their
+        // mixer strips (KNOWN_ISSUES): a move takes the other tracks.
         let pinned = |id: &Id| {
             tracks
                 .iter()
                 .any(|t| t.id == *id && t.kind == TrackKind::Return)
         };
-        if ids.iter().any(pinned) {
-            return None;
-        }
+        let mut ids = lumen_project::groups::outermost(tracks, &self.selected);
+        ids.retain(|id| !pinned(id));
         let first = ids
             .first()
             .and_then(|id| tracks.iter().find(|t| t.id == *id))?;

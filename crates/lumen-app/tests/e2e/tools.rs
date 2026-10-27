@@ -80,11 +80,8 @@ fn the_tool_switch_opens_its_menu_and_selects_a_tool_with_the_mouse() {
     lumen.click(&split);
     assert_eq!(lumen.app().arrangement_tool_name(), "Split");
     assert!(lumen.shows("Arrangement tool: Split"));
-    lumen.frames(30);
-    assert!(
-        !lumen.shows(&erase),
-        "choosing a tool closes the menu, so a pick is one click"
-    );
+    // Choosing a tool closes the menu, so a pick is one click.
+    lumen.run_until("the tool menu closes", |lumen| !lumen.shows(&erase));
 }
 
 #[test]
@@ -109,12 +106,15 @@ fn single_keys_pick_the_tools_the_menu_names() {
         (Key::V, "Pointer"),
     ];
     lumen.click("Arrangement tool: Pointer");
+    // B is checked by `b_toggles_arrangement_draw_and_escape_returns_to_pointer`.
+    assert!(lumen.shows(&keys("Draw B")), "the menu names Draw B");
     for (key, name) in tools {
         let row = keys(&format!("{name} {}", key.name()));
         assert!(lumen.shows(&row), "the menu names {row}");
     }
     lumen.key(Modifiers::NONE, Key::Escape);
-    lumen.frames(30);
+    let erase = keys("Erase D");
+    lumen.run_until("the tool menu closes", |lumen| !lumen.shows(&erase));
     for (key, name) in tools {
         lumen.key(Modifiers::NONE, key);
         assert_eq!(lumen.app().arrangement_tool_name(), name, "{key:?}");

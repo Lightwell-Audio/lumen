@@ -552,6 +552,12 @@ mod tests {
             !a.can_move_selected(&doc, 1),
             "a track does not go below the returns"
         );
+        // A return chosen with other tracks stays; they move.
+        let second = doc.add_track(TrackKind::Audio, None);
+        a.selected = vec![second, send];
+        a.move_selected(&mut doc, -1);
+        let order: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
+        assert_eq!(order, [second, audio, send]);
     }
 
     #[test]
