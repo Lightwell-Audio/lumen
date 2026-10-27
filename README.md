@@ -28,67 +28,30 @@ Lumen is free software under GPL-3.0-or-later. A public project page is at
 
 ## What works today
 
-- **Audio devices:** ASIO with a device selector and the driver's control
-  panel; WASAPI in shared and exclusive mode on Windows; CoreAudio on macOS and
-  the cpal backend on Linux. Lumen recovers when a device is lost, and it
-  switches device, sample rate and buffer size without restarting. Audio input
-  is available from ASIO and WASAPI.
-- **Transport:** sample-accurate playback with loop, punch region, metronome
-  with count-in, test tone, scrubbing and locators.
-- **Arrangement:** audio, MIDI, group, return and master tracks; folding and
-  resizing; clips with move, trim, slip, loop-extend, fades, clip gain and
-  colour; time-range selection; and crossfades, which are true overlaps.
-- **Editing:** undo and redo, where each edit is one step. Join (Ctrl+J)
-  merges selected clips, and Join into new file renders selected audio clips
-  into one new file. There are also crop, unloop, nudge, reverse, polarity,
-  normalize, bounce, and freeze, unfreeze and flatten for tracks. A command
-  palette opens with Ctrl+K, and the keyboard map can be rebound, with conflict
-  checks.
-- **Recording:** MIDI recording with replace or overdub, count-in and loop
-  passes. Audio recording writes one crash-safe WAV per armed track, with
-  latency compensation and a manual offset, and is awaiting hardware tests.
-- **MIDI:** device listing with hot-plug, a MIDI From and MIDI To setting per
-  track, live input and monitoring, and the computer keyboard as a MIDI
-  keyboard. The piano roll has velocity and controller lanes. Quantize has
-  strength, swing and a sensitivity window, and there are humanize, legato,
-  fixed length, transpose, scale constraint and reverse. Standard MIDI File
-  import and export, MIDI clock out and panic are included.
-- **Automation:** lanes for track controls, plugin parameters, sends and
-  tempo, with Read, Write, Touch and Latch modes. Clip envelopes work on audio
-  and MIDI clips. MIDI learn feeds a mapping list, and a manual move overrides
-  automation until it is re-enabled.
-- **Plugins (VST3):** scanning runs in the background, in a separate process,
-  with a cache and a blocklist. Each plugin device runs in its own process, so
-  a crashing plugin is isolated, flagged and can be reloaded from its last good
-  state. Hosted plugins have a generic parameter UI and floating editors, and
-  their state and presets are saved in the project. Safe mode starts Lumen
-  without loading any plugin. Testing with real third-party plugins is still
-  in progress; see [docs/PLUGIN_COMPATIBILITY.md](docs/PLUGIN_COMPATIBILITY.md).
-- **Built-in instrument:** a polyphonic synth with five presets.
-- **Mixer:** group tracks nested up to three deep, sends and returns, a master
-  track, output routing, sidechain inputs, automatic delay compensation and a
-  cue bus. Metering includes peak and RMS, and the master adds LUFS and true
-  peak.
-- **Projects:** a versioned `.lumen` project folder with relative media paths,
-  atomic saves, rolling backups, autosave and crash recovery. Older project
-  versions open through migrations.
-- **Files:** WAV, AIFF, FLAC, MP3 and Ogg Vorbis import by drag and drop or
-  from the menu, and Standard MIDI Files.
-- **Interface:** dark and light themes, 100 to 200% UI scale, keyboard
-  navigation, and a design system written down in
-  [docs/DESIGN.md](docs/DESIGN.md).
+The audio engine, transport and arrangement are built: ASIO, WASAPI and
+CoreAudio devices that recover from loss or a changed rate/buffer; clips with
+trim, slip, fades, gain and true crossfades across audio, MIDI, group, return
+and master tracks; and editing commands (join, crop, reverse, normalize,
+bounce, freeze) that are each one undoable step from a command palette and a
+remappable keymap. MIDI recording, the piano roll, quantize, and automation
+(Read/Write/Touch/Latch, clip envelopes, MIDI learn) are in place. VST3
+instruments and effects host in a separate, crash-isolated process per
+plugin, with a generic parameter UI, floating editors, and state and presets
+saved in the project — real-plugin testing is still in progress, see
+[docs/PLUGIN_COMPATIBILITY.md](docs/PLUGIN_COMPATIBILITY.md). The mixer has
+groups, sends, returns, delay compensation and LUFS metering; projects save
+to a versioned, autosaving `.lumen` folder with crash recovery and
+migrations. Audio recording is built and awaiting hardware tests.
+
+See [docs/PROGRESS.md](docs/PROGRESS.md) for the full requirement-by-requirement
+status.
 
 ### What is not built yet
 
-- Export of the master and stems to audio files (WAV and FLAC), with
-  sample-rate conversion, dither and loudness reporting.
-- Takes, loop recording into takes, and Capture MIDI.
-- Disk streaming for clips too large for memory.
-- Drum maps, the drum editor and the step sequencer.
-- Built-in EQ, compressor, limiter, delay, reverb and sampler.
-- Warp and time stretch, ripple delete and insert silence.
-- Installers, and VST3 hosting on macOS and Linux. macOS hosting is approved
-  and in progress; Linux hosting is not scheduled.
+Export to audio files, takes and Capture MIDI, disk streaming for clips too
+large for memory, drum maps and the step sequencer, the built-in EQ/
+compressor/limiter/delay/reverb/sampler, warp and time-stretch, installers,
+and VST3 hosting on macOS (approved, in progress) and Linux (not scheduled).
 
 ## Roadmap
 
@@ -96,40 +59,23 @@ Lumen is free software under GPL-3.0-or-later. A public project page is at
   <img src="docs/brand/lumi-curious.png" width="100" alt="Lumi looking curious with a hand on his chin">
 </p>
 
-> **Lumi says:** Curious about what's next? Check the status column below,
-> then explore the milestone plans for the details.
+> **Lumi says:** Curious about what's next? Check the status table in
+> PROGRESS.md, then explore the milestone plans for the details.
 
-Lumen is built in milestones. Each one ends with a working build, automated
-tests, manual tests on real hardware where needed, and a written report. The
-owner reviews each milestone before the next one starts. Milestone 9 is being
-built before milestone 8 (owner decision, 2026-10-23).
+Lumen is built in ten milestones. Each one ends with a working build,
+automated tests, manual tests on real hardware where needed, and a written
+report; the owner reviews each milestone before the next one starts.
+Milestone 9 is being built before milestone 8 (owner decision, 2026-10-23).
 
-Status below is from [docs/PROGRESS.md](docs/PROGRESS.md), last updated
-2026-10-25. Manual tests (MT-*) are listed in
-[docs/MANUAL_TESTS.md](docs/MANUAL_TESTS.md).
+The milestone-by-milestone status, last updated 2026-10-25, is the table at
+the top of [docs/PROGRESS.md](docs/PROGRESS.md), which also tracks every
+requirement in [CLAUDE.md](CLAUDE.md) against its current status. The plan
+for each milestone is in [docs/milestones/](docs/milestones/), and manual
+tests (MT-*) are listed in [docs/MANUAL_TESTS.md](docs/MANUAL_TESTS.md).
 
-| Milestone | Scope | Status |
-|---|---|---|
-| 1. Foundations | Repository, CI, benchmarks, and the prototypes that settled the architecture | Complete |
-| 2. Audio engine and devices | Device selector, ASIO, transport, playback | Complete; approved 2026-10-07 |
-| 3. Arrangement and project system | Tracks, clips, editing, undo, save and open, autosave | Complete; approved 2026-10-09 |
-| 4. Mixer, routing and groups | Mixer graph, groups, sends, returns, metering, delay compensation | Complete, 2026-10-10 |
-| 4.5. Polish pass | Interface audit fixes: controls, motion, light layer | Built; MT-POL-5 and MT-POL-6 pending |
-| 5. MIDI and piano roll | MIDI devices, recording, piano roll, quantize, Standard MIDI Files, clock out | Complete; owner sign-off 2026-10-26 |
-| 6. VST3 hosting | Plugin scanning, instruments and effects, a separate process per plugin, editors, presets and state | Complete; owner sign-off 2026-10-26 |
-| 7. Automation and envelopes | Automation lanes, Read/Write/Touch/Latch, clip envelopes, MIDI learn | Built, 2026-10-22; manual tests passed; owner approval pending |
-| 7b. Advanced editing and render | Join, crop, crossfades, consolidate, bounce, freeze and related editing | Slices E0 to E6 built; E6 closeout (MT-EDIT-7) and owner sign-off pending |
-| 9. Recording, media and export | Audio input, audio recording, takes, Capture MIDI, export, disk streaming | In progress: render consistency, audio input and recording built; hardware tests MT-REC-1, MT-REC-2 and MT-REC-4 pending; takes and Capture MIDI are next, then export and disk streaming |
-| 8. Drum maps and built-in devices | Drum maps, drum editor, step sequencer, EQ, compressor, limiter, delay, reverb, sampler | Planned, after milestone 9; a five-preset synth is already built |
-| 10. Hardening and release | Plugin isolation hardening, performance tuning, installers | Planned |
-
-Not scheduled: VST3 hosting on Linux. VST3 hosting on macOS is approved
-(2026-10-19) and in progress; see [docs/milestones/macOS-VST3.md](docs/milestones/macOS-VST3.md).
-
-The full requirements, with the status of each, are in
-[docs/PROGRESS.md](docs/PROGRESS.md). The product specification is in
-[CLAUDE.md](CLAUDE.md), and the plan for each milestone is in
-[docs/milestones/](docs/milestones/).
+VST3 hosting on macOS is approved (2026-10-19) and in progress; see
+[docs/milestones/macOS-VST3.md](docs/milestones/macOS-VST3.md). Linux hosting
+is not scheduled.
 
 ## Getting started
 
@@ -232,8 +178,7 @@ committed baseline in `perf/baseline.json`. See
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Crates, threads and how the parts fit together |
 | [docs/DESIGN.md](docs/DESIGN.md) | Design system: colour, type, spacing, motion, key flows |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision records, with reasons and consequences |
-| [docs/PROGRESS.md](docs/PROGRESS.md) | Status of every requirement and each milestone's report |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | The ten-milestone plan |
+| [docs/PROGRESS.md](docs/PROGRESS.md) | Status of every requirement, the milestone table, and each milestone's report |
 | [docs/milestones/](docs/milestones/) | Milestone plans |
 | [docs/audits/](docs/audits/) | Milestone reviews and their findings |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Toolchain setup, everyday commands, test and benchmark tools |
