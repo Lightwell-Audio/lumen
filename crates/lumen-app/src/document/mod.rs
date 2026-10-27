@@ -32,6 +32,7 @@ mod import;
 mod instrument;
 mod lanes;
 mod mappings;
+mod media;
 mod midi_clips;
 mod midi_import;
 mod mixer;

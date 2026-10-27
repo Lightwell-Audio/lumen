@@ -120,6 +120,7 @@ irreversible or external) · *Superseded*.
 |---|---|
 | Take lanes deferred (M9 R3, 2026-10-26) | Pitched after the owner's runs of R3 (each pass a clip on its own lane under the track, a comp lane that plays, comping by dragging across a lane): the owner likes individual take lanes and **deferred them, with comping, until after M9's must-have slices**, as recommended. Until then a take is a whole pass inside one clip (ADR-0104), reached from the Takes menu; the passes are windows on one file, so dragging a clip's edge past its pass shows the pass beside it (intended, as in common workstations). When lanes are built, the takes inside a clip become lanes by migration. Open for then: whether a comp segment is a copied clip or a reference to its take, whether recording over any material (not only loop passes) makes a lane, and MIDI lanes. |
 | M9 R4 choices (2026-10-26) | P1 A (renders follow the project rate), P2 A (Revert reloads the saved file after a quiet prompt, keeping the unsaved version in `Backups/Reverted`), S A (R4 is the save family and project settings; the media pool, relink and purge are R4b): every recommendation in `docs/milestones/M9-R4.md` §3.  After MT-PROJ-1 run 1 (2026-10-26): projects and templates get their own folders in `Documents/Lumen` (option A of four pitched), and the app menu is grouped (layout A of three pitched as specimens): ADR-0105. |
+| M9 R4b choices (2026-10-26) | M1 A (a "Project media" tab in the browser), M2 A (Locate one file, and search a folder with a report to look at before anything changes), M3 A (remove unused takes entries out as one undo step; Clear moves leftover files to the system trash after a second press), M4 A (a banner with Relinkâ¦ on open): every recommendation in `docs/milestones/M9-R4b.md` Â§3 (ADR-0106). |
 | M9 plan choices (2026-10-24) | R1 A, R2 A, R3 A, R4 A, R5 A, X1 A, X2 A, X3 A: every recommendation in `docs/milestones/M9.md` §4. |
 | Milestone sequence (2026-10-23) | After M7 and M7b, deliver the existing M9 (Recording, Media, Export & Production Workflow) before M8 (Drum Maps, Drum Editor & Built-In Devices), because audio recording has higher priority than drum maps. Keep the milestone IDs and scopes unchanged; this only changes delivery order. Recorded in `docs/ROADMAP.md` and `docs/PROGRESS.md`. |
 | Native macOS VST3 hosting (2026-10-19, ADR-0085) | Bring the stretch goal forward now: the full existing workflow, including native editors, for plugins matching the host architecture. Intel bridging remains outside this slice. |
@@ -9319,3 +9320,81 @@ migration and golden in `lumen-project`), at 44.1 and 48 kHz. **Not verified
 here** (tests answer the dialogs and the device is fake): the system's real file
 dialogs and a real interface at two rates; MT-PROJ-1 on the owner's machine
 passed (2026-10-26, no step detail).
+
+## ADR-0106 - The media pool: relink, remove unused, clear leftovers (M9 R4b)
+
+**Status:** Accepted 2026-10-26 (built; MT-PROJ-2 passed, owner, 2026-10-26). No format
+change (still **v32**). The owner took every recommendation of the plan
+(2026-10-26; the table of owner decisions): M1 A, M2 A, M3 A, M4 A. Plan:
+`milestones/M9-R4b.md`.
+
+**Context.** A project whose audio had moved opened with one toast and silent
+clips, and nothing could put the files back. Deleting a clip left its file entry
+in the project forever, and Lumen's own render and recording folders collected
+files nothing used (two rows of `KNOWN_ISSUES`).
+
+**Decision.**
+
+1. **A browser tab, "Project media"** (M1 A; `browser/media_tab.rs`, state in
+   `app/media_pool.rs`, rules in `pool.rs`). Every audio file the project holds as
+   a two-line row: name and state (Missing, Unused, n clips), then where it
+   lives, length, channels, size and the rate when it is not the project's. All,
+   Missing and Unused filters with counts, a search, arrow keys and Enter when the
+   pane has focus, double-click to locate a missing file or select the clips that
+   play a used one, a context menu that lists only what applies. A file is *used*
+   when an audio clip plays it or a frozen track plays it
+   (`lumen_project::edit::media`, an exhaustive match so a new place to use a file
+   is a compile error). Take passes share their clip's file, so they add no user.
+2. **Relink is not an undo step** (the R4 rule: where files are, not what the song
+   is). `Document::relink` puts the path in the file map and marks the project
+   changed, so Save writes the new path and autosave sees it. Locate (M2 A) checks
+   the chosen file on a worker (`relink::verdict`): same size is taken at once; the
+   same channels, rate and frames is taken (the file was re-exported); another
+   length asks "Use it anyway"; other channels or rate is refused with the reason.
+   Search a folder reads names only, never following links, stops at 200,000
+   entries, and matches by file name; ambiguous names (two different files) are
+   left alone and said, different-length files are listed with their own "Use it
+   anyway" button, and nothing changes until "Relink n". Esc or Stop ends it.
+3. **Remove unused** (M3 A) takes the entries out of `Project.media` as one undo
+   step and never touches a file. **Clear** is for files that belong to no project:
+   audio in the project's `Samples/{Imported,Recorded,Rendered}` that no entry
+   names, and unreferenced audio in the `Renders` and `Recordings` work folders.
+   Work-folder files are kept when the document's file map holds them (an undone
+   render a redo may need), when any autosave in the autosave folder names them, or
+   when they are the unfinished takes of this session or of a session whose
+   autosave can still be recovered. Clear is two presses (the first asks, naming
+   the count; Cancel backs out; no modal), moves files and their sidecars to the
+   **system trash** with the `trash` crate (MIT) on a worker, and never erases; a
+   file that cannot be moved stays and is named. It is refused while a render,
+   bounce, freeze, normalize or recording is under way.
+4. **A banner replaces the open-time toast** (M4 A): "N audio files are missing",
+   with Relink… (opens the tab on Missing) and Dismiss (for that document). The
+   scan that finds files gone since opening runs on a worker while the tab is
+   showing.
+5. **Commands** (end of `Command`, no default keys): `file.media_pool`,
+   `file.locate_media`, `file.search_folder_for_media`, `file.remove_unused_media`,
+   `file.clear_stray_files`; the menu has Project media.
+
+**Consequences.** `lumen-media` gained `probe` (read a header without decoding).
+`Opened.missing` was dropped: the document derives the missing files, so the list
+cannot go stale. New dependencies: `trash` and its tree (`chrono`,
+`iana-time-zone`, `urlencoding`); all permissive. The scan reads the disk only
+while the tab or a banner needs it. KNOWN_ISSUES rows for leftover renders and
+for unfinished takes of a discarded autosave are closed by Clear.
+
+**Verified here:** unit tests (`pool`, `relink`, `strays` with a mover that only
+records, `edit::media`, `document::media`, `lumen-media` probe) and E2E
+(`tests/e2e/media_pool.rs`: banner and folder search to relinked and audible,
+Locate with a refusal, remove unused and undo, the two-press Clear up to the
+second press); shots `media_pool` at 100, 150 and 200% in both themes. **Not
+verified here:** the real system trash (CI must not fill it), real file dialogs,
+very large folders, MT-PROJ-2 on the owner's machine.
+
+**Found in MT-PROJ-2 (owner, 2026-10-26).** "Show in folder" opened Documents:
+`crash::reveal` passed Explorer one `/select,<path>` argument, which Rust quotes
+whole when the path has a space. It now writes the argument raw (`/select,"<path>"`),
+with backslashes and without a `\?\` prefix (the file map holds resolved paths).
+Two tests run by hand, `strays::tests::the_real_trash_takes_the_file` and
+`crash::tests::reveal_selects_a_file_in_a_folder_with_a_space` (`-- --ignored`),
+were run on the owner's machine: the file reached the Recycle Bin and Windows
+restored it; Explorer opened the folder with the file selected.

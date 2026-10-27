@@ -243,3 +243,25 @@ fn bad_files_are_errors_not_panics() {
         Err(MediaError::Io(_))
     ));
 }
+
+#[test]
+fn a_header_is_read_without_decoding() {
+    let frames = stereo_sine(44_100, 440.0, 10_000);
+    for (name, bytes) in [
+        ("h.wav", wav(44_100, &frames, Pcm::I16)),
+        ("h.aif", aiff(44_100, &frames)),
+    ] {
+        let file = TempFile::new(name, &bytes);
+        let header = lumen_media::probe(&file.0).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(header.sample_rate, Some(44_100), "{name}");
+        assert_eq!(header.channels, Some(2), "{name}");
+        assert_eq!(header.frames, Some(10_000), "{name}");
+    }
+    let text = TempFile::new("h.txt", b"not audio");
+    assert!(lumen_media::probe(&text.0).is_err());
+    let missing = std::env::temp_dir().join("lumen-media-no-such-header.wav");
+    assert!(matches!(
+        lumen_media::probe(&missing),
+        Err(MediaError::Io(_))
+    ));
+}

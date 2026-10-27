@@ -55,6 +55,7 @@ mod light;
 mod live_lights;
 mod locators;
 mod looping;
+mod media_pool;
 mod meters;
 mod midi;
 mod midi_chip;

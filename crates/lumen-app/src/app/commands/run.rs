@@ -507,6 +507,18 @@ impl App {
             Command::OpenTemplatesFolder => self.open_templates_folder(),
             Command::Revert => self.begin_revert(),
             Command::ProjectSettings => self.open_project_settings(),
+            Command::MediaPool => self.show_media_pool(),
+            Command::LocateMedia => {
+                if let Some(id) = self.selected_missing_media() {
+                    self.locate_media(ctx, id);
+                }
+            }
+            Command::SearchFolderForMedia => self.search_folder_for_media(ctx),
+            Command::RemoveUnusedMedia => self.remove_unused_media(),
+            Command::ClearStrayFiles => {
+                self.show_media_pool();
+                self.clear_stray_files(ctx);
+            }
             Command::Import => self.import_files(ctx),
             Command::DevicesSearch => {
                 self.show_browser = true;

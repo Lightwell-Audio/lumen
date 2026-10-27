@@ -23,7 +23,12 @@ pub(super) struct Searched {
 
 /// The search field: a sunk well with a magnifier and, once there are words,
 /// a way to clear them. `focus` asks for the keyboard (a command did).
-pub(super) fn search(ui: &mut Ui, text: &mut String, focus: &mut bool) -> Searched {
+pub(super) fn search(
+    ui: &mut Ui,
+    text: &mut String,
+    focus: &mut bool,
+    hint: &'static str,
+) -> Searched {
     let palette = *theme::p();
     let (rect, _) = ui.allocate_exact_size(
         vec2(ui.available_width(), theme::size::CONTROL_LARGE),
@@ -63,15 +68,13 @@ pub(super) fn search(ui: &mut Ui, text: &mut String, focus: &mut bool) -> Search
     );
     let field = child.add(
         egui::TextEdit::singleline(text)
-            .id(Id::new("browser search"))
+            .id(Id::new(("browser search", hint)))
             .frame(egui::Frame::NONE)
             .font(FontId::proportional(theme::size::BODY))
-            .hint_text("Search devices")
+            .hint_text(hint)
             .desired_width(edit.width()),
     );
-    field.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Search devices")
-    });
+    field.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, hint));
     if std::mem::take(focus) {
         field.request_focus();
     }

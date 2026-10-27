@@ -122,11 +122,11 @@ impl Control {
         f32::from_bits(self.done.load(Ordering::Relaxed))
     }
 
-    fn stopped(&self) -> bool {
+    pub(crate) fn stopped(&self) -> bool {
         self.stop.load(Ordering::Relaxed)
     }
 
-    fn set(&self, fraction: f32) {
+    pub(crate) fn set(&self, fraction: f32) {
         self.done.store(fraction.to_bits(), Ordering::Relaxed);
     }
 }
@@ -524,8 +524,6 @@ pub struct Opened {
     pub project: Project,
     pub path: PathBuf,
     pub media_files: HashMap<Id, PathBuf>,
-    /// Media that could not be found.
-    pub missing: Vec<String>,
 }
 
 /// Starts opening `path` in the background.
@@ -544,20 +542,20 @@ pub fn open_now(path: &Path) -> Result<Opened, String> {
     let project = lumen_project::load(path).map_err(|e| e.to_string())?;
     let dir = path.parent().unwrap_or(Path::new("."));
     let mut media_files = HashMap::new();
-    let mut missing = Vec::new();
     for media in &project.media {
         match locate_media(dir, media) {
             MediaLocation::Found(found) => {
                 media_files.insert(media.id, found);
             }
-            MediaLocation::Missing { .. } => missing.push(media.path.clone()),
+            // A missing file is left out: the document derives the list
+            // (the Project media tab and its banner).
+            MediaLocation::Missing { .. } => {}
         }
     }
     Ok(Opened {
         project,
         path: path.to_path_buf(),
         media_files,
-        missing,
     })
 }
 
@@ -575,6 +573,17 @@ mod tests {
     use crate::document::{Document, Imported};
     use lumen_core::time::Ticks;
     use lumen_project::testing::TempDir;
+
+    /// The media the project names that were not found next to it.
+    fn missing(opened: &Opened) -> Vec<String> {
+        opened
+            .project
+            .media
+            .iter()
+            .filter(|m| !opened.media_files.contains_key(&m.id))
+            .map(|m| m.path.clone())
+            .collect()
+    }
 
     fn wav(path: &Path, frames: usize) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -685,7 +694,7 @@ mod tests {
         // The originals can go: the project has its own copies.
         std::fs::remove_dir_all(&outside).unwrap();
         let opened = open_now(&path).unwrap();
-        assert!(opened.missing.is_empty(), "{:?}", opened.missing);
+        assert!(missing(&opened).is_empty(), "{:?}", missing(&opened));
         assert_eq!(opened.project.media[0].path, "Samples/Imported/kick.wav");
         let original = opened.project.media[0].original_path.as_deref().unwrap();
         assert!(!original.starts_with(r"\\?\"), "{original}");
@@ -713,7 +722,7 @@ mod tests {
                 .is_file()
         );
         let opened = open_now(&path).unwrap();
-        assert!(opened.missing.is_empty(), "{:?}", opened.missing);
+        assert!(missing(&opened).is_empty(), "{:?}", missing(&opened));
         assert_eq!(opened.project.media[0].path, "Samples/Recorded/Vox 1.wav");
         assert_eq!(opened.project.media[0].original_path, None);
     }
@@ -736,7 +745,7 @@ mod tests {
         let folder = path.parent().unwrap().join(RENDERED);
         assert!(folder.join("joined-1.wav").is_file());
         let opened = open_now(&path).unwrap();
-        assert!(opened.missing.is_empty(), "{:?}", opened.missing);
+        assert!(missing(&opened).is_empty(), "{:?}", missing(&opened));
         assert_eq!(
             opened.project.media[0].path,
             "Samples/Rendered/joined-1.wav"
@@ -770,7 +779,7 @@ mod tests {
         assert!(project.join(RECORDED).join("vox.wav").is_file());
         assert!(project.join(RENDERED).join("bake.wav").is_file());
         let opened = open_now(&path).unwrap();
-        assert!(opened.missing.is_empty(), "{:?}", opened.missing);
+        assert!(missing(&opened).is_empty(), "{:?}", missing(&opened));
         assert_eq!(opened.project.media[0].path, "Samples/Imported/kick.wav");
         assert_eq!(opened.project.media[1].path, "Samples/Recorded/vox.wav");
         assert_eq!(opened.project.media[2].path, "Samples/Rendered/bake.wav");
@@ -792,7 +801,7 @@ mod tests {
         assert_eq!(saved.copied, 0);
         let opened = open_now(&path).unwrap();
         assert!(Path::new(&opened.project.media[0].path).is_absolute());
-        assert!(opened.missing.is_empty());
+        assert!(missing(&opened).is_empty());
     }
 
     #[test]
@@ -805,7 +814,7 @@ mod tests {
         save_now(request(&doc, path.clone(), false)).unwrap();
         std::fs::remove_file(&kick).unwrap();
         let opened = open_now(&path).unwrap();
-        assert_eq!(opened.missing.len(), 1);
+        assert_eq!(missing(&opened).len(), 1);
         assert_eq!(
             opened.project.tracks.len(),
             1,
@@ -868,7 +877,7 @@ mod tests {
         // The project stands on its own: the originals can go.
         std::fs::remove_dir_all(&outside).unwrap();
         let opened = open_now(&path).unwrap();
-        assert!(opened.missing.is_empty(), "{:?}", opened.missing);
+        assert!(missing(&opened).is_empty(), "{:?}", missing(&opened));
         assert_eq!(opened.media_files.len(), 2);
     }
 
@@ -912,7 +921,7 @@ mod tests {
         assert_eq!(saved.copied, 1);
         assert_eq!(saved.skipped, vec!["snare.wav".to_owned()]);
         let opened = open_now(&path).unwrap();
-        assert_eq!(opened.missing.len(), 1, "the missing file stays missing");
+        assert_eq!(missing(&opened).len(), 1, "the missing file stays missing");
         assert_eq!(opened.project.tracks.len(), 2, "its clip is kept");
     }
 

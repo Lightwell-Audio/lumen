@@ -72,6 +72,7 @@ impl App {
             });
             ui.separator();
             self.menu_command(ui, Command::ProjectSettings, "Project settings\u{2026}");
+            self.menu_command(ui, Command::MediaPool, "Project media");
             self.menu_command(ui, Command::Import, "Import audio or MIDI\u{2026}");
             self.menu_command(ui, Command::ExportMidiFile, "Export MIDI file\u{2026}");
             ui.separator();
