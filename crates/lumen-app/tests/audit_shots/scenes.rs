@@ -157,6 +157,15 @@ fn arrangement() {
         s.snap("clips-menu");
         s.esc();
         s.chord(Modifiers::NONE, Key::Escape);
+        // The info line over a clip's header, then with Ctrl held: what Ctrl
+        // does lights and the rest dims (the interface audit's I1).
+        s.h.hover_at(pos(kick, 0.5, 0.15));
+        s.steps(4);
+        s.snap("info-clip");
+        s.h.event(eframe::egui::Event::ModifiersChanged(Modifiers::COMMAND));
+        s.steps(4);
+        s.snap("info-clip-ctrl");
+        s.h.event(eframe::egui::Event::ModifiersChanged(Modifiers::NONE));
         // Empty lanes.
         right_click(&mut s.h, pos(kick, 6.0, 0.5));
         s.steps(6);

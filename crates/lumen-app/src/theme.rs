@@ -396,6 +396,9 @@ pub fn wave(track: Color32) -> Color32 {
 pub const METER_WARN_DB: f32 = -6.0;
 /// How strongly a meter's peak shows behind its RMS.
 pub const METER_PEAK_ALPHA: f32 = 0.4;
+/// The opacity of what steps back beside something lit: the info line's
+/// other actions while a modifier is held (the interface audit's I1).
+pub const DIMMED: f32 = 0.45;
 
 /// A meter's colour at `db`: `base` (the accent, or the track's colour with
 /// the owner's M2 setting) up to [`METER_WARN_DB`], the warning colour up to

@@ -240,8 +240,12 @@ fn the_loudness_column_resets_on_click() {
         .or_else(|| readout.accesskit_node().value())
         .unwrap_or_default();
     assert!(
-        said.contains('\u{2014}'),
-        "nothing measured reads as a dash: {said}"
+        said.contains("integrated not measured"),
+        "nothing measured is said so: {said}"
+    );
+    assert!(
+        said.contains("Play to measure"),
+        "the empty history says why"
     );
 }
 

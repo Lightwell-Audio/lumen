@@ -108,7 +108,12 @@ fn the_strip_hints_what_a_drag_will_do() {
     let p = at(&lumen, 5.3);
     lumen.harness.hover_at(p);
     lumen.frames(2);
-    assert_eq!(lumen.lit().as_deref(), Some("drag to listen to each step"));
+    assert!(
+        lumen.info().contains("drag to listen to each step"),
+        "{}",
+        lumen.info()
+    );
+    assert_eq!(lumen.lit(), None, "nothing is lit until a key is held");
     lumen
         .harness
         .event(eframe::egui::Event::ModifiersChanged(Modifiers::ALT));

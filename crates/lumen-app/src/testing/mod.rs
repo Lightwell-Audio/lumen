@@ -626,8 +626,8 @@ impl App {
             .map(|r| (r.start, r.end, r.tracks.clone()))
     }
 
-    /// The info line's lit action ("Ctrl+drag to copy"): the drag the
-    /// keys held now choose.
+    /// The info line's lit action ("Ctrl+drag to copy"): the first that
+    /// the keys held now do; none while no key is held.
     pub fn info_lit(&self, ctx: &egui::Context) -> Option<String> {
         let held = ctx.input(|i| crate::app::info::Held::of(i.modifiers));
         self.info.as_ref()?.lit_text(&self.keymap, held)

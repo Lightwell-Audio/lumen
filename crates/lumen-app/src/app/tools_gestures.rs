@@ -341,7 +341,15 @@ impl App {
                             "move the playhead"
                         },
                     )
-                    .on(Held::NONE, Mouse::RightClick, "menu")
+                    .on(
+                        Held::NONE,
+                        Mouse::RightClick,
+                        if self.clipboard.is_some() {
+                            "paste here or set the grid"
+                        } else {
+                            "set the grid"
+                        },
+                    )
                     .key(Command::Paste, "paste"),
             );
             return;
@@ -405,7 +413,7 @@ impl App {
             ),
             (None, ClipRegion::Body) => (
                 CursorIcon::Text,
-                Info::new(format!("Clip {name}, body"))
+                Info::new(format!("Clip {name}"))
                     .on(Held::NONE, Mouse::Drag, "select time")
                     .on(Held::CTRL_SHIFT, Mouse::Drag, "select clips")
                     .key(Command::LoopSelection, "loop the selection"),

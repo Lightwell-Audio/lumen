@@ -789,7 +789,7 @@ pub fn file_card(ui: &mut egui::Ui, item: &Item, properties: Option<&str>) {
     ui.separator();
     for line in [
         "Header: drag to move · Ctrl copies · Ctrl+Alt slips the audio",
-        "Body: drag to select time · Ctrl+Shift selects clips",
+        "Below the header: drag to select time · Ctrl+Shift selects clips",
         "Sides: drag to trim · Shift loops",
         "Top corners: fades · their middle dot bends them · the line sets gain",
         "Right-click: edits, colour, mute, lock and fade shapes",

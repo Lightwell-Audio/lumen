@@ -4,7 +4,7 @@
 use std::time::Instant;
 
 use eframe::egui::{self, Key, Modifiers, Rect, pos2, vec2};
-use lumen_plugin_catalog::catalog::Kind;
+use lumen_plugin_catalog::catalog::{Kind, Source};
 use lumen_plugin_catalog::scan::Mode;
 use lumen_project::model::DeviceKind;
 
@@ -431,13 +431,35 @@ impl App {
         match hover {
             Hover::Device(i) => {
                 let d = &catalog.devices()[i];
-                let kind = match d.kind {
-                    Kind::Instrument => "Instrument",
-                    Kind::Effect => "Effect",
+                let (kind, adds) = match d.kind {
+                    Kind::Instrument => ("Instrument", DeviceKind::Instrument),
+                    Kind::Effect => ("Effect", DeviceKind::Effect),
                 };
-                Info::new(format!("{} · {} · {kind}", d.name, d.vendor))
-                    .on(Held::NONE, Mouse::DoubleClick, "choose")
-                    .on(Held::NONE, Mouse::RightClick, "more")
+                // Plain verbs (the interface audit's I1): what each gesture
+                // does, as its menu says it.
+                let info = Info::new(format!("{} · {} · {kind}", d.name, d.vendor));
+                let info = if crate::chain::placeable(d) {
+                    // The menu's first row, as a verb: "add to Bass".
+                    let add = self.add_device_label(adds);
+                    let add = add.replacen("Add", "add", 1);
+                    info.on(Held::NONE, Mouse::DoubleClick, &add).on(
+                        Held::NONE,
+                        Mouse::Drag,
+                        "put it on a track or in the chain",
+                    )
+                } else {
+                    info
+                };
+                let menu = if self.settings.plugins.favorite_set().contains(d.id.as_str()) {
+                    "unfavorite"
+                } else {
+                    "favorite"
+                };
+                let menu = match (d.source, &d.module) {
+                    (Source::Vst3, Some(_)) => format!("{menu}, rescan or show in folder"),
+                    _ => menu.to_owned(),
+                };
+                info.on(Held::NONE, Mouse::RightClick, &menu)
             }
             Hover::Vendor(name) => Info::new(name).on(Held::NONE, Mouse::Click, "fold or open"),
             Hover::Blocked(i) => Info::new(format!(

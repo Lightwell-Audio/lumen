@@ -69,9 +69,17 @@ highlights and motion. Words go in three places only:
 - **The info line** along the bottom of the window (`app/info.rs`, ADR-0034):
   what is under the pointer, then what can be done there, each gesture with
   a mouse and its modifiers as plain keycaps, each command with its
-  shortcut as K5 keycaps from the keymap. Held modifiers light the drag
-  they choose. New interactive things set an `Info` when hovered; nothing
-  else describes a drag.
+  shortcut as K5 keycaps from the keymap. The interface audit's I1: the
+  subject's name is in `text` and the rest of it ("Studio A · Effect") in
+  `text_secondary`, then a 14 pt `border_strong` hairline; the actions
+  follow 14 pt apart with no dots, the gesture's word capitalised ("Drag
+  copy"). Nothing is lit while no modifier is held; holding modifiers
+  lights (`accent_muted`) every gesture and shortcut that takes exactly
+  those keys and dims the rest to `DIMMED`. A `border` hairline runs along
+  the strip's top in both themes. Verbs say what happens ("add to Bass",
+  "favorite, rescan or show in folder"), never "choose", "more" or
+  "menu". New interactive things set an `Info` when hovered; nothing else
+  describes a drag.
 - **Live values by the pointer, only while dragging** (a fade's length, a
   gain, the tape speed, "new track here"): feedback, not instructions
   (`widgets::draw_hint`).
@@ -188,6 +196,8 @@ unselected header.
   lightness, so white clip names read on them in both themes. Clips use the
   same palette in both themes (content keeps its identity). A clip can
   have its own colour from the palette, or follow its track's.
+- **Dimmed:** `DIMMED` (45% opacity) is what steps back beside something
+  lit, such as the info line's other actions while a modifier is held.
 - **Muted clips:** `CLIP_MUTED` (`#6C7078`, both themes), a grey of the
   same lightness, so names and waveforms stay readable (the owner's M1).
 
@@ -861,11 +871,16 @@ Chosen from interactive specimens:
   least 64 pt. The panel is never shorter than that strip, and never so
   tall that the arrangement keeps less than 180 pt.
 - **Loudness column (L2):** "Loudness", the integrated value in 20 pt
-  monospace with "LUFS integrated" under it; a 12 pt short-term bar (the
-  accent, the warning colour above −9 LUFS) with the momentary as a 2 pt
-  `text` line and the −14 LUFS ± 1 band in the accent at 14%; the last
-  minute's short-term loudness as a line beside it; M, S and TP (TP in the
-  warning colour above −1 dBTP); "↺ Reset". Silence reads "—".
+  monospace with "LUFS" beside it and "Integrated" under it in
+  `text_secondary`; a 12 pt short-term bar (the accent, the warning colour
+  above −9 LUFS) with the momentary as a 2 pt `text` line and the −14
+  LUFS ± 1 band in the accent at 14%; the last minute's short-term
+  loudness as a line in a sunk well beside it, across a dashed −14 line
+  (the bar's scale names it); M, S and TP with each value 28 pt from the
+  column's edge, beside its label (TP in the warning colour above −1
+  dBTP); "↺ Reset". At rest (the interface audit's X5) every value reads
+  "––", the integrated one in `text_hint`, and the empty well says "Play
+  to measure"; a screen reader hears "not measured".
 - **The wheel (the owner's B3, every value control):** a wheel gesture
   that starts on a slider, knob, fader or value field sets it, a notch a
   step (1 dB, 5% of pan, a tenth with Shift; a send turned up from

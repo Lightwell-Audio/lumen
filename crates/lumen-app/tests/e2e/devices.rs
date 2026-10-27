@@ -153,6 +153,35 @@ fn double_clicking_an_effect_adds_it_to_the_selected_track_in_one_undo_step() {
     assert!(!lumen.shows(&format!("{EFFECT} on Audio")));
 }
 
+/// The interface audit's I1: the info line over a device says what each
+/// gesture does in plain verbs ("add to Audio", not "choose"; what its menu
+/// holds, not "more").
+#[test]
+fn hovering_a_device_says_what_its_gestures_do() {
+    let mut lumen = launch("info", &project(vec![]), &["Plug"]);
+    lumen.app_mut().select_tracks(&[AUDIO]);
+    lumen.frames(3);
+    let at = lumen
+        .harness
+        .get_by_label_contains(&format!("{EFFECT}, "))
+        .rect()
+        .center();
+    lumen.harness.hover_at(at);
+    lumen.frames(3);
+    let info = lumen.info();
+    assert!(info.starts_with(&format!("{EFFECT} \u{00B7} ")), "{info}");
+    assert!(info.contains("double-click to add to Audio"), "{info}");
+    assert!(
+        info.contains("drag to put it on a track or in the chain"),
+        "{info}"
+    );
+    assert!(
+        info.contains("right-click to favorite, rescan or show in folder"),
+        "{info}"
+    );
+    assert!(!info.contains("choose") && !info.contains("more"), "{info}");
+}
+
 #[test]
 fn an_effect_goes_after_the_chosen_card() {
     let mut lumen = launch(
