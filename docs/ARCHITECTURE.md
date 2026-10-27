@@ -22,33 +22,13 @@ request semaphore when idle. Other platforms retain event/event waits.
 This avoids repeated sleep polling in Darwin's callback-side semaphore
 fallback; it trades CPU during an active wait for response latency.
 
-**As built:** M9 R4 project lifecycle (2026-10-26; format v32; ADR-0105). Project: `Project.notes` and `Project.new_track_color` (written only when set; `v31_to_v32` changes nothing). App: `files::collect` is the one copy worker (temporary names, rename when whole, project file last, `Control` for progress and stop) behind `app/copies.rs` (Save a copy, Collect and save, and the copy of Save as template and Revert's safety copy, by `Purpose`); `files::owned_folder` is the list of Lumen-owned folders whose audio the first Save copies in; `templates.rs` (the folder, `Template`, `Listing` on a worker) and `app/templates.rs` (Save as template window, New from template, palette rows); `app/revert.rs` (prompt, `Backups/Reverted`, reload, the banner); `document/settings.rs` and `app/project_settings.rs` (the window; one undo step per change); `render_audio.rs` (the clips a join, bounce or freeze plays at the project rate: when it differs from the device's the worker reads each file again and converts it once, otherwise the loaded audio is used as it is).
-
-**Before it:** M9 R3 takes and Capture MIDI (2026-10-25; format v31; ADR-0104). Project: `Clip.takes` (`Takes`, `OtherTake`, `Pass`), `edit/takes.rs` (swap, step, keep only, extract, settle, `advance` and `slipped` for cuts, trims and slips), `edit/record.rs` (`replace` makes MIDI takes). App: `take_worker.rs` records loop wraps (and lines a take begun inside the loop up with it) and `loop_passes.rs` cuts them into passes by one rule; `record_span.rs` is what a recording replaces, fixed when it begins, for the mute while recording and until its takes are placed; `document/takes.rs` (one undo step each), `app/editing.rs` (`takes_menu`), `arrangement/clips.rs` (the n/m chip); `played.rs` (the Capture MIDI buffer, phrases and `take_of`), `app/capture_midi.rs` (the command), `app/record.rs` (`tidy_played`, `keep_played_only`). Engine: `midi/capture.rs` (`Heard`, `Captured.frame`), `midi/player.rs` pushes messages of listening tracks while idle.
-
-**Before it:** M9 R2 audio recording (2026-10-25; no format change; ADR-0102). Engine `capture.rs`: two SPSC rings (samples and chunk headers) that `InputPlayer` fills while recording (`CaptureSink::push`, all or nothing, drops counted); `lumen-media/src/take.rs`: `TakeWriter` (a WAV valid at every moment, header refreshed once a second) and `repair`; App `take_worker.rs` (the thread that drains the ring and writes one file per armed track, with punch window, latency shift, loop continuation, gap padding, live peaks, sidecars and `unfinished`), `app/audio_record.rs` (the audio half of Record: the plan, the `Recordings` folder, placement, recovery, the disk notice), `document/audio_takes.rs` and `lumen-project/src/edit/audio_take.rs` (one undo step, locked clip to a new track), `arrangement/audio_take_look.rs` (the growing clip), `files.rs` (`Samples/Recorded`), `lumen-audio/src/fake.rs` (`input_ramp`).
-**Before it:** M9 R1 audio input (2026-10-24; format v30; ADR-0100). Engine
-`input.rs`: the `InputPlayer` track source reads the device channels a track
-routes (`Source::input`, `Engine::process_with_input`). `lumen-audio`:
-`drift.rs` (Windows) keeps a capture clock and the render clock together with
-rubato's `Slip`; `wasapi_input.rs` finds the capture endpoints of a render
-endpoint's adapter and reads them beside the render stream; `types.rs` has
-`ALL_INPUTS`/`MOST_INPUTS`; `fake.rs` scripts input levels. App: `audio_input.rs`
-(placement of a track's input on the open ones), `app/audio_inputs.rs` (route
-sync, input meters, input names), `app/track_input.rs` (the stepping commands),
-`arrangement/audio_in.rs` (the In chip, its menu, the level bar and clip light);
-`lumen-project/src/edit/input.rs` arms and routes in one step.
-**Earlier:** M7b E6 audit (2026-10-24; format v29), following E3 consolidate,
-E4 bounce and E5 freeze (ADR-0095 to ADR-0098). Shared menu height constraints
-live in `widgets/menu.rs`; output directory creation runs inside the
-`consolidate::render_job` and `bounce::render_job` workers. The combined
-editing scenario is `tests/e2e/walkthrough_editing.rs`; ignored
-`tests/audit_shots.rs` captures application surfaces and corrected menus.
-See `audits/2026-10-24-m7b.md` for scope, validation and open findings.
-**Earlier:** M7b E2 (2026-10-23; format v28): join crossfades (ADR-0094).
-**Previously built:** M7b E1 (2026-10-23; format v27): clip commands, reverse twins and the normalize scan (ADR-0093). Before it: M7b E0 (2026-10-22; format v26): arrangement tools and source-preserving split windows (ADR-0092). Before it: M7 slice A8 (2026-10-22; format v25). Before it: M7 slice A7 (2026-10-21; format v25) and M6 slice 7 (2026-10-18; format v21). The decision records in
-`docs/DECISIONS.md` hold the reasoning and the evidence. This page shows
-how the parts fit.
+**Built so far:** the current slice, the chain of what each earlier slice
+added, and its ADR, are in `docs/PROGRESS.md`'s Status section and
+`CLAUDE.md` §12; the reasoning and evidence behind each is in
+`docs/DECISIONS.md`. This page documents how the parts fit now, by crate and
+module, not the order they arrived in — a few recent slices (noted by name
+below) are still written up as their own module list because that detail is
+not yet folded into the tables.
 
 Recording-window correction (2026-10-14, ADR-0064): `app/record.rs` keeps
 capture running past punch-out; `recorder.rs` snapshots full timing;
