@@ -509,9 +509,9 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::ReverseClips, "clip.reverse", "Reverse", Area::Clip, &[], "Plays the selected audio clips backwards, or forwards again. Each keeps its place and plays the same stretch of its file the other way round."),
     info(Command::InvertPolarity, "clip.polarity", "Invert polarity", Area::Clip, &[], "Inverts the polarity of the selected audio clips, or puts it back."),
     info(Command::NormalizeClips, "clip.normalize", "Normalize", Area::Clip, &[], "Sets the gain of the selected audio clips so the loudest sample of the stretch each plays reaches full scale. The audio file is not changed."),
-    info(Command::ConsolidateClips, "clip.consolidate", "Join into new file", Area::Clip, &[], "Renders the selected audio clips of each track, from the first clip's start to the last clip's end with gaps as silence, into one new audio file and replaces them with a clip that plays it. Clip gain, polarity, reverse, fades, crossfades and envelopes are baked in; the track's fader, pan and devices are not. The originals stay in the media pool. Esc stops it."),
-    info(Command::Bounce, "clip.bounce", "Bounce", Area::Clip, &[], "Renders the selected tracks, over the time range, the selected clips or the whole track, into a new audio file with the track's own sound, its plugins, fader and pan included if you leave Include effects on, and puts it on the track or on a new track. A tail that rings on after the end is kept. Esc stops it."),
-    info(Command::FreezeTracks, "track.freeze", "Freeze track", Area::Track, &[], "Renders the selected audio and MIDI tracks, from their first clip to their last plus the tail that rings on, with their instrument, devices, trim and polarity, into a file the track plays instead. A frozen track runs no plugin, so it costs almost nothing. Its fader, pan, sends, mute and solo stay live; its clips, notes and devices are read-only until you unfreeze. Tracks that depend on other tracks (a sidechain, extra instrument outputs) cannot be frozen. Esc stops it."),
+    info(Command::ConsolidateClips, "clip.consolidate", "Join into new file", Area::Clip, &[], "Renders the selected audio clips of each track, first start to last end with gaps as silence, into one new file that one clip plays. Gain, polarity, reverse, fades, crossfades and envelopes are baked in; the track's fader, pan and devices are not. Originals stay in the media pool. Esc stops it."),
+    info(Command::Bounce, "clip.bounce", "Bounce", Area::Clip, &[], "Renders the selected tracks, over the time range, the selected clips or the whole track, into a new audio file with the track's own sound (its plugins, fader and pan too if Include effects is on), on the track or a new one. A tail that rings on after the end is kept. Esc stops it."),
+    info(Command::FreezeTracks, "track.freeze", "Freeze track", Area::Track, &[], "Renders the selected audio and MIDI tracks, instrument and devices included, into a file played instead, so no plugin runs. Fader, pan, sends, mute and solo stay live; clips, notes and devices are read-only until unfrozen. Tracks tied to others (a sidechain, extra outputs) cannot freeze. Esc stops it."),
     info(Command::UnfreezeTracks, "track.unfreeze", "Unfreeze track", Area::Track, &[], "Gives a frozen track back its clips, notes, instrument and devices, exactly as they were. The rendered file stays in the media pool."),
     info(Command::FlattenTracks, "track.flatten", "Flatten track", Area::Track, &[], "Turns a frozen track into a plain audio track that holds the rendered file. Its clips, notes, instrument and devices are removed; its name, colour, fader, pan, sends and output stay. A MIDI track becomes an audio track. Undo brings everything back."),
     info(Command::NextTrackInput, "track.input_next", "Next track input", Area::Track, &[], "Steps the selected audio tracks to the next input of the audio device: none, each stereo pair, then each mono input. Arming a track without an input picks the first free one for you."),
@@ -519,13 +519,13 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::TakeNext, "clip.take_next", "Play next take", Area::Clip, &[], "Plays the next take of the selected clips that have takes (a loop recording keeps every pass), round the set. The clip stays where it is; only the pass it plays changes."),
     info(Command::TakePrevious, "clip.take_previous", "Play previous take", Area::Clip, &[], "Plays the take before the one playing on the selected clips that have takes, round the set."),
     info(Command::TakeKeepOnly, "clip.take_keep", "Keep only this take", Area::Clip, &[], "Throws away the other takes of the selected clips and keeps the one each plays. Audio stays in the media pool. Undo brings the takes back."),
-    info(Command::CaptureMidi, "transport.capture_midi", "Capture MIDI", Area::Transport, &[shift(Key::F9)], "Turns the notes you last played on a MIDI track, while not recording, into a clip. Played while the song was moving, they land where you heard them; played while stopped, the first note lands on the playhead. Nothing under the clip is lost, and Undo takes it away. The last ten minutes of what you play are kept, in memory only."),
+    info(Command::CaptureMidi, "transport.capture_midi", "Capture MIDI", Area::Transport, &[shift(Key::F9)], "Turns the notes you last played on a MIDI track, while not recording, into a clip. Played while the song moved, they land where you heard them; played while stopped, the first lands on the playhead. Nothing under the clip is lost. The last ten minutes of playing are kept, in memory only."),
     info(Command::KeepPlayedNotes, "transport.keep_played_notes", "Keep played notes for Capture MIDI", Area::Transport, &[], "Keeps the notes you play on MIDI tracks while not recording, in memory for ten minutes, so Capture MIDI can turn them into a clip. Off, nothing is kept and what was kept is forgotten."),
     info(Command::SaveCopy, "file.save_copy", "Save a copy…", Area::File, &[], "Saves a complete copy of the project, with every audio file it uses, under a new name or in a new place, and leaves this project as it is: it keeps its own file, its unsaved changes and its place in the recent list. Esc stops it."),
-    info(Command::CollectAndSave, "file.collect_and_save", "Collect and save", Area::File, &[], "Copies every audio file the project uses from outside its folder into the project's Samples/Imported folder, then saves, so the project holds everything it plays and can be moved or shared. Files that cannot be found are listed and left as they are. Esc stops it; the project file is written last, so a stopped collect changes nothing."),
+    info(Command::CollectAndSave, "file.collect_and_save", "Collect and save", Area::File, &[], "Copies every audio file from outside the project's folder into Samples/Imported, then saves, so the project can be moved or shared. Missing files are listed and left as they are. Esc stops it; the project file is written last, so a stopped collect changes nothing."),
     info(Command::SaveTemplate, "file.save_template", "Save as template…", Area::File, &[], "Keeps this project, with all its audio, as a template to start new projects from. Asks for a name; a name that is already a template is replaced when you confirm. The template holds everything in the project and none of its undo history."),
     info(Command::OpenTemplatesFolder, "file.open_templates_folder", "Open templates folder", Area::File, &[], "Shows the folder the templates are kept in. To rename or delete a template, rename or delete its folder there."),
-    info(Command::Revert, "file.revert", "Revert to saved…", Area::File, &[], "Drops every change made since the last save and reads the saved project back, so everything, including what a plugin keeps inside its own window, is as it was saved. Asks first. The unsaved version is put away before anything is dropped, in the project's Backups/Reverted folder, and a message offers to open it."),
+    info(Command::Revert, "file.revert", "Revert to saved…", Area::File, &[], "Drops every change since the last save and reads the saved project back, plugin state included. Asks first. The unsaved version is put away in the project's Backups/Reverted folder before anything is dropped, and a message offers to open it."),
     info(Command::ProjectSettings, "file.project_settings", "Project settings…", Area::File, &[], "Opens the project's own settings: the sample rate of the files the app makes for it, the pan law, automatic crossfades, the colour new tracks take, and notes about the project. Each change is saved in the project and is one undo step."),
     info(Command::MediaPool, "file.media_pool", "Project media", Area::File, &[], "Shows the browser's Project media tab: every audio file the project holds, which ones are missing, which ones nothing plays, and files left behind that belong to no project."),
     info(Command::LocateMedia, "file.locate_media", "Locate missing media…", Area::File, &[], "Asks for the file that stands in for the missing audio chosen in the Project media tab. A file of another length, or with another channel count or sample rate, is checked before anything changes. Relinking is saved with the project and is not an undo step."),
@@ -575,6 +575,20 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+
+    /// What a command does fits the command palette's strip, which keeps the
+    /// room of the longest (the interface audit's P1): about four lines.
+    #[test]
+    fn every_command_is_said_in_a_few_lines() {
+        for info in ALL {
+            assert!(
+                info.about.chars().count() <= 320,
+                "{} says too much ({} characters)",
+                info.id,
+                info.about.chars().count()
+            );
+        }
+    }
 
     #[test]
     fn the_table_is_in_command_order() {

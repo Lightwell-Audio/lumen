@@ -26,7 +26,6 @@ fn owner_polish() {
             let clip = s.rect_of_track(0);
             right_click(&mut s.h, pos(clip, 0.2, 0.1));
             s.steps(12);
-            assert!(s.find("Automatic crossfades").is_some());
             let cut = s.find_row("Cut").expect("clip context menu");
             s.h.hover_at(cut.center());
             for _ in 0..3 {
@@ -38,8 +37,8 @@ fn owner_polish() {
                 });
                 s.steps(10);
             }
-            let automatic = s.find("Automatic crossfades").expect("editing switch");
-            assert!(automatic.top() >= 0.0 && automatic.bottom() <= 540.0);
+            let last = s.find_row("Properties").expect("the menu's last row");
+            assert!(last.top() >= 0.0 && last.bottom() <= 540.0);
             s.snap("arrangement-menu");
         }
     }
@@ -659,7 +658,7 @@ fn browser() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn mixer_full() {
-    looks("mixerfull", true, |s| {
+    looks("mixer-full", true, |s| {
         s.command("Add MIDI track");
         for _ in 0..2 {
             s.click("Add track");

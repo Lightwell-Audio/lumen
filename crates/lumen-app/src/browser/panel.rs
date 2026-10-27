@@ -6,6 +6,7 @@ use std::time::Instant;
 use eframe::egui::{self, Key, Modifiers, Rect, pos2, vec2};
 use lumen_plugin_catalog::catalog::Kind;
 use lumen_plugin_catalog::scan::Mode;
+use lumen_project::model::DeviceKind;
 
 use super::Tab;
 use super::controls;
@@ -84,10 +85,15 @@ impl App {
         if rows.list.is_empty() && self.browser.view.is_filtering() {
             self.no_match(ui, list_area);
         } else {
+            let adds = [
+                self.add_device_label(DeviceKind::Instrument),
+                self.add_device_label(DeviceKind::Effect),
+            ];
             let out = list::show(
                 ui,
                 list_area,
                 &Input {
+                    adds: [&adds[0], &adds[1]],
                     catalog: self.plugins.catalog(),
                     rows: &rows,
                     selected: self.browser.view.selected.as_ref(),

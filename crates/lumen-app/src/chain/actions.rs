@@ -65,6 +65,25 @@ impl App {
         self.add_device_at(plugin, place);
     }
 
+    /// What choosing a device of `kind` in the browser does, said as its
+    /// menu's first row (the interface audit's B7): "Add to Bass", or "Add
+    /// on a new track" when no selected track fits it.
+    pub(crate) fn add_device_label(&self, kind: DeviceKind) -> String {
+        let project = self.document.project();
+        match place(
+            project,
+            &self.arrangement.selected,
+            self.chain.selected,
+            kind,
+        ) {
+            Place::Track { track, .. } => match all_tracks(project).find(|t| t.id == track) {
+                Some(track) => format!("Add to {}", track.name),
+                None => "Add on a new track".to_owned(),
+            },
+            Place::NewTrack { .. } => "Add on a new track".to_owned(),
+        }
+    }
+
     /// A device let go on `track` from the browser (its header or lane): it
     /// goes on that track, or on a new one when it does not fit (an
     /// instrument on an audio track). The Devices tab shows it and, once its

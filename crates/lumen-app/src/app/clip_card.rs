@@ -349,40 +349,45 @@ impl App {
             name(if muted { "Unmute" } else { "Mute" }),
             name(if locked { "Unlock" } else { "Lock" }),
         );
-        self.menu_command(ui, Command::Rename, "Rename");
+        self.context_command(ui, Command::Rename, "Rename");
         widgets::submenu(ui, "Colour", |ui| {
             if let Some(color) = swatches(ui, current, clip_swatches(track)) {
                 self.document.recolor_clips(&ids, color);
                 ui.close();
             }
         });
-        self.menu_command(ui, Command::MuteClips, &mute);
+        ui.separator();
+        self.context_command(ui, Command::MuteClips, &mute);
         if widgets::menu_item(ui, &lock, None, true).clicked() {
             self.toggle_clip_lock();
             ui.close();
         }
+        // The sound of audio clips: none of these is listed for MIDI.
+        let audio = self.selection_has_audio();
+        if audio {
+            ui.separator();
+        }
         self.fade_menu(ui);
-        if self.selection_has_audio() {
+        if audio {
             let keys = self.keymap.keys(Command::ToggleCrossfade);
-            if widgets::menu_toggle(
-                ui,
-                "Crossfade with the clip before",
-                keys.as_ref(),
-                crossfade,
-            )
-            .clicked()
+            if widgets::menu_toggle(ui, "Crossfade with previous", keys.as_ref(), crossfade)
+                .on_hover_text("Blend this clip into the one before it where they overlap")
+                .clicked()
             {
                 self.run(ui.ctx(), Command::ToggleCrossfade);
             }
         }
         if let Some((track, clip)) = self.selected_audio_clip() {
             let label = if self.envelope_shown(track, clip) {
-                "Hide the envelope"
+                "Hide envelope"
             } else {
-                "Show the envelope"
+                "Show envelope"
             };
-            self.menu_command(ui, Command::ClipEnvelope, label);
+            self.context_command(ui, Command::ClipEnvelope, label);
         }
+        ui.separator();
+        // Listed only for MIDI clips that can be written now: an audio
+        // selection never could.
         if self.availability(ui.ctx(), Command::ExportMidiClip).is_ok() {
             let export = if several {
                 "Export MIDI clips\u{2026}"
@@ -391,7 +396,7 @@ impl App {
             };
             self.menu_command(ui, Command::ExportMidiClip, export);
         }
-        self.menu_command(ui, Command::ClipProperties, "Properties");
+        self.context_command(ui, Command::ClipProperties, "Properties");
     }
 
     /// Where clip `id` is drawn, if it is in view.

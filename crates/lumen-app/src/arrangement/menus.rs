@@ -11,148 +11,24 @@ use crate::document::Document;
 use crate::{theme, widgets};
 
 impl Arrangement {
-    /// Right-click menu on a track.
+    /// Right-click menu on a track, in the owner's order (the interface
+    /// audit's M4, A): what it is called and looks like; how it sits among
+    /// the others; what it plays and shows; what is made from it; adding
+    /// tracks; and Delete last, apart. Rows that cannot act are left out.
     pub(super) fn track_menu(&mut self, ui: &mut Ui, doc: &mut Document, id: Id, keymap: &Keymap) {
         let targets = self.targets(id);
         let many = targets.len() > 1;
         let item = |ui: &mut Ui, label: &str, command: Command| {
             widgets::menu_item(ui, label, keymap.keys(command).as_ref(), true).clicked()
         };
+        let plural = |one: &'static str, several: &'static str| if many { several } else { one };
+
+        // Name and colour.
         if item(ui, "Rename", Command::Rename)
             && let Some(track) = doc.project().tracks.iter().find(|t| t.id == id)
         {
             self.renaming = Some((id, track.name.clone()));
         }
-        let duplicate = if many {
-            "Duplicate tracks"
-        } else {
-            "Duplicate"
-        };
-        if item(ui, duplicate, Command::Duplicate) {
-            self.selected = doc.duplicate_tracks(&targets);
-        }
-        let delete = if many { "Delete tracks" } else { "Delete" };
-        if item(ui, delete, Command::Delete) {
-            doc.delete_tracks(&targets);
-            self.selected.clear();
-        }
-        if item(ui, "Import audio or MIDI\u{2026}", Command::Import) {
-            self.selected = vec![id];
-            self.import_requested = true;
-        }
-        let bounces = targets.iter().any(|t| {
-            doc.project()
-                .tracks
-                .iter()
-                .any(|x| x.id == *t && matches!(x.kind, TrackKind::Audio | TrackKind::Midi))
-        });
-        if bounces && item(ui, "Bounce", Command::Bounce) {
-            self.selected = targets.clone();
-            self.bounce_requested = true;
-        }
-        // Freezing (M7b slice E5): offered where it can run.
-        let on = |frozen: bool| {
-            targets.iter().any(|t| {
-                doc.project().tracks.iter().any(|x| {
-                    x.id == *t
-                        && x.frozen.is_some() == frozen
-                        && (frozen || matches!(x.kind, TrackKind::Audio | TrackKind::Midi))
-                })
-            })
-        };
-        let (can_freeze, can_thaw) = (on(false), on(true));
-        let freeze = if many {
-            "Freeze tracks"
-        } else {
-            "Freeze track"
-        };
-        if can_freeze && item(ui, freeze, Command::FreezeTracks) {
-            self.selected = targets.clone();
-            self.track_command = Some(Command::FreezeTracks);
-        }
-        if can_thaw {
-            let unfreeze = if many {
-                "Unfreeze tracks"
-            } else {
-                "Unfreeze track"
-            };
-            if item(ui, unfreeze, Command::UnfreezeTracks) {
-                self.selected = targets.clone();
-                self.track_command = Some(Command::UnfreezeTracks);
-            }
-            let flatten = if many {
-                "Flatten tracks"
-            } else {
-                "Flatten track"
-            };
-            if item(ui, flatten, Command::FlattenTracks) {
-                self.selected = targets.clone();
-                self.track_command = Some(Command::FlattenTracks);
-            }
-        }
-        if item(ui, "Move up", Command::MoveTracksUp) {
-            self.move_selected(doc, -1);
-        }
-        if item(ui, "Move down", Command::MoveTracksDown) {
-            self.move_selected(doc, 1);
-        }
-        // Grouping (M4 slice 3): offered where it can run.
-        let project = doc.project();
-        let track = project.tracks.iter().find(|t| t.id == id);
-        let group = track.is_some_and(|t| t.kind == TrackKind::Group);
-        let in_group = track.is_some_and(|t| t.parent.is_some());
-        let groupable = targets.iter().any(|t| {
-            project
-                .tracks
-                .iter()
-                .any(|x| x.id == *t && lumen_project::groups::can_be_grouped(x.kind))
-        });
-        if groupable && item(ui, "Group tracks", Command::GroupTracks) {
-            self.group_selected(doc);
-        }
-        let ungroup = match (group, in_group) {
-            (true, _) => Some("Ungroup"),
-            (false, true) => Some("Take out of group"),
-            (false, false) => None,
-        };
-        if let Some(label) = ungroup
-            && item(ui, label, Command::Ungroup)
-        {
-            self.ungroup_selected(doc);
-        }
-        if group {
-            let shown = !self.collapsed.contains(&id);
-            let label = if shown {
-                "Hide its tracks"
-            } else {
-                "Show its tracks"
-            };
-            if widgets::menu_item(ui, label, None, true).clicked() {
-                self.toggle_collapsed(doc.project(), id);
-                ui.close();
-            }
-        }
-        let fold = if self.expanded.contains(&id) {
-            "Fold"
-        } else {
-            "Unfold"
-        };
-        if widgets::menu_item(ui, fold, None, true).clicked() {
-            self.toggle_fold(id);
-            ui.close();
-        }
-        // The lane over the clips (the header's A button until ADR-0101).
-        let lane = if self.auto.shown.contains_key(&id) {
-            "Hide automation lane"
-        } else {
-            "Show automation lane"
-        };
-        if item(ui, lane, Command::AutomationShow) {
-            self.selected = targets.clone();
-            self.track_command = Some(Command::AutomationShow);
-        }
-        self.midi_menus(ui, doc, id, &targets);
-        self.audio_menus(ui, doc, id);
         widgets::submenu(ui, "Colour", |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(6.0 * 26.0);
@@ -181,7 +57,140 @@ impl Arrangement {
             });
         });
         ui.separator();
-        self.add_menu(ui, doc, Some(id), keymap);
+
+        // Among the other tracks.
+        if item(
+            ui,
+            plural("Duplicate", "Duplicate tracks"),
+            Command::Duplicate,
+        ) {
+            self.selected = doc.duplicate_tracks(&targets);
+        }
+        let project = doc.project();
+        let track = project.tracks.iter().find(|t| t.id == id);
+        let group = track.is_some_and(|t| t.kind == TrackKind::Group);
+        let in_group = track.is_some_and(|t| t.parent.is_some());
+        let groupable = targets.iter().any(|t| {
+            project
+                .tracks
+                .iter()
+                .any(|x| x.id == *t && lumen_project::groups::can_be_grouped(x.kind))
+        });
+        if groupable && item(ui, "Group tracks", Command::GroupTracks) {
+            self.group_selected(doc);
+        }
+        let ungroup = match (group, in_group) {
+            (true, _) => Some("Ungroup"),
+            (false, true) => Some("Take out of group"),
+            (false, false) => None,
+        };
+        if let Some(label) = ungroup
+            && item(ui, label, Command::Ungroup)
+        {
+            self.ungroup_selected(doc);
+        }
+        if item(ui, "Move up", Command::MoveTracksUp) {
+            self.move_selected(doc, -1);
+        }
+        if item(ui, "Move down", Command::MoveTracksDown) {
+            self.move_selected(doc, 1);
+        }
+        ui.separator();
+
+        // What it plays and what it shows.
+        self.midi_menus(ui, doc, id, &targets);
+        self.audio_menus(ui, doc, id);
+        // The lane over the clips (the header's A button until ADR-0101).
+        let lane = if self.auto.shown.contains_key(&id) {
+            "Hide automation lane"
+        } else {
+            "Show automation lane"
+        };
+        if item(ui, lane, Command::AutomationShow) {
+            self.selected = targets.clone();
+            self.track_command = Some(Command::AutomationShow);
+        }
+        let fold = if self.expanded.contains(&id) {
+            "Fold"
+        } else {
+            "Unfold"
+        };
+        if widgets::menu_item(ui, fold, None, true).clicked() {
+            self.toggle_fold(id);
+            ui.close();
+        }
+        if group {
+            let label = if self.collapsed.contains(&id) {
+                "Show its tracks"
+            } else {
+                "Hide its tracks"
+            };
+            if widgets::menu_item(ui, label, None, true).clicked() {
+                self.toggle_collapsed(doc.project(), id);
+                ui.close();
+            }
+        }
+        ui.separator();
+
+        // What is made from it.
+        if item(ui, "Import audio or MIDI\u{2026}", Command::Import) {
+            self.selected = vec![id];
+            self.import_requested = true;
+        }
+        let bounces = targets.iter().any(|t| {
+            doc.project()
+                .tracks
+                .iter()
+                .any(|x| x.id == *t && matches!(x.kind, TrackKind::Audio | TrackKind::Midi))
+        });
+        if bounces && item(ui, "Bounce", Command::Bounce) {
+            self.selected = targets.clone();
+            self.bounce_requested = true;
+        }
+        // Freezing (M7b slice E5): offered where it can run.
+        let on = |frozen: bool| {
+            targets.iter().any(|t| {
+                doc.project().tracks.iter().any(|x| {
+                    x.id == *t
+                        && x.frozen.is_some() == frozen
+                        && (frozen || matches!(x.kind, TrackKind::Audio | TrackKind::Midi))
+                })
+            })
+        };
+        let (can_freeze, can_thaw) = (on(false), on(true));
+        let freezing = [
+            (
+                can_freeze,
+                plural("Freeze track", "Freeze tracks"),
+                Command::FreezeTracks,
+            ),
+            (
+                can_thaw,
+                plural("Unfreeze track", "Unfreeze tracks"),
+                Command::UnfreezeTracks,
+            ),
+            (
+                can_thaw,
+                plural("Flatten track", "Flatten tracks"),
+                Command::FlattenTracks,
+            ),
+        ];
+        for (shown, label, command) in freezing {
+            if shown && item(ui, label, command) {
+                self.selected = targets.clone();
+                self.track_command = Some(command);
+            }
+        }
+        ui.separator();
+
+        widgets::submenu(ui, "Add track", |ui| {
+            self.add_menu_with(ui, doc, Some(id), keymap, true);
+        });
+        ui.separator();
+        if item(ui, plural("Delete", "Delete tracks"), Command::Delete) {
+            doc.delete_tracks(&targets);
+            self.selected.clear();
+        }
     }
 
     /// What plays a MIDI track (M5 slice 1): its instrument, or a MIDI
@@ -261,20 +270,36 @@ impl Arrangement {
         after: Option<Id>,
         keymap: &Keymap,
     ) {
-        for (kind, text, command) in [
+        self.add_menu_with(ui, doc, after, keymap, false);
+    }
+
+    /// The "Add … track" entries; `short` names them by kind alone, under
+    /// the track menu's "Add track" submenu.
+    fn add_menu_with(
+        &mut self,
+        ui: &mut Ui,
+        doc: &mut Document,
+        after: Option<Id>,
+        keymap: &Keymap,
+        short: bool,
+    ) {
+        for (kind, full_name, short_name, command) in [
             (
                 TrackKind::Audio,
                 "Add audio track",
+                "Audio",
                 Some(Command::AddAudioTrack),
             ),
             (
                 TrackKind::Midi,
                 "Add MIDI track",
+                "MIDI",
                 Some(Command::AddMidiTrack),
             ),
-            (TrackKind::Group, "Add group track", None),
-            (TrackKind::Return, "Add return track", None),
+            (TrackKind::Group, "Add group track", "Group", None),
+            (TrackKind::Return, "Add return track", "Return", None),
         ] {
+            let text = if short { short_name } else { full_name };
             let keys = command.and_then(|c| keymap.keys(c));
             let full = kind == TrackKind::Return && doc.returns_full();
             let item = widgets::menu_item(ui, text, keys.as_ref(), !full);

@@ -398,10 +398,6 @@ pub(crate) fn empty_project_at(device_rate: Option<u32>) -> Project {
     project
 }
 
-fn arrives(milestone: &str) -> String {
-    format!("Arrives in {milestone}")
-}
-
 impl eframe::App for App {
     /// A normal close: nothing is left to recover (the user saved, or chose
     /// not to).

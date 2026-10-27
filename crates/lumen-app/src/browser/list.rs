@@ -41,6 +41,9 @@ pub(super) struct Input<'a> {
     pub flat: bool,
     /// Bring the selected row into view this frame (a key moved it).
     pub scroll_to_selected: bool,
+    /// What choosing an instrument and an effect does, as a menu row
+    /// ("Add to Bass"), in that order.
+    pub adds: [&'a str; 2],
 }
 
 /// What the pointer did.
@@ -447,7 +450,20 @@ fn draw_device(
     if response.double_clicked() && !star_response.hovered() {
         out.choose = Some(device.id.clone());
     }
+    // The owner's A (the interface audit's B7): what choosing it does
+    // first, then favouring it, then its file.
     widgets::Menu::context(&response).show(|ui| {
+        let placeable = device.source == Source::Vst3 || device.id == "builtin:synth";
+        if placeable {
+            let add = match device.kind {
+                Kind::Instrument => input.adds[0],
+                Kind::Effect => input.adds[1],
+            };
+            if widgets::menu_item(ui, add, None, true).clicked() {
+                out.choose = Some(device.id.clone());
+            }
+            ui.separator();
+        }
         let label = if favorite {
             "Remove from favorites"
         } else {
@@ -457,6 +473,7 @@ fn draw_device(
             out.favorite = Some(device.id.clone());
         }
         if let (Source::Vst3, Some(module)) = (device.source, &device.module) {
+            ui.separator();
             if widgets::menu_item(ui, "Rescan this plugin", None, true).clicked() {
                 out.retry = Some(module.to_string_lossy().into_owned());
             }
@@ -467,8 +484,6 @@ fn draw_device(
                 out.copy = Some(module.to_string_lossy().into_owned());
             }
         }
-        widgets::menu_item(ui, "Add to selected track", None, false)
-            .on_disabled_hover_text(crate::arrives("the next slice of Milestone 6"));
     });
 }
 

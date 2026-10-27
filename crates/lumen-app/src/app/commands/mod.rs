@@ -105,6 +105,41 @@ impl App {
         clicked
     }
 
+    /// A context-menu row for `command` (the interface audit's M3): a
+    /// command that cannot act on what was clicked is left out; one that
+    /// could but is waiting (a recording, a render or an export under way)
+    /// stays, greyed, and its hover says why. True when it ran.
+    pub(crate) fn context_command(
+        &mut self,
+        ui: &mut egui::Ui,
+        command: Command,
+        label: &str,
+    ) -> bool {
+        let ctx = ui.ctx().clone();
+        let why = match self.availability(&ctx, command) {
+            Ok(()) => None,
+            Err(why) if self.waiting_on_work() => Some(why),
+            Err(_) => return false,
+        };
+        let keys = self.keymap.keys(command);
+        let row = widgets::menu_item(ui, label, keys.as_ref(), why.is_none());
+        if let Some(why) = why {
+            row.on_disabled_hover_text(why);
+            return false;
+        }
+        if row.clicked() {
+            self.run(&ctx, command);
+            return true;
+        }
+        false
+    }
+
+    /// Whether commands may be held back by work under way rather than by
+    /// what is chosen: a recording, a render or a real-time export.
+    fn waiting_on_work(&self) -> bool {
+        self.is_working_in_files() || self.export.busy()
+    }
+
     /// The keyboard: each chord pressed this frame runs the command it is
     /// bound to, when that can run now, and is then taken from the input so
     /// nothing else sees it. Not while typing in a field, which has its own

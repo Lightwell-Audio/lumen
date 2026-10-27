@@ -193,6 +193,26 @@ pub fn menu_caption(ui: &mut Ui, text: &str) {
         .show(ui, |ui| ui.label(egui::RichText::new(text).small().weak()));
 }
 
+/// A context menu's header (the interface audit's M2): what the menu acts
+/// on ("Volume \u{00B7} Kick"), in line with the menu's labels, with a
+/// divider under it, so it reads as a title rather than a stray label.
+pub fn menu_header(ui: &mut Ui, text: &str) {
+    let side = menu_inset(ui);
+    egui::Frame::NONE
+        .inner_margin(egui::Margin {
+            left: side.round() as i8,
+            ..egui::Margin::ZERO
+        })
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(text)
+                    .small()
+                    .color(theme::p().text_secondary),
+            )
+        });
+    ui.separator();
+}
+
 /// One choice in a list of them, as a row as wide as there is room for:
 /// for choices too many or too long for a [`segmented`] control (a
 /// device's channel pairs). The chosen row is `accent_muted` with accent

@@ -42,10 +42,19 @@ pub(crate) struct Palette {
     notice: Option<&'static str>,
     /// Focus the field when it next shows.
     focus: bool,
-    /// The room the strip keeps for what a row does: the tallest of every
-    /// row's text at the strip's width and the pixel density, so the
-    /// palette keeps its height as the chosen row changes.
-    strip_room: Option<(f32, f32, f32)>,
+    /// The room the strip keeps for what a row does, so the palette keeps
+    /// its height as the chosen row changes.
+    strip_room: Option<StripRoom>,
+}
+
+/// The tallest of every row's `about` text, laid out at the strip's width
+/// and pixel density. Reasons and notices are a line or two and fit inside
+/// it (a test keeps every `about` short enough, `commands::tests`).
+#[derive(Debug, Clone, Copy)]
+struct StripRoom {
+    width: f32,
+    pixels_per_point: f32,
+    height: f32,
 }
 
 impl Entry {
@@ -205,8 +214,10 @@ impl App {
 
     fn close_palette(&mut self) {
         let recent = std::mem::take(&mut self.palette.recent);
+        let strip_room = self.palette.strip_room;
         self.palette = Palette {
             recent,
+            strip_room,
             ..Palette::default()
         };
     }
@@ -772,7 +783,7 @@ impl App {
         let font = FontId::proportional(theme::size::BODY);
         let ppp = ui.ctx().pixels_per_point();
         let room = match self.palette.strip_room {
-            Some((w, p, room)) if w == width && p == ppp => room,
+            Some(room) if room.width == width && room.pixels_per_point == ppp => room.height,
             _ => {
                 let room = Entry::every_about()
                     .map(|about| {
@@ -783,17 +794,27 @@ impl App {
                         })
                     })
                     .fold(0.0, f32::max);
-                self.palette.strip_room = Some((width, ppp, room));
+                self.palette.strip_room = Some(StripRoom {
+                    width,
+                    pixels_per_point: ppp,
+                    height: room,
+                });
                 room
             }
         };
         let galley = ui.fonts_mut(|f| f.layout(text.to_owned(), font, colour, width));
         let (rect, response) =
             ui.allocate_exact_size(vec2(width, room.max(galley.size().y)), Sense::hover());
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
+        if !text.is_empty() {
+            response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
+        }
         ui.painter().galley(rect.left_top(), galley, colour);
 
+        // As tall as keycaps whether the row has a shortcut or not, so the
+        // palette's height does not change with the chosen row.
+        let footer = widgets::caps_height(ui);
         ui.horizontal(|ui| {
+            ui.set_min_height(footer);
             ui.label(
                 RichText::new(
                     "\u{2191}\u{2193} move \u{B7} Enter run \u{B7} Ctrl+Enter change keys \u{B7} Esc close",

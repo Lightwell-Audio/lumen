@@ -471,31 +471,32 @@ impl App {
     pub(crate) fn lanes_menu(&mut self, ui: &mut egui::Ui) {
         match self.menu_for {
             MenuFor::Clips => {
+                // The owner's A (the interface audit's M5): edits, then the
+                // clip's name and colour, its states, its sound, export and
+                // properties, each group under a divider.
                 use Edit::{Copy, Cut, Delete, Duplicate};
                 self.edit_items(ui, &[Cut, Copy, Duplicate, Delete]);
                 ui.separator();
                 widgets::submenu(ui, "Edit", |ui| {
-                    self.menu_command(ui, Command::SplitNotes, "Split");
-                    self.menu_command(ui, Command::GlueNotes, "Join");
-                    if self.availability(ui.ctx(), Command::UnloopClips).is_ok() {
-                        self.menu_command(ui, Command::UnloopClips, "Unloop");
-                    }
+                    self.context_command(ui, Command::SplitNotes, "Split");
+                    self.context_command(ui, Command::GlueNotes, "Join");
+                    self.context_command(ui, Command::UnloopClips, "Unloop");
                     // These act on audio only: a MIDI-only selection does not
                     // list them.
                     if self.selection_has_audio() {
-                        self.menu_command(ui, Command::ReverseClips, "Reverse");
-                        self.menu_command(ui, Command::InvertPolarity, "Invert polarity");
-                        self.menu_command(ui, Command::NormalizeClips, "Normalize");
+                        self.context_command(ui, Command::ReverseClips, "Reverse");
+                        self.context_command(ui, Command::InvertPolarity, "Invert polarity");
+                        self.context_command(ui, Command::NormalizeClips, "Normalize");
                     }
-                    self.menu_command(ui, Command::ConsolidateClips, "Join into new file");
-                    self.menu_command(ui, Command::Bounce, "Bounce");
-                    self.menu_command(ui, Command::NudgeClipsEarlier, "Nudge earlier");
-                    self.menu_command(ui, Command::NudgeClipsLater, "Nudge later");
+                    self.context_command(ui, Command::ConsolidateClips, "Join into new file");
+                    self.context_command(ui, Command::Bounce, "Bounce");
+                    self.context_command(ui, Command::NudgeClipsEarlier, "Nudge earlier");
+                    self.context_command(ui, Command::NudgeClipsLater, "Nudge later");
                     widgets::submenu(ui, "Select", |ui| {
-                        self.menu_command(ui, Command::InvertSelection, "Invert selection");
-                        self.menu_command(ui, Command::SelectAllInTrack, "All in track");
-                        self.menu_command(ui, Command::SelectToStart, "To start");
-                        self.menu_command(ui, Command::SelectToEnd, "To end");
+                        self.context_command(ui, Command::InvertSelection, "Invert selection");
+                        self.context_command(ui, Command::SelectAllInTrack, "All in track");
+                        self.context_command(ui, Command::SelectToStart, "To start");
+                        self.context_command(ui, Command::SelectToEnd, "To end");
                     });
                 });
                 self.takes_menu(ui);
@@ -506,9 +507,9 @@ impl App {
                 use Edit::{Copy, Cut, Delete, DeleteTime, Duplicate, InsertTime, Paste};
                 self.edit_items(ui, &[Cut, Copy, Paste, Duplicate, Delete]);
                 ui.separator();
-                self.menu_command(ui, Command::SplitNotes, "Split at range edges");
-                self.menu_command(ui, Command::CropToSelection, "Crop to selection");
-                self.menu_command(ui, Command::Bounce, "Bounce");
+                self.context_command(ui, Command::SplitNotes, "Split at range edges");
+                self.context_command(ui, Command::CropToSelection, "Crop to selection");
+                self.context_command(ui, Command::Bounce, "Bounce");
                 ui.separator();
                 self.edit_items(ui, &[DeleteTime, InsertTime]);
             }
@@ -540,14 +541,6 @@ impl App {
                     self.grid.snap = !self.grid.snap;
                 }
             }
-        }
-        ui.separator();
-        let mut crossfades = self.document.project().auto_crossfade;
-        if widgets::switch(ui, &mut crossfades, "Automatic crossfades", true)
-            .on_hover_text("Automatically blend eligible audio joins in this project")
-            .changed()
-        {
-            self.run(ui.ctx(), Command::ToggleAutoCrossfade);
         }
     }
 
@@ -586,8 +579,8 @@ impl App {
                 }
             }
             ui.separator();
-            self.menu_command(ui, Command::TakeNext, "Play next take");
-            self.menu_command(ui, Command::TakePrevious, "Play previous take");
+            self.context_command(ui, Command::TakeNext, "Play next take");
+            self.context_command(ui, Command::TakePrevious, "Play previous take");
             if audio {
                 widgets::submenu(ui, "Extract to new track", |ui| {
                     for take in 0..count {

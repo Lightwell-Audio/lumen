@@ -564,6 +564,10 @@ pub mod size {
     pub const LABEL_COLUMN: f32 = 96.0;
     /// The label column of a narrow card (the clip's properties).
     pub const LABEL_COLUMN_NARROW: f32 = 72.0;
+    /// A menu row (the interface audit's M1, the owner's choice): rows
+    /// touch, and a shortcut's cap and light sit 5 pt in from the
+    /// highlight's top and bottom.
+    pub const MENU_ROW: f32 = 32.0;
     /// The tallest a dropdown's list of choices gets before it scrolls.
     pub const MENU_LIST: f32 = 320.0;
     /// The audio panel's block budget bar (ADR-0075): its height, the

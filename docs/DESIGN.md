@@ -441,7 +441,7 @@ strokes are 4 wide and the third reflection goes.
 | Switch (on/off) | a 30 × 16 pt sunk pill (`well`, the lip), the knob a `text` to `text_secondary` gradient; its label at the left of a 20 pt row as wide as there is room for | Ember over the pill (`FAST`) | — | the knob glides right (`GLIDE`), `accent_hi` to `accent_lo`, on `accent_muted` with the 38% hairline | `text_disabled` |
 | Segmented (2–5 choices; `widgets::segmented`, `segmented_styled`) | a sunk trough (`well`, the lip; radius by height), optional icon, label and keycap, the icon and keycap centred on the label's optical middle (`fonts::optical_middle`: halfway between its capitals' and its lower-case letters' middles), `text_secondary` | Ember over the piece, label `text` | — | a neutral raised thumb (`thumb_hi` to `thumb`, the edge light, the trough's radius less 2) that slides to the choice (`GLIDE`), label `text`; `segmented_styled(.., Some(Tone::Accent))` fills the chosen tool with the accent | label in `text_disabled`, with why on hover |
 | Choice row (longer lists, such as a device's channel pairs) | a 24 pt row, `text`, radius 6 | Ember wash | — | `accent_muted` fill, `accent` text | — |
-| Menu row (`widgets::menu_item`) | `text`, with keycaps at the right | Ember highlight, radius 6, reaching `space::XS` past the row, following the pointer | — | a toggle that is on: `accent_muted`, `accent` letters | `text_disabled` |
+| Menu row (`widgets::menu_item`) | `size::MENU_ROW` (32 pt) tall whether it has keycaps or not; rows touch, so the pointer is always over one; `text`, with keycaps at the right, cap and light centred together | Ember highlight, radius 6, reaching `space::XS` past the row, following the pointer | — | a toggle that is on: `accent_muted`, `accent` letters | `text_disabled` |
 | Pill (lane tabs; `widgets::pills`) | 24 pt, radius `FULL`, `text_secondary` | Ember | — | `accent_muted`, `accent` letters, the 38% hairline; "+ CC" a `border_strong` hairline pill | — |
 
 Keyboard focus shows as a 2 pt `accent` ring, 2 pt outside, on every
@@ -1005,9 +1005,14 @@ Chosen by the owner from rendered specimens:
   - with nothing typed, "Recent" (the last five run from it) heads the
     list, then "All commands";
   - a strip under the list explains the chosen row in secondary text,
-    or why it cannot run in the warning colour, with every chord that
-    runs it;
-  - a hint line: ↑↓ move · Enter run · Esc close.
+    or why it cannot run in the warning colour. It keeps the room of the
+    longest explanation (every command's is at most 320 characters, a
+    test keeps it so), so the palette never changes height as the chosen
+    row changes (the interface audit's P1);
+  - a footer as tall as keycaps: the hint ↑↓ move · Enter run ·
+    Ctrl+Enter change keys · Esc close, and every chord that runs the
+    chosen row at the right. With no row matching, the strip is empty
+    and the footer stays, so the height still holds.
   The list shows up to ten rows, fewer when the window is short, so the
   palette never covers the transport bar. Esc, Ctrl+K or a click
   elsewhere closes it; hovering picks a row only when the pointer moves.
@@ -1039,8 +1044,23 @@ Chosen by the owner from rendered specimens:
   keymap, at the right of a menu row (`widgets::menu_item`; toggles use
   `menu_toggle`, with the selected fill when on) and after a tooltip's
   name (`widgets::tip`), with any hint on a line of its own in secondary
-  text. Commands without a shortcut show none; a row whose command cannot
-  run now is greyed.
+  text. Commands without a shortcut show none. In a context menu
+  (`App::context_command`, the interface audit's M3) a row that cannot act
+  on what was clicked is left out; one that could but waits on work under
+  way (a recording, a render, an export) stays, greyed, and its hover says
+  why. Main menus grey a row that cannot run now.
+- **Context menus are grouped** (the interface audit's M2, M4, M5): a
+  control's menu opens with a header naming the control and its track
+  ("Volume · Bass", `widgets::menu_header`); groups are split by dividers.
+  A track's menu: Rename, Colour | Duplicate, Group, Move up and down |
+  Input or Instrument, MIDI From and To, Monitor, the automation lane,
+  Fold | Import, Bounce, Freeze | Add track ▸ | Delete. A clip's: Cut,
+  Copy, Duplicate, Delete | Edit ▸, Takes ▸ | Rename, Colour | Mute, Lock
+  | Fades ▸, Crossfade with previous, the envelope | Export MIDI clip… |
+  Properties. Project settings (automatic crossfades) live in the Project
+  settings window, never in a clip's menu. A browser device's menu starts
+  with what choosing it does ("Add to Bass", or "Add on a new track"),
+  then favouring it, then its file.
 - **Panes:** F6 and Shift+F6 move the keyboard between the browser, the
   arrangement and the detail panel; the pane with the keyboard has the
   2 pt accent ring round it.
