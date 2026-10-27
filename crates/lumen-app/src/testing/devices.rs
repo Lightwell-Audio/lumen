@@ -545,6 +545,62 @@ impl App {
         self.settings.plugins.recents.clone()
     }
 
+    /// Fills the browser as if a scan had found `modules`: each a vendor and
+    /// its classes (a name and VST3 subcategories such as "Fx|Reverb"), and
+    /// `blocked` modules that timed out. For the look audit; nothing loads.
+    pub fn pretend_plugins(&mut self, modules: &[(&str, &[(&str, &str)])], blocked: &[&str]) {
+        use lumen_plugin_catalog::cache::{Cache, ClassRecord, Entry, Reason, Result};
+        use lumen_plugin_catalog::stamp::Stamp;
+        let stamp = Stamp {
+            len: 1,
+            modified_ns: 1,
+        };
+        let mut cache = Cache::new();
+        let mut n = 0u8;
+        for (vendor, classes) in modules {
+            let path = format!("/pretend/{vendor}.vst3");
+            let classes = classes
+                .iter()
+                .map(|(name, sub)| {
+                    n += 1;
+                    ClassRecord {
+                        id: lumen_plugin_catalog::catalog::class_id(&[n; 16]),
+                        name: (*name).into(),
+                        category: "Audio Module Class".into(),
+                        vendor: (*vendor).into(),
+                        subcategories: (*sub).into(),
+                        version: "1.0.0".into(),
+                        sdk_version: String::new(),
+                    }
+                })
+                .collect();
+            cache.set(Entry {
+                path: path.clone(),
+                binary: path,
+                stamp,
+                result: Result::Scanned {
+                    vendor: (*vendor).into(),
+                    url: String::new(),
+                    load_ms: 1,
+                    classes,
+                },
+            });
+        }
+        for name in blocked {
+            let path = format!("/pretend/{name}.vst3");
+            cache.set(Entry {
+                path: path.clone(),
+                binary: path,
+                stamp,
+                result: Result::Blocked {
+                    reason: Reason::TimedOut { seconds: 30 },
+                    at: 1,
+                },
+            });
+        }
+        self.plugins.pretend(cache);
+    }
+
     /// The id of the device selected in the browser, if one is.
     pub fn selected_device(&self) -> Option<String> {
         match &self.browser.view.selected {

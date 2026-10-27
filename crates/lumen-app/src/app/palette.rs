@@ -42,6 +42,37 @@ pub(crate) struct Palette {
     notice: Option<&'static str>,
     /// Focus the field when it next shows.
     focus: bool,
+    /// The room the strip keeps for what a row does: the tallest of every
+    /// row's text at the strip's width and the pixel density, so the
+    /// palette keeps its height as the chosen row changes.
+    strip_room: Option<(f32, f32, f32)>,
+}
+
+impl Entry {
+    /// What the row does, said in the strip under the list.
+    fn about(&self) -> &'static str {
+        match self {
+            Entry::Command(command) => command.info().about,
+            Entry::Tempo(_) => "Sets the song's tempo.",
+            Entry::Bar(_) => "Moves the playhead to the start of that bar.",
+            Entry::Track(_) => "Selects the track and scrolls to it.",
+            Entry::Locator(_) => "Moves the playhead to the locator.",
+            Entry::Template(_) => {
+                "Starts a new, unsaved project from the template: its tracks, devices, audio and settings."
+            }
+        }
+    }
+
+    /// Every text [`Entry::about`] can give.
+    fn every_about() -> impl Iterator<Item = &'static str> {
+        ALL.iter().map(|info| info.about).chain([
+            Entry::Tempo(120.0).about(),
+            Entry::Bar(1).about(),
+            Entry::Track(Id(0)).about(),
+            Entry::Locator(Ticks::ZERO).about(),
+            Entry::Template(0).about(),
+        ])
+    }
 }
 
 impl Palette {
@@ -702,85 +733,101 @@ impl App {
         (response, rekey)
     }
 
-    /// What the chosen row does, or why it cannot run, with every chord
-    /// that runs it.
-    fn palette_strip(&self, ui: &mut egui::Ui, row: Option<&Row>) {
+    /// What the chosen row does, or why it cannot run, then the list's keys
+    /// with every chord that runs it. The text keeps the room of the
+    /// longest a row can say, so the palette never changes height as the
+    /// chosen row changes.
+    fn palette_strip(&mut self, ui: &mut egui::Ui, row: Option<&Row>) {
         let palette = *theme::p();
-        let Some(row) = row else {
-            ui.add_space(ROW);
-            return;
-        };
-        let (about, area) = match row.entry {
-            Entry::Command(command) => (command.info().about, Some(command.info().area)),
-            Entry::Tempo(_) => ("Sets the song's tempo.", None),
-            Entry::Bar(_) => ("Moves the playhead to the start of that bar.", None),
-            Entry::Track(_) => ("Selects the track and scrolls to it.", None),
-            Entry::Locator(_) => ("Moves the playhead to the locator.", None),
-            Entry::Template(_) => (
-                "Starts a new, unsaved project from the template: its tracks, devices, audio and settings.",
-                None,
-            ),
-        };
-        let rebind = match row.entry {
-            Entry::Command(command) => self.rebind.filter(|r| r.command == command),
+        let rebind = match row.map(|r| &r.entry) {
+            Some(Entry::Command(command)) => self.rebind.filter(|r| r.command == *command),
             _ => None,
         };
-        let recording;
-        let (text, colour) = match (rebind, self.palette.notice, row.ready) {
-            (Some(r), ..) => match r.clash {
+        let said;
+        let (text, colour) = match (row, rebind) {
+            (None, _) => ("", palette.text_secondary),
+            (Some(_), Some(r)) => match r.clash {
                 Some((chord, other)) => {
-                    recording = format!(
+                    said = format!(
                         "{} is used by {}. Enter takes it \u{B7} Esc cancels",
                         chord.text(),
                         other.name()
                     );
-                    (recording.as_str(), palette.warning)
+                    (said.as_str(), palette.warning)
                 }
                 None => {
-                    recording = format!(
+                    said = format!(
                         "Press the new keys for {} \u{B7} Esc cancels",
                         r.command.name()
                     );
-                    (recording.as_str(), palette.accent)
+                    (said.as_str(), palette.accent)
                 }
             },
-            (None, Some(why), _) | (None, None, Err(why)) => (why, palette.warning),
-            (None, None, Ok(())) => (about, palette.text_secondary),
+            (Some(row), None) => match (self.palette.notice, row.ready) {
+                (Some(why), _) | (None, Err(why)) => (why, palette.warning),
+                (None, Ok(())) => (row.entry.about(), palette.text_secondary),
+            },
         };
-        ui.horizontal(|ui| {
-            ui.add(egui::Label::new(RichText::new(text).color(colour)).wrap());
-            if let (Entry::Command(command), Some(area)) = (&row.entry, area) {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let chords = self.keymap.chords(*command);
-                    for (i, chord) in chords.iter().enumerate().rev() {
-                        let caps = widgets::keycaps(
-                            ui,
-                            &chord.modifier_names(),
-                            chord.key_name(),
-                            area.light(),
-                            false,
-                        );
-                        caps.widget_info(|| {
-                            egui::WidgetInfo::labeled(
-                                egui::WidgetType::Label,
-                                true,
-                                format!("Shortcut {}", chord.text()),
-                            )
-                        });
-                        if i > 0 {
-                            ui.label(RichText::new("or").color(palette.text_hint));
-                        }
-                    }
-                });
+        let width = ui.available_width();
+        let font = FontId::proportional(theme::size::BODY);
+        let ppp = ui.ctx().pixels_per_point();
+        let room = match self.palette.strip_room {
+            Some((w, p, room)) if w == width && p == ppp => room,
+            _ => {
+                let room = Entry::every_about()
+                    .map(|about| {
+                        ui.fonts_mut(|f| {
+                            f.layout(about.to_owned(), font.clone(), colour, width)
+                                .size()
+                                .y
+                        })
+                    })
+                    .fold(0.0, f32::max);
+                self.palette.strip_room = Some((width, ppp, room));
+                room
             }
-        });
-        ui.label(
-            RichText::new(
-                "\u{2191}\u{2193} move \u{B7} Enter run \u{B7} Ctrl+Enter change keys \u{B7} Esc close",
-            )
+        };
+        let galley = ui.fonts_mut(|f| f.layout(text.to_owned(), font, colour, width));
+        let (rect, response) =
+            ui.allocate_exact_size(vec2(width, room.max(galley.size().y)), Sense::hover());
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
+        ui.painter().galley(rect.left_top(), galley, colour);
+
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(
+                    "\u{2191}\u{2193} move \u{B7} Enter run \u{B7} Ctrl+Enter change keys \u{B7} Esc close",
+                )
                 .size(theme::size::CAPTION)
                 .color(palette.text_hint),
-        );
+            );
+            let Some(Entry::Command(command)) = row.map(|r| &r.entry) else {
+                return;
+            };
+            let area = command.info().area;
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let chords = self.keymap.chords(*command);
+                for (i, chord) in chords.iter().enumerate().rev() {
+                    let caps = widgets::keycaps(
+                        ui,
+                        &chord.modifier_names(),
+                        chord.key_name(),
+                        area.light(),
+                        false,
+                    );
+                    caps.widget_info(|| {
+                        egui::WidgetInfo::labeled(
+                            egui::WidgetType::Label,
+                            true,
+                            format!("Shortcut {}", chord.text()),
+                        )
+                    });
+                    if i > 0 {
+                        ui.label(RichText::new("or").color(palette.text_hint));
+                    }
+                }
+            });
+        });
     }
 }
 

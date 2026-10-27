@@ -222,6 +222,15 @@ impl Plugins {
         &self.catalog
     }
 
+    /// Replaces what is known with `cache`, as if a scan had just found it
+    /// (the look audit's browser, `App::pretend_plugins`).
+    pub(crate) fn pretend(&mut self, cache: Cache) {
+        self.catalog = Catalog::build(&cache, builtin_devices());
+        self.cache = cache;
+        self.status = Status::Idle;
+        self.finished_at = Some(SystemTime::now());
+    }
+
     pub(crate) fn status(&self) -> &Status {
         &self.status
     }

@@ -3,6 +3,7 @@
 //! command cannot run, and typed values (a tempo, a bar, a track's name).
 
 use eframe::egui::{Event, Key, Modifiers};
+use egui_kittest::kittest::Queryable;
 use lumen_app::App;
 use lumen_core::time::Ticks;
 
@@ -133,4 +134,27 @@ fn numbers_and_names_become_actions() {
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(2);
     assert_eq!(lumen.app().selected_tracks(), [snare]);
+}
+
+/// The strip under the list keeps the room of the longest text a row can
+/// say, so the palette keeps its height while the arrows move through
+/// every row (the owner saw it resize with the chosen row's text).
+#[test]
+fn the_palette_keeps_its_height_as_the_chosen_row_changes() {
+    let mut lumen = Lumen::start("palette-height");
+    lumen.key(Modifiers::COMMAND, Key::K);
+    let bottom = |lumen: &Lumen| {
+        lumen
+            .harness
+            .get_by_label_contains("Enter run")
+            .rect()
+            .bottom()
+    };
+    let first = bottom(&lumen);
+    let count = rows(&lumen).len();
+    assert!(count > 100, "every command is listed");
+    for i in 0..count {
+        lumen.key(Modifiers::NONE, Key::ArrowDown);
+        assert_eq!(bottom(&lumen), first, "after {} rows down", i + 1);
+    }
 }

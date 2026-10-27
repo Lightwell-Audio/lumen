@@ -572,3 +572,137 @@ fn corrected_menus() {
         }
     }
 }
+
+/// The plugins the cleanup audit's browser lists: three vendors besides
+/// Lumen's own, a dozen categories and a blocked module (anonymous names).
+const PRETEND: [(&str, &[(&str, &str)]); 3] = [
+    (
+        "Studio A",
+        &[
+            ("Bus compressor", "Fx|Dynamics"),
+            ("Plate reverb", "Fx|Reverb"),
+            ("Tape delay", "Fx|Delay"),
+            ("Channel EQ", "Fx|EQ"),
+        ],
+    ),
+    (
+        "Studio B",
+        &[
+            ("Analog poly", "Instrument|Synth"),
+            ("Drum machine", "Instrument|Drum"),
+            ("Electric piano", "Instrument|Piano"),
+            ("Saturator", "Fx|Distortion"),
+        ],
+    ),
+    (
+        "Studio C with a long vendor name",
+        &[
+            ("Spectrum analyzer with a long name", "Fx|Analyzer"),
+            ("Chorus", "Fx|Modulation"),
+            ("Limiter", "Fx|Dynamics"),
+        ],
+    ),
+];
+
+/// The browser (the cleanup audit, 2026-10-27): a filled list, its search,
+/// filters, chips, folds, a selection, a device's menu, a blocked module and
+/// the empty states.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn browser() {
+    looks("browser", true, |s| {
+        s.h.state_mut()
+            .pretend_plugins(&PRETEND, &["Hangs on load"]);
+        s.steps(10);
+        s.snap("filled");
+        s.hover("Plate reverb, Studio A");
+        s.steps(4);
+        s.snap("row-hover");
+        s.away();
+        s.click("Plate reverb, Studio A");
+        s.steps(4);
+        s.snap("row-selected");
+        if s.right("Plate reverb, Studio A") {
+            s.snap("device-menu");
+            s.esc();
+        }
+        s.click("Hangs on load, blocked");
+        s.steps(6);
+        s.snap("blocked-note");
+        if s.right("Hangs on load, blocked") {
+            s.snap("blocked-menu");
+            s.esc();
+        }
+        s.click("Search devices");
+        s.h.event(Event::Text("verb".into()));
+        s.steps(6);
+        s.snap("search");
+        s.h.event(Event::Text("zzz".into()));
+        s.steps(6);
+        s.snap("search-none");
+        s.click("Clear search");
+        s.steps(4);
+        s.click("Instruments");
+        s.steps(4);
+        s.snap("instruments");
+        s.click("All");
+        s.steps(4);
+        s.click("Dynamics");
+        s.steps(4);
+        s.snap("chip");
+        s.away();
+    });
+}
+
+/// The mixer with many kinds of strip: audio, MIDI, a group, two returns,
+/// the master; a selected strip, menus and a short panel (the cleanup audit).
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn mixer_full() {
+    looks("mixerfull", true, |s| {
+        s.command("Add MIDI track");
+        for _ in 0..2 {
+            s.click("Add track");
+            s.click("Add return track");
+            s.steps(6);
+        }
+        let ids: Vec<_> =
+            s.h.state()
+                .project()
+                .tracks
+                .iter()
+                .take(2)
+                .map(|t| t.id)
+                .collect();
+        s.h.state_mut().select_tracks(&ids);
+        s.chord(Modifiers::COMMAND, Key::G);
+        s.steps(20);
+        s.h.state_mut().set_detail_size(420.0);
+        s.click_last("Mixer tab");
+        s.steps(20);
+        s.snap("mixer");
+        s.h.state_mut().select_tracks(&ids[..1]);
+        s.steps(6);
+        s.snap("selected");
+        for (n, label) in [
+            "Output of kick in the mixer",
+            "kick send A in the mixer",
+            "+",
+        ]
+        .iter()
+        .enumerate()
+        {
+            if s.click(label) {
+                s.snap(&format!("pop{n}"));
+                s.esc();
+            }
+        }
+        s.hover("kick fader in the mixer");
+        s.steps(4);
+        s.snap("fader-hover");
+        s.away();
+        s.h.state_mut().set_detail_size(240.0);
+        s.steps(20);
+        s.snap("short");
+    });
+}
