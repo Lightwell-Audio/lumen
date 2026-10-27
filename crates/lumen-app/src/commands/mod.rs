@@ -491,7 +491,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::ClipEnvelope, "view.clip_envelope", "Show or hide the clip's envelope", Area::View, &[plain(Key::E)], "Shows the gain envelope of the selected audio clip over it, or hides it. Click the clip to add a point, drag a point to move it; the chip at the envelope's corner switches between gain and pan. Points move with the clip."),
     info(Command::LockEnvelopes, "edit.lock_envelopes", "Lock envelopes", Area::Edit, &[], "With this off, moving, copying or deleting a clip also moves, copies or removes the track's automation under it. With it on, automation stays where it is on the timeline."),
     info(Command::ToolPointer, "view.tool_pointer", "Pointer tool", Area::View, &[plain(Key::V)], "Selects and moves clips and time ranges."),
-    info(Command::ToolDraw, "view.tool_draw", "Arrangement draw tool", Area::View, &[], "Draws MIDI clips in empty MIDI lanes. B switches between it and Pointer (Draw tool)."),
+    info(Command::ToolDraw, "view.tool_draw", "Arrangement draw tool", Area::View, &[], "Draws MIDI clips in empty MIDI lanes. B switches between it and Pointer."),
     info(Command::ToolErase, "view.tool_erase", "Erase tool", Area::View, &[plain(Key::D)], "Deletes the clip under the pointer."),
     info(Command::ToolSplit, "view.tool_split", "Split tool", Area::View, &[plain(Key::C)], "Cuts clips at the pointer or at the edit cursor."),
     info(Command::ToolMute, "view.tool_mute", "Mute tool", Area::View, &[plain(Key::U)], "Toggles mute on the clip under the pointer."),

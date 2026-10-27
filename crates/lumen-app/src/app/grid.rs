@@ -1,6 +1,6 @@
 //! The editing grid in the app (M3 slice 5a): snapping, its keys, the
-//! grid menu (right-click the lanes, or the grid button in the ruler's
-//! corner) and the snap guide. The grid itself is `lumen_core::grid`.
+//! grid menu (right-click the lanes, or the grid value in the ruler
+//! corner's well) and the snap guide. The grid itself is `lumen_core::grid`.
 
 use eframe::egui::{self, Align2, FontId, Rect, Stroke, pos2};
 use lumen_core::grid::{Feel, Size, Step, Width};
@@ -174,7 +174,7 @@ impl App {
         } else {
             (Icon::MagnetOff, ink)
         };
-        let side = theme::size::CAPTION + 3.0;
+        let side = theme::size::CORNER_ICON;
         let square = Rect::from_center_size(magnet.center(), egui::vec2(side, side));
         ui.painter().extend(icons::shapes(icon, square, colour));
         if switch.clicked() {

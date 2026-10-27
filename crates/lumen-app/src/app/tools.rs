@@ -111,7 +111,7 @@ impl App {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone())
         });
         let painter = ui.painter().with_clip_rect(rect);
-        let side = theme::size::CAPTION + 3.0;
+        let side = theme::size::CORNER_ICON;
         let galley = painter.layout_no_wrap(
             tool.name().to_owned(),
             egui::FontId::proportional(theme::size::CAPTION),

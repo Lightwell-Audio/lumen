@@ -240,8 +240,9 @@ Sentence case for every label ("Audio settings", not
   switches, segmented controls, strip rows, the clip card's rows); knobs
   `KNOB` 24 pt and, in lists, `KNOB_SMALL` 18 pt. Track headers (M9 R1b,
   ADR-0101): `HEADER_SIDE` 60 pt for the right column (pan, the In chip),
-  `WELL_PIECE_W` 18 × `WELL_PIECE_H` 16 pt for the pieces of the M S ●
-  well, `LEVEL_STRIP` 3 pt for the level beside the rail, and `SEND_SLOT`
+  `WELL_PIECE_W` 18 pt for the pieces of the M S ● well (as tall as the
+  well less `space::XXS` each side), `CORNER_ICON` for an icon in a piece
+  of the ruler corner's wells, `LEVEL_STRIP` 3 pt for the level beside the rail, and `SEND_SLOT`
   18 pt for the widest slot of the send well, which shows its letter from
   `SEND_SLOT_LETTER` 12 pt. A module never invents its own size for these. The Monitor badge on a MIDI header (`BADGE_W` 16 ×
   `BADGE_H` 14 pt) is a speaker before M, shown only when Monitor is In
@@ -927,11 +928,14 @@ The Clip tab uses the shared controls (§5a, ADR-0052).
   rest, 1 pt apart, the Ember wash under the pointer, filled in their tone
   while on. The ruler row holds one well: the magnet, the grid value, the
   tool and the tempo-lanes icon. The locator row has "Locators" at the
-  left and a well of ◂, Set and ▸ at the right ("Set" lit while a locator
-  sits at the playhead).
+  left and a well of ◂, Set and ▸ at the right. "Set" is a bare piece; its
+  text turns `accent` while a locator sits at the playhead.
 - **The magnet piece** is the "Snap to grid" checkbox: `Icon::Magnet` in
-  `accent` while snapping, `Icon::MagnetOff` in `text_hint` when not
+  `accent` while snapping, `Icon::MagnetOff` in the piece's ink when not
   (owner's choice C1, MT-APP-13 run 1).
+- **Tool keys:** V, B, D, C and U pick Pointer, Draw, Erase, Split and
+  Mute (the interface audit's M6). While the computer keyboard plays
+  notes, it takes V, D, C and U, as it does Z and X.
 - **The grid value piece** ("Grid: 1/16", with ", snap off" while
   snapping is off) shows the step in the monospace caption ("1/16",
   "1/8T", "4 bars") and a ▾ (`widgets::ARROW_SIZE`), and opens the grid

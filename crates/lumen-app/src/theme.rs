@@ -547,10 +547,12 @@ pub mod size {
     /// The right column of an unfolded track header (pan over the In
     /// chip), so their edges line up (ADR-0101).
     pub const HEADER_SIDE: f32 = 60.0;
-    /// A piece cut into a header's well (M, S and arm): width and height,
-    /// 2 pt inside a 20 pt well, 1 pt apart.
+    /// A piece cut into a header's well (M, S and arm): its width; it is
+    /// as tall as the well less 2 pt each side (16 pt in a 20 pt well).
     pub const WELL_PIECE_W: f32 = 18.0;
-    pub const WELL_PIECE_H: f32 = 16.0;
+    /// An icon in a piece of the ruler corner's wells (the tool, the
+    /// magnet, tempo lanes): a step above the caption it sits beside.
+    pub const CORNER_ICON: f32 = CAPTION + 3.0;
     /// The level strip beside a header's colour rail.
     pub const LEVEL_STRIP: f32 = 3.0;
     /// A send slot's widest, and the least width that shows its letter.

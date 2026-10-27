@@ -33,9 +33,8 @@ use crate::{fonts, motion, theme};
 const ARMED_WASH: f32 = 0.10;
 const ARMED_WASH_SPAN: f32 = 0.55;
 
-/// The pieces of the M S ● well: their width, and the gap between them.
+/// The width of a piece of the M S ● well.
 const PIECE_W: f32 = theme::size::WELL_PIECE_W;
-const PIECE_GAP: f32 = widgets::well::PIECE_GAP;
 
 /// The well holding `pieces` pieces, its right edge at `right` and centred
 /// on `mid`: 60 pt for M S ●, 41 pt for a return's M S.
@@ -300,17 +299,8 @@ impl Arrangement {
             3
         };
         let trough = well_rect(rect.right() - CONTENT_RIGHT, mid, pieces).round_to_pixels(ppp);
-        raised::paint_sunken(&painter, trough, theme::radius::SMALL);
-        let piece = |n: usize| {
-            Rect::from_min_size(
-                pos2(
-                    trough.left() + theme::space::XXS + n as f32 * (PIECE_W + PIECE_GAP),
-                    trough.top() + theme::space::XXS,
-                ),
-                vec2(PIECE_W, theme::size::WELL_PIECE_H),
-            )
-            .round_to_pixels(ppp)
-        };
+        let cut = widgets::well::paint(&painter, trough, &vec![PIECE_W; pieces]);
+        let piece = |n: usize| cut.get(n).map_or(Rect::NOTHING, |r| r.round_to_pixels(ppp));
         let (mute_rect, solo_rect, arm_rect) = (piece(0), piece(1), piece(2));
 
         let before = trough.left();

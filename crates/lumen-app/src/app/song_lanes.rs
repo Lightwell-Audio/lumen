@@ -79,7 +79,7 @@ impl App {
                 "Tempo and meter lanes",
             )
         });
-        let side = theme::size::CAPTION + 3.0;
+        let side = theme::size::CORNER_ICON;
         let icon = Rect::from_center_size(rect.center(), vec2(side, side));
         ui.painter().extend(crate::icons::shapes(
             crate::icons::Icon::TempoLanes,

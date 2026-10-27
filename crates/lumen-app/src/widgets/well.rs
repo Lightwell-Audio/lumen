@@ -1,8 +1,9 @@
 //! A sunk well cut into pieces (ADR-0101): the M S ● well of a track
 //! header, and the header corner's two wells, ◂ Set ▸ and grid, tool and
-//! tempo lanes (the interface audit's H1). The well is `well` with its
-//! `shade` lip; each piece sits `space::XXS` inside it, 1 pt from the next,
-//! bare at rest, with the Ember wash under the pointer and filled while on.
+//! tempo lanes (the interface audit's H1). The well is filled in the
+//! `well` colour with a `shade` lip; each piece sits `space::XXS` inside
+//! it, 1 pt from the next, bare at rest, with the Ember wash under the
+//! pointer and filled while on.
 
 use eframe::egui::{self, Color32, Painter, Rect, Response, Sense, Ui, pos2};
 use eframe::emath::GuiRounding as _;

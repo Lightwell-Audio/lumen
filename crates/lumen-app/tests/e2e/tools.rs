@@ -100,6 +100,20 @@ fn b_toggles_arrangement_draw_and_escape_returns_to_pointer() {
 }
 
 #[test]
+fn single_keys_pick_the_tools_the_menu_names() {
+    let mut lumen = Lumen::start("tools-single-keys");
+    for (key, name) in [
+        (Key::D, "Erase"),
+        (Key::C, "Split"),
+        (Key::U, "Mute"),
+        (Key::V, "Pointer"),
+    ] {
+        lumen.key(Modifiers::NONE, key);
+        assert_eq!(lumen.app().arrangement_tool_name(), name, "{key:?}");
+    }
+}
+
+#[test]
 fn split_tool_clicks_cut_on_the_grid_and_undo_restores_the_original() {
     let mut lumen = audio("tools-click");
     let original = lumen.app().project().tracks[0].clips.clone();
