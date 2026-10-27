@@ -35,13 +35,12 @@ const ARMED_WASH_SPAN: f32 = 0.55;
 
 /// The pieces of the M S ● well: their width, and the gap between them.
 const PIECE_W: f32 = theme::size::WELL_PIECE_W;
-const PIECE_GAP: f32 = 1.0;
+const PIECE_GAP: f32 = widgets::well::PIECE_GAP;
 
 /// The well holding `pieces` pieces, its right edge at `right` and centred
 /// on `mid`: 60 pt for M S ●, 41 pt for a return's M S.
 fn well_rect(right: f32, mid: f32, pieces: usize) -> Rect {
-    let n = pieces as f32;
-    let width = 2.0 * theme::space::XXS + n * PIECE_W + (n - 1.0) * PIECE_GAP;
+    let width = widgets::well::width(&vec![PIECE_W; pieces]);
     Rect::from_min_max(
         pos2(right - width, mid - theme::size::CONTROL_SMALL / 2.0),
         pos2(right, mid + theme::size::CONTROL_SMALL / 2.0),

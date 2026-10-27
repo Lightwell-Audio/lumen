@@ -441,7 +441,7 @@ strokes are 4 wide and the third reflection goes.
 | Switch (on/off) | a 30 × 16 pt sunk pill (`well`, the lip), the knob a `text` to `text_secondary` gradient; its label at the left of a 20 pt row as wide as there is room for | Ember over the pill (`FAST`) | — | the knob glides right (`GLIDE`), `accent_hi` to `accent_lo`, on `accent_muted` with the 38% hairline | `text_disabled` |
 | Segmented (2–5 choices; `widgets::segmented`, `segmented_styled`) | a sunk trough (`well`, the lip; radius by height), optional icon, label and keycap, the icon and keycap centred on the label's optical middle (`fonts::optical_middle`: halfway between its capitals' and its lower-case letters' middles), `text_secondary` | Ember over the piece, label `text` | — | a neutral raised thumb (`thumb_hi` to `thumb`, the edge light, the trough's radius less 2) that slides to the choice (`GLIDE`), label `text`; `segmented_styled(.., Some(Tone::Accent))` fills the chosen tool with the accent | label in `text_disabled`, with why on hover |
 | Choice row (longer lists, such as a device's channel pairs) | a 24 pt row, `text`, radius 6 | Ember wash | — | `accent_muted` fill, `accent` text | — |
-| Menu row (`widgets::menu_item`) | `size::MENU_ROW` (32 pt) tall whether it has keycaps or not; rows touch, so the pointer is always over one; `text`, with keycaps at the right, cap and light centred together | Ember highlight, radius 6, reaching `space::XS` past the row, following the pointer | — | a toggle that is on: `accent_muted`, `accent` letters | `text_disabled` |
+| Menu row (`widgets::menu_item`) | `size::MENU_ROW` (32 pt) tall whether it has keycaps or not; rows touch, so the pointer is always over one; `text`, with keycaps at the right, cap and light centred together; `menu_toggle_icon` puts a `size::MENU_ICON` icon before the label | Ember highlight, radius 6, reaching `space::XS` past the row, following the pointer | — | a toggle that is on: `accent_muted`, `accent` letters | `text_disabled` |
 | Pill (lane tabs; `widgets::pills`) | 24 pt, radius `FULL`, `text_secondary` | Ember | — | `accent_muted`, `accent` letters, the 38% hairline; "+ CC" a `border_strong` hairline pill | — |
 
 Keyboard focus shows as a 2 pt `accent` ring, 2 pt outside, on every
@@ -921,16 +921,21 @@ The Clip tab uses the shared controls (§5a, ADR-0052).
 
 ## 7c. Grid and snapping (M3 slice 5a)
 
-- **The grid button** sits in the ruler's corner, above the track headers:
-  "Grid" in hint text at the left, the step at the right in the monospace
-  caption ("1/16", "1/8T", "4 bars"), always shown. Before it, a magnet
-  (`Icon::Magnet`, 14 pt): `accent` while snapping, struck through in
-  `text_hint` when not, with the size in hint colour too (owner's choice
-  C1, MT-APP-13 run 1). The magnet is its own switch: a click turns
-  snapping on or off (accessible as the "Snap to grid" checkbox, with a
-  `control_press` wash on hover). A click elsewhere on the button opens
-  the grid menu, which keeps "Snap to grid"; right-clicking the lanes
-  opens it too.
+- **The header corner** (the interface audit's H1) is two rows of sunk
+  wells (`widgets::well`), `size::CONTROL_SMALL` tall with `space::S`
+  margins, built like the M/S/arm well of a track header: pieces bare at
+  rest, 1 pt apart, the Ember wash under the pointer, filled in their tone
+  while on. The ruler row holds one well: the magnet, the grid value, the
+  tool and the tempo-lanes icon. The locator row has "Locators" at the
+  left and a well of ◂, Set and ▸ at the right ("Set" lit while a locator
+  sits at the playhead).
+- **The magnet piece** is the "Snap to grid" checkbox: `Icon::Magnet` in
+  `accent` while snapping, `Icon::MagnetOff` in `text_hint` when not
+  (owner's choice C1, MT-APP-13 run 1).
+- **The grid value piece** ("Grid: 1/16", with ", snap off" while
+  snapping is off) shows the step in the monospace caption ("1/16",
+  "1/8T", "4 bars") and a ▾ (`widgets::ARROW_SIZE`), and opens the grid
+  menu, which keeps "Snap to grid"; right-clicking the lanes opens it too.
 - **The grid menu** lists the adaptive widths, the fixed sizes, Triplet,
   Dotted and Snap to grid as selectable items with their shortcuts.
 - **Lines:** bar lines `grid_bar`, beat lines `grid_beat`, lines between
@@ -1235,8 +1240,8 @@ type its tempo").
 
 A **ramp** (a change that glides to the next) is drawn as a slope between the two points, in the same
 line; a step holds and jumps. The tempo and the name column show the tempo playing at the playhead.
-The lanes are found with the **Tempo** button in the ruler's corner, the right of the Grid row
-(`size::SONG_BUTTON` wide, a raised toggle lit with `Tone::On` while shown), and with a toggle in the
+The lanes are found with the tempo-lanes piece (`Icon::TempoLanes`) at the right of the header
+corner's well (§7c), lit with `Tone::On` while shown, and with a toggle in the
 bar ruler's right-click menu, as well as T.
 
 ## 7h. Automation lanes (M7 slice A1, ADR-0082, the owner's L1 B)
@@ -1292,11 +1297,14 @@ the project setting does not push later controls beyond reach.
 
 ### Arrangement tools (M7b E0, owner's K1)
 
-The compact tool switch sits between the grid and tempo buttons above the
-track headers. It uses the existing raised material, the selected tool's
-accent face, and a vector fold arrow. Its menu names Pointer, Draw, Erase,
-Split, Mute and Zoom; the palette exposes each tool too. Narrow grid space
-shows the magnet and division, with the full accessible name and tooltip.
+The tool switch is the flexible piece of the header corner's well, between
+the grid value and the tempo-lanes icon (§7c): the tool's icon, its name and
+a ▾, lit in `accent` while the tool is not Pointer; a narrow column drops the
+name and keeps the icon, the accessible name ("Arrangement tool: Draw") and
+the tooltip. Its menu lists Pointer, Draw, Erase, Split, Mute and Zoom, each
+with its icon (`widgets::menu_toggle_icon`, `size::MENU_ICON`) and keys:
+V, B, D, C and U by default (the audit's M6), Zoom none since Z and X zoom
+already; the palette lists each tool too.
 
 B toggles Pointer/Draw in the arrangement and retains the active editor's
 existing behavior. Escape cancels a cut preview and returns to Pointer.

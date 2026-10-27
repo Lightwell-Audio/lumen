@@ -30,6 +30,7 @@ mod scroll_bar;
 mod signature;
 mod slider;
 mod toggle;
+pub mod well;
 pub mod wheel;
 
 pub use control_items::{Ask, control_items};
@@ -40,7 +41,7 @@ pub use fade_out::paint_gone;
 pub use format::{db_text, ms_text, pan_text, readout_db};
 pub use keys::{
     KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
-    modifier_caps, submenu, tip,
+    menu_toggle_icon, modifier_caps, submenu, tip,
 };
 pub use menu::Menu;
 pub(crate) use menu::note_change;
@@ -76,6 +77,9 @@ pub fn shorten(painter: &egui::Painter, text: &str, font: FontId, width: f32) ->
     }
     format!("{cut}\u{2026}")
 }
+
+/// How wide and tall [`draw_arrow`]'s arrow is, for laying out beside it.
+pub const ARROW_SIZE: f32 = 8.0;
 
 /// The fold arrow: pointing right when folded, down when unfolded (`t`
 /// glides from 0 to 1).

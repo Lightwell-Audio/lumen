@@ -568,6 +568,8 @@ pub mod size {
     /// touch, and a shortcut's cap and light sit 5 pt in from the
     /// highlight's top and bottom.
     pub const MENU_ROW: f32 = 32.0;
+    /// An icon before a menu row's label (the arrangement tools, M6).
+    pub const MENU_ICON: f32 = 16.0;
     /// The tallest a dropdown's list of choices gets before it scrolls.
     pub const MENU_LIST: f32 = 320.0;
     /// The audio panel's block budget bar (ADR-0075): its height, the
@@ -604,8 +606,6 @@ pub mod size {
     pub const SONG_METER: f32 = 20.0;
     pub const SONG_CHIP_PAD: f32 = 6.0;
     pub const SONG_TYPE: f32 = 88.0;
-    /// The width of the button in the ruler's corner that shows the lanes.
-    pub const SONG_BUTTON: f32 = 68.0;
 }
 
 /// Which theme the user asked for.

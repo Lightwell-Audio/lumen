@@ -614,7 +614,7 @@ pub(super) fn arm_button(
     if piece {
         arm_piece(ui, rect, arm, hover);
         if response.has_focus() {
-            raised::paint_focus(p, rect, super::buttons::PIECE_RADIUS);
+            raised::paint_focus(p, rect, crate::widgets::well::PIECE_RADIUS);
         }
         return response.clicked();
     }
@@ -684,7 +684,7 @@ fn arm_piece(ui: &Ui, rect: Rect, arm: Arm, hover: f32) {
     let palette = theme::p();
     let p = ui.painter();
     let center = rect.center();
-    let r = f32::from(super::buttons::PIECE_RADIUS);
+    let r = f32::from(crate::widgets::well::PIECE_RADIUS);
     let ring = rect.height() / 2.0 - PIECE_RING_INSET;
     match arm {
         Arm::All => {

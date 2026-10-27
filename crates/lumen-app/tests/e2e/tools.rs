@@ -4,7 +4,7 @@ use eframe::egui::{Event, Key, Modifiers, Pos2, Rect};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
 
-use super::{Lumen, wav};
+use super::{Lumen, keys, wav};
 
 fn command(lumen: &mut Lumen, name: &str) {
     lumen.key(Modifiers::COMMAND, Key::K);
@@ -72,15 +72,17 @@ fn every_arrangement_tool_is_reachable_from_the_palette() {
 #[test]
 fn the_tool_switch_opens_its_menu_and_selects_a_tool_with_the_mouse() {
     let mut lumen = Lumen::start("tools-switch");
-    assert!(!lumen.shows("Erase"), "the menu is closed to begin with");
+    // A tool's row is named with its keys (the interface audit's M6).
+    let (erase, split) = (keys("Erase D"), keys("Split C"));
+    assert!(!lumen.shows(&erase), "the menu is closed to begin with");
     lumen.click("Arrangement tool: Pointer");
-    assert!(lumen.shows("Split"), "the mouse opens the tool menu");
-    lumen.click("Split");
+    assert!(lumen.shows(&split), "the mouse opens the tool menu");
+    lumen.click(&split);
     assert_eq!(lumen.app().arrangement_tool_name(), "Split");
     assert!(lumen.shows("Arrangement tool: Split"));
     lumen.frames(30);
     assert!(
-        !lumen.shows("Erase"),
+        !lumen.shows(&erase),
         "choosing a tool closes the menu, so a pick is one click"
     );
 }

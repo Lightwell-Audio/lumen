@@ -15,7 +15,7 @@ use super::Arrangement;
 use super::control_menu::{control_menu_for, waiting_ring};
 use crate::document::Document;
 use crate::theme::{self, Tone};
-use crate::widgets::raised;
+use crate::widgets::{raised, well};
 use crate::{fonts, motion};
 
 /// How strongly a hollow M and S fill with their colour (the design
@@ -29,44 +29,6 @@ const HOLLOW_SOLO: f32 = 0.12;
 pub(super) enum Style {
     Raised,
     Well,
-}
-
-/// A piece's corner: the 20 pt well's radius less its 2 pt inset.
-pub(super) const PIECE_RADIUS: u8 = theme::radius::SMALL - theme::space::XXS as u8;
-
-/// Paints a piece of a header's well in `rect`: bare while off, with the
-/// Ember wash under the pointer, `look.press` while pressed, and filled in
-/// `tone` by `lit` (a lit M is `mute`, a lit S accent). Returns the colour
-/// for its letter.
-pub(super) fn paint_piece(
-    painter: &egui::Painter,
-    rect: Rect,
-    face: &raised::Face,
-) -> egui::Color32 {
-    let palette = theme::p();
-    let r = f32::from(PIECE_RADIUS);
-    if face.pressed {
-        painter.rect_filled(rect, r, face.surface.press);
-    } else if face.hover > 0.0 {
-        painter.rect_filled(rect, r, palette.ember.gamma_multiply(face.hover));
-    }
-    if face.lit > 0.0 {
-        let on = theme::lit(face.tone);
-        raised::gradient(
-            painter,
-            rect,
-            r,
-            on.top.gamma_multiply(face.lit),
-            on.bottom.gamma_multiply(face.lit),
-        );
-        raised::lip(
-            painter,
-            rect,
-            PIECE_RADIUS,
-            on.light.gamma_multiply(face.lit),
-        );
-    }
-    face.text()
 }
 
 /// The M and S buttons; S is a headphone button on Cue.
@@ -171,7 +133,11 @@ impl Arrangement {
                     let body = raised::paint(ui.painter(), r, radius, &face);
                     (radius, body, face.text())
                 }
-                Style::Well => (PIECE_RADIUS, r, paint_piece(ui.painter(), r, &face)),
+                Style::Well => (
+                    well::PIECE_RADIUS,
+                    r,
+                    well::paint_piece(ui.painter(), r, &face),
+                ),
             };
             if mute_over && button == Toggle::Mute {
                 super::follow::ring(ui, r);

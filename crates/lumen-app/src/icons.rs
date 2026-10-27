@@ -71,11 +71,26 @@ pub enum Icon {
     PanelBottom,
     /// A plugin's own window (M6 slice 5h): a window with its title bar.
     Window,
+    /// The Pointer tool (the interface audit's M6): an arrow pointer.
+    Pointer,
+    /// The Draw tool: a pencil.
+    Pencil,
+    /// The Erase tool: an eraser on a line.
+    Eraser,
+    /// The Split tool: a cut between two clip edges.
+    Split,
+    /// The Mute tool: a circle, struck through.
+    MuteCircle,
+    /// The Zoom tool: a magnifier with a plus.
+    ZoomIn,
+    /// The tempo and meter lanes (H1): a stepped tempo line under a faint
+    /// meter line.
+    TempoLanes,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 31] = [
+    pub const ALL: [Icon; 38] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -107,8 +122,19 @@ impl Icon {
         Icon::PanelLeft,
         Icon::PanelBottom,
         Icon::Window,
+        Icon::Pointer,
+        Icon::Pencil,
+        Icon::Eraser,
+        Icon::Split,
+        Icon::MuteCircle,
+        Icon::ZoomIn,
+        Icon::TempoLanes,
     ];
 }
+
+/// How strongly an icon's secondary line is drawn (the tempo lanes' meter
+/// line).
+const FAINT: f32 = 0.45;
 
 /// Maps the 16-unit icon grid onto a square centred in `rect`.
 struct Grid {
@@ -140,6 +166,82 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
     let stroke = Stroke::new(1.6 * g.unit, color);
     let none = Stroke::NONE;
     match icon {
+        Icon::Pointer => vec![Shape::closed_line(
+            vec![
+                g.p(4.0, 2.5),
+                g.p(4.0, 12.5),
+                g.p(6.8, 9.9),
+                g.p(8.7, 13.9),
+                g.p(10.3, 13.1),
+                g.p(8.4, 9.2),
+                g.p(12.0, 9.2),
+            ],
+            Stroke::new(1.3 * g.unit, color),
+        )],
+        Icon::Pencil => vec![
+            Shape::closed_line(
+                vec![
+                    g.p(3.0, 13.0),
+                    g.p(4.0, 9.5),
+                    g.p(10.5, 3.0),
+                    g.p(13.0, 5.5),
+                    g.p(6.5, 12.0),
+                ],
+                Stroke::new(1.3 * g.unit, color),
+            ),
+            Shape::line_segment(
+                [g.p(9.0, 4.5), g.p(11.5, 7.0)],
+                Stroke::new(1.3 * g.unit, color),
+            ),
+        ],
+        Icon::Eraser => vec![
+            Shape::closed_line(
+                vec![
+                    g.p(3.5, 9.5),
+                    g.p(8.5, 4.5),
+                    g.p(12.5, 8.5),
+                    g.p(8.0, 13.0),
+                    g.p(6.0, 13.0),
+                ],
+                Stroke::new(1.3 * g.unit, color),
+            ),
+            Shape::line_segment(
+                [g.p(8.0, 13.0), g.p(13.0, 13.0)],
+                Stroke::new(1.3 * g.unit, color),
+            ),
+        ],
+        Icon::Split => vec![
+            Shape::line_segment([g.p(8.0, 2.0), g.p(8.0, 14.0)], stroke),
+            Shape::line_segment([g.p(3.0, 5.0), g.p(3.0, 11.0)], stroke),
+            Shape::line_segment([g.p(13.0, 5.0), g.p(13.0, 11.0)], stroke),
+        ],
+        Icon::MuteCircle => vec![
+            Shape::circle_stroke(g.p(8.0, 8.0), 5.5 * g.unit, stroke),
+            Shape::line_segment([g.p(4.2, 11.8), g.p(11.8, 4.2)], stroke),
+        ],
+        Icon::ZoomIn => vec![
+            Shape::circle_stroke(g.p(7.0, 7.0), 4.5 * g.unit, stroke),
+            Shape::line_segment([g.p(10.5, 10.5), g.p(14.0, 14.0)], stroke),
+            Shape::line_segment([g.p(5.0, 7.0), g.p(9.0, 7.0)], stroke),
+            Shape::line_segment([g.p(7.0, 5.0), g.p(7.0, 9.0)], stroke),
+        ],
+        Icon::TempoLanes => vec![
+            Shape::line_segment(
+                [g.p(1.5, 4.0), g.p(14.5, 4.0)],
+                Stroke::new(stroke.width, color.gamma_multiply(FAINT)),
+            ),
+            Shape::line(
+                vec![
+                    g.p(1.5, 12.5),
+                    g.p(5.5, 12.5),
+                    g.p(5.5, 7.5),
+                    g.p(9.5, 7.5),
+                    g.p(9.5, 10.5),
+                    g.p(14.5, 10.5),
+                ],
+                stroke,
+            ),
+        ],
         Icon::Play => vec![Shape::convex_polygon(
             vec![g.p(4.0, 2.5), g.p(13.5, 8.0), g.p(4.0, 13.5)],
             color,

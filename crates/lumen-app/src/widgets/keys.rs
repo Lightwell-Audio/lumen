@@ -12,6 +12,7 @@ use eframe::egui::containers::menu::SubMenuButton;
 use eframe::emath::GuiRounding as _;
 
 use super::raised;
+use crate::icons::{self, Icon};
 use crate::theme::{self, stroke};
 
 /// Room under a keycap for its light.
@@ -236,7 +237,7 @@ impl Keys {
 /// track Ctrl+T"), as egui's menu buttons name theirs. Greyed when not
 /// `enabled`.
 pub fn menu_item(ui: &mut Ui, label: &str, keys: Option<&Keys>, enabled: bool) -> egui::Response {
-    menu_row(ui, label, keys, enabled, None)
+    menu_row(ui, label, keys, enabled, None, None)
 }
 
 /// How tall a menu row is: `size::MENU_ROW` (the interface audit's M1),
@@ -359,7 +360,20 @@ pub fn submenu<R>(
 /// is `accent_muted` with `accent` letters, as a toggle that is on is
 /// everywhere. A click leaves the menu open, so several can be set.
 pub fn menu_toggle(ui: &mut Ui, label: &str, keys: Option<&Keys>, on: bool) -> egui::Response {
-    menu_row(ui, label, keys, true, Some(on))
+    menu_row(ui, label, keys, true, Some(on), None)
+}
+
+/// A [`menu_toggle`] with `icon` before its label, for a choice of modes
+/// that the switch which opened the menu also shows by its icon (the
+/// arrangement tools, the interface audit's M6).
+pub fn menu_toggle_icon(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    keys: Option<&Keys>,
+    on: bool,
+) -> egui::Response {
+    menu_row(ui, label, keys, true, Some(on), Some(icon))
 }
 
 /// A menu row; `toggle` is whether a toggle is on (`None` for an item,
@@ -370,6 +384,7 @@ fn menu_row(
     keys: Option<&Keys>,
     enabled: bool,
     toggle: Option<bool>,
+    icon: Option<Icon>,
 ) -> egui::Response {
     let on = toggle == Some(true);
     let palette = theme::p();
@@ -389,10 +404,11 @@ fn menu_row(
     let pad = ui.spacing().button_padding;
     let caps_width = caps.as_ref().map_or(0.0, |c| c.size.x + theme::space::M);
     let height = row_height(galley.size().y);
+    let icon_width = icon.map_or(0.0, |_| theme::size::MENU_ICON + theme::space::S);
     // A menu is sized in a first pass from what its rows need; only after
     // that does a row fill the menu's width, so the keycaps line up at its
     // right edge without stretching the menu.
-    let needed = galley.size().x + caps_width + 2.0 * pad.x;
+    let needed = icon_width + galley.size().x + caps_width + 2.0 * pad.x;
     let width = if ui.is_sizing_pass() {
         needed
     } else {
@@ -423,8 +439,21 @@ fn menu_row(
         }
         // Keep the ring inside the row so scrolling cannot clip its edge.
         raised::focus_ring(painter, &response, rect.shrink(raised::FOCUS_OUTSET));
+        if let Some(icon) = icon {
+            let square = Rect::from_center_size(
+                pos2(
+                    rect.left() + pad.x + theme::size::MENU_ICON / 2.0,
+                    rect.center().y,
+                ),
+                Vec2::splat(theme::size::MENU_ICON),
+            );
+            painter.extend(icons::shapes(icon, square, text_colour));
+        }
         painter.galley(
-            pos2(rect.left() + pad.x, rect.center().y - galley.size().y / 2.0),
+            pos2(
+                rect.left() + pad.x + icon_width,
+                rect.center().y - galley.size().y / 2.0,
+            ),
             galley,
             text_colour,
         );
