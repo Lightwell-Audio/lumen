@@ -184,7 +184,7 @@ impl Arrangement {
         ui.separator();
 
         widgets::submenu(ui, "Add track", |ui| {
-            self.add_menu(ui, doc, Some(id), (keymap, AddMenu::Submenu));
+            self.add_menu(ui, doc, Some(id), keymap, AddMenu::Submenu);
         });
         ui.separator();
         if item(ui, plural("Delete", "Delete tracks"), Command::Delete) {
@@ -268,7 +268,8 @@ impl Arrangement {
         ui: &mut Ui,
         doc: &mut Document,
         after: Option<Id>,
-        (keymap, menu): (&Keymap, AddMenu),
+        keymap: &Keymap,
+        menu: AddMenu,
     ) {
         for (kind, full_name, short_name, command) in [
             (

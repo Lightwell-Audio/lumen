@@ -11,6 +11,7 @@ use lumen_project::model::ClipContent;
 use lumen_project::routing::all_tracks;
 
 use crate::App;
+use crate::app::commands::wait;
 use crate::app::projects::FileDialog;
 use crate::export::{self, Buses, Options, Poll, Report, Task};
 use crate::render_audio::RenderAudio;
@@ -72,13 +73,13 @@ impl App {
 
     pub(crate) fn export_unavailable(&self, options: Options) -> Option<&'static str> {
         if self.export.busy() {
-            return Some("An export is already under way");
+            return Some(wait::EXPORT);
         }
         if self.dialog.is_some() {
-            return Some("A file dialog is open");
+            return Some(wait::DIALOG);
         }
         if self.transport.state().recording {
-            return Some("Stop recording before exporting");
+            return Some(wait::RECORDING);
         }
         if self.export_span(options).is_none() {
             return Some("Choose a non-empty project, loop or time selection");

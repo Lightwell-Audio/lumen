@@ -199,56 +199,49 @@ impl App {
                 self.copy_unavailable()
             }
             Command::Revert => self.revert_unavailable(),
-            Command::LocateMedia => match self.media_pool_unavailable() {
-                Err(why) => Err(why),
-                Ok(()) => need(
-                    self.selected_missing_media().is_some(),
-                    "Choose a missing file in the Project media tab first",
-                ),
-            },
-            Command::SearchFolderForMedia => match self.media_pool_unavailable() {
-                Err(why) => Err(why),
-                Ok(()) => need(self.media_pool.missing() > 0, "No audio is missing"),
-            },
-            Command::RemoveUnusedMedia => match self.media_pool_unavailable() {
-                Err(why) => Err(why),
-                Ok(()) => need(self.media_pool.unused() > 0, "Every audio file is used"),
-            },
-            Command::ClearStrayFiles => match self.media_pool_unavailable() {
-                Err(why) => Err(why),
-                Ok(()) if self.is_working_in_files() => Err(wait::RENDER),
-                Ok(()) => need(
-                    !self.media_pool.strays().files.is_empty(),
-                    "No file belongs to no project",
-                ),
-            },
-            Command::ExportMidiFile => match self.dialog {
-                Some(_) => need(false, wait::DIALOG),
-                None if self.midi_exporting.is_some() => need(false, wait::EXPORT),
-                // Cheap enough for every frame: a MIDI track with an
-                // unmuted clip (an empty one is refused when it runs).
-                None => need(
-                    self.document
-                        .project()
-                        .tracks
-                        .iter()
-                        .any(|t| t.kind == TrackKind::Midi && t.clips.iter().any(|c| !c.muted)),
-                    "There are no MIDI clips to export",
-                ),
-            },
-            Command::ExportMidiClip => match self.dialog {
-                Some(_) => need(false, wait::DIALOG),
-                None if self.midi_exporting.is_some() => need(false, wait::EXPORT),
-                None => need(
-                    self.document.project().tracks.iter().any(|t| {
-                        t.kind == TrackKind::Midi
-                            && t.clips
-                                .iter()
-                                .any(|c| self.arrangement.clips.contains(&c.id))
-                    }),
-                    "Select a MIDI clip first",
-                ),
-            },
+            // What the command would act on comes first: a row that cannot
+            // apply is left out of a menu, and only one that can is held
+            // back by work under way (the interface audit's M3).
+            Command::LocateMedia => need(
+                self.selected_missing_media().is_some(),
+                "Choose a missing file in the Project media tab first",
+            )
+            .and(self.media_pool_unavailable()),
+            Command::SearchFolderForMedia => {
+                need(self.media_pool.missing() > 0, "No audio is missing")
+                    .and(self.media_pool_unavailable())
+            }
+            Command::RemoveUnusedMedia => {
+                need(self.media_pool.unused() > 0, "Every audio file is used")
+                    .and(self.media_pool_unavailable())
+            }
+            Command::ClearStrayFiles => need(
+                !self.media_pool.strays().files.is_empty(),
+                "No file belongs to no project",
+            )
+            .and(self.media_pool_unavailable())
+            .and(need(!self.is_working_in_files(), wait::RENDER)),
+            // Cheap enough for every frame: a MIDI track with an unmuted
+            // clip (an empty one is refused when it runs).
+            Command::ExportMidiFile => need(
+                self.document
+                    .project()
+                    .tracks
+                    .iter()
+                    .any(|t| t.kind == TrackKind::Midi && t.clips.iter().any(|c| !c.muted)),
+                "There are no MIDI clips to export",
+            )
+            .and(self.midi_export_unavailable()),
+            Command::ExportMidiClip => need(
+                self.document.project().tracks.iter().any(|t| {
+                    t.kind == TrackKind::Midi
+                        && t.clips
+                            .iter()
+                            .any(|c| self.arrangement.clips.contains(&c.id))
+                }),
+                "Select a MIDI clip first",
+            )
+            .and(self.midi_export_unavailable()),
             // An open menu or window takes Esc first (MT-APP-14 run 2; the
             // slice 8 accessibility test: Esc deselected a clip instead of
             // closing the shortcuts window).
@@ -594,6 +587,20 @@ impl App {
             | Command::ProjectSettings
             | Command::ExportAudio
             | Command::MediaPool => Ok(()),
+        }
+    }
+}
+
+impl App {
+    /// Why a MIDI file cannot be exported now: a file dialog is open, or
+    /// an export is under way.
+    fn midi_export_unavailable(&self) -> Result<(), &'static str> {
+        if self.dialog.is_some() {
+            Err(wait::DIALOG)
+        } else if self.midi_exporting.is_some() {
+            Err(wait::EXPORT)
+        } else {
+            Ok(())
         }
     }
 }

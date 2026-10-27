@@ -240,8 +240,8 @@ Sentence case for every label ("Audio settings", not
   switches, segmented controls, strip rows, the clip card's rows); knobs
   `KNOB` 24 pt and, in lists, `KNOB_SMALL` 18 pt. Track headers (M9 R1b,
   ADR-0101): `HEADER_SIDE` 60 pt for the right column (pan, the In chip),
-  `WELL_PIECE_W` 18 pt for the pieces of the M S ● well (as tall as the
-  well less `space::XXS` each side), `CORNER_ICON` for an icon in a piece
+  `WELL_PIECE_W` 18 pt for the pieces of the M S ● well, the magnet and
+  the locator arrows (as tall as the well less `space::XXS` each side), `CORNER_ICON` for an icon in a piece
   of the ruler corner's wells, `LEVEL_STRIP` 3 pt for the level beside the rail, and `SEND_SLOT`
   18 pt for the widest slot of the send well, which shows its letter from
   `SEND_SLOT_LETTER` 12 pt. A module never invents its own size for these. The Monitor badge on a MIDI header (`BADGE_W` 16 ×
@@ -933,8 +933,8 @@ The Clip tab uses the shared controls (§5a, ADR-0052).
 - **The magnet piece** is the "Snap to grid" checkbox: `Icon::Magnet` in
   `accent` while snapping, `Icon::MagnetOff` in the piece's ink when not
   (owner's choice C1, MT-APP-13 run 1).
-- **Tool keys:** V, B, D, C and U pick Pointer, Draw, Erase, Split and
-  Mute (the interface audit's M6). While the computer keyboard plays
+- **Tool keys:** V picks Pointer, B switches between Pointer and Draw,
+  and D, C and U pick Erase, Split and Mute (the interface audit's M6). While the computer keyboard plays
   notes, it takes V, D, C and U, as it does Z and X.
 - **The grid value piece** ("Grid: 1/16", with ", snap off" while
   snapping is off) shows the step in the monospace caption ("1/16",
@@ -1056,7 +1056,7 @@ Chosen by the owner from rendered specimens:
   text. Commands without a shortcut show none. In a context menu
   (`App::context_command`, the interface audit's M3) a row that cannot act
   on what was clicked is left out; one that could but waits on work under
-  way (a join, a bounce, an export: the reasons in `commands::wait`)
+  way (a join, a bounce, an export: the reasons in `app::commands::wait`)
   stays, greyed, and its hover says why. Main menus grey a row that
   cannot run now.
 - **Context menus are grouped** (the interface audit's M2, M4, M5): a
@@ -1293,9 +1293,9 @@ outgoing source tail and incoming clip. The info line names Crossfade and
 shows the live duration during a drag. A custom duration dragged to zero
 disables that join's crossfade. Broken joins and missing tails show no
 crossing. Automatic crossfades is a switch in Project settings (and a
-palette command); it left the menus with the interface audit's M5. A
-crossfade with the clip before is in the clip menu and the palette. Controls, curve strokes, focus, spacing and text use the
-established theme tokens and shared widgets. This introduces no new palette,
+palette command), not a menu row. A crossfade with the clip before is in
+the clip menu and the palette. Controls, curve strokes, focus, spacing and
+text use the established theme tokens and shared widgets. This introduces no new palette,
 material, typeface or handle geometry.
 The app menu scrolls within the viewport at the minimum window height, so
 the project setting does not push later controls beyond reach.

@@ -292,8 +292,8 @@ DEVELOPMENT. Repeat visual checks in both themes at 100%, 150% and 200%.
    divisions, Triplet, Dotted and Snap to grid. Every option can be brought
    fully into view and selected; Esc closes the menu.
 2. Open the application menu. Undo and Redo have short labels; Automatic
-   crossfades is absent, and so is the arrangement's right-click menu
-   (since the interface audit's M5). In Project settings it is a switch.
+   crossfades is not in it, nor in the arrangement's right-click menu. In
+   Project settings it is a switch.
    Change it, then undo: the project setting returns.
    In the application menu, scroll to the last settings rows; all remain reachable.
 3. Change only Copy imported audio into the project. Wait a second, restart

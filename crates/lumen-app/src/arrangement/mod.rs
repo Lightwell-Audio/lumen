@@ -533,6 +533,28 @@ mod tests {
     }
 
     #[test]
+    fn returns_stay_pinned_and_offer_no_move() {
+        let mut doc = Document::new(crate::empty_project());
+        let audio = doc.add_track(TrackKind::Audio, None);
+        let send = doc.add_track(TrackKind::Return, None);
+        let mut a = Arrangement {
+            selected: vec![send],
+            ..Arrangement::default()
+        };
+        assert!(!a.can_move_selected(&doc, -1));
+        assert!(!a.can_move_selected(&doc, 1));
+        a.move_selected(&mut doc, -1);
+        let order: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
+        assert_eq!(order, [audio, send], "the return did not move");
+        a.selected = vec![audio];
+        assert!(!a.can_move_selected(&doc, -1), "already at the top");
+        assert!(
+            !a.can_move_selected(&doc, 1),
+            "a track does not go below the returns"
+        );
+    }
+
+    #[test]
     fn view_state_round_trips() {
         let mut a = Arrangement {
             top: 120.0,

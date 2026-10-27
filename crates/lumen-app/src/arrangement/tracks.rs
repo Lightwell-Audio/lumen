@@ -111,15 +111,25 @@ impl Arrangement {
     /// already at that end of their group.
     fn planned_move(&self, tracks: &[Arc<Track>], by: isize) -> Option<(Vec<Id>, Place)> {
         let ids = lumen_project::groups::outermost(tracks, &self.selected);
+        // Returns stay pinned in their own order (KNOWN_ISSUES).
+        let pinned = |id: &Id| {
+            tracks
+                .iter()
+                .any(|t| t.id == *id && t.kind == TrackKind::Return)
+        };
+        if ids.iter().any(pinned) {
+            return None;
+        }
         let first = ids
             .first()
             .and_then(|id| tracks.iter().find(|t| t.id == *id))?;
         let group = first.parent;
         let moving = lumen_project::groups::with_contents(tracks, &ids);
-        // The other tracks of the same group, in order.
+        // The other tracks of the same group, in order; the returns below
+        // them are not passed.
         let siblings: Vec<Id> = tracks
             .iter()
-            .filter(|t| t.parent == group && !moving.contains(&t.id))
+            .filter(|t| t.parent == group && !moving.contains(&t.id) && !pinned(&t.id))
             .map(|t| t.id)
             .collect();
         let position = |id: Id| tracks.iter().position(|t| t.id == id).unwrap_or(0);

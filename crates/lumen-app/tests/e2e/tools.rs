@@ -102,12 +102,20 @@ fn b_toggles_arrangement_draw_and_escape_returns_to_pointer() {
 #[test]
 fn single_keys_pick_the_tools_the_menu_names() {
     let mut lumen = Lumen::start("tools-single-keys");
-    for (key, name) in [
+    let tools = [
         (Key::D, "Erase"),
         (Key::C, "Split"),
         (Key::U, "Mute"),
         (Key::V, "Pointer"),
-    ] {
+    ];
+    lumen.click("Arrangement tool: Pointer");
+    for (key, name) in tools {
+        let row = keys(&format!("{name} {}", key.name()));
+        assert!(lumen.shows(&row), "the menu names {row}");
+    }
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(30);
+    for (key, name) in tools {
         lumen.key(Modifiers::NONE, key);
         assert_eq!(lumen.app().arrangement_tool_name(), name, "{key:?}");
     }

@@ -320,10 +320,10 @@ impl App {
     }
 
     /// The clip entries of the lanes' menu, for the selected clips, in
-    /// groups (the interface audit's M5): name and colour; arranging and
-    /// cutting; mute and lock; the sound of audio clips (fades, crossfade,
-    /// envelope); export; and Properties last. Only what can apply is
-    /// listed.
+    /// groups (the interface audit's M5): name and colour; mute and lock;
+    /// the sound of audio clips (fades, crossfade, envelope); export; and
+    /// Properties last. Arranging and cutting are in the lanes' Edit
+    /// submenu. Only what can apply is listed.
     pub(crate) fn clip_menu(&mut self, ui: &mut egui::Ui) {
         let Some(first) = self.first_selected_clip() else {
             return;

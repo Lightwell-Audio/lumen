@@ -167,6 +167,7 @@ fn a_right_click_on_a_track_name_opens_its_menu() {
     let mut lumen = Lumen::start("keys-track-menu");
     lumen.key(Modifiers::COMMAND, Key::T);
     lumen.key(Modifiers::COMMAND, Key::T);
+    lumen.wait_for("two tracks", |app| app.project().tracks.len() == 2);
     lumen.frames(30);
     // The first track: it stays where it is while the second one's row
     // settles in under a loaded run.

@@ -13,6 +13,7 @@ use lumen_project::model::{Id, TrackKind};
 use super::control_menu::{control_menu_for, waiting_ring};
 use super::follow;
 use super::header_row::HeaderRow;
+use super::menus::AddMenu;
 use super::nesting::Arm;
 use super::{Arrangement, FOLDED, RowKind, Zone};
 use crate::commands::{Command, Keymap};
@@ -259,7 +260,7 @@ impl Arrangement {
             self.selected.clear();
         }
         widgets::Menu::context(&empty)
-            .show(|ui| self.add_menu(ui, doc, None, (keymap, super::menus::AddMenu::Context)));
+            .show(|ui| self.add_menu(ui, doc, None, keymap, AddMenu::Context));
 
         // "+ Add track ▾": a menu of every track type with its shortcut,
         // and a hint that double-clicking here adds an audio track
@@ -309,7 +310,8 @@ impl Arrangement {
                     ui,
                     doc,
                     self.selected.last().copied(),
-                    (keymap, super::menus::AddMenu::Button),
+                    keymap,
+                    AddMenu::Button,
                 );
             });
         }
