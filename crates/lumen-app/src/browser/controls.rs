@@ -17,8 +17,7 @@ const MAGNIFIER: f32 = super::list::ICON;
 
 /// Where the search field's words start, from its left edge: a step in,
 /// the magnifier and a step. The magnifier's centre is then on the list's
-/// icon column and the words on the list's names, and the chips start
-/// their words here too.
+/// icon column and the words on the list's names.
 const TEXT_EDGE: f32 = theme::space::S + MAGNIFIER + theme::space::S;
 
 /// What the search field did this frame.
@@ -155,9 +154,9 @@ fn flip(chip: Chip, on: bool) -> Chip {
 /// Category chips shown before the rest go under "More".
 const CHIPS_SHOWN: usize = 5;
 
-/// The chips: Favorites, Recent and the commonest categories, flowing onto
-/// two lines or so with their words on the search field's (`TEXT_EDGE`),
-/// the rest under "More ▾". A chip that is on turns off when clicked
+/// The chips: Favorites, Recent and the commonest categories in one flow,
+/// filling each line, their words starting on the search field's left
+/// edge, the rest under "More ▾". A chip that is on turns off when clicked
 /// again. Returns the chip now chosen (`Chip::All` when the one on was
 /// clicked off).
 pub(super) fn chips(ui: &mut Ui, chosen: &Chip, categories: &[(String, usize)]) -> Option<Chip> {
@@ -176,12 +175,14 @@ pub(super) fn chips(ui: &mut Ui, chosen: &Chip, categories: &[(String, usize)]) 
         .iter()
         .filter(|c| !shown.iter().any(|s| s.0 == c.0))
         .collect();
-    // Each chip has a step of room before its words, so the flow starts
-    // that much before the edge.
-    let indent = (TEXT_EDGE - theme::space::S) as i8;
+    // Each chip has a step of room before and after its words, so the flow
+    // starts and ends that much outside the field's edges: the words line
+    // up with the field and the filter, and a lit chip's fill hangs out.
+    let hang = -(theme::space::S as i8);
     egui::Frame::NONE
-        .inner_margin(egui::Margin {
-            left: indent,
+        .outer_margin(egui::Margin {
+            left: hang,
+            right: hang,
             ..Default::default()
         })
         .show(ui, |ui| {

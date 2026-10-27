@@ -32,6 +32,11 @@ use crate::{fonts, motion, theme};
 const ARMED_WASH: f32 = 0.10;
 const ARMED_WASH_SPAN: f32 = 0.55;
 
+/// How far each side of a row's bottom line the resize edge reaches: the
+/// controls stay 8 pt clear of a row's ends, so a 12 pt band takes none of
+/// them.
+const RESIZE_REACH: f32 = 6.0;
+
 /// The width of a piece of the M S ● well.
 const PIECE_W: f32 = theme::size::WELL_PIECE_W;
 
@@ -121,9 +126,8 @@ impl Arrangement {
         }
     }
 
-    /// Draws one track's header in its zone (`painter` is clipped to it).
-    /// Returns the track's bottom edge and how strongly it glows, while it
-    /// does, so the lane can continue the glow.
+    /// Draws one track's header in its zone (`painter` is clipped to it);
+    /// its resize edge is [`Self::resize_edge`].
     pub(super) fn track_header(
         &mut self,
         ui: &mut Ui,
@@ -131,7 +135,7 @@ impl Arrangement {
         doc: &mut Document,
         keymap: &Keymap,
         at: HeaderRow<'_>,
-    ) -> Option<(Id, f32)> {
+    ) {
         let HeaderRow {
             track,
             index,
@@ -420,10 +424,31 @@ impl Arrangement {
             }
         }
 
-        // Bottom edge: drag to resize.
+        painter.hline(
+            column.x_range(),
+            rect.bottom() - 0.5,
+            Stroke::new(1.0, palette.border),
+        );
+    }
+
+    /// The edge under a track's header in `rect` that resizes it: a band
+    /// `RESIZE_REACH` each side of the row's bottom line. Called once every
+    /// row is drawn, so the next row's header (which drags tracks) does not
+    /// take the band's lower half. Returns the track's bottom edge and how
+    /// strongly it glows, while it does, so the lane can continue the glow.
+    pub(super) fn resize_edge(
+        &mut self,
+        ui: &mut Ui,
+        painter: &Painter,
+        track: &Track,
+        (rect, column): (Rect, Rect),
+    ) -> Option<(Id, f32)> {
+        let ctx = ui.ctx().clone();
+        let id = EguiId::new(("track header", track.id));
+        let row_height = rect.height();
         let edge = Rect::from_min_max(
-            pos2(rect.left(), rect.bottom() - 3.0),
-            pos2(rect.right(), rect.bottom() + 3.0),
+            pos2(rect.left(), rect.bottom() - RESIZE_REACH),
+            pos2(rect.right(), rect.bottom() + RESIZE_REACH),
         );
         let resize = ui
             .interact(edge, id.with("resize"), Sense::drag())
@@ -456,16 +481,11 @@ impl Arrangement {
         if resize.drag_stopped() {
             self.resizing = None;
         }
-        painter.hline(
-            column.x_range(),
-            rect.bottom() - 0.5,
-            Stroke::new(1.0, palette.border),
-        );
         // The handle glows while hovered or dragged (owner request).
         let hot = resize.hovered() || self.resizing.is_some_and(|(r, _)| r == track.id);
         let glow = motion::hover(&ctx, id.with("edge glow"), hot);
         if glow > 0.0 {
-            draw_edge_glow(&painter, column.x_range(), rect.bottom(), glow);
+            draw_edge_glow(painter, column.x_range(), rect.bottom(), glow);
         }
         (glow > 0.0).then_some((track.id, glow))
     }

@@ -429,13 +429,14 @@ fn segmented_with<T: PartialEq + Copy>(
         })
         .collect();
     let side = menu_inset(ui);
-    // Full width: equal pieces when the widest fits that way; otherwise each
-    // piece its own width and an equal share of the room left.
+    // Full width: equal pieces when the widest's content fits that way with
+    // a little room each side; otherwise each piece its own width and an
+    // equal share of the room left.
     let widths: Vec<f32> = if full && !choices.is_empty() {
         let n = choices.len() as f32;
         let room = ui.available_width() - side - 2.0 * inset;
-        let widest = widths.iter().copied().fold(0.0, f32::max);
-        if widest * n <= room {
+        let widest = widths.iter().copied().fold(0.0, f32::max) - 2.0 * pad;
+        if (widest + 2.0 * theme::space::XS) * n <= room {
             vec![room / n; choices.len()]
         } else {
             let spare = (room - widths.iter().sum::<f32>()).max(0.0) / n;
@@ -519,7 +520,7 @@ fn segmented_with<T: PartialEq + Copy>(
             None => (palette.thumb_hi, palette.thumb, palette.edge_light),
         };
         raised::gradient(painter, thumb, f32::from(piece_radius), top, bottom);
-        raised::lip(painter, thumb, piece_radius, light);
+        raised::bare_lip(painter, thumb, piece_radius, light);
     }
     for (((segment, response, chosen), (choice, galley)), cap) in
         segments.iter().zip(choices.iter().zip(galleys)).zip(caps)

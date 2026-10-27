@@ -66,7 +66,7 @@ pub fn paint_piece(painter: &Painter, rect: Rect, face: &raised::Face) -> Color3
             on.top.gamma_multiply(face.lit),
             on.bottom.gamma_multiply(face.lit),
         );
-        raised::lip(painter, rect, radius, on.light.gamma_multiply(face.lit));
+        raised::bare_lip(painter, rect, radius, on.light.gamma_multiply(face.lit));
     }
     face.text()
 }

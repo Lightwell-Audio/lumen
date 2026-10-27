@@ -455,9 +455,12 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             ),
             Shape::rect_filled(g.rect(3.0, 7.5, 13.0, 14.5), 1.0 * g.unit, color),
         ],
+        // The ring is centred half a point above and left of the grid's
+        // middle, as large as it can be with the handle, so it sits level
+        // with the framed icons beside it (the panel toggles).
         Icon::Search => vec![
-            Shape::circle_stroke(g.p(7.0, 7.0), 4.5 * g.unit, stroke),
-            Shape::line_segment([g.p(10.3, 10.3), g.p(13.5, 13.5)], stroke),
+            Shape::circle_stroke(g.p(7.5, 7.5), 5.0 * g.unit, stroke),
+            Shape::line_segment([g.p(11.1, 11.1), g.p(14.0, 14.0)], stroke),
         ],
         Icon::Mouse => vec![
             // A rounded body with the buttons' parting line.

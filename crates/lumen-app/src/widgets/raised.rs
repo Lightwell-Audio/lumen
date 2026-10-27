@@ -154,7 +154,7 @@ pub fn paint_sunken(painter: &Painter, rect: Rect, radius: u8) {
 pub fn sunken_shapes(rect: Rect, radius: u8) -> [Shape; 2] {
     [
         Shape::rect_filled(rect, f32::from(radius), theme::p().well),
-        lip_shape(rect, radius, theme::p().shade),
+        lip_shape(rect, radius, theme::p().shade, Edge::Bare),
     ]
 }
 
@@ -162,7 +162,8 @@ pub fn sunken_shapes(rect: Rect, radius: u8) -> [Shape; 2] {
 /// strengthens to `border_strong` by `hover`.
 pub fn paint_field(painter: &Painter, rect: Rect, radius: u8, hover: f32) {
     let c = theme::p();
-    paint_sunken(painter, rect, radius);
+    painter.rect_filled(rect, f32::from(radius), c.well);
+    lip(painter, rect, radius, c.shade);
     painter.rect_stroke(
         rect,
         f32::from(radius),
@@ -174,22 +175,74 @@ pub fn paint_field(painter: &Painter, rect: Rect, radius: u8, hover: f32) {
     );
 }
 
-/// A 1 pt line in `colour` along the top inside edge of `rect`, clear of
-/// its rounded corners: the edge light on what is raised, the lip on what
-/// is sunk.
+/// A 1 pt line in `colour` along the top inside edge of `rect`, under its
+/// border: the edge light on what is raised, the lip on what is pressed.
+/// It follows the rounded corners and fades down them, as an inset shadow
+/// 1 pt down does.
 pub fn lip(painter: &Painter, rect: Rect, radius: u8, colour: Color32) {
-    painter.add(lip_shape(rect, radius, colour));
+    painter.add(lip_shape(rect, radius, colour, Edge::UnderBorder));
 }
 
-fn lip_shape(rect: Rect, radius: u8, colour: Color32) -> Shape {
-    if colour.a() == 0 {
+/// [`lip`] on a surface with no border (a well, a thumb): the line is the
+/// surface's top row.
+pub fn bare_lip(painter: &Painter, rect: Rect, radius: u8, colour: Color32) {
+    painter.add(lip_shape(rect, radius, colour, Edge::Bare));
+}
+
+/// Where a lip sits: its surface's top row, or the row under its border.
+#[derive(Clone, Copy)]
+enum Edge {
+    Bare,
+    UnderBorder,
+}
+
+fn lip_shape(rect: Rect, radius: u8, colour: Color32, edge: Edge) -> Shape {
+    const STEPS: usize = 6;
+    if colour.a() == 0 || rect.width() <= 0.0 || rect.height() <= 0.0 {
         return Shape::Noop;
     }
-    let inset = f32::from(radius).min(rect.width() / 2.0).max(1.0);
-    Shape::hline(
-        (rect.left() + inset)..=(rect.right() - inset),
-        rect.top() + 1.5 * stroke::HAIRLINE,
-        Stroke::new(stroke::HAIRLINE, colour),
+    let width = stroke::HAIRLINE;
+    // The line's centre, inside the outline by half its width (and the
+    // border's width under a border).
+    let inset = match edge {
+        Edge::Bare => 0.5 * width,
+        Edge::UnderBorder => 1.5 * width,
+    };
+    let outer = f32::from(radius)
+        .min(rect.width() / 2.0)
+        .min(rect.height() / 2.0);
+    let r = outer - inset;
+    let top = rect.top() + inset;
+    if r <= 0.0 {
+        return Shape::hline(
+            (rect.left() + inset)..=(rect.right() - inset),
+            top,
+            Stroke::new(width, colour),
+        );
+    }
+    // Down each top corner to where its side begins, so the line wraps over
+    // the corners; it fades as the corner turns, by how far down it is.
+    let centre_y = top + r;
+    let corners = [
+        (pos2(rect.left() + outer, centre_y), 180.0_f32),
+        (pos2(rect.right() - outer, centre_y), 270.0),
+    ];
+    let mut points = Vec::with_capacity(2 * (STEPS + 1));
+    for (centre, start) in corners {
+        for i in 0..=STEPS {
+            let a = (start + 90.0 * i as f32 / STEPS as f32).to_radians();
+            points.push(centre + vec2(a.cos(), a.sin()) * r);
+        }
+    }
+    let colour_at =
+        move |_: Rect, at: Pos2| colour.gamma_multiply(((centre_y - at.y) / r).clamp(0.0, 1.0));
+    Shape::line(
+        points,
+        egui::epaint::PathStroke {
+            width,
+            color: egui::epaint::ColorMode::UV(std::sync::Arc::new(colour_at)),
+            kind: StrokeKind::Middle,
+        },
     )
 }
 

@@ -572,7 +572,7 @@ pub mod size {
     /// The widest a tooltip grows before its hint wraps.
     pub const TIP_WIDTH: f32 = 280.0;
     /// The level strip beside a header's colour rail.
-    pub const LEVEL_STRIP: f32 = 3.0;
+    pub const LEVEL_STRIP: f32 = 5.0;
     /// A send slot's widest, and the least width that shows its letter.
     pub const SEND_SLOT: f32 = 18.0;
     pub const SEND_SLOT_LETTER: f32 = 12.0;

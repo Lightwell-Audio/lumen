@@ -1,9 +1,9 @@
 //! The MIDI chip at the end of the transport bar (M5 slice 2d, the owner's
 //! C B): a DIN glyph over two small lights, IN and OUT, that flash with
 //! traffic, and the popover that lists every port with its own light and
-//! its Track and Remote switches.
+//! its Track and Remote switches, in columns.
 
-use eframe::egui::{self, Id, Pos2, Sense, Stroke, Ui, vec2};
+use eframe::egui::{self, Id, Pos2, Rect, Sense, Stroke, Ui, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_midi::{Direction, PortId, Use};
 
@@ -15,10 +15,10 @@ use crate::{light, motion, settings, theme, widgets};
 
 /// The chip's width; its height is a dense control's.
 const WIDTH: f32 = 34.0;
-/// Room for a port's name in the popover, so the switches line up.
-const NAME_WIDTH: f32 = 150.0;
+/// A switch column's width in the popover (wide enough for "Remote").
+const COLUMN: f32 = 52.0;
 /// The popover's width.
-const PANEL_WIDTH: f32 = 300.0;
+const PANEL_WIDTH: f32 = 320.0;
 /// A light's radius at rest.
 const LIGHT: f32 = 2.5;
 
@@ -285,6 +285,8 @@ impl Transport {
     }
 
     /// The popover: inputs, then outputs, then the way to the settings.
+    /// Each port is one row: its light, its name, and switches in a Track
+    /// and a Remote column, captioned once per section.
     fn midi_panel(&mut self, ui: &mut Ui, view: &View) {
         ui.set_min_width(PANEL_WIDTH);
         ui.set_max_width(PANEL_WIDTH);
@@ -293,7 +295,7 @@ impl Transport {
             warning(ui, why, 0.0);
             ui.separator();
         } else {
-            widgets::menu_caption(ui, "Inputs");
+            section_head(ui, "Inputs", &["Track", "Remote"]);
             self.keyboard_row(ui, view.keyboard, view.keyboard_held);
             for row in &view.inputs {
                 self.port_row(ui, row);
@@ -301,8 +303,8 @@ impl Transport {
             if view.inputs.is_empty() {
                 widgets::menu_caption(ui, "No MIDI inputs found");
             }
-            ui.add_space(theme::space::XS);
-            widgets::menu_caption(ui, "Outputs");
+            ui.add_space(theme::space::S);
+            section_head(ui, "Outputs", &["Track"]);
             for row in &view.outputs {
                 self.port_row(ui, row);
             }
@@ -321,42 +323,28 @@ impl Transport {
         }
     }
 
-    /// The computer keyboard: an input that is always there for tracks
-    /// (its switch is lit and cannot be turned off).
+    /// The computer keyboard: an input that is always there for tracks (its
+    /// switch is on and cannot be turned off).
     fn keyboard_row(&mut self, ui: &mut Ui, count: u32, held: bool) {
         let brightness = light::flash_held(ui.ctx(), keyboard_id(), count, held);
-        ui.horizontal(|ui| {
-            light_cell(ui, Resting::Open, brightness);
-            name_cell(ui, "Computer keyboard", theme::p().text, &[]);
-            let (rect, response) = ui.allocate_exact_size(
-                vec2(pill_width(ui, "Track"), theme::size::CONTROL),
-                Sense::hover(),
-            );
-            response.widget_info(|| {
-                egui::WidgetInfo::labeled(
-                    egui::WidgetType::Label,
+        let cells = port_cells(
+            ui,
+            (Resting::Open, brightness),
+            "Computer keyboard",
+            theme::p().text,
+            None,
+        );
+        let mut on = true;
+        switch_in(ui, cells.track, (&mut on, false), ("keyboard", false))
+            .on_hover_text("The computer keyboard can always play the tracks that listen")
+            .widget_info(|| {
+                egui::WidgetInfo::selected(
+                    egui::WidgetType::Checkbox,
+                    false,
                     true,
                     "Track Computer keyboard input, always on",
                 )
             });
-            let palette = theme::p();
-            // Lit like a toggle that is on (`Tone::On`), and fixed.
-            let face = widgets::raised::Face::new(theme::controls(false)).lit(1.0, theme::Tone::On);
-            widgets::raised::paint(
-                ui.painter(),
-                rect,
-                theme::radius::for_height(rect.height()),
-                &face,
-            );
-            ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "Track",
-                egui::FontId::proportional(theme::size::BODY),
-                palette.accent,
-            );
-            response.on_hover_text("The computer keyboard can always play the tracks that listen");
-        });
     }
 
     fn port_row(&mut self, ui: &mut Ui, row: &Row) {
@@ -370,60 +358,58 @@ impl Transport {
         let what = if is_input { "input" } else { "output" };
         let name = &row.id.name;
         let mut using = row.using;
-        ui.horizontal(|ui| {
-            if !row.present {
-                ui.multiply_opacity(0.6);
-            }
-            let resting = if row.present && row.on() {
-                Resting::Open
-            } else {
-                Resting::Hollow
-            };
-            light_cell(ui, resting, brightness);
-            let mut captions = Vec::new();
-            if row.failed {
-                captions.push(("could not open", theme::p().warning));
-            }
-            if !row.present {
-                captions.push(("not connected", theme::p().text_hint));
-            }
-            let colour = if row.present {
-                theme::p().text
-            } else {
-                theme::p().text_disabled
-            };
-            name_cell(ui, name, colour, &captions);
-            let mut track = using.track;
-            let response = widgets::toggle_button(ui, &mut track, "Track");
+        let palette = theme::p();
+        let resting = if row.present && row.on() {
+            Resting::Open
+        } else {
+            Resting::Hollow
+        };
+        // An away port keeps its switches (they apply when it is plugged
+        // back in), quieter, and says so after its name.
+        let (colour, note) = if !row.present {
+            (
+                palette.text_secondary,
+                Some(("not connected", palette.text_hint)),
+            )
+        } else if row.failed {
+            (palette.text, Some(("could not open", palette.warning)))
+        } else {
+            (palette.text, None)
+        };
+        let cells = port_cells(ui, (resting, brightness), name, colour, note);
+        let switch = |ui: &mut Ui, rect: Rect, on: &mut bool, column: &str, tip: &str| {
+            let response = switch_in(ui, rect, (on, true), ((name, column), !row.present));
+            let state = *on;
             response.widget_info(|| {
                 egui::WidgetInfo::selected(
-                    egui::WidgetType::SelectableLabel,
+                    egui::WidgetType::Checkbox,
                     true,
-                    track,
-                    format!("Track {name} {what} in the MIDI panel"),
+                    state,
+                    format!("{column} {name} {what} in the MIDI panel"),
                 )
             });
-            response.on_hover_text(if is_input {
+            response.on_hover_text(tip);
+        };
+        switch(
+            ui,
+            cells.track,
+            &mut using.track,
+            "Track",
+            if is_input {
                 "Tracks can record from and play through this input"
             } else {
                 "Tracks can send to this output"
-            });
-            using.track = track;
-            if is_input {
-                let mut remote = using.remote;
-                let response = widgets::toggle_button(ui, &mut remote, "Remote");
-                response.widget_info(|| {
-                    egui::WidgetInfo::selected(
-                        egui::WidgetType::SelectableLabel,
-                        true,
-                        remote,
-                        format!("Remote {name} {what} in the MIDI panel"),
-                    )
-                });
-                response.on_hover_text("Controls can be mapped to this input (MIDI learn)");
-                using.remote = remote;
-            }
-        });
+            },
+        );
+        if is_input {
+            switch(
+                ui,
+                cells.remote,
+                &mut using.remote,
+                "Remote",
+                "Controls can be mapped to this input (MIDI learn)",
+            );
+        }
         if using != row.using {
             // The same path as the settings page's switches.
             self.midi_asked.push(Action::Use(row.id.clone(), using));
@@ -431,44 +417,140 @@ impl Transport {
     }
 }
 
-/// A row's light, in a cell as wide as the dot.
-fn light_cell(ui: &mut Ui, resting: Resting, brightness: f32) {
-    let (rect, _) = ui.allocate_exact_size(
-        vec2(2.0 * LIGHT + 4.0, theme::size::CONTROL),
+/// How much an away port's switches keep of their strength.
+const AWAY: f32 = 0.6;
+
+/// Where a port row's switches go.
+struct Cells {
+    track: Rect,
+    remote: Rect,
+}
+
+/// A switch with no label centred in `rect`, `on` and `enabled`, without
+/// taking room in the row (which is laid out already); `id` keeps each
+/// switch's own, and `away` dims it.
+fn switch_in(
+    ui: &mut Ui,
+    rect: Rect,
+    (on, enabled): (&mut bool, bool),
+    (id, away): (impl egui::AsIdSalt, bool),
+) -> egui::Response {
+    let mut cell = ui.new_child(
+        egui::UiBuilder::new()
+            .id_salt(("midi switch", id))
+            .max_rect(rect)
+            .layout(egui::Layout::centered_and_justified(
+                egui::Direction::LeftToRight,
+            )),
+    );
+    if away {
+        cell.multiply_opacity(AWAY);
+    }
+    widgets::switch(&mut cell, on, "", enabled)
+}
+
+/// The columns of a row in `row`, from the right: Remote, then Track.
+fn columns(row: Rect, side: f32) -> Cells {
+    let right = row.right() - side;
+    let remote = Rect::from_x_y_ranges(right - COLUMN..=right, row.y_range());
+    let track = remote.translate(vec2(-COLUMN, 0.0));
+    Cells { track, remote }
+}
+
+/// A section's caption ("Inputs") and, over the switch columns, theirs.
+fn section_head(ui: &mut Ui, caption: &str, columns_shown: &[&str]) {
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let colour = ui.visuals().weak_text_color();
+    let side = ui.spacing().button_padding.x;
+    let height = ui.text_style_height(&egui::TextStyle::Small) + theme::space::XS;
+    let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
+    let painter = ui.painter();
+    painter.text(
+        egui::pos2(row.left() + side, row.center().y),
+        egui::Align2::LEFT_CENTER,
+        caption,
+        font.clone(),
+        colour,
+    );
+    let cells = columns(row, side);
+    for (cell, label) in [cells.track, cells.remote].into_iter().zip(columns_shown) {
+        painter.text(
+            cell.center(),
+            egui::Align2::CENTER_CENTER,
+            *label,
+            font.clone(),
+            colour,
+        );
+    }
+}
+
+/// Lays out a port row: its light and its name (shortened to the room left
+/// of the switches, the whole name on hover), with an optional `note` after
+/// it. Returns where the switches go.
+fn port_cells(
+    ui: &mut Ui,
+    (resting, brightness): (Resting, f32),
+    name: &str,
+    colour: egui::Color32,
+    note: Option<(&str, egui::Color32)>,
+) -> Cells {
+    let side = ui.spacing().button_padding.x;
+    let (row, response) = ui.allocate_exact_size(
+        vec2(ui.available_width(), theme::size::CONTROL),
         Sense::hover(),
     );
-    paint_light(ui, rect.center(), resting, brightness);
-}
-
-fn pill_width(ui: &Ui, label: &str) -> f32 {
-    let galley = ui.painter().layout_no_wrap(
-        label.to_owned(),
-        egui::FontId::proportional(theme::size::BODY),
-        theme::p().text,
+    let cells = columns(row, side);
+    paint_light(
+        ui,
+        egui::pos2(row.left() + side + LIGHT, row.center().y),
+        resting,
+        brightness,
     );
-    galley.size().x + 2.0 * theme::space::S
-}
-
-/// A port's name in a column of its own, so the switches line up, with
-/// small captions under it ("not connected").
-fn name_cell(ui: &mut Ui, name: &str, colour: egui::Color32, captions: &[(&str, egui::Color32)]) {
-    let layout = if captions.is_empty() {
-        egui::Layout::top_down(egui::Align::Min).with_main_align(egui::Align::Center)
+    let painter = ui.painter();
+    let left = row.left() + side + 2.0 * LIGHT + theme::space::S;
+    let room = cells.track.left() - theme::space::S - left;
+    let font = egui::FontId::proportional(theme::size::BODY);
+    let note_font = egui::FontId::proportional(theme::size::CAPTION);
+    let note_galley =
+        note.map(|(text, c)| painter.layout_no_wrap(text.to_owned(), note_font.clone(), c));
+    let note_room = note_galley
+        .as_ref()
+        .map_or(0.0, |g| g.size().x + theme::space::S);
+    let name_room = (room - note_room).max(0.0);
+    let whole = painter.layout_no_wrap(name.to_owned(), font.clone(), colour);
+    let shortened = whole.size().x > name_room;
+    let galley = if shortened {
+        painter.layout_no_wrap(
+            widgets::shorten(painter, name, font, name_room),
+            egui::FontId::proportional(theme::size::BODY),
+            colour,
+        )
     } else {
-        egui::Layout::top_down(egui::Align::Min)
+        whole
     };
-    ui.allocate_ui_with_layout(vec2(NAME_WIDTH, theme::size::CONTROL), layout, |ui| {
-        ui.set_width(NAME_WIDTH);
-        ui.set_min_height(theme::size::CONTROL);
-        ui.spacing_mut().item_spacing.y = 0.0;
-        ui.add(egui::Label::new(egui::RichText::new(name).color(colour)).truncate())
-            .on_hover_text(name);
-        for (text, colour) in captions {
-            ui.label(
-                egui::RichText::new(*text)
-                    .size(theme::size::CAPTION)
-                    .color(*colour),
-            );
-        }
-    });
+    let name_rect =
+        egui::Align2::LEFT_CENTER.anchor_size(egui::pos2(left, row.center().y), galley.size());
+    let end = name_rect.right();
+    painter.galley(name_rect.min, galley, colour);
+    // The name and the note are painted, so each is named for a screen
+    // reader here.
+    let label = |rect, salt: &str, text: &str| {
+        let text = text.to_owned();
+        let read = ui.interact(rect, response.id.with(salt), Sense::hover());
+        read.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &text));
+        read
+    };
+    if let (Some(note_galley), Some((note_text, _))) = (note_galley, note) {
+        let at = egui::Align2::LEFT_CENTER.anchor_size(
+            egui::pos2(end + theme::space::S, row.center().y),
+            note_galley.size(),
+        );
+        painter.galley(at.min, note_galley, colour);
+        label(at, "note", note_text);
+    }
+    let named = label(name_rect, "name", name);
+    if shortened {
+        named.on_hover_text(name);
+    }
+    cells
 }

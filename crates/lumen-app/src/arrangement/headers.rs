@@ -5,6 +5,8 @@
 //! (`nesting`, M4 slice 3); the menus are in `menus`; each track's row is
 //! drawn by `header_row`.
 
+use std::sync::Arc;
+
 use eframe::egui::{self, Align2, FontId, Id as EguiId, Key, Rect, Sense, Stroke, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_project::automation::Target;
@@ -125,6 +127,7 @@ impl Arrangement {
         // scrolling tracks pass under the pinned returns and master.
         let base_clip = ui.clip_rect();
         let base_painter = painter.clone();
+        let mut edges = Vec::new();
         for (n, &row) in rows.iter().enumerate() {
             let zone = Rect::from_x_y_ranges(
                 column.x_range(),
@@ -176,20 +179,28 @@ impl Arrangement {
             let Some(track) = still(doc, index, n) else {
                 continue;
             };
-            if let Some(glow) = self.track_header(
+            self.track_header(
                 ui,
                 &painter,
                 doc,
                 keymap,
                 HeaderRow {
-                    track,
+                    track: Arc::clone(&track),
                     index,
                     rect,
                     column,
                     modifiers,
                     hearing: &hearing,
                 },
-            ) {
+            );
+            edges.push((track, rect, zone));
+        }
+        // The resize edges go over every row, so the band below a row's line
+        // is not taken by the next row's header.
+        for (track, rect, zone) in edges {
+            ui.set_clip_rect(zone.intersect(base_clip));
+            let painter = base_painter.with_clip_rect(zone.intersect(base_painter.clip_rect()));
+            if let Some(glow) = self.resize_edge(ui, &painter, &track, (rect, column)) {
                 hot_edge = Some(glow);
             }
         }

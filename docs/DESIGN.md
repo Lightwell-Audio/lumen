@@ -259,7 +259,7 @@ Sentence case for every label ("Audio settings", not
   the locator arrows (as tall as the well less `space::XXS` each side),
   `STRIP_PIECE_W` 22 pt for the same well's pieces on a mixer strip,
   `CORNER_ICON` for an icon in a piece of the ruler corner's wells,
-  `LEVEL_STRIP` 3 pt for the level beside the rail, and `SEND_SLOT` 18 pt
+  `LEVEL_STRIP` 5 pt for the level beside the rail (two 2 pt sides), and `SEND_SLOT` 18 pt
   for the widest slot of the send well, which shows its letter from
   `SEND_SLOT_LETTER` 12 pt. A module never invents its own size for these.
   The Monitor badge on a MIDI header (`BADGE_W` 16 ×
@@ -301,6 +301,10 @@ painted details do the rest (`widgets/raised.rs`):
    along the top inside edge (`raised::paint_sunken`); fields add a 1 pt
    `border`, `border_strong` on hover (`raised::paint_field`). A pressed
    control sinks too: flat `control_press`, the lip, its content 1 pt down.
+   The edge light and the lip are drawn as an inset shadow 1 pt down is:
+   they follow the rounded top corners, fading as each corner turns to its
+   side, on the top row of a surface with no border (`raised::bare_lip`)
+   and under the border of one with a border (`raised::lip`).
 3. **Filled** (`theme::Tone::Accent`: the one primary of a view, a lit S,
    the chosen tool; `Tone::Mute`: a lit M): its colour (a gradient
    `accent_hi` to `accent_lo`, or `mute`), its letters (`on_accent`,
@@ -520,8 +524,8 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   ADR-0101). Content runs from 12 pt after the header's left edge to 8 pt
   before its right, on three rows 20 pt tall, 6 pt apart, 8 pt from the top
   and bottom:
-  - a 4 pt colour rail, and beside it a 3 pt sunk **level strip** (5 pt
-    after the rail, 5 pt in from the top and bottom) in which the track's
+  - a 4 pt colour rail, and beside it a 5 pt sunk **level strip** (two
+    2 pt sides, 1 pt clear of the rail, 5 pt in from the top and bottom) in which the track's
     level rises, folded or not, with a 3 pt clip mark at its top that stays
     until clicked;
   - a 16 pt **fold button** showing the **track-type icon** (waveform for
@@ -582,7 +586,9 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   - folded is 2 steps (44 pt); unfolded starts at 4 steps (88 pt: the
     name, then volume and pan, then the sends and the In chip; ADR-0101)
     and goes up to 14. Heights saved taller (110 pt from R1) stay as saved;
-  - drag the bottom edge to resize. The handle glows with the accent
+  - drag the bottom edge to resize: the handle is a 12 pt band centred on
+    the row's bottom line, over both rows it touches (the controls stay
+    8 pt clear of a row's ends). The handle glows with the accent
     (header and lane) while hovered or dragged. A folded track dragged
     taller unfolds; an unfolded one dragged below 4 steps folds;
   - heights glide (`GLIDE`) and are saved with the project.
@@ -1254,17 +1260,21 @@ a soft shadow, radius `XL`).
 ### The browser's Devices tab (the interface audit's B1 to B6)
 
 Everything lines up on three edges, 12 pt in from the pane (the search
-field, the type filter and the scan line), 28 pt (the magnifier, the
-list's icons) and 44 pt (the search text, the chips' words and the device
+field, the type filter, the chips' words and the scan line), 28 pt (the
+magnifier, the list's icons) and 44 pt (the search text and the device
 names).
 
 - **Search:** a 16 pt magnifier inside the field, at its left.
 - **Type filter:** All, Instruments and Effects fill the width
-  (`widgets::segmented_full`): in equal pieces, or, in a narrow pane, each
-  its own width with an equal share of the room left.
-- **Chips:** the categories are browser chips (`chip_toggle`, 8 pt each side
-  of the words) that wrap; "More ▾" is a bare word with the chips' room and a
-  down arrow (`chip_button`), so the row reads as one flow of words.
+  (`widgets::segmented_full`): in equal thirds while the longest word fits
+  a third with 4 pt each side, or, in a narrow pane, each its own width
+  with an equal share of the room left.
+- **Chips:** Favorites, Recent and the categories are browser chips
+  (`chip_toggle`, 8 pt each side of the words) in one flow that fills each
+  line, 4 pt apart; their words start on the field's left edge and end by
+  its right one, so a lit chip's fill hangs 8 pt outside. "More ▾" is a
+  bare word with the chips' room and a down arrow (`chip_button`), so the
+  row reads as one flow of words.
 - **Rows:** the star shows on a favourite, and on the hovered or selected
   row; elsewhere the column is empty. A hovered or selected row also shows
   its category as a tag when the pane is wide enough. A flat list (Recent)
