@@ -9381,7 +9381,7 @@ The device callback has no production audio capture sink.
    if restoration itself fails. A successful master export replaces only its
    selected destination. The report measures the actual encoded file with
    the existing BS.1770-4 gated loudness and 4× true-peak implementation.
-8. Ctrl/Cmd+Shift+E opens Export from anywhere. Its previous default use,
+8. Ctrl/Cmd+Shift+E opens Export. Its previous default use,
    Pop out clip editor, adds Alt/Option. Explicit user key assignments still
    win over new defaults. Export choices last for this session; there is no
    new persisted field and the project format remains v32.
@@ -9399,3 +9399,9 @@ limit and reports an error rather than producing a corrupt file. Disk
 streaming and very-long-file export belong with R6. The exact checks and
 measurements are recorded in `milestones/M9-R5.md`. MT-EXPORT-1 is still
 pending: no real interface or external plugin compatibility is claimed.
+
+Final review kept muted/solo-excluded send paths excluded when extracting
+stems; the return-stem audio check includes a muted source. Float scratch
+files use the existing atomic WAV writer inside the private staging folder,
+without requiring filesystem hard links. A scratch write failure ends the
+offline render at the next block instead of continuing to render unused audio.

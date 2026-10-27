@@ -5,10 +5,11 @@
 //! hosts belong to this render and remain alive in `Prepared` for its lifetime.
 //! This module does not pace rendering or encode anything beyond float WAV.
 
+use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use lumen_devices::{Guard, HostedInstrument, Status};
@@ -27,7 +28,6 @@ use crate::routing::{self, Cue, Devices};
 
 const LOAD_WAIT: Duration = Duration::from_secs(60);
 const MAX_TAIL_SECONDS: u32 = 10;
-static SCRATCH_ID: AtomicU64 = AtomicU64::new(1);
 
 /// A snapshot to render. `clips` must be the engine clips translated from this
 /// project and already prepared at `rate`; the caller owns media decoding and
@@ -44,8 +44,8 @@ pub struct Job {
     pub from: i64,
     pub frames: u64,
     pub tail: bool,
-    /// Destination for the completed float WAV. An existing destination is
-    /// never replaced; callers may encode/rename the completed scratch file.
+    /// Reserved destination inside the caller's private staging directory.
+    /// Existing files are refused; Writer publishes atomically by rename.
     pub file: PathBuf,
     pub stem: Option<Id>,
 }
@@ -272,9 +272,8 @@ pub fn render_job(
         .unwrap_or_else(|| std::path::Path::new("."));
     std::fs::create_dir_all(parent)
         .map_err(|e| format!("Could not make {}: {e}", parent.display()))?;
-    let scratch = scratch_path(&job.file);
     let mut writer = Writer::create(
-        &scratch,
+        &job.file,
         Spec {
             sample_rate: job.rate,
             channels: 2,
@@ -284,6 +283,7 @@ pub fn render_job(
     .map_err(|e| format!("Could not create export scratch file: {e}"))?;
     let mut late = None;
     let mut write_failed = None;
+    let write_stopped = Cell::new(false);
     let ended = render_source(
         prepared.source.as_mut(),
         SourceRender {
@@ -301,6 +301,9 @@ pub fn render_job(
         },
         cancel,
         &mut || {
+            if write_stopped.get() {
+                return true;
+            }
             late = prepared
                 .statuses
                 .iter()
@@ -315,64 +318,37 @@ pub fn render_job(
                 && let Err(error) = writer.write(&[left, right])
             {
                 write_failed = Some(format!("Could not write export scratch: {error}"));
+                write_stopped.set(true);
             }
         },
     );
-    let frames = writer
-        .finish()
-        .map_err(|e| format!("Could not finish export scratch: {e}"))?;
     prepared.manager.shutdown(Duration::from_secs(2));
     if let Some(why) = write_failed {
-        let _ = std::fs::remove_file(&scratch);
         return Err(why);
     }
     if ended == lumen_engine::Ended::Cancelled {
-        let _ = std::fs::remove_file(&scratch);
         return Ok(None);
     }
     if let Some(why) = late {
-        let _ = std::fs::remove_file(&scratch);
         return Err(why);
     }
     if ended == lumen_engine::Ended::Failed {
-        let _ = std::fs::remove_file(&scratch);
         return Err("A plugin stopped answering; the export was discarded".into());
     }
-    // hard_link is an atomic no-replace publish on the same volume. Unlike
-    // rename on Unix, it cannot overwrite a destination created meanwhile.
-    std::fs::hard_link(&scratch, &job.file).map_err(|e| {
-        let _ = std::fs::remove_file(&scratch);
-        if job.file.exists() {
-            format!("{} already exists", job.file.display())
-        } else {
-            format!("Could not publish {}: {e}", job.file.display())
-        }
-    })?;
-    std::fs::remove_file(&scratch).map_err(|e| {
-        format!("The export finished but its scratch link could not be removed: {e}")
-    })?;
+    // The destination belongs to this task's private Stage. Normal rename
+    // works on removable filesystems too; hard-link support is unnecessary.
+    if job.file.exists() {
+        return Err(format!("{} already exists", job.file.display()));
+    }
+    let frames = writer
+        .finish()
+        .map_err(|e| format!("Could not finish export scratch: {e}"))?;
     Ok(Some(Rendered {
         file: job.file,
         frames,
         tail_frames: frames.saturating_sub(job.frames),
         rate: job.rate,
     }))
-}
-
-fn scratch_path(destination: &std::path::Path) -> PathBuf {
-    let parent = destination
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| std::path::Path::new("."));
-    let name = destination
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
-    let id = SCRATCH_ID.fetch_add(1, Ordering::Relaxed);
-    parent.join(format!(
-        ".{name}.lumen-export-{}-{id}.wav",
-        std::process::id()
-    ))
 }
 
 /// Routes a single channel-strip stem while retaining the full upstream audio
@@ -435,7 +411,7 @@ fn route_stem(_project: &Project, routing: &mut Routing, stem: Id) -> Result<(),
         }
         node.sends
             .retain(|send| signal.contains(&send.to) || sidechain_only.contains(&send.to));
-        node.sends_audible = !node.sends.is_empty();
+        node.sends_audible &= !node.sends.is_empty();
         if let Destination::Node(to) = node.output {
             if !signal.contains(&to) && !sidechain_only.contains(&to) {
                 node.output = Destination::None;
@@ -547,6 +523,17 @@ mod tests {
         assert!(
             (return_stem - 0.25).abs() < 0.002,
             "return send: {return_stem}"
+        );
+        source.mute = true;
+        let muted = render_sample(
+            project(vec![source.clone(), ret.clone()]),
+            vec![source_clip(1, source.id.0, 0.25)],
+            Some(ret.id),
+            "muted-return.wav",
+        );
+        assert_eq!(
+            muted, 0.0,
+            "a muted source must not leak into a return stem"
         );
     }
 
