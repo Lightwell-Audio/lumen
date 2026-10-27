@@ -4,6 +4,7 @@
 //! audio settings window changes it while Lumen runs (M2 slice 8).
 
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
@@ -18,6 +19,7 @@ use lumen_engine::{
     clip_player, engine, input_player, midi_player, mixer,
 };
 
+use crate::export_live;
 use crate::midi_out::StreamClock;
 use crate::settings::AudioSettings;
 use crate::take_worker::TakeWorker;
@@ -400,6 +402,8 @@ pub struct Audio {
     pub inputs: InputHandle,
     /// Writes what recording audio tracks take to disk (M9 slice R2).
     pub(crate) takes: TakeWorker,
+    /// Installs callback-driven real-time export sessions from worker threads.
+    pub(crate) export: Arc<Mutex<export_live::Handle>>,
     /// What the test device played, left and right frame by frame, for the
     /// end-to-end tests to listen to (`testing`). Real devices have none.
     pub(crate) heard: Option<rtrb::Consumer<f32>>,
@@ -476,6 +480,8 @@ impl Audio {
             (None, None)
         };
         let clock = StreamClock::new();
+        let (export, mut export_tap) = export_live::channel();
+        let export = Arc::new(Mutex::new(export));
         let stream = Arc::clone(&clock);
         let mut processed = 0_u64;
         let callback: Box<dyn AudioCallback> = Box::new(move |block: &mut Block<'_>| {
@@ -491,6 +497,7 @@ impl Audio {
                 channels,
                 frames,
             );
+            export_tap.process(block);
             if let Some(tap) = &mut tap {
                 listen(tap, block.outputs, channels, frames);
             }
@@ -505,6 +512,7 @@ impl Audio {
             mixer,
             inputs,
             takes,
+            export,
             heard,
             status: Status::Off(String::new()),
             driver: String::new(),

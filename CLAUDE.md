@@ -408,8 +408,16 @@ and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
 **Now (2026-10-26)**
+- **Branch `m9-s5-audio-export`: M9 R5 export is built** (ADR-0107;
+  `docs/milestones/M9-R5.md`; PR #72). Export and the media pool are integrated
+  with `main` at `0db27218` after PR #71 merged. Both sets of commands,
+  file-dialog results and completion records are preserved. Format stays v32;
+  MT-EXPORT-1 is pending and R6 has not started. Integration verification:
+  Windows 3,217 workspace tests (723 E2E), six smoke tests; Windows/Linux/macOS
+  all-target clippy and all 13 instruction gates pass. Linux export and media-pool
+  workflows pass; the earlier full-suite orphan-startup failure remains open.
 - **Branch `m9-s4b-media-pool`: M9 slice R4b (media pool) is built** (ADR-0106;
-  no format change; cut from `main` after PR #69; not pushed; plan
+  no format change; cut from `main` after PR #69; merged, PR #71; plan
   `docs/milestones/M9-R4b.md`; the owner took every recommendation, 2026-10-26:
   M1 A, M2 A, M3 A, M4 A). The browser has a second tab, **Project media**
   (`browser/media_tab.rs`, state in `app/media_pool.rs`, rules in `pool.rs`,
@@ -424,8 +432,9 @@ per slice and move what is no longer current out of it.
   unit, 714 E2E; `audio_record` failed once in the full run and passed alone, the
   known timing flake), smoke. Not run: `cargo deny` (not installed; the new
   crates are MIT or Apache), the WSL mirror and performance gate (they test the
-  pushed branch). MT-PROJ-2 (`docs/manual-tests/M9.md`) passed (owner, 2026-10-26). Next:
-  R5 (export) per `docs/milestones/M9.md`; R2b (loopback helper) is still unbuilt.
+  pushed branch). MT-PROJ-2 (`docs/manual-tests/M9.md`) passed (owner, 2026-10-26).
+  R5 export is built on its own branch as recorded above; R2b (loopback helper)
+  is still unbuilt.
 - **Branch `m9-s4-project-lifecycle`: M9 slice R4 (project lifecycle) is done**
   (ADR-0105; format **v32**; plan `docs/milestones/M9-R4.md`; merged, PR #69). The owner took every recommendation (2026-10-26):
   renders follow the project rate (P1 A), Revert reloads the saved file and keeps

@@ -21,6 +21,18 @@ This file records the components whose licences need specific action.
 - **Recorded:** owner decision 2026-10-06 (`docs/DECISIONS.md`), with a
   `cargo-deny` exception in `deny.toml`.
 
+## flacenc (FLAC export)
+
+- **Crate:** `flacenc` 0.5.1, used unmodified with default features disabled.
+- **Licence:** Apache License 2.0. Source and license:
+  <https://github.com/yotarok/flacenc-rs>,
+  <https://docs.rs/crate/flacenc/0.5.1/source/LICENSE>.
+- **Use:** worker-thread encoding, one FLAC frame at a time. No native
+  encoder or additional SDK is bundled.
+- **Compliance:** retain its license and attribution in the generated
+  distribution notices. Apache-2.0 is already allowed by `deny.toml`.
+- **Recorded:** M9 R5, ADR-0107; approved X2 A in the milestone plan.
+
 ## midly (Standard MIDI Files)
 
 - **Crate:** `midly` (version 0.5), used by `lumen-project` to read and

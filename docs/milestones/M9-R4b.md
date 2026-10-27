@@ -79,7 +79,7 @@ project is closed, and it also reappears if the project is reverted.
 
 ### 2.5 Commands
 
-At the end of `Command` (and `ALL`), with arms in `availability` and `run`: 
+At the end of `Command` (and `ALL`), with arms in `availability` and `run`:
 `media.pool` (show or hide the pool), `media.relink` (Locate on the selected
 or first missing item), `media.search_folder`, `media.remove_unused`,
 `media.clear_unreferenced`. Tooltips take their keycaps from the keymap; none

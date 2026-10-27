@@ -75,6 +75,7 @@ impl App {
             self.menu_command(ui, Command::MediaPool, "Project media");
             self.menu_command(ui, Command::Import, "Import audio or MIDI\u{2026}");
             self.menu_command(ui, Command::ExportMidiFile, "Export MIDI file\u{2026}");
+            self.menu_command(ui, Command::ExportAudio, "Export audio\u{2026}");
             ui.separator();
             self.menu_command(ui, Command::Undo, "Undo");
             self.menu_command(ui, Command::Redo, "Redo");

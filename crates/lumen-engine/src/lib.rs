@@ -50,9 +50,9 @@ pub use midi::{
     record_position,
 };
 pub use mixer::{
-    AutoLane, AutoPoint, Bus, Buses, Compensation, CueOut, Destination, Device, KNOT, Layered,
-    Level, MAX_DEVICE_LATENCY, MAX_HOSTS, Mixer, MixerHandle, NodeAutomation, NodeSpec, ParamLane,
-    Plan, RMS_SECONDS, Routing, RoutingError, SendSpec, SidechainSpec, Tap, TrackSource,
+    AutoLane, AutoPoint, BUS_CHANNELS, Bus, Buses, Compensation, CueOut, Destination, Device, KNOT,
+    Layered, Level, MAX_DEVICE_LATENCY, MAX_HOSTS, Mixer, MixerHandle, NodeAutomation, NodeSpec,
+    ParamLane, Plan, RMS_SECONDS, Routing, RoutingError, SendSpec, SidechainSpec, Tap, TrackSource,
     compile as compile_routing, db_gain, mixer,
 };
 pub use render::{

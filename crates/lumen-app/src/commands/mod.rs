@@ -233,6 +233,7 @@ pub(crate) enum Command {
     SearchFolderForMedia,
     RemoveUnusedMedia,
     ClearStrayFiles,
+    ExportAudio,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -409,7 +410,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::CreateMidiClip, "midi.create_clip", "Create MIDI clip", Area::Midi, &[ctrl_shift(Key::M)], "Puts an empty MIDI clip on the first selected MIDI track, else the first MIDI track of the time range, else the track last clicked. Over the time range if there is one, else one bar at the edit position. Opens it in the clip editor."),
     info(Command::ExportMidiClip, "midi.export_clip", "Export MIDI clip…", Area::Midi, &[], "Writes the selected MIDI clips, as they play, to a Standard MIDI File."),
     info(Command::OpenClipEditor, "midi.open_editor", "Edit MIDI clip", Area::Midi, &[plain(Key::Enter)], "Opens the selected MIDI clip in the clip editor, in the detail panel."),
-    info(Command::PopOutEditor, "midi.pop_out_editor", "Pop out clip editor", Area::Midi, &[ctrl_shift(Key::E)], "Moves the clip editor into its own window, or docks it back into the detail panel."),
+    info(Command::PopOutEditor, "midi.pop_out_editor", "Pop out clip editor", Area::Midi, &[Chord { ctrl: true, shift: true, alt: true, key: Key::E }], "Moves the clip editor into its own window, or docks it back into the detail panel."),
     info(Command::DrawTool, "midi.draw_tool", "Draw tool", Area::Midi, &[plain(Key::B)], "Toggles Pointer and Draw in the arrangement or active editor. In the note editor, click to add a note and drag to set its length."),
     info(Command::SplitNotes, "midi.split_notes", "Split", Area::Midi, &[ctrl(Key::E)], "Splits selected clips or a time range at the edit cursor; in the clip editor, splits selected notes."),
     info(Command::GlueNotes, "midi.glue_notes", "Join", Area::Midi, &[ctrl(Key::J)], "Joins selected notes of one pitch that touch or overlap into one. With clips selected, joins them: MIDI clips merge, audio clips that continue one another in their source become one, and other audio clips are rendered into one new file."),
@@ -531,6 +532,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::SearchFolderForMedia, "file.search_folder_for_media", "Search a folder for missing media…", Area::File, &[], "Looks in the folder you choose, and in the folders inside it, for the audio the project cannot find, by file name. It shows what it found and changes nothing until you relink. Esc stops it."),
     info(Command::RemoveUnusedMedia, "file.remove_unused_media", "Remove unused media", Area::File, &[], "Takes the audio files no clip and no frozen track plays out of the project, as one undo step. The files stay where they are."),
     info(Command::ClearStrayFiles, "file.clear_stray_files", "Clear files that belong to no project…", Area::File, &[], "Moves audio left behind in the project's sample folders and in the work folders for renders and recordings, which no project and no autosave needs, to the system trash. Asks once more before it moves anything; the trash can give them back."),
+    info(Command::ExportAudio, "file.export_audio", "Export audio…", Area::File, &[ctrl_shift(Key::E)], "Exports the master mix or track, group and return stems to WAV or FLAC, from the project, loop or time selection, with a loudness report. Esc stops an export."),
 ];
 
 const fn info(
@@ -580,7 +582,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::ClearStrayFiles as usize + 1,
+            Command::ExportAudio as usize + 1,
             ALL.len(),
             "a command is missing"
         );

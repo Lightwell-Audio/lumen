@@ -806,9 +806,15 @@ fn popping_out_and_docking_back() {
     assert!(!lumen.app().editor_popped());
     assert!(lumen.shows("Note editor: Keys"));
     // The command toggles too.
-    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E);
+    lumen.key(
+        Modifiers::COMMAND | Modifiers::SHIFT | Modifiers::ALT,
+        Key::E,
+    );
     assert!(lumen.app().editor_popped());
-    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E);
+    lumen.key(
+        Modifiers::COMMAND | Modifiers::SHIFT | Modifiers::ALT,
+        Key::E,
+    );
     assert!(!lumen.app().editor_popped());
 }
 
