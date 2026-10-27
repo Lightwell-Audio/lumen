@@ -175,8 +175,9 @@ impl App {
             if (focused && chord.used_by_controls()) || self.availability(ctx, command).is_err() {
                 continue;
             }
-            // While the save question is up, a plain Enter is its (Save),
-            // also in a popped-out editor's window, which reads its own keys.
+            // While the save question is up, a plain Enter runs no command.
+            // The main window took it for the question already; a popped-out
+            // editor has its own keyboard, and there Enter does nothing.
             if self.prompt.is_some()
                 && chord == Chord::pressed(egui::Modifiers::NONE, egui::Key::Enter)
             {

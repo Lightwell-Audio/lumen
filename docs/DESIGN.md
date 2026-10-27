@@ -1253,10 +1253,9 @@ names).
 - **Rows:** the star shows on a favourite, and on the hovered or selected
   row; elsewhere the column is empty. A hovered or selected row also shows
   its category as a tag when the pane is wide enough. A flat list (Recent)
-  has no vendor headers, so every row there says its vendor, always and at
-  any width. On a
-  selected row the tag steps up to `text_secondary` so it stays readable on
-  the highlight.
+  has no vendor headers, so the tag there is the row's vendor, on every row
+  and at any width. On a selected row the tag steps up to `text_secondary`
+  so it stays readable on the highlight.
 - **Group headers:** the count sits centred on the star column.
 - **Scan line:** under the filters and a hairline rule, above the list: the
   count, and "Rescan" (or "Cancel" while a scan runs) as a bare chip word.

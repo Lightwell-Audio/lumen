@@ -392,7 +392,8 @@ fn draw_device(
     ));
 
     // Right to left: the star, then what the row says of itself. At rest
-    // a row is its name alone, a favourite keeping its star; the tag and
+    // a row is its name alone (in Recent, its vendor too, below), a
+    // favourite keeping its star; the tag and
     // star show under the pointer and on the selected row (the interface
     // audit's B4), so names get the width.
     let shown = hovered || selected;
