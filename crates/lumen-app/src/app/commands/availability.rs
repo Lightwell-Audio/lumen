@@ -152,6 +152,29 @@ impl App {
                 self.copy_unavailable()
             }
             Command::Revert => self.revert_unavailable(),
+            Command::LocateMedia => match self.media_pool_unavailable() {
+                Err(why) => Err(why),
+                Ok(()) => need(
+                    self.selected_missing_media().is_some(),
+                    "Choose a missing file in the Project media tab first",
+                ),
+            },
+            Command::SearchFolderForMedia => match self.media_pool_unavailable() {
+                Err(why) => Err(why),
+                Ok(()) => need(self.media_pool.missing() > 0, "No audio is missing"),
+            },
+            Command::RemoveUnusedMedia => match self.media_pool_unavailable() {
+                Err(why) => Err(why),
+                Ok(()) => need(self.media_pool.unused() > 0, "Every audio file is used"),
+            },
+            Command::ClearStrayFiles => match self.media_pool_unavailable() {
+                Err(why) => Err(why),
+                Ok(()) if self.is_working_in_files() => Err("A render or recording is under way"),
+                Ok(()) => need(
+                    !self.media_pool.strays().files.is_empty(),
+                    "No file belongs to no project",
+                ),
+            },
             Command::ExportMidiFile => match self.dialog {
                 Some(_) => need(false, "A file dialog is open"),
                 None if self.midi_exporting.is_some() => need(false, "An export is under way"),
@@ -511,7 +534,8 @@ impl App {
             | Command::Save
             | Command::SaveAs
             | Command::OpenTemplatesFolder
-            | Command::ProjectSettings => Ok(()),
+            | Command::ProjectSettings
+            | Command::MediaPool => Ok(()),
         }
     }
 }

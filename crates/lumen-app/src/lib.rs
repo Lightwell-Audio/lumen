@@ -90,17 +90,20 @@ mod piano_roll;
 mod played;
 mod playhead;
 mod plugins;
+mod pool;
 mod position;
 mod preset_files;
 mod probe;
 mod record_settings;
 mod record_span;
 mod recorder;
+mod relink;
 mod render_audio;
 mod routing;
 mod ruler;
 mod settings;
 mod song_lanes;
+mod strays;
 mod take_worker;
 mod templates;
 pub mod testing;
@@ -217,6 +220,9 @@ pub struct App {
     midi_reader: midi_files::Reader,
     /// The browser's own state (M6 slice 1).
     browser: browser::Browser,
+    /// The Project media tab and the relink and purge under way (M9 slice
+    /// R4b).
+    media_pool: app::media_pool::MediaPool,
     /// Installed plugins: the scan thread and the catalog the browser
     /// shows (M6 slice 1).
     plugins: plugins::Plugins,
@@ -524,6 +530,7 @@ impl eframe::App for App {
         self.poll_consolidate(&ctx);
         self.poll_bounce(&ctx);
         self.poll_freeze(&ctx);
+        self.poll_media_pool(&ctx);
         self.say_frozen_refusals();
         self.plugins.poll();
         if let Some(wait) = self.plugins.rebuild_wait() {
@@ -627,6 +634,7 @@ impl eframe::App for App {
         self.device_banner(ui);
         self.crash_banner(ui);
         self.file_banner(ui);
+        self.missing_media_banner(ui);
         self.revert_banner(ui);
         self.tempo_banner(ui);
         self.recovery_banner(ui);

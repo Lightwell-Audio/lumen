@@ -7,6 +7,7 @@ use eframe::egui::{self, Key, Modifiers, Rect, pos2, vec2};
 use lumen_plugin_catalog::catalog::Kind;
 use lumen_plugin_catalog::scan::Mode;
 
+use super::Tab;
 use super::controls;
 use super::list::{self, Hover, Input, Out};
 use super::rows::{self, Row, Rows};
@@ -54,6 +55,13 @@ impl App {
         // title; the list keeps its own 8 pt (its rows add their own room).
         // The side margin also leaves the focus rings whole at the edges.
         let side = (theme::space::M - theme::space::S) as i8;
+        egui::Frame::NONE
+            .inner_margin(egui::Margin::symmetric(side, 0))
+            .show(ui, |ui| self.browser_tabs(ui));
+        if self.browser.tab == Tab::Media {
+            self.media_tab(ui, body);
+            return;
+        }
         let rows = egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(side, 0))
             .show(ui, |ui| self.browser_controls(ui, &ctx))
@@ -95,24 +103,40 @@ impl App {
         }
     }
 
-    /// The tabs, search, type switch, chips and scan line. Returns the rows
-    /// the filters leave.
-    fn browser_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> Rows {
-        // Samples and projects get their tabs when they are built. The tab's
-        // word lines up with the title above it.
-        let tabs = [widgets::Tab {
-            label: "Devices",
-            disabled_because: None,
-            tip: "Instruments and effects",
-        }];
-        widgets::tabs_flush(ui, egui::Id::new("browser tabs"), 0, &tabs);
+    /// The tabs. Samples and projects get theirs when they are built (R7).
+    /// A tab's word lines up with the title above it.
+    fn browser_tabs(&mut self, ui: &mut egui::Ui) {
+        let tabs = [
+            widgets::Tab {
+                label: "Devices",
+                disabled_because: None,
+                tip: "Instruments and effects",
+            },
+            widgets::Tab {
+                label: "Project media",
+                disabled_because: None,
+                tip: "The audio files this project holds: relink the ones that moved, clear the ones nothing plays",
+            },
+        ];
+        let chosen = match self.browser.tab {
+            Tab::Devices => 0,
+            Tab::Media => 1,
+        };
+        if let Some(i) = widgets::tabs_flush(ui, egui::Id::new("browser tabs"), chosen, &tabs) {
+            self.browser.tab = if i == 0 { Tab::Devices } else { Tab::Media };
+        }
         ui.add_space(theme::space::XS);
+    }
 
+    /// The search, type switch, chips and scan line. Returns the rows the
+    /// filters leave.
+    fn browser_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> Rows {
         // The filters, each group a full step from the next.
         let searched = controls::search(
             ui,
             &mut self.browser.view.text,
             &mut self.browser.focus_search,
+            "Search devices",
         );
         if searched.escaped {
             if self.browser.view.text.is_empty() {
