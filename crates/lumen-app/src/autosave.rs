@@ -360,8 +360,10 @@ mod tests {
             copy_imported: false,
             renders: None,
             recordings: None,
+            templates: None,
             keep_backups: 0,
             state: doc.state(),
+            not_over: None,
         }
     }
 

@@ -29,8 +29,12 @@ impl App {
                 copy_imported: false,
                 renders: Some(self.renders_dir()),
                 recordings: Some(self.recordings_dir()),
+                // An autosave refers to a template's audio where it is, as it
+                // does to imported audio.
+                templates: None,
                 keep_backups: 0,
                 state: self.document.change_mark(),
+                not_over: None,
             },
             || autosave::Note {
                 project: self

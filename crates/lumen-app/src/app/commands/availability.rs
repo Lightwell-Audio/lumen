@@ -148,6 +148,10 @@ impl App {
             Command::DeviceRemove | Command::DeviceBypass => {
                 need(self.device_chosen(), "Choose a device on a track first")
             }
+            Command::SaveCopy | Command::CollectAndSave | Command::SaveTemplate => {
+                self.copy_unavailable()
+            }
+            Command::Revert => self.revert_unavailable(),
             Command::ExportMidiFile => match self.dialog {
                 Some(_) => need(false, "A file dialog is open"),
                 None if self.midi_exporting.is_some() => need(false, "An export is under way"),
@@ -505,7 +509,9 @@ impl App {
             | Command::OpenProject
             | Command::ToggleAutoCrossfade
             | Command::Save
-            | Command::SaveAs => Ok(()),
+            | Command::SaveAs
+            | Command::OpenTemplatesFolder
+            | Command::ProjectSettings => Ok(()),
         }
     }
 }

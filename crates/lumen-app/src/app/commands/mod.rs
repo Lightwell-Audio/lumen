@@ -47,6 +47,7 @@ impl App {
             || self.transport.settings_window.open
             || self.show_history
             || self.show_bounce
+            || self.project_settings.is_open()
             || self.controllers.window
             || self.prompt.is_some()
     }

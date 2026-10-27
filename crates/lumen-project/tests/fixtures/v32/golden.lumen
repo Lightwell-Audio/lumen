@@ -1,0 +1,87 @@
+{
+  "format": "lumen-project",
+  "version": 32,
+  "generator": "Lumen 0.0.1",
+  "project": {
+    "name": "Golden v32",
+    "sample_rate": 44100,
+    "tempo": [
+      {
+        "at": 0,
+        "bpm": 120.0
+      }
+    ],
+    "meter": [
+      {
+        "at": 0,
+        "meter": {
+          "numerator": 4,
+          "denominator": 4
+        }
+      }
+    ],
+    "tracks": [
+      {
+        "id": "0000000000000c80",
+        "name": "Drums",
+        "kind": "midi",
+        "color": "#4F81BD",
+        "gain_db": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [],
+        "clips": []
+      }
+    ],
+    "master": {
+      "id": "00000000000003e7",
+      "name": "Master",
+      "kind": "master",
+      "color": "#8A8F99",
+      "gain_db": 0.0,
+      "pan": 0.0,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "devices": [],
+      "clips": []
+    },
+    "pan_law": "constant_power",
+    "media": [],
+    "markers": [],
+    "transport": {
+      "loop_start": 0,
+      "loop_end": 22579200,
+      "loop_enabled": false,
+      "punch_in": false,
+      "punch_out": false
+    },
+    "view": {
+      "left_beat": 0.0,
+      "px_per_beat": 24.0,
+      "browser_open": true,
+      "detail_open": true,
+      "browser_size": 220.0,
+      "detail_size": 220.0,
+      "top": 0.0,
+      "track_heights": {},
+      "expanded": [],
+      "grid": {
+        "fixed": false,
+        "width": "narrow",
+        "size": {
+          "note": 16
+        },
+        "feel": "straight",
+        "snap": true
+      },
+      "collapsed": [],
+      "header_width": 204.0,
+      "returns_folded": false
+    },
+    "notes": "Verse in D minor.\nBridge: drop the bass for four bars.",
+    "new_track_color": "#C0504D"
+  }
+}

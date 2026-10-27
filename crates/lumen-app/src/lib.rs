@@ -96,11 +96,13 @@ mod probe;
 mod record_settings;
 mod record_span;
 mod recorder;
+mod render_audio;
 mod routing;
 mod ruler;
 mod settings;
 mod song_lanes;
 mod take_worker;
+mod templates;
 pub mod testing;
 mod theme;
 mod timefmt;
@@ -158,9 +160,18 @@ pub struct App {
     prompt: Option<Next>,
     /// What to do after the save in progress succeeds.
     after_save: Option<Next>,
-    /// A save waiting for the running plugins' states to be read: where to,
-    /// whether to normalize the path, and since when.
-    save_waiting: Option<(std::path::PathBuf, bool, std::time::Instant)>,
+    /// A save, copy or collect waiting for the running plugins' states to be
+    /// read: what for, where to, whether to normalize the path, since when.
+    save_waiting: Option<app::copies::Waiting>,
+    /// A copy of the project or a collect under way (M9 slice R4).
+    collecting: Option<app::copies::Running>,
+    /// The templates folder's listing and the naming window (M9 slice R4).
+    templates: app::templates::Templates,
+    /// Revert to saved: its prompt, the reload and the changes it kept (M9
+    /// slice R4).
+    revert: app::revert::Revert,
+    /// The Project settings window (M9 slice R4).
+    project_settings: app::project_settings::ProjectSettings,
     /// A problem with saving or opening, shown until dismissed.
     file_notice: Option<String>,
     /// Closing for real, after the unsaved-changes prompt.
@@ -245,6 +256,8 @@ pub struct App {
     system_cursor: Option<egui::Pos2>,
     settings: settings::Settings,
     settings_path: Option<PathBuf>,
+    /// Where projects and templates are kept (`Launch::user_dir`).
+    user_dir: Option<PathBuf>,
     /// Settings changed at this time and are not saved yet (saved once
     /// changes stop for half a second, so dragging a slider is one write).
     settings_changed: Option<Instant>,
@@ -358,7 +371,21 @@ pub(crate) fn empty_project() -> Project {
         transport: Default::default(),
         view: Default::default(),
         mappings: Vec::new(),
+        notes: String::new(),
+        new_track_color: None,
     }
+}
+
+/// A new project at the audio device's rate when it is known and one the
+/// model accepts (8 to 384 kHz), else at 48 kHz: what the project's files
+/// are rendered at (M9 R4, D6), so a project made on a 44.1 kHz interface
+/// starts there.
+pub(crate) fn empty_project_at(device_rate: Option<u32>) -> Project {
+    let mut project = empty_project();
+    if let Some(rate) = device_rate.filter(|r| (8_000..=384_000).contains(r)) {
+        project.sample_rate = rate;
+    }
+    project
 }
 
 fn arrives(milestone: &str) -> String {
@@ -469,6 +496,8 @@ impl eframe::App for App {
             self.run(&ctx, command);
         }
         self.poll_files(&ctx);
+        self.poll_collecting(&ctx);
+        self.poll_templates(&ctx);
         self.autosave(&ctx);
         let rate = self.transport.state().sample_rate;
         let dropped: Vec<PathBuf> = ctx.input(|i| {
@@ -598,6 +627,7 @@ impl eframe::App for App {
         self.device_banner(ui);
         self.crash_banner(ui);
         self.file_banner(ui);
+        self.revert_banner(ui);
         self.tempo_banner(ui);
         self.recovery_banner(ui);
         self.safe_banner(ui);
@@ -641,6 +671,9 @@ impl eframe::App for App {
         self.parameters_panel(&ctx);
         self.lane_parameters(&ctx);
         self.prompt_window(&ctx);
+        self.revert_window(&ctx);
+        self.save_template_window(&ctx);
+        self.project_settings_window(&ctx);
         self.shortcuts_window(&ctx);
         self.palette_window(&ctx);
 

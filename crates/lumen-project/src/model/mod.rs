@@ -108,7 +108,18 @@ pub struct Project {
     /// undo. Written only when there are some.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mappings: Vec<crate::mapping::Mapping>,
+    /// Free text kept with the project (format v32), written only when there
+    /// is some. Part of undo.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub notes: String,
+    /// The colour new tracks take (format v32); none cycles the palette.
+    /// Part of undo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_track_color: Option<Color>,
 }
+
+/// The most text a project's notes may hold, in bytes (`validate`).
+pub const MOST_NOTES_BYTES: usize = 200_000;
 
 /// A named locator (format v4).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

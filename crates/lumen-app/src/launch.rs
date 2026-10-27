@@ -23,6 +23,11 @@ pub struct Launch {
     pub(crate) plugins: crate::plugins::Source,
     /// Where autosaves go; `None` turns autosave off.
     pub(crate) autosave_dir: Option<PathBuf>,
+    /// The folder the person's own projects and templates are kept in
+    /// (`--user-dir`; `Documents/Lumen` by default). A run with its own
+    /// `--autosave-dir` is an isolated one and has none, so it never reads or
+    /// writes the owner's files; `None` leaves templates beside the settings.
+    pub(crate) user_dir: Option<PathBuf>,
     pub(crate) autosave_after: Option<Duration>,
     /// Where crash reports go (`--crash-dir`); `None`: nowhere.
     pub(crate) crash_dir: Option<PathBuf>,
@@ -127,6 +132,13 @@ impl Launch {
             autosave_dir: value("--autosave-dir")
                 .map(PathBuf::from)
                 .or_else(crate::autosave::default_dir),
+            user_dir: value("--user-dir").map(PathBuf::from).or_else(|| {
+                if has("--autosave-dir") {
+                    None
+                } else {
+                    crate::app::projects::user_folder()
+                }
+            }),
             crash_dir: value("--crash-dir")
                 .map(PathBuf::from)
                 .or_else(crate::crash::default_dir),

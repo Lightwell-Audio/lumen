@@ -10,6 +10,7 @@ impl App {
             settings: saved,
             settings_warning,
             settings_path,
+            user_dir,
             ..
         } = launch;
         let mut document = document::Document::new(if launch.stress {
@@ -20,7 +21,8 @@ impl App {
             }
             project
         } else {
-            empty_project()
+            // The rate chosen for the audio device last time, when there is one.
+            empty_project_at(saved.audio.as_ref().and_then(|a| a.sample_rate))
         });
         let mut arrangement = arrangement::Arrangement::default();
         if launch.bench_lanes {
@@ -100,6 +102,9 @@ impl App {
                 crate::preset_files::Places::default()
             }
         });
+        // Real folders are shown in the file manager; tests only note them.
+        let templates =
+            app::templates::Templates::new(matches!(launch.plugins, plugins::Source::System));
         let hosting = match launch.plugins.host_program() {
             Some(program) => {
                 let ctx = cc.egui_ctx.clone();
@@ -155,6 +160,7 @@ impl App {
             system_cursor: None,
             settings: saved,
             settings_path,
+            user_dir,
             settings_changed: None,
             settings_writer: settings::Writer::start(),
             document,
@@ -173,6 +179,10 @@ impl App {
             prompt: None,
             after_save: None,
             save_waiting: None,
+            collecting: None,
+            templates,
+            revert: Default::default(),
+            project_settings: Default::default(),
             file_notice: None,
             quitting: false,
             owner: None,

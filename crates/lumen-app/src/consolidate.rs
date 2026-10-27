@@ -15,6 +15,8 @@ use lumen_media::wav::{Sample, Spec, Writer};
 use lumen_project::edit::consolidate::{Baked, Part};
 use lumen_project::model::{Id, Media};
 
+use crate::render_audio::Again;
+
 /// One file to render.
 pub struct Job {
     pub part: Part,
@@ -137,10 +139,33 @@ pub fn render_job(
     }))
 }
 
+/// Gives `job` the clips of its part as they play at the project's rate, made
+/// from the files. `Ok(false)` if `cancel` stopped it.
+fn played_again(again: &Again, job: &mut Job, cancel: &AtomicBool) -> Result<bool, String> {
+    let Some(all) = again.clips(cancel)? else {
+        return Ok(false);
+    };
+    job.clips = all
+        .into_iter()
+        .filter(|c| job.part.clips.iter().any(|p| p.id.0 == c.id))
+        .collect();
+    if job.clips.len() != job.part.clips.len() {
+        return Err("The audio changed while it was read again".to_owned());
+    }
+    Ok(true)
+}
+
 impl Render {
     /// Starts rendering `jobs` one after another on a worker; `ctx` is woken
-    /// as it goes.
-    pub fn start(jobs: Vec<Job>, timeline: Timeline, rate: u32, ctx: &egui::Context) -> Self {
+    /// as it goes. `again` makes the jobs' clips on the worker, at `rate`,
+    /// when the loaded audio is at another one (`render_audio`).
+    pub fn start(
+        jobs: Vec<Job>,
+        timeline: Timeline,
+        rate: u32,
+        again: Option<Arc<Again>>,
+        ctx: &egui::Context,
+    ) -> Self {
         let (tx, results) = channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let progress = Arc::new(AtomicU32::new(0f32.to_bits()));
@@ -151,7 +176,22 @@ impl Render {
             .spawn(move || {
                 let mut before = 0;
                 let mut baked: Vec<Baked> = Vec::with_capacity(jobs.len());
-                for job in jobs {
+                for mut job in jobs {
+                    if let Some(again) = &again {
+                        match played_again(again, &mut job, &stop) {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                remove_files(&baked);
+                                return;
+                            }
+                            Err(e) => {
+                                remove_files(&baked);
+                                let _ = tx.send(Err(e));
+                                ctx.request_repaint();
+                                return;
+                            }
+                        }
+                    }
                     let frames = job.frames;
                     let result = render_job(job, &timeline, rate, &stop, &mut |n| {
                         let fraction = (before + n) as f32 / total as f32;

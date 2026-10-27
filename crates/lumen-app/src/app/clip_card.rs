@@ -168,11 +168,11 @@ fn swatch(
     response
 }
 
-/// "Track colour": a round swatch in the track's colour and its name, on a
-/// pill that is ringed in the accent while the clip follows its track.
-fn track_pill(ui: &mut egui::Ui, track: egui::Color32, on: bool) -> egui::Response {
+/// A round swatch in `dot` and its name `label`, on a pill that is ringed in
+/// the accent while it is `on`: the clip card's "Track colour", the project
+/// settings' "Colours in turn".
+fn pill(ui: &mut egui::Ui, colour: egui::Color32, label: &str, on: bool) -> egui::Response {
     let palette = theme::p();
-    let label = "Track colour";
     let galley = ui.painter().layout_no_wrap(
         label.to_owned(),
         egui::FontId::proportional(theme::size::CAPTION),
@@ -196,7 +196,7 @@ fn track_pill(ui: &mut egui::Ui, track: egui::Color32, on: bool) -> egui::Respon
         controls.fill.lerp_to_gamma(controls.hover, hover),
     );
     let centre = pos2(rect.left() + theme::space::XS + dot / 2.0, rect.center().y);
-    painter.circle_filled(centre, dot / 2.0, track);
+    painter.circle_filled(centre, dot / 2.0, colour);
     painter.galley(
         pos2(
             centre.x + dot / 2.0 + theme::space::XS,
@@ -216,15 +216,37 @@ fn track_pill(ui: &mut egui::Ui, track: egui::Color32, on: bool) -> egui::Respon
     response
 }
 
-/// The clip colours as swatches, then the track's colour; returns the one
-/// clicked (`Some(None)`: the track's colour again).
-fn swatches(
+/// What a set of colour swatches is called and how it is drawn: the clip
+/// card's follow their track, the project settings' follow the palette.
+#[derive(Clone, Copy)]
+pub(crate) struct Swatches<'a> {
+    /// The swatches are named "<name> 1", "<name> 2" and so on.
+    pub(crate) name: &'a str,
+    /// Square for clips, round for tracks.
+    pub(crate) round: bool,
+    /// The pill after them, standing for no colour of their own: its dot's
+    /// colour and its label.
+    pub(crate) none: (egui::Color32, &'a str),
+}
+
+/// The clip card's swatches: the clip colours, then "Track colour".
+fn clip_swatches(track: egui::Color32) -> Swatches<'static> {
+    Swatches {
+        name: "Colour",
+        round: false,
+        none: (track, "Track colour"),
+    }
+}
+
+/// The palette as swatches, then the pill of `look`; returns the one clicked
+/// (`Some(None)`: the pill, no colour of its own).
+pub(crate) fn swatches(
     ui: &mut egui::Ui,
     current: Option<Color>,
-    track: egui::Color32,
+    look: Swatches<'_>,
 ) -> Option<Option<Color>> {
-    // Two even rows of six, then the track's colour as a labelled pill (the
-    // interface audit's S6: the thirteen wrapped ten and three).
+    // Two even rows of six, then the pill (the interface audit's S6: the
+    // thirteen wrapped ten and three).
     let mut chosen = None;
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing = vec2(theme::space::S, theme::space::S);
@@ -234,14 +256,15 @@ fn swatches(
             ui.horizontal(|ui| {
                 for (j, &fill) in row.1.iter().enumerate() {
                     let color = color_from(fill);
-                    let name = format!("Colour {}", row.0 * 6 + j + 1);
-                    if swatch(ui, fill, current == Some(color), false, &name).clicked() {
+                    let name = format!("{} {}", look.name, row.0 * 6 + j + 1);
+                    if swatch(ui, fill, current == Some(color), look.round, &name).clicked() {
                         chosen = Some(Some(color));
                     }
                 }
             });
         }
-        if track_pill(ui, track, current.is_none()).clicked() {
+        let (dot, label) = look.none;
+        if pill(ui, dot, label, current.is_none()).clicked() {
             chosen = Some(None);
         }
     });
@@ -328,7 +351,7 @@ impl App {
         );
         self.menu_command(ui, Command::Rename, "Rename");
         widgets::submenu(ui, "Colour", |ui| {
-            if let Some(color) = swatches(ui, current, track) {
+            if let Some(color) = swatches(ui, current, clip_swatches(track)) {
                 self.document.recolor_clips(&ids, color);
                 ui.close();
             }
@@ -534,7 +557,7 @@ impl App {
         });
 
         row(ui, "Colour", |ui| {
-            if let Some(color) = swatches(ui, clip.color, track) {
+            if let Some(color) = swatches(ui, clip.color, clip_swatches(track)) {
                 self.document.recolor_clips(&[id], color);
             }
         });

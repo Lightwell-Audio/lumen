@@ -11,11 +11,12 @@ use lumen_core::product::PRODUCT_NAME;
 use lumen_core::time::Ticks;
 use lumen_project::model::{Project, TrackKind};
 
+use crate::app::copies::{Purpose, Waiting};
 use crate::document::Places;
 use crate::widgets::Dialog;
 use crate::widgets::raised;
 use crate::{
-    App, arrangement, document, empty_project, files, lanes, media, midi_files, theme, trace,
+    App, arrangement, document, empty_project_at, files, lanes, media, midi_files, theme, trace,
 };
 
 /// What happens after unsaved changes are saved or discarded.
@@ -24,6 +25,8 @@ pub(crate) enum Next {
     New,
     /// Open this project, or ask which.
     Open(Option<PathBuf>),
+    /// Start a new, unsaved project from the template in this file.
+    Template(PathBuf),
     Quit,
 }
 
@@ -47,6 +50,30 @@ pub(crate) enum FileDialog {
     },
     /// A folder to search for plugins (none when cancelled; M6 slice 1).
     PluginFolder(Option<PathBuf>),
+    /// Where to save a copy of the project (none when cancelled; M9 R4).
+    SaveCopy(Option<PathBuf>),
+    /// Where to collect an unsaved project (none when cancelled; M9 R4).
+    Collect(Option<PathBuf>),
+}
+
+/// The folder the person's own projects and templates are kept in:
+/// `Documents/Lumen`, with `Projects` and `Templates` inside it. One named
+/// folder, so a project and a template are told apart by where they are
+/// (owner, MT-PROJ-1, 2026-10-26).
+pub(crate) fn user_folder() -> Option<PathBuf> {
+    documents_folder().map(|d| d.join(PRODUCT_NAME))
+}
+
+/// The folder inside the user folder that holds the projects.
+pub(crate) const PROJECTS: &str = "Projects";
+/// The folder inside the user folder that holds the templates.
+pub(crate) const TEMPLATES: &str = "Templates";
+
+/// `dir`, made if it is not there yet, so a dialog can start in it (a small
+/// step, taken where the dialog is shown and not on the interface's thread).
+pub(crate) fn made(dir: PathBuf) -> PathBuf {
+    let _ = std::fs::create_dir_all(&dir);
+    dir
 }
 
 /// Where file dialogs start when the project has no folder yet.
@@ -83,21 +110,31 @@ impl App {
         project
     }
 
+    /// Where a save or open dialog starts: beside the folder the project is
+    /// in, or in the user folder's Projects (`Documents/Lumen/Projects`).
+    pub(crate) fn dialog_start(&self) -> Option<PathBuf> {
+        self.document
+            .path
+            .as_deref()
+            .and_then(|p| p.parent()?.parent().map(PathBuf::from))
+            .or_else(|| self.user_dir.as_ref().map(|d| d.join(PROJECTS)))
+            .or_else(documents_folder)
+    }
+
     /// Save (Ctrl+S): to the project's file, or ask where (Save As).
     pub(crate) fn save(&mut self, ctx: &egui::Context, ask: bool) {
-        if self.saving.is_some() || self.save_waiting.is_some() || self.dialog.is_some() {
+        if self.saving.is_some()
+            || self.save_waiting.is_some()
+            || self.collecting.is_some()
+            || self.dialog.is_some()
+        {
             return;
         }
         match self.document.path.clone() {
             Some(path) if !ask => self.start_save(path),
             _ => {
                 let name = format!("{}.{}", self.document.name(), files::EXTENSION);
-                let start = self
-                    .document
-                    .path
-                    .as_deref()
-                    .and_then(|p| p.parent()?.parent().map(PathBuf::from))
-                    .or_else(documents_folder);
+                let start = self.dialog_start();
                 let owner = self.owner;
                 let show = move || {
                     let mut dialog = rfd::FileDialog::new()
@@ -105,7 +142,7 @@ impl App {
                         .add_filter(format!("{PRODUCT_NAME} project"), &[files::EXTENSION])
                         .set_file_name(name);
                     if let Some(dir) = start {
-                        dialog = dialog.set_directory(dir);
+                        dialog = dialog.set_directory(made(dir));
                     }
                     if let Some(owner) = &owner {
                         dialog = dialog.set_parent(owner);
@@ -188,14 +225,15 @@ impl App {
     }
 
     pub(crate) fn start_save(&mut self, path: PathBuf) {
-        self.start_save_with(path, false);
+        self.start_save_for(Purpose::Save, path, false);
     }
 
     pub(crate) fn start_save_as(&mut self, chosen: PathBuf) {
-        self.start_save_with(chosen, true);
+        self.start_save_for(Purpose::Save, chosen, true);
     }
 
-    fn start_save_with(&mut self, path: PathBuf, normalize_project_path: bool) {
+    /// Starts a save, a copy or a collect.
+    pub(crate) fn start_save_for(&mut self, purpose: Purpose, path: PathBuf, normalize: bool) {
         // Every running plugin is read first, and the save is written when
         // the answers are in (or after a few seconds, with what there is).
         if self.hosting.request_captures() {
@@ -205,10 +243,24 @@ impl App {
                     path.display()
                 )
             });
-            self.save_waiting = Some((path, normalize_project_path, Instant::now()));
+            self.save_waiting = Some(Waiting {
+                purpose,
+                path,
+                normalize,
+                since: Instant::now(),
+            });
             return;
         }
-        self.write_save(path, normalize_project_path);
+        self.write(purpose, path, normalize);
+    }
+
+    fn write(&mut self, purpose: Purpose, path: PathBuf, normalize: bool) {
+        match purpose {
+            Purpose::Save => self.write_save(path, normalize),
+            Purpose::Copy | Purpose::Collect | Purpose::Template | Purpose::Revert => {
+                self.write_copy(purpose, path, normalize)
+            }
+        }
     }
 
     /// Writes the save, with the plugins' states as they were last read.
@@ -223,13 +275,18 @@ impl App {
             copy_imported: self.settings.projects.copy_imported,
             renders: Some(self.renders_dir()),
             recordings: Some(self.recordings_dir()),
+            templates: Some(self.templates_dir()),
             keep_backups: lumen_project::SaveOptions::default().keep_backups,
             state: self.document.state(),
+            not_over: None,
         }));
     }
 
     /// New, Open or Quit: first offer to save unsaved changes.
     pub(crate) fn request(&mut self, ctx: &egui::Context, next: Next) {
+        if self.copy_blocks(&next) {
+            return;
+        }
         if self.document.is_dirty() {
             self.prompt = Some(next);
         } else {
@@ -237,10 +294,25 @@ impl App {
         }
     }
 
+    /// A copy or collect under way belongs to the open project: another
+    /// project cannot replace it until that is done or stopped. Closing is
+    /// not held up. Says so when it blocks.
+    fn copy_blocks(&mut self, next: &Next) -> bool {
+        let blocks = self.collecting.is_some() && *next != Next::Quit;
+        if blocks {
+            self.say("A copy of the project is under way. Esc stops it".to_owned());
+        }
+        blocks
+    }
+
     pub(crate) fn proceed(&mut self, ctx: &egui::Context, next: Next) {
+        if self.copy_blocks(&next) {
+            return;
+        }
         match next {
             Next::New => {
-                self.replace_document(document::Document::new(empty_project()));
+                let rate = Some(self.lanes.rate());
+                self.replace_document(document::Document::new(empty_project_at(rate)));
                 self.toast = Some(("New project".into(), Instant::now()));
             }
             Next::Open(Some(path)) => {
@@ -249,23 +321,25 @@ impl App {
                     self.opening = Some(files::open(path));
                 }
             }
+            Next::Template(file) => {
+                if self.opening.is_none() {
+                    trace::log(|| format!("files: opening the template {}", file.display()));
+                    self.templates.opening = true;
+                    self.opening = Some(files::open(file));
+                }
+            }
             Next::Open(None) => {
                 if self.dialog.is_some() {
                     return;
                 }
-                let start = self
-                    .document
-                    .path
-                    .as_deref()
-                    .and_then(|p| p.parent()?.parent().map(PathBuf::from))
-                    .or_else(documents_folder);
+                let start = self.dialog_start();
                 let owner = self.owner;
                 let show = move || {
                     let mut dialog = rfd::FileDialog::new()
                         .set_title("Open project")
                         .add_filter(format!("{PRODUCT_NAME} project"), &[files::EXTENSION]);
                     if let Some(dir) = start {
-                        dialog = dialog.set_directory(dir);
+                        dialog = dialog.set_directory(made(dir));
                     }
                     if let Some(owner) = &owner {
                         dialog = dialog.set_parent(owner);
@@ -302,16 +376,23 @@ impl App {
         self.freeze_waiting = None;
         self.freezing = None;
         self.show_history = false;
+        self.revert.kept = None;
         self.forget_passes();
         self.transport.locate(Ticks::ZERO);
     }
 
     /// Results of dialogs, saves and opens; and the window's close button.
     pub(crate) fn poll_files(&mut self, ctx: &egui::Context) {
-        if let Some((_, _, since)) = &self.save_waiting {
-            if !self.hosting.captures_pending() || since.elapsed() >= PLUGIN_READ_WAIT {
-                if let Some((path, normalize, _)) = self.save_waiting.take() {
-                    self.write_save(path, normalize);
+        if let Some(waiting) = &self.save_waiting {
+            if !self.hosting.captures_pending() || waiting.since.elapsed() >= PLUGIN_READ_WAIT {
+                if let Some(Waiting {
+                    purpose,
+                    path,
+                    normalize,
+                    ..
+                }) = self.save_waiting.take()
+                {
+                    self.write(purpose, path, normalize);
                 }
             } else {
                 ctx.request_repaint_after(std::time::Duration::from_millis(30));
@@ -335,9 +416,17 @@ impl App {
                     }
                 }
                 FileDialog::PluginFolder(Some(folder)) => self.add_plugin_folder(ctx, &folder),
+                FileDialog::SaveCopy(Some(chosen)) => {
+                    self.start_save_for(Purpose::Copy, chosen, true)
+                }
+                FileDialog::Collect(Some(chosen)) => {
+                    self.start_save_for(Purpose::Collect, chosen, true)
+                }
                 // Cancelled: whatever was waiting on it is off too.
                 FileDialog::SaveAs(None) | FileDialog::Open(None) => self.after_save = None,
-                FileDialog::PluginFolder(None) => {}
+                FileDialog::PluginFolder(None)
+                | FileDialog::SaveCopy(None)
+                | FileDialog::Collect(None) => {}
             }
         }
         if let Some(result) = self.saving.as_ref().and_then(|rx| rx.try_recv().ok()) {
@@ -383,11 +472,18 @@ impl App {
         }
         if let Some(result) = self.opening.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.opening = None;
+            let template = std::mem::take(&mut self.templates.opening);
+            let reverting = self.revert.reloading.take();
             match result {
                 Ok(opened) => {
                     let view = opened.project.view.clone();
-                    files::remember(&mut self.settings.projects.recent, &opened.path);
-                    self.settings_changed = Some(Instant::now());
+                    let file = opened.path.clone();
+                    // A template is a way to start, not a project to come
+                    // back to: it is not remembered.
+                    if !template {
+                        files::remember(&mut self.settings.projects.recent, &opened.path);
+                        self.settings_changed = Some(Instant::now());
+                    }
                     self.file_notice = match opened.missing.len() {
                         0 => None,
                         1 => Some(format!("1 audio file is missing: {}", opened.missing[0])),
@@ -409,6 +505,9 @@ impl App {
                             ));
                             self.recover_takes(&leftover.session);
                         }
+                        None if template => self.replace_document(
+                            document::Document::from_template(opened.project, opened.media_files),
+                        ),
                         None => self.replace_document(document::Document::opened(
                             opened.project,
                             opened.path,
@@ -427,16 +526,35 @@ impl App {
                     self.show_detail = view.detail_open;
                     self.browser_size = view.browser_size.clamp(crate::BROWSER_MIN, 600.0);
                     self.detail_size = view.detail_size.clamp(80.0, 600.0);
-                    let what = if recovered {
-                        "Recovered unsaved changes to"
+                    if template {
+                        self.said_new_from(&file);
+                    } else if let Some(kept) = reverting {
+                        // The message that offers the dropped changes.
+                        self.revert.kept = Some(kept);
+                        self.say(format!("Reverted to the saved {}", self.document.name()));
                     } else {
-                        "Opened"
-                    };
-                    self.toast = Some((format!("{what} {}", self.document.name()), Instant::now()));
+                        let what = if recovered {
+                            "Recovered unsaved changes to"
+                        } else {
+                            "Opened"
+                        };
+                        self.toast =
+                            Some((format!("{what} {}", self.document.name()), Instant::now()));
+                    }
                 }
                 Err(e) => {
                     self.recovering = None;
-                    self.file_notice = Some(format!("Could not open the project. {e}"));
+                    self.file_notice = Some(match reverting {
+                        Some(kept) => format!(
+                            "Could not read the saved project back, so it was not reverted. \
+                             Your changes are still open, and also kept in {}. {e}",
+                            kept.display()
+                        ),
+                        None => format!(
+                            "Could not open the {}. {e}",
+                            if template { "template" } else { "project" }
+                        ),
+                    });
                 }
             }
         }
@@ -460,6 +578,7 @@ impl App {
         let action = match next {
             Next::New => "starting a new project",
             Next::Open(_) => "opening another project",
+            Next::Template(_) => "starting a project from a template",
             Next::Quit => "closing",
         };
         let title = format!("Save changes to {}?", self.document.name());

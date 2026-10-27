@@ -407,10 +407,30 @@ short: the history of every slice is in `docs/HANDOFF_ARCHIVE.md`
 and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
-**Now (2026-10-25)**
+**Now (2026-10-26)**
+- **Branch `m9-s4-project-lifecycle`: M9 slice R4 (project lifecycle) is done**
+  (ADR-0105; format **v32**; plan `docs/milestones/M9-R4.md`; cut from `main`
+  after PR #68; not pushed). The owner took every recommendation (2026-10-26):
+  renders follow the project rate (P1 A), Revert reloads the saved file and keeps
+  the unsaved one in `Backups/Reverted` (P2 A), and the media pool is split off as
+  R4b (S A). Built: Save a copy and Collect and save (one copy worker,
+  `files::collect`, `app/copies.rs`: temporary names, project file last, Esc
+  stops with nothing changed), templates (`templates.rs`, `app/templates.rs`),
+  Revert (`app/revert.rs`), the Project settings window (rate, pan law,
+  crossfades, new-track colour, notes), and join, bounce and freeze at the
+  project rate (`render_audio.rs`). E2E: `copies`, `templates`, `revert`,
+  `project_settings`, `render_rate`. After the owner's first MT-PROJ-1 run
+  (2026-10-26): projects and templates live in `Documents\Lumen\Projects` and
+  `Templates` (`Launch::user_dir`, `--user-dir`; a run with `--autosave-dir` has
+  none), and the app menu is grouped (More ways to save ▸, Appearance ▸,
+  Mixing ▸; ADR-0105 item 5b; layout C, a Preferences window, comes with R7).
+  Gates run (after that change): fmt, clippy, macOS cross-clippy,
+  workspace tests (lumen-app: 992 unit, 710 E2E), smoke. Not yet run: the WSL
+  mirror and performance gate (they test the pushed branch). MT-PROJ-1
+  (`docs/manual-tests/M9.md`) passed (owner, 2026-10-26). Relink, the media pool and
+  purge are R4b (`m9-s4b-media-pool`), planned when R4 is closed.
 - **Branch `m9-s3-takes-capture`: M9 slice R3 (takes and Capture MIDI) is done**
-  (ADR-0104; format **v31**; cut from `main` after PR #63; pushed, with `main`
-  merged in, and a pull request opened 2026-10-26). MT-REC-3 passed (owner,
+  (ADR-0104; format **v31**; merged, PR #68). MT-REC-3 passed (owner,
   2026-10-26). Take lanes and comping were pitched and deferred by the owner
   until after M9's must-have slices (DECISIONS, owner table). Loop
   recording keeps each pass as a take of one clip (`Clip.takes`): audio always,
@@ -525,7 +545,7 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status, slice tables and reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0098 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0105 and the table of owner decisions.
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
 - `docs/KNOWN_ISSUES.md`, `docs/ARCHITECTURE.md` (crates, threads, module

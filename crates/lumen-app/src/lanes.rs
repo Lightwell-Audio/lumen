@@ -654,6 +654,13 @@ impl Lanes {
         doc.import(imported);
     }
 
+    /// The file a loaded media id was read from, for a render that reads it
+    /// again at another rate (`render_audio`).
+    pub(crate) fn file_of(&self, media: u64) -> Option<PathBuf> {
+        let item = self.library.get(media)?;
+        matches!(item.state, State::Ready(_)).then(|| item.path.clone())
+    }
+
     /// What the engine plays, from the files that are loaded.
     pub(crate) fn engine_clips(&self, project: &Project, rate: u32) -> Vec<Clip> {
         engine_clips(project, rate, |media| {

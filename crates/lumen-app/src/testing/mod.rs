@@ -52,6 +52,7 @@ impl Launch {
             midi: crate::midi::Source::Test(lumen_midi::fake::FakeControl::new()),
             plugins: crate::plugins::Source::Off,
             autosave_dir: Some(dir.join("autosave")),
+            user_dir: None,
             autosave_after: None,
             crash_dir: Some(dir.join("crashes")),
             crash_test: None,
@@ -179,6 +180,13 @@ impl Launch {
     pub fn with_settings_file(mut self, file: &Path) -> Self {
         self.settings = settings::load(file).0;
         self.settings_path = Some(file.to_path_buf());
+        self
+    }
+
+    /// Starts with the person's own folder at `dir`, as `Documents/Lumen`
+    /// is on a real start: projects in `Projects`, templates in `Templates`.
+    pub fn with_user_dir(mut self, dir: &Path) -> Self {
+        self.user_dir = Some(dir.to_path_buf());
         self
     }
 
@@ -438,11 +446,63 @@ impl App {
     pub fn is_busy(&self) -> bool {
         self.saving.is_some()
             || self.save_waiting.is_some()
+            || self.collecting.is_some()
             || self.opening.is_some()
             || self.lanes.is_loading()
             || self.midi_reader.busy()
             || self.midi_exporting.is_some()
             || self.midi_writing.is_some()
+    }
+
+    /// The templates last found in the templates folder, by name.
+    pub fn templates(&self) -> Vec<String> {
+        self.templates
+            .listing
+            .found()
+            .iter()
+            .map(|t| t.name.clone())
+            .collect()
+    }
+
+    /// Where a Save as or Open dialog starts for this project.
+    pub fn dialog_folder(&self) -> Option<PathBuf> {
+        self.dialog_start()
+    }
+
+    /// The folder templates are kept in.
+    pub fn templates_folder(&self) -> PathBuf {
+        self.templates_dir()
+    }
+
+    /// Whether the templates folder is being listed.
+    pub fn templates_busy(&self) -> bool {
+        self.templates.listing.busy()
+    }
+
+    /// Whether the window that names a template is showing.
+    pub fn template_window_open(&self) -> bool {
+        self.templates.naming_open()
+    }
+
+    /// Whether the prompt that asks before Revert to saved is showing.
+    pub fn revert_prompt_open(&self) -> bool {
+        self.revert.asking()
+    }
+
+    /// Where the last revert put the changes it dropped, while the message
+    /// that offers them shows.
+    pub fn reverted_changes(&self) -> Option<&Path> {
+        self.revert.kept.as_deref()
+    }
+
+    /// Whether the Project settings window is showing.
+    pub fn project_settings_open(&self) -> bool {
+        self.project_settings.is_open()
+    }
+
+    /// The folders "Open templates folder" showed, oldest first.
+    pub fn revealed_template_folders(&self) -> Vec<PathBuf> {
+        self.templates.revealed.clone()
     }
 
     /// A problem with saving or opening, as shown to the user.
@@ -604,6 +664,22 @@ impl App {
     /// Saves to `path`, as Save does once its dialog has a path.
     pub fn save_to(&mut self, path: PathBuf) {
         self.start_save(path);
+    }
+
+    /// The open project's file, once it has one.
+    pub fn project_path(&self) -> Option<&Path> {
+        self.document.path.as_deref()
+    }
+
+    /// The recent projects, newest first.
+    pub fn recent_projects(&self) -> &[String] {
+        &self.settings.projects.recent
+    }
+
+    /// Turns "Copy imported audio into the project" on or off, as the switch
+    /// in the menu does.
+    pub fn set_copy_imported(&mut self, on: bool) {
+        self.settings.projects.copy_imported = on;
     }
 
     /// Whether the command palette is open.

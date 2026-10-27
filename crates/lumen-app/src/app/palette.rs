@@ -78,6 +78,8 @@ pub(crate) enum Entry {
     Track(Id),
     /// Move the playhead to this locator.
     Locator(Ticks),
+    /// Start a new project from this template (its place in the list found).
+    Template(usize),
 }
 
 /// A row of the palette.
@@ -335,6 +337,20 @@ impl App {
                 }
             }
         }
+        if query.chars().count() >= 2 {
+            for (i, template) in self.templates.listing.found().iter().enumerate() {
+                let label = format!("New from template \u{201C}{}\u{201D}", template.name);
+                if let Some((score, matched)) = fuzzy(query, &label) {
+                    found.push(Row {
+                        entry: Entry::Template(i),
+                        label,
+                        matched,
+                        ready: self.new_unavailable(),
+                        score,
+                    });
+                }
+            }
+        }
         if query.is_empty() {
             // Recent first, in the order they were run.
             let rank = |row: &Row| match row.entry {
@@ -366,7 +382,7 @@ impl App {
     /// Runs a row: a command that can run, a value, or a name. A command
     /// that cannot run leaves the palette open and says why.
     fn run_row(&mut self, ctx: &egui::Context, row: &Row) {
-        if let (Entry::Command(_), Err(why)) = (&row.entry, row.ready) {
+        if let Err(why) = row.ready {
             self.palette.notice = Some(why);
             return;
         }
@@ -399,6 +415,7 @@ impl App {
                 self.transport.locate(at);
                 self.transport.follow_paused = false;
             }
+            Entry::Template(i) => self.new_from_listed_template(ctx, i),
         }
         ctx.request_repaint();
     }
@@ -410,6 +427,9 @@ impl App {
         if !self.palette.open {
             return;
         }
+        // Templates are rows too: a template added in the file manager shows
+        // up within a moment of the palette opening.
+        self.templates.listing.ask(ctx, self.templates_dir(), false);
         // The list's keys, before the field sees them.
         // Ctrl+Enter records new keys for the chosen command (the owner's
         // E3); while recording, `capture_chord` has taken the keys.
@@ -696,6 +716,10 @@ impl App {
             Entry::Bar(_) => ("Moves the playhead to the start of that bar.", None),
             Entry::Track(_) => ("Selects the track and scrolls to it.", None),
             Entry::Locator(_) => ("Moves the playhead to the locator.", None),
+            Entry::Template(_) => (
+                "Starts a new, unsaved project from the template: its tracks, devices, audio and settings.",
+                None,
+            ),
         };
         let rebind = match row.entry {
             Entry::Command(command) => self.rebind.filter(|r| r.command == command),

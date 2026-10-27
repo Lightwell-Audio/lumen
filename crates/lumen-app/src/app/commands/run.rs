@@ -501,6 +501,12 @@ impl App {
             Command::OpenProject => self.request(ctx, Next::Open(None)),
             Command::Save => self.save(ctx, false),
             Command::SaveAs => self.save(ctx, true),
+            Command::SaveCopy => self.save_copy(ctx),
+            Command::CollectAndSave => self.collect_and_save(ctx),
+            Command::SaveTemplate => self.open_save_template(ctx),
+            Command::OpenTemplatesFolder => self.open_templates_folder(),
+            Command::Revert => self.begin_revert(),
+            Command::ProjectSettings => self.open_project_settings(),
             Command::Import => self.import_files(ctx),
             Command::DevicesSearch => {
                 self.show_browser = true;

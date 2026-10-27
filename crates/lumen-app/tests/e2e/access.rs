@@ -362,13 +362,18 @@ fn switches_and_segmented_choices_work_by_name() {
     // pointer leaves it, and a command closes it at once.
     let mut lumen = Lumen::start("switches");
     lumen.click("Lumen");
+    lumen.click("Mixing");
     assert!(!lumen.is_on("Meters in track colours"));
     lumen.click("Meters in track colours");
     assert!(
         lumen.is_on("Meters in track colours"),
         "a click switches it on"
     );
-    assert!(lumen.shows("Additive solo"), "and the menu stays open");
+    assert!(
+        lumen.shows("Project settings\u{2026}"),
+        "and the menu stays open"
+    );
+    lumen.click("Appearance");
     // Not the theme or Reduce motion: they are process-wide, and would reach
     // the tests running beside this one.
     assert!(lumen.is_on("100%") && !lumen.is_on("125%"));
@@ -380,16 +385,16 @@ fn switches_and_segmented_choices_work_by_name() {
     // The pointer leaves: after a moment, it fades away.
     lumen.harness.hover_at(egui::pos2(900.0, 500.0));
     lumen.frames(10);
-    assert!(lumen.shows("Additive solo"), "not at once");
+    assert!(lumen.shows("Project settings\u{2026}"), "not at once");
     lumen.frames(60);
     assert!(
-        !lumen.shows("Additive solo"),
+        !lumen.shows("Project settings\u{2026}"),
         "gone after the pause and fade"
     );
     // A command closes it straight away: its fading picture has no controls.
     lumen.click("Lumen");
     lumen.click("History\u{2026}");
-    assert!(!lumen.shows("Additive solo"));
+    assert!(!lumen.shows("Project settings\u{2026}"));
 }
 
 #[test]
@@ -399,10 +404,11 @@ fn a_menus_segmented_controls_line_up_with_its_labels() {
     // labels. They now come in as far as the labels do.
     let mut lumen = Lumen::start("menu-inset");
     lumen.click("Lumen");
+    lumen.click("Appearance");
     lumen.frames(30);
     // A segment sits 2 pt inside its control (`space::XXS`); in a menu the
     // control itself comes in as well, by the rows' padding.
-    let row = lumen.harness.get_by_label("Additive solo").rect();
+    let row = lumen.harness.get_by_label("Reduce motion").rect();
     let dark = lumen.harness.get_by_label("Dark").rect();
     let inset = dark.left() - row.left();
     assert!(
@@ -425,7 +431,7 @@ fn a_closing_menu_asks_for_the_frames_its_fade_needs() {
     let mut closing_frame_asked = None;
     for _ in 0..5 {
         lumen.harness.step();
-        if !lumen.shows("Additive solo") {
+        if !lumen.shows("Project settings\u{2026}") {
             let causes = lumen.harness.ctx.repaint_causes();
             closing_frame_asked = Some(causes.iter().any(|c| c.file.ends_with("menu.rs")));
             break;

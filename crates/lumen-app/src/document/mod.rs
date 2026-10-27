@@ -39,6 +39,7 @@ mod notes;
 mod outputs;
 mod overrides;
 mod record;
+mod settings;
 mod song_maps;
 mod split;
 mod takes;
@@ -54,11 +55,16 @@ pub use notes::Resize;
 pub use outputs::{Leave, OutputEdit};
 pub use overrides::Overrides;
 pub use record::Recording;
+pub use settings::RATES;
 
-/// Track colours, cycled for new tracks (`theme::CLIP_COLORS`, as `#RRGGBB`).
-fn track_color(index: usize) -> Color {
-    let c = crate::theme::CLIP_COLORS[index % crate::theme::CLIP_COLORS.len()];
-    Color(u32::from(c.r()) << 16 | u32::from(c.g()) << 8 | u32::from(c.b()))
+/// The colour of a new track: the one the project's settings choose
+/// (`Project::new_track_color`), else the palette in turn
+/// (`theme::CLIP_COLORS`, as `#RRGGBB`) by how many tracks there are.
+fn track_color(chosen: Option<Color>, index: usize) -> Color {
+    chosen.unwrap_or_else(|| {
+        let c = crate::theme::CLIP_COLORS[index % crate::theme::CLIP_COLORS.len()];
+        Color(u32::from(c.r()) << 16 | u32::from(c.g()) << 8 | u32::from(c.b()))
+    })
 }
 
 pub struct Document {
@@ -224,6 +230,15 @@ impl Document {
         doc
     }
 
+    /// A document for a project read from a template (M9 slice R4): unsaved
+    /// and untitled, with no changes yet. Its audio is in the template's
+    /// folder until the first Save copies it in.
+    pub fn from_template(project: Project, media_files: HashMap<Id, PathBuf>) -> Self {
+        let mut doc = Self::new(project);
+        doc.media_files = media_files;
+        doc
+    }
+
     /// A new id, unique in this project for its lifetime (never reused,
     /// even after undo).
     pub fn fresh_id(&mut self) -> Id {
@@ -312,7 +327,7 @@ impl Document {
             let parent = after
                 .and_then(|i| project.tracks[i].parent)
                 .filter(|_| lumen_project::groups::can_be_grouped(kind));
-            let color = track_color(project.tracks.len());
+            let color = track_color(project.new_track_color, project.tracks.len());
             project.tracks.insert(
                 index,
                 Arc::new(Track {
