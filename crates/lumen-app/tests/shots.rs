@@ -4080,3 +4080,41 @@ fn record_loop_passes() {
         save(&mut h, &format!("loop-final-{appearance}-{scale}"));
     }
 }
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn media_pool() {
+    // M9 slice R4b (ADR-0106): the browser's Project media tab with a used
+    // file, a missing one, an unfinished-name file nothing plays and the
+    // card for files that belong to no project, in both themes at 100, 150
+    // and 200%; then the Clear card asking, and the empty states.
+    use egui_kittest::kittest::Queryable;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new("shots-media-pool");
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
+            let song = lumen_app::testing::project_file(dir.path(), "Song");
+            h.state_mut().save_to(song.clone());
+            h.run_steps(60);
+            let samples = song.parent().unwrap().join("Samples").join("Imported");
+            std::fs::remove_file(samples.join("snare.wav")).expect("the copied snare");
+            wav(&samples.join("old take 3.wav"), 2.5);
+            h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+            h.run_steps(3);
+            h.event(Event::Text("Project media".into()));
+            h.run_steps(3);
+            h.key_press(Key::Enter);
+            h.run_steps(60);
+            save(&mut h, &format!("media-pool-{appearance}-{scale}"));
+            h.get_by_label("Clear\u{2026}").click();
+            h.run_steps(10);
+            save(&mut h, &format!("media-pool-clear-{appearance}-{scale}"));
+            h.get_all_by_label("Devices tab")
+                .next()
+                .expect("the tab")
+                .click();
+            h.run_steps(10);
+            save(&mut h, &format!("media-pool-devices-{appearance}-{scale}"));
+        }
+    }
+}

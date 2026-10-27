@@ -209,9 +209,7 @@ pub fn mark_seen(report: &Path) {
 /// Shows `path` in the system's file browser.
 pub fn reveal(path: &Path) {
     let result = if cfg!(windows) {
-        std::process::Command::new("explorer")
-            .arg(format!("/select,{}", path.display()))
-            .spawn()
+        reveal_in_explorer(path)
     } else if cfg!(target_os = "macos") {
         std::process::Command::new("open")
             .arg("-R")
@@ -227,9 +225,41 @@ pub fn reveal(path: &Path) {
     }
 }
 
+/// Explorer reads `/select,"<path>"` as one argument with the quotes inside
+/// it. Rust would quote the whole argument when the path has a space, which
+/// Explorer does not understand and answers by opening Documents, so the
+/// argument is written as it is. Explorer also wants backslashes and no `\\?\` prefix.
+#[cfg(windows)]
+fn reveal_in_explorer(path: &Path) -> std::io::Result<std::process::Child> {
+    use std::os::windows::process::CommandExt;
+    let shown = path.display().to_string().replace('/', "\\");
+    let path = shown.strip_prefix(r"\\?\").unwrap_or(&shown);
+    std::process::Command::new("explorer")
+        .raw_arg(format!("/select,\"{path}\""))
+        .spawn()
+}
+
+#[cfg(not(windows))]
+fn reveal_in_explorer(_: &Path) -> std::io::Result<std::process::Child> {
+    unreachable!("only called on Windows")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Opens a real Explorer window on a file whose folder has a space in its
+    /// name (the case that once opened Documents). Run by hand (MT-PROJ-2).
+    #[test]
+    #[ignore = "opens a file manager window"]
+    fn reveal_selects_a_file_in_a_folder_with_a_space() {
+        let dir = std::env::temp_dir().join("lumen reveal check");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("picked.wav");
+        std::fs::write(&file, b"x").unwrap();
+        reveal(&file);
+        std::thread::sleep(std::time::Duration::from_secs(4));
+    }
 
     #[test]
     fn a_report_says_what_where_when_and_how() {

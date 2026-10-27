@@ -56,6 +56,10 @@ pub(crate) enum FileDialog {
     Collect(Option<PathBuf>),
     /// The audio export file, or a folder for stems (M9 R5).
     ExportAudio(Option<PathBuf>),
+    /// The file chosen for a missing item (none when cancelled; M9 R4b).
+    Locate(Option<PathBuf>),
+    /// The folder to search for the missing files (none when cancelled; M9 R4b).
+    RelinkFolder(Option<PathBuf>),
 }
 
 /// The folder the person's own projects and templates are kept in:
@@ -378,6 +382,7 @@ impl App {
         self.freeze_waiting = None;
         self.freezing = None;
         self.show_history = false;
+        self.media_pool.reset();
         self.revert.kept = None;
         self.forget_passes();
         self.transport.locate(Ticks::ZERO);
@@ -425,11 +430,14 @@ impl App {
                 FileDialog::Collect(Some(chosen)) => {
                     self.start_save_for(Purpose::Collect, chosen, true)
                 }
+                FileDialog::Locate(path) => self.located(ctx, path),
+                FileDialog::RelinkFolder(Some(folder)) => self.searching_folder(ctx, folder),
                 // Cancelled: whatever was waiting on it is off too.
                 FileDialog::SaveAs(None) | FileDialog::Open(None) => self.after_save = None,
                 FileDialog::PluginFolder(None)
                 | FileDialog::SaveCopy(None)
-                | FileDialog::Collect(None) => {}
+                | FileDialog::Collect(None)
+                | FileDialog::RelinkFolder(None) => {}
             }
         }
         if let Some(result) = self.saving.as_ref().and_then(|rx| rx.try_recv().ok()) {
@@ -487,14 +495,9 @@ impl App {
                         files::remember(&mut self.settings.projects.recent, &opened.path);
                         self.settings_changed = Some(Instant::now());
                     }
-                    self.file_notice = match opened.missing.len() {
-                        0 => None,
-                        1 => Some(format!("1 audio file is missing: {}", opened.missing[0])),
-                        n => Some(format!(
-                            "{n} audio files are missing, first {}",
-                            opened.missing[0]
-                        )),
-                    };
+                    // Missing audio is answered by its own banner, which
+                    // opens the Project media tab (M9 slice R4b).
+                    self.file_notice = None;
                     let recovered = self.recovering.is_some();
                     match self.recovering.take() {
                         Some(leftover) => {

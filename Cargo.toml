@@ -47,6 +47,8 @@ naga = { version = "30", features = ["wgsl-in"] }
 winit = "0.30"
 pollster = "0.4"
 rfd = "0.17"
+# Moves files to the system trash (R4b, ADR-0106): MIT.
+trash = "5.2"
 raw-window-handle = "0.6"
 parley = "0.11"
 accesskit = "0.24"

@@ -35,6 +35,7 @@ pub(crate) mod info;
 pub(crate) mod keyboard;
 pub(crate) mod locators;
 mod mappings_window;
+pub(crate) mod media_pool;
 pub(crate) mod midi_files;
 mod mixer;
 pub(crate) mod navigate;

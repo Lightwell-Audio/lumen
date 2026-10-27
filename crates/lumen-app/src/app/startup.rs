@@ -134,6 +134,7 @@ impl App {
                 ..Default::default()
             },
             browser: Default::default(),
+            media_pool: Default::default(),
             midi_out: None,
             live_keys: None,
             record: Default::default(),

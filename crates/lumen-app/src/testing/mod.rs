@@ -20,6 +20,7 @@ mod audio_record;
 mod automation;
 mod devices;
 mod editor;
+mod media_pool;
 mod midi;
 mod tools;
 

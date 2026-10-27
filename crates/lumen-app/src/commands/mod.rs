@@ -228,6 +228,11 @@ pub(crate) enum Command {
     OpenTemplatesFolder,
     Revert,
     ProjectSettings,
+    MediaPool,
+    LocateMedia,
+    SearchFolderForMedia,
+    RemoveUnusedMedia,
+    ClearStrayFiles,
     ExportAudio,
 }
 
@@ -522,6 +527,11 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::OpenTemplatesFolder, "file.open_templates_folder", "Open templates folder", Area::File, &[], "Shows the folder the templates are kept in. To rename or delete a template, rename or delete its folder there."),
     info(Command::Revert, "file.revert", "Revert to saved…", Area::File, &[], "Drops every change made since the last save and reads the saved project back, so everything, including what a plugin keeps inside its own window, is as it was saved. Asks first. The unsaved version is put away before anything is dropped, in the project's Backups/Reverted folder, and a message offers to open it."),
     info(Command::ProjectSettings, "file.project_settings", "Project settings…", Area::File, &[], "Opens the project's own settings: the sample rate of the files the app makes for it, the pan law, automatic crossfades, the colour new tracks take, and notes about the project. Each change is saved in the project and is one undo step."),
+    info(Command::MediaPool, "file.media_pool", "Project media", Area::File, &[], "Shows the browser's Project media tab: every audio file the project holds, which ones are missing, which ones nothing plays, and files left behind that belong to no project."),
+    info(Command::LocateMedia, "file.locate_media", "Locate missing media…", Area::File, &[], "Asks for the file that stands in for the missing audio chosen in the Project media tab. A file of another length, or with another channel count or sample rate, is checked before anything changes. Relinking is saved with the project and is not an undo step."),
+    info(Command::SearchFolderForMedia, "file.search_folder_for_media", "Search a folder for missing media…", Area::File, &[], "Looks in the folder you choose, and in the folders inside it, for the audio the project cannot find, by file name. It shows what it found and changes nothing until you relink. Esc stops it."),
+    info(Command::RemoveUnusedMedia, "file.remove_unused_media", "Remove unused media", Area::File, &[], "Takes the audio files no clip and no frozen track plays out of the project, as one undo step. The files stay where they are."),
+    info(Command::ClearStrayFiles, "file.clear_stray_files", "Clear files that belong to no project…", Area::File, &[], "Moves audio left behind in the project's sample folders and in the work folders for renders and recordings, which no project and no autosave needs, to the system trash. Asks once more before it moves anything; the trash can give them back."),
     info(Command::ExportAudio, "file.export_audio", "Export audio…", Area::File, &[ctrl_shift(Key::E)], "Exports the master mix or track, group and return stems to WAV or FLAC, from the project, loop or time selection, with a loudness report. Esc stops an export."),
 ];
 
