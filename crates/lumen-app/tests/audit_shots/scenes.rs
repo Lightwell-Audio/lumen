@@ -37,7 +37,9 @@ fn owner_polish() {
                 });
                 s.steps(10);
             }
-            let last = s.find_row("Properties").expect("the menu's last row");
+            let last = s
+                .find_row("Properties\u{2026}")
+                .expect("the menu's last row");
             assert!(last.top() >= 0.0 && last.bottom() <= 540.0);
             s.snap("arrangement-menu");
         }

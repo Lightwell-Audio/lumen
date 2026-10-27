@@ -161,17 +161,17 @@ impl Arrangement {
         let freezing = [
             (
                 can_freeze,
-                plural("Freeze track", "Freeze tracks"),
+                plural("Freeze", "Freeze tracks"),
                 Command::FreezeTracks,
             ),
             (
                 can_thaw,
-                plural("Unfreeze track", "Unfreeze tracks"),
+                plural("Unfreeze", "Unfreeze tracks"),
                 Command::UnfreezeTracks,
             ),
             (
                 can_thaw,
-                plural("Flatten track", "Flatten tracks"),
+                plural("Flatten", "Flatten tracks"),
                 Command::FlattenTracks,
             ),
         ];

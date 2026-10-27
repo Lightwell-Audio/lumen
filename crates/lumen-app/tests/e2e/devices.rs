@@ -176,7 +176,7 @@ fn hovering_a_device_says_what_its_gestures_do() {
         "{info}"
     );
     assert!(
-        info.contains("right-click to favorite, rescan or show in folder"),
+        info.contains("right-click to add to favorites, rescan or show in folder"),
         "{info}"
     );
     assert!(!info.contains("choose") && !info.contains("more"), "{info}");

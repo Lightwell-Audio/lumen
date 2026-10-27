@@ -77,7 +77,7 @@ highlights and motion. Words go in three places only:
   lights (`accent_muted`) every gesture and shortcut that takes exactly
   those keys and dims the rest to `DIMMED`. A `border` hairline runs along
   the strip's top in both themes. Verbs say what happens ("add to Bass",
-  "favorite, rescan or show in folder"), never "choose", "more" or
+  "add to favorites, rescan or show in folder"), never "choose", "more" or
   "menu". New interactive things set an `Info` when hovered; nothing else
   describes a drag.
 - **Live values by the pointer, only while dragging** (a fade's length, a
@@ -721,7 +721,7 @@ replaces the old arbitrary halfway division (owner, ADR-0053).
   `accent`.
 - **The lanes' right-click menu** (the owner's A, MT-APP-14 run 2) is for
   what was clicked: a clip (Cut, Copy, Duplicate, Delete; Rename, Colour,
-  Mute clip, Lock clip, Fades, Properties), a time range (its edits,
+  Mute, Lock, Fades, Properties…), a time range (its edits,
   Delete time, Insert time), or empty lanes (Paste when there is
   something to paste, the grid as a submenu, Snap to grid). Commands that
   cannot run are left out, not greyed. Drag hints hide while a menu is

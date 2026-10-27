@@ -327,7 +327,7 @@ fn locked_clips_ignore_the_split_erase_and_mute_tools() {
     let mut lumen = audio("tools-locked");
     let at = spot(&lumen, 2.0);
     lumen.right_click(at);
-    lumen.click("Lock clip");
+    lumen.click("Lock");
     let before = lumen.app().project().tracks[0].clips.clone();
     assert!(before[0].locked);
     for tool in ["Split tool", "Erase tool", "Mute tool"] {

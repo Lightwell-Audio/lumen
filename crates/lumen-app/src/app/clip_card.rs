@@ -341,11 +341,13 @@ impl App {
         };
         let (muted, locked, crossfade) =
             (all(|c| c.muted), all(|c| c.locked), all(|c| c.crossfade));
+        // Short verbs (the interface audit's M5): the noun only for
+        // several, as the track menu's Delete.
         let name = |verb: &str| {
             if several {
                 format!("{verb} clips")
             } else {
-                format!("{verb} clip")
+                verb.to_owned()
             }
         };
         let (mute, lock) = (
@@ -397,7 +399,7 @@ impl App {
             "Export MIDI clip\u{2026}"
         };
         self.context_command(ui, Command::ExportMidiClip, export);
-        self.context_command(ui, Command::ClipProperties, "Properties");
+        self.context_command(ui, Command::ClipProperties, "Properties\u{2026}");
     }
 
     /// Where clip `id` is drawn, if it is in view.

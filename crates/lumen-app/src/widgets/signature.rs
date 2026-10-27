@@ -83,7 +83,7 @@ pub fn time_signature(
         response,
         "Time signature",
         None,
-        Some("Drag or wheel over a number to change it, click to type 7/8, double-click for 4/4"),
+        Some("Drag or use the wheel over a number. Click to type 7/8; double-click for 4/4."),
     );
     response.widget_info(|| {
         egui::WidgetInfo::labeled(

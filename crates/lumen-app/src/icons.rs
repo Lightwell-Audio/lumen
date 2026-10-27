@@ -456,7 +456,8 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             Shape::rect_filled(g.rect(3.0, 7.5, 13.0, 14.5), 1.0 * g.unit, color),
         ],
         // The ring is a fully rounded square on the same half-point grid
-        // as the framed icons beside it (the panel toggles, 2.5 to 13.5),
+        // as the framed icons beside it (the panel toggles, 2.5 to 13.5
+        // top to bottom),
         // centred on their middle line: rectangles snap to pixels and
         // circles do not, so drawn this way it stays level with them at
         // every scale.

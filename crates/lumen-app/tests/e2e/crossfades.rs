@@ -96,7 +96,7 @@ fn the_automatic_setting_the_command_and_the_menu_roundtrip() {
     // audit's M5): it is in Project settings and the palette.
     let r = rect(&lumen, right);
     lumen.right_click(r.left_top() + vec2(12.0, 6.0));
-    assert!(lumen.shows(&keys("Properties Alt+Enter")));
+    assert!(lumen.shows(&keys("Properties\u{2026} Alt+Enter")));
     assert!(!lumen.shows("Automatic crossfades"));
     lumen.key(Modifiers::NONE, Key::Escape);
     command(&mut lumen, "Toggle automatic crossfades");

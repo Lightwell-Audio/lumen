@@ -18,7 +18,7 @@ use super::record::{self, Phase};
 use super::{Transport, fit};
 
 /// Overdub's tooltip: what the switch decides about a take.
-const OVERDUB_HINT: &str = "Replace: a take replaces what is under it. Overdub: a take adds to it.";
+const OVERDUB_HINT: &str = "On: a take adds to what is under it. Off: a take replaces it.";
 
 /// The keyboard readout's type.
 fn keyboard_font() -> egui::FontId {
@@ -563,7 +563,7 @@ impl Transport {
             tempo,
             "Tempo",
             None,
-            Some("20 to 999 BPM: drag, or click to type"),
+            Some("20 to 999 BPM. Drag, or click to type."),
         );
         tempo.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, "Tempo"));
         if let Some(unit) = unit {

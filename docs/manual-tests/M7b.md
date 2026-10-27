@@ -22,7 +22,7 @@ Use a scratch project and a copy of an audio file.
    tool chosen, hover a lane: the info line at the bottom says what a click
    and a drag do (Split mentions aiming and Alt; Zoom mentions Alt to zoom out).
    Right-click a clip, a track, a locator and a lane's chip: every row in each
-   menu has the same height and spacing, and hover (including Lock clip) fills
+   menu has the same height and spacing, and hover (including Lock) fills
    the same width.
 2. Import audio, choose Split and click inside it. The cut follows the grid;
    Alt places it freely. The source remains in place and both parts touch.

@@ -451,9 +451,9 @@ impl App {
                     info
                 };
                 let menu = if self.settings.plugins.favorite_set().contains(d.id.as_str()) {
-                    "unfavorite"
+                    "remove from favorites"
                 } else {
-                    "favorite"
+                    "add to favorites"
                 };
                 let menu = match (d.source, &d.module) {
                     (Source::Vst3, Some(_)) => format!("{menu}, rescan or show in folder"),

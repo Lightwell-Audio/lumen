@@ -102,7 +102,7 @@ fn zero_mutes_and_unmutes_the_selected_clips_in_one_step() {
 fn a_clip_locked_from_the_menu_stays_put_but_can_be_muted() {
     let (mut lumen, kick, _) = with_two_clips("clip-lock");
     menu(&mut lumen, kick);
-    lumen.click("Lock clip");
+    lumen.click("Lock");
     assert!(clip(&lumen, kick).locked);
     let start = clip(&lumen, kick).start;
 
@@ -127,7 +127,7 @@ fn a_clip_locked_from_the_menu_stays_put_but_can_be_muted() {
 
     // The menu unlocks.
     menu(&mut lumen, kick);
-    lumen.click("Unlock clip");
+    lumen.click("Unlock");
     assert!(!clip(&lumen, kick).locked);
 }
 
