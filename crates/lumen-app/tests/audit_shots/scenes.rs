@@ -469,7 +469,7 @@ fn submenus() {
     looks("submenus", true, |s| {
         let kick = s.rect_of_track(0);
         click(&mut s.h, pos(kick, 0.5, 0.4));
-        for (n, row) in ["Edit", "Colour", "Fades"].iter().enumerate() {
+        for (n, row) in ["Edit", "Color", "Fades"].iter().enumerate() {
             right_click(&mut s.h, pos(kick, 0.5, 0.4));
             s.steps(6);
             if let Some(r) = s.find_row(row) {
@@ -483,7 +483,7 @@ fn submenus() {
             s.esc();
         }
         s.h.state_mut().select_tracks(&[]);
-        for (n, row) in ["Colour", "Bounce"].iter().enumerate() {
+        for (n, row) in ["Color", "Bounce"].iter().enumerate() {
             if !s.right("Track kick") {
                 continue;
             }

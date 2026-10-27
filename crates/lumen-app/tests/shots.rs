@@ -447,7 +447,7 @@ fn clip_properties_looking(appearance: &str, scale: f32) {
     h.run_steps(2);
     h.key_press_modifiers(Modifiers::ALT, Key::Enter);
     h.run_steps(4);
-    h.get_by_label("Colour 5").click();
+    h.get_by_label("Color 5").click();
     h.run_steps(2);
     h.get_by_label("Lock clip").click();
     h.run_steps(4);
@@ -1605,7 +1605,7 @@ fn project_windows() {
             h.run_steps(10);
             h.get_by_label("44.1 kHz").click();
             h.run_steps(10);
-            h.get_by_label("New track colour 3").click();
+            h.get_by_label("New track color 3").click();
             h.run_steps(10);
             h.get_by_label("Project notes").click();
             h.run_steps(3);

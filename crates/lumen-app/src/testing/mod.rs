@@ -830,7 +830,7 @@ pub struct ClipHandlesAt {
 }
 
 /// The `index`th colour of the clip and track palette, as the swatch
-/// "Colour {index + 1}" sets it (slice 6e).
+/// "Color {index + 1}" sets it (slice 6e).
 pub fn clip_colour(index: usize) -> lumen_project::model::Color {
     crate::arrangement::color_from(crate::theme::CLIP_COLORS[index])
 }

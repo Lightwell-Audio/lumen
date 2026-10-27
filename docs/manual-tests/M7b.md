@@ -300,7 +300,7 @@ DEVELOPMENT. Repeat visual checks in both themes at 100%, 150% and 200%.
    with those isolated settings and check that the choice remains.
 4. Navigate menu and submenu rows with the keyboard. Focus has a visible
    accent ring; pressing Enter runs the focused item.
-5. Open a track's Colour submenu. Each swatch has a named tooltip and an
+5. Open a track's Color submenu. Each swatch has a named tooltip and an
    accessible name. Choose a colour; undo restores the previous one.
 6. Open the audio status popover at the minimum window. Scroll until its
    final counters are visible. Test tone and Audio on remain usable.

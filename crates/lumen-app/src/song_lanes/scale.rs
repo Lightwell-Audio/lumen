@@ -193,7 +193,10 @@ mod tests {
     fn the_scale_holds_every_tempo_with_room_and_a_least_span() {
         let level = Scale::fit(&[tempo(120.0)]);
         assert!(level.hi - level.lo >= LEAST_SPAN);
-        assert!((level.height(120.0) - 0.5).abs() < 1e-6, "level is centred");
+        assert!(
+            (level.height(120.0) - 0.5).abs() < 1e-6,
+            "level is centered"
+        );
         let wide = Scale::fit(&[tempo(60.0), tempo(180.0)]);
         assert!(wide.height(60.0) > 0.0 && wide.height(180.0) < 1.0);
         assert!(wide.height(60.0) < wide.height(180.0));

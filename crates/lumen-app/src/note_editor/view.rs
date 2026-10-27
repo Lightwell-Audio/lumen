@@ -260,7 +260,7 @@ mod tests {
         assert!(left < 40.0, "a little margin, not much: {left}");
         assert!(
             (left - (800.0 - right)).abs() < 1e-3,
-            "centred: {left} vs {}",
+            "centered: {left} vs {}",
             800.0 - right
         );
     }

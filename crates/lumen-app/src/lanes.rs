@@ -792,7 +792,7 @@ pub fn file_card(ui: &mut egui::Ui, item: &Item, properties: Option<&str>) {
         "Below the header: drag to select time · Ctrl+Shift selects clips",
         "Sides: drag to trim · Shift loops",
         "Top corners: fades · their middle dot bends them · the line sets gain",
-        "Right-click: edits, colour, mute, lock and fade shapes",
+        "Right-click: edits, color, mute, lock and fade shapes",
     ] {
         ui.label(RichText::new(line).small().weak());
     }

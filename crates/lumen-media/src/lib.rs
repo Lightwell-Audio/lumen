@@ -111,7 +111,7 @@ impl std::fmt::Display for MediaError {
             ),
             MediaError::Decode(m) => write!(f, "The file is damaged: {m}"),
             MediaError::Empty => write!(f, "The file contains no audio"),
-            MediaError::Cancelled => write!(f, "Cancelled"),
+            MediaError::Cancelled => write!(f, "Canceled"),
             MediaError::Resample(m) => write!(f, "Sample-rate conversion failed: {m}"),
             MediaError::Encode(m) => write!(f, "Audio encoding failed: {m}"),
         }

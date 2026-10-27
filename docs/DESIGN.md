@@ -706,11 +706,11 @@ replaces the old arbitrary halfway division (owner, ADR-0053).
   the window). 272 pt wide, a 1 pt `accent` border, the popup surface.
   - A title row like a dialog: "Clip" in the display face, ✕ at the right.
   - Rows with a 72 pt label column (`text_secondary`): Name (focused when
-    it opens), Colour (two rows of six 14 pt square swatches, 8 pt apart,
-    then a "Track colour" pill with a dot in the track's colour, ringed in
+    it opens), Color (two rows of six 14 pt square swatches, 8 pt apart,
+    then a "Track color" pill with a dot in the track's colour, ringed in
     `accent` when chosen; M4.5), Gain (a
     `value_slider`), Fade in and Fade out (a `value_slider` in
-    milliseconds and a shape menu), State (Mute clip and Lock clip,
+    milliseconds and a shape menu), State (Mute and Lock,
     framed buttons that light when on); then the file's details.
   - Gain and fades are greyed out on a locked clip, with a hint saying
     why.
@@ -720,7 +720,7 @@ replaces the old arbitrary halfway division (owner, ADR-0053).
 - **The hover card** ends with "Alt+Enter: edit its properties" in
   `accent`.
 - **The lanes' right-click menu** (the owner's A, MT-APP-14 run 2) is for
-  what was clicked: a clip (Cut, Copy, Duplicate, Delete; Rename, Colour,
+  what was clicked: a clip (Cut, Copy, Duplicate, Delete; Rename, Color,
   Mute, Lock, Fades, Properties…), a time range (its edits,
   Delete time, Insert time), or empty lanes (Paste when there is
   something to paste, the grid as a submenu, Snap to grid). Commands that
@@ -815,7 +815,7 @@ Chosen from interactive specimens (ADR-0038):
 Chosen from interactive specimens:
 - **Colours (M1, M2 a setting):** a level is `accent` up to −6 dB
   (`theme::METER_WARN_DB`), `warning` up to full scale, `record` above it
-  (`theme::meter`). "Meters in track colours" (app menu, palette) swaps the
+  (`theme::meter`). "Meters in track colors" (app menu, palette) swaps the
   accent for the track's colour (`theme::wave`). The peak is drawn at 40%
   (`METER_PEAK_ALPHA`) behind the solid RMS; the hold is a 1.5 pt tick in
   `text` (`record` above 0 dB).
@@ -1119,10 +1119,10 @@ Chosen by the owner from rendered specimens:
 - **Context menus are grouped** (the interface audit's M2, M4, M5): a
   control's menu opens with a header naming the control and its track
   ("Volume · Bass", `widgets::menu_header`); groups are split by dividers.
-  A track's menu: Rename, Colour | Duplicate, Group, Move up and down |
+  A track's menu: Rename, Color | Duplicate, Group, Move up and down |
   Input or Instrument, MIDI From and To, Monitor, the automation lane,
   Fold | Import, Bounce, Freeze | Add track ▸ | Delete. A clip's: Cut,
-  Copy, Duplicate, Delete | Edit ▸, Takes ▸ | Rename, Colour | Mute, Lock
+  Copy, Duplicate, Delete | Edit ▸, Takes ▸ | Rename, Color | Mute, Lock
   | Fades ▸, Crossfade with previous, the envelope | Export MIDI clip… |
   Properties. Project settings (automatic crossfades) live in the Project
   settings window, never in a clip's menu. A browser device's menu starts

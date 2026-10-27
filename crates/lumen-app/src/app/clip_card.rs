@@ -169,8 +169,8 @@ fn swatch(
 }
 
 /// A round swatch in `dot` and its name `label`, on a pill that is ringed in
-/// the accent while it is `on`: the clip card's "Track colour", the project
-/// settings' "Colours in turn".
+/// the accent while it is `on`: the clip card's "Track color", the project
+/// settings' "Colors in turn".
 fn pill(ui: &mut egui::Ui, colour: egui::Color32, label: &str, on: bool) -> egui::Response {
     let palette = theme::p();
     let galley = ui.painter().layout_no_wrap(
@@ -229,12 +229,12 @@ pub(crate) struct Swatches<'a> {
     pub(crate) none: (egui::Color32, &'a str),
 }
 
-/// The clip card's swatches: the clip colours, then "Track colour".
+/// The clip card's swatches: the clip colours, then "Track color".
 fn clip_swatches(track: egui::Color32) -> Swatches<'static> {
     Swatches {
-        name: "Colour",
+        name: "Color",
         round: false,
-        none: (track, "Track colour"),
+        none: (track, "Track color"),
     }
 }
 
@@ -355,7 +355,7 @@ impl App {
             name(if locked { "Unlock" } else { "Lock" }),
         );
         self.context_command(ui, Command::Rename, "Rename");
-        widgets::submenu(ui, "Colour", |ui| {
+        widgets::submenu(ui, "Color", |ui| {
             if let Some(color) = swatches(ui, current, clip_swatches(track)) {
                 self.document.recolor_clips(&ids, color);
                 ui.close();
@@ -564,7 +564,7 @@ impl App {
             }
         });
 
-        row(ui, "Colour", |ui| {
+        row(ui, "Color", |ui| {
             if let Some(color) = swatches(ui, clip.color, clip_swatches(track)) {
                 self.document.recolor_clips(&[id], color);
             }
@@ -667,16 +667,29 @@ impl App {
     /// The card's Mute and Lock toggles.
     fn card_toggles(&mut self, ui: &mut egui::Ui, clip: &Clip) {
         // Framed buttons that light when on (`Tone::On`), so off still reads
-        // as a control.
+        // as a control. They read "Mute" and "Lock" and are named for the
+        // clip, so they differ from the clip menu's rows while both are open.
+        let named = |response: egui::Response, name: &'static str, on: bool| {
+            response.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, name)
+            });
+            response
+        };
         let mut muted = clip.muted;
-        if widgets::toggle_button(ui, &mut muted, "Mute clip")
-            .on_hover_text("Mute or unmute this clip (0)")
+        let hint = match self.keymap.text(Command::MuteClips) {
+            Some(keys) => format!("Mute or unmute this clip ({keys})"),
+            None => "Mute or unmute this clip".to_owned(),
+        };
+        let mute = widgets::toggle_button(ui, &mut muted, "Mute");
+        if named(mute, "Mute clip", muted)
+            .on_hover_text(hint)
             .changed()
         {
             self.document.set_clips_muted(&[clip.id], muted);
         }
         let mut locked = clip.locked;
-        if widgets::toggle_button(ui, &mut locked, "Lock clip")
+        let lock = widgets::toggle_button(ui, &mut locked, "Lock");
+        if named(lock, "Lock clip", locked)
             .on_hover_text("A locked clip cannot be moved, trimmed, faded or deleted")
             .changed()
         {

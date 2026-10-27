@@ -230,7 +230,7 @@ pub fn value_slider_styled(
                 "Volume: drag or wheel (Shift for fine), double-click for 0 dB, or click and type"
             }
             SliderKind::Pan => {
-                "Pan: drag or wheel (Shift for fine), double-click to centre, or click and type L 30 or R 30"
+                "Pan: drag or wheel (Shift for fine), double-click to center, or click and type L 30 or R 30"
             }
             SliderKind::ClipGain => {
                 "Gain: drag (Shift for fine), double-click for 0 dB, or click and type"

@@ -29,12 +29,12 @@ impl Arrangement {
         {
             self.renaming = Some((id, track.name.clone()));
         }
-        widgets::submenu(ui, "Colour", |ui| {
+        widgets::submenu(ui, "Color", |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(6.0 * 26.0);
                 for (index, c) in theme::CLIP_COLORS.into_iter().enumerate() {
                     let (r, response) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
-                    let name = format!("Track colour {}", index + 1);
+                    let name = format!("Track color {}", index + 1);
                     response.widget_info(|| {
                         egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name)
                     });

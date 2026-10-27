@@ -274,7 +274,7 @@ fn highlight_of(rect: Rect) -> Rect {
 }
 
 /// A submenu row: `label`, then egui's arrow (⏵) at the right. egui names
-/// the button with its arrow ("Colour ⏵"), which screen readers read out;
+/// the button with its arrow ("Color ⏵"), which screen readers read out;
 /// this one is named by its label alone. Use it for every submenu, in
 /// place of `ui.menu_button` inside a menu. Drawn as a [`menu_item`] is:
 /// egui's button gets no fill of its own and the row paints Ember under

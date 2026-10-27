@@ -68,7 +68,7 @@ impl<'de> Deserialize<'de> for Color {
             .filter(|hex| hex.len() == 6)
             .and_then(|hex| u32::from_str_radix(hex, 16).ok())
             .map(Color)
-            .ok_or_else(|| serde::de::Error::custom(format!("invalid colour {text:?}")))
+            .ok_or_else(|| serde::de::Error::custom(format!("invalid color {text:?}")))
     }
 }
 

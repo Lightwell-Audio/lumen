@@ -166,10 +166,10 @@ fn the_properties_card_edits_a_clip_from_the_keyboard() {
     assert_eq!(clip(&lumen, kick).name, "Kick in");
 
     // A colour, and the track's colour again.
-    lumen.click("Colour 3");
+    lumen.click("Color 3");
     let third = lumen_app::testing::clip_colour(2);
     assert_eq!(clip(&lumen, kick).color, Some(third));
-    lumen.click("Track colour");
+    lumen.click("Track color");
     assert_eq!(clip(&lumen, kick).color, None::<Color>);
 
     // Gain and a fade, typed into their sliders.
