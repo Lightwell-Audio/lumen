@@ -27,6 +27,7 @@ lumen-rt.workspace = true
 png.workspace = true
 rtrb.workspace = true
 rfd.workspace = true
+trash.workspace = true
 raw-window-handle.workspace = true
 serde.workspace = true
 serde_json.workspace = true

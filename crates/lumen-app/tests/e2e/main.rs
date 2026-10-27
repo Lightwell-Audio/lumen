@@ -12,6 +12,7 @@
 //! workflow a slice delivers (DEVELOPMENT.md, "End-to-end tests").
 
 mod access;
+mod audio_export;
 mod audio_input;
 mod audio_record;
 mod audition;
@@ -55,6 +56,7 @@ mod light;
 mod live_lights;
 mod locators;
 mod looping;
+mod media_pool;
 mod meters;
 mod midi;
 mod midi_chip;

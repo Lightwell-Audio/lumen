@@ -61,6 +61,9 @@ mod consolidate;
 mod crash;
 mod crossfades;
 mod document;
+mod export;
+mod export_live;
+mod export_render;
 mod files;
 mod fonts;
 mod hosting;
@@ -90,17 +93,20 @@ mod piano_roll;
 mod played;
 mod playhead;
 mod plugins;
+mod pool;
 mod position;
 mod preset_files;
 mod probe;
 mod record_settings;
 mod record_span;
 mod recorder;
+mod relink;
 mod render_audio;
 mod routing;
 mod ruler;
 mod settings;
 mod song_lanes;
+mod strays;
 mod take_worker;
 mod templates;
 pub mod testing;
@@ -172,6 +178,7 @@ pub struct App {
     revert: app::revert::Revert,
     /// The Project settings window (M9 slice R4).
     project_settings: app::project_settings::ProjectSettings,
+    export: app::audio_export::Export,
     /// A problem with saving or opening, shown until dismissed.
     file_notice: Option<String>,
     /// Closing for real, after the unsaved-changes prompt.
@@ -217,6 +224,9 @@ pub struct App {
     midi_reader: midi_files::Reader,
     /// The browser's own state (M6 slice 1).
     browser: browser::Browser,
+    /// The Project media tab and the relink and purge under way (M9 slice
+    /// R4b).
+    media_pool: app::media_pool::MediaPool,
     /// Installed plugins: the scan thread and the catalog the browser
     /// shows (M6 slice 1).
     plugins: plugins::Plugins,
@@ -523,7 +533,9 @@ impl eframe::App for App {
         self.poll_normalize(&ctx);
         self.poll_consolidate(&ctx);
         self.poll_bounce(&ctx);
+        self.poll_audio_export(&ctx);
         self.poll_freeze(&ctx);
+        self.poll_media_pool(&ctx);
         self.say_frozen_refusals();
         self.plugins.poll();
         if let Some(wait) = self.plugins.rebuild_wait() {
@@ -627,6 +639,7 @@ impl eframe::App for App {
         self.device_banner(ui);
         self.crash_banner(ui);
         self.file_banner(ui);
+        self.missing_media_banner(ui);
         self.revert_banner(ui);
         self.tempo_banner(ui);
         self.recovery_banner(ui);
@@ -674,6 +687,7 @@ impl eframe::App for App {
         self.revert_window(&ctx);
         self.save_template_window(&ctx);
         self.project_settings_window(&ctx);
+        self.audio_export_window(&ctx);
         self.shortcuts_window(&ctx);
         self.palette_window(&ctx);
 

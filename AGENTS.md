@@ -404,7 +404,19 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated (2026-10-24):** M7b E6 audit and small UX corrections are on
+**Last updated (2026-10-26):** M9 R5 Export is built and verified on
+`m9-s5-audio-export`, cut from `origin/main` at `335b3ecb` after R4 merged.
+The independent R4b media-pool work is merged and integrated from `main`
+at `0db27218` (PR #71); export is PR #72. See
+`docs/milestones/M9-R5.md` and ADR-0107. Format stays v32. MT-EXPORT-1
+is pending; M9 is not closed and R6 has not started. After media-pool integration,
+Windows: 3,217 tests (723 E2E), six smoke tests, clean clippy; macOS cross-clippy and all 13
+instruction gates pass. Linux: clippy and all 720 E2E pass; the full suite
+has one unchanged orphan-startup failure, recorded in KNOWN_ISSUES. The owner requested
+no further subagents in this session; all previously started children were
+stopped; integration and final verification were performed directly.
+
+Earlier handoff (2026-10-24): M7b E6 audit and small UX corrections are on
 `m7b-s6-close`. See `docs/audits/2026-10-24-m7b.md` for the walkthrough,
 screenshots, verification and larger backlog; MT-EDIT-7 awaits the owner.
 Normalize and consolidate can apply stale background results after certain

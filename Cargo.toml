@@ -33,6 +33,7 @@ cpal = "0.18"
 rtsan-standalone = "0.3"
 png = "0.18"
 symphonia = { version = "0.6", default-features = false, features = ["wav", "aiff", "pcm", "flac", "mp3", "ogg", "vorbis"] }
+flacenc = { version = "0.5.1", default-features = false }
 rubato = "5"
 eframe = "0.36"
 # egui's test harness, for the end-to-end suite (ADR-0029). Keep it at
@@ -46,6 +47,8 @@ naga = { version = "30", features = ["wgsl-in"] }
 winit = "0.30"
 pollster = "0.4"
 rfd = "0.17"
+# Moves files to the system trash (R4b, ADR-0106): MIT.
+trash = "5.2"
 raw-window-handle = "0.6"
 parley = "0.11"
 accesskit = "0.24"

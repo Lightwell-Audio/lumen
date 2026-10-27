@@ -120,6 +120,7 @@ irreversible or external) · *Superseded*.
 |---|---|
 | Take lanes deferred (M9 R3, 2026-10-26) | Pitched after the owner's runs of R3 (each pass a clip on its own lane under the track, a comp lane that plays, comping by dragging across a lane): the owner likes individual take lanes and **deferred them, with comping, until after M9's must-have slices**, as recommended. Until then a take is a whole pass inside one clip (ADR-0104), reached from the Takes menu; the passes are windows on one file, so dragging a clip's edge past its pass shows the pass beside it (intended, as in common workstations). When lanes are built, the takes inside a clip become lanes by migration. Open for then: whether a comp segment is a copied clip or a reference to its take, whether recording over any material (not only loop passes) makes a lane, and MIDI lanes. |
 | M9 R4 choices (2026-10-26) | P1 A (renders follow the project rate), P2 A (Revert reloads the saved file after a quiet prompt, keeping the unsaved version in `Backups/Reverted`), S A (R4 is the save family and project settings; the media pool, relink and purge are R4b): every recommendation in `docs/milestones/M9-R4.md` §3.  After MT-PROJ-1 run 1 (2026-10-26): projects and templates get their own folders in `Documents/Lumen` (option A of four pitched), and the app menu is grouped (layout A of three pitched as specimens): ADR-0105. |
+| M9 R4b choices (2026-10-26) | M1 A (a "Project media" tab in the browser), M2 A (Locate one file, and search a folder with a report to look at before anything changes), M3 A (remove unused takes entries out as one undo step; Clear moves leftover files to the system trash after a second press), M4 A (a banner with Relinkâ¦ on open): every recommendation in `docs/milestones/M9-R4b.md` Â§3 (ADR-0106). |
 | M9 plan choices (2026-10-24) | R1 A, R2 A, R3 A, R4 A, R5 A, X1 A, X2 A, X3 A: every recommendation in `docs/milestones/M9.md` §4. |
 | Milestone sequence (2026-10-23) | After M7 and M7b, deliver the existing M9 (Recording, Media, Export & Production Workflow) before M8 (Drum Maps, Drum Editor & Built-In Devices), because audio recording has higher priority than drum maps. Keep the milestone IDs and scopes unchanged; this only changes delivery order. Recorded in `docs/ROADMAP.md` and `docs/PROGRESS.md`. |
 | Native macOS VST3 hosting (2026-10-19, ADR-0085) | Bring the stretch goal forward now: the full existing workflow, including native editors, for plugins matching the host architecture. Intel bridging remains outside this slice. |
@@ -9319,3 +9320,168 @@ migration and golden in `lumen-project`), at 44.1 and 48 kHz. **Not verified
 here** (tests answer the dialogs and the device is fake): the system's real file
 dialogs and a real interface at two rates; MT-PROJ-1 on the owner's machine
 passed (2026-10-26, no step detail).
+
+## ADR-0106 - The media pool: relink, remove unused, clear leftovers (M9 R4b)
+
+**Status:** Accepted 2026-10-26 (built; MT-PROJ-2 passed, owner, 2026-10-26). No format
+change (still **v32**). The owner took every recommendation of the plan
+(2026-10-26; the table of owner decisions): M1 A, M2 A, M3 A, M4 A. Plan:
+`milestones/M9-R4b.md`.
+
+**Context.** A project whose audio had moved opened with one toast and silent
+clips, and nothing could put the files back. Deleting a clip left its file entry
+in the project forever, and Lumen's own render and recording folders collected
+files nothing used (two rows of `KNOWN_ISSUES`).
+
+**Decision.**
+
+1. **A browser tab, "Project media"** (M1 A; `browser/media_tab.rs`, state in
+   `app/media_pool.rs`, rules in `pool.rs`). Every audio file the project holds as
+   a two-line row: name and state (Missing, Unused, n clips), then where it
+   lives, length, channels, size and the rate when it is not the project's. All,
+   Missing and Unused filters with counts, a search, arrow keys and Enter when the
+   pane has focus, double-click to locate a missing file or select the clips that
+   play a used one, a context menu that lists only what applies. A file is *used*
+   when an audio clip plays it or a frozen track plays it
+   (`lumen_project::edit::media`, an exhaustive match so a new place to use a file
+   is a compile error). Take passes share their clip's file, so they add no user.
+2. **Relink is not an undo step** (the R4 rule: where files are, not what the song
+   is). `Document::relink` puts the path in the file map and marks the project
+   changed, so Save writes the new path and autosave sees it. Locate (M2 A) checks
+   the chosen file on a worker (`relink::verdict`): same size is taken at once; the
+   same channels, rate and frames is taken (the file was re-exported); another
+   length asks "Use it anyway"; other channels or rate is refused with the reason.
+   Search a folder reads names only, never following links, stops at 200,000
+   entries, and matches by file name; ambiguous names (two different files) are
+   left alone and said, different-length files are listed with their own "Use it
+   anyway" button, and nothing changes until "Relink n". Esc or Stop ends it.
+3. **Remove unused** (M3 A) takes the entries out of `Project.media` as one undo
+   step and never touches a file. **Clear** is for files that belong to no project:
+   audio in the project's `Samples/{Imported,Recorded,Rendered}` that no entry
+   names, and unreferenced audio in the `Renders` and `Recordings` work folders.
+   Work-folder files are kept when the document's file map holds them (an undone
+   render a redo may need), when any autosave in the autosave folder names them, or
+   when they are the unfinished takes of this session or of a session whose
+   autosave can still be recovered. Clear is two presses (the first asks, naming
+   the count; Cancel backs out; no modal), moves files and their sidecars to the
+   **system trash** with the `trash` crate (MIT) on a worker, and never erases; a
+   file that cannot be moved stays and is named. It is refused while a render,
+   bounce, freeze, normalize or recording is under way.
+4. **A banner replaces the open-time toast** (M4 A): "N audio files are missing",
+   with Relink… (opens the tab on Missing) and Dismiss (for that document). The
+   scan that finds files gone since opening runs on a worker while the tab is
+   showing.
+5. **Commands** (end of `Command`, no default keys): `file.media_pool`,
+   `file.locate_media`, `file.search_folder_for_media`, `file.remove_unused_media`,
+   `file.clear_stray_files`; the menu has Project media.
+
+**Consequences.** `lumen-media` gained `probe` (read a header without decoding).
+`Opened.missing` was dropped: the document derives the missing files, so the list
+cannot go stale. New dependencies: `trash` and its tree (`chrono`,
+`iana-time-zone`, `urlencoding`); all permissive. The scan reads the disk only
+while the tab or a banner needs it. KNOWN_ISSUES rows for leftover renders and
+for unfinished takes of a discarded autosave are closed by Clear.
+
+**Verified here:** unit tests (`pool`, `relink`, `strays` with a mover that only
+records, `edit::media`, `document::media`, `lumen-media` probe) and E2E
+(`tests/e2e/media_pool.rs`: banner and folder search to relinked and audible,
+Locate with a refusal, remove unused and undo, the two-press Clear up to the
+second press); shots `media_pool` at 100, 150 and 200% in both themes. **Not
+verified here:** the real system trash (CI must not fill it), real file dialogs,
+very large folders, MT-PROJ-2 on the owner's machine.
+
+**Found in MT-PROJ-2 (owner, 2026-10-26).** "Show in folder" opened Documents:
+`crash::reveal` passed Explorer one `/select,<path>` argument, which Rust quotes
+whole when the path has a space. It now writes the argument raw (`/select,"<path>"`),
+with backslashes and without a `\?\` prefix (the file map holds resolved paths).
+Two tests run by hand, `strays::tests::the_real_trash_takes_the_file` and
+`crash::tests::reveal_selects_a_file_in_a_folder_with_a_space` (`-- --ignored`),
+were run on the owner's machine: the file reached the Recycle Bin and Windows
+restored it; Explorer opened the folder with the file selected.
+
+## ADR-0107 — Export snapshots, encoding and device-driven capture
+
+**Date:** 2026-10-26. **Slice:** M9 R5, `m9-s5-audio-export`, based on
+`335b3ecb`. ADR-0106 records the independently developed R4b media work,
+merged into this branch from `main` at `0db27218` before PR integration.
+
+**Context.** Export needs the complete project graph, rather than Bounce's
+single-track graph. The approved choices are a floating Export window (X1 A)
+and a pure-Rust FLAC encoder (X2 A). R4 is merged; R4b is independent.
+`render_source` already follows mixer delay compensation and trims tails.
+The device callback has no production audio capture sink.
+
+**Choice.**
+
+1. Export reads current plugin states, then snapshots the project, media,
+   tempo/meter maps and selected time span. If the document changes during
+   that state read, the task refuses and asks the user to start it again.
+   The task never changes the document or creates an undo step.
+2. `export_render::prepare` builds the same mixer, clip and MIDI sources as
+   playback, with independent plugin-host processes. A master render includes
+   the complete master path, regardless of its physical output pair. A stem
+   takes one bus after its own devices, fader and pan. Group children and
+   incoming return sends are included; sends leaving that bus and downstream
+   group/master processing are excluded. Sidechain dependencies stay present
+   without becoming audible in the stem. Mute, solo and automation apply.
+3. Offline mode drives this source with `render_source` at the project rate.
+   Real-time mode builds it at the device rate and installs it in the actual
+   audio callback. That callback plays the snapshot on the main pair and
+   pushes complete stereo frames into a preallocated SPSC ring (32,768 frames,
+   about 683 ms at 48 kHz). A worker writes the float scratch file. Source and
+   plugin-manager ownership returns through another queue, never through a
+   destructor in the callback. Queue overflow, host failure, a reported device
+   position discontinuity and rate change fail the task. A five-second
+   callback stall fails too; cancelled source ownership stays bounded until
+   the callback resumes or is closed. Cancelling does not wait on a device.
+4. The real-time snapshot excludes monitoring input, live MIDI, cue and the
+   metronome. Existing transport playback is stopped before export begins;
+   recording is unavailable during this export. External MIDI instruments
+   must first be recorded to audio; an audible external-MIDI track in the
+   range produces a message rather than a substitute instrument render.
+5. Both modes start with the existing 100 ms pre-roll, discard source latency,
+   render a half-open sample span and optionally retain up to ten seconds of
+   tail. At matching project/device rates the golden comparison is exact.
+   At differing rates each mode converts its source once to its render rate,
+   then converts to the selected file rate; this can differ by rounding and
+   filtering, so bit identity across different render rates is not claimed.
+6. `lumen-media::export` converts on a worker in cancellable resampler blocks,
+   normalizes sample peaks to −1 dBFS when requested, then applies optional
+   deterministic TPDF dither and integer quantization. Float WAV preserves
+   out-of-range values; integer WAV/FLAC saturates. Each stem normalizes
+   independently. FLAC 16/24-bit uses unmodified `flacenc` 0.5.1, Apache-2.0,
+   with default features disabled. License/API were checked in the published
+   crate and [upstream source](https://github.com/yotarok/flacenc-rs).
+   Frames encode separately with cancellation between them; STREAMINFO uses
+   the nominal fixed block size even for a short final frame.
+7. Files are staged in a private destination-side folder. All encoding and
+   loudness measurement completes before publishing. Existing project/media
+   paths are refused as destinations. Stem collisions ask for another folder.
+   Publishing restores old files on failure and preserves recovery copies
+   if restoration itself fails. A successful master export replaces only its
+   selected destination. The report measures the actual encoded file with
+   the existing BS.1770-4 gated loudness and 4× true-peak implementation.
+8. Ctrl/Cmd+Shift+E opens Export. Its previous default use,
+   Pop out clip editor, adds Alt/Option. Explicit user key assignments still
+   win over new defaults. Export choices last for this session; there is no
+   new persisted field and the project format remains v32.
+
+**Alternatives.** Pacing an offline loop would not test device-driven
+rendering. Capturing ongoing playback would allow concurrent edits, live
+monitoring and metronome state to change a file midway through export. A
+separate immutable source in the device callback makes the modes comparable
+and keeps editing independent; it costs additional plugin hosts and DSP.
+
+**Limits and verification.** Encoding currently decodes the rendered stereo
+file into RAM, as playback does; block processing and temporary FLAC frames
+do not make that a streamed decoder. WAV retains the existing RIFF 4 GiB
+limit and reports an error rather than producing a corrupt file. Disk
+streaming and very-long-file export belong with R6. The exact checks and
+measurements are recorded in `milestones/M9-R5.md`. MT-EXPORT-1 is still
+pending: no real interface or external plugin compatibility is claimed.
+
+Final review kept muted/solo-excluded send paths excluded when extracting
+stems; the return-stem audio check includes a muted source. Float scratch
+files use the existing atomic WAV writer inside the private staging folder,
+without requiring filesystem hard links. A scratch write failure ends the
+offline render at the next block instead of continuing to render unused audio.

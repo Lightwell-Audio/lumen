@@ -408,9 +408,35 @@ and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
 **Now (2026-10-26)**
+- **Branch `m9-s5-audio-export`: M9 R5 export is built** (ADR-0107;
+  `docs/milestones/M9-R5.md`; PR #72). Export and the media pool are integrated
+  with `main` at `0db27218` after PR #71 merged. Both sets of commands,
+  file-dialog results and completion records are preserved. Format stays v32;
+  MT-EXPORT-1 is pending and R6 has not started. Integration verification:
+  Windows 3,217 workspace tests (723 E2E), six smoke tests; Windows/Linux/macOS
+  all-target clippy and all 13 instruction gates pass. Linux export and media-pool
+  workflows pass; the earlier full-suite orphan-startup failure remains open.
+- **Branch `m9-s4b-media-pool`: M9 slice R4b (media pool) is built** (ADR-0106;
+  no format change; cut from `main` after PR #69; merged, PR #71; plan
+  `docs/milestones/M9-R4b.md`; the owner took every recommendation, 2026-10-26:
+  M1 A, M2 A, M3 A, M4 A). The browser has a second tab, **Project media**
+  (`browser/media_tab.rs`, state in `app/media_pool.rs`, rules in `pool.rs`,
+  `relink.rs`, `strays.rs`, `lumen_project::edit::media`): every audio file with
+  its state; Locate and Search a folder relink missing files (checked first, not
+  an undo step, `Document::relink`); Remove unused is one undo step; Clear moves
+  files that belong to no project to the system trash (`trash` crate) after a
+  second press; a banner with Relink… replaces the open-time toast (and
+  `Opened.missing` is gone). Five commands at the end of `Command`
+  (`file.media_pool` …). E2E `media_pool.rs` (4 scenarios), shot `media_pool`.
+  Gates run: fmt, clippy, macOS cross-clippy, workspace tests (lumen-app: 1,019
+  unit, 714 E2E; `audio_record` failed once in the full run and passed alone, the
+  known timing flake), smoke. Not run: `cargo deny` (not installed; the new
+  crates are MIT or Apache), the WSL mirror and performance gate (they test the
+  pushed branch). MT-PROJ-2 (`docs/manual-tests/M9.md`) passed (owner, 2026-10-26).
+  R5 export is built on its own branch as recorded above; R2b (loopback helper)
+  is still unbuilt.
 - **Branch `m9-s4-project-lifecycle`: M9 slice R4 (project lifecycle) is done**
-  (ADR-0105; format **v32**; plan `docs/milestones/M9-R4.md`; cut from `main`
-  after PR #68; not pushed). The owner took every recommendation (2026-10-26):
+  (ADR-0105; format **v32**; plan `docs/milestones/M9-R4.md`; merged, PR #69). The owner took every recommendation (2026-10-26):
   renders follow the project rate (P1 A), Revert reloads the saved file and keeps
   the unsaved one in `Backups/Reverted` (P2 A), and the media pool is split off as
   R4b (S A). Built: Save a copy and Collect and save (one copy worker,
@@ -427,8 +453,7 @@ per slice and move what is no longer current out of it.
   Gates run (after that change): fmt, clippy, macOS cross-clippy,
   workspace tests (lumen-app: 992 unit, 710 E2E), smoke. Not yet run: the WSL
   mirror and performance gate (they test the pushed branch). MT-PROJ-1
-  (`docs/manual-tests/M9.md`) passed (owner, 2026-10-26). Relink, the media pool and
-  purge are R4b (`m9-s4b-media-pool`), planned when R4 is closed.
+  (`docs/manual-tests/M9.md`) passed (owner, 2026-10-26). The media pool is R4b (above).
 - **Branch `m9-s3-takes-capture`: M9 slice R3 (takes and Capture MIDI) is done**
   (ADR-0104; format **v31**; merged, PR #68). MT-REC-3 passed (owner,
   2026-10-26). Take lanes and comping were pitched and deferred by the owner
@@ -459,7 +484,7 @@ per slice and move what is no longer current out of it.
   one well (`sends::send_well`, `knob::Style::Slot`, up to twelve, a flag on
   hover); the In chip is a fixed 60 pt; the A button is gone (A key, track
   menu "Show automation lane", palette). E2E updated (`lane_view`, `sends`,
-  `audio_input`), shot `track_headers`. MT-REC-4 waits on the owner.
+  `audio_input`), shot `track_headers`. MT-REC-4 passed (owner, 2026-10-26).
 - **Branch `m9-s2-audio-recording`: M9 slice R2 (audio recording) is built** (ADR-0102;
   no format change; cut from `main` after PR #62; pushed). F9 records the armed audio
   tracks that have an input, beside the MIDI ones: the engine copies what a recording
@@ -471,8 +496,8 @@ per slice and move what is no longer current out of it.
   keeps only the punched range; loop keeps one long clip (R3 cuts passes); a growing
   record-red clip with a live wave is drawn while recording; a take left by a crash is
   repaired and put back when the session's autosave is recovered. E2E scenarios on a ramp
-  input (`tests/e2e/audio_record.rs`) pass. Not hardware-verified: MT-REC-2
-  (`docs/manual-tests/M9.md`) waits on the owner's Focusrite. The loopback helper is
+  input (`tests/e2e/audio_record.rs`) pass. MT-REC-2
+  (`docs/manual-tests/M9.md`) passed on the owner's Focusrite (2026-10-26; no figures reported). The loopback helper is
   its own slice R2b. Next: R3 (takes and Capture MIDI) per `docs/milestones/M9.md`.
 - **Branch `m9-s1-audio-input`: M9 slice R1 (audio input) is built** (ADR-0100;
   format **v30**; cut from `m9-s0-render-consistency`; not pushed). Input reaches
@@ -485,8 +510,8 @@ per slice and move what is no longer current out of it.
   `track.monitor_next`. WASAPI input reads the capture endpoints of the device's
   adapter in shared mode, kept in step with the render clock by rubato's `Slip`
   (`drift.rs`, `wasapi_input.rs`); All inputs is the new default. cpal input is
-  compile-only. Not hardware-verified: MT-REC-1 (`docs/manual-tests/M9.md`) waits
-  on the owner's Focusrite, and ADR-0069's trial through an effect is step 8.
+  compile-only. MT-REC-1 (`docs/manual-tests/M9.md`) passed on the owner's Focusrite
+  (2026-10-26; no figures reported), which includes ADR-0069's trial through an effect (step 8).
   Next: R2 (audio recording) per `docs/milestones/M9.md`.
 - **Branch `m9-s0-render-consistency`: M9 slice R0 is built** (ADR-0099; no
   format change; not pushed; it contains the M9 plan from `m9-plan`, merged in).
@@ -537,10 +562,11 @@ per slice and move what is no longer current out of it.
 - **Done:** M1 to M4.5 approved; M5 (MIDI), M6 (VST3 hosting) and M7
   (automation and envelopes) are built, with reports in PROGRESS. M7b E0
   (tools and split, format v26) is merged.
-- **Open with the owner:** the manual tests of M5 and M6 that are not signed
-  off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback numbers) and
-  the M7 approval. Problems found and not fixed are in `docs/KNOWN_ISSUES.md`
-  (check it before working in an area).
+- **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
+  are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
+  numbers) are out of scope for now (owner, 2026-10-26): do not offer them
+  again unless asked. Problems found and not fixed are in
+  `docs/KNOWN_ISSUES.md` (check it before working in an area).
 - **Later milestones:** M8 (built-in devices) and M9 (audio input and recording, export, single instance, the peak disk cache) per `docs/PROGRESS.md`; M7b closes with E6.
 
 **Where to look**

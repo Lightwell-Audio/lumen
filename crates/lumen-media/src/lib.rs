@@ -10,6 +10,7 @@
 //! the disk and can take seconds. It takes a cancel flag and reports
 //! progress.
 
+pub mod export;
 mod peaks;
 pub mod take;
 pub mod wav;
@@ -97,6 +98,7 @@ pub enum MediaError {
     Empty,
     Cancelled,
     Resample(String),
+    Encode(String),
 }
 
 impl std::fmt::Display for MediaError {
@@ -111,6 +113,7 @@ impl std::fmt::Display for MediaError {
             MediaError::Empty => write!(f, "The file contains no audio"),
             MediaError::Cancelled => write!(f, "Cancelled"),
             MediaError::Resample(m) => write!(f, "Sample-rate conversion failed: {m}"),
+            MediaError::Encode(m) => write!(f, "Audio encoding failed: {m}"),
         }
     }
 }
@@ -202,6 +205,47 @@ pub fn decode(
         sample_rate.ok_or_else(|| MediaError::Unsupported("unknown sample rate".into()))?;
     progress(1.0);
     Audio::new(sample_rate, channels)
+}
+
+/// What a file's header says, found without decoding it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Header {
+    pub sample_rate: Option<u32>,
+    pub channels: Option<usize>,
+    /// The length in frames, when the format records it.
+    pub frames: Option<u64>,
+}
+
+/// Reads the header of `path`: quick, for checking a file against what a
+/// project knows of it (relinking).
+pub fn probe(path: &Path) -> Result<Header, MediaError> {
+    let file = File::open(path).map_err(|e| MediaError::Io(e.to_string()))?;
+    let stream = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(extension) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(extension);
+    }
+    let format = symphonia::default::get_probe()
+        .probe(
+            &hint,
+            stream,
+            FormatOptions::default(),
+            MetadataOptions::default(),
+        )
+        .map_err(|e| MediaError::Unsupported(e.to_string()))?;
+    let track = format
+        .default_track(TrackType::Audio)
+        .ok_or(MediaError::Empty)?;
+    let params = track
+        .codec_params
+        .as_ref()
+        .and_then(|p| p.audio())
+        .ok_or_else(|| MediaError::Unsupported("no audio codec parameters".into()))?;
+    Ok(Header {
+        sample_rate: params.sample_rate,
+        channels: params.channels.as_ref().map(|c| c.count()),
+        frames: track.num_frames,
+    })
 }
 
 /// Converts `audio` to `rate` (a copy when already at that rate).

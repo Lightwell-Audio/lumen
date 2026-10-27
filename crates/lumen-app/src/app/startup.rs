@@ -134,6 +134,7 @@ impl App {
                 ..Default::default()
             },
             browser: Default::default(),
+            media_pool: Default::default(),
             midi_out: None,
             live_keys: None,
             record: Default::default(),
@@ -152,6 +153,7 @@ impl App {
             bounce_waiting: None,
             bouncing: None,
             show_bounce: false,
+            export: Default::default(),
             freeze_waiting: None,
             freezing: None,
             tempo_offer: None,

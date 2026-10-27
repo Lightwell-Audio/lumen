@@ -33,6 +33,17 @@ impl<'a> Output<'a> {
         }
     }
 
+    /// Creates a whole channel-major planar output block.
+    ///
+    /// Returns `None` unless `data` contains exactly `frames * channels`
+    /// samples. This is intended for hosts that implement [`Source`] outside
+    /// the engine crate; the returned view is allocation-free and safe to use
+    /// in a real-time callback.
+    pub fn planar(data: &'a mut [f32], frames: usize, channels: usize) -> Option<Self> {
+        (frames.checked_mul(channels) == Some(data.len()))
+            .then(|| Self::new(data, frames, 0, frames, channels))
+    }
+
     pub fn frames(&self) -> usize {
         self.frames
     }
