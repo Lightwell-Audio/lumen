@@ -215,9 +215,15 @@ mod tests {
             media(2, "samples/loose/snare.wav"),
             media(3, "Samples/Recorded/Take 1.wav"),
             media(4, "Samples/Rendered/join.wav"),
-            media(5, "C:/Music/pad.wav"),
+            media(5, &outside()),
         ];
         p
+    }
+
+    /// A path that is absolute on every platform (`C:/…` is relative on Unix).
+    fn outside() -> String {
+        let path = std::env::temp_dir().join("Music").join("pad.wav");
+        path.to_string_lossy().replace('\\', "/")
     }
 
     fn present(p: &Project) -> HashMap<Id, PathBuf> {
