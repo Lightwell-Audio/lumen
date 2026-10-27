@@ -337,6 +337,19 @@ pub fn segmented<T: PartialEq + Copy>(
     segmented_styled(ui, id, value, choices, None)
 }
 
+/// [`segmented`] across the whole width it is given, the choices in equal
+/// pieces, or, where the widest would not fit that way, each its own width
+/// with an equal share of the room left (the browser's type filter under
+/// its search field, the interface audit's B2).
+pub fn segmented_full<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    id: EguiId,
+    value: T,
+    choices: &[Choice<'_, T>],
+) -> Option<T> {
+    segmented_with(ui, id, value, choices, (None, true))
+}
+
 /// Width of a choice's icon (the Button card's 14 pt).
 const ICON: f32 = 14.0;
 /// Gap between a choice's icon and its label.
@@ -356,6 +369,18 @@ pub fn segmented_styled<T: PartialEq + Copy>(
     value: T,
     choices: &[Choice<'_, T>],
     lit: Option<Tone>,
+) -> Option<T> {
+    segmented_with(ui, id, value, choices, (lit, false))
+}
+
+/// [`segmented_styled`], its pieces as wide as their words or (`full`)
+/// sharing the width given equally.
+fn segmented_with<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    id: EguiId,
+    value: T,
+    choices: &[Choice<'_, T>],
+    (lit, full): (Option<Tone>, bool),
 ) -> Option<T> {
     let palette = theme::p();
     let tool = lit.is_some();
@@ -402,8 +427,23 @@ pub fn segmented_styled<T: PartialEq + Copy>(
             g.size().x + icon + cap_width(cap.as_deref()) + 2.0 * pad
         })
         .collect();
-    let total = widths.iter().sum::<f32>() + 2.0 * inset;
     let side = menu_inset(ui);
+    // Full width: equal pieces when the widest fits that way; otherwise each
+    // piece its own width and an equal share of the room left.
+    let widths: Vec<f32> = if full && !choices.is_empty() {
+        let n = choices.len() as f32;
+        let room = ui.available_width() - side - 2.0 * inset;
+        let widest = widths.iter().copied().fold(0.0, f32::max);
+        if widest * n <= room {
+            vec![room / n; choices.len()]
+        } else {
+            let spare = (room - widths.iter().sum::<f32>()).max(0.0) / n;
+            widths.iter().map(|w| w + spare).collect()
+        }
+    } else {
+        widths
+    };
+    let total = widths.iter().sum::<f32>() + 2.0 * inset;
     let (row, _) = ui.allocate_exact_size(vec2(total + side, height), Sense::hover());
     let rect = Rect::from_min_size(pos2(row.left() + side, row.top()), vec2(total, height));
     let mut picked = None;

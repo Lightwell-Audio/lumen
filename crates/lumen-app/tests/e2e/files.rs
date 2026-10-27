@@ -265,3 +265,30 @@ fn a_project_from_before_the_mixer_opens_with_a_master_and_saves_as_current() {
     );
     assert!(saved.contains("\"master\": {"), "with its master");
 }
+
+#[test]
+fn enter_in_the_save_question_saves_and_goes_on() {
+    let mut lumen = Lumen::start("save-question-enter");
+    lumen.key(Modifiers::COMMAND, Key::T);
+    let path = project_file(lumen.dir(), "Song");
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
+
+    // An unsaved change, then a new project: the question asks first.
+    let name = lumen.track_names()[0].clone();
+    lumen.click(&format!("Mute {name}"));
+    assert!(lumen.app().is_dirty());
+    super::copies::command(&mut lumen, "New project");
+    lumen.frames(2);
+    assert!(lumen.shows("Don't save"), "the question");
+
+    // Enter gives Save, its main answer: the change is saved, then the new
+    // project starts.
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.wait_for("the new project", |app| {
+        !app.is_busy() && app.project_path().is_none()
+    });
+    assert!(!lumen.shows("Don't save"));
+    let saved = lumen_project::load(&path).expect("the saved project");
+    assert!(saved.tracks[0].mute, "the mute was saved");
+}

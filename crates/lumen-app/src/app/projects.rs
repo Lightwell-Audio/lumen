@@ -603,7 +603,9 @@ impl App {
                 );
                 ui.add_space(theme::space::M);
                 ui.horizontal(|ui| {
-                    if raised::button(ui, "Save").clicked() {
+                    // Save is the main answer, filled as every question's
+                    // is (the interface audit's W1), and Enter gives it.
+                    if raised::primary_button(ui, "Save").clicked() {
                         choice = Some(0);
                     }
                     if raised::button(ui, "Don't save").clicked() {
@@ -618,6 +620,12 @@ impl App {
             });
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             choice = Some(2);
+        } else if choice.is_none()
+            && !self.typing
+            && ctx.memory(|m| m.focused().is_none())
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+        {
+            choice = Some(0);
         }
         match choice {
             Some(0) => {

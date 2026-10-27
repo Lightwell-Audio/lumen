@@ -7,9 +7,11 @@
 //!
 //! [`pill_tabs`] is for choosing one of several; [`pill_button`] is the
 //! "+ CC" pill, a `border_strong` hairline, that opens a menu instead of
-//! choosing.
+//! choosing. [`chip_toggle`] and [`chip_button`] are the browser's tighter
+//! chips: an 8 pt side room, and the button a bare word like the rest, so a
+//! row of them reads as one flow of words (the interface audit's B1).
 
-use eframe::egui::{self, Id, Response, Sense, Stroke, StrokeKind, Ui, vec2};
+use eframe::egui::{self, Id, Response, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 
 use super::raised;
@@ -31,7 +33,7 @@ pub fn pill_tabs(ui: &mut Ui, id: Id, chosen: usize, pills: &[Pill<'_>]) -> Opti
     ui.spacing_mut().item_spacing.x = theme::space::XS;
     for (i, pill) in pills.iter().enumerate() {
         let on = i == chosen;
-        let response = pill_body(ui, id.with(i), pill.label, Some(on), false);
+        let response = pill_body(ui, id.with(i), pill.label, Some(on), PILL);
         response.widget_info(|| {
             egui::WidgetInfo::selected(
                 egui::WidgetType::SelectableLabel,
@@ -52,7 +54,35 @@ pub fn pill_tabs(ui: &mut Ui, id: Id, chosen: usize, pills: &[Pill<'_>]) -> Opti
 /// may wrap onto lines (the browser's category chips). Named
 /// "<label> filter". True when clicked.
 pub fn pill_toggle(ui: &mut Ui, id: Id, label: &str, on: bool, tip: &str) -> bool {
-    let response = pill_body(ui, id, label, Some(on), false);
+    toggle_with(ui, id, (label, on, tip), PILL)
+}
+
+/// [`pill_toggle`] as a browser chip (8 pt side room). Named
+/// "<label> filter".
+pub fn chip_toggle(ui: &mut Ui, id: Id, label: &str, on: bool, tip: &str) -> bool {
+    toggle_with(ui, id, (label, on, tip), CHIP)
+}
+
+/// A chip that does something: a bare word with the chips' room and no
+/// outline, followed by a down arrow when it opens a `menu` ("More ▾"; the
+/// browser list's "Rescan" has none). Named `label`.
+pub fn chip_button(ui: &mut Ui, id: Id, label: &str, menu: bool) -> Response {
+    let response = pill_body(
+        ui,
+        id,
+        label,
+        None,
+        Look {
+            arrow: menu,
+            ..CHIP
+        },
+    );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    response
+}
+
+fn toggle_with(ui: &mut Ui, id: Id, (label, on, tip): (&str, bool, &str), look: Look) -> bool {
+    let response = pill_body(ui, id, label, Some(on), look);
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::SelectableLabel,
@@ -67,21 +97,47 @@ pub fn pill_toggle(ui: &mut Ui, id: Id, label: &str, on: bool, tip: &str) -> boo
 /// A hairline pill that does something rather than choosing (it opens a
 /// menu): "+ CC". Named `label`.
 pub fn pill_button(ui: &mut Ui, id: Id, label: &str) -> Response {
-    let response = pill_body(ui, id, label, None, true);
+    let response = pill_body(ui, id, label, None, OUTLINED);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     response
 }
 
+/// How a pill is drawn: its room either side of the words, whether a
+/// button has its hairline, and whether a down arrow follows the words.
+#[derive(Clone, Copy)]
+struct Look {
+    pad: f32,
+    outlined: bool,
+    arrow: bool,
+}
+
+const PILL: Look = Look {
+    pad: theme::space::M,
+    outlined: false,
+    arrow: false,
+};
+const OUTLINED: Look = Look {
+    outlined: true,
+    ..PILL
+};
+const CHIP: Look = Look {
+    pad: theme::space::S,
+    ..PILL
+};
+/// The room a down arrow takes after the words: the gap and its width.
+const ARROW_ROOM: f32 = theme::space::XS + theme::space::S;
+
 /// Lays out and draws one pill. `on` is `None` for a button.
-fn pill_body(ui: &mut Ui, id: Id, label: &str, on: Option<bool>, outlined: bool) -> Response {
+fn pill_body(ui: &mut Ui, id: Id, label: &str, on: Option<bool>, look: Look) -> Response {
     let palette = theme::p();
     let galley = ui.painter().layout_no_wrap(
         label.to_owned(),
         egui::FontId::proportional(theme::size::BODY),
         palette.text_secondary,
     );
+    let arrow = if look.arrow { ARROW_ROOM } else { 0.0 };
     let size = vec2(
-        galley.size().x + 2.0 * theme::space::M,
+        galley.size().x + arrow + 2.0 * look.pad,
         theme::size::CONTROL,
     );
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
@@ -106,7 +162,7 @@ fn pill_body(ui: &mut Ui, id: Id, label: &str, on: Option<bool>, outlined: bool)
             ),
             StrokeKind::Inside,
         );
-    } else if outlined {
+    } else if look.outlined {
         painter.rect_stroke(
             rect,
             round,
@@ -121,8 +177,16 @@ fn pill_body(ui: &mut Ui, id: Id, label: &str, on: Option<bool>, outlined: bool)
         .text_secondary
         .lerp_to_gamma(palette.text, hover)
         .lerp_to_gamma(palette.accent, lit);
-    let at = (rect.center() - galley.size() / 2.0).round();
+    let at = (rect.center() - (galley.size() + vec2(arrow, 0.0)) / 2.0).round();
+    let words = galley.size().x;
     painter.galley_with_override_text_color(at, galley, ink);
+    if look.arrow {
+        let tip = pos2(
+            at.x + words + ARROW_ROOM - theme::space::S / 2.0,
+            rect.center().y,
+        );
+        super::draw_arrow(painter, tip, 1.0, ink);
+    }
     if response.has_focus() {
         raised::paint_focus(painter, rect, theme::radius::FULL);
     }

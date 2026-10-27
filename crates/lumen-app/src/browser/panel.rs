@@ -19,6 +19,13 @@ use crate::app::projects::FileDialog;
 use crate::{App, fonts, theme, widgets};
 
 impl App {
+    /// Shows the browser on its Devices tab (the empty device chain's
+    /// Browse devices).
+    pub(crate) fn show_device_browser(&mut self) {
+        self.show_browser = true;
+        self.browser.tab = Tab::Devices;
+    }
+
     /// Draws the browser pane in `ui` (the panel's whole area).
     pub(crate) fn browser_panel(&mut self, ui: &mut egui::Ui) {
         let rect = ui.max_rect();

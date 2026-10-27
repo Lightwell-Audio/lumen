@@ -276,7 +276,8 @@ fn draw_header(ui: &mut Ui, header: Header<'_>, fold: impl FnOnce(&mut Out), out
         FontId::monospace(theme::size::MONO_SMALL),
         palette.text_hint,
     );
-    let right = rect.right() - PAD - count_galley.size().x;
+    // The count is centred on the device rows' star column (B6).
+    let right = rect.right() - PAD - ICON / 2.0 - count_galley.size().x / 2.0;
     let label_left = rect.left() + PAD + 16.0;
     let label = fit(
         painter,
@@ -389,27 +390,34 @@ fn draw_device(
         ink,
     ));
 
-    // Right to left: the star, then what the row says of itself.
-    let star_ink = if favorite {
-        palette.accent
-    } else if hovered || selected {
-        palette.text_secondary
-    } else {
-        palette.text_disabled
-    };
-    painter.extend(icons::shapes(
-        if favorite {
-            Icon::StarFilled
+    // Right to left: the star, then what the row says of itself. At rest
+    // a row is its name alone, a favourite keeping its star; the tag and
+    // star show under the pointer and on the selected row (the interface
+    // audit's B4), so names get the width. The info line still names the
+    // category.
+    let shown = hovered || selected;
+    let mut right = rect.right() - PAD;
+    if favorite || shown {
+        let star_ink = if favorite {
+            palette.accent
         } else {
-            Icon::Star
-        },
-        Rect::from_center_size(star.center(), vec2(ICON, ICON)),
-        star_ink,
-    ));
-    let mut right = star.left() - theme::space::XS;
+            theme::controls(selected).text
+        };
+        painter.extend(icons::shapes(
+            if favorite {
+                Icon::StarFilled
+            } else {
+                Icon::Star
+            },
+            Rect::from_center_size(star.center(), vec2(ICON, ICON)),
+            star_ink,
+        ));
+        right = star.left() - theme::space::XS;
+    }
+    // A flat list (Recent) always says the vendor, as no header does.
     let caption = if input.flat {
         Some(device.vendor.as_str())
-    } else if rect.width() >= TAG_MIN_WIDTH {
+    } else if shown && rect.width() >= TAG_MIN_WIDTH {
         device.categories.first().map(String::as_str)
     } else {
         None
@@ -418,9 +426,8 @@ fn draw_device(
         right = tag(
             painter,
             caption,
-            right,
-            rect.center().y,
-            input.flat,
+            (right, rect.center().y),
+            (input.flat, selected),
             &palette,
         );
     }
@@ -487,19 +494,25 @@ fn draw_device(
 }
 
 /// A small outlined word at the row's right, ending at `right`; returns
-/// where it starts.
+/// where it starts. `plain` drops the outline; on a `selected` row the
+/// word and outline step up to `text_secondary`, as the hint grey would
+/// all but vanish there (the interface audit's B5).
 fn tag(
     painter: &Painter,
     text: &str,
-    right: f32,
-    y: f32,
-    plain: bool,
+    (right, y): (f32, f32),
+    (plain, selected): (bool, bool),
     palette: &theme::Palette,
 ) -> f32 {
+    let (ink, edge) = if selected {
+        (palette.text_secondary, palette.text_secondary)
+    } else {
+        (palette.text_hint, palette.border_strong)
+    };
     let galley = painter.layout_no_wrap(
         text.to_owned(),
         FontId::proportional(theme::size::SCALE),
-        palette.text_hint,
+        ink,
     );
     let pad = 4.0;
     let width = galley.size().x + 2.0 * pad;
@@ -508,14 +521,14 @@ fn tag(
         painter.rect_stroke(
             rect,
             theme::radius::SMALL,
-            Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
+            Stroke::new(theme::stroke::HAIRLINE, edge),
             StrokeKind::Inside,
         );
     }
     painter.galley(
         pos2(rect.left() + pad, y - galley.size().y / 2.0),
         galley,
-        palette.text_hint,
+        ink,
     );
     rect.left() - theme::space::XS
 }

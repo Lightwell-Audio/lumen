@@ -93,7 +93,8 @@ or offers the button that does it.
   with cards that float beside what they edit.
   **Every window is a `widgets::Dialog`**, so the ✕ sits at the same place
   in all of them; a question (the unsaved-changes prompt) has no ✕ and is
-  answered by its buttons.
+  answered by its buttons. Its main answer is the filled primary (Save), and
+  Enter gives it when nothing has the keyboard (the interface audit's W1).
 - Popovers (the audio panel, menus) open under the control that opened them,
   with a small gap.
 - **Menus with settings in them** (the owner's C, M4.5): a switch,
@@ -250,7 +251,8 @@ Sentence case for every label ("Audio settings", not
   `CORNER_ICON` for an icon in a piece of the ruler corner's wells,
   `LEVEL_STRIP` 3 pt for the level beside the rail, and `SEND_SLOT` 18 pt
   for the widest slot of the send well, which shows its letter from
-  `SEND_SLOT_LETTER` 12 pt. A module never invents its own size for these. The Monitor badge on a MIDI header (`BADGE_W` 16 ×
+  `SEND_SLOT_LETTER` 12 pt. A module never invents its own size for these.
+  The Monitor badge on a MIDI header (`BADGE_W` 16 ×
   `BADGE_H` 14 pt) is a speaker before M, shown only when Monitor is In
   (accent on `accent_muted`, a hairline when the row is selected, no glow)
   or Off (struck-through speaker, hint grey); Auto shows nothing. A click
@@ -452,7 +454,7 @@ strokes are 4 wide and the third reflection goes.
 | Segmented (2–5 choices; `widgets::segmented`, `segmented_styled`) | a sunk trough (`well`, the lip; radius by height), optional icon, label and keycap, the icon and keycap centred on the label's optical middle (`fonts::optical_middle`: halfway between its capitals' and its lower-case letters' middles), `text_secondary` | Ember over the piece, label `text` | — | a neutral raised thumb (`thumb_hi` to `thumb`, the edge light, the trough's radius less 2) that slides to the choice (`GLIDE`), label `text`; `segmented_styled(.., Some(Tone::Accent))` fills the chosen tool with the accent | label in `text_disabled`, with why on hover |
 | Choice row (longer lists, such as a device's channel pairs) | a 24 pt row, `text`, radius 6 | Ember wash | — | `accent_muted` fill, `accent` text | — |
 | Menu row (`widgets::menu_item`) | `size::MENU_ROW` (32 pt) tall whether it has keycaps or not; rows touch, so the pointer is always over one; `text`, with keycaps at the right, cap and light centred together; `menu_toggle_icon` puts a `size::MENU_ICON` icon before the label | Ember highlight, radius 6, reaching `space::XS` past the row, following the pointer | — | a toggle that is on: `accent_muted`, `accent` letters | `text_disabled` |
-| Pill (lane tabs; `widgets::pills`) | 24 pt, radius `FULL`, `text_secondary` | Ember | — | `accent_muted`, `accent` letters, the 38% hairline; "+ CC" a `border_strong` hairline pill | — |
+| Pill (lane tabs; `widgets::pills`) | 24 pt, radius `FULL`, `text_secondary` | Ember | — | `accent_muted`, `accent` letters, the 38% hairline; "+ CC" a `border_strong` hairline pill; the browser's chips (`chip_toggle`, `chip_button`) have 8 pt of room, and a button among them is a bare word | — |
 
 Keyboard focus shows as a 2 pt `accent` ring, 2 pt outside, on every
 focusable control (`raised::focus_ring`).
@@ -555,12 +557,11 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
 - **Record arm ("glow and breathe")**, the owner's choice:
   - the rail turns red and glows into the header;
   - on headers and mixer strips the button is the well's third piece;
-    armed, its body is record red at about 25%
-    with a red dot and a ring around it. The ring breathes slowly (2.4 s)
-    while armed and, as a piece, the body swells with it (70 to 130% of
-    its tint) and a soft halo grows round the dot (the owner: the pulse
-    keeps its personality), all inside the piece. The round button's glow
-    reaches at most 4 pt. Every circle shares one centre;
+    armed, its body is record red at about 25% with a red dot and a ring
+    around it. The ring breathes slowly (2.4 s) while armed, the body
+    swells with it (70 to 130% of its tint) and a soft halo grows round
+    the dot (the owner: the pulse keeps its personality), all inside the
+    piece. Every circle shares one centre;
   - at rest (M4.5, the owner's A) the dot is grey (the control's letters
     at 55%) on the control fill, turning red under the pointer (`FAST`):
     record red means recording;
@@ -840,9 +841,10 @@ Chosen from interactive specimens:
   and the groups that would not feed back, then "Audio outputs", every
   pair of the device as "1/2", "3/4"…, the main pair marked "Main", the cue
   pair greyed "Cue" with why, each pair's channel names and "Skips the
-  master" on hover; "Looking up the outputs…" until known); Ø and input trim (±24 dB, filled from the centre;
-  the master shows its Solo/Cue switch there once a cue pair is chosen; the trim's "dB" is set
-  smaller, `UNIT` 9 pt in `text_hint`); a hairline, then the send well
+  master" on hover; "Looking up the outputs…" until known); Ø and input
+  trim (±24 dB, filled from the centre; the master shows its Solo/Cue
+  switch there once a cue pair is chosen; the trim's "dB" is set smaller,
+  `UNIT` 9 pt in `text_hint`); a hairline, then the send well
   (every return a slot, as on the header, centred); a hairline, then pan;
   M, S and arm, one well under pan (the interface audit's X1–X4); the fader
   (`widgets::fader`: a 4 pt sunk groove and a 22 × 12 pt raised cap with a
@@ -1228,8 +1230,34 @@ a soft shadow, radius `XL`).
   answered.
 - **Dragging a device from the browser:** an accent line across the tray and a
   plus on the cable at the gap it will land in; neighbours stay put.
-- **Empty:** two chips and a cable, with "Double-click a device in the browser
-  to add it here". No track selected: "Select a track to see its devices".
+- **Empty** (the interface audit's D1): the tray keeps its two chips and
+  cable, and above them the shared empty state says "No devices on Bass",
+  "Double-click a device in the browser, or drag one here", with **Browse
+  devices**, which shows the browser on its Devices tab. No track selected:
+  "Select a track to see its devices".
+
+### The browser's Devices tab (the interface audit's B1 to B6)
+
+Everything lines up on three edges, 12 pt in from the pane (the search
+field, the type filter and the group headers), 28 pt (the magnifier, the
+list's icons) and 44 pt (the search text, the chips' words and the device
+names).
+
+- **Search:** a 16 pt magnifier inside the field, at its left.
+- **Type filter:** All, Instruments and Effects fill the width
+  (`widgets::segmented_full`): in equal pieces, or, in a narrow pane, each
+  its own width with an equal share of the room left.
+- **Chips:** the categories are browser chips (`chip_toggle`, 8 pt each side
+  of the words) that wrap; "More ▾" is a bare word with the chips' room and a
+  down arrow (`chip_button`), so the row reads as one flow of words.
+- **Rows:** the star shows on a favourite, and on the hovered or selected
+  row; elsewhere the column is empty. A hovered or selected row also shows
+  its category as a tag when the pane is wide enough (the vendor, when the
+  list is not grouped by vendor). On a selected row the tag steps up to
+  `text_secondary` so it stays readable on the highlight.
+- **Group headers:** the count sits centred on the star column.
+- **Scan line:** under a hairline rule at the foot of the list, "Rescan" (or
+  "Cancel" while a scan runs) is a bare chip word.
 
 ## 7g. The block budget (ADR-0075, the owner's B)
 

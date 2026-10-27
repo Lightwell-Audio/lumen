@@ -15,6 +15,13 @@ use crate::widgets::{self, raised};
 use crate::{motion, theme};
 use lumen_core::product::PRODUCT_NAME;
 
+/// Where a menu row's words start, from its left edge.
+const TEXT_INSET: f32 = 5.0;
+/// The down arrow's centre, from the row's right edge, and the room its
+/// words leave for it.
+const ARROW_INSET: f32 = 8.0;
+const ARROW_ROOM: f32 = 15.0;
+
 /// Where `track` plays to, in words: a group's or return's name, "Master",
 /// or a pair of outputs ("1/2").
 fn destination_text(project: &Project, track: &Track) -> String {
@@ -111,13 +118,6 @@ pub(super) fn row_button(
     raised::focus_ring(painter, &response, row);
     response
 }
-
-/// Where a menu row's words start, from its left edge.
-const TEXT_INSET: f32 = 5.0;
-/// The down arrow's centre, from the row's right edge, and the room its
-/// words leave for it.
-const ARROW_INSET: f32 = 8.0;
-const ARROW_ROOM: f32 = 15.0;
 
 impl Arrangement {
     /// Where the track plays to; a click opens the choices.

@@ -1,9 +1,9 @@
 //! The M and S buttons (S is a headphone button on Cue), shared by track
 //! headers and mixer strips (M4 slice 5): pieces of one sunk well on
-//! headers and strips (M9 slice R1b, ADR-0101; the interface audit's X1); lit when set on that track, a
-//! hollow ring when the track is silenced by another's solo or a muted
-//! group (M), or heard through a soloed group (S) (the owner's choice,
-//! slice 4).
+//! headers and strips (M9 slice R1b, ADR-0101; the interface audit's X1);
+//! lit when set on that track, a hollow ring when the track is silenced by
+//! another's solo or a muted group (M), or heard through a soloed group (S)
+//! (the owner's choice, slice 4).
 
 use eframe::egui::{self, Align2, Id as EguiId, Rect, Sense, Stroke, Ui};
 use eframe::emath::GuiRounding as _;

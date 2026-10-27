@@ -11,9 +11,10 @@
 //! (Shift a tenth) when its gesture starts on the knob (`wheel.rs`).
 //!
 //! On a track header and a mixer strip the same control is a slot in the
-//! send well (M9 slice R1b, ADR-0101; the interface audit's X1–X4): a narrow bar in the return's colour that fills from the
-//! bottom, dragged up and down; pointing at it shows a flag with the
-//! return's letter, name and the level.
+//! send well (M9 slice R1b, ADR-0101; the interface audit's X1–X4): a
+//! narrow bar in the return's colour that fills from the bottom, dragged up
+//! and down; pointing at it shows a flag with the return's letter, name and
+//! the level.
 
 use std::f32::consts::PI;
 
@@ -63,10 +64,11 @@ pub fn level(position: f32) -> f32 {
 /// How a send is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Style<'a> {
-    /// The comet knob (lists: a return's senders).
+    /// The comet knob (lists, such as a return's senders, and a
+    /// parameter's knob).
     Ring,
-    /// A slot in a header's or a strip's send well; `title` is the return's name, for
-    /// its flag.
+    /// A slot in a header's or a strip's send well; `title` is the
+    /// return's name, for its flag.
     Slot { title: &'a str },
 }
 

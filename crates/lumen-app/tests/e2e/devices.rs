@@ -5,7 +5,7 @@
 //! on. The plugins and the host are the real ones (the test plugin).
 
 use eframe::egui::{Key, Modifiers, pos2};
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_core::time::Ticks;
 use lumen_plugin_catalog::catalog::class_id;
 use lumen_project::model::{Device, DeviceKind, Id, Note, PluginRef, Project, TrackKind};
@@ -871,4 +871,41 @@ fn a_damaged_or_missing_snapshot_leaves_the_generated_picture() {
     lumen.wait_for("the picture to be given up", |app| {
         app.device_picture(FIRST) == "absent"
     });
+}
+
+#[test]
+fn an_empty_chain_says_so_and_browse_devices_opens_the_browser_on_its_devices() {
+    let mut lumen = launch("empty-chain", &project(vec![]), &["Plug"]);
+    lumen.app_mut().select_tracks(&[AUDIO]);
+    lumen.frames(3);
+    lumen.show_devices_tab();
+    assert!(
+        lumen
+            .harness
+            .query_by_label_contains("No devices on Audio.")
+            .is_some(),
+        "the empty chain"
+    );
+
+    // The browser on another tab, then hidden: the button brings it back
+    // on its Devices tab.
+    super::copies::command(&mut lumen, "Project media");
+    lumen.wait_for("the media tab", |app| app.media_tab_shown());
+    lumen
+        .harness
+        .get_all_by_label("Browser")
+        .find(|node| node.accesskit_node().toggled().is_some())
+        .expect("the transport's Browser toggle")
+        .click();
+    lumen.wait_for("the browser to hide", |app| !app.browser_shown());
+    lumen.click("Browse devices");
+    lumen.wait_for("the browser", |app| app.browser_shown());
+    assert!(!lumen.app().media_tab_shown(), "on its Devices tab");
+    assert!(
+        lumen
+            .harness
+            .query_by_label_contains(&format!("{EFFECT}, "))
+            .is_some(),
+        "the device rows"
+    );
 }
