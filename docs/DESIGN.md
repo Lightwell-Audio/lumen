@@ -245,7 +245,8 @@ Sentence case for every label ("Audio settings", not
   `TIP_WIDTH` 280 pt, then its hint wraps. Track headers (M9 R1b,
   ADR-0101): `HEADER_SIDE` 60 pt for the right column (pan, the In chip),
   `WELL_PIECE_W` 18 pt for the pieces of the M S ● well, the magnet and
-  the locator arrows (as tall as the well less `space::XXS` each side), `CORNER_ICON` for an icon in a piece
+  the locator arrows (as tall as the well less `space::XXS` each side),
+  `STRIP_PIECE_W` 22 pt for the same well's pieces on a mixer strip, `CORNER_ICON` for an icon in a piece
   of the ruler corner's wells, `LEVEL_STRIP` 3 pt for the level beside the rail, and `SEND_SLOT`
   18 pt for the widest slot of the send well, which shows its letter from
   `SEND_SLOT_LETTER` 12 pt. A module never invents its own size for these. The Monitor badge on a MIDI header (`BADGE_W` 16 ×
@@ -265,7 +266,9 @@ Sentence case for every label ("Audio settings", not
   line under a toggle that is on.
 - **Elevation:** only windows and popovers float. They get `overlay` fill,
   a `border_strong` outline, the edge light and one soft shadow (offset
-  0, 6, blur 18). Nothing else has a shadow.
+  0, 6, blur 18). The one other shadow is the mixer's pinned master,
+  which casts `shadow` over the strips passing under it (`space::M` wide,
+  the interface audit's X6).
 - **Settings rows:** labels in a right-aligned column (`LABEL_COLUMN` 96 pt
   in windows, `LABEL_COLUMN_NARROW` 72 pt in cards), values to the right of
   it, warnings wrapped within the column's width.
@@ -340,9 +343,9 @@ not travel.
   - (M4.5) **scroll bars** on the arrangement's tracks and the mixer's
     strips: shown while scrolling or with the pointer near the edge, fading
     in over `FAST` and out over `BASE` 0.8 s later; draggable
-    (`widgets::scroll_bar`). A strip cut by the mixer's edge fades into
-    `canvas` over `space::L` there, so a part-scrolled strip never ends as
-    a stray rail;
+    (`widgets::scroll_bar`). A strip cut by the mixer's left edge fades
+    into `header` over `space::L` there, so a part-scrolled strip never
+    ends as a stray rail; at the right it passes under the master's shadow;
   - (M4.5) the palette's chosen-row fill slides between rows (`FAST`);
     menu highlights follow the pointer directly and do not slide;
   - (M4.5) lit buttons (M, S, cue, loop, metronome, follow) cross-fade on
@@ -524,7 +527,9 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
     `accent_lo`, an `on_accent` letter) and **M** is `mute` with an
     `on_mute` letter (ADR-0052). Arm is a dot: grey at rest, red under the
     pointer; armed, record red at 25% with a red dot and the breathing ring.
-    Strips keep raised M and S and the round arm button.
+    A mixer strip has the same well under pan (the interface audit's X1–X4):
+    22 pt pieces (`STRIP_PIECE_W`), M S ● on tracks and groups, M S on a
+    return, M alone on the master.
   - A selected header is `selected_row`, and its controls step up (§3).
 - **Unfolded header:** two more rows of controls that show their value
   inside, with no separate labels, in two columns: the left from the name's
@@ -548,12 +553,14 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
     value (Enter applies, Esc cancels), arrow keys when focused.
 - **Record arm ("glow and breathe")**, the owner's choice:
   - the rail turns red and glows into the header;
-  - on a strip the button is round (no border or edge light: ADR-0052 keeps
-    it off the raised material; on a header it is the well's third piece,
-    drawn the same way inside it); armed, its body is record red at 25% with a red
-    dot and a ring around it. The ring breathes
-    slowly (2.4 s) while armed, its glow reaching at most 4 pt, inside the
-    gap to S. Every circle shares one centre;
+  - on headers and mixer strips the button is the well's third piece
+    (the round button, with no border or edge light, is kept for the
+    places outside a well); armed, its body is record red at about 25%
+    with a red dot and a ring around it. The ring breathes slowly (2.4 s)
+    while armed and, as a piece, the body swells with it (70 to 130% of
+    its tint) and a soft halo grows round the dot (the owner: the pulse
+    keeps its personality), all inside the piece. The round button's glow
+    reaches at most 4 pt. Every circle shares one centre;
   - at rest (M4.5, the owner's A) the dot is grey (the control's letters
     at 55%) on the control fill, turning red under the pointer (`FAST`):
     record red means recording;
@@ -755,8 +762,9 @@ Chosen from interactive specimens (ADR-0038):
   22 pt tag with the letter badge, the return's name and the level in mono,
   kept inside the header column. Hovering a slot lights its return's
   header, as a knob does.
-- **Send knobs (K1 "comet"):** 24 pt knobs on the mixer strips (and 18 pt
-  in lists). A 270° ring in `control_press`; the level a trail in the
+- **Send knobs (K1 "comet"):** 18 pt knobs in lists (a return's
+  senders); headers and mixer strips have the send well's slots instead
+  (the interface audit's X1–X4: one look for a send wherever it sits). A 270° ring in `control_press`; the level a trail in the
   return's colour, from 18% to full strength and thickening towards a
   glowing head (two soft circles, a white core, a colour centre); the
   return's letter in the middle (`text` when sending, `text_hint` when
@@ -768,11 +776,6 @@ Chosen from interactive specimens (ADR-0038):
     the way from the control colour to the text colour, and a silent
     knob's letter is `text_secondary`, so the knobs stay clear of the
     row in both themes.
-  - **"+N ▾" (O1):** past a strip's two knobs, a 20 pt button drawn as
-    "+ Add track ▾" is (control fill, 6 pt corners, the filled arrow, an
-    accent edge on hover and while open), with a dot in a return's colour
-    before the number while a hidden send is up. It opens "Sends from …":
-    a 20 pt knob, the letter badge, the name and the level per return.
   - **A return's senders (R2, L4, S1):** an unfolded return lists, from
     its third row, the tracks sending to it: a 4 × 14 pt bar in the
     track's colour, its name, an 18 pt knob (no hover ring there) and the
@@ -781,7 +784,8 @@ Chosen from interactive specimens (ADR-0038):
     tall enough (a step a row). "No tracks send here yet" when none do.
 - **Cue (C1):** the master's **Solo/Cue switch** (46 × 18 pt at the
   header's right): "Solo" in control colours, the accent with headphones
-  and "Cue" when on, greyed (`text_disabled`) without a cue pair. On Cue,
+  and "Cue" when on. It is left out until a cue pair is chosen in Audio
+  settings (the interface audit's X8: greyed, it read as broken). On Cue,
   the S buttons draw **headphones** (`icons::draw_headphones`) and light
   with the accent. The master's unfolded row adds a "Cue" level slider
   while a cue pair is open.
@@ -816,9 +820,11 @@ Chosen from interactive specimens:
 - **Layout:** the detail panel's Mixer tab (Devices and Clip arrive with
   their milestones). Strips follow the arrangement's order, skipping
   tracks hidden in folded groups (one fold for both views, B4); the
-  returns after a 10 pt gap; the master pinned at the right after a
-  `border_strong` line, and the loudness column (L2, 108 pt) beside it.
-  The strips scroll sideways; only those in view are drawn. With no
+  returns after a 10 pt gap; the master pinned at the right, and the
+  loudness column (L2, 108 pt) beside it. The panel is one `header`
+  surface (the interface audit's X6): the strips scroll sideways under
+  the master, which casts a `space::M` shadow over them; only those in
+  view are drawn. With no
   tracks: a **ghost strip** where the first will go (96 pt, a dashed
   `border_strong` edge, a plus and "Add track"; a click adds an audio
   track) and "Strips appear here as you add tracks" beside it (M4.5).
@@ -832,8 +838,10 @@ Chosen from interactive specimens:
   pair of the device as "1/2", "3/4"…, the main pair marked "Main", the cue
   pair greyed "Cue" with why, each pair's channel names and "Skips the
   master" on hover; "Looking up the outputs…" until known); Ø and input trim (±24 dB, filled from the centre;
-  the master shows its Solo/Cue switch there); the sends (O2: the first
-  two returns' knobs, 24 pt, then "+N ▾" listing them all); pan; the fader
+  the master shows its Solo/Cue switch there; the trim's "dB" is set
+  smaller, `UNIT` 9 pt in `text_hint`); a hairline, then the send well
+  (every return a slot, as on the header, centred); a hairline, then pan;
+  M, S and arm, one well under pan (the interface audit's X1–X4); the fader
   (`widgets::fader`: a 4 pt sunk groove and a 22 × 12 pt raised cap with a
   2 pt `text` line,
   on the send knobs' taper, 0 dB at three quarters of the travel, stopping
@@ -842,7 +850,7 @@ Chosen from interactive specimens:
   within 11 pt of a numbered mark is a 3 pt tick instead) and
   the stereo meter (two 5 pt bars, 2 pt apart, with the clip light, 5 pt,
   above); the volume typed in (`widgets::value_field`) and the peak held
-  (`record` when clipped; a click clears it); M, S and arm, 20 pt, centred.
+  (`record` when clipped; a click clears it).
 - **A short panel (B7)** folds the sends away first, then trim and
   polarity, then the output; the rest always shows, with a travel of at
   least 64 pt. The panel is never shorter than that strip, and never so

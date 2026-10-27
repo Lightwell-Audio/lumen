@@ -5,12 +5,13 @@
 //!
 //! M9 slice R1b (the owner's B·1, ADR-0101): on a header the sends are
 //! slots in one sunk well, every return always shown (up to twelve), on the
-//! third row beside the In chip. Strips and lists keep the knobs.
+//! third row beside the In chip. The interface audit (X1–X4) puts the
+//! same well on a mixer strip, under its rule; lists keep the knobs.
 //!
 //! MT-MIX-4 run 1 (the owner's choices from mock-ups): knobs step up on a
-//! selected row (C4); sends past the header's width are reached from a
-//! "+N ▾" button that lists every send of the track (O1); an unfolded
-//! return lists the tracks sending to it, each with its knob (R2).
+//! selected row (C4); an unfolded return lists the tracks sending to it,
+//! each with its knob (R2). (O1's "+N ▾" list of a track's sends went
+//! with the wells, which show every return.)
 //!
 //! MT-MIX-4 run 2: a return lists its four loudest senders, then "+N more"
 //! opens them all (L4); a send turned down to silence leaves the list once
@@ -131,7 +132,7 @@ pub(super) struct Knob<'a> {
     pub(super) place: &'static str,
 }
 
-/// The "+N ▾" button, drawn as "+ Add track ▾" is.
+/// The "+N more ▾" button of a return's senders, drawn as "+ Add track ▾" is.
 struct Plus {
     id: EguiId,
     text: String,
@@ -218,8 +219,8 @@ impl Arrangement {
         } = knob;
         let send = track.sends.iter().find(|s| s.to == to.id);
         let id = EguiId::new(("send", track.id, to.id, place));
-        // On a header the send is a slot in the well (ADR-0101).
-        let slot = place == "header";
+        // On a header or strip the send is a slot in the well (ADR-0101).
+        let slot = matches!(place, "header" | "strip");
         let target = Target::Send { to: to.id };
         let own = send.map_or(f32::NEG_INFINITY, |s| s.level.0);
         let out = send_knob(
@@ -241,7 +242,7 @@ impl Arrangement {
                 linked: self.hot_return == Some(to.id) && !place.starts_with("return"),
                 selected,
                 name: &name,
-                live_value: place == "header",
+                live_value: slot,
                 mapped: doc
                     .mapping_of(track.id, target)
                     .map(|m| (m.channel, m.number)),
@@ -286,16 +287,17 @@ impl Arrangement {
         out.active
     }
 
-    /// The send well of an unfolded track in `room` (the third row's left
-    /// column): one sunk well, a slot per return in its colour, filling
-    /// from the bottom with the send's level (the owner's B·1, ADR-0101).
+    /// The send well of a track in `room` (an unfolded header's third row,
+    /// left column, or a strip's sends row, centred): one sunk well, a slot
+    /// per return in its colour, filling from the bottom with the send's
+    /// level (the owner's B·1, ADR-0101).
     pub(super) fn send_well(
         &mut self,
         ui: &mut Ui,
         doc: &mut Document,
         track: &Track,
         room: Rect,
-        selected: bool,
+        (selected, in_strip): (bool, bool),
     ) {
         let returns = returns(doc.project());
         if returns.is_empty() {
@@ -304,7 +306,19 @@ impl Arrangement {
         let heard = lumen_project::solo::hearing(doc.project());
         let ppp = ui.ctx().pixels_per_point();
         let (slot, width) = slot_layout(returns.len(), room.width());
-        let well = Rect::from_min_size(room.min, vec2(width, room.height())).round_to_pixels(ppp);
+        let left = if in_strip {
+            room.center().x - width / 2.0
+        } else {
+            room.left()
+        };
+        let well = Rect::from_min_size(pos2(left, room.top()), vec2(width, room.height()))
+            .round_to_pixels(ppp);
+        // Headers and strips each have their own slots.
+        let (place, suffix) = if in_strip {
+            ("strip", " in the mixer")
+        } else {
+            ("header", "")
+        };
         raised::paint_sunken(ui.painter(), well, theme::radius::SMALL);
         for (n, to) in returns.iter().enumerate() {
             let x = well.left() + WELL_PAD + n as f32 * (slot + SLOT_GAP);
@@ -313,7 +327,7 @@ impl Arrangement {
                 pos2(x + slot, well.bottom() - WELL_PAD),
             )
             .round_to_pixels(ppp);
-            let name = format!("Send {} to {} {}", track.name, to.letter, to.name);
+            let name = format!("Send {} to {} {}{suffix}", track.name, to.letter, to.name);
             self.send_control(
                 ui,
                 doc,
@@ -324,118 +338,10 @@ impl Arrangement {
                     to,
                     selected,
                     name,
-                    place: "header",
+                    place,
                 },
             );
         }
-    }
-
-    /// The "+N ▾" button (the owner's O1, drawn as "+ Add track ▾" is) and
-    /// the list it opens: every send of the track, knob, letter, name and
-    /// level. A dot in a return's colour before the number when a hidden
-    /// send is turned up.
-    pub(super) fn more_sends(
-        &mut self,
-        ui: &mut Ui,
-        doc: &mut Document,
-        track: &Track,
-        returns: &[Return],
-        (shown, at): (usize, egui::Pos2),
-        (selected, in_strip): (bool, bool),
-    ) {
-        let palette = *theme::p();
-        let hidden = returns.len() - shown;
-        // Headers and strips each have their own button and list.
-        let (place, list, suffix) = if in_strip {
-            ("strip", "strip list", " in the mixer")
-        } else {
-            ("header", "list", "")
-        };
-        let lit = returns[shown..].iter().find(|r| {
-            track
-                .sends
-                .iter()
-                .any(|s| s.to == r.id && !s.level.is_silent())
-        });
-        let response = plus_button(
-            ui,
-            Plus {
-                id: EguiId::new(("more sends", track.id, place)),
-                text: format!("+{hidden}"),
-                name: format!("{hidden} more sends from {}{suffix}", track.name),
-                tip: "Every send of this track",
-                selected,
-                dot: lit.map(|r| r.color),
-                at,
-            },
-        );
-        let heard = lumen_project::solo::hearing(doc.project());
-        widgets::Menu::below(&response).show(|ui| {
-            ui.set_min_width(236.0);
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(format!("Sends from {}", track.name))
-                        .font(fonts::medium(theme::size::BODY)),
-                );
-            });
-            ui.separator();
-            egui::ScrollArea::vertical()
-                // Returns stop at twelve: the list shows them all.
-                .max_height(
-                    crate::document::MAX_RETURNS as f32
-                        * (SMALL_KNOB + 4.0 + ui.spacing().item_spacing.y)
-                        + raised::ring_room_height(),
-                )
-                .show(ui, |ui| {
-                    raised::ring_room(ui, |ui| {
-                        for to in returns {
-                            let (row, _) = ui
-                                .allocate_exact_size(vec2(236.0, SMALL_KNOB + 4.0), Sense::hover());
-                            let knob = Rect::from_min_size(
-                                pos2(row.left() + 2.0, row.center().y - SMALL_KNOB / 2.0),
-                                vec2(SMALL_KNOB, SMALL_KNOB),
-                            );
-                            let name =
-                                format!("Send {} to {} {}{suffix}", track.name, to.letter, to.name);
-                            self.send_control(
-                                ui,
-                                doc,
-                                &heard,
-                                Knob {
-                                    rect: knob,
-                                    track,
-                                    to,
-                                    selected: false,
-                                    name,
-                                    place: list,
-                                },
-                            );
-                            let badge_left = knob.right() + 8.0;
-                            let badge = letter_badge(ui, pos2(badge_left, row.center().y), to);
-                            let painter = ui.painter();
-                            painter.text(
-                                pos2(badge.right() + 6.0, row.center().y),
-                                Align2::LEFT_CENTER,
-                                &to.name,
-                                FontId::proportional(theme::size::BODY),
-                                palette.text,
-                            );
-                            let db = track
-                                .sends
-                                .iter()
-                                .find(|s| s.to == to.id)
-                                .map_or(f32::NEG_INFINITY, |s| s.level.0);
-                            painter.text(
-                                pos2(row.right() - 4.0, row.center().y),
-                                Align2::RIGHT_CENTER,
-                                db_text(db.max(-60.0)),
-                                FontId::proportional(theme::size::CAPTION),
-                                palette.text_secondary,
-                            );
-                        }
-                    });
-                });
-        });
     }
 
     /// An unfolded return lists the tracks sending to it, each with its send
@@ -636,25 +542,6 @@ impl Arrangement {
         });
         active
     }
-}
-
-/// A return's letter badge, left-centred at `at`, as on its header.
-fn letter_badge(ui: &Ui, at: egui::Pos2, to: &Return) -> Rect {
-    let badge = Rect::from_min_size(
-        pos2(at.x, at.y - 8.0),
-        vec2(16.0_f32.max(9.0 * to.letter.len() as f32 + 7.0), 16.0),
-    )
-    .round_to_pixels(ui.ctx().pixels_per_point());
-    let painter = ui.painter();
-    painter.rect_filled(badge, theme::radius::SMALL, to.color);
-    painter.text(
-        badge.center(),
-        Align2::CENTER_CENTER,
-        &to.letter,
-        fonts::medium(theme::size::CAPTION),
-        theme::text_on(to.color),
-    );
-    badge
 }
 
 #[cfg(test)]

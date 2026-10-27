@@ -404,14 +404,20 @@ const SLOT_BASELINE: f32 = 2.0;
 const SLOT_BASELINE_ALPHA: f32 = 0.6;
 /// How much lighter a slot's fill is at its top than at its bottom.
 const SLOT_SHEEN: f32 = 0.08;
+/// The fill's top edge glows, as a ring knob's head does: a bright line
+/// this much towards white, and a wash in the colour this tall above it at
+/// this strength (stronger while its return is lit).
+const SLOT_EDGE: f32 = 0.45;
+const SLOT_GLOW: f32 = 6.0;
+const SLOT_GLOW_ALPHA: f32 = 0.35;
 /// How strongly a send that is not heard shows (as the knob's trail).
 const NOT_HEARD: f32 = 0.4;
 
 /// Paints a send slot: an Ember wash while pointed at (`point`), the fill in
-/// the return's colour from the bottom up to `at` of the travel (a short
-/// baseline when silent), its letter when there is room, a ring in its
-/// colour while its return is lit (`hot`), and a dot at the top for a
-/// pre-fader send.
+/// the return's colour from the bottom up to `at` of the travel with a glow
+/// at its top edge (a short baseline when silent), its letter when there is
+/// room, a ring in its colour while its return is lit (`hot`), and a dot at
+/// the top for a pre-fader send.
 fn draw_slot(
     painter: &egui::Painter,
     rect: Rect,
@@ -438,6 +444,31 @@ fn draw_slot(
             top.gamma_multiply(strength),
             knob.color.gamma_multiply(strength),
         );
+        let edge = fill.top();
+        let halo = Rect::from_min_max(
+            pos2(rect.left(), (edge - SLOT_GLOW).max(rect.top())),
+            pos2(rect.right(), edge),
+        );
+        raised::gradient(
+            painter,
+            halo,
+            0.0,
+            Color32::TRANSPARENT,
+            knob.color
+                .gamma_multiply(SLOT_GLOW_ALPHA * (1.0 + hot) * strength),
+        );
+        if at < 1.0 {
+            painter.hline(
+                rect.x_range().shrink(1.0),
+                edge + 0.5,
+                Stroke::new(
+                    theme::stroke::HAIRLINE,
+                    knob.color
+                        .lerp_to_gamma(Color32::WHITE, SLOT_EDGE)
+                        .gamma_multiply(strength),
+                ),
+            );
+        }
     } else {
         let line = Rect::from_min_max(
             pos2(rect.left() + 1.0, rect.bottom() - SLOT_BASELINE),

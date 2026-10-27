@@ -23,14 +23,6 @@ use crate::{fonts, motion};
 const HOLLOW_MUTE: f32 = 0.14;
 const HOLLOW_SOLO: f32 = 0.12;
 
-/// How M, S and arm are drawn: raised buttons (mixer strips), or pieces cut
-/// into one sunk well (track headers, ADR-0101).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Style {
-    Raised,
-    Well,
-}
-
 /// The M and S buttons; S is a headphone button on Cue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Toggle {
@@ -51,7 +43,7 @@ impl Arrangement {
         track: &Track,
         hears: Hearing,
         (mute_rect, solo_rect): (Rect, Rect),
-        (id, look, place, style): (EguiId, theme::Controls, &str, Style),
+        (id, look, place): (EguiId, theme::Controls, &str),
     ) {
         let palette = *theme::p();
         let modifiers = ui.input(|i| i.modifiers);
@@ -118,27 +110,17 @@ impl Arrangement {
             let hover = motion::hover(ui.ctx(), id.with(what).with("hover"), response.hovered());
             // Lighting up and going out cross-fade (`FAST`, M4.5).
             let lit = motion::hover(ui.ctx(), id.with(what).with("lit"), on);
-            // The design system's TrackButtons (ADR-0052): raised; a lit M
-            // is `mute`, a lit S and the lit cue are filled accent.
+            // The design system's TrackButtons (ADR-0052): a lit M is
+            // `mute`, a lit S and the lit cue are filled accent.
             let face = raised::Face::new(look)
                 .hover(hover)
                 .pressed(response.is_pointer_button_down_on())
                 .lit(lit, tone);
             let r = r.round_to_pixels(ui.pixels_per_point());
-            // Radius follows height: 6 on a strip's 24 pt; a header's
-            // pieces take their well's radius less its inset.
-            let (radius, body, ink) = match style {
-                Style::Raised => {
-                    let radius = theme::radius::for_height(r.height());
-                    let body = raised::paint(ui.painter(), r, radius, &face);
-                    (radius, body, face.text())
-                }
-                Style::Well => (
-                    well::PIECE_RADIUS,
-                    r,
-                    well::paint_piece(ui.painter(), r, &face),
-                ),
-            };
+            // Pieces of one sunk well, on headers (ADR-0101) and mixer
+            // strips (the interface audit's X1–X4).
+            let radius = well::PIECE_RADIUS;
+            let ink = well::paint_piece(ui.painter(), r, &face);
             if mute_over && button == Toggle::Mute {
                 super::follow::ring(ui, r);
             }
@@ -156,10 +138,10 @@ impl Arrangement {
                 text = accent;
             }
             if button == Toggle::Cue {
-                crate::icons::draw_headphones(p, body.center(), text);
+                crate::icons::draw_headphones(p, r.center(), text);
             } else {
                 p.text(
-                    body.center(),
+                    r.center(),
                     Align2::CENTER_CENTER,
                     &label[..1],
                     fonts::medium(theme::size::CAPTION),

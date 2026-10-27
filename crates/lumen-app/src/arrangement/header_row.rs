@@ -15,7 +15,6 @@ use eframe::emath::GuiRounding as _;
 use lumen_project::model::{Id, Track, TrackKind};
 use lumen_project::solo::Heard;
 
-use super::buttons::Style;
 use super::headers::{
     CONTENT_RIGHT, CONTENT_X, FOLD, GAP, SILENCED, arm_button, columns, group_description,
     kind_name, name_center,
@@ -380,7 +379,7 @@ impl Arrangement {
             &track,
             hears,
             (mute_rect, solo_rect),
-            (id, look, "", Style::Well),
+            (id, look, ""),
         );
         // Returns record nothing: no arm piece.
         if track.kind != TrackKind::Return
@@ -397,7 +396,7 @@ impl Arrangement {
             self.mixer_row(ui, doc, &track, (rect, left), (id, look));
             let (_, _, third) = columns(rect, left);
             if super::sends::has_sends(track.kind) {
-                self.send_well(ui, doc, &track, third, selected);
+                self.send_well(ui, doc, &track, third, (selected, false));
             }
             // An unfolded return lists what sends to it (the owner's R2).
             if track.kind == TrackKind::Return {

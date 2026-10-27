@@ -3,6 +3,10 @@
 //! for both views, the owner's B4), the returns after a gap, and the master
 //! pinned at the right with the loudness column (the owner's L2) beside it.
 //! The strips scroll sideways; only those in view are drawn.
+//!
+//! The interface audit's X6: the mixer is one `header` surface, and the
+//! strips scroll under the pinned master, which casts a short shadow over
+//! them in place of a rule.
 
 use eframe::egui::{
     self, Align2, FontId, Rangef, Rect, Sense, Shape, Stroke, Ui, UiBuilder, pos2, vec2,
@@ -118,7 +122,7 @@ impl Arrangement {
     pub(crate) fn mixer_panel(&mut self, ui: &mut Ui, doc: &mut Document, keymap: &Keymap) {
         let palette = *theme::p();
         let area = ui.max_rect();
-        ui.painter().rect_filled(area, 0.0, palette.canvas);
+        ui.painter().rect_filled(area, 0.0, palette.header);
         let heard = lumen_project::solo::hearing(doc.project());
         let look = StripLook {
             sections: Sections::fitting(
@@ -139,13 +143,7 @@ impl Arrangement {
             loudness.left() - 1.0 - strip::WIDTH..=loudness.left() - 1.0,
             area.y_range(),
         );
-        let strips =
-            Rect::from_x_y_ranges(area.left()..=master.left() - RETURNS_GAP, area.y_range());
-        ui.painter().vline(
-            master.left() - RETURNS_GAP / 2.0,
-            area.y_range(),
-            Stroke::new(1.0, palette.border_strong),
-        );
+        let strips = Rect::from_x_y_ranges(area.left()..=master.left(), area.y_range());
 
         // The strips in order: tracks shown in the arrangement, then the
         // returns.
@@ -237,20 +235,25 @@ impl Arrangement {
                 }
             });
             self.mixer_offset = output.state.offset.x;
-            // Strips cut by an edge fade into the ground there, rather than
-            // ending as a stray rail (the interface audit's U2).
-            let ground = palette.canvas;
-            let edge = theme::space::L;
+            // Strips cut by the left edge fade into the ground there, rather
+            // than ending as a stray rail (the interface audit's U2); at the
+            // right they pass under the master's shadow (X6).
+            let ground = palette.header;
             let painter = ui.painter_at(strips);
             if self.mixer_offset > 0.5 {
-                let rect = Rect::from_min_size(strips.min, vec2(edge, strips.height()));
+                let rect = Rect::from_min_size(strips.min, vec2(theme::space::L, strips.height()));
                 widgets::gradient(&painter, rect, ground, ground.gamma_multiply(0.0));
             }
-            if self.mixer_offset + strips.width() < width - 0.5 {
-                let rect =
-                    Rect::from_min_max(pos2(strips.right() - edge, strips.top()), strips.max);
-                widgets::gradient(&painter, rect, ground.gamma_multiply(0.0), ground);
-            }
+            let shadow = Rect::from_min_max(
+                pos2(strips.right() - theme::space::M, strips.top()),
+                strips.max,
+            );
+            widgets::gradient(
+                &painter,
+                shadow,
+                palette.shadow.gamma_multiply(0.0),
+                palette.shadow,
+            );
             let bar = widgets::ScrollBar {
                 area: strips,
                 axis: widgets::Axis::Horizontal,

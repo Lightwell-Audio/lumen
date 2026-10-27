@@ -514,6 +514,9 @@ pub mod size {
     pub const SCALE: f32 = 10.0;
     /// Ruler numbers, units after a readout, clip meta, in the monospace.
     pub const MONO_SMALL: f32 = 10.0;
+    /// A unit after a number in a tight field, in hint grey (a strip's
+    /// trim, the interface audit's X1–X4 B).
+    pub const UNIT: f32 = 9.0;
     pub const CAPTION: f32 = 11.0;
     /// The letters on K5 keycaps: the caption size.
     pub const KEYCAP: f32 = CAPTION;
@@ -554,6 +557,9 @@ pub mod size {
     /// arrows): its width; it is as tall as the well less `space::XXS` each
     /// side.
     pub const WELL_PIECE_W: f32 = 18.0;
+    /// A piece of a mixer strip's M S ● well: the strip has room for wider
+    /// pieces than a header (the interface audit's X1–X4).
+    pub const STRIP_PIECE_W: f32 = 22.0;
     /// A cell of the transport bar's wells (a button, a readout): as tall
     /// as a 30 pt well less 2 pt each side (the interface audit's TB1).
     pub const WELL_CELL: f32 = CONTROL_LARGE - 2.0 * super::space::XXS;

@@ -75,21 +75,28 @@ pub(super) fn row_button(
     );
     let painter = ui.painter();
     let font = FontId::proportional(theme::size::CAPTION);
-    let room = row.width() - 20.0;
-    let shown = if painter
-        .layout_no_wrap(text.to_owned(), font.clone(), palette.text)
-        .size()
-        .x
-        > room
-    {
-        widgets::shorten(painter, text, font.clone(), room)
-    } else {
-        text.to_owned()
+    let mut left = row.left() + 5.0;
+    // "In  None", "Mon  Auto": the caption before the two spaces in hint
+    // grey, the value after it in the row's ink (the interface audit's X7).
+    let value = match text.split_once("  ") {
+        Some((caption, value)) => {
+            let caption = painter.text(
+                pos2(left, body.center().y),
+                Align2::LEFT_CENTER,
+                caption,
+                font.clone(),
+                palette.text_hint,
+            );
+            left = caption.right() + theme::space::XS;
+            value
+        }
+        None => text,
     };
+    let room = row.right() - 15.0 - left;
     painter.text(
-        pos2(row.left() + 5.0, body.center().y),
+        pos2(left, body.center().y),
         Align2::LEFT_CENTER,
-        shown,
+        widgets::fit(painter, value, font.clone(), room),
         font,
         palette
             .text_secondary

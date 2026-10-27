@@ -370,9 +370,13 @@ impl Arrangement {
     }
 
     /// The Solo/Cue switch at the master's right (the owner's C1). On Cue,
-    /// the tracks' S buttons cue them to the headphones. Without a cue pair
-    /// (Audio settings) it is quiet and says why when clicked.
+    /// the tracks' S buttons cue them to the headphones. It is left out
+    /// until a cue pair is chosen in Audio settings (the interface audit's
+    /// X8): greyed, it read as a broken control.
     pub(super) fn cue_switch(&mut self, ui: &mut Ui, rect: Rect, mid: f32, place: &str) {
+        if !self.cue.ready {
+            return;
+        }
         let switch = Rect::from_min_size(
             pos2(
                 rect.right() - super::headers::CONTENT_RIGHT - 46.0,
@@ -380,30 +384,22 @@ impl Arrangement {
             ),
             vec2(46.0, 18.0),
         );
-        let ready = self.cue.ready;
-        let on = self.cue.mode && ready;
+        let on = self.cue.mode;
         let response = ui
             .interact(switch, ui.id().with(("solo cue switch", place)), Sense::click())
-            .on_hover_text(if ready {
-                "Solo or Cue: on Cue, the tracks' S buttons send them to the headphones, before the fader"
-            } else {
-                "Cue needs a second pair of outputs: choose a Cue output in Audio settings"
-            });
+            .on_hover_text(
+                "Solo or Cue: on Cue, the tracks' S buttons send them to the headphones, before the fader",
+            );
         response.widget_info(|| {
             egui::WidgetInfo::selected(
                 egui::WidgetType::Checkbox,
-                ready,
+                true,
                 on,
                 format!("Solo/Cue switch: Cue{place}"),
             )
         });
         if response.clicked() {
-            if ready {
-                self.cue.mode = !self.cue.mode;
-            } else {
-                self.note =
-                    Some("Choose a Cue output in Audio settings first: a second pair of outputs");
-            }
+            self.cue.mode = !self.cue.mode;
         }
         let hover = motion::hover(
             ui.ctx(),
@@ -411,13 +407,11 @@ impl Arrangement {
             response.hovered(),
         );
         let lit = motion::hover(ui.ctx(), ui.id().with(("solo cue lit", place)), on);
-        // A raised toggle (ADR-0052): on in Cue, flat and grey without a
-        // cue pair.
+        // A raised toggle (ADR-0052), on in Cue.
         let face = raised::Face::new(theme::controls(false))
             .hover(hover)
             .pressed(response.is_pointer_button_down_on())
-            .lit(lit, Tone::On)
-            .enabled(ready);
+            .lit(lit, Tone::On);
         let switch = switch.round_to_pixels(ui.pixels_per_point());
         let body = raised::paint(
             ui.painter(),

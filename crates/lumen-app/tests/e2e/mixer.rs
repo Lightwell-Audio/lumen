@@ -401,3 +401,53 @@ fn a_track_plays_straight_to_another_pair_of_outputs() {
         "outputs 3/4 play it"
     );
 }
+
+#[test]
+fn a_strips_sends_and_buttons_are_wells_as_on_the_header() {
+    // The interface audit's X1–X4: every return is a slot in one row on a
+    // strip, as on the header, and M, S and arm sit in one row under pan;
+    // a return has M and S, the master M alone.
+    let mut lumen = mixed_with("mixer-wells", 3);
+    let rect = |lumen: &Lumen, name: &str| lumen.harness.get_by_label_contains(name).rect();
+    let strip = rect(&lumen, "Mixer strip: Audio 3");
+    let slots: Vec<_> = ["A Return 1", "B Return 2", "C Return 3"]
+        .iter()
+        .map(|to| rect(&lumen, &format!("Send Audio 3 to {to} in the mixer")))
+        .collect();
+    for pair in slots.windows(2) {
+        assert!((pair[0].center().y - pair[1].center().y).abs() < 0.5);
+        assert!(pair[1].left() > pair[0].right(), "{pair:?}");
+    }
+    assert!(strip.contains_rect(slots[0]) && strip.contains_rect(slots[2]));
+    let pan = rect(&lumen, "Audio 3 pan in the mixer:");
+    assert!(pan.top() > slots[0].bottom(), "the sends come before pan");
+    let buttons: Vec<_> = ["Mute Audio 3 in", "Solo Audio 3 in", "Arm Audio 3 in"]
+        .iter()
+        .map(|name| rect(&lumen, name))
+        .collect();
+    for pair in buttons.windows(2) {
+        assert!((pair[0].center().y - pair[1].center().y).abs() < 0.5);
+        assert!(pair[1].left() > pair[0].right(), "{pair:?}");
+    }
+    assert!(buttons[0].top() > pan.bottom(), "M, S and arm under pan");
+    let ret = rect(&lumen, "Mute Return 1 in the mixer");
+    assert!((ret.center().y - buttons[0].center().y).abs() < 0.5);
+    assert!(!lumen.shows("Arm Return 1 in the mixer"));
+    let master = rect(&lumen, "Mute Master in the mixer");
+    assert!((master.center().y - buttons[0].center().y).abs() < 0.5);
+    // A slot is set as the header's is: click and type.
+    let to = track(&lumen, "Return 2").id;
+    lumen
+        .harness
+        .get_by_label_contains("Send Audio 3 to B Return 2 in the mixer")
+        .click();
+    lumen.frames(2);
+    lumen.harness.event(Event::Text("-9".into()));
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.run_until("the send is set", |lumen| {
+        track(lumen, "Audio 3")
+            .sends
+            .iter()
+            .any(|s| s.to == to && (s.level.0 + 9.0).abs() < 0.01)
+    });
+}

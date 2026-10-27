@@ -51,7 +51,7 @@ pub use groups::Place;
 pub use import::{DropInto, Imported, Places, import_place};
 pub use lanes::{Drag, Line, Shift};
 pub use midi_clips::NewClip;
-pub use mixer::{MAX_RETURNS, Refused};
+pub use mixer::Refused;
 pub use notes::Resize;
 pub use outputs::{Leave, OutputEdit};
 pub use overrides::Overrides;

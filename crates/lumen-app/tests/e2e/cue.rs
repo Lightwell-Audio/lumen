@@ -78,14 +78,8 @@ fn a_cued_track_plays_on_the_cue_pair_before_its_fader_and_its_mute() {
     lumen.frames(5);
     let track = lumen.track_names()[0].clone();
 
-    // Without a cue pair the switch says what is missing.
-    lumen.click("Solo/Cue switch: Cue");
-    assert!(
-        lumen
-            .app()
-            .note()
-            .is_some_and(|n| n.contains("Audio settings"))
-    );
+    // Without a cue pair the switch is left out (the interface audit's X8).
+    assert!(!lumen.shows("Solo/Cue switch: Cue"));
     assert!(lumen.shows(&format!("Solo {track}")));
 
     choose_cue_pair(&mut lumen);

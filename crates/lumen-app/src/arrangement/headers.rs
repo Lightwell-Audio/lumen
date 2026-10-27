@@ -684,10 +684,11 @@ pub(super) fn arm_button(
     response.clicked()
 }
 
-/// The arm button as a piece of a header's well: armed, a `record` body at
-/// 25% with a solid dot and a ring inside the piece that breathes (no glow
-/// beyond it, which would spill over S); otherwise as the round button,
-/// with the piece's Ember wash under the pointer.
+/// The arm button as a piece of a well (a header's or a mixer strip's):
+/// armed, a `record` body around 25% with a solid dot, and a ring, the
+/// body and a halo round the dot that breathe together, all inside the
+/// piece (a glow beyond it would spill over S); otherwise as the round
+/// button, with the piece's Ember wash under the pointer.
 fn arm_piece(ui: &Ui, rect: Rect, arm: Arm, hover: f32) {
     let palette = theme::p();
     let p = ui.painter();
@@ -696,8 +697,16 @@ fn arm_piece(ui: &Ui, rect: Rect, arm: Arm, hover: f32) {
     let ring = rect.height() / 2.0 - PIECE_RING_INSET;
     match arm {
         Arm::All => {
+            // The body breathes with the ring and a soft halo swells round
+            // the dot (the owner: the pulse keeps its personality).
             let breath = breath(ui);
-            p.rect_filled(rect, r, palette.record.gamma_multiply(ARM_BODY));
+            let swell = PIECE_BODY_LOW + (1.0 - PIECE_BODY_LOW) * 2.0 * breath;
+            p.rect_filled(rect, r, palette.record.gamma_multiply(ARM_BODY * swell));
+            p.circle_filled(
+                center,
+                PIECE_DOT + PIECE_HALO * breath,
+                palette.record.gamma_multiply(PIECE_HALO_ALPHA * breath),
+            );
             p.circle_stroke(
                 center,
                 ring - 0.5 + 0.5 * breath,
@@ -748,6 +757,12 @@ fn breath(ui: &Ui) -> f32 {
 /// piece's height its ring sits.
 const PIECE_DOT: f32 = 4.0;
 const PIECE_RING_INSET: f32 = 2.0;
+/// An armed piece's body at the breath's low point, as a share of
+/// `ARM_BODY` (it rises as far above at the high point); the halo round
+/// its dot at full breath: how far it reaches past the dot, how strong.
+const PIECE_BODY_LOW: f32 = 0.7;
+const PIECE_HALO: f32 = 1.5;
+const PIECE_HALO_ALPHA: f32 = 0.35;
 
 /// The right half of a ring around `center`.
 fn half_ring(center: egui::Pos2, radius: f32) -> Vec<egui::Pos2> {
