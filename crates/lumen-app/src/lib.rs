@@ -629,9 +629,11 @@ impl eframe::App for App {
                     .inner_margin(egui::Margin::symmetric(theme::space::M as i8, 0)),
             )
             .show(ui, |ui| {
+                // Edge to edge: the content sits inside the bar's margins,
+                // the light does not.
                 let bar = ui.max_rect();
                 ui.painter().hline(
-                    bar.x_range(),
+                    bar.x_range().expand(theme::space::M),
                     bar.top() + 0.5 * theme::stroke::HAIRLINE,
                     egui::Stroke::new(theme::stroke::HAIRLINE, edge_light),
                 );
