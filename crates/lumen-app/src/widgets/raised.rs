@@ -185,7 +185,7 @@ pub fn lip(painter: &Painter, rect: Rect, radius: u8, colour: Color32) {
 
 /// [`lip`] on a surface with no border (a well, a thumb): the line is the
 /// surface's top row.
-pub fn bare_lip(painter: &Painter, rect: Rect, radius: u8, colour: Color32) {
+pub(super) fn bare_lip(painter: &Painter, rect: Rect, radius: u8, colour: Color32) {
     painter.add(lip_shape(rect, radius, colour, Edge::Bare));
 }
 
@@ -197,6 +197,7 @@ enum Edge {
 }
 
 fn lip_shape(rect: Rect, radius: u8, colour: Color32, edge: Edge) -> Shape {
+    /// Segments in each corner's quarter turn: smooth at 200%.
     const STEPS: usize = 6;
     if colour.a() == 0 || rect.width() <= 0.0 || rect.height() <= 0.0 {
         return Shape::Noop;

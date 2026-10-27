@@ -161,6 +161,29 @@ fn a_remembered_port_that_is_away_is_listed_with_its_switches() {
     )));
 }
 
+/// A controller often has an input and an output of one name: each row's
+/// switch acts on its own port.
+#[test]
+fn an_input_and_an_output_of_one_name_have_their_own_switches() {
+    let (mut lumen, fake) = with_ports_on("chip-same-name");
+    fake.plug(Direction::Output, "Keystation");
+    until_named(&mut lumen, "Track Keystation output in the MIDI panel");
+    // The input's switch turns the input off and leaves the output alone.
+    lumen.click("Track Keystation input in the MIDI panel");
+    lumen.frames(2);
+    assert!(!lumen.is_on("Track Keystation input in the MIDI panel"));
+    assert!(!lumen.is_on("Track Keystation output in the MIDI panel"));
+    assert_eq!(
+        lumen.app().saved_midi_ports(),
+        [("output".to_owned(), "Synth".to_owned(), true, false)]
+    );
+    // And the output's turns the output on alone.
+    lumen.click("Track Keystation output in the MIDI panel");
+    lumen.frames(2);
+    assert!(lumen.is_on("Track Keystation output in the MIDI panel"));
+    assert!(!lumen.is_on("Track Keystation input in the MIDI panel"));
+}
+
 #[test]
 fn midi_settings_opens_the_window_on_the_midi_page() {
     let (mut lumen, _fake) = with_ports_on("chip-settings");
