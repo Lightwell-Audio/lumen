@@ -98,7 +98,7 @@ fn plus(painter: &egui::Painter, at: egui::Pos2, colour: egui::Color32) {
     painter.line_segment([at - vec2(0.0, 6.0), at + vec2(0.0, 6.0)], stroke);
 }
 
-/// The gap between the tracks and the returns, and before the master.
+/// The gap between the tracks and the returns.
 const RETURNS_GAP: f32 = 10.0;
 /// How fast a strip drag near an edge scrolls the strips, at the edge.
 const DRAG_SCROLL: f32 = 900.0;
@@ -237,23 +237,26 @@ impl Arrangement {
             self.mixer_offset = output.state.offset.x;
             // Strips cut by the left edge fade into the ground there, rather
             // than ending as a stray rail (the interface audit's U2); at the
-            // right they pass under the master's shadow (X6).
+            // right, while more lies beyond, they pass under the master's
+            // shadow (X6).
             let ground = palette.header;
             let painter = ui.painter_at(strips);
             if self.mixer_offset > 0.5 {
                 let rect = Rect::from_min_size(strips.min, vec2(theme::space::L, strips.height()));
                 widgets::gradient(&painter, rect, ground, ground.gamma_multiply(0.0));
             }
-            let shadow = Rect::from_min_max(
-                pos2(strips.right() - theme::space::M, strips.top()),
-                strips.max,
-            );
-            widgets::gradient(
-                &painter,
-                shadow,
-                palette.shadow.gamma_multiply(0.0),
-                palette.shadow,
-            );
+            if self.mixer_offset + strips.width() < width - 0.5 {
+                let shadow = Rect::from_min_max(
+                    pos2(strips.right() - theme::space::M, strips.top()),
+                    strips.max,
+                );
+                widgets::gradient(
+                    &painter,
+                    shadow,
+                    palette.shadow.gamma_multiply(0.0),
+                    palette.shadow,
+                );
+            }
             let bar = widgets::ScrollBar {
                 area: strips,
                 axis: widgets::Axis::Horizontal,

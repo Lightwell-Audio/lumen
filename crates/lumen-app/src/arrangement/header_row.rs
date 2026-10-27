@@ -382,9 +382,7 @@ impl Arrangement {
             (id, look, ""),
         );
         // Returns record nothing: no arm piece.
-        if track.kind != TrackKind::Return
-            && arm_button(ui, arm_rect, id, &track.name, arm, (look, true))
-        {
+        if track.kind != TrackKind::Return && arm_button(ui, arm_rect, id, &track.name, arm) {
             self.press_arm(ui, doc, track.id, arm.on());
         }
 

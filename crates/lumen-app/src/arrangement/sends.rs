@@ -10,8 +10,7 @@
 //!
 //! MT-MIX-4 run 1 (the owner's choices from mock-ups): knobs step up on a
 //! selected row (C4); an unfolded return lists the tracks sending to it,
-//! each with its knob (R2). (O1's "+N ▾" list of a track's sends went
-//! with the wells, which show every return.)
+//! each with its knob (R2).
 //!
 //! MT-MIX-4 run 2: a return lists its four loudest senders, then "+N more"
 //! opens them all (L4); a send turned down to silence leaves the list once
@@ -36,7 +35,7 @@ const SLOT_GAP: f32 = 1.0;
 const WELL_PAD: f32 = theme::space::XXS;
 /// The narrowest a slot gets (a deeply nested track with twelve returns).
 const SLOT_MIN: f32 = 4.0;
-/// A knob in a list (the "+N" list, a return's senders): small enough
+/// A knob in a list (a return's senders): small enough
 /// that knobs on 22 pt rows never touch.
 const SMALL_KNOB: f32 = theme::size::KNOB_SMALL;
 /// A return's "+N more" list scrolls past this many senders.
@@ -127,8 +126,8 @@ pub(super) struct Knob<'a> {
     pub(super) to: &'a Return,
     pub(super) selected: bool,
     pub(super) name: String,
-    /// Where it is drawn ("header", "list", "return", "return list",
-    /// "strip"): each place's knobs are their own widgets.
+    /// Where it is drawn ("header", "strip", "return", "return list"):
+    /// each place's sends are their own widgets.
     pub(super) place: &'static str,
 }
 
