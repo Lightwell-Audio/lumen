@@ -13,13 +13,13 @@ use crate::plugins::{Plugins, Status};
 use crate::{theme, widgets};
 
 /// The magnifier's side, the list's icon size (the interface audit's B1).
-const MAGNIFIER: f32 = 16.0;
+const MAGNIFIER: f32 = super::list::ICON;
 
 /// Where the search field's words start, from its left edge: a step in,
 /// the magnifier and a step. The magnifier's centre is then on the list's
 /// icon column and the words on the list's names, and the chips start
 /// their words here too.
-pub(super) const TEXT_EDGE: f32 = theme::space::S + MAGNIFIER + theme::space::S;
+const TEXT_EDGE: f32 = theme::space::S + MAGNIFIER + theme::space::S;
 
 /// What the search field did this frame.
 pub(super) struct Searched {
@@ -124,7 +124,8 @@ pub(super) fn search(
     Searched { escaped }
 }
 
-/// All, Instruments and Effects, in thirds across the search field's width.
+/// All, Instruments and Effects across the search field's width: in equal
+/// pieces where they fit so.
 /// Returns the choice made, if another.
 pub(super) fn type_filter(ui: &mut Ui, kind: TypeFilter) -> Option<TypeFilter> {
     widgets::segmented_full(
@@ -156,8 +157,9 @@ const CHIPS_SHOWN: usize = 5;
 
 /// The chips: Favorites, Recent and the commonest categories, flowing onto
 /// two lines or so with their words on the search field's (`TEXT_EDGE`),
-/// the rest under "More ▾". A chip that is on turns off when clicked again. Returns the chip now chosen (`Chip::All` when
-/// the one on was clicked off).
+/// the rest under "More ▾". A chip that is on turns off when clicked
+/// again. Returns the chip now chosen (`Chip::All` when the one on was
+/// clicked off).
 pub(super) fn chips(ui: &mut Ui, chosen: &Chip, categories: &[(String, usize)]) -> Option<Chip> {
     let mut picked = None;
     // A chosen category stays in view even when it is not among the commonest.

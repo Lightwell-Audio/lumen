@@ -574,6 +574,16 @@ impl App {
         }
     }
 
+    /// While the save question is up, takes a plain Enter for it before the
+    /// keymap or any other window can read the key, when nothing has the
+    /// keyboard (a focused button answers its own Enter).
+    pub(crate) fn take_prompt_enter(&mut self, ctx: &egui::Context) {
+        self.prompt_enter = self.prompt.is_some()
+            && !self.typing
+            && ctx.memory(|m| m.focused().is_none())
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+    }
+
     /// "Save changes to <name>?" with Save, Don't save and Cancel. Not a
     /// blocking dialog: the rest of the app keeps running behind it.
     pub(crate) fn prompt_window(&mut self, ctx: &egui::Context) {
@@ -620,11 +630,7 @@ impl App {
             });
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             choice = Some(2);
-        } else if choice.is_none()
-            && !self.typing
-            && ctx.memory(|m| m.focused().is_none())
-            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
-        {
+        } else if std::mem::take(&mut self.prompt_enter) && choice.is_none() {
             choice = Some(0);
         }
         match choice {

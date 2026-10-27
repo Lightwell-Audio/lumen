@@ -451,7 +451,7 @@ strokes are 4 wide and the third reflection goes.
 | Popover / window | `overlay`, `border_strong`, the edge light, the shadow; windows radius 12, popovers and menus 8 | | | | |
 | Notice | `raised` ground, a 1 pt `warning` hairline at 45%, radius 8, ⚠ and `warning` text, wrapped, with buttons named for the action | | | | |
 | Switch (on/off) | a 30 × 16 pt sunk pill (`well`, the lip), the knob a `text` to `text_secondary` gradient; its label at the left of a 20 pt row as wide as there is room for | Ember over the pill (`FAST`) | — | the knob glides right (`GLIDE`), `accent_hi` to `accent_lo`, on `accent_muted` with the 38% hairline | `text_disabled` |
-| Segmented (2–5 choices; `widgets::segmented`, `segmented_styled`) | a sunk trough (`well`, the lip; radius by height), optional icon, label and keycap, the icon and keycap centred on the label's optical middle (`fonts::optical_middle`: halfway between its capitals' and its lower-case letters' middles), `text_secondary` | Ember over the piece, label `text` | — | a neutral raised thumb (`thumb_hi` to `thumb`, the edge light, the trough's radius less 2) that slides to the choice (`GLIDE`), label `text`; `segmented_styled(.., Some(Tone::Accent))` fills the chosen tool with the accent | label in `text_disabled`, with why on hover |
+| Segmented (2–5 choices; `widgets::segmented`, `segmented_styled`, `segmented_full` across the width given) | a sunk trough (`well`, the lip; radius by height), optional icon, label and keycap, the icon and keycap centred on the label's optical middle (`fonts::optical_middle`: halfway between its capitals' and its lower-case letters' middles), `text_secondary` | Ember over the piece, label `text` | — | a neutral raised thumb (`thumb_hi` to `thumb`, the edge light, the trough's radius less 2) that slides to the choice (`GLIDE`), label `text`; `segmented_styled(.., Some(Tone::Accent))` fills the chosen tool with the accent | label in `text_disabled`, with why on hover |
 | Choice row (longer lists, such as a device's channel pairs) | a 24 pt row, `text`, radius 6 | Ember wash | — | `accent_muted` fill, `accent` text | — |
 | Menu row (`widgets::menu_item`) | `size::MENU_ROW` (32 pt) tall whether it has keycaps or not; rows touch, so the pointer is always over one; `text`, with keycaps at the right, cap and light centred together; `menu_toggle_icon` puts a `size::MENU_ICON` icon before the label | Ember highlight, radius 6, reaching `space::XS` past the row, following the pointer | — | a toggle that is on: `accent_muted`, `accent` letters | `text_disabled` |
 | Pill (lane tabs; `widgets::pills`) | 24 pt, radius `FULL`, `text_secondary` | Ember | — | `accent_muted`, `accent` letters, the 38% hairline; "+ CC" a `border_strong` hairline pill; the browser's chips (`chip_toggle`, `chip_button`) have 8 pt of room, and a button among them is a bare word | — |
@@ -1239,7 +1239,7 @@ a soft shadow, radius `XL`).
 ### The browser's Devices tab (the interface audit's B1 to B6)
 
 Everything lines up on three edges, 12 pt in from the pane (the search
-field, the type filter and the group headers), 28 pt (the magnifier, the
+field, the type filter and the scan line), 28 pt (the magnifier, the
 list's icons) and 44 pt (the search text, the chips' words and the device
 names).
 
@@ -1252,12 +1252,13 @@ names).
   down arrow (`chip_button`), so the row reads as one flow of words.
 - **Rows:** the star shows on a favourite, and on the hovered or selected
   row; elsewhere the column is empty. A hovered or selected row also shows
-  its category as a tag when the pane is wide enough (the vendor, when the
-  list is not grouped by vendor). On a selected row the tag steps up to
-  `text_secondary` so it stays readable on the highlight.
+  its category as a tag when the pane is wide enough. A flat list (Recent)
+  has no vendor headers, so every row there says its vendor instead. On a
+  selected row the tag steps up to `text_secondary` so it stays readable on
+  the highlight.
 - **Group headers:** the count sits centred on the star column.
-- **Scan line:** under a hairline rule at the foot of the list, "Rescan" (or
-  "Cancel" while a scan runs) is a bare chip word.
+- **Scan line:** under the filters and a hairline rule, above the list: the
+  count, and "Rescan" (or "Cancel" while a scan runs) as a bare chip word.
 
 ## 7g. The block budget (ADR-0075, the owner's B)
 

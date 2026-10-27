@@ -164,6 +164,9 @@ pub struct App {
     opening: Option<std::sync::mpsc::Receiver<Result<files::Opened, String>>>,
     /// What to do once unsaved changes are dealt with.
     prompt: Option<Next>,
+    /// Enter answered the save question this frame: taken before anything
+    /// else could read the key (the interface audit's W1).
+    prompt_enter: bool,
     /// What to do after the save in progress succeeds.
     after_save: Option<Next>,
     /// A save, copy or collect waiting for the running plugins' states to be
@@ -491,6 +494,7 @@ impl eframe::App for App {
         self.computer_keyboard_keys(&ctx);
         self.refresh_note_editor(&ctx);
         self.refresh_chain(&ctx);
+        self.take_prompt_enter(&ctx);
         self.command_keys(&ctx);
         if std::mem::take(&mut self.arrangement.import_requested) {
             self.run(&ctx, commands::Command::Import);

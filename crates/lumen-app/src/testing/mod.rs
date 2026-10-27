@@ -443,6 +443,11 @@ impl App {
         samples.as_chunks::<4>().0.to_vec()
     }
 
+    /// A bounce has started: it waits on the plugins or is rendering.
+    pub fn bounce_started(&self) -> bool {
+        self.bouncing.is_some() || self.bounce_waiting.is_some()
+    }
+
     /// Background work is in progress: a save, an open, or files loading.
     pub fn is_busy(&self) -> bool {
         self.export.busy()

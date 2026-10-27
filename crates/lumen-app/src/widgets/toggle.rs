@@ -340,7 +340,8 @@ pub fn segmented<T: PartialEq + Copy>(
 /// [`segmented`] across the whole width it is given, the choices in equal
 /// pieces, or, where the widest would not fit that way, each its own width
 /// with an equal share of the room left (the browser's type filter under
-/// its search field, the interface audit's B2).
+/// its search field, the interface audit's B2). Where even the words do not
+/// fit, it is as wide as they need, as [`segmented`] is.
 pub fn segmented_full<T: PartialEq + Copy>(
     ui: &mut Ui,
     id: EguiId,
@@ -374,7 +375,7 @@ pub fn segmented_styled<T: PartialEq + Copy>(
 }
 
 /// [`segmented_styled`], its pieces as wide as their words or (`full`)
-/// sharing the width given equally.
+/// filling the width given, as [`segmented_full`] says.
 fn segmented_with<T: PartialEq + Copy>(
     ui: &mut Ui,
     id: EguiId,

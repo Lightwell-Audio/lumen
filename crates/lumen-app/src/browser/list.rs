@@ -29,7 +29,8 @@ const VENDOR_H: f32 = 26.0;
 const PAD: f32 = 6.0;
 /// Below this width a row drops its category tag (the header says it).
 const TAG_MIN_WIDTH: f32 = 200.0;
-const ICON: f32 = 16.0;
+/// A row's icon and star; the search field's magnifier matches it.
+pub(super) const ICON: f32 = 16.0;
 
 /// What the list is showing.
 pub(super) struct Input<'a> {
@@ -393,8 +394,8 @@ fn draw_device(
     // Right to left: the star, then what the row says of itself. At rest
     // a row is its name alone, a favourite keeping its star; the tag and
     // star show under the pointer and on the selected row (the interface
-    // audit's B4), so names get the width. The info line still names the
-    // category.
+    // audit's B4), so names get the width. A flat list (Recent) always
+    // says each row's vendor, as no header does.
     let shown = hovered || selected;
     let mut right = rect.right() - PAD;
     if favorite || shown {

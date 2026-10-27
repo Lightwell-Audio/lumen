@@ -179,6 +179,7 @@ impl App {
             saving: None,
             opening: None,
             prompt: None,
+            prompt_enter: false,
             after_save: None,
             save_waiting: None,
             collecting: None,
