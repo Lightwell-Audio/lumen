@@ -14,6 +14,7 @@ use std::sync::mpsc::{self, Receiver};
 use eframe::egui;
 use lumen_project::model::{Id, Media};
 
+use crate::app::commands::wait;
 use crate::app::projects::FileDialog;
 use crate::files::Control;
 use crate::pool::{self, Folders, Row};
@@ -548,9 +549,9 @@ impl App {
     /// Why the pool's commands cannot run now.
     pub(crate) fn media_pool_unavailable(&self) -> Result<(), &'static str> {
         if self.dialog.is_some() {
-            Err("A file dialog is open")
+            Err(wait::DIALOG)
         } else if self.media_pool.busy() {
-            Err("The media pool is busy")
+            Err(wait::MEDIA_POOL)
         } else {
             Ok(())
         }

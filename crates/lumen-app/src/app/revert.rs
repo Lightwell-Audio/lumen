@@ -54,7 +54,7 @@ impl App {
         } else if !self.document.is_dirty() {
             Err("There are no unsaved changes")
         } else if self.opening.is_some() {
-            Err("A project is opening")
+            Err(crate::app::commands::wait::OPENING)
         } else {
             self.copy_unavailable()
         }

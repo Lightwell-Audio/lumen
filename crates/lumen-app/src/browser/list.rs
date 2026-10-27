@@ -29,7 +29,8 @@ const VENDOR_H: f32 = 26.0;
 const PAD: f32 = 6.0;
 /// Below this width a row drops its category tag (the header says it).
 const TAG_MIN_WIDTH: f32 = 200.0;
-const ICON: f32 = 16.0;
+/// A row's icon and star; the search field's magnifier matches it.
+pub(super) const ICON: f32 = 16.0;
 
 /// What the list is showing.
 pub(super) struct Input<'a> {
@@ -41,6 +42,9 @@ pub(super) struct Input<'a> {
     pub flat: bool,
     /// Bring the selected row into view this frame (a key moved it).
     pub scroll_to_selected: bool,
+    /// What choosing an instrument and an effect does, as a menu row
+    /// ("Add to Bass"), in that order.
+    pub adds: [&'a str; 2],
 }
 
 /// What the pointer did.
@@ -273,7 +277,8 @@ fn draw_header(ui: &mut Ui, header: Header<'_>, fold: impl FnOnce(&mut Out), out
         FontId::monospace(theme::size::MONO_SMALL),
         palette.text_hint,
     );
-    let right = rect.right() - PAD - count_galley.size().x;
+    // The count is centred on the device rows' star column (B6).
+    let right = rect.right() - PAD - ICON / 2.0 - count_galley.size().x / 2.0;
     let label_left = rect.left() + PAD + 16.0;
     let label = fit(
         painter,
@@ -386,27 +391,34 @@ fn draw_device(
         ink,
     ));
 
-    // Right to left: the star, then what the row says of itself.
-    let star_ink = if favorite {
-        palette.accent
-    } else if hovered || selected {
-        palette.text_secondary
-    } else {
-        palette.text_disabled
-    };
-    painter.extend(icons::shapes(
-        if favorite {
-            Icon::StarFilled
+    // Right to left: the star, then what the row says of itself. At rest
+    // a row is its name alone (in Recent, its vendor too, below), a
+    // favourite keeping its star; the tag and
+    // star show under the pointer and on the selected row (the interface
+    // audit's B4), so names get the width.
+    let shown = hovered || selected;
+    let mut right = rect.right() - PAD;
+    if favorite || shown {
+        let star_ink = if favorite {
+            palette.accent
         } else {
-            Icon::Star
-        },
-        Rect::from_center_size(star.center(), vec2(ICON, ICON)),
-        star_ink,
-    ));
-    let mut right = star.left() - theme::space::XS;
+            theme::controls(selected).text
+        };
+        painter.extend(icons::shapes(
+            if favorite {
+                Icon::StarFilled
+            } else {
+                Icon::Star
+            },
+            Rect::from_center_size(star.center(), vec2(ICON, ICON)),
+            star_ink,
+        ));
+        right = star.left() - theme::space::XS;
+    }
+    // A flat list (Recent) always says the vendor, as no header does.
     let caption = if input.flat {
         Some(device.vendor.as_str())
-    } else if rect.width() >= TAG_MIN_WIDTH {
+    } else if shown && rect.width() >= TAG_MIN_WIDTH {
         device.categories.first().map(String::as_str)
     } else {
         None
@@ -415,9 +427,8 @@ fn draw_device(
         right = tag(
             painter,
             caption,
-            right,
-            rect.center().y,
-            input.flat,
+            (right, rect.center().y),
+            (input.flat, selected),
             &palette,
         );
     }
@@ -447,7 +458,19 @@ fn draw_device(
     if response.double_clicked() && !star_response.hovered() {
         out.choose = Some(device.id.clone());
     }
+    // The owner's A (the interface audit's B7): what choosing it does
+    // first, then favouring it, then its file.
     widgets::Menu::context(&response).show(|ui| {
+        if crate::chain::placeable(device) {
+            let add = match device.kind {
+                Kind::Instrument => input.adds[0],
+                Kind::Effect => input.adds[1],
+            };
+            if widgets::menu_item(ui, add, None, true).clicked() {
+                out.choose = Some(device.id.clone());
+            }
+            ui.separator();
+        }
         let label = if favorite {
             "Remove from favorites"
         } else {
@@ -457,6 +480,7 @@ fn draw_device(
             out.favorite = Some(device.id.clone());
         }
         if let (Source::Vst3, Some(module)) = (device.source, &device.module) {
+            ui.separator();
             if widgets::menu_item(ui, "Rescan this plugin", None, true).clicked() {
                 out.retry = Some(module.to_string_lossy().into_owned());
             }
@@ -467,25 +491,29 @@ fn draw_device(
                 out.copy = Some(module.to_string_lossy().into_owned());
             }
         }
-        widgets::menu_item(ui, "Add to selected track", None, false)
-            .on_disabled_hover_text(crate::arrives("the next slice of Milestone 6"));
     });
 }
 
 /// A small outlined word at the row's right, ending at `right`; returns
-/// where it starts.
+/// where it starts. `plain` drops the outline; on a `selected` row the
+/// word and outline step up to `text_secondary`, as the hint grey would
+/// all but vanish there (the interface audit's B5).
 fn tag(
     painter: &Painter,
     text: &str,
-    right: f32,
-    y: f32,
-    plain: bool,
+    (right, y): (f32, f32),
+    (plain, selected): (bool, bool),
     palette: &theme::Palette,
 ) -> f32 {
+    let (ink, edge) = if selected {
+        (palette.text_secondary, palette.text_secondary)
+    } else {
+        (palette.text_hint, palette.border_strong)
+    };
     let galley = painter.layout_no_wrap(
         text.to_owned(),
         FontId::proportional(theme::size::SCALE),
-        palette.text_hint,
+        ink,
     );
     let pad = 4.0;
     let width = galley.size().x + 2.0 * pad;
@@ -494,14 +522,14 @@ fn tag(
         painter.rect_stroke(
             rect,
             theme::radius::SMALL,
-            Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
+            Stroke::new(theme::stroke::HAIRLINE, edge),
             StrokeKind::Inside,
         );
     }
     painter.galley(
         pos2(rect.left() + pad, y - galley.size().y / 2.0),
         galley,
-        palette.text_hint,
+        ink,
     );
     rect.left() - theme::space::XS
 }

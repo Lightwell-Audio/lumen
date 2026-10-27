@@ -116,6 +116,12 @@ impl Fit {
         self.drawn += (ui.cursor().left() - before).max(0.0);
     }
 
+    /// Notes that an optional piece took `width` inside one that is not
+    /// (the status chip's text).
+    pub fn spent(&mut self, width: f32) {
+        self.drawn += width.max(0.0);
+    }
+
     /// Ends the frame: measures the essentials.
     pub fn finish(&mut self, ui: &Ui) {
         let base = (ui.cursor().left() - self.start - self.drawn).max(0.0);

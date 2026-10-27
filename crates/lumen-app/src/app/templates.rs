@@ -112,7 +112,7 @@ impl App {
     /// copy under way belongs to the open project.
     pub(crate) fn new_unavailable(&self) -> Result<(), &'static str> {
         if self.collecting.is_some() {
-            Err("A copy is under way")
+            Err(crate::app::commands::wait::COPY)
         } else {
             Ok(())
         }

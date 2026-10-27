@@ -260,7 +260,7 @@ impl Document {
 
     /// Gives clips their own colour, or, with `None`, the track's again.
     pub fn recolor_clips(&mut self, ids: &[Id], color: Option<Color>) {
-        let label = plural(ids.len(), "Change clip colour", "Change {} clips' colour");
+        let label = plural(ids.len(), "Change clip color", "Change {} clips' color");
         self.edit_clips(&label, ids, |c| c.color = color);
     }
 
@@ -761,7 +761,7 @@ mod tests {
         assert_eq!(steps(&doc) - start, 4, "one step each");
         assert_eq!(
             doc.history().steps().0.last(),
-            Some(&"Change 2 clips' colour")
+            Some(&"Change 2 clips' color")
         );
 
         // Nothing to change, nothing recorded; an empty name is refused.

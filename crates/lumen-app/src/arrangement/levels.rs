@@ -21,7 +21,7 @@ use crate::{light, theme};
 /// the 4 pt rail), and this far inside the row's top and bottom.
 const STRIP_X: f32 = RAIL + 1.0;
 const STRIP_INSET: f32 = 5.0;
-/// The two sides are 1 pt bars with 1 pt between them.
+/// The two sides are 2 pt bars with 1 pt between them.
 const SIDE_GAP: f32 = 1.0;
 /// The clip mark at the strip's top.
 const CLIP_MARK: f32 = 3.0;
@@ -120,12 +120,12 @@ mod tests {
     fn the_strip_sits_beside_the_rail_inside_the_row() {
         let row = Rect::from_min_size(pos2(100.0, 50.0), vec2(204.0, 44.0));
         let strip = strip_rect(row, 112.0);
-        // 1 pt clear of the 4 pt rail, 3 pt wide, 5 pt in at each end.
+        // 1 pt clear of the 4 pt rail, 5 pt wide, 5 pt in at each end.
         assert_eq!(strip.left(), 117.0);
-        assert_eq!(strip.width(), 3.0);
+        assert_eq!(strip.width(), 5.0);
         assert_eq!(strip.top(), 55.0);
         assert_eq!(strip.bottom(), 89.0);
-        // Content starts 12 pt after the rail: 4 pt clear of the strip.
-        assert!(strip.right() + 4.0 <= 112.0 + super::super::headers::CONTENT_X);
+        // Content starts 12 pt after the rail: 2 pt clear of the strip.
+        assert!(strip.right() + 2.0 <= 112.0 + super::super::headers::CONTENT_X);
     }
 }

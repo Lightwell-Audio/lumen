@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 
 use eframe::egui::{self, RichText, Sense, Stroke, pos2, vec2};
+use eframe::emath::GuiRounding as _;
 use lumen_core::product::PRODUCT_NAME;
 
 use super::grid::draw_snap_guide;
@@ -230,7 +231,7 @@ report: {}",
             self.transport.midi_chip(ui, &midi);
             crate::transport::divider(ui);
             let keys = self.keymap.keys(Command::OpenPalette);
-            if icons::button(
+            if icons::toggle(
                 ui,
                 Icon::Search,
                 "Command palette",
@@ -239,21 +240,20 @@ report: {}",
                     hint: None,
                 },
                 self.palette.is_open(),
-                true,
-                "",
             )
             .clicked()
             {
                 self.toggle_palette();
             }
-            // The two panel toggles are icon buttons of the palette's size,
-            // lit while their panel is open.
+            // The two panel toggles are quiet like the palette's: an accent
+            // icon over a short underline while their panel is open (the
+            // interface audit's TB1).
             let panel = |ui: &mut egui::Ui, icon, shown: &mut bool, label, hint, keys| {
                 let tip = widgets::Tip {
                     keys,
                     hint: Some(hint),
                 };
-                if icons::button(ui, icon, label, tip, *shown, true, "").clicked() {
+                if icons::toggle(ui, icon, label, tip, *shown).clicked() {
                     *shown = !*shown;
                 }
             };
@@ -367,22 +367,23 @@ report: {}",
             pos2(corner.left(), corner.top() + rulers::STRIP_HEIGHT),
             corner.max,
         );
-        let tool_width = theme::size::CONTROL_LARGE * 2.4;
-        let song_left = row.right() - theme::size::SONG_BUTTON;
-        let tool_left = song_left - tool_width;
-        let split = tool_left;
-        self.grid_button(
-            ui,
-            egui::Rect::from_min_max(row.min, pos2(split, row.bottom())),
-        );
-        self.arrangement_tool_switch(
-            ui,
-            egui::Rect::from_min_max(pos2(tool_left, row.top()), pos2(song_left, row.bottom())),
-        );
-        self.song_lanes_button(
-            ui,
-            egui::Rect::from_min_max(pos2(song_left, row.top()), row.max),
-        );
+        // One well of grid, tool and tempo lanes (the interface audit's H1).
+        let well = egui::Rect::from_min_max(
+            pos2(row.left() + theme::space::S, row.center().y),
+            pos2(row.right() - theme::space::S, row.center().y),
+        )
+        .expand2(vec2(0.0, theme::size::CONTROL_SMALL / 2.0))
+        .round_to_pixels(ui.pixels_per_point());
+        let widths = [
+            theme::size::WELL_PIECE_W,
+            self.grid_value_width(ui),
+            0.0,
+            theme::size::CONTROL,
+        ];
+        let pieces = widgets::well::paint(ui.painter(), well, &widths);
+        self.grid_pieces(ui, pieces[0], pieces[1]);
+        self.arrangement_tool_switch(ui, pieces[2]);
+        self.song_lanes_button(ui, pieces[3]);
         self.time_format_button(ui, time_corner);
         self.arrangement.additive_solo = self.settings.mixing.additive_solo;
         self.lend_live_input();

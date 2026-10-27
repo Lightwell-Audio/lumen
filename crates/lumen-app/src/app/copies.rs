@@ -15,6 +15,7 @@ use std::time::Instant;
 use eframe::egui;
 use lumen_core::product::PRODUCT_NAME;
 
+use crate::app::commands::wait;
 use crate::app::projects::{self, FileDialog};
 use crate::{App, files, trace};
 
@@ -54,11 +55,11 @@ impl App {
     /// A copy or collect is possible now, or why not.
     pub(crate) fn copy_unavailable(&self) -> Result<(), &'static str> {
         if self.collecting.is_some() {
-            Err("A copy is under way")
+            Err(wait::COPY)
         } else if self.saving.is_some() || self.save_waiting.is_some() {
-            Err("A save is under way")
+            Err(wait::SAVE)
         } else if self.dialog.is_some() {
-            Err("A file dialog is open")
+            Err(wait::DIALOG)
         } else {
             Ok(())
         }

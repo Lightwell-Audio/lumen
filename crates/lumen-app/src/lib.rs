@@ -164,6 +164,10 @@ pub struct App {
     opening: Option<std::sync::mpsc::Receiver<Result<files::Opened, String>>>,
     /// What to do once unsaved changes are dealt with.
     prompt: Option<Next>,
+    /// Enter answered the save question this frame: taken before the keymap
+    /// and the main window's other windows read the key (the interface
+    /// audit's W1).
+    prompt_enter: bool,
     /// What to do after the save in progress succeeds.
     after_save: Option<Next>,
     /// A save, copy or collect waiting for the running plugins' states to be
@@ -398,10 +402,6 @@ pub(crate) fn empty_project_at(device_rate: Option<u32>) -> Project {
     project
 }
 
-fn arrives(milestone: &str) -> String {
-    format!("Arrives in {milestone}")
-}
-
 impl eframe::App for App {
     /// A normal close: nothing is left to recover (the user saved, or chose
     /// not to).
@@ -495,6 +495,7 @@ impl eframe::App for App {
         self.computer_keyboard_keys(&ctx);
         self.refresh_note_editor(&ctx);
         self.refresh_chain(&ctx);
+        self.take_prompt_enter(&ctx);
         self.command_keys(&ctx);
         if std::mem::take(&mut self.arrangement.import_requested) {
             self.run(&ctx, commands::Command::Import);
@@ -628,9 +629,11 @@ impl eframe::App for App {
                     .inner_margin(egui::Margin::symmetric(theme::space::M as i8, 0)),
             )
             .show(ui, |ui| {
+                // Edge to edge: the content sits inside the bar's margins,
+                // the light does not.
                 let bar = ui.max_rect();
                 ui.painter().hline(
-                    bar.x_range(),
+                    bar.x_range().expand(theme::space::M),
                     bar.top() + 0.5 * theme::stroke::HAIRLINE,
                     egui::Stroke::new(theme::stroke::HAIRLINE, edge_light),
                 );

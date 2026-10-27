@@ -27,9 +27,10 @@ pub mod param;
 mod pills;
 pub mod raised;
 mod scroll_bar;
-mod signature;
+pub(crate) mod signature;
 mod slider;
 mod toggle;
+pub mod well;
 pub mod wheel;
 
 pub use control_items::{Ask, control_items};
@@ -40,17 +41,17 @@ pub use fade_out::paint_gone;
 pub use format::{db_text, ms_text, pan_text, readout_db};
 pub use keys::{
     KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
-    modifier_caps, submenu, tip,
+    menu_toggle_icon, modifier_caps, submenu, tip,
 };
 pub use menu::Menu;
 pub(crate) use menu::note_change;
-pub use pills::{Pill, pill_button, pill_tabs, pill_toggle};
+pub use pills::{Pill, chip_button, chip_toggle, pill_button, pill_tabs, pill_toggle};
 pub use scroll_bar::{Axis, ScrollBar, scroll_bar};
 pub use signature::{parse as parse_signature, time_signature};
 pub use slider::*;
 pub use toggle::{
-    Choice, Tab, choice_row, menu_caption, segmented, segmented_styled, switch, switch_noted, tabs,
-    tabs_flush, toggle_button,
+    Choice, Tab, choice_row, menu_caption, menu_header, segmented, segmented_full,
+    segmented_styled, switch, switch_noted, tabs, tabs_flush, toggle_button,
 };
 
 /// `text` as it is when it fits `width`, else cut to fit.
@@ -76,6 +77,9 @@ pub fn shorten(painter: &egui::Painter, text: &str, font: FontId, width: f32) ->
     }
     format!("{cut}\u{2026}")
 }
+
+/// How wide and tall [`draw_arrow`]'s arrow is, for laying out beside it.
+pub const ARROW_SIZE: f32 = 8.0;
 
 /// The fold arrow: pointing right when folded, down when unfolded (`t`
 /// glides from 0 to 1).

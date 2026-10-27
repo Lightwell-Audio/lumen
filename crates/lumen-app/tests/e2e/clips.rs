@@ -178,14 +178,13 @@ fn clicks_select_and_hovering_names_the_header_and_body() {
         "{}",
         lumen.info()
     );
-    assert_eq!(lumen.lit().as_deref(), Some("drag to move"));
+    // The interface audit's I1: nothing is lit until a key is held.
+    assert_eq!(lumen.lit(), None, "a plain drag never looks chosen");
     assert!(lumen.app().hint().is_none(), "nothing floats over the clip");
     lumen.harness.hover_at(body(a));
     lumen.frames(2);
     assert!(
-        lumen
-            .info()
-            .starts_with("Clip “kick”, body: drag to select time"),
+        lumen.info().starts_with("Clip “kick”: drag to select time"),
         "{}",
         lumen.info()
     );

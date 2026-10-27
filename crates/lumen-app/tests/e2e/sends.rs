@@ -183,12 +183,6 @@ fn twelve_returns_all_have_a_slot_in_the_headers_send_well() {
             "{slot}"
         );
     }
-    assert!(
-        lumen
-            .harness
-            .query_by_label_contains(&format!("more sends from {track}"))
-            .is_none()
-    );
     // The slots sit side by side in one row, inside the header.
     let first = lumen
         .harness

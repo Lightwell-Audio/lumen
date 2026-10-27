@@ -5,7 +5,8 @@
 //! Delete to remove; jump between them with ◂ ▸ or Ctrl+Left and
 //! Ctrl+Right. Every change is one undo step.
 
-use eframe::egui::{self, Align2, CursorIcon, FontId, Key, Rect, Sense, Stroke, pos2};
+use eframe::egui::{self, Align2, CursorIcon, FontId, Key, Rect, Sense, Stroke, pos2, vec2};
+use eframe::emath::GuiRounding as _;
 use lumen_core::time::Ticks;
 use lumen_project::model::{Id, Marker};
 
@@ -250,7 +251,8 @@ impl App {
         }
     }
 
-    /// The strip's corner over the track headers: ◂ Set ▸.
+    /// The strip's corner over the track headers: "Locators", then a well
+    /// of ◂ Set ▸ at the right (the interface audit's H1).
     pub(crate) fn locator_buttons(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let palette = theme::p();
         let here = self.transport.state().ticks;
@@ -260,23 +262,33 @@ impl App {
             next(markers, here).is_some(),
         );
         let there = at(markers, here).is_some();
-        let width = rect.height();
-        let right = Rect::from_min_max(pos2(rect.right() - width, rect.top()), rect.max);
-        let set = Rect::from_min_max(
-            pos2(right.left() - 36.0, rect.top()),
-            pos2(right.left(), rect.bottom()),
-        );
-        let left = Rect::from_min_max(pos2(set.left() - width, rect.top()), set.left_bottom());
+        let font = FontId::proportional(theme::size::CAPTION);
+        let set_width = ui
+            .painter()
+            .layout_no_wrap("Set".to_owned(), font.clone(), palette.text)
+            .size()
+            .x
+            + 2.0 * theme::space::S;
+        let arrow = theme::size::WELL_PIECE_W;
+        let widths = [arrow, set_width, arrow];
+        let well = Rect::from_center_size(
+            pos2(
+                rect.right() - theme::space::S - widgets::well::width(&widths) / 2.0,
+                rect.center().y,
+            ),
+            vec2(widgets::well::width(&widths), theme::size::CONTROL_SMALL),
+        )
+        .round_to_pixels(ui.pixels_per_point());
+        painter_label(ui, rect, "Locators");
+        let pieces = widgets::well::paint(ui.painter(), well, &widths);
         let buttons = [
             (
-                left,
                 "Previous locator",
                 "Previous locator",
                 Command::PreviousLocator,
                 has_previous,
             ),
             (
-                set,
                 "Set locator",
                 if there {
                     "Remove the locator at the playhead"
@@ -287,43 +299,31 @@ impl App {
                 true,
             ),
             (
-                right,
                 "Next locator",
                 "Next locator",
                 Command::NextLocator,
                 has_next,
             ),
         ];
-        painter_label(ui, rect, "Locators");
-        for (i, (r, name, tip, command, enabled)) in buttons.into_iter().enumerate() {
-            let response = ui.interact(r, ui.id().with(("locator button", i)), Sense::click());
+        for (i, (name, tip, command, enabled)) in buttons.into_iter().enumerate() {
+            let r = pieces[i];
+            let id = ui.id().with(("locator button", i));
+            let (response, ink) = widgets::well::button(ui, r, id, (0.0, theme::Tone::On), enabled);
             let keys = self.keymap.keys(command);
             let response = widgets::tip(response, tip, keys.as_ref(), None);
             response
                 .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
-            let hover = motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());
-            if hover > 0.0 && enabled {
-                ui.painter().rect_filled(
-                    r.shrink(2.0),
-                    theme::radius::SMALL,
-                    palette.control_hover.gamma_multiply(hover),
-                );
-            }
-            let colour = if enabled {
-                palette.text_secondary
-            } else {
-                palette.text_hint.gamma_multiply(0.5)
-            };
             match i {
-                0 => widgets::draw_arrow(ui.painter(), r.center(), 2.0, colour),
-                2 => widgets::draw_arrow(ui.painter(), r.center(), 0.0, colour),
+                0 => widgets::draw_arrow(ui.painter(), r.center(), 2.0, ink),
+                2 => widgets::draw_arrow(ui.painter(), r.center(), 0.0, ink),
                 _ => {
+                    // A locator at the playhead: Set would remove it.
                     ui.painter().text(
                         r.center(),
                         Align2::CENTER_CENTER,
                         "Set",
-                        FontId::proportional(theme::size::CAPTION),
-                        if there { palette.accent } else { colour },
+                        font.clone(),
+                        if there { palette.accent } else { ink },
                     );
                 }
             }
@@ -340,7 +340,7 @@ impl App {
 
 fn painter_label(ui: &egui::Ui, rect: Rect, text: &str) {
     ui.painter().text(
-        pos2(rect.left() + 8.0, rect.center().y),
+        pos2(rect.left() + theme::space::S, rect.center().y),
         Align2::LEFT_CENTER,
         text,
         FontId::proportional(theme::size::CAPTION),

@@ -1,7 +1,8 @@
 //! The six global arrangement tools and their switch (M7b E0).
 
-use eframe::egui::{self, Rect, Sense};
+use eframe::egui::{self, Rect};
 
+use crate::icons::Icon;
 use crate::{App, commands::Command, motion, theme, widgets};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -36,6 +37,28 @@ impl ArrangementTool {
         }
     }
 
+    /// What the switch and its menu show for the tool (the interface
+    /// audit's M6).
+    pub(crate) const fn icon(self) -> Icon {
+        match self {
+            Self::Pointer => Icon::Pointer,
+            Self::Draw => Icon::Pencil,
+            Self::Erase => Icon::Eraser,
+            Self::Split => Icon::Split,
+            Self::Mute => Icon::MuteCircle,
+            Self::Zoom => Icon::ZoomIn,
+        }
+    }
+
+    /// The command whose keys pick the tool: Draw's is B, which switches
+    /// between Draw and Pointer, so the menu shows B rather than nothing.
+    pub(crate) const fn shortcut(self) -> Command {
+        match self {
+            Self::Draw => Command::DrawTool,
+            other => other.command(),
+        }
+    }
+
     pub(crate) const fn command(self) -> Command {
         match self {
             Self::Pointer => Command::ToolPointer,
@@ -59,14 +82,25 @@ impl App {
         self.arrangement.tool.name()
     }
 
-    /// Compact tool switch in the header corner, directly above track names.
+    /// The tool piece of the ruler corner's well (the interface audit's
+    /// H1): the tool's icon and name, and its menu on click. The name goes
+    /// when the header column is too narrow for it.
     pub(crate) fn arrangement_tool_switch(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let tool = self.arrangement.tool;
         let current = tool;
         let label = format!("Arrangement tool: {}", tool.name());
         let switch_id = ui.id().with("arrangement tool switch");
-        let response = ui.interact(rect, switch_id, Sense::click());
-        let keys = self.keymap.keys(tool.command());
+        // Quiet at rest: only a tool other than Pointer is a mode worth
+        // lighting.
+        let lit = motion::glide(
+            ui.ctx(),
+            switch_id.with("lit"),
+            f32::from(tool != ArrangementTool::Pointer),
+            true,
+        );
+        let (response, ink) =
+            widgets::well::button(ui, rect, switch_id, (lit, theme::Tone::Accent), true);
+        let keys = self.keymap.keys(tool.shortcut());
         let response = widgets::tip(
             response,
             &label,
@@ -76,43 +110,49 @@ impl App {
         response.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone())
         });
-        // Quiet at rest: only a tool other than Pointer is a mode worth
-        // lighting.
-        let lit = motion::glide(
-            ui.ctx(),
-            response.id.with("lit"),
-            f32::from(tool != ArrangementTool::Pointer),
-            true,
-        );
-        let face = widgets::raised::face_of(ui, &response).lit(lit, theme::Tone::Accent);
-        let body = widgets::raised::paint(
-            ui.painter(),
-            rect,
-            theme::radius::for_height(rect.height()),
-            &face,
-        );
-        let galley = ui.painter().layout_no_wrap(
+        let painter = ui.painter().with_clip_rect(rect);
+        let side = theme::size::CORNER_ICON;
+        let galley = painter.layout_no_wrap(
             tool.name().to_owned(),
             egui::FontId::proportional(theme::size::CAPTION),
-            face.text(),
+            ink,
         );
-        let text_body = Rect::from_min_max(body.min, body.max - egui::vec2(theme::space::S, 0.0));
-        let painter = ui.painter().with_clip_rect(rect);
-        widgets::raised::centre_galley(&painter, text_body, galley, face.text());
-        widgets::draw_arrow(
-            &painter,
-            egui::pos2(body.right() - theme::space::S, body.center().y),
-            1.0,
-            face.text(),
+        let gap = theme::space::XS;
+        let needed = side + gap + galley.size().x + gap + widgets::ARROW_SIZE;
+        let room = rect.width() - 2.0 * gap;
+        let named = needed <= room;
+        let content = if named { needed } else { side };
+        let left = rect.center().x - content / 2.0;
+        let icon = Rect::from_center_size(
+            egui::pos2(left + side / 2.0, rect.center().y),
+            egui::vec2(side, side),
         );
-        widgets::raised::focus_ring(ui.painter(), &response, rect);
+        painter.extend(crate::icons::shapes(tool.icon(), icon, ink));
+        if named {
+            let text_at = egui::pos2(icon.right() + gap, rect.center().y - galley.size().y / 2.0);
+            let arrow_x = text_at.x + galley.size().x + gap + widgets::ARROW_SIZE / 2.0;
+            painter.galley(text_at, galley, ink);
+            widgets::draw_arrow(
+                &painter,
+                egui::pos2(arrow_x, rect.center().y),
+                1.0,
+                theme::p().text_hint,
+            );
+        }
 
         // One click picks and closes; the chosen tool is marked while open.
         let mut picked = None;
         widgets::Menu::below(&response).show(|ui| {
             for tool in ArrangementTool::ALL {
-                let keys = self.keymap.keys(tool.command());
-                if widgets::menu_toggle(ui, tool.name(), keys.as_ref(), tool == current).clicked() {
+                let keys = self.keymap.keys(tool.shortcut());
+                let row = widgets::menu_toggle_icon(
+                    ui,
+                    tool.icon(),
+                    tool.name(),
+                    keys.as_ref(),
+                    tool == current,
+                );
+                if row.clicked() {
                     picked = Some(tool);
                 }
             }

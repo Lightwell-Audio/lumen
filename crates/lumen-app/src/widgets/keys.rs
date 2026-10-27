@@ -12,9 +12,11 @@ use eframe::egui::containers::menu::SubMenuButton;
 use eframe::emath::GuiRounding as _;
 
 use super::raised;
+use crate::icons::{self, Icon};
 use crate::theme::{self, stroke};
 
-/// Room under a keycap for its light.
+/// Room above and below a keycap, so the light under it fits and the cap
+/// stays centred.
 pub const KEY_LIGHT_ROOM: f32 = 4.0;
 
 /// A shortcut to show (the owner's K5): its modifiers, its key, the light
@@ -236,16 +238,32 @@ impl Keys {
 /// track Ctrl+T"), as egui's menu buttons name theirs. Greyed when not
 /// `enabled`.
 pub fn menu_item(ui: &mut Ui, label: &str, keys: Option<&Keys>, enabled: bool) -> egui::Response {
-    menu_row(ui, label, keys, enabled, None)
+    menu_row(ui, label, keys, enabled, None, None)
 }
 
-/// How tall a menu row is: the height of keycaps with their light's room,
-/// plus `space::XS` above and below (the Menu card), so rows with and
-/// without shortcuts line up and the light stays well inside the highlight.
-/// `text` is the height of the row's label.
-fn row_height(ui: &Ui, text: f32) -> f32 {
-    let keyed = lay_out_caps(ui, &[], Some("X")).size.y;
-    text.max(keyed) + 2.0 * theme::space::XS
+/// How tall a menu row is: `size::MENU_ROW` (the interface audit's M1),
+/// so rows with and without shortcuts line up, or taller for a label that
+/// needs it. `text` is the height of the row's label.
+fn row_height(text: f32) -> f32 {
+    theme::size::MENU_ROW.max(text + 2.0 * theme::space::XS)
+}
+
+/// Runs `add` with no gap after what it allocates: menu rows touch, as in
+/// a list, so the pointer is always over one of them (M1). Other content
+/// in a menu keeps the usual gap.
+fn touching<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let gap = ui.spacing().item_spacing.y;
+    ui.spacing_mut().item_spacing.y = 0.0;
+    let out = add(ui);
+    ui.spacing_mut().item_spacing.y = gap;
+    out
+}
+
+/// Where keycaps `size` tall sit in a row centred on `centre_y`: the cap
+/// and its light are centred together, as in the info line, so the light
+/// keeps as much room below it as the cap has above (the owner, M1).
+fn caps_top(centre_y: f32, size: Vec2) -> f32 {
+    centre_y - size.y / 2.0 - KEY_LIGHT_ROOM / 2.0
 }
 
 /// The highlight of a menu row at `rect`: it reaches `space::XS` past the
@@ -256,7 +274,7 @@ fn highlight_of(rect: Rect) -> Rect {
 }
 
 /// A submenu row: `label`, then egui's arrow (⏵) at the right. egui names
-/// the button with its arrow ("Colour ⏵"), which screen readers read out;
+/// the button with its arrow ("Color ⏵"), which screen readers read out;
 /// this one is named by its label alone. Use it for every submenu, in
 /// place of `ui.menu_button` inside a menu. Drawn as a [`menu_item`] is:
 /// egui's button gets no fill of its own and the row paints Ember under
@@ -280,8 +298,11 @@ pub fn submenu<R>(
         .y;
     // Under the button, filled once its rect is known.
     let slot = ui.painter().add(egui::Shape::Noop);
-    let (response, inner) = ui
-        .scope(|ui| {
+    let gap = ui.spacing().item_spacing.y;
+    let (response, inner) = touching(ui, |ui| {
+        ui.scope(|ui| {
+            // What the submenu holds keeps the usual gap.
+            ui.spacing_mut().item_spacing.y = gap;
             let widgets = &mut ui.visuals_mut().widgets;
             for state in [
                 &mut widgets.inactive,
@@ -303,10 +324,11 @@ pub fn submenu<R>(
             };
             let button = egui::Button::new(ink(label.as_str()))
                 .right_text(ink(SubMenuButton::RIGHT_ARROW))
-                .min_size(vec2(0.0, row_height(ui, text_height)));
+                .min_size(vec2(0.0, row_height(text_height)));
             SubMenuButton::from_button(button).ui(ui, add_contents)
         })
-        .inner;
+        .inner
+    });
     if enabled && (response.hovered() || response.has_focus() || inner.is_some()) {
         ui.painter().set(
             slot,
@@ -339,7 +361,20 @@ pub fn submenu<R>(
 /// is `accent_muted` with `accent` letters, as a toggle that is on is
 /// everywhere. A click leaves the menu open, so several can be set.
 pub fn menu_toggle(ui: &mut Ui, label: &str, keys: Option<&Keys>, on: bool) -> egui::Response {
-    menu_row(ui, label, keys, true, Some(on))
+    menu_row(ui, label, keys, true, Some(on), None)
+}
+
+/// A [`menu_toggle`] with `icon` before its label, for a choice of modes
+/// that the switch which opened the menu also shows by its icon (the
+/// arrangement tools, the interface audit's M6).
+pub fn menu_toggle_icon(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    keys: Option<&Keys>,
+    on: bool,
+) -> egui::Response {
+    menu_row(ui, label, keys, true, Some(on), Some(icon))
 }
 
 /// A menu row; `toggle` is whether a toggle is on (`None` for an item,
@@ -350,6 +385,7 @@ fn menu_row(
     keys: Option<&Keys>,
     enabled: bool,
     toggle: Option<bool>,
+    icon: Option<Icon>,
 ) -> egui::Response {
     let on = toggle == Some(true);
     let palette = theme::p();
@@ -368,11 +404,12 @@ fn menu_row(
     let caps = keys.map(|k| lay_out_caps(ui, &k.modifiers, Some(k.key)));
     let pad = ui.spacing().button_padding;
     let caps_width = caps.as_ref().map_or(0.0, |c| c.size.x + theme::space::M);
-    let height = row_height(ui, galley.size().y);
+    let height = row_height(galley.size().y);
+    let icon_width = icon.map_or(0.0, |_| theme::size::MENU_ICON + theme::space::S);
     // A menu is sized in a first pass from what its rows need; only after
     // that does a row fill the menu's width, so the keycaps line up at its
     // right edge without stretching the menu.
-    let needed = galley.size().x + caps_width + 2.0 * pad.x;
+    let needed = icon_width + galley.size().x + caps_width + 2.0 * pad.x;
     let width = if ui.is_sizing_pass() {
         needed
     } else {
@@ -383,7 +420,7 @@ fn menu_row(
     } else {
         Sense::hover()
     };
-    let (rect, response) = ui.allocate_exact_size(vec2(width, height), sense);
+    let (rect, response) = touching(ui, |ui| ui.allocate_exact_size(vec2(width, height), sense));
     let name = match keys {
         Some(k) => format!("{label} {}", k.text),
         None => label.to_owned(),
@@ -403,15 +440,28 @@ fn menu_row(
         }
         // Keep the ring inside the row so scrolling cannot clip its edge.
         raised::focus_ring(painter, &response, rect.shrink(raised::FOCUS_OUTSET));
+        if let Some(icon) = icon {
+            let square = Rect::from_center_size(
+                pos2(
+                    rect.left() + pad.x + theme::size::MENU_ICON / 2.0,
+                    rect.center().y,
+                ),
+                Vec2::splat(theme::size::MENU_ICON),
+            );
+            painter.extend(icons::shapes(icon, square, text_colour));
+        }
         painter.galley(
-            pos2(rect.left() + pad.x, rect.center().y - galley.size().y / 2.0),
+            pos2(
+                rect.left() + pad.x + icon_width,
+                rect.center().y - galley.size().y / 2.0,
+            ),
             galley,
             text_colour,
         );
         if let (Some(caps), Some(k)) = (caps, keys) {
             let at = pos2(
                 rect.right() - pad.x - caps.size.x,
-                rect.center().y - caps.size.y / 2.0,
+                caps_top(rect.center().y, caps.size),
             );
             paint_caps(
                 painter,
@@ -450,6 +500,9 @@ pub fn tip(
     hint: Option<&str>,
 ) -> egui::Response {
     let show = |ui: &mut Ui| {
+        // A long hint wraps rather than running wide (the interface
+        // audit's TT1).
+        ui.set_max_width(theme::size::TIP_WIDTH);
         ui.horizontal(|ui| {
             ui.label(label);
             if let Some(keys) = keys {
@@ -457,7 +510,9 @@ pub fn tip(
             }
         });
         if let Some(hint) = hint {
-            ui.label(egui::RichText::new(hint).color(theme::p().text_secondary));
+            ui.add(
+                egui::Label::new(egui::RichText::new(hint).color(theme::p().text_secondary)).wrap(),
+            );
         }
     };
     if response.enabled() {
@@ -513,14 +568,26 @@ mod tests {
             light: Color32::RED,
             text: "Ctrl+D".to_owned(),
         };
-        let (plain, keyed, expected) = in_ui(|ui| {
-            let plain = menu_item(ui, "Duplicate", None, true).rect.height();
-            let keyed = menu_item(ui, "Duplicate", Some(&keys), true).rect.height();
-            (plain, keyed, caps_height(ui) + 2.0 * theme::space::XS)
+        let (plain, keyed, pitch) = in_ui(|ui| {
+            let plain = menu_item(ui, "Duplicate", None, true).rect;
+            let keyed = menu_item(ui, "Duplicate", Some(&keys), true).rect;
+            (plain.height(), keyed.height(), keyed.top() - plain.top())
         });
         assert_eq!(plain, keyed);
-        // The caps with their light's room, plus `space::XS` on each side.
-        assert_eq!(keyed, expected);
+        assert_eq!(keyed, theme::size::MENU_ROW);
+        // Rows touch: no gap between them.
+        assert_eq!(pitch, theme::size::MENU_ROW);
+    }
+
+    #[test]
+    fn a_cap_and_its_light_are_centred_together_in_a_row() {
+        let caps = in_ui(|ui| lay_out_caps(ui, &["Ctrl"], Some("D")));
+        let top = caps_top(100.0, caps.size) + KEY_LIGHT_ROOM;
+        let bottom = top + caps.cap_height + LIGHT_GAP + LIGHT_HEIGHT;
+        assert!(
+            ((top + bottom) / 2.0 - 100.0).abs() < 1e-3,
+            "{top} {bottom}"
+        );
     }
 
     #[test]

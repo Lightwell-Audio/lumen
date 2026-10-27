@@ -16,6 +16,12 @@ use crate::app::detail::DetailTab;
 use crate::document::{Refusal, Slot};
 use crate::hosting::State;
 
+/// Whether a device the browser lists can be put on a track: the browser's
+/// menu offers "Add to …" only then.
+pub(crate) fn placeable(listed: &Listed) -> bool {
+    plugin_ref(listed).is_some()
+}
+
 /// The project's name for a device the browser lists; `None` for one that
 /// cannot be put on a track.
 pub(super) fn plugin_ref(listed: &Listed) -> Option<PluginRef> {
@@ -63,6 +69,25 @@ impl App {
             wanted,
         );
         self.add_device_at(plugin, place);
+    }
+
+    /// What choosing a device of `kind` in the browser does, said as its
+    /// menu's first row (the interface audit's B7): "Add to Bass", or "Add
+    /// on a new track" when no selected track fits it.
+    pub(crate) fn add_device_label(&self, kind: DeviceKind) -> String {
+        let project = self.document.project();
+        match place(
+            project,
+            &self.arrangement.selected,
+            self.chain.selected,
+            kind,
+        ) {
+            Place::Track { track, .. } => match all_tracks(project).find(|t| t.id == track) {
+                Some(track) => format!("Add to {}", track.name),
+                None => "Add on a new track".to_owned(),
+            },
+            Place::NewTrack { .. } => "Add on a new track".to_owned(),
+        }
     }
 
     /// A device let go on `track` from the browser (its header or lane): it

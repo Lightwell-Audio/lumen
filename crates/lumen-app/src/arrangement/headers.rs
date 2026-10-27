@@ -5,6 +5,8 @@
 //! (`nesting`, M4 slice 3); the menus are in `menus`; each track's row is
 //! drawn by `header_row`.
 
+use std::sync::Arc;
+
 use eframe::egui::{self, Align2, FontId, Id as EguiId, Key, Rect, Sense, Stroke, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_project::automation::Target;
@@ -13,6 +15,7 @@ use lumen_project::model::{Id, TrackKind};
 use super::control_menu::{control_menu_for, waiting_ring};
 use super::follow;
 use super::header_row::HeaderRow;
+use super::menus::AddMenu;
 use super::nesting::Arm;
 use super::{Arrangement, FOLDED, RowKind, Zone};
 use crate::commands::{Command, Keymap};
@@ -124,6 +127,7 @@ impl Arrangement {
         // scrolling tracks pass under the pinned returns and master.
         let base_clip = ui.clip_rect();
         let base_painter = painter.clone();
+        let mut edges = Vec::new();
         for (n, &row) in rows.iter().enumerate() {
             let zone = Rect::from_x_y_ranges(
                 column.x_range(),
@@ -175,20 +179,28 @@ impl Arrangement {
             let Some(track) = still(doc, index, n) else {
                 continue;
             };
-            if let Some(glow) = self.track_header(
+            self.track_header(
                 ui,
                 &painter,
                 doc,
                 keymap,
                 HeaderRow {
-                    track,
+                    track: Arc::clone(&track),
                     index,
                     rect,
                     column,
                     modifiers,
                     hearing: &hearing,
                 },
-            ) {
+            );
+            edges.push((track, rect, zone));
+        }
+        // The resize edges go over every row, so the band below a row's line
+        // is not taken by the next row's header.
+        for (track, rect, zone) in edges {
+            ui.set_clip_rect(zone.intersect(base_clip));
+            let painter = base_painter.with_clip_rect(zone.intersect(base_painter.clip_rect()));
+            if let Some(glow) = self.resize_edge(ui, &painter, &track, (rect, column)) {
                 hot_edge = Some(glow);
             }
         }
@@ -258,7 +270,8 @@ impl Arrangement {
         } else if empty.clicked() {
             self.selected.clear();
         }
-        widgets::Menu::context(&empty).show(|ui| self.add_menu(ui, doc, None, keymap));
+        widgets::Menu::context(&empty)
+            .show(|ui| self.add_menu(ui, doc, None, keymap, AddMenu::Context));
 
         // "+ Add track ▾": a menu of every track type with its shortcut,
         // and a hint that double-clicking here adds an audio track
@@ -304,7 +317,13 @@ impl Arrangement {
             );
             widgets::Menu::below(&response).show(|ui| {
                 ui.set_min_width(button.width());
-                self.add_menu(ui, doc, self.selected.last().copied(), keymap);
+                self.add_menu(
+                    ui,
+                    doc,
+                    self.selected.last().copied(),
+                    keymap,
+                    AddMenu::Button,
+                );
             });
         }
     }
@@ -570,24 +589,13 @@ fn painter_count(ui: &Ui, n: usize) -> std::sync::Arc<egui::Galley> {
     )
 }
 
-/// The record-arm button (the design system's TrackButtons, ADR-0052):
-/// round, with no border or edge light. At rest a flat `control` disc with
-/// a quiet grey dot that turns record red under the pointer; armed, a
-/// `record` body at 25% with a solid dot, a ring just outside that breathes
-/// (the owner's pulse, kept) and two glows. A group's lights when everything
-/// inside it is armed, and shows the dot with half a ring when only some is.
-/// `piece`: drawn as a piece of a header's well (ADR-0101), where the body is
-/// the piece and the ring breathes inside it.
-pub(super) fn arm_button(
-    ui: &mut Ui,
-    rect: Rect,
-    id: EguiId,
-    name: &str,
-    arm: Arm,
-    (look, piece): (theme::Controls, bool),
-) -> bool {
+/// The record-arm button: a piece of a well (a header's, ADR-0101, or a
+/// mixer strip's), drawn by [`arm_piece`]. At rest a quiet grey dot that
+/// turns record red under the pointer; armed, a breathing `record` body and
+/// ring (the owner's pulse, kept). A group's lights when everything inside
+/// it is armed, and shows the dot with half a ring when only some is.
+pub(super) fn arm_button(ui: &mut Ui, rect: Rect, id: EguiId, name: &str, arm: Arm) -> bool {
     let armed = arm.on();
-    let palette = theme::p();
     let response = ui
         .interact(rect, id.with("arm"), Sense::click())
         .on_hover_text(if arm == Arm::Listening {
@@ -604,92 +612,40 @@ pub(super) fn arm_button(
         )
     });
     let hover = motion::hover(ui.ctx(), id.with("arm hover"), response.hovered());
-    let pressed = response.is_pointer_button_down_on();
     // Snapped with M and S beside it, so the dot sits on their letters' line.
     let rect = rect.round_to_pixels(ui.pixels_per_point());
-    let p = ui.painter();
-    // Every circle shares this exact centre (owner: the ring must sit
-    // centred on the dot).
-    let center = rect.center();
-    if piece {
-        arm_piece(ui, rect, arm, hover);
-        if response.has_focus() {
-            raised::paint_focus(p, rect, super::buttons::PIECE_RADIUS);
-        }
-        return response.clicked();
-    }
-    let radius = rect.width() / 2.0;
-    if armed {
-        // The one deliberate loop in Lumen (owner's choice): while armed, a
-        // ring breathes slowly around the button. Reduce motion holds it
-        // still; frames are requested only while a track is armed.
-        let breath = breath(ui);
-        for (spread, alpha) in [(ARM_GLOW, 0.10), (ARM_GLOW * 0.7, 0.18)] {
-            p.circle_filled(
-                center,
-                radius + spread * (0.6 + 0.4 * breath),
-                palette.record.gamma_multiply(alpha * (0.6 + 0.4 * breath)),
-            );
-        }
-        p.circle_stroke(
-            center,
-            radius + 1.0 + breath,
-            Stroke::new(
-                theme::stroke::LIT,
-                palette.record.gamma_multiply(0.45 + 0.3 * breath),
-            ),
-        );
-        p.circle_filled(center, radius, palette.record.gamma_multiply(ARM_BODY));
-        p.circle_filled(center, ARM_DOT, palette.record);
-    } else {
-        // A flat disc: `control`, an Ember wash under the pointer, flat
-        // `control_press` while pressed.
-        let fill = if pressed { look.press } else { look.fill };
-        p.circle_filled(center, radius, fill);
-        p.circle_filled(center, radius, palette.ember.gamma_multiply(hover));
-        if arm == Arm::Partly {
-            // Some of the group armed: a lit dot and half a ring, still.
-            p.add(egui::Shape::line(
-                half_ring(center, radius + 1.0),
-                Stroke::new(theme::stroke::LIT, palette.record.gamma_multiply(0.6)),
-            ));
-            p.circle_filled(center, ARM_DOT, palette.record);
-        } else if arm == Arm::Listening {
-            // Listening only because it is selected: a hollow record-red
-            // ring, no fill and no glow, so it is not mistaken for an arm.
-            p.circle_stroke(
-                center,
-                ARM_DOT,
-                Stroke::new(theme::stroke::LIT, palette.record),
-            );
-        } else {
-            // At rest a quiet grey dot, red only under the pointer: record
-            // red means recording (the interface audit's T5, the owner's A;
-            // a column of red dots was the loudest thing on screen).
-            let rest = palette.text_secondary.gamma_multiply(ARM_REST_DOT);
-            p.circle_filled(center, ARM_DOT, rest.lerp_to_gamma(palette.record, hover));
-        }
-    }
+    arm_piece(ui, rect, arm, hover);
     if response.has_focus() {
-        raised::paint_focus(p, rect, theme::radius::FULL);
+        raised::paint_focus(ui.painter(), rect, crate::widgets::well::PIECE_RADIUS);
     }
     response.clicked()
 }
 
-/// The arm button as a piece of a header's well: armed, a `record` body at
-/// 25% with a solid dot and a ring inside the piece that breathes (no glow
-/// beyond it, which would spill over S); otherwise as the round button,
-/// with the piece's Ember wash under the pointer.
+/// The arm piece: armed, a `record` body around 25% with a solid dot, and a
+/// ring, the body and a halo round the dot that breathe together, all
+/// inside the piece (a glow beyond it would spill over S); some of a group
+/// armed, the body, the dot and half a ring, still; listening because
+/// selected, a hollow record-red ring; at rest a quiet grey dot. Every
+/// circle shares the piece's centre (owner: the ring must sit centred on
+/// the dot); unlit pieces take the Ember wash under the pointer.
 fn arm_piece(ui: &Ui, rect: Rect, arm: Arm, hover: f32) {
     let palette = theme::p();
     let p = ui.painter();
     let center = rect.center();
-    let r = f32::from(super::buttons::PIECE_RADIUS);
+    let r = f32::from(crate::widgets::well::PIECE_RADIUS);
     let ring = rect.height() / 2.0 - PIECE_RING_INSET;
     match arm {
         Arm::All => {
+            // The body breathes with the ring and a soft halo swells round
+            // the dot (the owner: the pulse keeps its personality).
             let breath = breath(ui);
-            p.rect_filled(rect, r, palette.record.gamma_multiply(ARM_BODY));
+            let swell = PIECE_BODY_LOW + (1.0 - PIECE_BODY_LOW) * 2.0 * breath;
+            p.rect_filled(rect, r, palette.record.gamma_multiply(ARM_BODY * swell));
+            p.circle_filled(
+                center,
+                PIECE_DOT + PIECE_HALO * breath,
+                palette.record.gamma_multiply(PIECE_HALO_ALPHA * breath),
+            );
             p.circle_stroke(
                 center,
                 ring - 0.5 + 0.5 * breath,
@@ -740,6 +696,12 @@ fn breath(ui: &Ui) -> f32 {
 /// piece's height its ring sits.
 const PIECE_DOT: f32 = 4.0;
 const PIECE_RING_INSET: f32 = 2.0;
+/// An armed piece's body at the breath's low point, as a share of
+/// `ARM_BODY` (it rises as far above at the high point); the halo round
+/// its dot at full breath: how far it reaches past the dot, how strong.
+const PIECE_BODY_LOW: f32 = 0.7;
+const PIECE_HALO: f32 = 1.5;
+const PIECE_HALO_ALPHA: f32 = 0.35;
 
 /// The right half of a ring around `center`.
 fn half_ring(center: egui::Pos2, radius: f32) -> Vec<egui::Pos2> {
@@ -755,11 +717,6 @@ fn half_ring(center: egui::Pos2, radius: f32) -> Vec<egui::Pos2> {
 /// Seconds per breath of the armed ring.
 const ARM_BREATH: f32 = motion::BREATH;
 
-/// How far the armed glow reaches beyond the button, at its widest (the
-/// TrackButtons card: two glows reaching 4 pt).
-const ARM_GLOW: f32 = 4.0;
-/// The arm button's dot radius (the card's 9 pt dot).
-const ARM_DOT: f32 = 4.5;
 /// How much `record` tints an armed button's body.
 const ARM_BODY: f32 = 0.25;
 /// How strong the resting dot's grey is.

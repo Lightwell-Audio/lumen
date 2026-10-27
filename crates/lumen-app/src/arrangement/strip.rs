@@ -1,8 +1,12 @@
 //! One channel strip in the mixer (M4 slice 5, the owner's S1 console,
 //! ADR-0040), from the top: the rails of the groups it is in, its name,
-//! where it plays to, polarity and input trim, its sends (the owner's O2:
-//! two knobs, then "+N ▾" for them all), pan, the fader beside its meter,
-//! the volume typed in and the peak held, then M, S and arm.
+//! where it plays to, polarity and input trim, its sends, pan, M, S and arm,
+//! the fader beside its meter, then the volume typed in and the peak held.
+//!
+//! The interface audit's X1–X4 (the owner's B): hairlines divide the routing,
+//! the sends and pan; the sends are slots in one well, as on the header; M,
+//! S and arm are pieces of one well under pan, as on the header; trim keeps
+//! a small grey "dB".
 //!
 //! A short panel folds sections away (the owner's B7): sends first, then
 //! trim and polarity, then the output; name, pan, fader, meter and the
@@ -16,11 +20,10 @@ use eframe::egui::{
 use eframe::emath::GuiRounding as _;
 use lumen_project::automation::Target;
 use lumen_project::model::{Track, TrackKind};
-use lumen_project::solo::Heard;
+use lumen_project::solo::{Heard, Hearing};
 
 use super::control_menu::{control_menu_for, waiting_ring};
 use super::follow;
-use super::sends::{Knob, returns};
 use super::{Arrangement, color_of, headers, nesting, pinned};
 use crate::commands::Keymap;
 use crate::document::Document;
@@ -42,18 +45,16 @@ const GAP: f32 = theme::space::XS;
 const RAIL: f32 = 3.0;
 const TOP: f32 = 4.0 * RAIL + 2.0;
 const NAME: f32 = theme::size::CONTROL_SMALL;
-/// Two send knobs, then the "+N ▾" row (the owner's O2).
-const KNOB: f32 = theme::size::KNOB;
-const SENDS: f32 = KNOB + GAP + 16.0;
+/// The room a hairline between sections adds to the row gap; the line is
+/// drawn in the middle of the two.
+const RULE: f32 = GAP;
+/// A piece of the M S ● well.
+const PIECE_W: f32 = theme::size::STRIP_PIECE_W;
 /// The fader's travel is at least this tall; the cap and the clip light
 /// take room above and below it.
 const TRAVEL_MIN: f32 = 64.0;
 const TRAVEL_PAD: f32 = 12.0;
-const BUTTONS: f32 = theme::size::CONTROL_SMALL;
 const BOTTOM: f32 = theme::space::S;
-/// Room above the buttons for the armed glow, which reaches 4 pt past the
-/// arm button; the peak readout above must stay clear.
-const ABOVE_BUTTONS: f32 = theme::space::S;
 /// dB marks on the scale between fader and meter, most important first:
 /// those without room for their number become ticks.
 const MARKS: [f32; 6] = [0.0, -48.0, 6.0, -12.0, -24.0, -6.0];
@@ -98,7 +99,7 @@ impl Sections {
             (self.io, 2.0 * ROW + GAP),
             (self.output, ROW),
             (self.trim, ROW),
-            (self.sends, SENDS),
+            (self.sends, RULE + ROW),
         ];
         TOP + NAME
             + optional
@@ -107,13 +108,14 @@ impl Sections {
                 .map(|(_, h)| GAP + h)
                 .sum::<f32>()
             + GAP
+            + RULE
             + ROW // pan
+            + GAP
+            + ROW // M, S and arm
             + GAP
             + 2.0 * TRAVEL_PAD
             + GAP
             + ROW // volume and peak
-            + ABOVE_BUTTONS
-            + BUTTONS
             + BOTTOM
     }
 
@@ -292,13 +294,18 @@ impl Arrangement {
             y += ROW + GAP;
         }
         if look.sections.sends {
+            rule(&painter, x, y);
+            y += RULE;
             if super::sends::has_sends(track.kind) {
-                self.strip_sends(ui, doc, &track, look.heard, (x, y), selected);
+                let room = Rect::from_x_y_ranges(x, y..=y + ROW);
+                self.send_well(ui, doc, &track, room, (selected, true));
             }
-            y += SENDS + GAP;
+            y += ROW + GAP;
         }
 
         // Pan.
+        rule(&painter, x, y);
+        y += RULE;
         let pan_rect = Rect::from_x_y_ranges(x, y..=y + ROW);
         let shown_pan = self.shown(doc, &track, Target::Pan, track.pan);
         let pan = widgets::value_slider(
@@ -327,7 +334,10 @@ impl Arrangement {
         waiting_ring(ui, &self.auto, pan_rect, track.id, Target::Pan);
         y += ROW + GAP;
 
-        y = self.strip_levels(
+        self.strip_buttons(ui, doc, (&track, index, hears), (rect, y), (id, controls));
+        y += ROW + GAP;
+
+        self.strip_levels(
             ui,
             doc,
             &track,
@@ -342,54 +352,6 @@ impl Arrangement {
             },
         );
 
-        // M, S and arm, centred, with room above them for the armed glow.
-        y += ABOVE_BUTTONS - GAP;
-        let ppp = ui.ctx().pixels_per_point();
-        let size = vec2(BUTTONS, BUTTONS);
-        let arms = matches!(
-            track.kind,
-            TrackKind::Audio | TrackKind::Midi | TrackKind::Group
-        );
-        let count = if track.kind == TrackKind::Master {
-            1.0
-        } else if arms {
-            3.0
-        } else {
-            2.0
-        };
-        let gap = 5.0;
-        let mut bx = rect.center().x - (count * BUTTONS + (count - 1.0) * gap) / 2.0;
-        let mut next = || {
-            let r = Rect::from_min_size(pos2(bx, y), size).round_to_pixels(ppp);
-            bx += BUTTONS + gap;
-            r
-        };
-        let mute = next();
-        let solo = if track.kind == TrackKind::Master {
-            Rect::NOTHING
-        } else {
-            next()
-        };
-        if track.kind == TrackKind::Master {
-            self.master_mute(ui, doc, &track, mute, (id, controls));
-        } else {
-            self.mute_solo(
-                ui,
-                doc,
-                &track,
-                hears,
-                (mute, solo),
-                (id, controls, " in the mixer", super::buttons::Style::Raised),
-            );
-        }
-        if arms && let Some(i) = index {
-            let arm = nesting::arm_look(doc.project(), i, &self.selected);
-            let name = format!("{} in the mixer", track.name);
-            if headers::arm_button(ui, next(), id, &name, arm, (controls, false)) {
-                self.press_arm(ui, doc, track.id, arm.on());
-            }
-        }
-
         painter.vline(
             rect.right() - 0.5,
             rect.y_range(),
@@ -403,8 +365,7 @@ impl Arrangement {
 
     /// The fader beside its scale and meter, the clip light, then the
     /// volume typed in and the peak held (the owner's S1), from `y`.
-    /// Returns where the next row starts.
-    fn strip_levels(&mut self, ui: &mut Ui, doc: &mut Document, track: &Track, at: Levels) -> f32 {
+    fn strip_levels(&mut self, ui: &mut Ui, doc: &mut Document, track: &Track, at: Levels) {
         let Levels {
             rect,
             x,
@@ -515,7 +476,54 @@ impl Arrangement {
             ink,
         );
         raised::focus_ring(ui.painter(), &response, peak);
-        y + ROW + GAP
+    }
+
+    /// M, S and arm in `rect`'s middle at `y`: pieces of one sunk well, as on
+    /// the header (the interface audit's X1–X4); a return has M and S, the
+    /// master M alone.
+    fn strip_buttons(
+        &mut self,
+        ui: &mut Ui,
+        doc: &mut Document,
+        (track, index, hears): (&Track, Option<usize>, Hearing),
+        (rect, y): (Rect, f32),
+        (id, controls): (EguiId, theme::Controls),
+    ) {
+        let arms = matches!(
+            track.kind,
+            TrackKind::Audio | TrackKind::Midi | TrackKind::Group
+        );
+        let pieces = match track.kind {
+            TrackKind::Master => 1,
+            _ if arms => 3,
+            _ => 2,
+        };
+        let widths = vec![PIECE_W; pieces];
+        let width = widgets::well::width(&widths);
+        let ppp = ui.pixels_per_point();
+        let trough = Rect::from_min_size(pos2(rect.center().x - width / 2.0, y), vec2(width, ROW))
+            .round_to_pixels(ppp);
+        let cut = widgets::well::paint(ui.painter(), trough, &widths);
+        let piece = |n: usize| cut.get(n).map_or(Rect::NOTHING, |r| r.round_to_pixels(ppp));
+        if track.kind == TrackKind::Master {
+            self.master_mute(ui, doc, track, piece(0), (id, controls));
+            return;
+        }
+        self.mute_solo(
+            ui,
+            doc,
+            track,
+            hears,
+            (piece(0), piece(1)),
+            (id, controls, " in the mixer"),
+        );
+        if arms && let Some(i) = index {
+            let arm = nesting::arm_look(doc.project(), i, &self.selected);
+            let name = format!("{} in the mixer", track.name);
+            if headers::arm_button(ui, piece(2), id, &name, arm) {
+                self.press_arm(ui, doc, track.id, arm.on());
+            }
+        }
     }
 
     /// The colour chip, a group's fold arrow, a return's letter, and the
@@ -681,52 +689,6 @@ impl Arrangement {
         waiting_ring(ui, &self.auto, trim, track.id, Target::Trim);
     }
 
-    /// The owner's O2: the first two returns' knobs, then "+N ▾" listing
-    /// every send.
-    fn strip_sends(
-        &mut self,
-        ui: &mut Ui,
-        doc: &mut Document,
-        track: &Track,
-        heard: &Heard,
-        (x, y): (Rangef, f32),
-        selected: bool,
-    ) {
-        let returns = returns(doc.project());
-        if returns.is_empty() {
-            return;
-        }
-        let ppp = ui.ctx().pixels_per_point();
-        let shown = returns.len().min(2);
-        let pitch = x.span() / 2.0;
-        for (n, to) in returns.iter().take(shown).enumerate() {
-            let cx = x.min + pitch * (n as f32 + 0.5);
-            let rect = Rect::from_center_size(pos2(cx, y + KNOB / 2.0), vec2(KNOB, KNOB))
-                .round_to_pixels(ppp);
-            let name = format!(
-                "Send {} to {} {} in the mixer",
-                track.name, to.letter, to.name
-            );
-            self.send_control(
-                ui,
-                doc,
-                heard,
-                Knob {
-                    rect,
-                    track,
-                    to,
-                    selected,
-                    name,
-                    place: "strip",
-                },
-            );
-        }
-        if returns.len() > shown {
-            let at = pos2(x.min, y + KNOB + GAP + 8.0);
-            self.more_sends(ui, doc, track, &returns, (shown, at), (selected, true));
-        }
-    }
-
     /// The master's mute.
     fn master_mute(
         &mut self,
@@ -754,27 +716,22 @@ impl Arrangement {
         }
         let hover = motion::hover(ui.ctx(), id.with("mute hover"), response.hovered());
         let lit = motion::hover(ui.ctx(), id.with("mute lit"), muted);
-        // As every track's M (ADR-0052): raised, `mute` when on.
+        // As every track's M: a piece of its well, `mute` when on.
         let face = raised::Face::new(controls)
             .hover(hover)
             .pressed(response.is_pointer_button_down_on())
             .lit(lit, Tone::Mute);
         let rect = rect.round_to_pixels(ui.pixels_per_point());
-        let body = raised::paint(
-            ui.painter(),
-            rect,
-            theme::radius::for_height(rect.height()),
-            &face,
-        );
+        let ink = widgets::well::paint_piece(ui.painter(), rect, &face);
         if self.taken_over(doc, master, Target::Mute) {
             follow::ring(ui, rect);
         }
         ui.painter().text(
-            body.center(),
+            rect.center(),
             Align2::CENTER_CENTER,
             "M",
             fonts::medium(theme::size::CAPTION),
-            face.text(),
+            ink,
         );
         raised::focus_ring(ui.painter(), &response, rect);
         control_menu_for(
@@ -820,6 +777,16 @@ impl Arrangement {
     }
 }
 
+/// A hairline across the strip's inner span `x` at `y`, between sections.
+fn rule(painter: &egui::Painter, x: Rangef, y: f32) {
+    let y = y.round_to_pixel_center(painter.pixels_per_point());
+    painter.hline(
+        x,
+        y,
+        Stroke::new(theme::stroke::HAIRLINE, theme::p().border),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -841,7 +808,7 @@ mod tests {
         let s = Sections::fitting(h, false);
         assert!(!s.sends && s.trim && s.output, "{s:?}");
         // Shorter still: trim, then the output.
-        let s = Sections::fitting(h - SENDS - GAP - ROW, false);
+        let s = Sections::fitting(h - RULE - ROW - GAP - ROW, false);
         assert!(!s.sends && !s.trim && s.output, "{s:?}");
         let s = Sections::fitting(Sections::min_height(), true);
         assert!(!s.sends && !s.trim && !s.output);

@@ -4,7 +4,7 @@ use eframe::egui::{Event, Key, Modifiers, Pos2, Rect};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
 
-use super::{Lumen, wav};
+use super::{Lumen, keys, wav};
 
 fn command(lumen: &mut Lumen, name: &str) {
     lumen.key(Modifiers::COMMAND, Key::K);
@@ -72,17 +72,16 @@ fn every_arrangement_tool_is_reachable_from_the_palette() {
 #[test]
 fn the_tool_switch_opens_its_menu_and_selects_a_tool_with_the_mouse() {
     let mut lumen = Lumen::start("tools-switch");
-    assert!(!lumen.shows("Erase"), "the menu is closed to begin with");
+    // A tool's row is named with its keys (the interface audit's M6).
+    let (erase, split) = (keys("Erase D"), keys("Split C"));
+    assert!(!lumen.shows(&erase), "the menu is closed to begin with");
     lumen.click("Arrangement tool: Pointer");
-    assert!(lumen.shows("Split"), "the mouse opens the tool menu");
-    lumen.click("Split");
+    assert!(lumen.shows(&split), "the mouse opens the tool menu");
+    lumen.click(&split);
     assert_eq!(lumen.app().arrangement_tool_name(), "Split");
     assert!(lumen.shows("Arrangement tool: Split"));
-    lumen.frames(30);
-    assert!(
-        !lumen.shows("Erase"),
-        "choosing a tool closes the menu, so a pick is one click"
-    );
+    // Choosing a tool closes the menu, so a pick is one click.
+    lumen.run_until("the tool menu closes", |lumen| !lumen.shows(&erase));
 }
 
 #[test]
@@ -95,6 +94,31 @@ fn b_toggles_arrangement_draw_and_escape_returns_to_pointer() {
     command(&mut lumen, "Split tool");
     lumen.key(Modifiers::NONE, Key::Escape);
     assert_eq!(lumen.app().arrangement_tool_name(), "Pointer");
+}
+
+#[test]
+fn single_keys_pick_the_tools_the_menu_names() {
+    let mut lumen = Lumen::start("tools-single-keys");
+    let tools = [
+        (Key::D, "Erase"),
+        (Key::C, "Split"),
+        (Key::U, "Mute"),
+        (Key::V, "Pointer"),
+    ];
+    lumen.click("Arrangement tool: Pointer");
+    // B is checked by `b_toggles_arrangement_draw_and_escape_returns_to_pointer`.
+    assert!(lumen.shows(&keys("Draw B")), "the menu names Draw B");
+    for (key, name) in tools {
+        let row = keys(&format!("{name} {}", key.name()));
+        assert!(lumen.shows(&row), "the menu names {row}");
+    }
+    lumen.key(Modifiers::NONE, Key::Escape);
+    let erase = keys("Erase D");
+    lumen.run_until("the tool menu closes", |lumen| !lumen.shows(&erase));
+    for (key, name) in tools {
+        lumen.key(Modifiers::NONE, key);
+        assert_eq!(lumen.app().arrangement_tool_name(), name, "{key:?}");
+    }
 }
 
 #[test]
@@ -303,7 +327,7 @@ fn locked_clips_ignore_the_split_erase_and_mute_tools() {
     let mut lumen = audio("tools-locked");
     let at = spot(&lumen, 2.0);
     lumen.right_click(at);
-    lumen.click("Lock clip");
+    lumen.click("Lock");
     let before = lumen.app().project().tracks[0].clips.clone();
     assert!(before[0].locked);
     for tool in ["Split tool", "Erase tool", "Mute tool"] {

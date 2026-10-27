@@ -18,7 +18,7 @@ use super::record::{self, Phase};
 use super::{Transport, fit};
 
 /// Overdub's tooltip: what the switch decides about a take.
-const OVERDUB_HINT: &str = "Replace: a take replaces what is under it. Overdub: a take adds to it.";
+const OVERDUB_HINT: &str = "On: a take adds to what is under it. Off: a take replaces it.";
 
 /// The keyboard readout's type.
 fn keyboard_font() -> egui::FontId {
@@ -46,21 +46,6 @@ fn well_pad(compact: bool) -> f32 {
     } else {
         theme::space::M
     }
-}
-
-/// Allocates a 30 pt readout well `width` wide (the design system's
-/// `.lm-display`, ADR-0052) and paints it: sunk, with the lip and a
-/// border that strengthens under the pointer. Returns its rect.
-fn readout_well(ui: &mut Ui, id: egui::Id, width: f32) -> egui::Rect {
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(width, theme::size::CONTROL_LARGE),
-        egui::Sense::hover(),
-    );
-    let rect = rect.round_to_pixels(ui.pixels_per_point());
-    let over = ui.rect_contains_pointer(rect);
-    let hover = crate::motion::hover(ui.ctx(), id.with("well hover"), over);
-    widgets::raised::paint_field(ui.painter(), rect, theme::radius::LARGE, hover);
-    rect
 }
 
 impl Transport {
@@ -133,21 +118,24 @@ impl Transport {
             let galley = ui
                 .painter()
                 .layout_no_wrap(readout.clone(), keyboard_font(), c.text);
+            // A piece of the modes' well, as text.
             let size = egui::vec2(
                 galley.size().x + 2.0 * theme::space::S,
-                theme::size::CONTROL_SMALL,
+                theme::size::WELL_CELL,
             );
-            let (rect, well) = ui.allocate_exact_size(size, egui::Sense::hover());
-            well.widget_info(|| {
+            let (rect, piece) = ui.allocate_exact_size(size, egui::Sense::hover());
+            piece.widget_info(|| {
                 egui::WidgetInfo::labeled(
                     egui::WidgetType::Label,
                     true,
                     format!("Computer keyboard: {readout}"),
                 )
             });
-            widgets::raised::paint_sunken(ui.painter(), rect, theme::radius::SMALL);
-            ui.painter()
-                .galley(rect.center() - galley.size() / 2.0, galley, c.text);
+            ui.painter().galley(
+                (rect.center() - galley.size() / 2.0).round(),
+                galley,
+                c.text,
+            );
             self.keyboard_readout_shown = true;
             self.fit.took(ui, before);
         }
@@ -242,9 +230,10 @@ impl Transport {
 
     /// The widths of the optional pieces, for `fit` (see its order).
     fn wants(&self, ui: &Ui) -> fit::Wants {
-        let gap = fit::gap(ui);
         let keyboard = self.keyboard_readout.as_ref().map_or(0.0, |readout| {
-            fit::text_width(ui, readout, keyboard_font()) + 2.0 * theme::space::S + gap
+            fit::text_width(ui, readout, keyboard_font())
+                + 2.0 * theme::space::S
+                + widgets::well::PIECE_GAP
         });
         let (cpu, dropout, compensation) = self.status_wants(ui);
         fit::Wants {
@@ -279,221 +268,266 @@ impl Transport {
         let no_audio = "No audio device is running";
         let (start, play) = (keymap.keys(Run::GoToStart), keymap.keys(Run::PlayStop));
 
-        if icons::button(
-            ui,
-            Icon::ToStart,
-            "Go to start",
-            Tip {
-                keys: start.as_ref(),
-                hint: None,
-            },
-            false,
-            true,
-            "",
-        )
-        .clicked()
-        {
-            self.locate(Ticks::ZERO);
-        }
-        if icons::button(
-            ui,
-            Icon::Stop,
-            "Stop",
-            Tip {
-                keys: play.as_ref(),
-                hint: Some("Stop twice to return to the start"),
-            },
-            false,
-            running,
-            no_audio,
-        )
-        .clicked()
-        {
-            self.send(Command::Stop);
-        }
-        // Play starts from the start marker, as Space does; while playing the
-        // button stops in place. Shift+Space continues from the playhead.
-        let continues = keymap
-            .text(Run::PauseContinue)
-            .map(|k| format!("{k} continues from the playhead"));
-        let (icon, label, hint) = if state.playing {
-            (Icon::Pause, "Stop here", None)
-        } else {
-            (
-                Icon::Play,
-                "Play from the start marker",
-                continues.as_deref(),
+        // Three groups (the interface audit's TB1): the transport in one
+        // well, the modes in another, then tempo, meter and position in one
+        // numeric well.
+        widgets::well::row(ui, |ui| {
+            if icons::button(
+                ui,
+                Icon::ToStart,
+                "Go to start",
+                Tip {
+                    keys: start.as_ref(),
+                    hint: None,
+                },
+                false,
+                true,
+                "",
             )
-        };
-        let play_button = icons::button(
-            ui,
-            icon,
-            label,
-            Tip {
-                keys: play.as_ref(),
-                hint,
-            },
-            state.playing,
-            running,
-            no_audio,
-        );
-        if state.playing {
-            icons::beam(ui, play_button.rect);
-        }
-        if play_button.clicked() {
-            let command = if state.playing {
-                Command::Pause
+            .clicked()
+            {
+                self.locate(Ticks::ZERO);
+            }
+            if icons::button(
+                ui,
+                Icon::Stop,
+                "Stop",
+                Tip {
+                    keys: play.as_ref(),
+                    hint: Some("Stop twice to return to the start"),
+                },
+                false,
+                running,
+                no_audio,
+            )
+            .clicked()
+            {
+                self.send(Command::Stop);
+            }
+            // Play starts from the start marker, as Space does; while playing
+            // the button stops in place. Shift+Space continues from the
+            // playhead.
+            let continues = keymap
+                .text(Run::PauseContinue)
+                .map(|k| format!("{k} continues from the playhead"));
+            let (icon, label, hint) = if state.playing {
+                (Icon::Pause, "Stop here", None)
             } else {
-                self.played_from_stop = true;
-                Command::Play
+                (
+                    Icon::Play,
+                    "Play from the start marker",
+                    continues.as_deref(),
+                )
             };
-            self.send(command);
-        }
-        self.record_button(ui, keymap, state, record, beats);
-        self.overdub_button(ui, keymap, record);
-        let looped = doc.project().transport;
-        let loop_button = icons::button(
-            ui,
-            Icon::Loop,
-            "Loop",
-            Tip {
-                keys: None,
-                hint: Some("Right-click for punch in and out"),
-            },
-            looped.loop_enabled,
-            true,
-            "",
-        );
-        if loop_button.clicked() {
-            doc.set_loop_enabled(!looped.loop_enabled);
-        }
-        widgets::Menu::context(&loop_button).show(|ui| punch_menu(ui, doc));
-        let metronome = icons::button(
-            ui,
-            Icon::Metronome,
-            "Metronome",
-            Tip {
-                keys: None,
-                hint: Some("Right-click for volume, sound, count-in and output"),
-            },
-            self.metronome.enabled,
-            true,
-            "",
-        );
-        if metronome.clicked() {
-            self.metronome.enabled = !self.metronome.enabled;
-            self.send(Command::SetMetronome(self.metronome));
-        }
-        self.follow_button(ui, keymap);
-        self.keyboard_button(ui, keymap);
-        solo_chip(ui, doc, keymap);
+            let play_button = icons::button(
+                ui,
+                icon,
+                label,
+                Tip {
+                    keys: play.as_ref(),
+                    hint,
+                },
+                state.playing,
+                running,
+                no_audio,
+            );
+            if state.playing {
+                icons::beam(ui, play_button.rect);
+            }
+            if play_button.clicked() {
+                let command = if state.playing {
+                    Command::Pause
+                } else {
+                    self.played_from_stop = true;
+                    Command::Play
+                };
+                self.send(command);
+            }
+            self.record_button(ui, keymap, state, record, beats);
+        });
+        fit::divider(ui);
+        let metronome = widgets::well::row(ui, |ui| {
+            self.overdub_button(ui, keymap, record);
+            let looped = doc.project().transport;
+            let loop_button = icons::button(
+                ui,
+                Icon::Loop,
+                "Loop",
+                Tip {
+                    keys: None,
+                    hint: Some("Right-click for punch in and out"),
+                },
+                looped.loop_enabled,
+                true,
+                "",
+            );
+            if loop_button.clicked() {
+                doc.set_loop_enabled(!looped.loop_enabled);
+            }
+            widgets::Menu::context(&loop_button).show(|ui| punch_menu(ui, doc));
+            let metronome = icons::button(
+                ui,
+                Icon::Metronome,
+                "Metronome",
+                Tip {
+                    keys: None,
+                    hint: Some("Right-click for volume, sound, count-in and output"),
+                },
+                self.metronome.enabled,
+                true,
+                "",
+            );
+            if metronome.clicked() {
+                self.metronome.enabled = !self.metronome.enabled;
+                self.send(Command::SetMetronome(self.metronome));
+            }
+            self.follow_button(ui, keymap);
+            self.keyboard_button(ui, keymap);
+            solo_piece(ui, doc, keymap);
+            metronome
+        })
+        .inner;
         widgets::Menu::context(&metronome)
             .keeping_open()
-            .show(|ui| {
-                let mut changed = false;
-                ui.label("Metronome volume");
-                // A value slider like every other level (it was egui's
-                // own); double-click goes back to the default level.
-                let (rect, _) = ui.allocate_exact_size(
-                    egui::vec2(160.0, theme::size::CONTROL_SMALL),
-                    egui::Sense::hover(),
-                );
-                let default = lumen_engine::MetronomeSettings::default().volume;
-                let volume = widgets::value_slider(
-                    ui,
-                    rect,
-                    ui.id().with("metronome volume"),
-                    self.metronome.volume,
-                    widgets::SliderKind::Percent { default },
-                    "Metronome volume",
-                    theme::controls(false),
-                );
-                if volume != self.metronome.volume {
-                    self.metronome.volume = volume;
-                    widgets::note_change(ui);
-                    changed = true;
-                }
-                ui.separator();
-                widgets::menu_caption(ui, "Sound");
-                let sounds = ClickSound::ALL.map(|s| widgets::Choice::new(s, s.name()));
-                if let Some(sound) =
-                    widgets::segmented(ui, ui.id().with("sound"), self.metronome.sound, &sounds)
-                {
-                    self.metronome.sound = sound;
-                    changed = true;
-                }
-                // The count-in and the record-only switch are the palette's
-                // settings: the choices ask the app for their commands.
-                ui.separator();
-                widgets::menu_caption(ui, "Count-in");
-                let counts = CountIn::ALL
-                    .map(|c| widgets::Choice::new(c, c.name()).named(record::count_in_name(c)));
-                if let Some(count_in) =
-                    widgets::segmented(ui, ui.id().with("count in"), record.count_in, &counts)
-                {
-                    self.requests.push(record::count_in_command(count_in));
-                }
-                let mut only = record.only_while_recording;
-                if widgets::switch(ui, &mut only, "Only while recording", true).clicked() {
-                    self.requests.push(Run::RecordOnlyMetronome);
-                }
-                let mut keep = record.keep_played;
-                if widgets::switch(ui, &mut keep, "Keep played notes", true)
-                    .on_hover_text(
-                        "Keeps the last ten minutes of notes you play while not recording, in memory only, for Capture MIDI",
-                    )
-                    .clicked()
-                {
-                    self.requests.push(Run::KeepPlayedNotes);
-                }
-                // Its own output, never through the master (the owner's D6):
-                // the main pair, or the cue pair for the headphones.
-                ui.separator();
-                widgets::menu_caption(ui, "Output");
-                let cue = crate::settings::CUE_CHANNEL;
-                let ready = self.audio.cue_ready();
-                let outputs = [
-                    widgets::Choice::new(0, "Main"),
-                    widgets::Choice::new(cue, "Cue")
-                        .enabled(ready)
-                        .tip(if ready {
-                            "The cue pair, for headphones"
-                        } else {
-                            "Choose a Cue output in Audio settings first"
-                        }),
-                ];
-                if let Some(channel) =
-                    widgets::segmented(ui, ui.id().with("output"), self.metronome.channel, &outputs)
-                {
-                    self.metronome.channel = channel;
-                    changed = true;
-                }
-                if changed {
-                    self.send(Command::SetMetronome(self.metronome));
-                }
-            });
+            .show(|ui| self.metronome_menu(ui, record));
         fit::divider(ui);
+        self.numbers(ui, doc, state, plan.compact);
+        // Compact, the dot follows the position without a divider.
+        if !plan.compact {
+            fit::divider(ui);
+        }
+        self.status(ui, doc.project());
+        self.fit.finish(ui);
+    }
 
-        // Tempo, in a 30 pt well: the value in Martian Mono, its unit in
-        // `text_hint` (the Transport card).
-        let project = doc.project();
+    /// The metronome button's menu: volume, sound, count-in, the
+    /// record-only and keep-played switches, and the output.
+    fn metronome_menu(&mut self, ui: &mut Ui, record: RecordSettings) {
+        let mut changed = false;
+        ui.label("Metronome volume");
+        // A value slider like every other level (it was egui's own);
+        // double-click goes back to the default level.
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(160.0, theme::size::CONTROL_SMALL),
+            egui::Sense::hover(),
+        );
+        let default = lumen_engine::MetronomeSettings::default().volume;
+        let volume = widgets::value_slider(
+            ui,
+            rect,
+            ui.id().with("metronome volume"),
+            self.metronome.volume,
+            widgets::SliderKind::Percent { default },
+            "Metronome volume",
+            theme::controls(false),
+        );
+        if volume != self.metronome.volume {
+            self.metronome.volume = volume;
+            widgets::note_change(ui);
+            changed = true;
+        }
+        ui.separator();
+        widgets::menu_caption(ui, "Sound");
+        let sounds = ClickSound::ALL.map(|s| widgets::Choice::new(s, s.name()));
+        if let Some(sound) =
+            widgets::segmented(ui, ui.id().with("sound"), self.metronome.sound, &sounds)
+        {
+            self.metronome.sound = sound;
+            changed = true;
+        }
+        // The count-in and the record-only switch are the palette's
+        // settings: the choices ask the app for their commands.
+        ui.separator();
+        widgets::menu_caption(ui, "Count-in");
+        let counts =
+            CountIn::ALL.map(|c| widgets::Choice::new(c, c.name()).named(record::count_in_name(c)));
+        if let Some(count_in) =
+            widgets::segmented(ui, ui.id().with("count in"), record.count_in, &counts)
+        {
+            self.requests.push(record::count_in_command(count_in));
+        }
+        let mut only = record.only_while_recording;
+        if widgets::switch(ui, &mut only, "Only while recording", true).clicked() {
+            self.requests.push(Run::RecordOnlyMetronome);
+        }
+        let mut keep = record.keep_played;
+        if widgets::switch(ui, &mut keep, "Keep played notes", true)
+            .on_hover_text(
+                "Keeps the last ten minutes of notes you play while not recording, in memory only, for Capture MIDI",
+            )
+            .clicked()
+        {
+            self.requests.push(Run::KeepPlayedNotes);
+        }
+        // Its own output, never through the master (the owner's D6): the
+        // main pair, or the cue pair for the headphones.
+        ui.separator();
+        widgets::menu_caption(ui, "Output");
+        let cue = crate::settings::CUE_CHANNEL;
+        let ready = self.audio.cue_ready();
+        let outputs = [
+            widgets::Choice::new(0, "Main"),
+            widgets::Choice::new(cue, "Cue")
+                .enabled(ready)
+                .tip(if ready {
+                    "The cue pair, for headphones"
+                } else {
+                    "Choose a Cue output in Audio settings first"
+                }),
+        ];
+        if let Some(channel) =
+            widgets::segmented(ui, ui.id().with("output"), self.metronome.channel, &outputs)
+        {
+            self.metronome.channel = channel;
+            changed = true;
+        }
+        if changed {
+            self.send(Command::SetMetronome(self.metronome));
+        }
+    }
+
+    /// Tempo, meter and position as the pieces of one 30 pt numeric well
+    /// (the interface audit's TB1), hairlines between them. The values are
+    /// Martian Mono, units in `text_hint`; the piece under the pointer
+    /// takes the Ember wash.
+    fn numbers(
+        &mut self,
+        ui: &mut Ui,
+        doc: &mut crate::document::Document,
+        state: TransportSnapshot,
+        compact: bool,
+    ) {
         // The tempo and the time signature in force at the playhead: with
         // changes along the song, the fields show and edit the segment the
         // playhead is in (M7 slice A6, the owner's choice).
-        let mut bpm = lumen_project::edit::maps::tempo_in(&project.tempo, state.ticks);
-        let pad = well_pad(plan.compact);
-        let unit = (!plan.compact).then_some("BPM");
+        let mut bpm = lumen_project::edit::maps::tempo_in(&doc.project().tempo, state.ticks);
+        let pad = well_pad(compact);
+        let unit = (!compact).then_some("BPM");
         let value_w = fit::text_width(ui, "999.00", value_font());
         let unit_w = unit.map_or(0.0, |unit| {
             theme::space::S + fit::text_width(ui, unit, unit_font())
         });
-        let well_id = ui.id().with("tempo well");
-        let well = readout_well(ui, well_id, 2.0 * pad + value_w + unit_w);
-        // The drag value fills the value's part of the well, with no fill
-        // or outline of its own: the well is its ground.
+        let position = self.position_text(ui, state, compact);
+        let widths = [
+            2.0 * pad + value_w + unit_w,
+            widgets::signature::WIDTH,
+            position.width,
+        ];
+        let (well, _) = ui.allocate_exact_size(
+            egui::vec2(widgets::well::width(&widths), theme::size::CONTROL_LARGE),
+            egui::Sense::hover(),
+        );
+        let well = well.round_to_pixels(ui.pixels_per_point());
+        let pieces = widgets::well::paint(ui.painter(), well, &widths);
+        widgets::well::dividers(ui.painter(), &pieces);
+
+        // Tempo: the drag value fills the value's part of its piece, with no
+        // fill or outline of its own: the well is its ground.
+        let tempo_piece = pieces[0];
+        widgets::well::wash(ui, tempo_piece, ui.id().with("tempo well"));
         let value_rect = egui::Rect::from_min_max(
-            egui::pos2(well.left() + pad, well.top()),
-            egui::pos2(well.left() + pad + value_w, well.bottom()),
+            egui::pos2(tempo_piece.left() + pad, tempo_piece.top()),
+            egui::pos2(tempo_piece.left() + pad + value_w, tempo_piece.bottom()),
         );
         let mut field = ui.new_child(
             egui::UiBuilder::new()
@@ -511,21 +545,26 @@ impl Transport {
             state.bg_fill = egui::Color32::TRANSPARENT;
             state.weak_bg_fill = egui::Color32::TRANSPARENT;
             state.bg_stroke = egui::Stroke::NONE;
-            state.corner_radius = egui::CornerRadius::same(theme::radius::LARGE);
+            state.corner_radius =
+                egui::CornerRadius::same(widgets::well::piece_radius(value_rect.height()));
         }
-        let tempo = field
-            .add_sized(
-                value_rect.size(),
-                egui::DragValue::new(&mut bpm)
-                    .range(20.0..=999.0)
-                    // Typed values apply on Enter or leaving the field: live,
-                    // "1" on the way to "125" played at 20 BPM and sent the
-                    // playhead past the audio (owner, after slice 4a).
-                    .update_while_editing(false)
-                    .speed(0.1)
-                    .fixed_decimals(2),
-            )
-            .on_hover_text("Tempo, 20–999 BPM");
+        let tempo = field.add_sized(
+            value_rect.size(),
+            egui::DragValue::new(&mut bpm)
+                .range(20.0..=999.0)
+                // Typed values apply on Enter or leaving the field: live,
+                // "1" on the way to "125" played at 20 BPM and sent the
+                // playhead past the audio (owner, after slice 4a).
+                .update_while_editing(false)
+                .speed(0.1)
+                .fixed_decimals(2),
+        );
+        let tempo = widgets::tip(
+            tempo,
+            "Tempo",
+            None,
+            Some("20 to 999 BPM. Drag, or click to type."),
+        );
         tempo.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, "Tempo"));
         if let Some(unit) = unit {
             let galley =
@@ -533,7 +572,7 @@ impl Transport {
                     .layout_no_wrap(unit.to_owned(), unit_font(), theme::p().text_hint);
             let at = egui::pos2(
                 value_rect.right() + theme::space::S,
-                well.center().y - galley.size().y / 2.0,
+                tempo_piece.center().y - galley.size().y / 2.0,
             );
             ui.painter()
                 .galley(at.round(), galley, theme::p().text_hint);
@@ -548,28 +587,28 @@ impl Transport {
         let current = (here.numerator, here.denominator);
         if let Some((beats, unit)) = widgets::time_signature(
             ui,
+            pieces[1],
             ui.id().with("time signature"),
             current,
             crate::document::MAX_BEATS_PER_BAR,
         ) {
             doc.set_time_signature_at(state.ticks, beats, unit, Some("meter"));
         }
-        fit::divider(ui);
 
-        self.position_field(ui, state, plan.compact);
-        // Compact, the dot follows the position without a divider.
-        if !plan.compact {
-            fit::divider(ui);
+        self.position_piece(ui, pieces[2], position);
+        if let Some(error) = &self.error {
+            let warn = ui
+                .label(RichText::new("⚠").color(theme::p().warning))
+                .on_hover_text(error.as_str());
+            let name = format!("Position error: {error}");
+            warn.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &name));
         }
-        self.status(ui, doc.project());
-        self.fit.finish(ui);
     }
 
-    /// The position, in a 30 pt well: bars and beats, then the time, both
-    /// Martian Mono. Clicking the bars types a place to go to. While counting
-    /// in, it counts up through the bars before 1 in the secondary colour
-    /// (M5 slice 6d).
-    fn position_field(&mut self, ui: &mut Ui, state: TransportSnapshot, compact: bool) {
+    /// The position's texts, laid out, and the width of its piece: the
+    /// piece keeps that width while a place is typed (the interface
+    /// audit's T1).
+    fn position_text(&self, ui: &Ui, state: TransportSnapshot, compact: bool) -> PositionText {
         let counting = state.count_in_total > 0;
         let shown = if counting {
             record::count_in_ticks(
@@ -591,14 +630,50 @@ impl Transport {
             self.timeline.tempo.seconds_at(shown),
             state.sample_rate,
         );
-        if let Some(text) = &mut self.editing {
-            let edit = ui.add(
-                egui::TextEdit::singleline(text)
-                    .desired_width(110.0)
-                    .min_size(egui::vec2(0.0, theme::size::CONTROL_LARGE))
+        let c = theme::p();
+        let bars_colour = if counting { c.text_secondary } else { c.text };
+        let bars = ui
+            .painter()
+            .layout_no_wrap(format!("{bbt:>7}"), value_font(), bars_colour);
+        let clock = ui
+            .painter()
+            .layout_no_wrap(time.clone(), value_font(), c.text_secondary);
+        let pad = well_pad(compact);
+        let gap = if compact {
+            theme::space::XS
+        } else {
+            theme::space::S
+        };
+        let width = 2.0 * pad + bars.size().x + gap + clock.size().x;
+        PositionText {
+            bbt,
+            time,
+            bars,
+            clock,
+            bars_colour,
+            pad,
+            gap,
+            width,
+        }
+    }
+
+    /// The position, a piece of the numeric well: bars and beats, then the
+    /// time, both Martian Mono. Clicking the bars types a place to go to, in
+    /// the same piece. While counting in, it counts up through the bars
+    /// before 1 in the secondary colour (M5 slice 6d).
+    fn position_piece(&mut self, ui: &mut Ui, piece: egui::Rect, text: PositionText) {
+        let radius = widgets::well::piece_radius(piece.height());
+        if let Some(typed) = &mut self.editing {
+            let mut field = ui.new_child(egui::UiBuilder::new().max_rect(piece));
+            let edit = field.add_sized(
+                piece.size(),
+                egui::TextEdit::singleline(typed)
+                    .frame(egui::Frame::NONE)
+                    .margin(egui::Margin::symmetric(text.pad as i8, 0))
                     .vertical_align(egui::Align::Center)
                     .font(value_font()),
             );
+            widgets::raised::paint_focus(ui.painter(), piece, radius);
             edit.widget_info(|| {
                 egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Go to position")
             });
@@ -612,7 +687,7 @@ impl Transport {
                 self.error = None;
             } else if edit.lost_focus() {
                 if enter {
-                    match position::parse(text, &self.timeline) {
+                    match position::parse(typed, &self.timeline) {
                         Ok(at) => {
                             self.locate(at);
                             self.error = None;
@@ -622,60 +697,63 @@ impl Transport {
                 }
                 self.editing = None;
             }
-        } else {
-            let c = theme::p();
-            let pad = well_pad(compact);
-            let bars_colour = if counting { c.text_secondary } else { c.text };
-            let bars = ui
-                .painter()
-                .layout_no_wrap(format!("{bbt:>7}"), value_font(), bars_colour);
-            let clock = ui
-                .painter()
-                .layout_no_wrap(time.clone(), value_font(), c.text_secondary);
-            let (bars_w, clock_w) = (bars.size().x, clock.size().x);
-            let well_id = ui.id().with("position well");
-            let gap = if compact {
-                theme::space::XS
-            } else {
-                theme::space::S
-            };
-            let well = readout_well(ui, well_id, 2.0 * pad + bars_w + gap + clock_w);
-            let bars_rect = egui::Rect::from_min_size(
-                egui::pos2(well.left() + pad, well.top()),
-                egui::vec2(bars_w, well.height()),
-            );
-            let clock_rect = egui::Rect::from_min_size(
-                egui::pos2(bars_rect.right() + gap, well.top()),
-                egui::vec2(clock_w, well.height()),
-            );
-            let field = ui
-                .interact(bars_rect, well_id.with("bars"), egui::Sense::click())
-                .on_hover_text("Position: click to type a bar or a time");
-            field.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Position {bbt}"))
-            });
-            let time_node = ui.interact(clock_rect, well_id.with("time"), egui::Sense::hover());
-            time_node.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::Label, true, time.as_str())
-            });
-            let centre = |rect: egui::Rect, galley: &std::sync::Arc<egui::Galley>| {
-                (rect.center() - galley.size() / 2.0).round()
-            };
-            let (at_bars, at_clock) = (centre(bars_rect, &bars), centre(clock_rect, &clock));
-            ui.painter().galley(at_bars, bars, bars_colour);
-            ui.painter().galley(at_clock, clock, c.text_secondary);
-            if field.has_focus() {
-                widgets::raised::paint_focus(ui.painter(), well, theme::radius::LARGE);
-            }
-            if field.clicked() {
-                self.editing = Some(bbt);
-            }
+            return;
         }
-        if let Some(error) = &self.error {
-            ui.label(RichText::new("⚠").color(theme::p().warning))
-                .on_hover_text(error.as_str());
+        let c = theme::p();
+        let well_id = ui.id().with("position well");
+        let bars_rect = egui::Rect::from_min_size(
+            egui::pos2(piece.left() + text.pad, piece.top()),
+            egui::vec2(text.bars.size().x, piece.height()),
+        );
+        let clock_rect = egui::Rect::from_min_size(
+            egui::pos2(bars_rect.right() + text.gap, piece.top()),
+            egui::vec2(text.clock.size().x, piece.height()),
+        );
+        let field = ui.interact(bars_rect, well_id.with("bars"), egui::Sense::click());
+        let field = widgets::tip(
+            field,
+            "Position",
+            None,
+            Some("Click to type a bar or a time"),
+        );
+        let bbt = text.bbt;
+        field.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Position {bbt}"))
+        });
+        let time_node = ui.interact(clock_rect, well_id.with("time"), egui::Sense::hover());
+        let time = text.time;
+        time_node.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &time));
+        widgets::well::wash_when(ui, piece, well_id, field.hovered());
+        let centre = |rect: egui::Rect, galley: &std::sync::Arc<egui::Galley>| {
+            (rect.center() - galley.size() / 2.0).round()
+        };
+        let (at_bars, at_clock) = (
+            centre(bars_rect, &text.bars),
+            centre(clock_rect, &text.clock),
+        );
+        ui.painter().galley(at_bars, text.bars, text.bars_colour);
+        ui.painter().galley(at_clock, text.clock, c.text_secondary);
+        if field.has_focus() {
+            widgets::raised::paint_focus(ui.painter(), piece, radius);
+        }
+        if field.clicked() {
+            self.editing = Some(bbt);
         }
     }
+}
+
+/// The position readout's texts, laid out once a frame (`position_text`).
+struct PositionText {
+    bbt: String,
+    time: String,
+    bars: std::sync::Arc<egui::Galley>,
+    clock: std::sync::Arc<egui::Galley>,
+    bars_colour: egui::Color32,
+    /// The room before the bars and after the time, and between them.
+    pad: f32,
+    gap: f32,
+    /// The piece's width.
+    width: f32,
 }
 
 /// Loop and punch switches: the loop button's and the loop brace's
@@ -716,49 +794,38 @@ pub fn punch_menu(ui: &mut Ui, doc: &mut crate::document::Document) {
     );
 }
 
-/// The solo chip (the owner's D3, M4 slice 4): an "S" that lights while
-/// anything is soloed, with the count in its hint; a click clears every
-/// solo. Quiet and inactive while nothing is.
-fn solo_chip(ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) {
-    let palette = *theme::p();
+/// The solo piece, last in the modes' well (the owner's D3, M4 slice 4;
+/// the interface audit's TB1): an "S" filled accent while anything is
+/// soloed, like the S buttons it clears, with the count in its hint; a
+/// click clears every solo. Greyed while nothing is.
+fn solo_piece(ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) {
     let soloed = doc.project().tracks.iter().filter(|t| t.solo).count();
-    let text = "S";
-    let font = crate::fonts::medium(theme::size::CAPTION);
-    let galley = ui
-        .painter()
-        .layout_no_wrap(text.to_owned(), font, palette.text);
-    let height = theme::size::CONTROL_SMALL;
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(height, height), egui::Sense::click());
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(theme::size::TRANSPORT_ICON, theme::size::WELL_CELL),
+        egui::Sense::hover(),
+    );
+    let id = ui.id().with("clear solos");
+    let lit = motion::hover(ui.ctx(), id.with("lit"), soloed > 0);
+    let (response, ink) =
+        widgets::well::button(ui, rect, id, (lit, theme::Tone::Accent), soloed > 0);
     let keys = keymap.keys(Run::ClearSolos);
-    let response = if soloed > 0 {
-        crate::widgets::tip(
-            response,
-            &format!("Clear all solos ({soloed})"),
-            keys.as_ref(),
-            None,
-        )
+    let hint = if soloed > 0 {
+        format!("{soloed} soloed")
     } else {
-        response.on_hover_text("Nothing is soloed")
+        "Nothing is soloed".to_owned()
     };
+    let response = widgets::tip(response, "Clear all solos", keys.as_ref(), Some(&hint));
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, soloed > 0, "Clear all solos")
     });
-    // Raised like every control; filled accent like the S buttons it clears
-    // (the Transport card, ADR-0052).
-    let lit = crate::motion::hover(ui.ctx(), response.id.with("lit"), soloed > 0);
-    let face = crate::widgets::raised::face_of(ui, &response).lit(lit, crate::theme::Tone::Accent);
-    // A 20 pt circle; the count remains available in the tooltip.
+    let galley = ui.painter().layout_no_wrap(
+        "S".to_owned(),
+        crate::fonts::medium(theme::size::CAPTION),
+        ink,
+    );
     let rect = rect.round_to_pixels(ui.pixels_per_point());
-    let body = crate::widgets::raised::paint(ui.painter(), rect, theme::radius::FULL, &face);
-    let ink = if soloed > 0 {
-        face.text()
-    } else {
-        palette.text_hint
-    };
-    crate::widgets::raised::centre_galley(ui.painter(), body, galley, ink);
-    if response.has_focus() {
-        crate::widgets::raised::paint_focus(ui.painter(), rect, theme::radius::FULL);
-    }
+    ui.painter()
+        .galley((rect.center() - galley.size() / 2.0).round(), galley, ink);
     if soloed > 0 && response.clicked() {
         doc.clear_solos();
     }

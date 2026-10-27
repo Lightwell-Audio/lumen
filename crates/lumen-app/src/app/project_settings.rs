@@ -94,7 +94,7 @@ fn sections(ui: &mut egui::Ui, project: &Project, device_rate: u32, next: Color3
     });
     hint(
         ui,
-        "How loud a mono track is at the centre. Stereo tracks balance.",
+        "How loud a mono track is at the center. Stereo tracks balance.",
     );
     ui.add_space(theme::space::XS);
     let mut crossfades = project.auto_crossfade;
@@ -103,15 +103,15 @@ fn sections(ui: &mut egui::Ui, project: &Project, device_rate: u32, next: Color3
         .changed();
 
     section(ui, "New tracks");
-    row(ui, "Colour", |ui| {
+    row(ui, "Color", |ui| {
         let look = Swatches {
-            name: "New track colour",
+            name: "New track color",
             round: true,
-            none: (next, "Colours in turn"),
+            none: (next, "Colors in turn"),
         };
         picked.color = clip_card::swatches(ui, project.new_track_color, look);
     });
-    hint(ui, "New tracks take this colour, or the palette in turn.");
+    hint(ui, "New tracks take this color, or the palette in turn.");
     picked
 }
 

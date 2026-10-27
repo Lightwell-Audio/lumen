@@ -66,14 +66,14 @@ fn track_colour_swatches_have_names_and_recolour_in_one_undo_step() {
     let before = lumen.app().project().tracks[0].color;
     let header = lumen.harness.get_by_label_contains("Track Audio 1").rect();
     lumen.right_click(header.center());
-    let colour = lumen.harness.get_by_label("Colour").rect();
+    let colour = lumen.harness.get_by_label("Color").rect();
     lumen.harness.hover_at(colour.center());
     lumen.frames(30);
     assert!(
         unnamed(&lumen).is_empty(),
-        "colour submenu controls are named"
+        "color submenu controls are named"
     );
-    lumen.click("Track colour 2");
+    lumen.click("Track color 2");
     assert_ne!(lumen.app().project().tracks[0].color, before);
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(lumen.app().project().tracks[0].color, before);
@@ -363,10 +363,10 @@ fn switches_and_segmented_choices_work_by_name() {
     let mut lumen = Lumen::start("switches");
     lumen.click("Lumen");
     lumen.click("Mixing");
-    assert!(!lumen.is_on("Meters in track colours"));
-    lumen.click("Meters in track colours");
+    assert!(!lumen.is_on("Meters in track colors"));
+    lumen.click("Meters in track colors");
     assert!(
-        lumen.is_on("Meters in track colours"),
+        lumen.is_on("Meters in track colors"),
         "a click switches it on"
     );
     assert!(

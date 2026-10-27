@@ -3,6 +3,10 @@
 //! for both views, the owner's B4), the returns after a gap, and the master
 //! pinned at the right with the loudness column (the owner's L2) beside it.
 //! The strips scroll sideways; only those in view are drawn.
+//!
+//! The interface audit's X6: the mixer is one `header` surface, and the
+//! strips scroll under the pinned master, which casts a short shadow over
+//! them in place of a rule.
 
 use eframe::egui::{
     self, Align2, FontId, Rangef, Rect, Sense, Shape, Stroke, Ui, UiBuilder, pos2, vec2,
@@ -94,7 +98,7 @@ fn plus(painter: &egui::Painter, at: egui::Pos2, colour: egui::Color32) {
     painter.line_segment([at - vec2(0.0, 6.0), at + vec2(0.0, 6.0)], stroke);
 }
 
-/// The gap between the tracks and the returns, and before the master.
+/// The gap between the tracks and the returns.
 const RETURNS_GAP: f32 = 10.0;
 /// How fast a strip drag near an edge scrolls the strips, at the edge.
 const DRAG_SCROLL: f32 = 900.0;
@@ -106,6 +110,11 @@ const LUFS_FLOOR: f64 = -42.0;
 const TARGET: (f64, f64) = (-15.0, -13.0);
 /// The loudness bar's corner radius (a trough 12 pt wide).
 const LUFS_BAR_RADIUS: u8 = 2;
+/// A loudness value before anything is heard (the audit's X5).
+const REST: &str = "\u{2013}\u{2013}";
+/// Where the momentary, short-term and true-peak values start, from the
+/// column's left edge: beside their labels.
+const VALUE_COLUMN: f32 = 28.0;
 
 /// The shortest the Mixer tab's content can be: a strip with everything
 /// folded away.
@@ -118,7 +127,7 @@ impl Arrangement {
     pub(crate) fn mixer_panel(&mut self, ui: &mut Ui, doc: &mut Document, keymap: &Keymap) {
         let palette = *theme::p();
         let area = ui.max_rect();
-        ui.painter().rect_filled(area, 0.0, palette.canvas);
+        ui.painter().rect_filled(area, 0.0, palette.header);
         let heard = lumen_project::solo::hearing(doc.project());
         let look = StripLook {
             sections: Sections::fitting(
@@ -139,13 +148,7 @@ impl Arrangement {
             loudness.left() - 1.0 - strip::WIDTH..=loudness.left() - 1.0,
             area.y_range(),
         );
-        let strips =
-            Rect::from_x_y_ranges(area.left()..=master.left() - RETURNS_GAP, area.y_range());
-        ui.painter().vline(
-            master.left() - RETURNS_GAP / 2.0,
-            area.y_range(),
-            Stroke::new(1.0, palette.border_strong),
-        );
+        let strips = Rect::from_x_y_ranges(area.left()..=master.left(), area.y_range());
 
         // The strips in order: tracks shown in the arrangement, then the
         // returns.
@@ -237,19 +240,27 @@ impl Arrangement {
                 }
             });
             self.mixer_offset = output.state.offset.x;
-            // Strips cut by an edge fade into the ground there, rather than
-            // ending as a stray rail (the interface audit's U2).
-            let ground = palette.canvas;
-            let edge = theme::space::L;
+            // Strips cut by the left edge fade into the ground there, rather
+            // than ending as a stray rail (the interface audit's U2); at the
+            // right, while more lies beyond, they pass under the master's
+            // shadow (X6).
+            let ground = palette.header;
             let painter = ui.painter_at(strips);
             if self.mixer_offset > 0.5 {
-                let rect = Rect::from_min_size(strips.min, vec2(edge, strips.height()));
+                let rect = Rect::from_min_size(strips.min, vec2(theme::space::L, strips.height()));
                 widgets::gradient(&painter, rect, ground, ground.gamma_multiply(0.0));
             }
             if self.mixer_offset + strips.width() < width - 0.5 {
-                let rect =
-                    Rect::from_min_max(pos2(strips.right() - edge, strips.top()), strips.max);
-                widgets::gradient(&painter, rect, ground.gamma_multiply(0.0), ground);
+                let shadow = Rect::from_min_max(
+                    pos2(strips.right() - theme::space::M, strips.top()),
+                    strips.max,
+                );
+                widgets::gradient(
+                    &painter,
+                    shadow,
+                    palette.shadow.gamma_multiply(0.0),
+                    palette.shadow,
+                );
             }
             let bar = widgets::ScrollBar {
                 area: strips,
@@ -367,9 +378,11 @@ impl Arrangement {
 
     /// The master's loudness (the owner's L2): integrated large, a
     /// short-term bar with the momentary line and the −14 LUFS band, the
-    /// last minute's short-term history, then momentary, short-term and true
-    /// peak. Reset starts integrated loudness and true peak again, as Play
-    /// from stop does (B5).
+    /// last minute's short-term history in a well with the −14 line, then
+    /// momentary, short-term and true peak. At rest (the audit's X5) each
+    /// value is a quiet "– –" and the well says "Play to measure". Reset
+    /// starts integrated loudness and true peak again, as Play from stop
+    /// does (B5).
     fn loudness_column(&mut self, ui: &mut Ui, rect: Rect) {
         let palette = *theme::p();
         let reading = self.meters.loudness();
@@ -389,23 +402,35 @@ impl Arrangement {
             if meters_heard(v) {
                 format!("{v:.1}").replace('-', "\u{2212}")
             } else {
-                "\u{2014}".into()
+                REST.into()
             }
         };
-        painter.text(
+        let value = painter.text(
             pos2(left, y),
             Align2::LEFT_CENTER,
             lufs(reading.integrated),
             FontId::monospace(theme::size::READOUT),
-            palette.text,
+            if meters_heard(reading.integrated) {
+                palette.text
+            } else {
+                palette.text_hint
+            },
+        );
+        // The unit beside the value, on its baseline.
+        painter.text(
+            pos2(value.right() + 4.0, value.bottom() - 3.0),
+            Align2::LEFT_BOTTOM,
+            "LUFS",
+            FontId::proportional(theme::size::CAPTION),
+            palette.text_secondary,
         );
         y += 16.0;
         painter.text(
             pos2(left, y),
             Align2::LEFT_CENTER,
-            "LUFS integrated",
+            "Integrated",
             FontId::proportional(theme::size::CAPTION),
-            palette.text_hint,
+            palette.text_secondary,
         );
         y += 14.0;
 
@@ -455,14 +480,17 @@ impl Arrangement {
                 },
             );
         }
-        // The last minute of short-term loudness.
+        // The last minute of short-term loudness, in a well with the
+        // target's line (the bar's scale names it, beside the well).
         let graph = Rect::from_x_y_ranges(bar.right() + 30.0..=rect.right() - 6.0, ys);
-        painter.rect_stroke(
-            graph,
-            0.0,
-            Stroke::new(1.0, palette.border_strong),
-            egui::StrokeKind::Inside,
-        );
+        raised::paint_sunken(&painter, graph, theme::radius::SMALL);
+        let target = graph.x_range().shrink(3.0);
+        painter.with_clip_rect(graph).extend(Shape::dashed_line(
+            &[pos2(target.min, at(-14.0)), pos2(target.max, at(-14.0))],
+            Stroke::new(1.0, palette.accent.gamma_multiply(0.6)),
+            3.0,
+            3.0,
+        ));
         let history: Vec<f64> = self.meters.history().collect();
         let step = graph.width() / HISTORY as f32;
         let points: Vec<egui::Pos2> = history
@@ -474,19 +502,33 @@ impl Arrangement {
                 pos2(x, at(*v))
             })
             .collect();
-        if points.len() > 1 {
+        let measured = points.len() > 1;
+        if measured {
             painter.with_clip_rect(graph).add(Shape::line(
                 points,
                 Stroke::new(1.0, palette.accent.gamma_multiply(0.8)),
             ));
+        } else {
+            // Nothing heard yet: what fills it, wrapped inside the well.
+            let mut job = egui::text::LayoutJob::simple(
+                "Play to measure".into(),
+                FontId::proportional(theme::size::CAPTION),
+                palette.text_hint,
+                graph.width() - 6.0,
+            );
+            job.halign = egui::Align::Center;
+            let hint = painter.layout_job(job);
+            // A centred galley is laid out around its anchor's x.
+            let anchor = pos2(graph.center().x, graph.bottom() - 8.0 - hint.size().y);
+            painter.galley(anchor, hint, palette.text_hint);
         }
 
-        // Momentary, short-term and true peak.
+        // Momentary, short-term and true peak, each value beside its label.
         let mut y = ys.max + 14.0;
         let true_peak = if reading.true_peak > FLOOR_DB {
             widgets::readout_db(reading.true_peak)
         } else {
-            "\u{2014}".into()
+            REST.into()
         };
         for (label, value, warn) in [
             ("M", lufs(reading.momentary), false),
@@ -501,8 +543,8 @@ impl Arrangement {
                 palette.text_hint,
             );
             painter.text(
-                pos2(rect.right() - 8.0, y),
-                Align2::RIGHT_CENTER,
+                pos2(left + VALUE_COLUMN, y),
+                Align2::LEFT_CENTER,
                 value,
                 FontId::monospace(theme::size::CAPTION),
                 if warn {
@@ -520,12 +562,22 @@ impl Arrangement {
             ui.id().with("loudness readout"),
             Sense::hover(),
         );
-        let said = format!(
-            "Loudness: integrated {} LUFS, short-term {} LUFS, momentary {} LUFS",
-            lufs(reading.integrated),
-            lufs(reading.short_term),
-            lufs(reading.momentary)
+        let spoken = |v: f64| {
+            if meters_heard(v) {
+                format!("{} LUFS", lufs(v))
+            } else {
+                "not measured".into()
+            }
+        };
+        let mut said = format!(
+            "Loudness: integrated {}, short-term {}, momentary {}",
+            spoken(reading.integrated),
+            spoken(reading.short_term),
+            spoken(reading.momentary)
         );
+        if !measured {
+            said.push_str(". Play to measure");
+        }
         readout.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &said));
         let reset = Rect::from_x_y_ranges(
             rect.x_range().shrink(8.0),

@@ -249,6 +249,7 @@ impl App {
         let released = dragged.is_some() && ui.ctx().input(|i| i.pointer.any_released());
         let mut dropped: Option<(Carried, usize)> = None;
 
+        let mut browse = false;
         let mut scroll_ui = ui.new_child(UiBuilder::new().max_rect(tray.shrink(1.0)));
         egui::ScrollArea::horizontal()
             .id_salt(("chain scroll", track_id.0))
@@ -266,17 +267,28 @@ impl App {
                 paint_port(&painter, at(layout.input()).right_center(), beam);
                 paint_port(&painter, at(layout.output()).left_center(), beam);
                 if rows.is_empty() {
-                    let gap = Rect::from_min_max(
-                        pos2(at(layout.input()).right(), whole.top()),
-                        pos2(at(layout.output()).left(), whole.bottom()),
+                    // The shared empty state (the interface audit's D1, the
+                    // owner's A), above the in and out chips and their cable.
+                    let above = Rect::from_min_max(
+                        whole.min,
+                        pos2(
+                            whole.right(),
+                            layout.cable_y + origin.y - CHIP_H / 2.0 - theme::space::XS,
+                        ),
                     );
-                    painter.text(
-                        pos2(gap.center().x, layout.cable_y + origin.y - CHIP_H),
-                        Align2::CENTER_BOTTOM,
-                        "Double-click a device in the browser to add it here",
-                        FontId::proportional(theme::size::CAPTION),
-                        palette.text_hint,
-                    );
+                    let title = format!("No devices on {track_name}");
+                    let state = widgets::EmptyState {
+                        icon: None,
+                        icon_size: theme::space::L,
+                        title: &title,
+                        hint: "Double-click a device in the browser, or drag one here",
+                        action: Some(widgets::EmptyAction {
+                            label: "Browse devices",
+                            keys: None,
+                            tip: "Open the browser on its Devices tab",
+                        }),
+                    };
+                    browse = widgets::empty_state(ui, above, &state);
                 }
                 for (i, row) in rows.iter().enumerate() {
                     let rect = at(layout.card(i));
@@ -421,6 +433,9 @@ impl App {
                     }
                 }
             });
+        if browse {
+            self.show_device_browser();
+        }
 
         if let Some((carried, gap)) = dropped {
             egui::DragAndDrop::clear_payload(ui.ctx());

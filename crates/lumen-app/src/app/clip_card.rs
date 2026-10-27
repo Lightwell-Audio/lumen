@@ -169,8 +169,8 @@ fn swatch(
 }
 
 /// A round swatch in `dot` and its name `label`, on a pill that is ringed in
-/// the accent while it is `on`: the clip card's "Track colour", the project
-/// settings' "Colours in turn".
+/// the accent while it is `on`: the clip card's "Track color", the project
+/// settings' "Colors in turn".
 fn pill(ui: &mut egui::Ui, colour: egui::Color32, label: &str, on: bool) -> egui::Response {
     let palette = theme::p();
     let galley = ui.painter().layout_no_wrap(
@@ -229,12 +229,12 @@ pub(crate) struct Swatches<'a> {
     pub(crate) none: (egui::Color32, &'a str),
 }
 
-/// The clip card's swatches: the clip colours, then "Track colour".
+/// The clip card's swatches: the clip colours, then "Track color".
 fn clip_swatches(track: egui::Color32) -> Swatches<'static> {
     Swatches {
-        name: "Colour",
+        name: "Color",
         round: false,
-        none: (track, "Track colour"),
+        none: (track, "Track color"),
     }
 }
 
@@ -319,8 +319,11 @@ impl App {
         props.renaming = None;
     }
 
-    /// The clip entries of the lanes' menu, for the selected clips:
-    /// rename, colour, mute, lock and the properties card.
+    /// The clip entries of the lanes' menu, for the selected clips, in
+    /// groups (the interface audit's M5): name and colour; mute and lock;
+    /// the sound of audio clips (fades, crossfade, envelope); export; and
+    /// Properties last. Cut, copy and the clip edits (the Edit submenu)
+    /// come before it, in `lanes_menu`. Only what can apply is listed.
     pub(crate) fn clip_menu(&mut self, ui: &mut egui::Ui) {
         let Some(first) = self.first_selected_clip() else {
             return;
@@ -338,60 +341,65 @@ impl App {
         };
         let (muted, locked, crossfade) =
             (all(|c| c.muted), all(|c| c.locked), all(|c| c.crossfade));
+        // Short verbs (the interface audit's M5): the noun only for
+        // several, as the track menu's Delete.
         let name = |verb: &str| {
             if several {
                 format!("{verb} clips")
             } else {
-                format!("{verb} clip")
+                verb.to_owned()
             }
         };
         let (mute, lock) = (
             name(if muted { "Unmute" } else { "Mute" }),
             name(if locked { "Unlock" } else { "Lock" }),
         );
-        self.menu_command(ui, Command::Rename, "Rename");
-        widgets::submenu(ui, "Colour", |ui| {
+        self.context_command(ui, Command::Rename, "Rename");
+        widgets::submenu(ui, "Color", |ui| {
             if let Some(color) = swatches(ui, current, clip_swatches(track)) {
                 self.document.recolor_clips(&ids, color);
                 ui.close();
             }
         });
-        self.menu_command(ui, Command::MuteClips, &mute);
+        ui.separator();
+        self.context_command(ui, Command::MuteClips, &mute);
         if widgets::menu_item(ui, &lock, None, true).clicked() {
             self.toggle_clip_lock();
             ui.close();
         }
+        // The sound of audio clips: none of these is listed for MIDI.
+        let audio = self.selection_has_audio();
+        if audio {
+            ui.separator();
+        }
         self.fade_menu(ui);
-        if self.selection_has_audio() {
+        if audio {
             let keys = self.keymap.keys(Command::ToggleCrossfade);
-            if widgets::menu_toggle(
-                ui,
-                "Crossfade with the clip before",
-                keys.as_ref(),
-                crossfade,
-            )
-            .clicked()
+            if widgets::menu_toggle(ui, "Crossfade with previous", keys.as_ref(), crossfade)
+                .on_hover_text("Blend this clip into the one before it where they overlap")
+                .clicked()
             {
                 self.run(ui.ctx(), Command::ToggleCrossfade);
             }
         }
         if let Some((track, clip)) = self.selected_audio_clip() {
             let label = if self.envelope_shown(track, clip) {
-                "Hide the envelope"
+                "Hide envelope"
             } else {
-                "Show the envelope"
+                "Show envelope"
             };
-            self.menu_command(ui, Command::ClipEnvelope, label);
+            self.context_command(ui, Command::ClipEnvelope, label);
         }
-        if self.availability(ui.ctx(), Command::ExportMidiClip).is_ok() {
-            let export = if several {
-                "Export MIDI clips\u{2026}"
-            } else {
-                "Export MIDI clip\u{2026}"
-            };
-            self.menu_command(ui, Command::ExportMidiClip, export);
-        }
-        self.menu_command(ui, Command::ClipProperties, "Properties");
+        ui.separator();
+        // Listed only for MIDI clips (an audio selection never could be
+        // written), greyed while an export or a file dialog is under way.
+        let export = if several {
+            "Export MIDI clips\u{2026}"
+        } else {
+            "Export MIDI clip\u{2026}"
+        };
+        self.context_command(ui, Command::ExportMidiClip, export);
+        self.context_command(ui, Command::ClipProperties, "Properties\u{2026}");
     }
 
     /// Where clip `id` is drawn, if it is in view.
@@ -556,7 +564,7 @@ impl App {
             }
         });
 
-        row(ui, "Colour", |ui| {
+        row(ui, "Color", |ui| {
             if let Some(color) = swatches(ui, clip.color, clip_swatches(track)) {
                 self.document.recolor_clips(&[id], color);
             }
@@ -659,16 +667,29 @@ impl App {
     /// The card's Mute and Lock toggles.
     fn card_toggles(&mut self, ui: &mut egui::Ui, clip: &Clip) {
         // Framed buttons that light when on (`Tone::On`), so off still reads
-        // as a control.
+        // as a control. They read "Mute" and "Lock" and are named for the
+        // clip, so they differ from the clip menu's rows while both are open.
+        let named = |response: egui::Response, name: &'static str, on: bool| {
+            response.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, name)
+            });
+            response
+        };
         let mut muted = clip.muted;
-        if widgets::toggle_button(ui, &mut muted, "Mute clip")
-            .on_hover_text("Mute or unmute this clip (0)")
+        let hint = match self.keymap.text(Command::MuteClips) {
+            Some(keys) => format!("Mute or unmute this clip ({keys})"),
+            None => "Mute or unmute this clip".to_owned(),
+        };
+        let mute = widgets::toggle_button(ui, &mut muted, "Mute");
+        if named(mute, "Mute clip", muted)
+            .on_hover_text(hint)
             .changed()
         {
             self.document.set_clips_muted(&[clip.id], muted);
         }
         let mut locked = clip.locked;
-        if widgets::toggle_button(ui, &mut locked, "Lock clip")
+        let lock = widgets::toggle_button(ui, &mut locked, "Lock");
+        if named(lock, "Lock clip", locked)
             .on_hover_text("A locked clip cannot be moved, trimmed, faded or deleted")
             .changed()
         {

@@ -73,11 +73,11 @@ fn the_pan_law_and_the_crossfade_switch_change_the_project() {
 fn new_tracks_take_the_chosen_colour_until_the_palette_is_chosen_again() {
     let mut lumen = open_window();
     assert_eq!(lumen.app().project().new_track_color, None);
-    lumen.click("New track colour 3");
-    lumen.wait_for("the colour", |app| {
+    lumen.click("New track color 3");
+    lumen.wait_for("the color", |app| {
         app.project().new_track_color == Some(Color(0x5E8C6A))
     });
-    assert_eq!(lumen.app().undo_label(), Some("Change new track colour"));
+    assert_eq!(lumen.app().undo_label(), Some("Change new track color"));
 
     // The window stays open while a track is made from the keyboard.
     lumen.key(Modifiers::NONE, Key::Escape);
@@ -87,7 +87,7 @@ fn new_tracks_take_the_chosen_colour_until_the_palette_is_chosen_again() {
     assert_eq!(lumen.app().project().tracks[0].color, Color(0x5E8C6A));
 
     show(&mut lumen);
-    lumen.click("Colours in turn");
+    lumen.click("Colors in turn");
     lumen.wait_for("the palette", |app| app.project().new_track_color.is_none());
 }
 
@@ -125,7 +125,7 @@ fn what_the_window_sets_survives_save_and_reopen() {
     lumen.click("Sample rate: 48.0 kHz");
     lumen.run_until("the list", |l| l.shows("44.1 kHz"));
     lumen.click("44.1 kHz");
-    lumen.click("New track colour 2");
+    lumen.click("New track color 2");
     lumen.click("Project notes");
     lumen.frames(2);
     lumen.harness.event(Event::Text("Sketch".into()));

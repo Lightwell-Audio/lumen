@@ -5,7 +5,7 @@
 //! on. The plugins and the host are the real ones (the test plugin).
 
 use eframe::egui::{Key, Modifiers, pos2};
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_core::time::Ticks;
 use lumen_plugin_catalog::catalog::class_id;
 use lumen_project::model::{Device, DeviceKind, Id, Note, PluginRef, Project, TrackKind};
@@ -151,6 +151,35 @@ fn double_clicking_an_effect_adds_it_to_the_selected_track_in_one_undo_step() {
     lumen.frames(5);
     assert!(lumen.devices_on(AUDIO).is_empty());
     assert!(!lumen.shows(&format!("{EFFECT} on Audio")));
+}
+
+/// The interface audit's I1: the info line over a device says what each
+/// gesture does in plain verbs ("add to Audio", not "choose"; what its menu
+/// holds, not "more").
+#[test]
+fn hovering_a_device_says_what_its_gestures_do() {
+    let mut lumen = launch("info", &project(vec![]), &["Plug"]);
+    lumen.app_mut().select_tracks(&[AUDIO]);
+    lumen.frames(3);
+    let at = lumen
+        .harness
+        .get_by_label_contains(&format!("{EFFECT}, "))
+        .rect()
+        .center();
+    lumen.harness.hover_at(at);
+    lumen.frames(3);
+    let info = lumen.info();
+    assert!(info.starts_with(&format!("{EFFECT} \u{00B7} ")), "{info}");
+    assert!(info.contains("double-click to add to Audio"), "{info}");
+    assert!(
+        info.contains("drag to put it on a track or in the chain"),
+        "{info}"
+    );
+    assert!(
+        info.contains("right-click to add to favorites, rescan or show in folder"),
+        "{info}"
+    );
+    assert!(!info.contains("choose") && !info.contains("more"), "{info}");
 }
 
 #[test]
@@ -871,4 +900,41 @@ fn a_damaged_or_missing_snapshot_leaves_the_generated_picture() {
     lumen.wait_for("the picture to be given up", |app| {
         app.device_picture(FIRST) == "absent"
     });
+}
+
+#[test]
+fn an_empty_chain_says_so_and_browse_devices_opens_the_browser_on_its_devices() {
+    let mut lumen = launch("empty-chain", &project(vec![]), &["Plug"]);
+    lumen.app_mut().select_tracks(&[AUDIO]);
+    lumen.frames(3);
+    lumen.show_devices_tab();
+    assert!(
+        lumen
+            .harness
+            .query_by_label_contains("No devices on Audio.")
+            .is_some(),
+        "the empty chain"
+    );
+
+    // The browser on another tab, then hidden: the button brings it back
+    // on its Devices tab.
+    super::copies::command(&mut lumen, "Project media");
+    lumen.wait_for("the media tab", |app| app.media_tab_shown());
+    lumen
+        .harness
+        .get_all_by_label("Browser")
+        .find(|node| node.accesskit_node().toggled().is_some())
+        .expect("the transport's Browser toggle")
+        .click();
+    lumen.wait_for("the browser to hide", |app| !app.browser_shown());
+    lumen.click("Browse devices");
+    lumen.wait_for("the browser", |app| app.browser_shown());
+    assert!(!lumen.app().media_tab_shown(), "on its Devices tab");
+    assert!(
+        lumen
+            .harness
+            .query_by_label_contains(&format!("{EFFECT}, "))
+            .is_some(),
+        "the device rows"
+    );
 }

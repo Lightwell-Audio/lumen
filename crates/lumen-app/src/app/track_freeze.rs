@@ -97,14 +97,18 @@ impl App {
             .collect()
     }
 
-    /// The Freeze command.
-    pub(crate) fn freeze_selected_tracks(&mut self, ctx: &egui::Context) {
-        if self.bouncing.is_some()
+    /// Whether a bounce or a freeze is rendering, which a freeze waits for.
+    pub(crate) fn rendering_tracks(&self) -> bool {
+        self.bouncing.is_some()
             || self.bounce_waiting.is_some()
             || self.freezing.is_some()
             || self.freeze_waiting.is_some()
-        {
-            self.say("Wait for the render that is running to finish".to_owned());
+    }
+
+    /// The Freeze command.
+    pub(crate) fn freeze_selected_tracks(&mut self, ctx: &egui::Context) {
+        if self.rendering_tracks() {
+            self.say(crate::app::commands::wait::FREEZE.to_owned());
             return;
         }
         let targets = self.track_targets();

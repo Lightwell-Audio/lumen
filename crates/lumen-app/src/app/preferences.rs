@@ -128,10 +128,10 @@ impl App {
                 if widgets::switch(
                     ui,
                     &mut self.settings.mixing.track_colour_meters,
-                    "Meters in track colours",
+                    "Meters in track colors",
                     true,
                 )
-                .on_hover_text("Meters take their track's colour instead of the accent")
+                .on_hover_text("Meters take their track's color instead of the accent")
                 .changed()
                 {
                     self.settings_changed = Some(Instant::now());

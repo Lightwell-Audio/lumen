@@ -1,14 +1,14 @@
 //! The editing grid in the app (M3 slice 5a): snapping, its keys, the
-//! grid menu (right-click the lanes, or the grid button in the ruler's
-//! corner) and the snap guide. The grid itself is `lumen_core::grid`.
+//! grid menu (right-click the lanes, or the grid value in the ruler
+//! corner's well) and the snap guide. The grid itself is `lumen_core::grid`.
 
-use eframe::egui::{self, Align2, FontId, Rect, Sense, Stroke, pos2};
+use eframe::egui::{self, Align2, FontId, Rect, Stroke, pos2};
 use lumen_core::grid::{Feel, Size, Step, Width};
 use lumen_core::time::Ticks;
 
 use crate::commands::Command;
 use crate::icons::{self, Icon};
-use crate::{App, motion, ruler, theme, widgets};
+use crate::{App, ruler, theme, widgets};
 
 impl App {
     /// `t` snapped to the grid at the current zoom, unless `free` (Alt held)
@@ -120,87 +120,35 @@ impl App {
         );
     }
 
-    /// The grid button in the ruler's corner: what the grid is now, and the
-    /// grid menu on click.
-    pub(crate) fn grid_button(&mut self, ui: &mut egui::Ui, rect: Rect) {
+    /// How wide the grid's value piece is: its size and the menu's arrow.
+    pub(crate) fn grid_value_width(&self, ui: &egui::Ui) -> f32 {
+        let text = ui
+            .painter()
+            .layout_no_wrap(
+                self.grid_label(),
+                FontId::monospace(theme::size::CAPTION),
+                theme::p().text,
+            )
+            .size()
+            .x;
+        text + theme::space::XS + widgets::ARROW_SIZE + 2.0 * theme::space::XS
+    }
+
+    /// The grid in the ruler corner's well (the interface audit's H1): the
+    /// magnet, its own piece, turns snapping on and off; the value piece
+    /// opens the grid menu.
+    pub(crate) fn grid_pieces(&mut self, ui: &mut egui::Ui, magnet: Rect, value: Rect) {
         let label = self.grid_label();
-        // In the compact header, the magnet owns the left half. Give the
-        // menu its value's hit area so keyboard/accessibility activation
-        // and a click in the menu button's centre cannot toggle snapping.
-        let compact = rect.width() < theme::size::CONTROL_LARGE * 3.0;
-        let menu_rect = if compact {
-            Rect::from_min_max(
-                pos2(rect.left() + theme::size::CONTROL_LARGE, rect.top()),
-                rect.max,
-            )
-        } else {
-            rect
-        };
-        let response = ui.interact(menu_rect, ui.id().with("grid button"), Sense::click());
-        let keys = self.keymap.keys(Command::SnapToGrid);
-        let response = widgets::tip(
-            response,
-            "Grid and snapping",
-            keys.as_ref(),
-            Some("The magnet is lit while snapping is on. Right-click the lanes for the grid too"),
-        );
-        response.widget_info(|| {
-            let snap = if self.grid.snap { "" } else { ", snap off" };
-            egui::WidgetInfo::labeled(
-                egui::WidgetType::Button,
-                true,
-                format!("Grid: {label}{snap}"),
-            )
-        });
         let palette = theme::p();
-        let hover = motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());
-        if hover > 0.0 {
-            ui.painter().rect_filled(
-                rect.shrink(2.0),
-                theme::radius::SMALL,
-                palette.control_hover.gamma_multiply(hover),
-            );
-        }
-        let painter = ui.painter();
-        if rect.width() >= theme::size::CONTROL_LARGE * 3.0 {
-            painter.text(
-                pos2(rect.left() + 8.0, rect.center().y),
-                Align2::LEFT_CENTER,
-                "Grid",
-                FontId::proportional(theme::size::CAPTION),
-                palette.text_hint,
-            );
-        }
-        // The size, and a magnet: lit while snapping, struck through when
-        // not (MT-APP-13 run 1).
-        let size = painter.text(
-            pos2(rect.right() - 8.0, rect.center().y),
-            Align2::RIGHT_CENTER,
-            &label,
-            FontId::monospace(theme::size::CAPTION),
-            if self.grid.snap {
-                palette.text_secondary
-            } else {
-                palette.text_hint
-            },
-        );
-        let (icon, colour) = if self.grid.snap {
-            (Icon::Magnet, palette.accent)
-        } else {
-            (Icon::MagnetOff, palette.text_hint)
-        };
-        let side = theme::size::CAPTION + 3.0;
-        let magnet = Rect::from_center_size(
-            pos2(size.left() - 4.0 - side / 2.0, rect.center().y),
-            egui::vec2(side, side),
-        );
-        // The magnet is its own switch (owner, after MT-APP-13 run 1): a
-        // click turns snapping on or off; the rest of the button opens the
-        // menu, which keeps "Snap to grid" too.
-        let target =
-            Rect::from_center_size(magnet.center(), egui::vec2(side + 8.0, rect.height() - 4.0));
-        let switch = ui.interact(target, ui.id().with("snap switch"), Sense::click());
         let keys = self.keymap.keys(Command::SnapToGrid);
+
+        let (switch, ink) = widgets::well::button(
+            ui,
+            magnet,
+            ui.id().with("snap switch"),
+            (0.0, theme::Tone::On),
+            true,
+        );
         let switch = if self.grid.snap {
             widgets::tip(
                 switch,
@@ -220,19 +168,55 @@ impl App {
         switch.widget_info(|| {
             egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, snap, "Snap to grid")
         });
-        let hover = motion::hover(ui.ctx(), switch.id.with("hover"), switch.hovered());
-        let painter = ui.painter();
-        if hover > 0.0 {
-            painter.rect_filled(
-                target,
-                theme::radius::SMALL,
-                palette.control_press.gamma_multiply(hover),
-            );
-        }
-        painter.extend(icons::shapes(icon, magnet, colour));
+        // Lit while snapping, struck through when not (MT-APP-13 run 1).
+        let (icon, colour) = if snap {
+            (Icon::Magnet, palette.accent)
+        } else {
+            (Icon::MagnetOff, ink)
+        };
+        let side = theme::size::CORNER_ICON;
+        let square = Rect::from_center_size(magnet.center(), egui::vec2(side, side));
+        ui.painter().extend(icons::shapes(icon, square, colour));
         if switch.clicked() {
             self.grid.snap = !self.grid.snap;
         }
+
+        let (response, ink) = widgets::well::button(
+            ui,
+            value,
+            ui.id().with("grid button"),
+            (0.0, theme::Tone::On),
+            true,
+        );
+        let response = widgets::tip(
+            response,
+            "Grid and snapping",
+            keys.as_ref(),
+            Some("Right-click the lanes for the grid too"),
+        );
+        response.widget_info(|| {
+            let snap = if snap { "" } else { ", snap off" };
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                true,
+                format!("Grid: {label}{snap}"),
+            )
+        });
+        let painter = ui.painter().with_clip_rect(value);
+        let arrow_x = value.right() - theme::space::XS - widgets::ARROW_SIZE / 2.0;
+        painter.text(
+            pos2(value.left() + theme::space::XS, value.center().y),
+            Align2::LEFT_CENTER,
+            &label,
+            FontId::monospace(theme::size::CAPTION),
+            if snap { ink } else { palette.text_hint },
+        );
+        widgets::draw_arrow(
+            &painter,
+            pos2(arrow_x, value.center().y),
+            1.0,
+            palette.text_hint,
+        );
         widgets::Menu::below(&response).show(|ui| self.grid_menu(ui));
     }
 }

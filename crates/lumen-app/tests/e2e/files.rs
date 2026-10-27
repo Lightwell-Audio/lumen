@@ -265,3 +265,57 @@ fn a_project_from_before_the_mixer_opens_with_a_master_and_saves_as_current() {
     );
     assert!(saved.contains("\"master\": {"), "with its master");
 }
+
+#[test]
+fn enter_in_the_save_question_saves_and_goes_on() {
+    let mut lumen = Lumen::start("save-question-enter");
+    lumen.key(Modifiers::COMMAND, Key::T);
+    let path = project_file(lumen.dir(), "Song");
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
+
+    // An unsaved change, then a new project: the question asks first.
+    let name = lumen.track_names()[0].clone();
+    lumen.click(&format!("Mute {name}"));
+    assert!(lumen.app().is_dirty());
+    super::copies::command(&mut lumen, "New project");
+    lumen.frames(2);
+    assert!(lumen.shows("Don't save"), "the question");
+
+    // Enter gives Save, its main answer: the change is saved, then the new
+    // project starts.
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.wait_for("the new project", |app| {
+        !app.is_busy() && app.project_path().is_none()
+    });
+    assert!(!lumen.shows("Don't save"));
+    let saved = lumen_project::load(&path).expect("the saved project");
+    assert!(saved.tracks[0].mute, "the mute was saved");
+}
+
+#[test]
+fn enter_for_the_save_question_reaches_no_other_window() {
+    // Never saved: Save asks where, and that dialog is cancelled here, so
+    // the project stays and only what Enter reached changes.
+    let mut lumen = super::clip_commands::audio("save-question-alone");
+    assert!(lumen.app().is_dirty());
+
+    // The bounce popover, which Enter starts and closes, is open under the
+    // question.
+    let clip = lumen.app().project().tracks[0].clips[0].id;
+    lumen.app_mut().select_clip(clip);
+    super::copies::command(&mut lumen, "Bounce");
+    lumen.frames(3);
+    super::copies::command(&mut lumen, "New project");
+    lumen.frames(2);
+    assert!(lumen.shows("Don't save"), "the question");
+    assert!(lumen.shows("Include effects"), "the popover, under it");
+
+    lumen.key(Modifiers::NONE, Key::Enter);
+    assert!(!lumen.shows("Don't save"), "Enter answered the question");
+    assert!(
+        lumen.shows("Include effects") && !lumen.app().bounce_started(),
+        "and reached no other window"
+    );
+    assert!(lumen.app().project_path().is_none() && lumen.app().is_dirty());
+}

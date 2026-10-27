@@ -22,7 +22,7 @@ Use a scratch project and a copy of an audio file.
    tool chosen, hover a lane: the info line at the bottom says what a click
    and a drag do (Split mentions aiming and Alt; Zoom mentions Alt to zoom out).
    Right-click a clip, a track, a locator and a lane's chip: every row in each
-   menu has the same height and spacing, and hover (including Lock clip) fills
+   menu has the same height and spacing, and hover (including Lock) fills
    the same width.
 2. Import audio, choose Split and click inside it. The cut follows the grid;
    Alt places it freely. The source remains in place and both parts touch.
@@ -159,10 +159,10 @@ cargo run --release -p lumen-app
 5. Place two different audio clips against each other and do the same drag.
    Play through the crossfade and check for a clean transition, with the
    outgoing clip's sound fading out as the incoming one's fades in.
-6. Select the right clip and use Toggle crossfade with the clip before
+6. Select the right clip and use Crossfade with previous
    (Ctrl+Shift+X, the palette or the clip menu): a 5 ms crossfade is made or
    removed. With nothing before the clip, the hint says so.
-7. Find Automatic crossfades in the arrangement context menu or the palette and toggle
+7. Find Automatic crossfades in Project settings or the palette and toggle
    it; Undo and Redo restore the setting. An older project opens with it
    off. Automatic crossfades are played but not drawn.
 8. Look at both themes at 100, 150 and 200% scale, including the smallest
@@ -292,14 +292,15 @@ DEVELOPMENT. Repeat visual checks in both themes at 100%, 150% and 200%.
    divisions, Triplet, Dotted and Snap to grid. Every option can be brought
    fully into view and selected; Esc closes the menu.
 2. Open the application menu. Undo and Redo have short labels; Automatic
-   crossfades is absent. Right-click the arrangement: Automatic crossfades
-   is a switch there. Change it, then undo: the project setting returns.
+   crossfades is not in it, nor in the arrangement's right-click menu. In
+   Project settings it is a switch.
+   Change it, then undo: the project setting returns.
    In the application menu, scroll to the last settings rows; all remain reachable.
 3. Change only Copy imported audio into the project. Wait a second, restart
    with those isolated settings and check that the choice remains.
 4. Navigate menu and submenu rows with the keyboard. Focus has a visible
    accent ring; pressing Enter runs the focused item.
-5. Open a track's Colour submenu. Each swatch has a named tooltip and an
+5. Open a track's Color submenu. Each swatch has a named tooltip and an
    accessible name. Choose a colour; undo restores the previous one.
 6. Open the audio status popover at the minimum window. Scroll until its
    final counters are visible. Test tone and Audio on remain usable.

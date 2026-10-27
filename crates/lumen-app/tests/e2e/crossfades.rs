@@ -92,9 +92,14 @@ fn the_automatic_setting_the_command_and_the_menu_roundtrip() {
     lumen.click("Lumen");
     assert!(!lumen.shows("Automatic crossfades"));
     lumen.key(Modifiers::NONE, Key::Escape);
+    // The clip menu no longer carries the project's switch (the interface
+    // audit's M5): it is in Project settings and the palette.
     let r = rect(&lumen, right);
     lumen.right_click(r.left_top() + vec2(12.0, 6.0));
-    lumen.click("Automatic crossfades");
+    assert!(lumen.shows(&keys("Properties\u{2026} Alt+Enter")));
+    assert!(!lumen.shows("Automatic crossfades"));
+    lumen.key(Modifiers::NONE, Key::Escape);
+    command(&mut lumen, "Toggle automatic crossfades");
     assert!(!lumen.app().project().auto_crossfade);
     assert_eq!(
         lumen.app().undo_label(),
@@ -116,12 +121,12 @@ fn the_automatic_setting_the_command_and_the_menu_roundtrip() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert!(!clip(&lumen, right).crossfade);
     assert_eq!(clip(&lumen, right).start, Ticks::quarters(2));
-    command(&mut lumen, "Toggle crossfade with the clip before");
+    command(&mut lumen, "Crossfade with previous");
     assert!(clip(&lumen, right).crossfade);
     let r = rect(&lumen, right);
     lumen.right_click(Pos2::new(r.left() + 40.0, r.top() + 6.0));
     lumen.frames(2);
-    let menu_item = keys("Crossfade with the clip before Ctrl+Shift+X");
+    let menu_item = keys("Crossfade with previous Ctrl+Shift+X");
     assert!(lumen.shows(&menu_item));
     lumen.click(&menu_item);
     assert!(!clip(&lumen, right).crossfade);
@@ -372,7 +377,7 @@ fn project_menu_keeps_lower_controls_reachable_in_a_small_window() {
     lumen.right_click(Pos2::new(r.left() + 12.0, r.top() + 6.0));
     let custom = lumen
         .harness
-        .get_by_label_contains("Crossfade with the clip before")
+        .get_by_label_contains("Crossfade with previous")
         .rect();
     assert!(
         custom.top() >= 0.0 && custom.bottom() <= 540.0,

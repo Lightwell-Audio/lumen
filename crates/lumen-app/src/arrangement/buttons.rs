@@ -1,9 +1,9 @@
 //! The M and S buttons (S is a headphone button on Cue), shared by track
-//! headers and mixer strips (M4 slice 5): raised on strips, pieces of one
-//! sunk well on headers (M9 slice R1b, ADR-0101); lit when set on that track, a
-//! hollow ring when the track is silenced by another's solo or a muted
-//! group (M), or heard through a soloed group (S) (the owner's choice,
-//! slice 4).
+//! headers and mixer strips (M4 slice 5): pieces of one sunk well on
+//! headers and strips (M9 slice R1b, ADR-0101; the interface audit's X1);
+//! lit when set on that track, a hollow ring when the track is silenced by
+//! another's solo or a muted group (M), or heard through a soloed group (S)
+//! (the owner's choice, slice 4).
 
 use eframe::egui::{self, Align2, Id as EguiId, Rect, Sense, Stroke, Ui};
 use eframe::emath::GuiRounding as _;
@@ -15,59 +15,13 @@ use super::Arrangement;
 use super::control_menu::{control_menu_for, waiting_ring};
 use crate::document::Document;
 use crate::theme::{self, Tone};
-use crate::widgets::raised;
+use crate::widgets::{raised, well};
 use crate::{fonts, motion};
 
 /// How strongly a hollow M and S fill with their colour (the design
 /// system's `.is-hollow-m` and `.is-hollow-s`).
 const HOLLOW_MUTE: f32 = 0.14;
 const HOLLOW_SOLO: f32 = 0.12;
-
-/// How M, S and arm are drawn: raised buttons (mixer strips), or pieces cut
-/// into one sunk well (track headers, ADR-0101).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Style {
-    Raised,
-    Well,
-}
-
-/// A piece's corner: the 20 pt well's radius less its 2 pt inset.
-pub(super) const PIECE_RADIUS: u8 = theme::radius::SMALL - theme::space::XXS as u8;
-
-/// Paints a piece of a header's well in `rect`: bare while off, with the
-/// Ember wash under the pointer, `look.press` while pressed, and filled in
-/// `tone` by `lit` (a lit M is `mute`, a lit S accent). Returns the colour
-/// for its letter.
-pub(super) fn paint_piece(
-    painter: &egui::Painter,
-    rect: Rect,
-    face: &raised::Face,
-) -> egui::Color32 {
-    let palette = theme::p();
-    let r = f32::from(PIECE_RADIUS);
-    if face.pressed {
-        painter.rect_filled(rect, r, face.surface.press);
-    } else if face.hover > 0.0 {
-        painter.rect_filled(rect, r, palette.ember.gamma_multiply(face.hover));
-    }
-    if face.lit > 0.0 {
-        let on = theme::lit(face.tone);
-        raised::gradient(
-            painter,
-            rect,
-            r,
-            on.top.gamma_multiply(face.lit),
-            on.bottom.gamma_multiply(face.lit),
-        );
-        raised::lip(
-            painter,
-            rect,
-            PIECE_RADIUS,
-            on.light.gamma_multiply(face.lit),
-        );
-    }
-    face.text()
-}
 
 /// The M and S buttons; S is a headphone button on Cue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,7 +43,7 @@ impl Arrangement {
         track: &Track,
         hears: Hearing,
         (mute_rect, solo_rect): (Rect, Rect),
-        (id, look, place, style): (EguiId, theme::Controls, &str, Style),
+        (id, look, place): (EguiId, theme::Controls, &str),
     ) {
         let palette = *theme::p();
         let modifiers = ui.input(|i| i.modifiers);
@@ -156,23 +110,17 @@ impl Arrangement {
             let hover = motion::hover(ui.ctx(), id.with(what).with("hover"), response.hovered());
             // Lighting up and going out cross-fade (`FAST`, M4.5).
             let lit = motion::hover(ui.ctx(), id.with(what).with("lit"), on);
-            // The design system's TrackButtons (ADR-0052): raised; a lit M
-            // is `mute`, a lit S and the lit cue are filled accent.
+            // The design system's TrackButtons (ADR-0052): a lit M is
+            // `mute`, a lit S and the lit cue are filled accent.
             let face = raised::Face::new(look)
                 .hover(hover)
                 .pressed(response.is_pointer_button_down_on())
                 .lit(lit, tone);
             let r = r.round_to_pixels(ui.pixels_per_point());
-            // Radius follows height: 6 on a strip's 24 pt; a header's
-            // pieces take their well's radius less its inset.
-            let (radius, body, ink) = match style {
-                Style::Raised => {
-                    let radius = theme::radius::for_height(r.height());
-                    let body = raised::paint(ui.painter(), r, radius, &face);
-                    (radius, body, face.text())
-                }
-                Style::Well => (PIECE_RADIUS, r, paint_piece(ui.painter(), r, &face)),
-            };
+            // Pieces of one sunk well, on headers (ADR-0101) and mixer
+            // strips (the interface audit's X1–X4).
+            let radius = well::PIECE_RADIUS;
+            let ink = well::paint_piece(ui.painter(), r, &face);
             if mute_over && button == Toggle::Mute {
                 super::follow::ring(ui, r);
             }
@@ -190,10 +138,10 @@ impl Arrangement {
                 text = accent;
             }
             if button == Toggle::Cue {
-                crate::icons::draw_headphones(p, body.center(), text);
+                crate::icons::draw_headphones(p, r.center(), text);
             } else {
                 p.text(
-                    body.center(),
+                    r.center(),
                     Align2::CENTER_CENTER,
                     &label[..1],
                     fonts::medium(theme::size::CAPTION),

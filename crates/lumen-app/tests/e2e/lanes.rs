@@ -331,7 +331,7 @@ fn the_pitch_bend_lane_draws_bends_around_its_centre() {
     lumen.drag(at(&lumen, 1.0, 0), at(&lumen, 3.0, 4000), Modifiers::NONE);
     let bend = bends(&lumen);
     assert!(bend.len() >= 8, "{}", bend.len());
-    assert!(bend[0].1.abs() < 200, "starts at the centre: {bend:?}");
+    assert!(bend[0].1.abs() < 200, "starts at the center: {bend:?}");
     assert!(
         (3700..=4300).contains(&bend.last().expect("an end").1),
         "{bend:?}"

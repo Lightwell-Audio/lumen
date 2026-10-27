@@ -15,7 +15,6 @@ use eframe::emath::GuiRounding as _;
 use lumen_project::model::{Id, Track, TrackKind};
 use lumen_project::solo::Heard;
 
-use super::buttons::Style;
 use super::headers::{
     CONTENT_RIGHT, CONTENT_X, FOLD, GAP, SILENCED, arm_button, columns, group_description,
     kind_name, name_center,
@@ -33,15 +32,18 @@ use crate::{fonts, motion, theme};
 const ARMED_WASH: f32 = 0.10;
 const ARMED_WASH_SPAN: f32 = 0.55;
 
-/// The pieces of the M S ● well: their width, and the gap between them.
+/// How far each side of a row's bottom line the resize edge reaches: the
+/// controls stay 8 pt clear of a row's ends, so a 12 pt band takes none of
+/// them.
+const RESIZE_REACH: f32 = 6.0;
+
+/// The width of a piece of the M S ● well.
 const PIECE_W: f32 = theme::size::WELL_PIECE_W;
-const PIECE_GAP: f32 = 1.0;
 
 /// The well holding `pieces` pieces, its right edge at `right` and centred
 /// on `mid`: 60 pt for M S ●, 41 pt for a return's M S.
 fn well_rect(right: f32, mid: f32, pieces: usize) -> Rect {
-    let n = pieces as f32;
-    let width = 2.0 * theme::space::XXS + n * PIECE_W + (n - 1.0) * PIECE_GAP;
+    let width = widgets::well::width(&vec![PIECE_W; pieces]);
     Rect::from_min_max(
         pos2(right - width, mid - theme::size::CONTROL_SMALL / 2.0),
         pos2(right, mid + theme::size::CONTROL_SMALL / 2.0),
@@ -124,9 +126,8 @@ impl Arrangement {
         }
     }
 
-    /// Draws one track's header in its zone (`painter` is clipped to it).
-    /// Returns the track's bottom edge and how strongly it glows, while it
-    /// does, so the lane can continue the glow.
+    /// Draws one track's header in its zone (`painter` is clipped to it);
+    /// its resize edge is [`Self::resize_edge`].
     pub(super) fn track_header(
         &mut self,
         ui: &mut Ui,
@@ -134,7 +135,7 @@ impl Arrangement {
         doc: &mut Document,
         keymap: &Keymap,
         at: HeaderRow<'_>,
-    ) -> Option<(Id, f32)> {
+    ) {
         let HeaderRow {
             track,
             index,
@@ -301,17 +302,8 @@ impl Arrangement {
             3
         };
         let trough = well_rect(rect.right() - CONTENT_RIGHT, mid, pieces).round_to_pixels(ppp);
-        raised::paint_sunken(&painter, trough, theme::radius::SMALL);
-        let piece = |n: usize| {
-            Rect::from_min_size(
-                pos2(
-                    trough.left() + theme::space::XXS + n as f32 * (PIECE_W + PIECE_GAP),
-                    trough.top() + theme::space::XXS,
-                ),
-                vec2(PIECE_W, theme::size::WELL_PIECE_H),
-            )
-            .round_to_pixels(ppp)
-        };
+        let cut = widgets::well::paint(&painter, trough, &vec![PIECE_W; pieces]);
+        let piece = |n: usize| cut.get(n).map_or(Rect::NOTHING, |r| r.round_to_pixels(ppp));
         let (mute_rect, solo_rect, arm_rect) = (piece(0), piece(1), piece(2));
 
         let before = trough.left();
@@ -391,12 +383,10 @@ impl Arrangement {
             &track,
             hears,
             (mute_rect, solo_rect),
-            (id, look, "", Style::Well),
+            (id, look, ""),
         );
         // Returns record nothing: no arm piece.
-        if track.kind != TrackKind::Return
-            && arm_button(ui, arm_rect, id, &track.name, arm, (look, true))
-        {
+        if track.kind != TrackKind::Return && arm_button(ui, arm_rect, id, &track.name, arm) {
             self.press_arm(ui, doc, track.id, arm.on());
         }
 
@@ -408,7 +398,7 @@ impl Arrangement {
             self.mixer_row(ui, doc, &track, (rect, left), (id, look));
             let (_, _, third) = columns(rect, left);
             if super::sends::has_sends(track.kind) {
-                self.send_well(ui, doc, &track, third, selected);
+                self.send_well(ui, doc, &track, third, (selected, false));
             }
             // An unfolded return lists what sends to it (the owner's R2).
             if track.kind == TrackKind::Return {
@@ -434,10 +424,31 @@ impl Arrangement {
             }
         }
 
-        // Bottom edge: drag to resize.
+        painter.hline(
+            column.x_range(),
+            rect.bottom() - 0.5,
+            Stroke::new(1.0, palette.border),
+        );
+    }
+
+    /// The edge under a track's header in `rect` that resizes it: a band
+    /// `RESIZE_REACH` each side of the row's bottom line. Called once every
+    /// row is drawn, so the next row's header (which drags tracks) does not
+    /// take the band's lower half. Returns the track's bottom edge and how
+    /// strongly it glows, while it does, so the lane can continue the glow.
+    pub(super) fn resize_edge(
+        &mut self,
+        ui: &mut Ui,
+        painter: &Painter,
+        track: &Track,
+        (rect, column): (Rect, Rect),
+    ) -> Option<(Id, f32)> {
+        let ctx = ui.ctx().clone();
+        let id = EguiId::new(("track header", track.id));
+        let row_height = rect.height();
         let edge = Rect::from_min_max(
-            pos2(rect.left(), rect.bottom() - 3.0),
-            pos2(rect.right(), rect.bottom() + 3.0),
+            pos2(rect.left(), rect.bottom() - RESIZE_REACH),
+            pos2(rect.right(), rect.bottom() + RESIZE_REACH),
         );
         let resize = ui
             .interact(edge, id.with("resize"), Sense::drag())
@@ -470,16 +481,11 @@ impl Arrangement {
         if resize.drag_stopped() {
             self.resizing = None;
         }
-        painter.hline(
-            column.x_range(),
-            rect.bottom() - 0.5,
-            Stroke::new(1.0, palette.border),
-        );
         // The handle glows while hovered or dragged (owner request).
         let hot = resize.hovered() || self.resizing.is_some_and(|(r, _)| r == track.id);
         let glow = motion::hover(&ctx, id.with("edge glow"), hot);
         if glow > 0.0 {
-            draw_edge_glow(&painter, column.x_range(), rect.bottom(), glow);
+            draw_edge_glow(painter, column.x_range(), rect.bottom(), glow);
         }
         (glow > 0.0).then_some((track.id, glow))
     }

@@ -396,6 +396,9 @@ pub fn wave(track: Color32) -> Color32 {
 pub const METER_WARN_DB: f32 = -6.0;
 /// How strongly a meter's peak shows behind its RMS.
 pub const METER_PEAK_ALPHA: f32 = 0.4;
+/// The opacity of what steps back beside something lit: the info line's
+/// other actions while a modifier is held (the interface audit's I1).
+pub const DIMMED: f32 = 0.45;
 
 /// A meter's colour at `db`: `base` (the accent, or the track's colour with
 /// the owner's M2 setting) up to [`METER_WARN_DB`], the warning colour up to
@@ -502,6 +505,9 @@ pub mod stroke {
     pub const LIT: f32 = 1.5;
     /// The keyboard focus ring, and a Beam's line.
     pub const FOCUS: f32 = 2.0;
+    /// The accent line under a toggle that is on (the palette and panel
+    /// toggles).
+    pub const UNDERLINE: f32 = 2.0;
 }
 
 /// Type sizes (`DESIGN.md` §4).
@@ -511,6 +517,9 @@ pub mod size {
     pub const SCALE: f32 = 10.0;
     /// Ruler numbers, units after a readout, clip meta, in the monospace.
     pub const MONO_SMALL: f32 = 10.0;
+    /// A unit after a number in a tight field, in hint grey (a strip's
+    /// trim, the interface audit's X1–X4 B).
+    pub const UNIT: f32 = 9.0;
     pub const CAPTION: f32 = 11.0;
     /// The letters on K5 keycaps: the caption size.
     pub const KEYCAP: f32 = CAPTION;
@@ -547,12 +556,23 @@ pub mod size {
     /// The right column of an unfolded track header (pan over the In
     /// chip), so their edges line up (ADR-0101).
     pub const HEADER_SIDE: f32 = 60.0;
-    /// A piece cut into a header's well (M, S and arm): width and height,
-    /// 2 pt inside a 20 pt well, 1 pt apart.
+    /// A piece cut into a 20 pt well (M, S and arm, the magnet, the locator
+    /// arrows): its width; it is as tall as the well less `space::XXS` each
+    /// side.
     pub const WELL_PIECE_W: f32 = 18.0;
-    pub const WELL_PIECE_H: f32 = 16.0;
+    /// A piece of a mixer strip's M S ● well: the strip has room for wider
+    /// pieces than a header (the interface audit's X1–X4).
+    pub const STRIP_PIECE_W: f32 = 22.0;
+    /// A cell of the transport bar's wells (a button, a readout): as tall
+    /// as a 30 pt well less 2 pt each side (the interface audit's TB1).
+    pub const WELL_CELL: f32 = CONTROL_LARGE - 2.0 * super::space::XXS;
+    /// An icon in a piece of the ruler corner's wells (the tool, the
+    /// magnet, tempo lanes): a step above the caption it sits beside.
+    pub const CORNER_ICON: f32 = CAPTION + 3.0;
+    /// The widest a tooltip grows before its hint wraps.
+    pub const TIP_WIDTH: f32 = 280.0;
     /// The level strip beside a header's colour rail.
-    pub const LEVEL_STRIP: f32 = 3.0;
+    pub const LEVEL_STRIP: f32 = 5.0;
     /// A send slot's widest, and the least width that shows its letter.
     pub const SEND_SLOT: f32 = 18.0;
     pub const SEND_SLOT_LETTER: f32 = 12.0;
@@ -564,6 +584,12 @@ pub mod size {
     pub const LABEL_COLUMN: f32 = 96.0;
     /// The label column of a narrow card (the clip's properties).
     pub const LABEL_COLUMN_NARROW: f32 = 72.0;
+    /// A menu row (the interface audit's M1, the owner's choice): rows
+    /// touch, and a shortcut's cap and light sit 5 pt in from the
+    /// highlight's top and bottom.
+    pub const MENU_ROW: f32 = 32.0;
+    /// An icon before a menu row's label (the arrangement tools, M6).
+    pub const MENU_ICON: f32 = 16.0;
     /// The tallest a dropdown's list of choices gets before it scrolls.
     pub const MENU_LIST: f32 = 320.0;
     /// The audio panel's block budget bar (ADR-0075): its height, the
@@ -591,6 +617,8 @@ pub mod size {
     pub const AUTO_REENABLE: f32 = 84.0;
     /// The record-red dot in the chip of a mode that can write.
     pub const AUTO_REC_DOT: f32 = 3.5;
+    /// The audio light's radius in the transport's status chip.
+    pub const STATUS_DOT: f32 = 4.0;
     /// The chooser's least width.
     pub const AUTO_MENU: f32 = 220.0;
     /// The tempo and meter lanes under the bar ruler (M7 slice A6): their
@@ -600,8 +628,6 @@ pub mod size {
     pub const SONG_METER: f32 = 20.0;
     pub const SONG_CHIP_PAD: f32 = 6.0;
     pub const SONG_TYPE: f32 = 88.0;
-    /// The width of the button in the ruler's corner that shows the lanes.
-    pub const SONG_BUTTON: f32 = 68.0;
 }
 
 /// Which theme the user asked for.

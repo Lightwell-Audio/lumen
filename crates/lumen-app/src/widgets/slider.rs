@@ -230,7 +230,7 @@ pub fn value_slider_styled(
                 "Volume: drag or wheel (Shift for fine), double-click for 0 dB, or click and type"
             }
             SliderKind::Pan => {
-                "Pan: drag or wheel (Shift for fine), double-click to centre, or click and type L 30 or R 30"
+                "Pan: drag or wheel (Shift for fine), double-click to center, or click and type L 30 or R 30"
             }
             SliderKind::ClipGain => {
                 "Gain: drag (Shift for fine), double-click for 0 dB, or click and type"
@@ -319,12 +319,35 @@ pub fn value_slider_styled(
     }
     let x_at = |v: f32| rect.left() + (v - lo) / (hi - lo) * rect.width();
     let text = kind.text(out);
-    // Numbers are mono (`.lm-slider .val`).
-    let galley = p.layout_no_wrap(
-        text,
-        FontId::monospace(theme::size::MONO_SMALL),
-        palette.text,
-    );
+    // Numbers are mono (`.lm-slider .val`); a trim's "dB" is smaller and
+    // grey, so the number has room in a strip's narrow field (the interface
+    // audit's X1–X4 B).
+    let galley = match text
+        .strip_suffix(" dB")
+        .filter(|_| kind == SliderKind::Trim)
+    {
+        Some(number) => {
+            let mut job = egui::text::LayoutJob::default();
+            let mono = FontId::monospace(theme::size::MONO_SMALL);
+            job.append(number, 0.0, egui::TextFormat::simple(mono, palette.text));
+            job.append(
+                "dB",
+                theme::space::XXS,
+                egui::TextFormat {
+                    font_id: FontId::proportional(theme::size::UNIT),
+                    color: palette.text_hint,
+                    valign: egui::Align::Center,
+                    ..Default::default()
+                },
+            );
+            p.layout_job(job)
+        }
+        None => p.layout_no_wrap(
+            text,
+            FontId::monospace(theme::size::MONO_SMALL),
+            palette.text,
+        ),
+    };
     let text_rect = Align2::CENTER_CENTER.anchor_size(rect.center(), galley.size());
     match kind {
         SliderKind::Volume

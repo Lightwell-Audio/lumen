@@ -51,7 +51,7 @@ pub use groups::Place;
 pub use import::{DropInto, Imported, Places, import_place};
 pub use lanes::{Drag, Line, Shift};
 pub use midi_clips::NewClip;
-pub use mixer::{MAX_RETURNS, Refused};
+pub use mixer::Refused;
 pub use notes::Resize;
 pub use outputs::{Leave, OutputEdit};
 pub use overrides::Overrides;
@@ -426,7 +426,7 @@ impl Document {
     }
 
     pub fn recolor_tracks(&mut self, ids: &[Id], color: Color) {
-        self.edit_tracks("Change track colour", ids, |t| t.color = color);
+        self.edit_tracks("Change track color", ids, |t| t.color = color);
     }
 
     pub fn set_mute(&mut self, ids: &[Id], mute: bool) {

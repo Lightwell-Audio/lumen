@@ -193,6 +193,30 @@ pub fn menu_caption(ui: &mut Ui, text: &str) {
         .show(ui, |ui| ui.label(egui::RichText::new(text).small().weak()));
 }
 
+/// A context menu's header (the interface audit's M2): what the menu acts
+/// on ("Volume \u{00B7} Kick"), in line with the menu's labels, with a
+/// divider under it, so it reads as a title rather than a stray label.
+pub fn menu_header(ui: &mut Ui, text: &str) {
+    let side = menu_inset(ui);
+    egui::Frame::NONE
+        .inner_margin(egui::Margin {
+            left: side.round() as i8,
+            ..egui::Margin::ZERO
+        })
+        .show(ui, |ui| {
+            // A long track name ends in "…" rather than widening the menu.
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(text)
+                        .small()
+                        .color(theme::p().text_secondary),
+                )
+                .truncate(),
+            )
+        });
+    ui.separator();
+}
+
 /// One choice in a list of them, as a row as wide as there is room for:
 /// for choices too many or too long for a [`segmented`] control (a
 /// device's channel pairs). The chosen row is `accent_muted` with accent
@@ -313,6 +337,20 @@ pub fn segmented<T: PartialEq + Copy>(
     segmented_styled(ui, id, value, choices, None)
 }
 
+/// [`segmented`] across the whole width it is given, the choices in equal
+/// pieces, or, where the widest would not fit that way, each its own width
+/// with an equal share of the room left (the browser's type filter under
+/// its search field, the interface audit's B2). Where even the words do not
+/// fit, it is as wide as they need, as [`segmented`] is.
+pub fn segmented_full<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    id: EguiId,
+    value: T,
+    choices: &[Choice<'_, T>],
+) -> Option<T> {
+    segmented_with(ui, id, value, choices, (None, true))
+}
+
 /// Width of a choice's icon (the Button card's 14 pt).
 const ICON: f32 = 14.0;
 /// Gap between a choice's icon and its label.
@@ -332,6 +370,18 @@ pub fn segmented_styled<T: PartialEq + Copy>(
     value: T,
     choices: &[Choice<'_, T>],
     lit: Option<Tone>,
+) -> Option<T> {
+    segmented_with(ui, id, value, choices, (lit, false))
+}
+
+/// [`segmented_styled`], its pieces as wide as their words or (`full`)
+/// filling the width given, as [`segmented_full`] says.
+fn segmented_with<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    id: EguiId,
+    value: T,
+    choices: &[Choice<'_, T>],
+    (lit, full): (Option<Tone>, bool),
 ) -> Option<T> {
     let palette = theme::p();
     let tool = lit.is_some();
@@ -378,8 +428,24 @@ pub fn segmented_styled<T: PartialEq + Copy>(
             g.size().x + icon + cap_width(cap.as_deref()) + 2.0 * pad
         })
         .collect();
-    let total = widths.iter().sum::<f32>() + 2.0 * inset;
     let side = menu_inset(ui);
+    // Full width: equal pieces when the widest's content fits that way with
+    // a little room each side; otherwise each piece its own width and an
+    // equal share of the room left.
+    let widths: Vec<f32> = if full && !choices.is_empty() {
+        let n = choices.len() as f32;
+        let room = ui.available_width() - side - 2.0 * inset;
+        let widest = widths.iter().copied().fold(0.0, f32::max) - 2.0 * pad;
+        if (widest + 2.0 * theme::space::XS) * n <= room {
+            vec![room / n; choices.len()]
+        } else {
+            let spare = (room - widths.iter().sum::<f32>()).max(0.0) / n;
+            widths.iter().map(|w| w + spare).collect()
+        }
+    } else {
+        widths
+    };
+    let total = widths.iter().sum::<f32>() + 2.0 * inset;
     let (row, _) = ui.allocate_exact_size(vec2(total + side, height), Sense::hover());
     let rect = Rect::from_min_size(pos2(row.left() + side, row.top()), vec2(total, height));
     let mut picked = None;
@@ -454,7 +520,7 @@ pub fn segmented_styled<T: PartialEq + Copy>(
             None => (palette.thumb_hi, palette.thumb, palette.edge_light),
         };
         raised::gradient(painter, thumb, f32::from(piece_radius), top, bottom);
-        raised::lip(painter, thumb, piece_radius, light);
+        raised::bare_lip(painter, thumb, piece_radius, light);
     }
     for (((segment, response, chosen), (choice, galley)), cap) in
         segments.iter().zip(choices.iter().zip(galleys)).zip(caps)

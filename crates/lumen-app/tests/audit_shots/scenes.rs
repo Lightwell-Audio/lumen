@@ -26,7 +26,6 @@ fn owner_polish() {
             let clip = s.rect_of_track(0);
             right_click(&mut s.h, pos(clip, 0.2, 0.1));
             s.steps(12);
-            assert!(s.find("Automatic crossfades").is_some());
             let cut = s.find_row("Cut").expect("clip context menu");
             s.h.hover_at(cut.center());
             for _ in 0..3 {
@@ -38,8 +37,10 @@ fn owner_polish() {
                 });
                 s.steps(10);
             }
-            let automatic = s.find("Automatic crossfades").expect("editing switch");
-            assert!(automatic.top() >= 0.0 && automatic.bottom() <= 540.0);
+            let last = s
+                .find_row("Properties\u{2026}")
+                .expect("the menu's last row");
+            assert!(last.top() >= 0.0 && last.bottom() <= 540.0);
             s.snap("arrangement-menu");
         }
     }
@@ -158,6 +159,15 @@ fn arrangement() {
         s.snap("clips-menu");
         s.esc();
         s.chord(Modifiers::NONE, Key::Escape);
+        // The info line over a clip's header, then with Ctrl held: what Ctrl
+        // does lights and the rest dims (the interface audit's I1).
+        s.h.hover_at(pos(kick, 0.5, 0.15));
+        s.steps(4);
+        s.snap("info-clip");
+        s.h.event(eframe::egui::Event::ModifiersChanged(Modifiers::COMMAND));
+        s.steps(4);
+        s.snap("info-clip-ctrl");
+        s.h.event(eframe::egui::Event::ModifiersChanged(Modifiers::NONE));
         // Empty lanes.
         right_click(&mut s.h, pos(kick, 6.0, 0.5));
         s.steps(6);
@@ -459,7 +469,7 @@ fn submenus() {
     looks("submenus", true, |s| {
         let kick = s.rect_of_track(0);
         click(&mut s.h, pos(kick, 0.5, 0.4));
-        for (n, row) in ["Edit", "Colour", "Fades"].iter().enumerate() {
+        for (n, row) in ["Edit", "Color", "Fades"].iter().enumerate() {
             right_click(&mut s.h, pos(kick, 0.5, 0.4));
             s.steps(6);
             if let Some(r) = s.find_row(row) {
@@ -473,7 +483,7 @@ fn submenus() {
             s.esc();
         }
         s.h.state_mut().select_tracks(&[]);
-        for (n, row) in ["Colour", "Bounce"].iter().enumerate() {
+        for (n, row) in ["Color", "Bounce"].iter().enumerate() {
             if !s.right("Track kick") {
                 continue;
             }
@@ -571,4 +581,138 @@ fn corrected_menus() {
             s.snap("audio-bottom");
         }
     }
+}
+
+/// The plugins the cleanup audit's browser lists: three vendors besides
+/// Lumen's own, a dozen categories and a blocked module (anonymous names).
+const PRETEND: [(&str, &[(&str, &str)]); 3] = [
+    (
+        "Studio A",
+        &[
+            ("Bus compressor", "Fx|Dynamics"),
+            ("Plate reverb", "Fx|Reverb"),
+            ("Tape delay", "Fx|Delay"),
+            ("Channel EQ", "Fx|EQ"),
+        ],
+    ),
+    (
+        "Studio B",
+        &[
+            ("Analog poly", "Instrument|Synth"),
+            ("Drum machine", "Instrument|Drum"),
+            ("Electric piano", "Instrument|Piano"),
+            ("Saturator", "Fx|Distortion"),
+        ],
+    ),
+    (
+        "Studio C with a long vendor name",
+        &[
+            ("Spectrum analyzer with a long name", "Fx|Analyzer"),
+            ("Chorus", "Fx|Modulation"),
+            ("Limiter", "Fx|Dynamics"),
+        ],
+    ),
+];
+
+/// The browser (the cleanup audit, 2026-10-27): a filled list, its search,
+/// filters, chips, folds, a selection, a device's menu, a blocked module and
+/// the empty states.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn browser() {
+    looks("browser", true, |s| {
+        s.h.state_mut()
+            .pretend_plugins(&PRETEND, &["Hangs on load"]);
+        s.steps(10);
+        s.snap("filled");
+        s.hover("Plate reverb, Studio A");
+        s.steps(4);
+        s.snap("row-hover");
+        s.away();
+        s.click("Plate reverb, Studio A");
+        s.steps(4);
+        s.snap("row-selected");
+        if s.right("Plate reverb, Studio A") {
+            s.snap("device-menu");
+            s.esc();
+        }
+        s.click("Hangs on load, blocked");
+        s.steps(6);
+        s.snap("blocked-note");
+        if s.right("Hangs on load, blocked") {
+            s.snap("blocked-menu");
+            s.esc();
+        }
+        s.click("Search devices");
+        s.h.event(Event::Text("verb".into()));
+        s.steps(6);
+        s.snap("search");
+        s.h.event(Event::Text("zzz".into()));
+        s.steps(6);
+        s.snap("search-none");
+        s.click("Clear search");
+        s.steps(4);
+        s.click("Instruments");
+        s.steps(4);
+        s.snap("instruments");
+        s.click("All");
+        s.steps(4);
+        s.click("Dynamics");
+        s.steps(4);
+        s.snap("chip");
+        s.away();
+    });
+}
+
+/// The mixer with many kinds of strip: audio, MIDI, a group, two returns,
+/// the master; a selected strip, menus and a short panel (the cleanup audit).
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn mixer_full() {
+    looks("mixer-full", true, |s| {
+        s.command("Add MIDI track");
+        for _ in 0..2 {
+            s.click("Add track");
+            s.click("Add return track");
+            s.steps(6);
+        }
+        let ids: Vec<_> =
+            s.h.state()
+                .project()
+                .tracks
+                .iter()
+                .take(2)
+                .map(|t| t.id)
+                .collect();
+        s.h.state_mut().select_tracks(&ids);
+        s.chord(Modifiers::COMMAND, Key::G);
+        s.steps(20);
+        s.h.state_mut().set_detail_size(420.0);
+        s.click_last("Mixer tab");
+        s.steps(20);
+        s.snap("mixer");
+        s.h.state_mut().select_tracks(&ids[..1]);
+        s.steps(6);
+        s.snap("selected");
+        for (n, label) in [
+            "Output of kick in the mixer",
+            "kick send A in the mixer",
+            "+",
+        ]
+        .iter()
+        .enumerate()
+        {
+            if s.click(label) {
+                s.snap(&format!("pop{n}"));
+                s.esc();
+            }
+        }
+        s.hover("kick fader in the mixer");
+        s.steps(4);
+        s.snap("fader-hover");
+        s.away();
+        s.h.state_mut().set_detail_size(240.0);
+        s.steps(20);
+        s.snap("short");
+    });
 }

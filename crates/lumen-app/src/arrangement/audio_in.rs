@@ -390,7 +390,7 @@ impl Arrangement {
             row,
             id,
             "audio monitor",
-            &format!("Monitor  {word}"),
+            &format!("Mon  {word}"),
             &name,
             "When you hear this track's input",
         );

@@ -3,8 +3,10 @@
 //! under the pointer and lists what can be done there, with shortcuts as
 //! keycaps (K5) and mouse gestures with a mouse. Nothing floats over the
 //! lanes any more; only live values (a fade's length, a gain) follow the
-//! pointer while dragging. Held modifiers light the drag they choose, so
-//! pressing Ctrl over a clip shows "Ctrl drag copy" lit.
+//! pointer while dragging. The subject ends at a hairline and the actions
+//! follow, spaced apart (the interface audit's I1). Nothing is lit until a
+//! modifier is held: then what those keys do lights and the rest dims, so
+//! pressing Ctrl over a clip lights "Ctrl Drag copy".
 //!
 //! What hovers fill in each frame is an [`Info`]; [`App::draw_info_line`] draws
 //! the one from the frame before (the strip is laid out before the lanes),
@@ -14,6 +16,11 @@ use eframe::egui::{self, Rect, RichText, Sense, Shape, Ui, vec2};
 
 use crate::commands::{Command, Keymap, keys::modifier_names};
 use crate::{App, icons, theme, widgets};
+
+/// The hairline between the subject and its actions: as tall as a word.
+const DIVIDER: f32 = 14.0;
+/// The room between two actions, which no dot separates (I1).
+const ACTION_GAP: f32 = 14.0;
 
 /// Modifier keys an action needs held.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -82,6 +89,16 @@ impl Mouse {
             Mouse::DoubleClick => "double-click",
             Mouse::RightClick => "right-click",
             Mouse::Drag => "drag",
+        }
+    }
+
+    /// The word as the line shows it, after the mouse: "Drag".
+    fn shown(self) -> &'static str {
+        match self {
+            Mouse::Click => "Click",
+            Mouse::DoubleClick => "Double-click",
+            Mouse::RightClick => "Right-click",
+            Mouse::Drag => "Drag",
         }
     }
 }
@@ -184,9 +201,10 @@ impl Info {
 }
 
 impl Info {
-    /// The lit action as words ("Ctrl+drag to copy"), with `held` keys.
+    /// The first lit action as words ("Ctrl+drag to copy"), with `held`
+    /// keys.
     pub(crate) fn lit_text(&self, keymap: &Keymap, held: Held) -> Option<String> {
-        let action = self.shown(keymap).find(|a| lit(a, held))?;
+        let action = self.shown(keymap).find(|a| lit(a, keymap, held))?;
         let only = Info {
             what: String::new(),
             actions: vec![action.clone()],
@@ -195,9 +213,19 @@ impl Info {
     }
 }
 
-/// Whether `action` is the drag the held keys choose now: lit.
-fn lit(action: &Action, held: Held) -> bool {
-    matches!(action.how, How::Pointer(h, Mouse::Drag) if h == held)
+/// Whether `action` is what the held keys do now: lit. Nothing is lit
+/// while no modifier is held, so a plain gesture never looks chosen.
+fn lit(action: &Action, keymap: &Keymap, held: Held) -> bool {
+    if held == Held::NONE {
+        return false;
+    }
+    match action.how {
+        How::Pointer(h, _) => h == held,
+        How::Key(command) => keymap
+            .keys(command)
+            .is_some_and(|k| k.modifiers == held.names()),
+        How::Caps(_) => false,
+    }
 }
 
 impl Info {
@@ -260,6 +288,13 @@ impl App {
                 // emptied, as over the time ruler's corner).
                 let strip = ui.max_rect();
                 ui.allocate_rect(strip, Sense::hover());
+                // A hairline above, so the strip parts from the panel over
+                // it in both themes (I1).
+                ui.painter().hline(
+                    ui.min_rect().x_range().expand(theme::space::M),
+                    strip.top(),
+                    egui::Stroke::new(theme::stroke::HAIRLINE, palette.border),
+                );
                 let text = shown
                     .as_ref()
                     .map(|i| i.text(&self.keymap))
@@ -296,26 +331,47 @@ impl App {
     }
 }
 
-/// One info: its subject, then each action that fits, separated by dots.
+/// One info: its subject, a hairline, then each action that fits.
 fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
     let palette = theme::p();
     ui.spacing_mut().item_spacing.x = theme::space::XS;
+    let mut shown = info.shown(keymap).peekable();
     if !info.what.is_empty() {
+        // Its name, then what else it is in the secondary grey: "Plate
+        // reverb  Studio A · Effect".
+        let (name, rest) = match info.what.split_once(" \u{00B7} ") {
+            Some((name, rest)) => (name, Some(rest)),
+            None => (info.what.as_str(), None),
+        };
         ui.label(
-            RichText::new(&info.what)
+            RichText::new(name)
                 .size(theme::size::CAPTION)
                 .color(palette.text),
         );
+        if let Some(rest) = rest {
+            ui.label(
+                RichText::new(rest)
+                    .size(theme::size::CAPTION)
+                    .color(palette.text_secondary),
+            );
+        }
+        if shown.peek().is_some() {
+            ui.add_space(theme::space::XS);
+            let (rect, _) =
+                ui.allocate_exact_size(vec2(theme::stroke::HAIRLINE, DIVIDER), Sense::hover());
+            ui.painter().rect_filled(rect, 0.0, palette.border_strong);
+            ui.add_space(theme::space::XS);
+        }
     }
     let right = ui.max_rect().right();
     // The row's middle, where its words and caps are centred (half a
     // light's room above the strip's).
     let middle = ui.max_rect().center().y;
-    let separator = RichText::new("\u{00B7}")
-        .size(theme::size::CAPTION)
-        .color(palette.text_hint);
-    for (n, action) in info.shown(keymap).enumerate() {
-        let wanted = width(ui, action, keymap) + 3.0 * theme::space::S;
+    // Something held lights what it does; the rest steps back.
+    let any_lit = info.shown(keymap).any(|a| lit(a, keymap, held));
+    for (n, action) in shown.enumerate() {
+        let gap = if n > 0 { ACTION_GAP } else { 0.0 };
+        let wanted = gap + width(ui, action, keymap) + 3.0 * theme::space::S;
         if ui.cursor().left() + wanted > right {
             ui.label(
                 RichText::new("\u{2026}")
@@ -324,13 +380,12 @@ fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
             );
             break;
         }
-        // Nothing leads the first action of an info with no subject.
-        if n > 0 || !info.what.is_empty() {
-            ui.add_space(theme::space::XS);
-            ui.label(separator.clone());
-            ui.add_space(theme::space::XS);
+        ui.add_space(gap);
+        let lit = lit(action, keymap, held);
+        let opacity = ui.opacity();
+        if any_lit && !lit {
+            ui.multiply_opacity(theme::DIMMED);
         }
-        let lit = lit(action, held);
         let background = ui.painter().add(Shape::Noop);
         // Drawn straight into the row, not in a nested `horizontal`: egui
         // starts one at a standard row height and grows it downward for the
@@ -345,13 +400,13 @@ fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
             How::Pointer(held, gesture) => {
                 // None held allocates nothing: an empty allocation still
                 // takes the row's spacing, which left a gap before the mouse
-                // (the lit "drag move" sat off centre in its highlight).
+                // (the lit "Drag move" sat off centre in its highlight).
                 if held != Held::NONE {
                     widgets::modifier_caps(ui, &held.names());
                 }
                 mouse(ui, colour);
                 ui.label(
-                    RichText::new(gesture.word())
+                    RichText::new(gesture.shown())
                         .size(theme::size::CAPTION)
                         .color(colour),
                 );
@@ -370,6 +425,7 @@ fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
                 .size(theme::size::CAPTION)
                 .color(colour),
         );
+        ui.set_opacity(opacity);
         let group = Rect::from_x_y_ranges(left..=ui.min_rect().right(), middle..=middle);
         if lit {
             ui.painter().set(
@@ -421,7 +477,7 @@ fn width(ui: &Ui, action: &Action, keymap: &Keymap) -> f32 {
             let names = held.names();
             widgets::caps_width(ui, &names, None)
                 + (theme::size::CAPTION + 2.0) * 0.7
-                + text(gesture.word())
+                + text(gesture.shown())
                 + 3.0 * gap
         }
         How::Key(command) => keymap.keys(command).map_or(0.0, |k| {
@@ -454,10 +510,13 @@ mod tests {
             "Fit loop has no shortcut, so it is left out"
         );
         let actions: Vec<&Action> = info.shown(&keymap).collect();
-        assert!(lit(actions[0], Held::NONE));
-        assert!(!lit(actions[1], Held::NONE));
-        assert!(lit(actions[1], Held::CTRL));
-        assert!(!lit(actions[1], Held::CTRL_ALT), "exactly the keys held");
-        assert!(!lit(actions[2], Held::CTRL), "commands never light");
+        let lit = |n: usize, held| lit(actions[n], &keymap, held);
+        assert!(!lit(0, Held::NONE), "nothing lights with no key held");
+        assert!(!lit(1, Held::NONE));
+        assert!(lit(1, Held::CTRL));
+        assert!(!lit(0, Held::CTRL), "a plain drag dims while Ctrl is held");
+        assert!(!lit(1, Held::CTRL_ALT), "exactly the keys held");
+        assert!(lit(2, Held::CTRL), "Ctrl lights the Ctrl shortcut too");
+        assert!(!lit(2, Held::SHIFT));
     }
 }

@@ -13,6 +13,8 @@ use crate::{App, widgets};
 mod availability;
 mod run;
 
+pub(crate) use availability::wait;
+
 impl App {
     /// Clips or a time range are selected.
     fn clips_chosen(&self) -> bool {
@@ -105,6 +107,36 @@ impl App {
         clicked
     }
 
+    /// A context-menu row for `command` (the interface audit's M3): a
+    /// command that cannot act on what was clicked is left out; one that
+    /// could but is waiting (a join, a bounce or an export under way; the
+    /// reasons in [`wait`]) stays, greyed, and its hover says why. True
+    /// when it ran.
+    pub(crate) fn context_command(
+        &mut self,
+        ui: &mut egui::Ui,
+        command: Command,
+        label: &str,
+    ) -> bool {
+        let ctx = ui.ctx().clone();
+        let why = match ContextRow::of(self.availability(&ctx, command)) {
+            ContextRow::Ready => None,
+            ContextRow::Waiting(why) => Some(why),
+            ContextRow::Left => return false,
+        };
+        let keys = self.keymap.keys(command);
+        let row = widgets::menu_item(ui, label, keys.as_ref(), why.is_none());
+        if let Some(why) = why {
+            row.on_disabled_hover_text(why);
+            return false;
+        }
+        if row.clicked() {
+            self.run(&ctx, command);
+            return true;
+        }
+        false
+    }
+
     /// The keyboard: each chord pressed this frame runs the command it is
     /// bound to, when that can run now, and is then taken from the input so
     /// nothing else sees it. Not while typing in a field, which has its own
@@ -143,6 +175,14 @@ impl App {
             if (focused && chord.used_by_controls()) || self.availability(ctx, command).is_err() {
                 continue;
             }
+            // While the save question is up, a plain Enter runs no command.
+            // The main window took it for the question already; a popped-out
+            // editor has its own keyboard, and there Enter does nothing.
+            if self.prompt.is_some()
+                && chord == Chord::pressed(egui::Modifiers::NONE, egui::Key::Enter)
+            {
+                continue;
+            }
             ctx.input_mut(|i| {
                 let at = i.events.iter().position(|event| {
                     matches!(*event, egui::Event::Key { key, pressed: true, modifiers, .. }
@@ -154,5 +194,43 @@ impl App {
             });
             self.run(ctx, command);
         }
+    }
+}
+
+/// How a context menu shows a command (the interface audit's M3).
+#[derive(Debug, PartialEq, Eq)]
+enum ContextRow {
+    Ready,
+    /// Greyed, saying why: work under way holds it back.
+    Waiting(&'static str),
+    /// Left out: it cannot act on what was clicked.
+    Left,
+}
+
+impl ContextRow {
+    fn of(availability: Result<(), &'static str>) -> Self {
+        match availability {
+            Ok(()) => Self::Ready,
+            Err(why) if wait::is(why) => Self::Waiting(why),
+            Err(_) => Self::Left,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_context_menu_keeps_a_waiting_row_and_leaves_out_one_that_cannot_act() {
+        assert_eq!(ContextRow::of(Ok(())), ContextRow::Ready);
+        assert_eq!(
+            ContextRow::of(Err(wait::JOIN)),
+            ContextRow::Waiting(wait::JOIN)
+        );
+        assert_eq!(
+            ContextRow::of(Err("Select an audio clip first")),
+            ContextRow::Left
+        );
     }
 }

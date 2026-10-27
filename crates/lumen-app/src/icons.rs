@@ -71,11 +71,26 @@ pub enum Icon {
     PanelBottom,
     /// A plugin's own window (M6 slice 5h): a window with its title bar.
     Window,
+    /// The Pointer tool (the interface audit's M6): an arrow pointer.
+    Pointer,
+    /// The Draw tool: a pencil.
+    Pencil,
+    /// The Erase tool: an eraser on a line.
+    Eraser,
+    /// The Split tool: a cut between two clip edges.
+    Split,
+    /// The Mute tool: a circle, struck through.
+    MuteCircle,
+    /// The Zoom tool: a magnifier with a plus.
+    ZoomIn,
+    /// The tempo and meter lanes (H1): a stepped tempo line under a faint
+    /// meter line.
+    TempoLanes,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 31] = [
+    pub const ALL: [Icon; 38] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -107,8 +122,19 @@ impl Icon {
         Icon::PanelLeft,
         Icon::PanelBottom,
         Icon::Window,
+        Icon::Pointer,
+        Icon::Pencil,
+        Icon::Eraser,
+        Icon::Split,
+        Icon::MuteCircle,
+        Icon::ZoomIn,
+        Icon::TempoLanes,
     ];
 }
+
+/// How strongly an icon's secondary line is drawn (the tempo lanes' meter
+/// line).
+const FAINT: f32 = 0.45;
 
 /// Maps the 16-unit icon grid onto a square centred in `rect`.
 struct Grid {
@@ -140,6 +166,82 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
     let stroke = Stroke::new(1.6 * g.unit, color);
     let none = Stroke::NONE;
     match icon {
+        Icon::Pointer => vec![Shape::closed_line(
+            vec![
+                g.p(4.0, 2.5),
+                g.p(4.0, 12.5),
+                g.p(6.8, 9.9),
+                g.p(8.7, 13.9),
+                g.p(10.3, 13.1),
+                g.p(8.4, 9.2),
+                g.p(12.0, 9.2),
+            ],
+            Stroke::new(1.3 * g.unit, color),
+        )],
+        Icon::Pencil => vec![
+            Shape::closed_line(
+                vec![
+                    g.p(3.0, 13.0),
+                    g.p(4.0, 9.5),
+                    g.p(10.5, 3.0),
+                    g.p(13.0, 5.5),
+                    g.p(6.5, 12.0),
+                ],
+                Stroke::new(1.3 * g.unit, color),
+            ),
+            Shape::line_segment(
+                [g.p(9.0, 4.5), g.p(11.5, 7.0)],
+                Stroke::new(1.3 * g.unit, color),
+            ),
+        ],
+        Icon::Eraser => vec![
+            Shape::closed_line(
+                vec![
+                    g.p(3.5, 9.5),
+                    g.p(8.5, 4.5),
+                    g.p(12.5, 8.5),
+                    g.p(8.0, 13.0),
+                    g.p(6.0, 13.0),
+                ],
+                Stroke::new(1.3 * g.unit, color),
+            ),
+            Shape::line_segment(
+                [g.p(8.0, 13.0), g.p(13.0, 13.0)],
+                Stroke::new(1.3 * g.unit, color),
+            ),
+        ],
+        Icon::Split => vec![
+            Shape::line_segment([g.p(8.0, 2.0), g.p(8.0, 14.0)], stroke),
+            Shape::line_segment([g.p(3.0, 5.0), g.p(3.0, 11.0)], stroke),
+            Shape::line_segment([g.p(13.0, 5.0), g.p(13.0, 11.0)], stroke),
+        ],
+        Icon::MuteCircle => vec![
+            Shape::circle_stroke(g.p(8.0, 8.0), 5.5 * g.unit, stroke),
+            Shape::line_segment([g.p(4.2, 11.8), g.p(11.8, 4.2)], stroke),
+        ],
+        Icon::ZoomIn => vec![
+            Shape::circle_stroke(g.p(7.0, 7.0), 4.5 * g.unit, stroke),
+            Shape::line_segment([g.p(10.5, 10.5), g.p(14.0, 14.0)], stroke),
+            Shape::line_segment([g.p(5.0, 7.0), g.p(9.0, 7.0)], stroke),
+            Shape::line_segment([g.p(7.0, 5.0), g.p(7.0, 9.0)], stroke),
+        ],
+        Icon::TempoLanes => vec![
+            Shape::line_segment(
+                [g.p(1.5, 4.0), g.p(14.5, 4.0)],
+                Stroke::new(stroke.width, color.gamma_multiply(FAINT)),
+            ),
+            Shape::line(
+                vec![
+                    g.p(1.5, 12.5),
+                    g.p(5.5, 12.5),
+                    g.p(5.5, 7.5),
+                    g.p(9.5, 7.5),
+                    g.p(9.5, 10.5),
+                    g.p(14.5, 10.5),
+                ],
+                stroke,
+            ),
+        ],
         Icon::Play => vec![Shape::convex_polygon(
             vec![g.p(4.0, 2.5), g.p(13.5, 8.0), g.p(4.0, 13.5)],
             color,
@@ -353,9 +455,20 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             ),
             Shape::rect_filled(g.rect(3.0, 7.5, 13.0, 14.5), 1.0 * g.unit, color),
         ],
+        // The ring is a fully rounded square on the same half-point grid
+        // as the framed icons beside it (the panel toggles, 2.5 to 13.5
+        // top to bottom),
+        // centred on their middle line: rectangles snap to pixels and
+        // circles do not, so drawn this way it stays level with them at
+        // every scale.
         Icon::Search => vec![
-            Shape::circle_stroke(g.p(7.0, 7.0), 4.5 * g.unit, stroke),
-            Shape::line_segment([g.p(10.3, 10.3), g.p(13.5, 13.5)], stroke),
+            Shape::rect_stroke(
+                g.rect(2.5, 3.5, 11.5, 12.5),
+                4.5 * g.unit,
+                stroke,
+                egui::StrokeKind::Middle,
+            ),
+            Shape::line_segment([g.p(10.2, 11.2), g.p(13.25, 14.25)], stroke),
         ],
         Icon::Mouse => vec![
             // A rounded body with the buttons' parting line.
@@ -474,15 +587,15 @@ pub fn beam(ui: &Ui, rect: egui::Rect) {
     );
 }
 
-/// A transport-bar button showing `icon` (the design system's Transport
-/// card, ADR-0052). `active` marks a toggle that is on (or Play while
-/// playing, Record while recording). The accessible name is `label`; the
-/// tooltip adds the shortcut as keycaps and a hint (`tip`).
+/// A transport-bar button showing `icon`, as a piece of the well it sits
+/// in (the interface audit's TB1; lay it out in `widgets::well::row`).
+/// `active` marks a toggle that is on (or Play while playing, Record while
+/// recording). The accessible name is `label`; the tooltip adds the
+/// shortcut as keycaps and a hint (`tip`).
 ///
-/// It is quiet: no fill and no border at rest, a `text_secondary` icon;
-/// hover lays Ember over it; pressed it sinks; on it is [`Tone::On`]
-/// (`accent_muted`, accent icon, a 38% hairline), Play while playing has the
-/// icon in `core`, and Record while recording is [`Tone::Record`].
+/// It is bare at rest, a `text_secondary` icon; hover lays Ember over it;
+/// pressed it sinks; on it is filled in [`Tone::On`], Play while playing
+/// has the icon in `core`, and Record while recording is [`Tone::Record`].
 pub fn button(
     ui: &mut Ui,
     icon: Icon,
@@ -524,6 +637,42 @@ pub struct Look<'a> {
     /// How lit, 0 to 1, in place of the cross-fade from `active` (a pulse
     /// that is not a state).
     pub lit: Option<f32>,
+    /// How its body is drawn.
+    pub body: Body,
+}
+
+/// How a transport-bar button's body is drawn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Body {
+    /// A piece of a sunk well, filled while on.
+    #[default]
+    Piece,
+    /// Bare, and on an accent icon over a short accent underline: a panel
+    /// toggle, on most of the time, stays quiet (the interface audit's TB1).
+    Underlined,
+}
+
+/// A panel toggle at the bar's right: [`button`] with the underlined body,
+/// on while its panel is shown.
+pub fn toggle(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    tip: crate::widgets::Tip<'_>,
+    on: bool,
+) -> Response {
+    button_look(
+        ui,
+        icon,
+        label,
+        tip,
+        Look {
+            active: on,
+            enabled: true,
+            body: Body::Underlined,
+            ..Look::default()
+        },
+    )
 }
 
 /// [`button`] with its state and look given by `look`.
@@ -540,7 +689,10 @@ pub fn button_look(
         disabled_reason,
         ..
     } = look;
-    let size = Vec2::splat(theme::size::TRANSPORT_ICON);
+    let size = match look.body {
+        Body::Piece => vec2(theme::size::TRANSPORT_ICON, theme::size::WELL_CELL),
+        Body::Underlined => Vec2::splat(theme::size::TRANSPORT_ICON),
+    };
     let sense = if enabled {
         Sense::click()
     } else {
@@ -569,8 +721,13 @@ pub fn button_look(
             .lit(lit, tone)
             .enabled(enabled);
         let rect = rect.round_to_pixels(ui.pixels_per_point());
-        let radius = theme::radius::for_height(rect.height());
-        let body = paint_quiet(ui.painter(), rect, radius, &face);
+        let body = match look.body {
+            Body::Piece => {
+                crate::widgets::well::paint_piece(ui.painter(), rect, &face);
+                rect
+            }
+            Body::Underlined => paint_underlined(ui.painter(), rect, &face),
+        };
         // Play while playing reads in the core colour, like the playhead.
         let color = if matches!(icon, Icon::Play | Icon::Pause) {
             face.text().lerp_to_gamma(c.core, lit)
@@ -608,45 +765,40 @@ pub fn button_look(
 /// The icon's side on a transport button: the 16 pt grid of every icon.
 const ICON_SIZE: f32 = 16.0;
 
-/// A quiet button's body (the Button card's `lm-quiet`): nothing at rest,
-/// an Ember wash on hover, the sunk look while pressed, and its `tone`
-/// fading in as it lights (no gradient, an `On` hairline; Record also
-/// glows). Returns the rect the icon is centred in.
-fn paint_quiet(
-    painter: &Painter,
-    rect: Rect,
-    radius: u8,
-    face: &crate::widgets::raised::Face,
-) -> Rect {
+/// A panel toggle's body: nothing at rest, an Ember wash on hover, the
+/// sunk look while pressed, and while on a 2 pt accent line under the icon
+/// (the icon itself turns accent through the face). Returns the rect the
+/// icon is centred in.
+fn paint_underlined(painter: &Painter, rect: Rect, face: &crate::widgets::raised::Face) -> Rect {
     use crate::widgets::raised;
     if !face.enabled {
         return rect;
     }
+    let radius = theme::radius::for_height(rect.height());
     if face.pressed {
         return raised::paint(painter, rect, radius, face);
     }
     let c = theme::p();
-    let r = f32::from(radius);
-    let on = theme::lit(face.tone);
-    if face.lit > 0.0 {
-        if let Some(glow) = face.tone.glow() {
-            crate::light::glow(painter, crate::light::FLARE, rect, r, glow, face.lit);
-        }
-        painter.rect_filled(rect, r, on.top.gamma_multiply(face.lit));
-    }
     if face.hover > 0.0 {
-        painter.rect_filled(rect, r, c.ember.gamma_multiply(face.hover));
+        painter.rect_filled(rect, f32::from(radius), c.ember.gamma_multiply(face.hover));
     }
     if face.lit > 0.0 {
-        painter.rect_stroke(
-            rect,
-            r,
-            Stroke::new(theme::stroke::HAIRLINE, on.edge.gamma_multiply(face.lit)),
-            egui::StrokeKind::Inside,
+        let y = rect.bottom() - theme::stroke::HAIRLINE - theme::stroke::UNDERLINE / 2.0;
+        let half = UNDERLINE / 2.0;
+        painter.line_segment(
+            [
+                Pos2::new(rect.center().x - half, y),
+                Pos2::new(rect.center().x + half, y),
+            ],
+            Stroke::new(theme::stroke::UNDERLINE, c.accent.gamma_multiply(face.lit)),
         );
     }
     rect
 }
+
+/// How long a panel toggle's underline is: 10 pt, under the middle of
+/// its icon.
+const UNDERLINE: f32 = ICON_SIZE - theme::space::XS - theme::space::XXS;
 
 /// The close button's size.
 pub const CLOSE_SIZE: f32 = 22.0;

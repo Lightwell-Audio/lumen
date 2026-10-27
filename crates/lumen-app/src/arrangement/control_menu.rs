@@ -43,10 +43,14 @@ pub(crate) fn control_menu(
 ) {
     let mapped = doc.mapping_of(track, target).map(|m| (m.channel, m.number));
     let waiting = auto.learning == Some((track, target));
-    let name = auto.name_of(doc.project(), target);
+    let mut name = auto.name_of(doc.project(), target);
+    // The master too, which `tracks` does not hold.
+    if let Some(owner) = lumen_project::routing::all_tracks(doc.project()).find(|t| t.id == track) {
+        name = format!("{name} \u{00B7} {}", owner.name);
+    }
     let asked = widgets::Menu::context(response)
         .show(|ui| {
-            widgets::menu_caption(ui, &name);
+            widgets::menu_header(ui, &name);
             widgets::control_items(ui, mapped, waiting)
         })
         .flatten();

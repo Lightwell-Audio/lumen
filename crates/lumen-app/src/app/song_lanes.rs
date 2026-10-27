@@ -49,12 +49,14 @@ impl App {
         }
     }
 
-    /// The button in the ruler's corner that shows and hides the lanes: lit
-    /// while they are shown, so they can be found without knowing the key.
+    /// The piece of the ruler corner's well that shows and hides the lanes
+    /// (the interface audit's H1): an icon, lit while they are shown, whose
+    /// tooltip names them and their key.
     pub(crate) fn song_lanes_button(&mut self, ui: &mut egui::Ui, rect: Rect) {
-        let rect = rect.shrink2(vec2(theme::space::XS, 2.0));
-        let response = ui.interact(rect, ui.id().with("song lanes button"), Sense::click());
         let shown = self.song.shown;
+        let id = ui.id().with("song lanes button");
+        let lit = motion::hover(ui.ctx(), id.with("lit"), shown);
+        let (response, ink) = widgets::well::button(ui, rect, id, (lit, theme::Tone::On), true);
         let keys = self.keymap.keys(Command::SongLanesShow);
         let response = widgets::tip(
             response,
@@ -77,21 +79,13 @@ impl App {
                 "Tempo and meter lanes",
             )
         });
-        let lit = motion::hover(ui.ctx(), response.id.with("lit"), shown);
-        let face = widgets::raised::face_of(ui, &response).lit(lit, theme::Tone::On);
-        let body = widgets::raised::paint(
-            ui.painter(),
-            rect,
-            theme::radius::for_height(rect.height()),
-            &face,
-        );
-        let galley = ui.painter().layout_no_wrap(
-            "Tempo".to_owned(),
-            egui::FontId::proportional(theme::size::CAPTION),
-            theme::p().text,
-        );
-        widgets::raised::centre_galley(ui.painter(), body, galley, face.text());
-        widgets::raised::focus_ring(ui.painter(), &response, rect);
+        let side = theme::size::CORNER_ICON;
+        let icon = Rect::from_center_size(rect.center(), vec2(side, side));
+        ui.painter().extend(crate::icons::shapes(
+            crate::icons::Icon::TempoLanes,
+            icon,
+            ink,
+        ));
     }
 
     /// The lanes, below the bar ruler: their pointer, then their look.

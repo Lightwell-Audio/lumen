@@ -12,8 +12,13 @@ use crate::icons::{self, Icon};
 use crate::plugins::{Plugins, Status};
 use crate::{theme, widgets};
 
-/// The magnifier's side, the same small glyph size the status chips use.
-const MAGNIFIER: f32 = 14.0;
+/// The magnifier's side, the list's icon size (the interface audit's B1).
+const MAGNIFIER: f32 = super::list::ICON;
+
+/// Where the search field's words start, from its left edge: a step in,
+/// the magnifier and a step. The magnifier's centre is then on the list's
+/// icon column and the words on the list's names.
+const TEXT_EDGE: f32 = theme::space::S + MAGNIFIER + theme::space::S;
 
 /// What the search field did this frame.
 pub(super) struct Searched {
@@ -35,11 +40,10 @@ pub(super) fn search(
         Sense::hover(),
     );
     widgets::raised::paint_field(ui.painter(), rect, theme::radius::MEDIUM, 0.0);
-    // The magnifier and the words sit a full step inside the well, so the
-    // field has room to breathe (the specimens' 12 pt side padding).
+    // The magnifier sits a step inside the well, over the list's icons.
     let icon = Rect::from_center_size(
         pos2(
-            rect.left() + theme::space::M + MAGNIFIER / 2.0,
+            rect.left() + theme::space::S + MAGNIFIER / 2.0,
             rect.center().y,
         ),
         vec2(MAGNIFIER, MAGNIFIER),
@@ -58,7 +62,7 @@ pub(super) fn search(
         clear_room + theme::space::XS
     };
     let edit = Rect::from_min_max(
-        pos2(icon.right() + theme::space::S, rect.top()),
+        pos2(rect.left() + TEXT_EDGE, rect.top()),
         pos2(rect.right() - right_pad, rect.bottom()),
     );
     let mut child = ui.new_child(
@@ -119,9 +123,11 @@ pub(super) fn search(
     Searched { escaped }
 }
 
-/// All, Instruments and Effects. Returns the choice made, if another.
+/// All, Instruments and Effects across the search field's width: in equal
+/// pieces where they fit so.
+/// Returns the choice made, if another.
 pub(super) fn type_filter(ui: &mut Ui, kind: TypeFilter) -> Option<TypeFilter> {
-    widgets::segmented(
+    widgets::segmented_full(
         ui,
         Id::new("browser type"),
         kind,
@@ -148,10 +154,11 @@ fn flip(chip: Chip, on: bool) -> Chip {
 /// Category chips shown before the rest go under "More".
 const CHIPS_SHOWN: usize = 5;
 
-/// The chips: Favorites, Recent and the commonest categories, wrapping onto
-/// two lines or so, the rest under a "More" pill. A chip that is on turns
-/// off when clicked again. Returns the chip now chosen (`Chip::All` when
-/// the one on was clicked off).
+/// The chips: Favorites, Recent and the commonest categories in one flow,
+/// filling each line, their words starting on the search field's left
+/// edge, the rest under "More ▾". A chip that is on turns off when clicked
+/// again. Returns the chip now chosen (`Chip::All` when the one on was
+/// clicked off).
 pub(super) fn chips(ui: &mut Ui, chosen: &Chip, categories: &[(String, usize)]) -> Option<Chip> {
     let mut picked = None;
     // A chosen category stays in view even when it is not among the commonest.
@@ -168,36 +175,49 @@ pub(super) fn chips(ui: &mut Ui, chosen: &Chip, categories: &[(String, usize)]) 
         .iter()
         .filter(|c| !shown.iter().any(|s| s.0 == c.0))
         .collect();
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = vec2(theme::space::XS, theme::space::XS);
-        for (chip, label, tip) in [
-            (Chip::Favorites, "Favorites", "Only the devices you starred"),
-            (Chip::Recent, "Recent", "The devices you chose lately"),
-        ] {
-            let on = *chosen == chip;
-            if widgets::pill_toggle(ui, Id::new(("browser chip", label)), label, on, tip) {
-                picked = Some(flip(chip, on));
-            }
-        }
-        for (name, count) in shown {
-            let on = matches!(chosen, Chip::Category(c) if c.eq_ignore_ascii_case(name));
-            let tip = format!("{count} {}", if *count == 1 { "device" } else { "devices" });
-            if widgets::pill_toggle(ui, Id::new(("browser chip", name)), name, on, &tip) {
-                picked = Some(flip(Chip::Category(name.clone()), on));
-            }
-        }
-        if !rest.is_empty() {
-            let more = widgets::pill_button(ui, Id::new("browser more chips"), "More");
-            widgets::Menu::below(&more).show(|ui| {
-                for (name, count) in rest {
-                    let label = format!("{name}  ({count})");
-                    if widgets::menu_item(ui, &label, None, true).clicked() {
-                        picked = Some(Chip::Category(name.clone()));
+    // Each chip has a step of room before and after its words, so the flow
+    // starts and ends that much outside the field's edges: the words line
+    // up with the field and the filter, and a lit chip's fill hangs out.
+    let hang = -(theme::space::S as i8);
+    egui::Frame::NONE
+        .outer_margin(egui::Margin {
+            left: hang,
+            right: hang,
+            ..Default::default()
+        })
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(theme::space::XS, theme::space::XS);
+                for (chip, label, tip) in [
+                    (Chip::Favorites, "Favorites", "Only the devices you starred"),
+                    (Chip::Recent, "Recent", "The devices you chose lately"),
+                ] {
+                    let on = *chosen == chip;
+                    if widgets::chip_toggle(ui, Id::new(("browser chip", label)), label, on, tip) {
+                        picked = Some(flip(chip, on));
                     }
                 }
-            });
-        }
-    });
+                for (name, count) in shown {
+                    let on = matches!(chosen, Chip::Category(c) if c.eq_ignore_ascii_case(name));
+                    let tip = format!("{count} {}", if *count == 1 { "device" } else { "devices" });
+                    if widgets::chip_toggle(ui, Id::new(("browser chip", name)), name, on, &tip) {
+                        picked = Some(flip(Chip::Category(name.clone()), on));
+                    }
+                }
+                if !rest.is_empty() {
+                    let more =
+                        widgets::chip_button(ui, Id::new("browser more chips"), "More", true);
+                    widgets::Menu::below(&more).show(|ui| {
+                        for (name, count) in rest {
+                            let label = format!("{name}  ({count})");
+                            if widgets::menu_item(ui, &label, None, true).clicked() {
+                                picked = Some(Chip::Category(name.clone()));
+                            }
+                        }
+                    });
+                }
+            })
+        });
     picked
 }
 
@@ -220,9 +240,9 @@ pub(super) fn ago(since: Duration) -> String {
     }
 }
 
-/// The line under the filters: what is installed and when it was looked
-/// for, or how far a scan is; a Rescan or Cancel button; a card for a
-/// problem. Returns what was pressed.
+/// The list's header under a hairline: what is installed and when it was
+/// looked for, or how far a scan is; Rescan or Cancel as a bare word, like
+/// the chips; a card for a problem. Returns what was pressed.
 pub(super) fn scan_line(ui: &mut Ui, plugins: &Plugins) -> ScanActions {
     let palette = *theme::p();
     let mut actions = ScanActions::default();
@@ -280,13 +300,25 @@ pub(super) fn scan_line(ui: &mut Ui, plugins: &Plugins) -> ScanActions {
             (text, detail, false, Some("Rescan"))
         }
     };
+    // The hairline parts the filters from the list (the interface audit's B3).
+    ui.add_space(theme::space::XS);
+    let (rule, _) = ui.allocate_exact_size(
+        vec2(ui.available_width(), theme::stroke::HAIRLINE),
+        Sense::hover(),
+    );
+    ui.painter().hline(
+        rule.x_range(),
+        rule.center().y,
+        egui::Stroke::new(theme::stroke::HAIRLINE, palette.border),
+    );
     let line = vec2(ui.available_width(), theme::size::CONTROL);
     ui.allocate_ui_with_layout(
         line,
         egui::Layout::right_to_left(egui::Align::Center),
         |ui| {
             if let Some(label) = button {
-                let response = widgets::raised::button(ui, label);
+                let response =
+                    widgets::chip_button(ui, Id::new(("browser scan", label)), label, false);
                 let tip = match label {
                     "Cancel" => "Stop scanning; what was found stays",
                     _ => "Look for new and changed plugins",

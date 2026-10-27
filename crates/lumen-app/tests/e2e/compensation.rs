@@ -30,27 +30,16 @@ fn the_transport_shows_compensation_only_while_there_is_some() {
     lumen.app_mut().set_test_latency(track.id, FRAMES);
     lumen.wait_for("the routing", |app| app.compensation() == FRAMES);
     lumen.frames(2);
-    // The status dot is named for screen readers with it, and the device
+    // The status chip is named for screen readers with it, and its device
     // line ends with it.
-    let dot = lumen.harness.get_by_label_contains("Audio: ");
+    let chip = lumen.harness.get_by_label_contains("Audio: ");
     assert!(
-        dot.accesskit_node()
+        chip.accesskit_node()
             .label()
             .unwrap_or_default()
             .ends_with(readout)
     );
-    let status = lumen
-        .harness
-        .get_all_by_label_contains(readout)
-        .find(|node| {
-            !node
-                .accesskit_node()
-                .label()
-                .unwrap_or_default()
-                .starts_with("Audio: ")
-        })
-        .expect("the device line")
-        .rect();
+    let status = chip.rect();
 
     // Hovering it names the longest path in the info line (the bar is
     // drawn before the line, so this reads the line as drawn).

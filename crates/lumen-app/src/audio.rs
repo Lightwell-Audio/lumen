@@ -80,7 +80,10 @@ pub enum Status {
     Starting,
     Running {
         device: String,
+        /// The rate, buffer and round trip, as the tooltip shows them.
         detail: String,
+        /// The rate in kHz, as the chip shows it ("48.0 kHz").
+        rate: String,
     },
     /// The device went away; Lumen reconnects when it returns.
     Lost(String),
@@ -849,6 +852,7 @@ impl Audio {
                 | DeviceEvent::Restored(info) => {
                     self.status = Status::Running {
                         device: self.device.clone(),
+                        rate: format!("{:.1} kHz", f64::from(info.sample_rate) / 1000.0),
                         detail: format!(
                             "{:.1} kHz · {} samples · {:.1} ms",
                             f64::from(info.sample_rate) / 1000.0,

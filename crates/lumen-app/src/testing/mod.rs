@@ -443,6 +443,11 @@ impl App {
         samples.as_chunks::<4>().0.to_vec()
     }
 
+    /// A bounce has started: it waits on the plugins or is rendering.
+    pub fn bounce_started(&self) -> bool {
+        self.bouncing.is_some() || self.bounce_waiting.is_some()
+    }
+
     /// Background work is in progress: a save, an open, or files loading.
     pub fn is_busy(&self) -> bool {
         self.export.busy()
@@ -621,8 +626,8 @@ impl App {
             .map(|r| (r.start, r.end, r.tracks.clone()))
     }
 
-    /// The info line's lit action ("Ctrl+drag to copy"): the drag the
-    /// keys held now choose.
+    /// The info line's lit action ("Ctrl+drag to copy"): the first that
+    /// the keys held now do; none while no key is held.
     pub fn info_lit(&self, ctx: &egui::Context) -> Option<String> {
         let held = ctx.input(|i| crate::app::info::Held::of(i.modifiers));
         self.info.as_ref()?.lit_text(&self.keymap, held)
@@ -825,7 +830,7 @@ pub struct ClipHandlesAt {
 }
 
 /// The `index`th colour of the clip and track palette, as the swatch
-/// "Colour {index + 1}" sets it (slice 6e).
+/// "Color {index + 1}" sets it (slice 6e).
 pub fn clip_colour(index: usize) -> lumen_project::model::Color {
     crate::arrangement::color_from(crate::theme::CLIP_COLORS[index])
 }

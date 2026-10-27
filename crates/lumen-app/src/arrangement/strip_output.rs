@@ -15,6 +15,13 @@ use crate::widgets::{self, raised};
 use crate::{motion, theme};
 use lumen_core::product::PRODUCT_NAME;
 
+/// Where a menu row's words start, from its left edge.
+const TEXT_INSET: f32 = 5.0;
+/// The down arrow's centre, from the row's right edge, and the room its
+/// words leave for it.
+const ARROW_INSET: f32 = 8.0;
+const ARROW_ROOM: f32 = 15.0;
+
 /// Where `track` plays to, in words: a group's or return's name, "Master",
 /// or a pair of outputs ("1/2").
 fn destination_text(project: &Project, track: &Track) -> String {
@@ -75,21 +82,28 @@ pub(super) fn row_button(
     );
     let painter = ui.painter();
     let font = FontId::proportional(theme::size::CAPTION);
-    let room = row.width() - 20.0;
-    let shown = if painter
-        .layout_no_wrap(text.to_owned(), font.clone(), palette.text)
-        .size()
-        .x
-        > room
-    {
-        widgets::shorten(painter, text, font.clone(), room)
-    } else {
-        text.to_owned()
+    let mut left = row.left() + TEXT_INSET;
+    // "In  None", "Mon  Auto": the caption before the two spaces in hint
+    // grey, the value after it in the row's ink (the interface audit's X7).
+    let value = match text.split_once("  ") {
+        Some((caption, value)) => {
+            let caption = painter.text(
+                pos2(left, body.center().y),
+                Align2::LEFT_CENTER,
+                caption,
+                font.clone(),
+                palette.text_hint,
+            );
+            left = caption.right() + theme::space::XS;
+            value
+        }
+        None => text,
     };
+    let room = row.right() - ARROW_ROOM - left;
     painter.text(
-        pos2(row.left() + 5.0, body.center().y),
+        pos2(left, body.center().y),
         Align2::LEFT_CENTER,
-        shown,
+        widgets::fit(painter, value, font.clone(), room),
         font,
         palette
             .text_secondary
@@ -97,7 +111,7 @@ pub(super) fn row_button(
     );
     widgets::draw_arrow(
         painter,
-        pos2(row.right() - 8.0, body.center().y),
+        pos2(row.right() - ARROW_INSET, body.center().y),
         1.0,
         palette.text_hint,
     );

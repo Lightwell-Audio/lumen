@@ -574,6 +574,18 @@ impl App {
         }
     }
 
+    /// While the save question is up, takes a plain Enter for it before the
+    /// keymap and the main window's other windows read the key, when nothing
+    /// has the keyboard (a focused button answers its own Enter). A
+    /// popped-out editor reads its own keys; `command_keys` leaves Enter
+    /// alone there while the question is up.
+    pub(crate) fn take_prompt_enter(&mut self, ctx: &egui::Context) {
+        self.prompt_enter = self.prompt.is_some()
+            && !self.typing
+            && ctx.memory(|m| m.focused().is_none())
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+    }
+
     /// "Save changes to <name>?" with Save, Don't save and Cancel. Not a
     /// blocking dialog: the rest of the app keeps running behind it.
     pub(crate) fn prompt_window(&mut self, ctx: &egui::Context) {
@@ -603,7 +615,9 @@ impl App {
                 );
                 ui.add_space(theme::space::M);
                 ui.horizontal(|ui| {
-                    if raised::button(ui, "Save").clicked() {
+                    // Save is the main answer, filled as every question's
+                    // is (the interface audit's W1), and Enter gives it.
+                    if raised::primary_button(ui, "Save").clicked() {
                         choice = Some(0);
                     }
                     if raised::button(ui, "Don't save").clicked() {
@@ -616,8 +630,11 @@ impl App {
                     });
                 });
             });
+        let entered = std::mem::take(&mut self.prompt_enter);
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             choice = Some(2);
+        } else if entered && choice.is_none() {
+            choice = Some(0);
         }
         match choice {
             Some(0) => {

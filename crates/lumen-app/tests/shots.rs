@@ -447,7 +447,7 @@ fn clip_properties_looking(appearance: &str, scale: f32) {
     h.run_steps(2);
     h.key_press_modifiers(Modifiers::ALT, Key::Enter);
     h.run_steps(4);
-    h.get_by_label("Colour 5").click();
+    h.get_by_label("Color 5").click();
     h.run_steps(2);
     h.get_by_label("Lock clip").click();
     h.run_steps(4);
@@ -1386,6 +1386,53 @@ fn mixer_edges() {
     }
 }
 
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn mixer_wells() {
+    // The interface audit's X1–X4 and X6: a strip's sends are slots in one
+    // well, M, S and arm are pieces of another under pan, and the strips
+    // scroll under the master's shadow, in both themes at 100, 150 and 200%.
+    use egui_kittest::kittest::Queryable;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0, 1.5, 2.0] {
+            let dir = TempDir::new("shots-mixer-wells");
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1100.0, 1300.0));
+            for _ in 0..3 {
+                h.get_by_label("Add track").click();
+                h.run_steps(3);
+                h.get_by_label_contains("Add return track").click();
+                h.run_steps(3);
+            }
+            for _ in 0..8 {
+                h.key_press_modifiers(Modifiers::COMMAND, Key::T);
+                h.run_steps(3);
+            }
+            h.get_by_label("Mixer tab").click();
+            h.state_mut().set_detail_size(560.0);
+            h.run_steps(10);
+            for (label, level) in [
+                ("Send kick to A ", "-6"),
+                ("Send kick to B ", "-20"),
+                ("Send kick to C ", "0"),
+            ] {
+                h.get_by_label_contains(label).click();
+                h.run_steps(2);
+                h.event(Event::Text(level.into()));
+                h.run_steps(2);
+                h.key_press(Key::Enter);
+                h.run_steps(2);
+            }
+            h.get_by_label("Arm kick in the mixer").click();
+            h.run_steps(5);
+            h.get_by_label("Solo kick in the mixer").click();
+            h.run_steps(20);
+            h.hover_at(Pos2::new(20.0, 120.0));
+            h.run_steps(10);
+            save(&mut h, &format!("mixer-wells-{appearance}-{scale}"));
+        }
+    }
+}
+
 /// A right click at `p`.
 fn right_click(h: &mut Harness<'static, App>, p: Pos2) {
     h.hover_at(p);
@@ -1558,7 +1605,7 @@ fn project_windows() {
             h.run_steps(10);
             h.get_by_label("44.1 kHz").click();
             h.run_steps(10);
-            h.get_by_label("New track colour 3").click();
+            h.get_by_label("New track color 3").click();
             h.run_steps(10);
             h.get_by_label("Project notes").click();
             h.run_steps(3);

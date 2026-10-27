@@ -10,10 +10,11 @@
 //! menu switches pre- and post-fader. The wheel turns it a dB a notch
 //! (Shift a tenth) when its gesture starts on the knob (`wheel.rs`).
 //!
-//! On a track header the same control is a slot in the send well (M9 slice
-//! R1b, ADR-0101): a narrow bar in the return's colour that fills from the
-//! bottom, dragged up and down; pointing at it shows a flag with the
-//! return's letter, name and the level.
+//! On a track header and a mixer strip the same control is a slot in the
+//! send well (M9 slice R1b, ADR-0101; the interface audit's X1–X4): a
+//! narrow bar in the return's colour that fills from the bottom, dragged up
+//! and down; pointing at it shows a flag with the return's letter, name and
+//! the level.
 
 use std::f32::consts::PI;
 
@@ -63,10 +64,11 @@ pub fn level(position: f32) -> f32 {
 /// How a send is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Style<'a> {
-    /// The comet knob (strips, lists).
+    /// The comet knob (lists, such as a return's senders, and a
+    /// parameter's knob).
     Ring,
-    /// A slot in a header's send well; `title` is the return's name, for
-    /// its flag.
+    /// A slot in a header's or a strip's send well; `title` is the
+    /// return's name, for its flag.
     Slot { title: &'a str },
 }
 
@@ -404,14 +406,20 @@ const SLOT_BASELINE: f32 = 2.0;
 const SLOT_BASELINE_ALPHA: f32 = 0.6;
 /// How much lighter a slot's fill is at its top than at its bottom.
 const SLOT_SHEEN: f32 = 0.08;
+/// The fill's top edge glows, as a ring knob's head does: a bright line
+/// this much towards white, and a wash in the colour this tall above it at
+/// this strength (stronger while its return is lit).
+const SLOT_EDGE: f32 = 0.45;
+const SLOT_GLOW: f32 = 6.0;
+const SLOT_GLOW_ALPHA: f32 = 0.35;
 /// How strongly a send that is not heard shows (as the knob's trail).
 const NOT_HEARD: f32 = 0.4;
 
 /// Paints a send slot: an Ember wash while pointed at (`point`), the fill in
-/// the return's colour from the bottom up to `at` of the travel (a short
-/// baseline when silent), its letter when there is room, a ring in its
-/// colour while its return is lit (`hot`), and a dot at the top for a
-/// pre-fader send.
+/// the return's colour from the bottom up to `at` of the travel with a glow
+/// at its top edge (a short baseline when silent), its letter when there is
+/// room, a ring in its colour while its return is lit (`hot`), and a dot at
+/// the top for a pre-fader send.
 fn draw_slot(
     painter: &egui::Painter,
     rect: Rect,
@@ -438,6 +446,31 @@ fn draw_slot(
             top.gamma_multiply(strength),
             knob.color.gamma_multiply(strength),
         );
+        let edge = fill.top();
+        let halo = Rect::from_min_max(
+            pos2(rect.left(), (edge - SLOT_GLOW).max(rect.top())),
+            pos2(rect.right(), edge),
+        );
+        raised::gradient(
+            painter,
+            halo,
+            0.0,
+            Color32::TRANSPARENT,
+            knob.color
+                .gamma_multiply(SLOT_GLOW_ALPHA * (1.0 + hot) * strength),
+        );
+        if at < 1.0 {
+            painter.hline(
+                rect.x_range().shrink(1.0),
+                edge + 0.5,
+                Stroke::new(
+                    theme::stroke::HAIRLINE,
+                    knob.color
+                        .lerp_to_gamma(Color32::WHITE, SLOT_EDGE)
+                        .gamma_multiply(strength),
+                ),
+            );
+        }
     } else {
         let line = Rect::from_min_max(
             pos2(rect.left() + 1.0, rect.bottom() - SLOT_BASELINE),

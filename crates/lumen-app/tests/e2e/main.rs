@@ -100,6 +100,7 @@ mod song_lanes;
 mod stepped;
 mod templates;
 mod tools;
+mod track_resize;
 mod walkthrough;
 mod walkthrough_automation;
 mod walkthrough_editing;

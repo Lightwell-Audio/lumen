@@ -46,7 +46,7 @@ impl Document {
     /// Chooses the colour new tracks take, or none to cycle the palette.
     pub fn set_new_track_color(&mut self, color: Option<Color>) {
         self.history
-            .apply("Change new track colour", None, |project| {
+            .apply("Change new track color", None, |project| {
                 project.new_track_color = color;
             });
     }
