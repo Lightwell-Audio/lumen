@@ -1052,8 +1052,9 @@ Chosen by the owner from rendered specimens:
   text. Commands without a shortcut show none. In a context menu
   (`App::context_command`, the interface audit's M3) a row that cannot act
   on what was clicked is left out; one that could but waits on work under
-  way (a recording, a render, an export) stays, greyed, and its hover says
-  why. Main menus grey a row that cannot run now.
+  way (a join, a bounce, an export: the reasons in `commands::wait`)
+  stays, greyed, and its hover says why. Main menus grey a row that
+  cannot run now.
 - **Context menus are grouped** (the interface audit's M2, M4, M5): a
   control's menu opens with a header naming the control and its track
   ("Volume · Bass", `widgets::menu_header`); groups are split by dividers.
@@ -1287,9 +1288,9 @@ the existing fade material. The displayed duration is bounded by the
 outgoing source tail and incoming clip. The info line names Crossfade and
 shows the live duration during a drag. A custom duration dragged to zero
 disables that join's crossfade. Broken joins and missing tails show no
-crossing. The project menu uses the existing menu-toggle control for
-Automatic crossfades; custom requests are available in the clip menu and
-command palette. Controls, curve strokes, focus, spacing and text use the
+crossing. Automatic crossfades is a switch in Project settings (and a
+palette command); it left the menus with the interface audit's M5. A
+crossfade with the clip before is in the clip menu and the palette. Controls, curve strokes, focus, spacing and text use the
 established theme tokens and shared widgets. This introduces no new palette,
 material, typeface or handle geometry.
 The app menu scrolls within the viewport at the minimum window height, so

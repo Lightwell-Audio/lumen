@@ -89,10 +89,10 @@ impl Arrangement {
         {
             self.ungroup_selected(doc);
         }
-        if item(ui, "Move up", Command::MoveTracksUp) {
+        if self.can_move_selected(doc, -1) && item(ui, "Move up", Command::MoveTracksUp) {
             self.move_selected(doc, -1);
         }
-        if item(ui, "Move down", Command::MoveTracksDown) {
+        if self.can_move_selected(doc, 1) && item(ui, "Move down", Command::MoveTracksDown) {
             self.move_selected(doc, 1);
         }
         ui.separator();
@@ -184,7 +184,7 @@ impl Arrangement {
         ui.separator();
 
         widgets::submenu(ui, "Add track", |ui| {
-            self.add_menu_with(ui, doc, Some(id), keymap, true);
+            self.add_menu(ui, doc, Some(id), (keymap, AddMenu::Submenu));
         });
         ui.separator();
         if item(ui, plural("Delete", "Delete tracks"), Command::Delete) {
@@ -262,26 +262,13 @@ impl Arrangement {
         midi_io::monitor_row(ui, doc, &audio, monitor);
     }
 
-    /// "Add … track" entries, adding after `after`.
+    /// "Add … track" entries, adding after `after`, in the place `menu`.
     pub(super) fn add_menu(
         &mut self,
         ui: &mut Ui,
         doc: &mut Document,
         after: Option<Id>,
-        keymap: &Keymap,
-    ) {
-        self.add_menu_with(ui, doc, after, keymap, false);
-    }
-
-    /// The "Add … track" entries; `short` names them by kind alone, under
-    /// the track menu's "Add track" submenu.
-    fn add_menu_with(
-        &mut self,
-        ui: &mut Ui,
-        doc: &mut Document,
-        after: Option<Id>,
-        keymap: &Keymap,
-        short: bool,
+        (keymap, menu): (&Keymap, AddMenu),
     ) {
         for (kind, full_name, short_name, command) in [
             (
@@ -299,9 +286,17 @@ impl Arrangement {
             (TrackKind::Group, "Add group track", "Group", None),
             (TrackKind::Return, "Add return track", "Return", None),
         ] {
-            let text = if short { short_name } else { full_name };
+            let text = if menu == AddMenu::Submenu {
+                short_name
+            } else {
+                full_name
+            };
             let keys = command.and_then(|c| keymap.keys(c));
             let full = kind == TrackKind::Return && doc.returns_full();
+            // A context menu lists only what can apply (the audit's M3).
+            if full && menu != AddMenu::Button {
+                continue;
+            }
             let item = widgets::menu_item(ui, text, keys.as_ref(), !full);
             let item = if full {
                 item.on_disabled_hover_text("A project holds 12 return tracks at most")
@@ -318,4 +313,16 @@ impl Arrangement {
             }
         }
     }
+}
+
+/// Where the "Add … track" entries are listed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AddMenu {
+    /// Under the "+ Add track ▾" button: a full project's return row stays,
+    /// greyed, saying why.
+    Button,
+    /// The right-click menu of the empty area under the tracks.
+    Context,
+    /// The track menu's "Add track" submenu, named by kind alone.
+    Submenu,
 }

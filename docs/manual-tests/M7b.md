@@ -159,10 +159,10 @@ cargo run --release -p lumen-app
 5. Place two different audio clips against each other and do the same drag.
    Play through the crossfade and check for a clean transition, with the
    outgoing clip's sound fading out as the incoming one's fades in.
-6. Select the right clip and use Toggle crossfade with the clip before
+6. Select the right clip and use Crossfade with previous
    (Ctrl+Shift+X, the palette or the clip menu): a 5 ms crossfade is made or
    removed. With nothing before the clip, the hint says so.
-7. Find Automatic crossfades in the arrangement context menu or the palette and toggle
+7. Find Automatic crossfades in Project settings or the palette and toggle
    it; Undo and Redo restore the setting. An older project opens with it
    off. Automatic crossfades are played but not drawn.
 8. Look at both themes at 100, 150 and 200% scale, including the smallest
@@ -292,8 +292,9 @@ DEVELOPMENT. Repeat visual checks in both themes at 100%, 150% and 200%.
    divisions, Triplet, Dotted and Snap to grid. Every option can be brought
    fully into view and selected; Esc closes the menu.
 2. Open the application menu. Undo and Redo have short labels; Automatic
-   crossfades is absent. Right-click the arrangement: Automatic crossfades
-   is a switch there. Change it, then undo: the project setting returns.
+   crossfades is absent, and so is the arrangement's right-click menu
+   (since the interface audit's M5). In Project settings it is a switch.
+   Change it, then undo: the project setting returns.
    In the application menu, scroll to the last settings rows; all remain reachable.
 3. Change only Copy imported audio into the project. Wait a second, restart
    with those isolated settings and check that the choice remains.

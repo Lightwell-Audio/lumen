@@ -2,8 +2,10 @@
 //! arrow keys, moving, adding, grouping, duplicating, deleting, renaming
 //! and folding (split from `mod.rs`, M4 review M1).
 
+use std::sync::Arc;
+
 use eframe::egui::Modifiers;
-use lumen_project::model::{Id, Project, TrackKind};
+use lumen_project::model::{Id, Project, Track, TrackKind};
 
 use super::Arrangement;
 use crate::document::{Document, Place};
@@ -94,14 +96,24 @@ impl Arrangement {
     /// the tracks of their group, over a neighbouring group whole; they
     /// stay in their group (dragging or Ctrl+Shift+G takes them out).
     pub(crate) fn move_selected(&mut self, doc: &mut Document, by: isize) {
-        let tracks = &doc.project().tracks;
+        if let Some((ids, place)) = self.planned_move(&doc.project().tracks, by) {
+            let _ = doc.move_tracks(&ids, place);
+        }
+    }
+
+    /// Whether [`Self::move_selected`] would move anything: a menu leaves
+    /// the row out when not (the interface audit's M3).
+    pub(crate) fn can_move_selected(&self, doc: &Document, by: isize) -> bool {
+        self.planned_move(&doc.project().tracks, by).is_some()
+    }
+
+    /// The tracks a move takes and where they go, or `None` when they are
+    /// already at that end of their group.
+    fn planned_move(&self, tracks: &[Arc<Track>], by: isize) -> Option<(Vec<Id>, Place)> {
         let ids = lumen_project::groups::outermost(tracks, &self.selected);
-        let Some(first) = ids
+        let first = ids
             .first()
-            .and_then(|id| tracks.iter().find(|t| t.id == *id))
-        else {
-            return;
-        };
+            .and_then(|id| tracks.iter().find(|t| t.id == *id))?;
         let group = first.parent;
         let moving = lumen_project::groups::with_contents(tracks, &ids);
         // The other tracks of the same group, in order.
@@ -116,13 +128,7 @@ impl Arrangement {
         let above = siblings.iter().filter(|&&s| position(s) < first_at).count();
         let wanted = above
             .checked_add_signed(by)
-            .filter(|&n| n <= siblings.len());
-        let Some(wanted) = wanted else {
-            return;
-        };
-        if wanted == above {
-            return;
-        }
+            .filter(|&n| n <= siblings.len() && n != above)?;
         // Before the sibling now at `wanted`, or after the group's last.
         let rest: Vec<Id> = tracks
             .iter()
@@ -139,7 +145,7 @@ impl Arrangement {
                     .unwrap_or(rest.len())
             }
         };
-        let _ = doc.move_tracks(&ids, Place { index, group });
+        Some((ids, Place { index, group }))
     }
 
     /// Adds a track of `kind` after the selection and selects it. A

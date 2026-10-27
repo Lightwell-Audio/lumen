@@ -16,6 +16,12 @@ use crate::app::detail::DetailTab;
 use crate::document::{Refusal, Slot};
 use crate::hosting::State;
 
+/// Whether a device the browser lists can be put on a track: the browser's
+/// menu offers "Add to …" only then.
+pub(crate) fn placeable(listed: &Listed) -> bool {
+    plugin_ref(listed).is_some()
+}
+
 /// The project's name for a device the browser lists; `None` for one that
 /// cannot be put on a track.
 pub(super) fn plugin_ref(listed: &Listed) -> Option<PluginRef> {

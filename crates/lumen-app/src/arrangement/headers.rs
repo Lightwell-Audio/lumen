@@ -258,7 +258,8 @@ impl Arrangement {
         } else if empty.clicked() {
             self.selected.clear();
         }
-        widgets::Menu::context(&empty).show(|ui| self.add_menu(ui, doc, None, keymap));
+        widgets::Menu::context(&empty)
+            .show(|ui| self.add_menu(ui, doc, None, (keymap, super::menus::AddMenu::Context)));
 
         // "+ Add track ▾": a menu of every track type with its shortcut,
         // and a hint that double-clicking here adds an audio track
@@ -304,7 +305,12 @@ impl Arrangement {
             );
             widgets::Menu::below(&response).show(|ui| {
                 ui.set_min_width(button.width());
-                self.add_menu(ui, doc, self.selected.last().copied(), keymap);
+                self.add_menu(
+                    ui,
+                    doc,
+                    self.selected.last().copied(),
+                    (keymap, super::menus::AddMenu::Button),
+                );
             });
         }
     }

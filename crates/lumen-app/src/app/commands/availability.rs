@@ -7,6 +7,50 @@ use crate::App;
 use crate::app::panes;
 use crate::commands::Command;
 
+/// The reasons that mean "wait": the command could act on what is chosen,
+/// but work under way holds it back. A context menu keeps such a row,
+/// greyed with its reason, and leaves out a row refused for any other
+/// reason (the interface audit's M3).
+pub(crate) mod wait {
+    pub(crate) const REALTIME_EXPORT: &str =
+        "Wait for the real-time export to finish, or cancel it";
+    pub(crate) const RECORDING: &str = "Stop recording first";
+    pub(crate) const SCAN: &str = "A scan is under way";
+    pub(crate) const RENDER: &str = "A render or recording is under way";
+    pub(crate) const EXPORT: &str = "An export is under way";
+    pub(crate) const DIALOG: &str = "A file dialog is open";
+    pub(crate) const COPY: &str = "A copy is under way";
+    pub(crate) const SAVE: &str = "A save is under way";
+    pub(crate) const OPENING: &str = "A project is opening";
+    pub(crate) const MEDIA_POOL: &str = "The media pool is busy";
+    pub(crate) const JOIN: &str = "A join is under way";
+    pub(crate) const BOUNCE: &str = "A bounce is under way";
+    pub(crate) const NORMALIZE: &str = "Normalizing is under way";
+    pub(crate) const FREEZE: &str = "Wait for the render that is running to finish";
+
+    const ALL: [&str; 14] = [
+        REALTIME_EXPORT,
+        RECORDING,
+        SCAN,
+        RENDER,
+        EXPORT,
+        DIALOG,
+        COPY,
+        SAVE,
+        OPENING,
+        MEDIA_POOL,
+        JOIN,
+        BOUNCE,
+        NORMALIZE,
+        FREEZE,
+    ];
+
+    /// Whether `why` is a reason to wait rather than one to look elsewhere.
+    pub(crate) fn is(why: &str) -> bool {
+        ALL.contains(&why)
+    }
+}
+
 impl App {
     /// Whether `command` can run now; if not, why, in a few words.
     pub(crate) fn availability(
@@ -24,9 +68,9 @@ impl App {
         let need = |ok: bool, why| if ok { Ok(()) } else { Err(why) };
         match command {
             Command::Record if self.export.busy() && self.export.options.realtime => {
-                Err("Wait for the real-time export to finish, or cancel it")
+                Err(wait::REALTIME_EXPORT)
             }
-            Command::Undo | Command::Redo if self.is_recording() => Err("Stop recording first"),
+            Command::Undo | Command::Redo if self.is_recording() => Err(wait::RECORDING),
             Command::Undo => need(self.document.history().can_undo(), "Nothing to undo"),
             Command::Redo => need(self.document.history().can_redo(), "Nothing to redo"),
             // The Devices tab holding the keyboard: the editing keys act on
@@ -123,15 +167,15 @@ impl App {
                 let t = &self.document.project().transport;
                 need(t.loop_end > t.loop_start, "There is no loop yet")
             }
-            Command::Import => need(self.dialog.is_none(), "A file dialog is open"),
+            Command::Import => need(self.dialog.is_none(), wait::DIALOG),
             Command::DevicesSearch | Command::DevicesScanAtStartup => Ok(()),
             Command::DevicesRescan | Command::DevicesRescanAll => {
                 need(!self.plugins.is_off(), "Plugins are off for this run")?;
-                need(!self.plugins.busy(), "A scan is under way")
+                need(!self.plugins.busy(), wait::SCAN)
             }
             Command::DevicesAddFolder => {
                 need(!self.plugins.is_off(), "Plugins are off for this run")?;
-                need(self.dialog.is_none(), "A file dialog is open")
+                need(self.dialog.is_none(), wait::DIALOG)
             }
             Command::DevicesFavorite => need(
                 panes::focused(ctx) == Some(panes::Pane::Browser)
@@ -172,15 +216,15 @@ impl App {
             },
             Command::ClearStrayFiles => match self.media_pool_unavailable() {
                 Err(why) => Err(why),
-                Ok(()) if self.is_working_in_files() => Err("A render or recording is under way"),
+                Ok(()) if self.is_working_in_files() => Err(wait::RENDER),
                 Ok(()) => need(
                     !self.media_pool.strays().files.is_empty(),
                     "No file belongs to no project",
                 ),
             },
             Command::ExportMidiFile => match self.dialog {
-                Some(_) => need(false, "A file dialog is open"),
-                None if self.midi_exporting.is_some() => need(false, "An export is under way"),
+                Some(_) => need(false, wait::DIALOG),
+                None if self.midi_exporting.is_some() => need(false, wait::EXPORT),
                 // Cheap enough for every frame: a MIDI track with an
                 // unmuted clip (an empty one is refused when it runs).
                 None => need(
@@ -193,8 +237,8 @@ impl App {
                 ),
             },
             Command::ExportMidiClip => match self.dialog {
-                Some(_) => need(false, "A file dialog is open"),
-                None if self.midi_exporting.is_some() => need(false, "An export is under way"),
+                Some(_) => need(false, wait::DIALOG),
+                None if self.midi_exporting.is_some() => need(false, wait::EXPORT),
                 None => need(
                     self.document.project().tracks.iter().any(|t| {
                         t.kind == TrackKind::Midi
@@ -265,15 +309,21 @@ impl App {
                     .flat_map(|t| &t.clips)
                     .any(|c| self.arrangement.clips.contains(&c.id) && !c.locked),
                 "Select a clip first",
-            ),
+            )
+            .and(need(self.consolidating.is_none(), wait::JOIN)),
             Command::Bounce => need(
                 !self.bounce_targets().is_empty(),
                 "Select a clip, a time range or a track to bounce",
-            ),
+            )
+            .and(need(
+                self.bouncing.is_none() && self.bounce_waiting.is_none(),
+                wait::BOUNCE,
+            )),
             Command::FreezeTracks => need(
                 self.can_freeze_targets(),
                 "Select an audio or MIDI track to freeze",
-            ),
+            )
+            .and(need(!self.rendering_tracks(), wait::FREEZE)),
             Command::CaptureMidi => self.capture_midi_ready(),
             Command::TakeNext | Command::TakePrevious | Command::TakeKeepOnly => need(
                 self.document
@@ -306,7 +356,11 @@ impl App {
                             && matches!(c.content, lumen_project::model::ClipContent::Audio { .. })
                     }),
                 "Select an audio clip first",
-            ),
+            )
+            .and(need(
+                command != Command::NormalizeClips || self.normalizing.is_none(),
+                wait::NORMALIZE,
+            )),
             Command::InvertSelection => need(
                 self.document
                     .project()

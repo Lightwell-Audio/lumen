@@ -204,10 +204,14 @@ pub fn menu_header(ui: &mut Ui, text: &str) {
             ..egui::Margin::ZERO
         })
         .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(text)
-                    .small()
-                    .color(theme::p().text_secondary),
+            // A long track name ends in "…" rather than widening the menu.
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(text)
+                        .small()
+                        .color(theme::p().text_secondary),
+                )
+                .truncate(),
             )
         });
     ui.separator();

@@ -121,7 +121,7 @@ fn the_automatic_setting_the_command_and_the_menu_roundtrip() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert!(!clip(&lumen, right).crossfade);
     assert_eq!(clip(&lumen, right).start, Ticks::quarters(2));
-    command(&mut lumen, "Toggle crossfade with the clip before");
+    command(&mut lumen, "Crossfade with previous");
     assert!(clip(&lumen, right).crossfade);
     let r = rect(&lumen, right);
     lumen.right_click(Pos2::new(r.left() + 40.0, r.top() + 6.0));

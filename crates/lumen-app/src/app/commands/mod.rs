@@ -13,6 +13,8 @@ use crate::{App, widgets};
 mod availability;
 mod run;
 
+pub(crate) use availability::wait;
+
 impl App {
     /// Clips or a time range are selected.
     fn clips_chosen(&self) -> bool {
@@ -107,8 +109,9 @@ impl App {
 
     /// A context-menu row for `command` (the interface audit's M3): a
     /// command that cannot act on what was clicked is left out; one that
-    /// could but is waiting (a recording, a render or an export under way)
-    /// stays, greyed, and its hover says why. True when it ran.
+    /// could but is waiting (a join, a bounce or an export under way; the
+    /// reasons in [`wait`]) stays, greyed, and its hover says why. True
+    /// when it ran.
     pub(crate) fn context_command(
         &mut self,
         ui: &mut egui::Ui,
@@ -116,10 +119,10 @@ impl App {
         label: &str,
     ) -> bool {
         let ctx = ui.ctx().clone();
-        let why = match self.availability(&ctx, command) {
-            Ok(()) => None,
-            Err(why) if self.waiting_on_work() => Some(why),
-            Err(_) => return false,
+        let why = match ContextRow::of(self.availability(&ctx, command)) {
+            ContextRow::Ready => None,
+            ContextRow::Waiting(why) => Some(why),
+            ContextRow::Left => return false,
         };
         let keys = self.keymap.keys(command);
         let row = widgets::menu_item(ui, label, keys.as_ref(), why.is_none());
@@ -132,12 +135,6 @@ impl App {
             return true;
         }
         false
-    }
-
-    /// Whether commands may be held back by work under way rather than by
-    /// what is chosen: a recording, a render or a real-time export.
-    fn waiting_on_work(&self) -> bool {
-        self.is_working_in_files() || self.export.busy()
     }
 
     /// The keyboard: each chord pressed this frame runs the command it is
@@ -189,5 +186,43 @@ impl App {
             });
             self.run(ctx, command);
         }
+    }
+}
+
+/// How a context menu shows a command (the interface audit's M3).
+#[derive(Debug, PartialEq, Eq)]
+enum ContextRow {
+    Ready,
+    /// Greyed, saying why: work under way holds it back.
+    Waiting(&'static str),
+    /// Left out: it cannot act on what was clicked.
+    Left,
+}
+
+impl ContextRow {
+    fn of(availability: Result<(), &'static str>) -> Self {
+        match availability {
+            Ok(()) => Self::Ready,
+            Err(why) if wait::is(why) => Self::Waiting(why),
+            Err(_) => Self::Left,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_context_menu_keeps_a_waiting_row_and_leaves_out_one_that_cannot_act() {
+        assert_eq!(ContextRow::of(Ok(())), ContextRow::Ready);
+        assert_eq!(
+            ContextRow::of(Err(wait::JOIN)),
+            ContextRow::Waiting(wait::JOIN)
+        );
+        assert_eq!(
+            ContextRow::of(Err("Select an audio clip first")),
+            ContextRow::Left
+        );
     }
 }

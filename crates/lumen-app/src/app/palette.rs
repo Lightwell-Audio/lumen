@@ -48,8 +48,10 @@ pub(crate) struct Palette {
 }
 
 /// The tallest of every row's `about` text, laid out at the strip's width
-/// and pixel density. Reasons and notices are a line or two and fit inside
-/// it (a test keeps every `about` short enough, `commands::tests`).
+/// and pixel density (a test keeps every `about` to 320 characters,
+/// `commands::tests`). Reasons, notices and the rebind lines are not
+/// measured: they are a line or two, and one taller than the room grows
+/// the strip for that row rather than being cut.
 #[derive(Debug, Clone, Copy)]
 struct StripRoom {
     width: f32,
@@ -813,12 +815,15 @@ impl App {
         // As tall as keycaps whether the row has a shortcut or not, so the
         // palette's height does not change with the chosen row.
         let footer = widgets::caps_height(ui);
+        // The palette's own keys, which are not remappable; Ctrl is Cmd on
+        // macOS, as the keys it reads.
+        let command_key = crate::commands::keys::modifier_names(true, false, false)[0];
         ui.horizontal(|ui| {
             ui.set_min_height(footer);
             ui.label(
-                RichText::new(
-                    "\u{2191}\u{2193} move \u{B7} Enter run \u{B7} Ctrl+Enter change keys \u{B7} Esc close",
-                )
+                RichText::new(format!(
+                    "\u{2191}\u{2193} move \u{B7} Enter run \u{B7} {command_key}+Enter change keys \u{B7} Esc close"
+                ))
                 .size(theme::size::CAPTION)
                 .color(palette.text_hint),
             );

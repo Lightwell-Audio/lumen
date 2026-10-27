@@ -15,7 +15,8 @@ use super::raised;
 use crate::icons::{self, Icon};
 use crate::theme::{self, stroke};
 
-/// Room under a keycap for its light.
+/// Room above and below a keycap, so the light under it fits and the cap
+/// stays centred.
 pub const KEY_LIGHT_ROOM: f32 = 4.0;
 
 /// A shortcut to show (the owner's K5): its modifiers, its key, the light

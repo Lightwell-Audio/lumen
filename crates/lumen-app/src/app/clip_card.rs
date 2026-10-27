@@ -319,8 +319,11 @@ impl App {
         props.renaming = None;
     }
 
-    /// The clip entries of the lanes' menu, for the selected clips:
-    /// rename, colour, mute, lock and the properties card.
+    /// The clip entries of the lanes' menu, for the selected clips, in
+    /// groups (the interface audit's M5): name and colour; arranging and
+    /// cutting; mute and lock; the sound of audio clips (fades, crossfade,
+    /// envelope); export; and Properties last. Only what can apply is
+    /// listed.
     pub(crate) fn clip_menu(&mut self, ui: &mut egui::Ui) {
         let Some(first) = self.first_selected_clip() else {
             return;
@@ -386,16 +389,14 @@ impl App {
             self.context_command(ui, Command::ClipEnvelope, label);
         }
         ui.separator();
-        // Listed only for MIDI clips that can be written now: an audio
-        // selection never could.
-        if self.availability(ui.ctx(), Command::ExportMidiClip).is_ok() {
-            let export = if several {
-                "Export MIDI clips\u{2026}"
-            } else {
-                "Export MIDI clip\u{2026}"
-            };
-            self.menu_command(ui, Command::ExportMidiClip, export);
-        }
+        // Listed only for MIDI clips (an audio selection never could be
+        // written), greyed while an export or a file dialog is under way.
+        let export = if several {
+            "Export MIDI clips\u{2026}"
+        } else {
+            "Export MIDI clip\u{2026}"
+        };
+        self.context_command(ui, Command::ExportMidiClip, export);
         self.context_command(ui, Command::ClipProperties, "Properties");
     }
 

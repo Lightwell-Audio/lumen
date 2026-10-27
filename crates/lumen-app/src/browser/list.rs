@@ -453,8 +453,7 @@ fn draw_device(
     // The owner's A (the interface audit's B7): what choosing it does
     // first, then favouring it, then its file.
     widgets::Menu::context(&response).show(|ui| {
-        let placeable = device.source == Source::Vst3 || device.id == "builtin:synth";
-        if placeable {
+        if crate::chain::placeable(device) {
             let add = match device.kind {
                 Kind::Instrument => input.adds[0],
                 Kind::Effect => input.adds[1],

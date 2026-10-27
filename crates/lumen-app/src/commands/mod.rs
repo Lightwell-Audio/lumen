@@ -338,7 +338,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::SelectAll, "edit.select_all", "Select all", Area::Edit, &[ctrl(Key::A)], "Selects every clip."),
     info(Command::Rename, "edit.rename", "Rename", Area::Edit, &[ctrl(Key::R), plain(Key::F2)], "Renames the selected clip, track or locator."),
     info(Command::MuteClips, "clip.mute", "Mute clip", Area::Clip, &[plain(Key::Num0)], "Mutes the selected clips, or unmutes them."),
-    info(Command::ToggleCrossfade, "clip.crossfade", "Toggle crossfade with the clip before", Area::Clip, &[ctrl_shift(Key::X)], "Crossfades the selected audio clip with the audio clip before it for a few milliseconds, or removes that crossfade. Drag the earlier clip's fade handle over the selected clip for a longer one."),
+    info(Command::ToggleCrossfade, "clip.crossfade", "Crossfade with previous", Area::Clip, &[ctrl_shift(Key::X)], "Crossfades the selected audio clip with the audio clip before it for a few milliseconds, or removes that crossfade. Drag the earlier clip's fade handle over the selected clip for a longer one."),
     info(Command::ToggleAutoCrossfade, "file.auto_crossfade", "Toggle automatic crossfades", Area::File, &[], "Turns short crossfades on or off for eligible audio joins."),
     info(Command::ClipProperties, "clip.properties", "Clip properties", Area::Clip, &[alt(Key::Enter)], "Pins the properties card beside the clip."),
     info(Command::AddPreviousClip, "clip.add_previous", "Add previous clip to selection", Area::Clip, &[shift(Key::ArrowLeft)], "Adds the clip before the last one chosen, on its track, to the selection."),

@@ -166,13 +166,20 @@ fn shortcuts_still_run_with_a_control_focused() {
 fn a_right_click_on_a_track_name_opens_its_menu() {
     let mut lumen = Lumen::start("keys-track-menu");
     lumen.key(Modifiers::COMMAND, Key::T);
+    lumen.key(Modifiers::COMMAND, Key::T);
+    lumen.frames(30);
+    // The first track: it stays where it is while the second one's row
+    // settles in under a loaded run.
     let name = lumen.track_names()[0].clone();
     right_click(&mut lumen, &format!("{name}: double-click to rename"));
     assert!(
         lumen.shows(&keys("Rename Ctrl+R")),
         "the track's menu, with its keys"
     );
-    assert!(lumen.shows(&keys("Move up Alt+Up")));
+    assert!(lumen.shows(&keys("Move down Alt+Down")));
+    // The first track cannot go further up, so the menu leaves it out
+    // (the interface audit's M3).
+    assert!(!lumen.shows(&keys("Move up Alt+Up")));
 }
 
 /// The M3 review's H2, in the owner's choice: with a clip selected the
