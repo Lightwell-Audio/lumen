@@ -1,5 +1,21 @@
 # Lumen — Architecture
 
+**M9 R5 Export (2026-10-26, ADR-0107, format unchanged at v32).**
+`app/audio_export.rs` owns the Export window's choices, plugin-state wait,
+snapshot and polling; `app/audio_export/window.rs` uses the existing controls.
+`export.rs` and `export/worker.rs` render, encode, measure and publish a job;
+`export/publish.rs` stages an entire set and restores existing files if a
+publish fails. `export_render.rs` builds the full mixer, clip and MIDI graph
+with separate plugin hosts, preserving upstream and sidechain dependencies
+for stems. `export_live.rs` drives that same graph in the actual audio-device
+callback, handing stereo frames to the disk worker through an SPSC ring.
+Prepared sources and their host managers return through a retirement queue;
+the callback never destroys them. `lumen-media::export` writes integer/float
+WAV and frame-by-frame FLAC, with conversion, normalization and dither.
+`lumen-engine::Output::planar` is a checked allocation-free output adapter;
+`render_source` accepts dynamically sized sources. Export does not change
+the project or its undo history.
+
 Plugin reply waits (ADR-0103, 2026-10-25): on macOS the callback polls until
 its existing absolute deadline while each plugin worker blocks on its
 request semaphore when idle. Other platforms retain event/event waits.

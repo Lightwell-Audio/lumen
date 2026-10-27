@@ -507,6 +507,7 @@ impl App {
             Command::OpenTemplatesFolder => self.open_templates_folder(),
             Command::Revert => self.begin_revert(),
             Command::ProjectSettings => self.open_project_settings(),
+            Command::ExportAudio => self.open_audio_export(),
             Command::Import => self.import_files(ctx),
             Command::DevicesSearch => {
                 self.show_browser = true;

@@ -152,6 +152,7 @@ impl App {
             bounce_waiting: None,
             bouncing: None,
             show_bounce: false,
+            export: Default::default(),
             freeze_waiting: None,
             freezing: None,
             tempo_offer: None,

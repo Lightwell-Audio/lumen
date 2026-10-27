@@ -39,6 +39,22 @@ use egui_kittest::Harness;
 use lumen_app::{App, Launch};
 use lumen_project::testing::TempDir;
 
+/// M9 R5: the export controls fit and scroll at the minimum window size.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn audio_export_window() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-export-{appearance}-{scale}"));
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(960.0, 540.0));
+            h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::E);
+            h.run_steps(30);
+            assert!(h.state().audio_export_open());
+            save(&mut h, &format!("export-{appearance}-{scale}"));
+        }
+    }
+}
+
 /// A window with two one-second clips on a one-bar grid.
 fn lumen(dir: &TempDir) -> Harness<'static, App> {
     lumen_looking(dir, "dark", 1.0)

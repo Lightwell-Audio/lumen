@@ -61,6 +61,9 @@ mod consolidate;
 mod crash;
 mod crossfades;
 mod document;
+mod export;
+mod export_live;
+mod export_render;
 mod files;
 mod fonts;
 mod hosting;
@@ -172,6 +175,7 @@ pub struct App {
     revert: app::revert::Revert,
     /// The Project settings window (M9 slice R4).
     project_settings: app::project_settings::ProjectSettings,
+    export: app::audio_export::Export,
     /// A problem with saving or opening, shown until dismissed.
     file_notice: Option<String>,
     /// Closing for real, after the unsaved-changes prompt.
@@ -523,6 +527,7 @@ impl eframe::App for App {
         self.poll_normalize(&ctx);
         self.poll_consolidate(&ctx);
         self.poll_bounce(&ctx);
+        self.poll_audio_export(&ctx);
         self.poll_freeze(&ctx);
         self.say_frozen_refusals();
         self.plugins.poll();
@@ -674,6 +679,7 @@ impl eframe::App for App {
         self.revert_window(&ctx);
         self.save_template_window(&ctx);
         self.project_settings_window(&ctx);
+        self.audio_export_window(&ctx);
         self.shortcuts_window(&ctx);
         self.palette_window(&ctx);
 

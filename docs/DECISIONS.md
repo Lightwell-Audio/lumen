@@ -9319,3 +9319,83 @@ migration and golden in `lumen-project`), at 44.1 and 48 kHz. **Not verified
 here** (tests answer the dialogs and the device is fake): the system's real file
 dialogs and a real interface at two rates; MT-PROJ-1 on the owner's machine
 passed (2026-10-26, no step detail).
+
+## ADR-0107 — Export snapshots, encoding and device-driven capture
+
+**Date:** 2026-10-26. **Slice:** M9 R5, `m9-s5-audio-export`, based on
+`335b3ecb`. ADR-0106 is left available for the concurrent R4b media work.
+
+**Context.** Export needs the complete project graph, rather than Bounce's
+single-track graph. The approved choices are a floating Export window (X1 A)
+and a pure-Rust FLAC encoder (X2 A). R4 is merged; R4b is independent.
+`render_source` already follows mixer delay compensation and trims tails.
+The device callback has no production audio capture sink.
+
+**Choice.**
+
+1. Export reads current plugin states, then snapshots the project, media,
+   tempo/meter maps and selected time span. If the document changes during
+   that state read, the task refuses and asks the user to start it again.
+   The task never changes the document or creates an undo step.
+2. `export_render::prepare` builds the same mixer, clip and MIDI sources as
+   playback, with independent plugin-host processes. A master render includes
+   the complete master path, regardless of its physical output pair. A stem
+   takes one bus after its own devices, fader and pan. Group children and
+   incoming return sends are included; sends leaving that bus and downstream
+   group/master processing are excluded. Sidechain dependencies stay present
+   without becoming audible in the stem. Mute, solo and automation apply.
+3. Offline mode drives this source with `render_source` at the project rate.
+   Real-time mode builds it at the device rate and installs it in the actual
+   audio callback. That callback plays the snapshot on the main pair and
+   pushes complete stereo frames into a preallocated SPSC ring (32,768 frames,
+   about 683 ms at 48 kHz). A worker writes the float scratch file. Source and
+   plugin-manager ownership returns through another queue, never through a
+   destructor in the callback. Queue overflow, host failure, a reported device
+   position discontinuity and rate change fail the task. A five-second
+   callback stall fails too; cancelled source ownership stays bounded until
+   the callback resumes or is closed. Cancelling does not wait on a device.
+4. The real-time snapshot excludes monitoring input, live MIDI, cue and the
+   metronome. Existing transport playback is stopped before export begins;
+   recording is unavailable during this export. External MIDI instruments
+   must first be recorded to audio; an audible external-MIDI track in the
+   range produces a message rather than a substitute instrument render.
+5. Both modes start with the existing 100 ms pre-roll, discard source latency,
+   render a half-open sample span and optionally retain up to ten seconds of
+   tail. At matching project/device rates the golden comparison is exact.
+   At differing rates each mode converts its source once to its render rate,
+   then converts to the selected file rate; this can differ by rounding and
+   filtering, so bit identity across different render rates is not claimed.
+6. `lumen-media::export` converts on a worker in cancellable resampler blocks,
+   normalizes sample peaks to −1 dBFS when requested, then applies optional
+   deterministic TPDF dither and integer quantization. Float WAV preserves
+   out-of-range values; integer WAV/FLAC saturates. Each stem normalizes
+   independently. FLAC 16/24-bit uses unmodified `flacenc` 0.5.1, Apache-2.0,
+   with default features disabled. License/API were checked in the published
+   crate and [upstream source](https://github.com/yotarok/flacenc-rs).
+   Frames encode separately with cancellation between them; STREAMINFO uses
+   the nominal fixed block size even for a short final frame.
+7. Files are staged in a private destination-side folder. All encoding and
+   loudness measurement completes before publishing. Existing project/media
+   paths are refused as destinations. Stem collisions ask for another folder.
+   Publishing restores old files on failure and preserves recovery copies
+   if restoration itself fails. A successful master export replaces only its
+   selected destination. The report measures the actual encoded file with
+   the existing BS.1770-4 gated loudness and 4× true-peak implementation.
+8. Ctrl/Cmd+Shift+E opens Export from anywhere. Its previous default use,
+   Pop out clip editor, adds Alt/Option. Explicit user key assignments still
+   win over new defaults. Export choices last for this session; there is no
+   new persisted field and the project format remains v32.
+
+**Alternatives.** Pacing an offline loop would not test device-driven
+rendering. Capturing ongoing playback would allow concurrent edits, live
+monitoring and metronome state to change a file midway through export. A
+separate immutable source in the device callback makes the modes comparable
+and keeps editing independent; it costs additional plugin hosts and DSP.
+
+**Limits and verification.** Encoding currently decodes the rendered stereo
+file into RAM, as playback does; block processing and temporary FLAC frames
+do not make that a streamed decoder. WAV retains the existing RIFF 4 GiB
+limit and reports an error rather than producing a corrupt file. Disk
+streaming and very-long-file export belong with R6. The exact checks and
+measurements are recorded in `milestones/M9-R5.md`. MT-EXPORT-1 is still
+pending: no real interface or external plugin compatibility is claimed.

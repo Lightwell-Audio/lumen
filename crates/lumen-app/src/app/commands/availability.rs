@@ -23,6 +23,9 @@ impl App {
         let notes = self.note_keys_picked();
         let need = |ok: bool, why| if ok { Ok(()) } else { Err(why) };
         match command {
+            Command::Record if self.export.busy() && self.export.options.realtime => {
+                Err("Wait for the real-time export to finish, or cancel it")
+            }
             Command::Undo | Command::Redo if self.is_recording() => Err("Stop recording first"),
             Command::Undo => need(self.document.history().can_undo(), "Nothing to undo"),
             Command::Redo => need(self.document.history().can_redo(), "Nothing to redo"),
@@ -511,7 +514,8 @@ impl App {
             | Command::Save
             | Command::SaveAs
             | Command::OpenTemplatesFolder
-            | Command::ProjectSettings => Ok(()),
+            | Command::ProjectSettings
+            | Command::ExportAudio => Ok(()),
         }
     }
 }

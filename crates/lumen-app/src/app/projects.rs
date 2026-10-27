@@ -54,6 +54,8 @@ pub(crate) enum FileDialog {
     SaveCopy(Option<PathBuf>),
     /// Where to collect an unsaved project (none when cancelled; M9 R4).
     Collect(Option<PathBuf>),
+    /// The audio export file, or a folder for stems (M9 R5).
+    ExportAudio(Option<PathBuf>),
 }
 
 /// The folder the person's own projects and templates are kept in:
@@ -416,6 +418,7 @@ impl App {
                     }
                 }
                 FileDialog::PluginFolder(Some(folder)) => self.add_plugin_folder(ctx, &folder),
+                FileDialog::ExportAudio(path) => self.export_destination_chosen(path, ctx),
                 FileDialog::SaveCopy(Some(chosen)) => {
                     self.start_save_for(Purpose::Copy, chosen, true)
                 }

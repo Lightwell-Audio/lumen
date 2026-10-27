@@ -444,7 +444,8 @@ impl App {
 
     /// Background work is in progress: a save, an open, or files loading.
     pub fn is_busy(&self) -> bool {
-        self.saving.is_some()
+        self.export.busy()
+            || self.saving.is_some()
             || self.save_waiting.is_some()
             || self.collecting.is_some()
             || self.opening.is_some()
@@ -830,6 +831,23 @@ pub fn clip_colour(index: usize) -> lumen_project::model::Color {
 
 /// The clip editor (M5 slice 3c), for the end-to-end tests.
 impl App {}
+
+/// Export's task and report are visible as labels; these read-only looks let
+/// scenarios wait on completion without depending on worker timing.
+impl App {
+    pub fn audio_export_open(&self) -> bool {
+        self.export.open
+    }
+    pub fn audio_export_busy(&self) -> bool {
+        self.export.busy()
+    }
+    pub fn audio_export_error(&self) -> Option<&str> {
+        self.export.error.as_deref()
+    }
+    pub fn audio_export_files(&self) -> Vec<PathBuf> {
+        self.export.reports.iter().map(|r| r.path.clone()).collect()
+    }
+}
 
 impl App {}
 

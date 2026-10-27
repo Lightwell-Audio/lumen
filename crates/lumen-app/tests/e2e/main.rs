@@ -12,6 +12,7 @@
 //! workflow a slice delivers (DEVELOPMENT.md, "End-to-end tests").
 
 mod access;
+mod audio_export;
 mod audio_input;
 mod audio_record;
 mod audition;

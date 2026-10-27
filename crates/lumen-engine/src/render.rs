@@ -153,7 +153,7 @@ fn lead_in(sample_rate: u32) -> u64 {
 ///
 /// `failed` is asked after each block; `cancel` before it. `progress`
 /// receives 0.0 to 1.0 over the span. The sink gets the span, then the tail.
-pub fn render_source<S: Source>(
+pub fn render_source<S: Source + ?Sized>(
     source: &mut S,
     job: SourceRender<'_>,
     cancel: &AtomicBool,

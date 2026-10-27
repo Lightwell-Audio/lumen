@@ -10,6 +10,7 @@
 //! the disk and can take seconds. It takes a cancel flag and reports
 //! progress.
 
+pub mod export;
 mod peaks;
 pub mod take;
 pub mod wav;
@@ -97,6 +98,7 @@ pub enum MediaError {
     Empty,
     Cancelled,
     Resample(String),
+    Encode(String),
 }
 
 impl std::fmt::Display for MediaError {
@@ -111,6 +113,7 @@ impl std::fmt::Display for MediaError {
             MediaError::Empty => write!(f, "The file contains no audio"),
             MediaError::Cancelled => write!(f, "Cancelled"),
             MediaError::Resample(m) => write!(f, "Sample-rate conversion failed: {m}"),
+            MediaError::Encode(m) => write!(f, "Audio encoding failed: {m}"),
         }
     }
 }
