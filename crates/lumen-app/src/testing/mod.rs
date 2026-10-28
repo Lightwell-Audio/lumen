@@ -73,6 +73,7 @@ impl Launch {
             callback_bench: None,
             autoplay: None,
             test_latency: None,
+            slow_disk: None,
             safe_mode: false,
             preset_places: None,
             plugin_marker: Some(dir.join(crate::app::safe_mode::MARKER)),

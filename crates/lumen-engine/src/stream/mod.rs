@@ -20,6 +20,7 @@
 //! either side.
 
 mod offline;
+pub mod plan;
 mod writer;
 
 pub use offline::{OfflineLoader, ReadPage};

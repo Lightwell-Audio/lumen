@@ -279,6 +279,8 @@ pub struct App {
     settings_changed: Option<Instant>,
     /// What the disk thread's scene was last built from (M9 slice R6).
     disk_scene: Option<app::streaming::SceneKey>,
+    /// Tests: the disk thread waits this long before each page it reads.
+    slow_disk: Option<std::time::Duration>,
     /// Writes settings on a background thread (audit H1).
     settings_writer: settings::Writer,
     show_browser: bool,

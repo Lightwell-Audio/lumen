@@ -14,6 +14,13 @@ impl Launch {
         self.settings.playback.from_disk = true;
         self
     }
+
+    /// Makes the disk thread wait `wait` before each page it reads, so
+    /// streamed audio arrives late.
+    pub fn with_slow_disk(mut self, wait: std::time::Duration) -> Self {
+        self.slow_disk = Some(wait);
+        self
+    }
 }
 
 impl App {

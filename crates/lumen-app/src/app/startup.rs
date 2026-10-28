@@ -165,6 +165,7 @@ impl App {
             user_dir,
             settings_changed: None,
             disk_scene: None,
+            slow_disk: launch.slow_disk,
             settings_writer: settings::Writer::start(),
             document,
             synced: None,

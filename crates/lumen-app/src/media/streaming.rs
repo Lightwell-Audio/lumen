@@ -10,14 +10,15 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
-use lumen_engine::{ClipAudio, PagePool, TransportReader};
+use lumen_engine::{ClipAudio, PagePool, StreamAudio, TransportReader};
 use lumen_media::stream::cache::{Cache, Prepared};
 use lumen_media::{Header, MediaError, Peaks};
 
 use super::State;
 use super::streams::{self, Readers};
-use crate::disk::Disk;
+use crate::disk::{Disk, Pages};
 
 /// Files shorter than this stay in memory (M B). Settled by measurement in
 /// R6 step 7.
@@ -37,15 +38,16 @@ pub struct Streaming {
 
 impl Streaming {
     /// Starts the disk thread over a new pool, following the transport
-    /// `transport` reads, with the cache in `cache_dir`.
-    pub fn start(cache_dir: PathBuf, transport: TransportReader) -> Self {
-        Self::with_pages(cache_dir, transport, POOL_PAGES)
-    }
-
-    /// [`Self::start`] with a pool of `pages` pages (tests).
-    pub fn with_pages(cache_dir: PathBuf, transport: TransportReader, pages: u32) -> Self {
-        let pool = PagePool::new(pages);
-        let disk = Disk::start(&pool, Box::new(Readers::default()), transport);
+    /// `transport` reads, with the cache in `cache_dir`. Tests pass `slow`
+    /// to make every page read wait that long first.
+    pub fn start(cache_dir: PathBuf, transport: TransportReader, slow: Option<Duration>) -> Self {
+        let pool = PagePool::new(POOL_PAGES);
+        let readers = Readers::default();
+        let pages: Box<dyn Pages> = match slow {
+            Some(wait) => Box::new(Slow { readers, wait }),
+            None => Box::new(readers),
+        };
+        let disk = Disk::start(&pool, pages, transport);
         Self {
             pool,
             disk,
@@ -63,6 +65,30 @@ impl Streaming {
 
     pub(super) fn cache(&self) -> &Arc<Cache> {
         &self.cache
+    }
+}
+
+/// Page reads that wait before each read: a slow disk, for tests of late
+/// audio.
+struct Slow {
+    readers: Readers,
+    wait: Duration,
+}
+
+impl Pages for Slow {
+    fn read(
+        &mut self,
+        audio: &StreamAudio,
+        page: usize,
+        left: &mut [f32],
+        right: &mut [f32],
+    ) -> Result<usize, MediaError> {
+        std::thread::sleep(self.wait);
+        Pages::read(&mut self.readers, audio, page, left, right)
+    }
+
+    fn keep(&mut self, streams: &[StreamAudio]) {
+        Pages::keep(&mut self.readers, streams);
     }
 }
 

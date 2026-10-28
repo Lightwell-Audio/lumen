@@ -1,11 +1,15 @@
 //! What the disk thread reads next (M9 slice R6, ADR-0108): from the clip
 //! list the engine plays, the playhead and the places playback can jump to,
 //! the pages of streamed files wanted in memory, nearest first.
+//!
+//! Not real-time code: the thread that writes a pool plans with it, off the
+//! audio thread (it allocates).
 
 use std::collections::HashSet;
+use std::hash::{BuildHasherDefault, DefaultHasher};
 use std::ops::Range;
 
-use lumen_engine::{Clip, ClipAudio, PAGE, StreamAudio, Timeline, for_each_page};
+use crate::{Clip, ClipAudio, PAGE, StreamAudio, Timeline, for_each_page};
 
 /// The streamed clips of one clip list, with their starts in samples.
 #[derive(Default)]
@@ -61,6 +65,10 @@ pub struct Position {
     /// The play marker, where Play starts from: read after the playhead.
     pub marker: Option<i64>,
 }
+
+/// The pages a plan has listed. Hashed with fixed keys, so a plan takes the
+/// same work every time (the performance gate counts it).
+type Seen = HashSet<Want, BuildHasherDefault<DefaultHasher>>;
 
 /// A page wanted in memory: a file of the scene and a page of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -127,26 +135,29 @@ impl Scene {
     }
 
     /// The pages wanted from `at`, in the order to read them, into `out`:
-    /// the cue, then the next moments at the playhead, at the play marker
-    /// and after each point, then the rest of the read-ahead. Each page once.
+    /// the cue, then the next moments at the playhead and at the play
+    /// marker, then the rest of the read-ahead, then the next moments after
+    /// each point. Each page once. A pool too small for the plan keeps its
+    /// beginning, so what plays on is read before the places playback might
+    /// jump to (a jump that finds its audio missing waits, L A).
     pub fn plan(&self, at: Position, horizon: Horizon, out: &mut Vec<Want>) {
         out.clear();
-        let mut seen = HashSet::new();
+        let mut seen = Seen::default();
         let near = horizon.near.max(1);
+        let from = |point: &i64| *point..point + near;
         if let Some(cue) = at.cue {
             self.walk(&self.ahead(cue, 0..near, at.playing), &mut seen, out);
         }
         self.walk(&self.ahead(at.sample, 0..near, at.playing), &mut seen, out);
-        for point in at.marker.iter().chain(&self.points) {
-            self.walk(
-                std::slice::from_ref(&(*point..point + near)),
-                &mut seen,
-                out,
-            );
+        if let Some(marker) = &at.marker {
+            self.walk(&[from(marker)], &mut seen, out);
         }
         if horizon.far > near {
             let rest = self.ahead(at.sample, near..horizon.far, at.playing);
             self.walk(&rest, &mut seen, out);
+        }
+        for point in &self.points {
+            self.walk(&[from(point)], &mut seen, out);
         }
     }
 
@@ -191,7 +202,7 @@ impl Scene {
 
     /// Adds the pages of `spans`, slice by slice so pages nearer in time come
     /// first across all clips.
-    fn walk(&self, spans: &[Range<i64>], seen: &mut HashSet<Want>, out: &mut Vec<Want>) {
+    fn walk(&self, spans: &[Range<i64>], seen: &mut Seen, out: &mut Vec<Want>) {
         let page = PAGE as i64;
         for span in spans {
             let under: Vec<&Placed> = self

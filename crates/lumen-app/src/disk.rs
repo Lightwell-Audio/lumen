@@ -6,7 +6,7 @@
 //! and the audio thread never waits for it: a page that is late is an
 //! underrun, which the clip player fades around and counts.
 
-pub mod plan;
+pub use lumen_engine::stream_plan as plan;
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -329,3 +329,6 @@ impl Worker {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod soak;

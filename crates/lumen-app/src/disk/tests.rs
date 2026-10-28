@@ -162,7 +162,7 @@ fn a_playing_loop_reads_on_from_its_start_and_a_stopped_one_does_not() {
 }
 
 #[test]
-fn the_cue_comes_first_then_the_playhead_then_the_points_then_the_rest() {
+fn the_cue_comes_first_then_the_playhead_and_marker_then_the_rest_then_the_points() {
     let pool = PagePool::new(1);
     let a = stream(&pool, 1, 100);
     let scene = scene(&[clip(&a, 0, 0, 100 * P)], None, vec![50 * P]);
@@ -170,13 +170,36 @@ fn the_cue_comes_first_then_the_playhead_then_the_points_then_the_rest() {
         sample: 0,
         playing: true,
         cue: Some(80 * P),
-        marker: None,
+        marker: Some(30 * P),
     };
     let pages: Vec<usize> = planned(&scene, at, horizon(P, 3 * P))
         .into_iter()
         .map(|w| w.page)
         .collect();
-    assert_eq!(pages, [80, 0, 50, 1, 2]);
+    // What plays on comes before the places playback might jump to.
+    assert_eq!(pages, [80, 0, 30, 1, 2, 50]);
+}
+
+#[test]
+fn many_points_never_cut_the_read_ahead_at_the_playhead() {
+    // Room for the read-ahead (24 pages) and four points of six pages, and
+    // twenty points wanted: the read-ahead is read whole and first.
+    let pool = PagePool::new(48);
+    let a = stream(&pool, 1, 2_000);
+    let clips = vec![clip(&a, 0, 0, 2_000 * P)];
+    let (handle, _) = player(clips.clone());
+    let (pages, _) = fake(Duration::ZERO);
+    let disk = Disk::start(&pool, pages, handle.transport_reader());
+    let points = (1..=20).map(|i| i * 90 * P).collect();
+    disk.set_scene(scene(&clips, None, points));
+    let ahead = (2 * RATE as usize).div_ceil(PAGE);
+    eventually("the read-ahead is read", || {
+        (0..ahead).all(|p| a.resident(p))
+    });
+    eventually("the pool fills", || a.resident(90) && a.resident(180));
+    std::thread::sleep(Duration::from_millis(50));
+    assert!((0..ahead).all(|p| a.resident(p)), "the read-ahead stays");
+    drop(disk);
 }
 
 #[test]

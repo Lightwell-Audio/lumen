@@ -49,6 +49,7 @@ impl App {
                 Streaming::start(
                     self.cache_dir(),
                     self.transport.audio.engine.transport_reader(),
+                    self.slow_disk,
                 )
             });
             crate::trace::log(|| format!("streaming {}", if wanted { "on" } else { "off" }));
