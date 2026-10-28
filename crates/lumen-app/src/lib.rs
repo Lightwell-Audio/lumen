@@ -60,6 +60,8 @@ mod commands;
 mod consolidate;
 mod crash;
 mod crossfades;
+#[allow(dead_code, reason = "the app starts the disk thread in R6 step 4")]
+mod disk;
 mod document;
 mod export;
 mod export_live;
