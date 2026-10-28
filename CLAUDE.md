@@ -407,12 +407,29 @@ short: the history of every slice is in `docs/HANDOFF_ARCHIVE.md`
 and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
-**Now (2026-10-26)**
+**Now (2026-10-28)**
+- **Branch `m9-s6-disk-streaming`: M9 R6 (playing audio from disk, the peak
+  cache) is built** (ADR-0108; no format change; cut from `main` at
+  `a91d1989`; plan `docs/milestones/M9-R6.md`; the owner chose L A, M B, C A,
+  D A, S B on 2026-10-27). "Play audio from disk" (audio settings, off until
+  MT-STREAM-1 passes): files of 30 s or more play from a stream file (the file
+  itself, or a converted float copy in `%LOCALAPPDATA%\Lumen\Cache`, 20 GB,
+  peaks kept beside), shorter ones stay in memory. Engine: `PagePool`,
+  `StreamAudio`, `PoolWriter`, `OfflineLoader`, `stream_plan`; app: `disk.rs`
+  (the disk thread), `media/streaming.rs`, `media/streams.rs` (every other
+  reader), `app/streaming.rs`, `transport/hold.rs` (starts wait at most
+  150 ms), the Disk row and the "Disk late" chip. Export and loudness read in
+  blocks; WAV past 4 GiB is RF64. Measured: 64 two-minute files take
+  3,085 MB in memory, 170 MB from disk; a warm cache opens them in 0.03 s.
+  The soak (`disk/soak.rs`) and 7 E2E scenarios (`streaming.rs`) pass. Two
+  ignored tests: `measure_streaming_memory_and_open_time` and
+  `make_the_streaming_test_project` (MT-STREAM-1's 64-track project).
+  MT-STREAM-1 (`docs/manual-tests/M9.md`) is pending.
 - **Branch `m9-s5-audio-export`: M9 R5 export is built** (ADR-0107;
   `docs/milestones/M9-R5.md`; PR #72). Export and the media pool are integrated
   with `main` at `0db27218` after PR #71 merged. Both sets of commands,
   file-dialog results and completion records are preserved. Format stays v32;
-  MT-EXPORT-1 is pending and R6 has not started. Integration verification:
+  MT-EXPORT-1 is pending. Integration verification:
   Windows 3,217 workspace tests (723 E2E), six smoke tests; Windows/Linux/macOS
   all-target clippy and all 13 instruction gates pass. Linux export and media-pool
   workflows pass; the earlier full-suite orphan-startup failure remains open.
@@ -499,79 +516,27 @@ per slice and move what is no longer current out of it.
   input (`tests/e2e/audio_record.rs`) pass. MT-REC-2
   (`docs/manual-tests/M9.md`) passed on the owner's Focusrite (2026-10-26; no figures reported). The loopback helper is
   its own slice R2b. Next: R3 (takes and Capture MIDI) per `docs/milestones/M9.md`.
-- **Branch `m9-s1-audio-input`: M9 slice R1 (audio input) is built** (ADR-0100;
-  format **v30**; cut from `m9-s0-render-consistency`; not pushed). Input reaches
-  the engine (`Source::input`, `Engine::process_with_input`); an audio track routes a
-  mono input or a pair (`Track.input`; arming picks the first free one, one undo
-  step); the In chip sits on the unfolded third row beside pan (layout R, from the owner's
-  pick of mocks; unfolded tracks are now five steps, 110 pt), with a menu of
-  inputs by name, a level bar and a clip light that stays until clicked; monitoring Auto/In/Off plays the
-  input through the track's chain; commands `track.input_next` and
-  `track.monitor_next`. WASAPI input reads the capture endpoints of the device's
-  adapter in shared mode, kept in step with the render clock by rubato's `Slip`
-  (`drift.rs`, `wasapi_input.rs`); All inputs is the new default. cpal input is
-  compile-only. MT-REC-1 (`docs/manual-tests/M9.md`) passed on the owner's Focusrite
-  (2026-10-26; no figures reported), which includes ADR-0069's trial through an effect (step 8).
-  Next: R2 (audio recording) per `docs/milestones/M9.md`.
-- **Branch `m9-s0-render-consistency`: M9 slice R0 is built** (ADR-0099; no
-  format change; not pushed; it contains the M9 plan from `m9-plan`, merged in).
-  Consolidate is stale if any clip touching its span changed; normalize applies
-  a peak only to a clip that still plays what it scanned; the clips of a track
-  being recorded are refused edits, with a note (`History::guard_recording`,
-  `apply_take`). Gates run: fmt, clippy, macOS cross-clippy, workspace tests
-  (2,900), smoke. Not yet
-  run: the WSL mirror and performance gate (they test the pushed branch). Next: slice R1
-  (audio input) per `docs/milestones/M9.md`; the owner took every
-  recommendation for R1 to R5 and X1 to X3 (2026-10-24).
-- **Branch `m7b-s6-close`: E6 audit and small UX corrections are built.**
-  Report: `docs/audits/2026-10-24-m7b.md`; repeatable visual check MT-EDIT-7.
-  Shared menus scroll within the window, crossfades use a switch, track
-  colours have names/focus, menu focus has its accent ring, the copy-import
-  preference schedules a save, and render directories are made by workers.
-  The combined editing walkthrough covers save/reopen and audible playback.
-  The normalize/consolidate stale-result checks were fixed in M9 R0 (ADR-0099).
-  Owner closeout and the next milestone's approval remain pending.
-- **Branch `m7b-s5-freeze`: M7b E5 (freeze, unfreeze, flatten) is built**
-  (ADR-0098; format **v29**; not pushed). `Track.frozen` (`edit::freeze`:
-  planner, `played`, `violations`); a frozen track plays its file and runs no
-  plugin (`lanes` and `hosting::wanted` take `played`); `History::apply`
-  refuses edits to a frozen track and says why (`take_refused`); the render is
-  the bounce worker with `Bake::Sound`; commands `track.freeze`, `.unfreeze`,
-  `.flatten` (last in `Command`, no default keys), a header pill (a padlock when
-  narrow) that unfreezes; E2E `freeze.rs`. Not shown to the owner: tempo and
-  meter changes are refused while a track is frozen, and the way out is the pill,
-  not a toast action (ADR-0098). Gates run: fmt, clippy, workspace tests, E2E,
-  smoke, macOS cross-clippy, WSL clippy and perf (`compact_scalar_arrays` is now
-  `#[inline(never)]`: the new field moved serialize by +7% through inlining).
-  MT-EDIT-6 passed (owner, 2026-10-24).
-- **E3 (consolidate, ADR-0095, MT-EDIT-4) and E4 (bounce, ADR-0096 and
-  ADR-0097, MT-EDIT-5) are merged (PR #55, #56), no format change.** Rendered
-  files are 32-bit float WAVs at the device rate in a `Renders` folder, copied
-  into `Samples/Rendered` on Save; `lumen_engine::render_source` and
-  `lumen-app::bounce` are the shared render. The user-visible word for
-  consolidate is Join (owner, 2026-10-24). Replace-with-effects falls back to a
-  new track when the span is not the whole track or a clip is locked (not yet
-  shown to the owner: tell them).
-- **M7b E2 (crossfades, ADR-0094, format v28) is merged (PR #54;
-  MT-EDIT-3 passed).** A crossfade is a true overlap: drag the left clip's
-  fade-out handle over the right clip.
-- **M7b E1 is merged (PR #52)** (ADR-0093; format **v27**): join, crop,
-  unloop, nudge, reverse, polarity, normalize and the select variants.
-- **Next:** review E6's report and follow-up findings. Plan, owner choices and the slice list:
-  `docs/milestones/M7b.md`.
+- **Earlier** (M7b E1 to E6, M9 R0 and R1): moved to `docs/HANDOFF_ARCHIVE.md`
+  (2026-10-28). M7b closed with E6 (`docs/audits/2026-10-24-m7b.md`).
+- **Next:** MT-STREAM-1 on the owner's interface, then R7 (workflow and
+  preferences) per `docs/milestones/M9.md`; R2b (loopback helper) is still
+  unbuilt. If MT-STREAM-1 passes, "Play audio from disk" becomes the default
+  (S6).
 - **Done:** M1 to M4.5 approved; M5 (MIDI), M6 (VST3 hosting) and M7
-  (automation and envelopes) are built, with reports in PROGRESS. M7b E0
-  (tools and split, format v26) is merged.
+  (automation and envelopes) are built, with reports in PROGRESS. M7b
+  (editing power tools, E0 to E6) is built and merged.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
   numbers) are out of scope for now (owner, 2026-10-26): do not offer them
   again unless asked. Problems found and not fixed are in
   `docs/KNOWN_ISSUES.md` (check it before working in an area).
-- **Later milestones:** M8 (built-in devices) and M9 (audio input and recording, export, single instance, the peak disk cache) per `docs/PROGRESS.md`; M7b closes with E6.
+- **Later milestones:** M8 (built-in devices); M9's remaining slices are R7
+  (preferences and first run), R8 (icons, file association, single instance)
+  and R9 (close), per `docs/milestones/M9.md`.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status, slice tables and reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0105 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0108 and the table of owner decisions.
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
 - `docs/KNOWN_ISSUES.md`, `docs/ARCHITECTURE.md` (crates, threads, module

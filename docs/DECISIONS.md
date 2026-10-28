@@ -9486,3 +9486,121 @@ stems; the return-stem audio check includes a muted source. Float scratch
 files use the existing atomic WAV writer inside the private staging folder,
 without requiring filesystem hard links. A scratch write failure ends the
 offline render at the next block instead of continuing to render unused audio.
+
+## ADR-0108 — Playing audio from disk, and the peak cache (M9 R6)
+
+**Date:** 2026-10-28. **Slice:** M9 R6, `m9-s6-disk-streaming`, cut from
+`main` at `a91d1989`. **Status:** Accepted (built; MT-STREAM-1 pending).
+Plan and evidence: `milestones/M9-R6.md`. Owner choices (2026-10-27): L A,
+M B, C A, D A, S B (owner table).
+
+**Context.** Every audio file was decoded whole into memory at the device
+rate, and its peaks were built again on every open. A 64-track project of
+two-minute files held about 3 GB. Export held its render in memory and WAV
+stopped at the RIFF limit. A reversed clip held a second copy of its file.
+
+**Choice.**
+
+1. **Stream files** (`lumen-media::stream`). A WAV, RF64 or AIFF file in PCM
+   or float at the device rate is read where it is, with positioned reads
+   (never a memory map: a page fault on the audio side would be blocking
+   I/O). Any other file is converted once, in blocks, to a 32-bit float WAV
+   in the cache; the converter uses the same chunks as the whole-file
+   resampler, so the copy equals what was loaded into memory, bit for bit.
+2. **The cache** (`stream::cache`): `%LOCALAPPDATA%\Lumen\Cache` (beside the
+   autosaves; C A). An entry is keyed by the source's full path, size,
+   modified time (nanoseconds) and the rate, so a changed file is converted
+   again and never served stale. Peaks are kept beside each entry (`.peaks`)
+   and read back on the next open. The cache trims itself to 20 GB after
+   each conversion, oldest use first, never a file that is playing.
+3. **Pages** (`lumen-engine::stream`). `ClipAudio` is `Memory` or
+   `Stream(StreamAudio)`. A fixed `PagePool` of 4,096-frame stereo pages
+   (3,072 pages, 96 MB) is allocated when streaming starts. Each streamed
+   file has a page table. The audio thread reads tables and samples
+   (atomics, relaxed; the table carries the ordering) and never waits; one
+   `PoolWriter` reuses a page only after a grace period (the audio thread
+   counts the blocks it reads in). A clip whose next 40 ms are not all in
+   memory glides out and counts one underrun per episode. No lock,
+   allocation or `unsafe`. With its pages in, a streamed clip renders
+   bit-identical to the same clip in memory.
+4. **The disk thread** (`lumen-app::disk`, the plan in
+   `lumen_engine::stream_plan`). It plans from the clip list the engine
+   plays and the transport it publishes, in this order: the cue (where a
+   start is about to go), the next half second at the playhead and at the
+   play marker, the rest of two seconds ahead (wrapped into a playing
+   loop), then the half second after the song's start, the loop's start
+   and each marker. It reads for 5 ms at a time and plans again; a full pool
+   frees what this round did not want. A pool too small keeps the
+   beginning of the plan, so what plays on always comes before the places a
+   jump might go (changed in step 7 from points-before-read-ahead, after
+   sizing the pool: twenty markers on 64 tracks would have cut the
+   read-ahead to half a second). A page that cannot be read is counted and
+   not tried again until the clip list changes.
+5. **Offline renders never starve** (S4). Bounce, join, freeze and export
+   give their streamed clips a pool of their own (256 pages) and a loader
+   that reads a missing page on the render thread, keeping half the pool
+   free. The other readers of whole audio (normalize's scan, reversed
+   copies, deep-zoom samples, the twins) read stream files through
+   `media::streams`, a registry of stream ids that are never reused, off the
+   UI thread; deep-zoom strips read on a worker and keep only the newest
+   request.
+6. **What streams is automatic** (M B): a file of 30 s or more streams
+   when "Play audio from disk" is on; a shorter one stays in memory, so
+   one-shots never wait for the disk. No per-clip switch and no format
+   change. A reversed long file is reversed into a stream file in the cache.
+7. **The switch** is "Play audio from disk" in the audio window
+   (`settings.playback.from_disk`, off by default; S6). Turning it on or off
+   loads the files again the other way; the settings file version is
+   unchanged (a new section with a default).
+8. **Starts wait briefly** (L A, `transport/hold.rs`). Play, Continue,
+   Record and a locate while playing are held until the next 50 ms at the
+   new place are in memory, for at most 150 ms, with the disk thread cued
+   there; then they are sent anyway. MIDI, the metronome and clips start
+   together.
+9. **Feedback** (D A). The audio panel has a Disk row ("12% · 0 late", and
+   "· N unreadable"), cleared by Reset. After an underrun the warning chip
+   says "Disk late" (or "Disk late ×N") with what it means and what helps;
+   dropouts, the worse news, take the chip first.
+10. **Files without whole-file memory.** Export reads its render in blocks
+    (a rate change converts it into a temporary file first; normalize reads
+    it once for the peak) and the loudness report reads the exported file
+    the same way (`lumen_media::read_blocks`). Renders, WAV exports and cache
+    copies are written by one long writer that reserves room for a `ds64`
+    chunk and becomes RF64 past 4 GiB; the stream reader reads RF64.
+11. **The atlas reclaims** the peaks no longer drawn, which frees the old
+    rate's waveforms after a rate change.
+
+**Alternatives.** Memory maps (rejected, S1). One ring per clip (rejected:
+loops and markers would need rings of their own and a clip list change
+would reallocate). A per-clip "keep in memory" switch (the owner chose the
+automatic rule: no extra choice for users). Converted copies inside the
+project folder (rejected for C A: a shared, rebuildable cache keeps projects
+small and is cleared freely).
+
+**Measurements** (development machine, Windows 11, release build, 64
+stereo 16-bit files of two minutes; the source files were in the system's
+file cache; `measure_streaming_memory_and_open_time`, an ignored E2E):
+
+| Files | In memory | From disk, cold cache | From disk, warm cache |
+|---|---|---|---|
+| 48 kHz (played as they are) | 0.67 s, 3,085 MB | 0.25 s, 170 MB | 0.03 s, 121 MB |
+| 44.1 kHz (converted) | 1.11 s, 3,090 MB | 2.86 s, 171 MB | 0.03 s, 128 MB |
+
+The time is from Open to every file ready (playable, with its waveform);
+the memory is what the open added to the process's private bytes. From
+disk, the 96 MB pool and the peaks are most of it.
+
+The automated soak (S8, `disk/soak.rs`): 64 streamed stereo tracks in real
+time at 128 frames from a fake disk whose reads take 50 to 250 µs and stall
+40 ms every 1,000th read, with a one-second loop and locates every 2 s to
+the start, a marker, the loop and unmarked places (each held until read, as
+L A holds). 16 s in CI and 120 s by hand: 0 late reads, 0 unreadable
+pages, the longest hold 107 ms (cued unmarked places), none past 150 ms.
+
+**Consequences.** Streaming stays off by default until MT-STREAM-1 passes
+on the owner's interface at 64 and 128 frames (S6); then the default
+flips. The 30 s rule and the pool size were kept after the soak and the
+measurement. KNOWN_ISSUES: the export-RAM and RIFF-limit row and the
+atlas row are closed; the reversed-copy row is narrowed to playing from
+memory; new rows say what is untested (hardware, a real file over 4 GiB)
+and that only the jump points that fit in the pool are kept read.
