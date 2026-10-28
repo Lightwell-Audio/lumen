@@ -128,11 +128,66 @@ pub fn read_all(audio: &ClipAudio) -> Result<Vec<Vec<f32>>, MediaError> {
     }
 }
 
+/// `clips` with every streamed file read whole into memory, each file once.
+/// For a render the audio callback plays (a real-time export): an offline
+/// stream loads a missing page on the thread that plays it, which must
+/// never be the audio thread. Blocks on the disk.
+pub fn in_memory(clips: Vec<Clip>) -> Result<Vec<Clip>, String> {
+    let mut read: HashMap<u64, Arc<ClipAudio>> = HashMap::new();
+    clips
+        .into_iter()
+        .map(|mut clip| {
+            if let ClipAudio::Stream(stream) = &*clip.audio {
+                let audio = match read.get(&stream.id()) {
+                    Some(audio) => Arc::clone(audio),
+                    None => {
+                        let channels = read_all(&clip.audio).map_err(|why| {
+                            format!("An audio file could not be read from disk ({why})")
+                        })?;
+                        let audio = Arc::new(ClipAudio::Memory {
+                            sample_rate: stream.sample_rate(),
+                            channels,
+                        });
+                        read.insert(stream.id(), Arc::clone(&audio));
+                        audio
+                    }
+                };
+                clip.audio = audio;
+            }
+            Ok(clip)
+        })
+        .collect()
+}
+
+/// What an offline render could not read from disk, shared by its loader
+/// and its worker. A page that cannot be read plays silence, so the worker
+/// asks [`Unread::check`] before it keeps what it made: a render with a
+/// hole in it fails rather than leave a file that sounds wrong.
+#[derive(Clone, Default)]
+pub struct Unread(Arc<Mutex<Option<String>>>);
+
+impl Unread {
+    /// Keeps the first failure.
+    fn note(&self, why: String) {
+        let mut first = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        first.get_or_insert(why);
+    }
+
+    /// `Err` with a message for the user when a page could not be read.
+    pub fn check(&self) -> Result<(), String> {
+        match &*self.0.lock().unwrap_or_else(PoisonError::into_inner) {
+            Some(why) => Err(why.clone()),
+            None => Ok(()),
+        }
+    }
+}
+
 /// `clips` as an offline render plays them: each streamed file gets a table
 /// in a pool of the render's own, filled from disk on the render's thread
 /// when the clip player reaches a page (so a render never starves). Clips
-/// in memory are left as they are. Does not touch the disk itself.
-pub fn offline(clips: Vec<Clip>) -> Vec<Clip> {
+/// in memory are left as they are. Does not touch the disk itself. What
+/// cannot be read is noted in `unread`.
+pub fn offline(clips: Vec<Clip>, unread: &Unread) -> Vec<Clip> {
     let streams: Vec<StreamAudio> = clips
         .iter()
         .filter_map(|c| match &*c.audio {
@@ -145,6 +200,7 @@ pub fn offline(clips: Vec<Clip>) -> Vec<Clip> {
     }
     let mut readers = Readers::fixed(streams.iter().map(StreamAudio::id));
     let pool = PagePool::new(RENDER_PAGES);
+    let unread = unread.clone();
     let loader = OfflineLoader::new(
         &pool,
         Box::new(move |audio, page, left, right| {
@@ -154,6 +210,9 @@ pub fn offline(clips: Vec<Clip>) -> Vec<Clip> {
                     crate::trace::log(|| {
                         format!("render: stream {} unreadable: {why}", audio.id())
                     });
+                    // The stream file may be a cache copy with a hashed
+                    // name, so the message names no file.
+                    unread.note(format!("An audio file could not be read from disk ({why})"));
                 })
                 .ok()
         }),
@@ -253,5 +312,73 @@ mod tests {
         assert_eq!(readers.read(&stream, 4_950, &mut l, &mut r), Ok(50));
         assert_eq!(l[..50], data[0][4_950..]);
         assert!(l[50..].iter().all(|v| *v == 0.0));
+    }
+
+    fn clip(id: u64, audio: ClipAudio) -> Clip {
+        Clip {
+            envelope: Default::default(),
+            id,
+            track: 0,
+            start: lumen_core::time::Ticks::ZERO,
+            offset: 0,
+            length: audio.frames() as i64,
+            gain: 1.0,
+            audio: Arc::new(audio),
+            shape: Default::default(),
+        }
+    }
+
+    fn offline_stream(clips: &[Clip]) -> &StreamAudio {
+        clips[0].audio.stream().expect("streamed")
+    }
+
+    /// A page that cannot be read plays silence, so the render must hear of
+    /// it and fail rather than keep the file (review of slice R6).
+    #[test]
+    fn a_render_that_cannot_read_a_page_is_told() {
+        let (_dir, path, _) = wav(3 * PAGE, 2);
+        let id = register(path.clone());
+        let pool = PagePool::new(1);
+        let live = || {
+            clip(
+                1,
+                ClipAudio::Stream(StreamAudio::new(&pool, id, 48_000, 2, 3 * PAGE as u64)),
+            )
+        };
+
+        let read = Unread::default();
+        let clips = offline(vec![live()], &read);
+        assert!(offline_stream(&clips).ensure(0), "the file reads");
+        assert_eq!(read.check(), Ok(()));
+
+        std::fs::remove_file(&path).unwrap();
+        let unread = Unread::default();
+        let clips = offline(vec![live()], &unread);
+        assert!(!offline_stream(&clips).ensure(0));
+        let why = unread.check().unwrap_err();
+        assert!(why.starts_with("An audio file could not be read"), "{why}");
+        forget(id);
+    }
+
+    #[test]
+    fn in_memory_reads_each_streamed_file_whole_once() {
+        let (_dir, path, data) = wav(PAGE + 10, 2);
+        let id = register(path);
+        let pool = PagePool::new(1);
+        let stream = StreamAudio::new(&pool, id, 48_000, 2, (PAGE + 10) as u64);
+        let kept = ClipAudio::Memory {
+            sample_rate: 48_000,
+            channels: vec![vec![0.5; 4]],
+        };
+        let clips = in_memory(vec![
+            clip(1, ClipAudio::Stream(stream.clone())),
+            clip(2, ClipAudio::Stream(stream)),
+            clip(3, kept),
+        ])
+        .unwrap();
+        assert_eq!(clips[0].audio.memory(), Some(data.as_slice()));
+        assert!(Arc::ptr_eq(&clips[0].audio, &clips[1].audio), "read once");
+        assert_eq!(clips[2].audio.memory().unwrap()[0], vec![0.5; 4]);
+        forget(id);
     }
 }

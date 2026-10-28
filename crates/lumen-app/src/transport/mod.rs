@@ -14,6 +14,8 @@ pub mod hold;
 mod midi_chip;
 mod record;
 mod status;
+#[cfg(test)]
+mod tests;
 
 use std::time::{Duration, Instant};
 
@@ -257,6 +259,8 @@ impl Transport {
     /// from disk, once what plays there is in memory, for at most
     /// [`hold::LONGEST`] (the owner's L A).
     fn start(&mut self, command: Command, at: Ticks) {
+        // A new start replaces one still waiting, which never fires.
+        self.drop_held();
         let Some(gate) = &self.gate else {
             self.send(command);
             return;
@@ -276,6 +280,16 @@ impl Transport {
         self.settle();
     }
 
+    /// Forgets a start held for the disk, and the disk's cue for it.
+    /// Whether one was held.
+    fn drop_held(&mut self) -> bool {
+        let dropped = self.held.take().is_some();
+        if dropped && let Some(gate) = &self.gate {
+            gate.cuer.cue(None);
+        }
+        dropped
+    }
+
     /// Sends a held start once it is due.
     fn release(&mut self) {
         if let Some(held) = &self.held
@@ -291,14 +305,15 @@ impl Transport {
 
     /// Stops and silences everything, MIDI notes included.
     pub fn panic(&mut self) {
-        self.held = None;
+        self.drop_held();
         self.send(Command::Panic);
         self.panic_midi = true;
     }
 
     pub fn play_stop(&mut self) {
-        // Pressed again while Play waits for the disk: it never starts.
-        if self.held.take().is_some() {
+        // Pressed again while Play waits for the disk: it never starts. A
+        // locate held while playing is dropped, and playback stops.
+        if self.drop_held() && !self.state().playing {
             return;
         }
         if self.state().playing {
@@ -330,7 +345,7 @@ impl Transport {
 
     /// Stops (a count-in too), without the Stop-twice rule of [`Self::play_stop`].
     pub fn stop(&mut self) {
-        self.held = None;
+        self.drop_held();
         self.send(Command::Stop);
     }
 
@@ -350,7 +365,9 @@ impl Transport {
 
     /// Shift+Space: stop where playback is, or continue from the playhead.
     pub fn pause_continue(&mut self) {
-        if self.held.take().is_some() {
+        // As Play: a held start is dropped; a held locate is dropped and
+        // playback pauses.
+        if self.drop_held() && !self.state().playing {
             return;
         }
         let state = self.state();
@@ -369,8 +386,13 @@ impl Transport {
             // new one is ready (L A); stopped, the disk reads there first.
             Some(_) if state.playing => self.start(Command::Locate(at), at),
             Some(gate) => {
+                let held = self.held.take();
                 gate.cuer.cue(Some(gate.sample_at(at)));
                 self.send(Command::Locate(at));
+                // A start waiting for the disk waits for the new place.
+                if let Some(held) = held {
+                    self.start(held.command, at);
+                }
             }
             None => self.send(Command::Locate(at)),
         }

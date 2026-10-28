@@ -421,7 +421,10 @@ per slice and move what is no longer current out of it.
   150 ms), the Disk row and the "Disk late" chip. Export and loudness read in
   blocks; WAV past 4 GiB is RF64. Measured: 64 two-minute files take
   3,085 MB in memory, 170 MB from disk; a warm cache opens them in 0.03 s.
-  The soak (`disk/soak.rs`) and 7 E2E scenarios (`streaming.rs`) pass. Two
+  A second model reviewed the branch: the fixes (renders fail on an
+  unreadable page, a real-time export reads into memory first, held starts,
+  the cache trim) and the performance gate are at the end of ADR-0108. The
+  soak (`disk/soak.rs`) and 9 E2E scenarios (`streaming.rs`) pass. Two
   ignored tests: `measure_streaming_memory_and_open_time` and
   `make_the_streaming_test_project` (MT-STREAM-1's 64-track project).
   MT-STREAM-1 (`docs/manual-tests/M9.md`) is pending.

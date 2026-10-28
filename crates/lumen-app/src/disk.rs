@@ -171,6 +171,12 @@ impl Disk {
 pub struct Cuer(Option<Sender<Message>>);
 
 impl Cuer {
+    /// A cuer with no disk thread behind it, for tests of what is held.
+    #[cfg(test)]
+    pub fn idle() -> Self {
+        Self(None)
+    }
+
     /// Reads the audio after `sample` first, until the next cue.
     pub fn cue(&self, sample: Option<i64>) {
         if let Some(messages) = &self.0 {

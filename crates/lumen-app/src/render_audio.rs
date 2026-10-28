@@ -19,6 +19,7 @@ use lumen_media::MediaError;
 use lumen_project::model::{self, ClipContent, Id, Project};
 
 use crate::lanes::{Lanes, engine_clips};
+use crate::media::streams::Unread;
 use crate::media::{mirror, reversed_key};
 
 /// One file a render plays, and which of its forms: as it is, and mirrored.
@@ -107,6 +108,8 @@ pub struct RenderAudio {
     loaded: Vec<Clip>,
     /// Present when the device's rate is not the project's.
     again: Option<Arc<Again>>,
+    /// What the render could not read from disk, for every job.
+    unread: Unread,
 }
 
 impl RenderAudio {
@@ -180,6 +183,7 @@ impl RenderAudio {
             rate,
             loaded,
             again,
+            unread: Unread::default(),
         }
     }
 
@@ -197,8 +201,14 @@ impl RenderAudio {
         if self.again.is_some() {
             Vec::new()
         } else {
-            crate::media::streams::offline(self.loaded.clone())
+            crate::media::streams::offline(self.loaded.clone(), &self.unread)
         }
+    }
+
+    /// What the jobs' clips could not read from disk: the worker checks it
+    /// before it keeps a file.
+    pub fn unread(&self) -> Unread {
+        self.unread.clone()
     }
 
     /// What the worker makes the clips with, when the rates differ.
@@ -372,6 +382,7 @@ mod tests {
             frames: frames as u64,
             file: file.clone(),
             media: Id(70),
+            unread: audio.unread(),
         };
         let ctx = eframe::egui::Context::default();
         let render = Render::start(vec![job], timeline, audio.rate, audio.again(), &ctx);

@@ -15,6 +15,7 @@ use super::{Buses, Format, Options, Report};
 use crate::export_live;
 use crate::export_render;
 use crate::hosting::OfflinePlugin;
+use crate::media::streams::{self, Unread};
 use crate::render_audio::Again;
 
 pub struct Job {
@@ -31,6 +32,8 @@ pub struct Job {
     pub live: Option<Arc<Mutex<export_live::Handle>>>,
     /// Existing project and media files may never be export destinations.
     pub protected: Vec<PathBuf>,
+    /// What the clips could not read from disk; an export with a hole fails.
+    pub unread: Unread,
 }
 
 fn safe_name(name: &str) -> String {
@@ -228,6 +231,11 @@ pub(super) fn run(
         };
         job.clips = clips;
     }
+    if job.live.is_some() {
+        // The audio callback plays a real-time export: nothing it plays may
+        // read the disk, so streamed files are read into memory first.
+        job.clips = streams::in_memory(std::mem::take(&mut job.clips))?;
+    }
     let count = job.targets.len().max(1) as f32;
     let mut reports = Vec::new();
     let mut publishing = Vec::new();
@@ -262,6 +270,7 @@ pub(super) fn run(
         })? {
             return Ok(None);
         }
+        job.unread.check()?;
         let encoded = stage.0.join(format!(
             "encoded-{index}.{}",
             job.options.format.extension()

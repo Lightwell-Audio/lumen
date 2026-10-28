@@ -15,6 +15,7 @@ use lumen_media::wav::{Sample, Spec, Writer};
 use lumen_project::edit::consolidate::{Baked, Part};
 use lumen_project::model::{Id, Media};
 
+use crate::media::streams::Unread;
 use crate::render_audio::Again;
 
 /// One file to render.
@@ -28,6 +29,8 @@ pub struct Job {
     /// Where the file goes, and the media id it will have.
     pub file: PathBuf,
     pub media: Id,
+    /// What the clips could not read from disk; a job with a hole fails.
+    pub unread: Unread,
 }
 
 /// Where a render stands.
@@ -70,6 +73,7 @@ pub fn render_job(
         frames,
         file,
         media,
+        unread,
     } = job;
     if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)
@@ -123,6 +127,7 @@ pub fn render_job(
     if ended == Finished::Cancelled {
         return Ok(None);
     }
+    unread.check()?;
     let frames = writer.finish().map_err(|e| e.to_string())?;
     let size_bytes = std::fs::metadata(&file).map_or(0, |m| m.len());
     Ok(Some(Baked {
@@ -330,6 +335,7 @@ mod tests {
             frames: 10_000,
             file: dir.join("out.wav"),
             media: Id(777),
+            unread: Default::default(),
         };
         (job, audio)
     }

@@ -126,8 +126,9 @@ impl ClipAudio {
     }
 }
 
-/// Where the clip player reads one channel's samples from.
-trait Samples {
+/// Where the clip player reads one channel's samples from, passed by value
+/// so the loops read a slice as directly as before streaming.
+trait Samples: Copy {
     fn at(&self, frame: usize) -> Option<f32>;
 }
 
@@ -138,7 +139,7 @@ impl Samples for &[f32] {
     }
 }
 
-impl Samples for StreamSide<'_> {
+impl Samples for &StreamSide<'_> {
     #[inline(always)]
     fn at(&self, frame: usize) -> Option<f32> {
         StreamSide::at(self, frame)
@@ -534,7 +535,7 @@ fn play(
         // Mono plays on both sides; extra channels are ignored.
         gain = match &*clip.audio {
             ClipAudio::Memory { channels, .. } => {
-                side_mix.run(target, &channels[side.min(sources - 1)].as_slice())
+                side_mix.run(target, channels[side.min(sources - 1)].as_slice())
             }
             ClipAudio::Stream(stream) => side_mix.run(target, &stream.side(side)),
         };
@@ -566,8 +567,8 @@ struct SideMix<'a> {
 impl SideMix<'_> {
     /// Mixes the side into `target`; returns the level it ends at.
     #[inline(always)]
-    fn run<S: Samples>(&self, target: &mut [f32], samples: &S) -> f32 {
-        let mix: fn(&mut [f32], &S, &Clip, Placement<'_>, std::ops::Range<i64>, f32) =
+    fn run<S: Samples>(&self, target: &mut [f32], samples: S) -> f32 {
+        let mix: fn(&mut [f32], S, &Clip, Placement<'_>, std::ops::Range<i64>, f32) =
             if self.plain { mix } else { mix_shaped };
         let (clip, at, ramp, goal) = (self.clip, self.at, self.ramp, self.goal);
         let mut gain = self.from;
@@ -677,7 +678,7 @@ struct Placement<'a> {
 #[inline(always)]
 fn mix<S: Samples>(
     target: &mut [f32],
-    samples: &S,
+    samples: S,
     clip: &Clip,
     at: Placement<'_>,
     frames: std::ops::Range<i64>,
@@ -714,7 +715,7 @@ fn mix<S: Samples>(
 #[inline(always)]
 fn mix_shaped<S: Samples>(
     target: &mut [f32],
-    samples: &S,
+    samples: S,
     clip: &Clip,
     at: Placement<'_>,
     frames: std::ops::Range<i64>,

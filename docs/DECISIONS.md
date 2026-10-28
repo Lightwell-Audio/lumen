@@ -9604,3 +9604,43 @@ measurement. KNOWN_ISSUES: the export-RAM and RIFF-limit row and the
 atlas row are closed; the reversed-copy row is narrowed to playing from
 memory; new rows say what is untested (hardware, a real file over 4 GiB)
 and that only the jump points that fit in the pool are kept read.
+
+**Review of the slice** (2026-10-28, a second model's static review of the
+branch; four findings, three taken, plus one the review missed):
+
+- *A render could keep silence where a page could not be read* (taken).
+  The offline loader now notes the first failed read (`streams::Unread`),
+  and bounce, freeze, join and export check it before keeping a file: the
+  job fails with "An audio file could not be read from disk (...)" and
+  nothing is left. E2E `an_export_whose_file_has_gone_fails_and_leaves_no_file`.
+- *A real-time export read the disk on the audio thread* (found while
+  fixing the first). The device callback plays a real-time export, and an
+  offline stream loads a missing page on the thread that plays it. The
+  export worker now reads the streamed files of a real-time export into
+  memory first (`streams::in_memory`, each file once), as every file was
+  before R6. E2E `a_real_time_export_from_disk_is_the_same_as_an_offline_one`.
+- *A ready start did not replace a held one* (taken). A locate held for the
+  disk could fire after a later locate that went at once, and jump back.
+  Every start now drops a held one and its cue; Play pressed again, Stop and
+  Panic drop the cue too; Space while a locate is held during playback
+  stops, as it would without the hold; a locate while stopped makes a held
+  start wait at the new place. Unit tests `transport/tests.rs`.
+- *The cache trim counted what it could not remove* (taken). Only removed
+  bytes count; an entry's key goes last and only once its audio is gone, so
+  an entry still open elsewhere stays whole and is tried again.
+- *The settings version should change* (not taken). ADR-0079: a section
+  added with a default keeps the version, and a higher version would make
+  an older build set the settings aside.
+
+**Performance gate** (`perf/baseline.json`, updated from WSL on
+2026-10-28). Making `ClipAudio` an enum had slowed in-memory clips by about
+10 instructions a frame (`engine_clips_64` +19%): the mix loops read the
+samples through a reference to a slice. They now take the slice by value,
+and every existing scenario is within 2% of its old count (the largest,
+`project_serialize`, +1.7%, is drift from the format versions merged to
+main since the baseline was last written in M7b; this slice changes no
+project code). Streamed
+clips cache the pool's samples and the file's length per side (-16%). Two
+scenarios are new: `engine_streamed_64` (64 streamed clips, every page in
+memory, about 2.3 times the in-memory mix) and `stream_plan_64`. The
+baseline is rewritten with all of them.

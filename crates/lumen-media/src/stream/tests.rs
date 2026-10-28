@@ -626,3 +626,48 @@ fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
     cache.trim(1, &[]);
     assert_eq!(count(), 0, "a limit below every entry clears them all");
 }
+
+/// A copy that cannot be removed (open in another instance, here a handle
+/// that does not share deletion) keeps its key, so the entry stays whole,
+/// and is not counted as cleared (review of slice R6).
+#[cfg(windows)]
+#[test]
+fn trimming_counts_only_what_it_removed_and_keeps_an_entry_it_cannot_remove_whole() {
+    let dir = folder("trim-stuck");
+    let cache = Cache::new(dir.join("cache"));
+    let cancel = AtomicBool::new(false);
+    let prepared: Vec<_> = (0..2)
+        .map(|i| {
+            let source = dir.join(format!("{i}.wav"));
+            write_wav(&source, 44_100, Sample::F32, &[signal(20_000, 0.01)]);
+            cache
+                .prepare(&source, 48_000, &cancel, &mut |_| {})
+                .unwrap()
+        })
+        .collect();
+    let size = |path: &Path| fs::metadata(path).unwrap().len();
+    let key = prepared[0].path.with_extension("key");
+    let stuck = size(&prepared[0].path) + size(&key);
+    let free = size(&prepared[1].path) + size(&prepared[1].path.with_extension("key"));
+    // Read sharing only: the file cannot be deleted while this is open.
+    let open = {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 1;
+        fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ)
+            .open(&prepared[0].path)
+            .unwrap()
+    };
+
+    assert_eq!(cache.trim(1, &[]), free, "only the entry removed counts");
+    assert!(
+        prepared[0].path.exists() && key.exists(),
+        "the stuck entry is whole"
+    );
+    assert!(!prepared[1].path.exists());
+    assert!(cache.find(&dir.join("0.wav"), 48_000).unwrap().is_some());
+
+    drop(open);
+    assert_eq!(cache.trim(1, &[]), stuck, "removed once it can be");
+}

@@ -10,7 +10,10 @@ first, and whether a span is ready). `lumen-app::disk`: the disk thread
 automated soak in `disk/soak.rs`. `media/streaming.rs`: the live pool, the
 disk thread and the cache while "Play audio from disk" is on, and the 30 s
 rule; `media/streams.rs`: stream ids, never reused, and the blocking
-`Readers`, `read_all` and `offline` every other reader uses.
+`Readers`, `read_all` and `offline` every other reader uses, `Unread` (what a
+render could not read; its worker fails the job) and `in_memory` (a real-time
+export's streamed files, read whole before the callback plays them).
+`transport/tests.rs`: what happens to a held start when another command comes.
 `app/streaming.rs`: the switch, the disk thread's scene and what the
 transport shows; `transport/hold.rs`: the 150 ms wait before a start (L A);
 `transport/status.rs`: the Disk row and the "Disk late" chip.

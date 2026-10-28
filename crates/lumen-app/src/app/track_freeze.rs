@@ -220,6 +220,7 @@ impl App {
                 frames: frames as u64,
                 file: dir.join(format!("frozen-{}.wav", media.0)),
                 media,
+                unread: audio.unread(),
             });
         }
         self.freezing = Some(Running {

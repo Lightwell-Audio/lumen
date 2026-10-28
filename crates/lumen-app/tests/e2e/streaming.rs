@@ -276,6 +276,83 @@ fn export_and_bounce_are_the_same_from_disk_and_from_memory() {
     );
 }
 
+/// The audio callback plays a real-time export, so what it plays from disk
+/// is read into memory first, never on the audio thread; it sounds as the
+/// offline export does (review of slice R6).
+#[test]
+fn a_real_time_export_from_disk_is_the_same_as_an_offline_one() {
+    let mut lumen = Lumen::start_with(TempDir::new("e2e-streaming-real-time"), |launch| {
+        launch.playing_from_disk()
+    });
+    let long = wav_at(&lumen.dir().join("long.wav"), 35.0, 5_000.0);
+    lumen.drop_files(&[long]);
+    lumen.wait_for("import", |a| !a.is_busy() && !a.project().tracks.is_empty());
+    assert_eq!(lumen.app().media_from_disk(), [("long".into(), true)]);
+
+    // A time selection of two beats, once the clip's row settled: a second
+    // of real time.
+    lumen.frames(30);
+    let clip = lumen.app().project().tracks[0].clips[0].id;
+    let rect = lumen.app().clip_rect(&lumen.harness.ctx, clip).unwrap();
+    let zoom = lumen.app().view().zoom as f32;
+    let y = rect.bottom() - 6.0;
+    let from = eframe::egui::pos2(rect.left() + zoom, y);
+    let to = eframe::egui::pos2(rect.left() + zoom * 3.0, y);
+    lumen.drag(from, to, Modifiers::NONE);
+    assert!(lumen.app().time_range().is_some(), "a time selection");
+
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E);
+    lumen.frames(5);
+    lumen.click("Range: Whole project");
+    lumen.click("Time selection");
+    let offline = lumen.dir().join("offline.wav");
+    lumen.app_mut().answer_next_dialog(vec![offline.clone()]);
+    lumen.click("Export audio…");
+    lumen.wait_for("the offline export", |a| !a.audio_export_busy());
+    assert_eq!(lumen.app().audio_export_error(), None);
+    lumen.click("Render mode: Offline");
+    lumen.click("Real-time");
+    let real_time = lumen.dir().join("real-time.wav");
+    lumen.app_mut().answer_next_dialog(vec![real_time.clone()]);
+    lumen.click("Export audio…");
+    lumen.wait_for("the real-time export", |a| !a.audio_export_busy());
+    assert_eq!(lumen.app().audio_export_error(), None);
+
+    let (a, b) = (decode(&offline), decode(&real_time));
+    assert!(
+        a.channel(0).iter().any(|s| s.abs() > 0.1),
+        "the export is heard"
+    );
+    assert_eq!(a, b);
+}
+
+/// A page a render cannot read would be silence in the file: the export
+/// fails and says so instead (review of slice R6).
+#[test]
+fn an_export_whose_file_has_gone_fails_and_leaves_no_file() {
+    let mut lumen = Lumen::start_with(TempDir::new("e2e-streaming-gone"), |launch| {
+        launch.playing_from_disk()
+    });
+    let path = lumen.dir().join("long.wav");
+    let long = wav(&path, 35.0);
+    lumen.drop_files(&[long]);
+    lumen.wait_for("import", |a| !a.is_busy() && !a.project().tracks.is_empty());
+    assert_eq!(lumen.app().media_from_disk(), [("long".into(), true)]);
+    // At the device's rate the file streams as it is, so this is the
+    // stream file going.
+    std::fs::remove_file(&path).unwrap();
+
+    let out = lumen.dir().join("out.wav");
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E);
+    lumen.frames(5);
+    lumen.app_mut().answer_next_dialog(vec![out.clone()]);
+    lumen.click("Export audio…");
+    lumen.wait_for("the export", |a| !a.audio_export_busy());
+    let error = lumen.app().audio_export_error().expect("the export fails");
+    assert!(error.contains("could not be read from disk"), "{error}");
+    assert!(!out.exists(), "nothing is left where the export would go");
+}
+
 #[test]
 fn a_file_changed_on_disk_is_converted_again() {
     let mut lumen = Lumen::start_with(TempDir::new("e2e-streaming-changed"), |launch| {

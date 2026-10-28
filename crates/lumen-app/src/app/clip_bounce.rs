@@ -269,6 +269,7 @@ impl App {
                 frames: frames as u64,
                 file: dir.join(format!("bounced-{}.wav", media.0)),
                 media,
+                unread: audio.unread(),
             });
         }
         self.bouncing = Some(Running {

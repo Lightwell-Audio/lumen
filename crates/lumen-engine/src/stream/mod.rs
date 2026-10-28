@@ -103,12 +103,6 @@ impl PagePool {
     pub fn underruns(&self) -> u64 {
         self.underruns.load(Ordering::Relaxed)
     }
-
-    #[inline]
-    fn sample(&self, page: u32, frame: usize, channel: usize) -> f32 {
-        let at = (page as usize * PAGE + frame) * STRIDE + channel;
-        f32::from_bits(self.samples[at].load(Ordering::Relaxed))
-    }
 }
 
 struct Table {
@@ -264,18 +258,28 @@ impl StreamAudio {
     pub fn side(&self, channel: usize) -> StreamSide<'_> {
         StreamSide {
             audio: self,
+            samples: &self.pool().samples,
+            frames: self.frames(),
             channel: channel.min(self.channels() - 1),
-            last: std::cell::Cell::new((usize::MAX, NONE)),
+            last: std::cell::Cell::new((usize::MAX, MISSING)),
         }
     }
 }
 
+/// Where [`StreamSide`] remembers a page that is not in memory.
+const MISSING: usize = usize::MAX;
+
 /// One channel of a streamed file as the clip player reads it, remembering
-/// the last page it looked up.
+/// the last page it looked up. The pool's samples and the file's length are
+/// looked up once, so a sample costs an index and a load.
 pub struct StreamSide<'a> {
     audio: &'a StreamAudio,
+    samples: &'a [AtomicU32],
+    frames: u64,
     channel: usize,
-    last: std::cell::Cell<(usize, u32)>,
+    /// The last page looked up, and where its first sample of this channel
+    /// is in `samples` ([`MISSING`]: not in memory).
+    last: std::cell::Cell<(usize, usize)>,
 }
 
 impl StreamSide<'_> {
@@ -283,13 +287,13 @@ impl StreamSide<'_> {
     /// in memory. Real-time safe.
     #[inline]
     pub fn at(&self, frame: usize) -> Option<f32> {
-        if frame as u64 >= self.audio.frames() {
+        if frame as u64 >= self.frames {
             return None;
         }
         let page = frame / PAGE;
-        let (seen, entry) = self.last.get();
-        let entry = if seen == page {
-            entry
+        let (seen, base) = self.last.get();
+        let base = if seen == page {
+            base
         } else {
             // An offline stream loads what it misses.
             let entry = match self.audio.entry(page) {
@@ -297,10 +301,19 @@ impl StreamSide<'_> {
                 None if self.audio.ensure(page) => self.audio.entry(page).unwrap_or(NONE),
                 None => NONE,
             };
-            self.last.set((page, entry));
-            entry
+            let base = if entry == NONE {
+                MISSING
+            } else {
+                entry as usize * PAGE * STRIDE + self.channel
+            };
+            self.last.set((page, base));
+            base
         };
-        (entry != NONE).then(|| self.audio.pool().sample(entry, frame % PAGE, self.channel))
+        if base == MISSING {
+            return None;
+        }
+        let at = base + (frame % PAGE) * STRIDE;
+        Some(f32::from_bits(self.samples[at].load(Ordering::Relaxed)))
     }
 }
 

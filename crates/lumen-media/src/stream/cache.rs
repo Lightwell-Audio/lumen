@@ -285,9 +285,10 @@ impl Cache {
         let Ok(read) = fs::read_dir(&self.dir) else {
             return 0;
         };
-        // Entries by name: their files, bytes and time of last use.
-        let mut entries: std::collections::HashMap<String, (Vec<PathBuf>, u64, SystemTime)> =
-            Default::default();
+        // Entries by name: their files (with their bytes), bytes and time
+        // of last use.
+        type Entry = (Vec<(PathBuf, u64)>, u64, SystemTime);
+        let mut entries: std::collections::HashMap<String, Entry> = Default::default();
         for file in read.flatten() {
             let name = file.file_name().to_string_lossy().into_owned();
             let Ok(meta) = file.metadata() else { continue };
@@ -299,7 +300,7 @@ impl Cache {
             let entry = entries
                 .entry(stem)
                 .or_insert_with(|| (Vec::new(), 0, UNIX_EPOCH));
-            entry.0.push(file.path());
+            entry.0.push((file.path(), meta.len()));
             entry.1 += meta.len();
             entry.2 = entry.2.max(modified);
         }
@@ -315,15 +316,25 @@ impl Cache {
             .collect();
         oldest.sort_by_key(|(_, (_, _, used))| *used);
         let mut cleared = 0;
-        for (_, (files, bytes, _)) in oldest {
+        for (_, (mut files, _, _)) in oldest {
             if total <= limit {
                 break;
             }
-            for file in files {
-                let _ = fs::remove_file(file);
+            // The key last, and only once the rest is gone: an entry whose
+            // audio cannot be removed (open in another instance) stays
+            // whole, and is tried again next time. Only what was removed
+            // counts.
+            files.sort_by_key(|(file, _)| file.extension().is_some_and(|e| e == "key"));
+            let mut whole = true;
+            for (file, bytes) in files {
+                let key = file.extension().is_some_and(|e| e == "key");
+                if (whole || !key) && fs::remove_file(&file).is_ok() {
+                    total -= bytes;
+                    cleared += bytes;
+                } else if !key {
+                    whole = false;
+                }
             }
-            total -= bytes;
-            cleared += bytes;
         }
         cleared
     }
