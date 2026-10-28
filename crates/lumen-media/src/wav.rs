@@ -7,6 +7,11 @@
 //! and renamed over it by [`Writer::finish`], so a crash or a cancel leaves
 //! the old file or none, never half of a new one. Integer formats round and
 //! clip without dither; the float format stores every sample exactly.
+//!
+//! A file made by [`Writer::create_long`] has no 4 GiB limit (M9 slice R6):
+//! it keeps room for an RF64 `ds64` chunk in a `JUNK` chunk, and becomes
+//! RF64 when finished only if its audio passed RIFF's 32-bit sizes. Below
+//! that it stays a plain WAV every reader opens (unknown chunks are skipped).
 
 use std::fs::{self, File};
 use std::io::{BufWriter, Seek, SeekFrom, Write};
@@ -56,12 +61,15 @@ pub struct Spec {
 /// of `data`.
 pub(crate) const HEADER: u64 = 44;
 
-pub(crate) fn header(spec: Spec, data: u32) -> [u8; HEADER as usize] {
+/// The header of a long file: [`HEADER`] and a 36-byte `JUNK` chunk (or
+/// `ds64` once RF64) after `WAVE`.
+const LONG_HEADER: u64 = HEADER + 36;
+
+/// The 24 bytes of a `fmt ` chunk.
+fn format_chunk(spec: Spec) -> Vec<u8> {
     let block = spec.channels * spec.sample.bytes();
-    let mut out = Vec::with_capacity(HEADER as usize);
-    out.extend(b"RIFF");
-    out.extend(36_u32.saturating_add(data).to_le_bytes());
-    out.extend(b"WAVEfmt ");
+    let mut out = Vec::with_capacity(24);
+    out.extend(b"fmt ");
     out.extend(16_u32.to_le_bytes());
     out.extend(spec.sample.tag().to_le_bytes());
     out.extend(spec.channels.to_le_bytes());
@@ -69,6 +77,44 @@ pub(crate) fn header(spec: Spec, data: u32) -> [u8; HEADER as usize] {
     out.extend((spec.sample_rate * u32::from(block)).to_le_bytes());
     out.extend(block.to_le_bytes());
     out.extend((spec.sample.bytes() * 8).to_le_bytes());
+    out
+}
+
+/// The header of a long file holding `data` bytes of audio: a WAV with a
+/// `JUNK` chunk while `data` fits in `most` bytes, else RF64, whose 32-bit
+/// sizes are all ones and whose `ds64` chunk holds the real ones.
+fn long_header(spec: Spec, data: u64, most: u64) -> [u8; LONG_HEADER as usize] {
+    let mut out = Vec::with_capacity(LONG_HEADER as usize);
+    let riff = LONG_HEADER - 8 + data;
+    if data <= most {
+        out.extend(b"RIFF");
+        out.extend((riff as u32).to_le_bytes());
+        out.extend(b"WAVEJUNK");
+        out.extend(28_u32.to_le_bytes());
+        out.extend([0; 28]);
+    } else {
+        let frames = data / u64::from(spec.channels * spec.sample.bytes());
+        out.extend(b"RF64");
+        out.extend(u32::MAX.to_le_bytes());
+        out.extend(b"WAVEds64");
+        out.extend(28_u32.to_le_bytes());
+        out.extend(riff.to_le_bytes());
+        out.extend(data.to_le_bytes());
+        out.extend(frames.to_le_bytes());
+        out.extend(0_u32.to_le_bytes());
+    }
+    out.extend(format_chunk(spec));
+    out.extend(b"data");
+    out.extend((if data <= most { data as u32 } else { u32::MAX }).to_le_bytes());
+    out.try_into().expect("the header is 80 bytes")
+}
+
+pub(crate) fn header(spec: Spec, data: u32) -> [u8; HEADER as usize] {
+    let mut out = Vec::with_capacity(HEADER as usize);
+    out.extend(b"RIFF");
+    out.extend(36_u32.saturating_add(data).to_le_bytes());
+    out.extend(b"WAVE");
+    out.extend(format_chunk(spec));
     out.extend(b"data");
     out.extend(data.to_le_bytes());
     out.try_into().expect("the header is 44 bytes")
@@ -96,11 +142,33 @@ pub struct Writer {
     destination: PathBuf,
     spec: Spec,
     frames: u64,
+    /// Long files ([`Writer::create_long`]) may pass 4 GiB as RF64.
+    long: bool,
+    /// The most bytes of audio a RIFF file holds (lowered by tests to make
+    /// RF64 files small).
+    most: u64,
 }
 
 impl Writer {
+    /// As [`create`](Self::create), for a file that may pass 4 GiB: it is
+    /// written as RF64 if it does (export, M9 slice R6).
+    pub fn create_long(destination: &Path, spec: Spec) -> Result<Self, MediaError> {
+        Self::start(destination, spec, true)
+    }
+
+    /// Makes a long file RF64 past `most` bytes of audio, so tests make
+    /// small ones.
+    #[cfg(test)]
+    pub(crate) fn rf64_past(&mut self, most: u64) {
+        self.most = most;
+    }
+
     /// Starts a file that [`finish`](Self::finish) will put at `destination`.
     pub fn create(destination: &Path, spec: Spec) -> Result<Self, MediaError> {
+        Self::start(destination, spec, false)
+    }
+
+    fn start(destination: &Path, spec: Spec, long: bool) -> Result<Self, MediaError> {
         if !(1..=2).contains(&spec.channels) {
             return Err(MediaError::Unsupported(format!(
                 "{} channels (a WAV is written as mono or stereo)",
@@ -121,7 +189,12 @@ impl Writer {
             .unwrap_or(Path::new("."));
         let temp = dir.join(format!(".{name}.{}.writing", std::process::id()));
         let mut file = BufWriter::new(File::create(&temp).map_err(io)?);
-        let started = file.write_all(&header(spec, 0)).map_err(io);
+        let started = if long {
+            file.write_all(&long_header(spec, 0, MOST_DATA))
+        } else {
+            file.write_all(&header(spec, 0))
+        }
+        .map_err(io);
         if let Err(error) = started {
             drop(file);
             let _ = fs::remove_file(&temp);
@@ -133,6 +206,8 @@ impl Writer {
             destination: destination.to_owned(),
             spec,
             frames: 0,
+            long,
+            most: MOST_DATA,
         })
     }
 
@@ -146,7 +221,7 @@ impl Writer {
             ));
         }
         let bytes = u64::from(self.spec.channels) * u64::from(self.spec.sample.bytes());
-        if (self.frames + frames as u64) * bytes > MOST_DATA {
+        if !self.long && (self.frames + frames as u64) * bytes > self.most {
             return Err(MediaError::Io(
                 "the audio is too long for a WAV file".to_owned(),
             ));
@@ -171,9 +246,8 @@ impl Writer {
     /// Writes the sizes, flushes to disk and puts the file at its destination.
     /// Returns the number of frames written.
     pub fn finish(mut self) -> Result<u64, MediaError> {
-        let data = (self.frames
-            * u64::from(self.spec.channels)
-            * u64::from(self.spec.sample.bytes())) as u32;
+        let data =
+            self.frames * u64::from(self.spec.channels) * u64::from(self.spec.sample.bytes());
         let mut file = self
             .file
             .take()
@@ -181,7 +255,12 @@ impl Writer {
             .into_inner()
             .map_err(|e| MediaError::Io(e.to_string()))?;
         file.seek(SeekFrom::Start(0)).map_err(io)?;
-        file.write_all(&header(self.spec, data)).map_err(io)?;
+        if self.long {
+            file.write_all(&long_header(self.spec, data, self.most))
+        } else {
+            file.write_all(&header(self.spec, data as u32))
+        }
+        .map_err(io)?;
         file.sync_all().map_err(io)?;
         drop(file);
         fs::rename(&self.temp, &self.destination).map_err(io)?;
@@ -349,6 +428,42 @@ mod tests {
         let audio = crate::load(&path, 48_000, &AtomicBool::new(false), &mut |_| {}).unwrap();
         assert_eq!(audio.frames(), 10);
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_long_file_is_a_plain_wav_until_it_passes_the_limit_then_rf64() {
+        let dir = folder("long");
+        let spec = Spec {
+            sample_rate: 48_000,
+            channels: 2,
+            sample: Sample::I24,
+        };
+        let (left, right) = pattern(5_000);
+        for (name, most, rf64) in [("short.wav", MOST_DATA, false), ("rf64.wav", 1_000, true)] {
+            let path = dir.join(name);
+            let mut writer = Writer::create_long(&path, spec).unwrap();
+            writer.most = most;
+            writer.write(&[&left[..1_234], &right[..1_234]]).unwrap();
+            writer.write(&[&left[1_234..], &right[1_234..]]).unwrap();
+            assert_eq!(writer.finish().unwrap(), 5_000);
+            let bytes = fs::read(&path).unwrap();
+            assert_eq!(&bytes[..4], if rf64 { b"RF64" } else { b"RIFF" }, "{name}");
+            assert_eq!(bytes.len() as u64, LONG_HEADER + 5_000 * 6);
+            let layout = crate::stream::layout(&path).unwrap().unwrap();
+            assert_eq!((layout.frames, layout.data), (5_000, LONG_HEADER), "{name}");
+            let mut reader = crate::stream::Reader::open(&path).unwrap();
+            let (mut l, mut r) = (vec![0.0; 5_000], vec![0.0; 5_000]);
+            reader.read(0, &mut [&mut l, &mut r]).unwrap();
+            for (a, b) in l.iter().chain(&r).zip(left.iter().chain(&right)) {
+                assert!((a - b).abs() <= 0.5 / 8_388_608.0 + 1e-7, "{name}");
+            }
+            if !rf64 {
+                let audio =
+                    crate::load(&path, 48_000, &AtomicBool::new(false), &mut |_| {}).unwrap();
+                assert_eq!(audio.frames(), 5_000, "the decoder skips the JUNK chunk");
+            }
+        }
         fs::remove_dir_all(dir).unwrap();
     }
 

@@ -181,7 +181,7 @@ pub fn convert(
             };
             state = Some((
                 Converter::new(from, rate, channels)?,
-                Writer::create(destination, spec)?,
+                Writer::create_long(destination, spec)?,
             ));
         }
         let (converter, writer) = state.as_mut().expect("made above");

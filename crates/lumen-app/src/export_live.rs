@@ -165,7 +165,7 @@ impl Handle {
         }
         while audio.pop().is_ok() {}
         self.error.store(ERROR_NONE, Ordering::Release);
-        let writer = Writer::create(
+        let writer = Writer::create_long(
             &request.file,
             Spec {
                 sample_rate: request.rate,

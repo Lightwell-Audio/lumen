@@ -272,7 +272,7 @@ pub fn render_job(
         .unwrap_or_else(|| std::path::Path::new("."));
     std::fs::create_dir_all(parent)
         .map_err(|e| format!("Could not make {}: {e}", parent.display()))?;
-    let mut writer = Writer::create(
+    let mut writer = Writer::create_long(
         &job.file,
         Spec {
             sample_rate: job.rate,

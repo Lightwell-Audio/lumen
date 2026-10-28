@@ -164,6 +164,46 @@ pub fn decode(
     Audio::new(rate, channels)
 }
 
+/// What [`read_blocks`] hands each block to: the file's rate and one slice
+/// per channel, all of one length.
+pub type Blocks<'s> = dyn FnMut(u32, &[&[f32]]) -> Result<(), MediaError> + 's;
+
+/// Reads `path` block by block without holding it whole (M9 slice R6), its
+/// first two channels: an uncompressed WAV, RF64 or AIFF file directly
+/// (RF64 is beyond the decoder), any other file decoded packet by packet.
+/// Fails with [`MediaError::Empty`] when the file holds no audio, and with
+/// [`MediaError::Cancelled`] when `cancel` is set.
+pub fn read_blocks(
+    path: &Path,
+    cancel: &AtomicBool,
+    sink: &mut Blocks<'_>,
+) -> Result<(), MediaError> {
+    const BLOCK: usize = 65_536;
+    if crate::stream::layout(path).ok().flatten().is_none() {
+        return decode_blocks(path, cancel, &mut |_| {}, &mut |rate, planes, frames| {
+            let parts: Vec<&[f32]> = planes.iter().take(2).map(|p| &p[..frames]).collect();
+            sink(rate, &parts)
+        });
+    }
+    let mut reader = crate::stream::Reader::open(path)?;
+    let layout = *reader.layout();
+    if layout.frames == 0 {
+        return Err(MediaError::Empty);
+    }
+    let mut planes = vec![vec![0.0; BLOCK]; layout.played()];
+    let mut at = 0;
+    while at < layout.frames {
+        cancelled(cancel)?;
+        let n = ((layout.frames - at) as usize).min(BLOCK);
+        let mut parts: Vec<&mut [f32]> = planes.iter_mut().map(|p| &mut p[..n]).collect();
+        reader.read(at, &mut parts)?;
+        let parts: Vec<&[f32]> = planes.iter().map(|p| &p[..n]).collect();
+        sink(layout.sample_rate, &parts)?;
+        at += n as u64;
+    }
+    Ok(())
+}
+
 /// What [`decode_blocks`] hands each packet to: the file's rate, the planes
 /// and the frames in them.
 pub(crate) type Packets<'s> = dyn FnMut(u32, &[Vec<f32>], usize) -> Result<(), MediaError> + 's;

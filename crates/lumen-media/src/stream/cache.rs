@@ -209,7 +209,7 @@ impl Cache {
         fs::create_dir_all(&self.dir).map_err(io)?;
         let _ = fs::remove_file(&key_file);
         let channels = source.played();
-        let mut writer = Writer::create(
+        let mut writer = Writer::create_long(
             &audio,
             Spec {
                 sample_rate: source.sample_rate,
