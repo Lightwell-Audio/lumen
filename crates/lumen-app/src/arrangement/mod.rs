@@ -63,7 +63,7 @@ mod strip;
 mod strip_output;
 pub(crate) mod strips;
 mod tracks;
-mod waves;
+pub(crate) mod waves;
 
 pub(crate) use listen_light::{Live, shown as listen_light_shown};
 

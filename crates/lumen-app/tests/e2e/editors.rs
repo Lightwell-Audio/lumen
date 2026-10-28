@@ -78,13 +78,7 @@ fn launch(name: &str, module: &str) -> Lumen {
         app.device_state(PLUGIN)
             .is_some_and(|s| s.starts_with("ready"))
     });
-    lumen
-        .harness
-        .get_all_by_label("Devices tab")
-        .last()
-        .expect("the detail panel's tabs")
-        .click();
-    lumen.frames(20);
+    lumen.show_whole_cards();
     lumen.app_mut().choose_card(PLUGIN);
     lumen
 }

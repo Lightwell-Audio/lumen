@@ -2,6 +2,17 @@
 
 ## Status
 
+**UX round three (2026-10-28), branch `chore/ux-round-three`** (ADR-0108;
+no format change; the owner took every recommendation of the audit sheet).
+The detail panel names its subject, the track of the header or clip clicked
+last, and shows a Clip tab only for an opened clip, audio or MIDI (DP1);
+Show devices, Show clip and Show mixer are commands. Lit browser chips are
+no longer cut at the pane's edge (B8). The CPU readout keeps one width, so
+the audio chip never moves (TB2). A short Devices tab turns its cards
+compact, 116 pt, and a failed card's buttons have a margin (D2). E2E:
+`detail_tabs.rs` and new scenarios in `chrome.rs` and `devices.rs`.
+MT-UX-2 is pending.
+
 **M7b E6 audit (2026-10-24), branch `m7b-s6-close`:** combined editing
 walkthrough and application-wide UX review, with shared scrollable menus,
 consistent crossfade switch, accessible track colours and menu focus,

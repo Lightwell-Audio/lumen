@@ -407,7 +407,17 @@ short: the history of every slice is in `docs/HANDOFF_ARCHIVE.md`
 and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
-**Now (2026-10-26)**
+**Now (2026-10-28)**
+- **Branch `chore/ux-round-three`: the UX round three is built** (ADR-0108;
+  no format change; cut from `main` at `a91d198`; the owner took every
+  recommendation on the audit sheet). The detail panel's tab row names its
+  subject (`DetailState::anchor`) and shows Clip only for an opened clip,
+  audio or MIDI; Show devices/clip/mixer are commands at the end of
+  `Command`. Browser chips' clip reaches 4 pt past the pane; the CPU readout
+  is a fixed slot; a short Devices tab turns cards compact (116 pt,
+  `chain/card/compact.rs`, least tab height 212 pt). E2E that works on whole
+  cards calls `Lumen::show_whole_cards()` first. MT-UX-2
+  (`docs/manual-tests/M7b.md`) is pending.
 - **Branch `m9-s5-audio-export`: M9 R5 export is built** (ADR-0107;
   `docs/milestones/M9-R5.md`; PR #72). Export and the media pool are integrated
   with `main` at `0db27218` after PR #71 merged. Both sets of commands,
@@ -571,7 +581,7 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status, slice tables and reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0105 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0108 and the table of owner decisions.
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
 - `docs/KNOWN_ISSUES.md`, `docs/ARCHITECTURE.md` (crates, threads, module

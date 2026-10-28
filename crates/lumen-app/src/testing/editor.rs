@@ -69,6 +69,27 @@ impl App {
         self.detail_tab == crate::app::detail::DetailTab::Clip
     }
 
+    /// The detail panel shows the Devices tab.
+    pub fn devices_tab_shown(&self) -> bool {
+        self.detail_tab == crate::app::detail::DetailTab::Devices
+    }
+
+    /// The detail panel shows the Mixer tab.
+    pub fn mixer_tab_shown(&self) -> bool {
+        self.detail_tab == crate::app::detail::DetailTab::Mixer
+    }
+
+    /// The track the detail panel is about (DP1).
+    pub fn detail_subject(&self) -> Option<Id> {
+        self.subject()
+    }
+
+    /// The clip open in the Clip tab, and whether it is an audio clip.
+    pub fn opened_clip_in_detail(&self) -> Option<(Id, bool)> {
+        self.opened_clip()
+            .map(|id| (id, self.opened_audio() == Some(id)))
+    }
+
     /// Where the notes are drawn, if the editor has been.
     pub fn editor_body(&self) -> Option<egui::Rect> {
         self.note_editor.last_view.map(|v| v.body)

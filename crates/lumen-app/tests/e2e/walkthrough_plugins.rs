@@ -199,13 +199,7 @@ fn plugins_in_a_group_with_a_return_a_sidechain_and_outputs_save_reopen_and_surv
     // Take the sidechain away on the bass's card: the bass plays, and its
     // send reaches the return, until Undo gives the key back.
     lumen.app_mut().select_tracks(&[BASS]);
-    lumen
-        .harness
-        .get_all_by_label("Devices tab")
-        .last()
-        .expect("the detail panel's tabs")
-        .click();
-    lumen.frames(20);
+    lumen.show_whole_cards();
     lumen.click("Sidechain source, Kick, Post FX");
     lumen.frames(5);
     lumen.click("None");

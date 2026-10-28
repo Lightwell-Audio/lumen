@@ -584,12 +584,26 @@ pub mod size {
     pub const LABEL_COLUMN: f32 = 96.0;
     /// The label column of a narrow card (the clip's properties).
     pub const LABEL_COLUMN_NARROW: f32 = 72.0;
+    /// The hairline between groups of a tab row, and the detail panel's
+    /// subject bar (DP1).
+    pub const TAB_DIVIDER: f32 = 14.0;
     /// A menu row (the interface audit's M1, the owner's choice): rows
     /// touch, and a shortcut's cap and light sit 5 pt in from the
     /// highlight's top and bottom.
     pub const MENU_ROW: f32 = 32.0;
     /// An icon before a menu row's label (the arrangement tools, M6).
     pub const MENU_ICON: f32 = 16.0;
+    /// An icon on a square button: 16 pt, and 14 on a small control's.
+    pub const BUTTON_ICON: f32 = 16.0;
+    pub const BUTTON_ICON_SMALL: f32 = 14.0;
+    /// The icon for a square button `height` tall.
+    pub fn button_icon(height: f32) -> f32 {
+        if height < CONTROL {
+            BUTTON_ICON_SMALL
+        } else {
+            BUTTON_ICON
+        }
+    }
     /// The tallest a dropdown's list of choices gets before it scrolls.
     pub const MENU_LIST: f32 = 320.0;
     /// The audio panel's block budget bar (ADR-0075): its height, the

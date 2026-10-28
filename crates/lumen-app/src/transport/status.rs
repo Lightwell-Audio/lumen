@@ -24,6 +24,12 @@ const DROPOUT_HELP: &str =
     "Audio didn't reach the interface in time: you may have heard a click. A larger buffer helps.";
 
 impl Transport {
+    /// Shows `peak` as the CPU load until the next reading, a second on.
+    pub(crate) fn show_cpu_load(&mut self, peak: f32) {
+        self.cpu_peak = peak;
+        self.cpu_taken = Some(Instant::now());
+    }
+
     /// CPU load (the peak over the last second) and, after dropouts, the
     /// dropout chip; returns the chip, which opens the audio panel.
     fn health(&mut self, ui: &mut Ui) -> Option<egui::Response> {
@@ -43,13 +49,22 @@ impl Transport {
             } else {
                 theme::p().text_secondary
             };
-            // Martian Mono like the other readouts (the Transport card).
-            ui.label(
-                RichText::new(format!("CPU {cpu:.0}%"))
-                    .font(egui::FontId::monospace(theme::size::BODY))
-                    .color(color),
-            )
-            .on_hover_text(
+            // Martian Mono like the other readouts (the Transport card), in
+            // a slot as wide as "CPU 100%" with the figure on its right, so
+            // the audio chip after it never moves as the load changes
+            // (up to 999%, the most the slot holds).
+            let font = egui::FontId::monospace(theme::size::BODY);
+            let slot = super::fit::text_width(ui, "CPU 100%", font.clone());
+            let text = format!("CPU {:.0}%", cpu.min(999.0));
+            let galley = ui.painter().layout_no_wrap(text.clone(), font, color);
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(slot, galley.size().y), egui::Sense::hover());
+            let at = egui::pos2(rect.right() - galley.size().x, rect.top());
+            ui.painter().galley(at, galley, color);
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text.clone())
+            });
+            response.on_hover_text(
                 "Audio processing time as a share of the time each buffer allows, \
                  at its peak over the last second. Above 100% the audio drops out",
             );

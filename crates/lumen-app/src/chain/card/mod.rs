@@ -91,6 +91,8 @@ pub(super) struct Look<'a> {
     pub sidechain: Option<&'a sidechain::Look>,
     /// The outputs row of a plugin instrument that has more than one output.
     pub outputs: Option<&'a outputs::Look>,
+    /// The tray is short: the card is the compact one (D2).
+    pub compact: bool,
 }
 
 /// What a card's own buttons asked for.
@@ -111,6 +113,8 @@ pub(super) struct Out {
     /// The preset field (it opens the menu), and the arrow pressed: true for
     /// next.
     pub field: Option<Response>,
+    /// The compact card's name, which opens the card's menu.
+    pub name: Option<Response>,
     pub step: Option<bool>,
     pub action: Option<Action>,
     /// What the strip's knobs and button asked for.
@@ -175,6 +179,9 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     let body = ui.interact(rect, id.with("card"), Sense::click_and_drag());
     if look.folded {
         return paint_rail(ui, rect, id, look, body);
+    }
+    if look.compact {
+        return compact::paint(ui, rect, id, look, body);
     }
     let hover = motion::hover(ui.ctx(), id.with("card hover"), body.hovered());
 
@@ -325,11 +332,11 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     let key = look
         .sidechain
         .filter(|_| ready)
-        .map(|shown| sidechain::paint(ui, key_row, sidechain::chooser_id_of(id), shown));
+        .map(|shown| sidechain::paint(ui, key_row, sidechain::chooser_id_of(id), shown, None));
     let outs = look
         .outputs
         .filter(|_| ready)
-        .map(|shown| outputs::paint(ui, key_row, outputs::chooser_id_of(id), shown));
+        .map(|shown| outputs::paint(ui, key_row, outputs::chooser_id_of(id), shown, None));
 
     // The footer: the signal, and the time held back.
     let mono = FontId::monospace(theme::size::MONO_SMALL);
@@ -371,6 +378,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         body,
         power,
         field,
+        name: None,
         step,
         action,
         strip,
@@ -453,6 +461,7 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
         body,
         power,
         field: None,
+        name: None,
         step: None,
         strip: Vec::new(),
         action: None,
@@ -494,6 +503,7 @@ fn footer_words(look: &Look<'_>) -> (String, String) {
 }
 
 mod body;
+pub(super) mod compact;
 mod picture;
 
 use body::{paint_field, paint_strip};

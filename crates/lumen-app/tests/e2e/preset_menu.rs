@@ -85,13 +85,7 @@ fn launch_with(name: &str, module: &str) -> (Lumen, Places) {
     lumen.wait_for("the plugin's programs", |app| {
         !app.device_programs(PLUGIN).is_empty()
     });
-    lumen
-        .harness
-        .get_all_by_label("Devices tab")
-        .last()
-        .expect("the detail panel's tabs")
-        .click();
-    lumen.frames(20);
+    lumen.show_whole_cards();
     lumen.wait_for("the card's field", |app| {
         app.device_has_preset_field(PLUGIN)
     });

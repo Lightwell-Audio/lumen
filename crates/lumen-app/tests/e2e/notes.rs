@@ -196,13 +196,14 @@ fn playing_double_click_opens_the_midi_editor_without_rewinding() {
 }
 
 #[test]
-fn the_clip_tab_is_an_empty_state_until_a_clip_is_opened() {
+fn the_clip_tab_is_there_only_once_a_clip_is_opened() {
+    // DP1: no tab opens onto an empty page.
     let mut lumen = launch("notes-empty");
-    lumen.click("Clip tab");
-    assert!(lumen.app().clip_tab_shown());
-    assert!(!lumen.shows("Note editor: Keys"));
-    // The state's words are drawn text; the editor is not open.
+    assert!(!lumen.shows("Clip tab"));
     assert_eq!(lumen.app().editor_open_clip(), None);
+    open(&mut lumen);
+    assert!(lumen.shows("Clip tab"));
+    assert!(lumen.app().clip_tab_shown());
 }
 
 #[test]

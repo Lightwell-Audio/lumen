@@ -19,7 +19,7 @@ use crate::widgets::{self, SliderKind};
 use crate::{App, lanes, theme};
 
 /// The card's width: its content wraps or truncates inside it.
-const CARD_WIDTH: f32 = 272.0;
+pub(crate) const CARD_WIDTH: f32 = 272.0;
 /// The labels' column.
 const LABEL_WIDTH: f32 = theme::size::LABEL_COLUMN_NARROW;
 /// A slider's height.
@@ -512,7 +512,7 @@ impl App {
                     .stroke(Stroke::new(theme::stroke::HAIRLINE, palette.accent))
                     .show(ui, |ui| {
                         ui.set_width(CARD_WIDTH);
-                        close = self.card_contents(ui, &clip, track, &tempo);
+                        close = self.card_contents(ui, &clip, track, &tempo, false);
                     });
             });
         self.clip_props.size = Some(shown.response.rect.size());
@@ -525,17 +525,34 @@ impl App {
         }
     }
 
+    /// The card's rows for clip `id`, without its title row: the Clip
+    /// tab's properties column (DP1). False when the clip is gone.
+    pub(crate) fn docked_clip_props(&mut self, ui: &mut egui::Ui, id: Id) -> bool {
+        let project = self.document.project();
+        let (Some((clip, track)), Ok(tempo)) =
+            (find(project, id), TempoMap::new(project.tempo.clone()))
+        else {
+            return false;
+        };
+        let clip = clip.clone();
+        self.card_contents(ui, &clip, track, &tempo, true);
+        true
+    }
+
     /// What the card shows; true when its close button was clicked.
+    /// `docked` is the Clip tab's column: no title row, and fields of
+    /// their own, apart from a card open at the same time.
     fn card_contents(
         &mut self,
         ui: &mut egui::Ui,
         clip: &Clip,
         track: egui::Color32,
         tempo: &TempoMap,
+        docked: bool,
     ) -> bool {
         let palette = *theme::p();
         let id = clip.id;
-        let close = widgets::title_row(ui, "Clip", true);
+        let close = !docked && widgets::title_row(ui, "Clip", true);
 
         row(ui, "Name", |ui| {
             let props = &mut self.clip_props;
@@ -543,7 +560,7 @@ impl App {
             let cancel = ui.input(|i| i.key_pressed(Key::Escape));
             let response = ui.add(
                 egui::TextEdit::singleline(text)
-                    .id(egui::Id::new(("clip card name", id)))
+                    .id(egui::Id::new(("clip card name", id, docked)))
                     .desired_width(ui.available_width()),
             );
             response.widget_info(|| {
@@ -578,7 +595,7 @@ impl App {
                     let db = widgets::value_slider(
                         ui,
                         rect,
-                        egui::Id::new(("clip card gain", id)),
+                        egui::Id::new(("clip card gain", id, docked)),
                         *gain_db,
                         SliderKind::ClipGain,
                         "Clip gain",
@@ -601,7 +618,7 @@ impl App {
                         let set = widgets::value_slider(
                             ui,
                             rect,
-                            egui::Id::new(("clip card fade", id, label)),
+                            egui::Id::new(("clip card fade", id, label, docked)),
                             ms,
                             SliderKind::Millis { max_ms },
                             label,
@@ -621,7 +638,7 @@ impl App {
                         let name = format!("{label} shape");
                         if let Some(i) = widgets::Dropdown::new(&name, shown, combo).show(
                             ui,
-                            egui::Id::new(("clip card shape", id, label)),
+                            egui::Id::new(("clip card shape", id, label, docked)),
                             &names,
                             chosen,
                         ) {

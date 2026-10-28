@@ -111,6 +111,7 @@ irreversible or external) · *Superseded*.
 | [0097](#adr-0097--bounce-m7b-e4) | Bounce (M7b E4) | Accepted 2026-10-24 | No |
 | [0098](#adr-0098--freeze-unfreeze-and-flatten-m7b-e5) | Freeze, unfreeze and flatten (M7b E5) | Accepted 2026-10-24 | Yes (v29) |
 | [0099](#adr-0099--a-render-or-scan-result-is-applied-only-to-what-it-read-m9-r0) | A render or scan result is applied only to what it read; the clips of a track being recorded are read-only (M9 R0) | Accepted 2026-10-24 | No |
+| [0108](#adr-0108--the-ux-round-three-detail-tabs-compact-cards-the-cpu-slot-the-chip-clip) | UX round three: detail tabs, compact cards, the CPU slot, the chip clip | Accepted 2026-10-28 | No |
 
 ---
 
@@ -121,6 +122,7 @@ irreversible or external) · *Superseded*.
 | Take lanes deferred (M9 R3, 2026-10-26) | Pitched after the owner's runs of R3 (each pass a clip on its own lane under the track, a comp lane that plays, comping by dragging across a lane): the owner likes individual take lanes and **deferred them, with comping, until after M9's must-have slices**, as recommended. Until then a take is a whole pass inside one clip (ADR-0104), reached from the Takes menu; the passes are windows on one file, so dragging a clip's edge past its pass shows the pass beside it (intended, as in common workstations). When lanes are built, the takes inside a clip become lanes by migration. Open for then: whether a comp segment is a copied clip or a reference to its take, whether recording over any material (not only loop passes) makes a lane, and MIDI lanes. |
 | M9 R4 choices (2026-10-26) | P1 A (renders follow the project rate), P2 A (Revert reloads the saved file after a quiet prompt, keeping the unsaved version in `Backups/Reverted`), S A (R4 is the save family and project settings; the media pool, relink and purge are R4b): every recommendation in `docs/milestones/M9-R4.md` §3.  After MT-PROJ-1 run 1 (2026-10-26): projects and templates get their own folders in `Documents/Lumen` (option A of four pitched), and the app menu is grouped (layout A of three pitched as specimens): ADR-0105. |
 | M9 R4b choices (2026-10-26) | M1 A (a "Project media" tab in the browser), M2 A (Locate one file, and search a folder with a report to look at before anything changes), M3 A (remove unused takes entries out as one undo step; Clear moves leftover files to the system trash after a second press), M4 A (a banner with Relinkâ¦ on open): every recommendation in `docs/milestones/M9-R4b.md` Â§3 (ADR-0106). |
+| UX round three (2026-10-28) | DP1 A (the detail panel names its subject; Clip only for an opened clip), B8 A (the chips' clip reaches past the pane), TB2 A (a fixed CPU slot), D2 A (compact cards in a short tray), and a margin round a compact card's Reload: every recommendation on the round-three audit sheet (ADR-0108). |
 | M9 plan choices (2026-10-24) | R1 A, R2 A, R3 A, R4 A, R5 A, X1 A, X2 A, X3 A: every recommendation in `docs/milestones/M9.md` §4. |
 | Milestone sequence (2026-10-23) | After M7 and M7b, deliver the existing M9 (Recording, Media, Export & Production Workflow) before M8 (Drum Maps, Drum Editor & Built-In Devices), because audio recording has higher priority than drum maps. Keep the milestone IDs and scopes unchanged; this only changes delivery order. Recorded in `docs/ROADMAP.md` and `docs/PROGRESS.md`. |
 | Native macOS VST3 hosting (2026-10-19, ADR-0085) | Bring the stretch goal forward now: the full existing workflow, including native editors, for plugins matching the host architecture. Intel bridging remains outside this slice. |
@@ -9485,3 +9487,51 @@ stems; the return-stem audio check includes a muted source. Float scratch
 files use the existing atomic WAV writer inside the private staging folder,
 without requiring filesystem hard links. A scratch write failure ends the
 offline render at the next block instead of continuing to render unused audio.
+
+## ADR-0108 — The UX round three: detail tabs, compact cards, the CPU slot, the chip clip
+
+**Date:** 2026-10-28. **Branch:** `chore/ux-round-three`, cut from `main`
+at `a91d198`. No format change.
+
+**Context.** The owner raised four odd interactions with screenshots: the
+Devices, Clip and Mixer tabs showed an empty page for whatever was not
+chosen (DP1); a lit browser chip was cut at the pane's edge (B8); the CPU
+readout pushed the audio chip as its figure changed width (TB2); and the
+Devices tab could not be made short, since a card needed its whole height
+(D2). Variants were pitched as mocks; the owner took every recommendation,
+and added that a failed card's Reload button had no margin.
+
+**Choice.**
+
+1. **DP1.** The tab row starts with the subject: the track of the header or
+   clip clicked last (`DetailState::anchor`, since the clip selection is an
+   unordered set), then Devices and Clip, with Mixer at the right. Clip is
+   there only while a clip is open (Enter, Open clip or a double-click, audio
+   as well as MIDI); an audio clip's Clip tab shows its properties beside its
+   wave. Deleting the opened clip goes back to Devices; a header click while
+   on Clip goes to Devices. Show devices, Show clip and Show mixer are
+   commands at the end of `Command`. Enter while the bounce window or a prompt
+   is up goes to them, not to Open clip.
+2. **B8.** The browser chips are clipped 4 pt past the pane's own clip, so a
+   lit chip's fill (8 pt outside its words) is never cut.
+3. **TB2.** The CPU readout is a slot as wide as "CPU 100%" in mono, its
+   figure at the right, up to 999%.
+4. **D2.** A tray too short for a whole card turns every card compact
+   (116 pt; 36 pt header, a row of four 18 pt knobs, a 24 pt footer), with
+   8 pt of hysteresis. A card that is not running says why, whole, and its
+   buttons sit in a footer with 6 pt above and below and `space::M` at the
+   sides. The tab's least height is its tallest compact card (212 pt for a
+   plain one), and choosing Devices grows the panel only to the height last
+   chosen for it.
+5. Full-card knobs are 24 pt and a card's row buttons 20 pt
+   (`CONTROL_SMALL`), as the design system says.
+
+**Alternatives.** A fixed slot for the subject would keep Devices and Clip
+still as the name changes; the mock (and this build) sizes it to the name,
+and a fixed slot is a possible follow-up. Scrolling one whole card in a short
+tray was rejected: it hides most of every card.
+
+**Consequences.** E2E tests that work on whole cards first make the tray tall
+(`Lumen::show_whole_cards`). New E2E: `detail_tabs.rs` (five scenarios),
+the compact-card switch, the Reload margin and the CPU slot. B8 is checked
+by shots only. Measured: none needed (no engine or project change).

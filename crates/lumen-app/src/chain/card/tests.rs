@@ -27,6 +27,7 @@ fn look(face: Face<'_>, bypass: bool, instrument: bool) -> Look<'_> {
         learning: false,
         sidechain: None,
         outputs: None,
+        compact: false,
     }
 }
 
