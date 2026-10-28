@@ -66,5 +66,5 @@ pub use render::{
 pub use scrub::{MAX_SPEED as MAX_SCRUB_SPEED, ScrubStyle};
 pub use snapshot::TransportSnapshot;
 pub use source::{Inputs, Jump, Mode, Output, RenderContext, Source};
-pub use stream::{PAGE, PagePool, PoolWriter, StreamAudio};
+pub use stream::{OfflineLoader, PAGE, PageLoader, PagePool, PoolWriter, ReadPage, StreamAudio};
 pub use timeline::Timeline;

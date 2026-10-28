@@ -233,3 +233,74 @@ fn a_looped_transport_counts_no_underrun_while_its_pages_are_there() {
     assert!(out.iter().any(|s| s.0 != 0.0));
     assert_eq!(table.pool().underruns(), 0);
 }
+
+#[test]
+fn an_offline_render_loads_what_it_reads_and_equals_the_render_from_memory() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use lumen_engine::{ClipRender, Finished, OfflineLoader, render_clips};
+
+    let frames = 30 * PAGE;
+    let memory = in_memory(frames);
+    // Eight pages for a file of thirty: the render evicts as it goes.
+    let pool = PagePool::new(8);
+    let loads = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&loads);
+    let (left, right) = ramp(frames);
+    let loader = OfflineLoader::new(
+        &pool,
+        Box::new(move |_, page, l, r| {
+            counted.fetch_add(1, Ordering::Relaxed);
+            let to = ((page + 1) * PAGE).min(frames);
+            let n = to - page * PAGE;
+            l[..n].copy_from_slice(&left[page * PAGE..to]);
+            r[..n].copy_from_slice(&right[page * PAGE..to]);
+            Some(n)
+        }),
+    );
+    // The live stream it stands for: only its shape and id are taken.
+    let live = StreamAudio::new(&PagePool::new(1), 1, RATE, 2, frames as u64);
+    let stream = loader.stream(&live);
+    assert!(stream.is_offline() && !live.is_offline());
+    let streamed = Arc::new(ClipAudio::Stream(stream));
+    let shape = ClipShape {
+        period: Some(9 * PAGE as i64 + 77),
+        ..ClipShape::default()
+    };
+    let render = |audio: &Arc<ClipAudio>| {
+        let mut out = Vec::new();
+        let ended = render_clips(
+            ClipRender {
+                clips: vec![Clip {
+                    start: Ticks::ZERO,
+                    offset: 500,
+                    length: 25 * PAGE as i64,
+                    ..clip(audio, shape)
+                }],
+                timeline: Timeline::default(),
+                sample_rate: RATE,
+                from: 0,
+                frames: 26 * PAGE as u64,
+                bare_ends: false,
+                block: 256,
+            },
+            &std::sync::atomic::AtomicBool::new(false),
+            &mut |_| {},
+            &mut |l, r| out.extend(l.iter().zip(r).map(|(a, b)| (*a, *b))),
+        );
+        assert_eq!(ended, Finished::Done);
+        out
+    };
+    let want = render(&memory);
+    let got = render(&streamed);
+    assert!(want.iter().any(|s| s.0 != 0.0));
+    assert!(
+        got == want,
+        "an offline render plays exactly what memory plays"
+    );
+    assert!(loads.load(Ordering::Relaxed) > 8);
+    let ClipAudio::Stream(s) = &*streamed else {
+        unreachable!()
+    };
+    assert_eq!(s.pool().underruns(), 0);
+}

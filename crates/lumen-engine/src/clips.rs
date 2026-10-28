@@ -461,7 +461,7 @@ fn play(
         // after is missing, it glides out (on audio it still has) and back in
         // once its pages are there. Each time it has to is one underrun.
         let ready = for_each_page(clip, start, a..b + block.ahead, stream.frames(), &mut |p| {
-            stream.resident(p)
+            stream.ensure(p)
         });
         if !ready {
             goal = 0.0;

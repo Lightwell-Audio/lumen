@@ -19,8 +19,10 @@
 //! entries carry the ordering. No lock, no allocation and no unsafe code on
 //! either side.
 
+mod offline;
 mod writer;
 
+pub use offline::{OfflineLoader, ReadPage};
 pub use writer::PoolWriter;
 
 use std::sync::Arc;
@@ -116,6 +118,17 @@ struct Table {
     frames: u64,
     pool: Arc<PagePool>,
     entries: Box<[AtomicU32]>,
+    /// Loads a missing page on the spot: only for an offline render's
+    /// streams, never for those the audio thread plays.
+    loader: Option<Arc<dyn PageLoader>>,
+}
+
+/// Loads pages of an offline render's streams when the clip player finds
+/// them missing, on the rendering thread. Blocks; never given to a stream the
+/// audio thread plays.
+pub trait PageLoader: Send + Sync {
+    /// Loads `audio`'s `page` into its pool, if it can.
+    fn load(&self, audio: &StreamAudio, page: usize);
 }
 
 /// A file played from disk: its shape and its page table. Cheap to clone;
@@ -150,6 +163,27 @@ impl StreamAudio {
         channels: u16,
         frames: u64,
     ) -> Self {
+        Self::table(pool, id, (sample_rate, channels, frames), None)
+    }
+
+    /// As [`StreamAudio::new`], for an offline render: a page the clip player
+    /// finds missing is loaded on the spot by `loader`, so the render never
+    /// starves. Never give one to the audio thread.
+    pub fn offline(
+        pool: &Arc<PagePool>,
+        id: u64,
+        (sample_rate, channels, frames): (u32, u16, u64),
+        loader: Arc<dyn PageLoader>,
+    ) -> Self {
+        Self::table(pool, id, (sample_rate, channels, frames), Some(loader))
+    }
+
+    fn table(
+        pool: &Arc<PagePool>,
+        id: u64,
+        (sample_rate, channels, frames): (u32, u16, u64),
+        loader: Option<Arc<dyn PageLoader>>,
+    ) -> Self {
         let pages = frames.div_ceil(PAGE as u64) as usize;
         Self(Arc::new(Table {
             id,
@@ -158,7 +192,13 @@ impl StreamAudio {
             frames,
             pool: Arc::clone(pool),
             entries: (0..pages).map(|_| AtomicU32::new(NONE)).collect(),
+            loader,
         }))
+    }
+
+    /// Whether this stream loads its own pages (an offline render's).
+    pub fn is_offline(&self) -> bool {
+        self.0.loader.is_some()
     }
 
     pub fn id(&self) -> u64 {
@@ -202,6 +242,23 @@ impl StreamAudio {
         self.entry(page).is_some()
     }
 
+    /// Whether `page` is in memory, after loading it if this is an offline
+    /// stream. Real-time safe for the streams the audio thread plays, which
+    /// load nothing.
+    #[inline]
+    pub fn ensure(&self, page: usize) -> bool {
+        if self.resident(page) {
+            return true;
+        }
+        match &self.0.loader {
+            Some(loader) if page < self.pages() => {
+                loader.load(self, page);
+                self.resident(page)
+            }
+            _ => false,
+        }
+    }
+
     /// One channel's samples, read through the page table. Real-time safe.
     pub fn side(&self, channel: usize) -> StreamSide<'_> {
         StreamSide {
@@ -233,7 +290,12 @@ impl StreamSide<'_> {
         let entry = if seen == page {
             entry
         } else {
-            let entry = self.audio.entry(page).unwrap_or(NONE);
+            // An offline stream loads what it misses.
+            let entry = match self.audio.entry(page) {
+                Some(entry) => entry,
+                None if self.audio.ensure(page) => self.audio.entry(page).unwrap_or(NONE),
+                None => NONE,
+            };
             self.last.set((page, entry));
             entry
         };
