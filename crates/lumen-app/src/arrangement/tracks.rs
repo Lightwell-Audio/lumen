@@ -34,6 +34,11 @@ impl Arrangement {
             self.selected = vec![id];
             self.anchor = Some(id);
         }
+        // The detail panel's subject follows the header clicked (DP1),
+        // even when the selection does not change.
+        if self.selected.contains(&id) {
+            self.header_clicked = Some(id);
+        }
     }
 
     /// Moves the selection one track up (`-1`) or down (`1`) from the last

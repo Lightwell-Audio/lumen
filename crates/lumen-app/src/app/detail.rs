@@ -144,38 +144,56 @@ impl App {
     /// clicked becomes the subject, a header clicked while on Clip shows
     /// Devices, and a deleted opened clip takes its tab with it.
     pub(crate) fn refresh_detail(&mut self, ctx: &egui::Context) {
+        // A selection made some other way (the arrow keys, a range) moves
+        // the subject; only a header click leaves the Clip tab.
         if self.arrangement.selected != self.detail.seen_tracks {
             if let Some(&last) = self.arrangement.selected.last() {
                 self.detail.anchor = Some(last);
-                if self.detail_tab == DetailTab::Clip {
-                    self.detail_tab = DetailTab::Devices;
-                    self.chain.grow = true;
-                }
             }
             self.detail.seen_tracks = self.arrangement.selected.clone();
         }
+        if let Some(track) = self.arrangement.header_clicked.take() {
+            self.detail.anchor = Some(track);
+            if self.detail_tab == DetailTab::Clip {
+                self.detail_tab = DetailTab::Devices;
+                self.chain.grow = true;
+            }
+        }
         if self.arrangement.clips != self.detail.seen_clips {
-            let fresh: Vec<Id> = self
+            let fresh: BTreeSet<Id> = self
                 .arrangement
                 .clips
                 .difference(&self.detail.seen_clips)
-                .filter_map(|c| self.track_of_clip(*c))
+                .copied()
                 .collect();
-            // A clip added on the subject's track keeps it; else the
-            // first new clip's track.
-            if !self.detail.anchor.is_some_and(|a| fresh.contains(&a))
-                && let Some(&track) = fresh.first()
+            // One pass over the tracks: a clip added on the subject's track
+            // keeps it; else the first track with a new clip.
+            let tracks: Vec<Id> = all_tracks(self.document.project())
+                .filter(|t| t.clips.iter().any(|c| fresh.contains(&c.id)))
+                .map(|t| t.id)
+                .collect();
+            if !self.detail.anchor.is_some_and(|a| tracks.contains(&a))
+                && let Some(&track) = tracks.first()
             {
                 self.detail.anchor = Some(track);
             }
             self.detail.seen_clips = self.arrangement.clips.clone();
         }
+        self.settle_opened_clip(ctx);
+    }
+
+    /// A deleted opened clip takes its tab with it. Also run before the
+    /// tab row is drawn, since a key can delete it after `refresh_detail`.
+    fn settle_opened_clip(&mut self, ctx: &egui::Context) {
         if let Some(clip) = self.detail.opened_audio
             && self.track_of_clip(clip).is_none()
         {
             self.detail.opened_audio = None;
         }
-        if self.detail_tab == DetailTab::Clip && self.opened_clip().is_none() {
+        let gone = self
+            .opened_clip()
+            .is_none_or(|clip| self.track_of_clip(clip).is_none());
+        if self.detail_tab == DetailTab::Clip && gone {
             self.detail_tab = DetailTab::Devices;
             self.chain.grow = true;
             // The keyboard follows, if it was in the panel.
@@ -187,6 +205,7 @@ impl App {
     /// Clip tab, then Mixer at the right after another hairline. The tabs
     /// are words over a sliding underline (the interface audit's T4).
     pub(crate) fn detail_tabs(&mut self, ui: &mut Ui) {
+        self.settle_opened_clip(&ui.ctx().clone());
         let project = self.document.project();
         let subject = self
             .subject()
@@ -226,7 +245,8 @@ impl App {
         let mixer = tabs.len() - 1;
         let chosen = match self.detail_tab {
             DetailTab::Devices => 0,
-            DetailTab::Clip => 1,
+            DetailTab::Clip if opened.is_some() => 1,
+            DetailTab::Clip => 0,
             DetailTab::Mixer => mixer,
         };
         let layout = widgets::TabsLayout {
@@ -234,11 +254,14 @@ impl App {
             right_from: Some(mixer),
             focus: std::mem::take(&mut self.detail.focus_devices).then_some(0),
         };
+        // A tab coming or going moves the others: the underline jumps to
+        // its place rather than gliding across from where the index was.
+        let tabs_id = egui::Id::new(("detail tabs", tabs.len()));
         let mut picked = None;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             subject_chip(ui, subject.as_ref(), quiet);
-            picked = widgets::tabs_with(ui, egui::Id::new("detail tabs"), chosen, &tabs, layout);
+            picked = widgets::tabs_with(ui, tabs_id, chosen, &tabs, layout);
         });
         if let Some(picked) = picked {
             let tab = if picked == mixer {
@@ -355,7 +378,7 @@ impl App {
             let mut bar = first;
             while bar <= last {
                 let at = meter.bar_start(bar);
-                if at >= start && (bar - first) % every == 0 {
+                if at >= start {
                     let x = x_of(at.as_quarters());
                     painter.text(
                         pos2(x + theme::space::XXS, inner.top() + RULER / 2.0),
@@ -365,7 +388,8 @@ impl App {
                         palette.text_hint,
                     );
                 }
-                bar += 1;
+                // Only the numbers shown: a long clip has many bars.
+                bar += every;
             }
         }
 

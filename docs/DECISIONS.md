@@ -9510,8 +9510,10 @@ and added that a failed card's Reload button had no margin.
    as well as MIDI); an audio clip's Clip tab shows its properties beside its
    wave. Deleting the opened clip goes back to Devices; a header click while
    on Clip goes to Devices. Show devices, Show clip and Show mixer are
-   commands at the end of `Command`. Enter while the bounce window or a prompt
-   is up goes to them, not to Open clip.
+   commands at the end of `Command`. Enter while a window is up (a prompt, Bounce,
+   Export, Project settings, ...) goes to it, not to Open clip. Only a
+   header click (even on the header already selected) leaves Clip; a
+   selection made another way moves the subject.
 2. **B8.** The browser chips are clipped 4 pt past the pane's own clip, so a
    lit chip's fill (8 pt outside its words) is never cut.
 3. **TB2.** The CPU readout is a slot as wide as "CPU 100%" in mono, its

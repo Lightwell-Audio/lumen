@@ -342,8 +342,8 @@ and 200%.
 6. Put a device on a track and drag the detail panel's top edge down: below
    a whole card's height every card turns compact, a row of four knobs, and
    back above it. Dragging slowly across the switch point does not flicker.
-   Choose Mixer and then Devices: the panel returns to the height last
-   chosen for Devices.
+   Make the panel short, choose Mixer and then Devices: the panel grows
+   back to the height last chosen for Devices (a taller panel stays as it is).
 7. Start in safe mode, or with a plugin that fails: the compact card says
    what happened in full, and its buttons (Load this plugin, Reload) have a
    margin at the card's edge below and at the right.

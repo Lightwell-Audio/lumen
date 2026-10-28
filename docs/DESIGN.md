@@ -855,11 +855,14 @@ onto an empty page.
 - **Devices** shows the subject's chain.
 - **Clip** is there only while a clip is open (Enter, the command "Open
   clip", or a double-click; an audio clip as well as a MIDI one), with the
-  clip's name as an 11 pt `text_secondary` note 6 pt after the word, cut with
+  clip's name as an 11 pt note 6 pt after the word (`text_secondary` while
+  Clip is chosen, `text_hint` otherwise), cut with
   "…" past 140 pt; the underline spans word and note. It stays while other
   things are clicked, is replaced when another clip opens, and goes when that
   clip is deleted: the panel shows Devices, and the keyboard follows if it was
-  in the panel. A header click while on Clip goes to Devices.
+  in the panel. A header click while on Clip goes to Devices, even on the header
+  already selected; a selection made another way (the arrow keys, a range)
+  moves the subject and leaves Clip open.
 - **Mixer** sits at the right after a hairline (`TabsLayout::right_from`).
 - **An audio clip's Clip tab:** its properties (the clip card's rows,
   `docked_clip_props`) in a 296 pt column on `app` with a hairline at its
@@ -1194,7 +1197,7 @@ a soft shadow, radius `XL`).
   drawn by the send knob's own `draw`: the ring in `control_press`, the trail
   and head in `accent`, dimmed when the parameter is read only), each with its
   name in `text_secondary` caption under it and the plugin's own text for its
-  value in mono. Full-card knobs are 24 pt (`size::KNOB`). A card is 232 pt wide and 310 pt
+  value in mono. Full-card knobs are 24 pt (`size::KNOB`). A card is 232 pt wide and 344 pt
   tall with its picture. An
   empty slot is a dashed ring with a "+" that opens the panel. Drag up or
   right (Shift for fine), double-click for the plugin's default, the wheel and

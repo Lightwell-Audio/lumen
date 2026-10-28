@@ -167,3 +167,34 @@ fn show_devices_clip_and_mixer_are_commands() {
     palette(&mut lumen, "Show clip");
     assert!(on_clip_tab(&lumen));
 }
+
+#[test]
+fn clicking_the_already_selected_header_leaves_the_clip_tab() {
+    let mut lumen = Lumen::start("detail-reclick");
+    palette(&mut lumen, "Add MIDI track");
+    lumen.frames(30);
+    let name = lumen.track_names()[0].clone();
+    click_header(&mut lumen, &name);
+    // Making a MIDI clip opens it and keeps the track selected.
+    palette(&mut lumen, "Create MIDI clip");
+    lumen.frames(10);
+    assert!(on_clip_tab(&lumen));
+    // The selection does not change, but the click still means Devices.
+    click_header(&mut lumen, &name);
+    assert!(lumen.app().devices_tab_shown());
+}
+
+#[test]
+fn enter_belongs_to_an_open_window_not_to_the_selected_clip() {
+    let (mut lumen, _, [kick_clip, _]) = with_two_clips("detail-enter-window");
+    click_clip(&mut lumen, kick_clip);
+    palette(&mut lumen, "Project settings");
+    lumen.frames(5);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(5);
+    assert_eq!(
+        lumen.app().opened_clip_in_detail(),
+        None,
+        "nothing opened behind the window"
+    );
+}

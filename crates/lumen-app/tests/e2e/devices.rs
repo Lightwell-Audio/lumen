@@ -366,8 +366,9 @@ fn a_failed_compact_card_still_offers_reload() {
         .map(|n| n.rect())
         .find(|r| r.contains_rect(button))
         .expect("the card around its button");
-    assert!(card.right() - button.right() >= 8.0, "room at the right");
-    assert!(card.bottom() - button.bottom() >= 4.0, "room below");
+    // space::M at the side, 6 pt below (BUTTONS_PAD).
+    assert!(card.right() - button.right() >= 11.5, "room at the right");
+    assert!(card.bottom() - button.bottom() >= 5.5, "room below");
     lumen.click("Reload");
     lumen.wait_for("the new host", |app| {
         app.device_state(FIRST).is_some_and(|s| s == "ready")
