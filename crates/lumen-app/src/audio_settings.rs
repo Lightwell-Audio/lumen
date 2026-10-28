@@ -28,6 +28,8 @@ pub enum Action {
     TestTone(bool),
     /// The recording offset, in milliseconds (M9 slice R2).
     RecordOffset(f32),
+    /// "Play audio from disk" on or off (M9 slice R6).
+    FromDisk(bool),
     DismissNotice,
     /// Something on the MIDI page.
     Midi(crate::midi::Action),
@@ -301,14 +303,23 @@ fn channels_of(pair: usize, names: &[String]) -> Vec<usize> {
     }
 }
 
+/// What the window shows of settings it does not own, lent each frame.
+#[derive(Debug, Clone, Copy)]
+pub struct Lent {
+    pub test_tone: bool,
+    /// The recording offset, in milliseconds.
+    pub record_offset_ms: f32,
+    /// "Play audio from disk".
+    pub from_disk: bool,
+}
+
 impl Window {
     pub fn show(
         &mut self,
         ctx: &egui::Context,
         audio: &Audio,
         midi: crate::midi_settings::Shown<'_>,
-        test_tone: bool,
-        record_offset_ms: f32,
+        lent: Lent,
     ) -> Vec<Action> {
         let mut actions = Vec::new();
         if !self.open {
@@ -345,7 +356,7 @@ impl Window {
                         ui.ctx()
                             .request_repaint_after(std::time::Duration::from_millis(300));
                     } else {
-                        self.contents(ui, audio, test_tone, record_offset_ms, &mut actions);
+                        self.contents(ui, audio, lent, &mut actions);
                     }
                 });
         let open = !close;
@@ -353,14 +364,12 @@ impl Window {
         actions
     }
 
-    fn contents(
-        &mut self,
-        ui: &mut Ui,
-        audio: &Audio,
-        test_tone: bool,
-        record_offset_ms: f32,
-        actions: &mut Vec<Action>,
-    ) {
+    fn contents(&mut self, ui: &mut Ui, audio: &Audio, lent: Lent, actions: &mut Vec<Action>) {
+        let Lent {
+            test_tone,
+            record_offset_ms,
+            from_disk,
+        } = lent;
         let ctx = ui.ctx().clone();
         let current = audio.settings();
         let driver = self
@@ -794,6 +803,16 @@ impl Window {
             .changed()
         {
             actions.push(Action::TestTone(tone));
+        }
+        let mut disk = from_disk;
+        if widgets::switch(ui, &mut disk, "Play audio from disk", true)
+            .on_hover_text(
+                "Files of half a minute or more are read from disk as they play, so a long \
+                 project needs less memory and opens sooner. Shorter files stay in memory.",
+            )
+            .changed()
+        {
+            actions.push(Action::FromDisk(disk));
         }
     }
 }

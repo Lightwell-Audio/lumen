@@ -81,14 +81,34 @@ pub fn peak_of(
     let frames = frames_of(audio, window);
     let mut peak = 0.0f32;
     let mut at = frames.start;
+    // A file played from disk is read a chunk at a time (M9 slice R6); one
+    // that cannot be read counts as silent, as a missing file plays.
+    let mut readers = crate::media::streams::Readers::default();
+    let (mut left, mut right) = (Vec::new(), Vec::new());
     while at < frames.end {
         if cancel.load(Ordering::Relaxed) {
             return None;
         }
         let to = (at + CHUNK).min(frames.end);
-        for channel in audio.memory()? {
-            for &sample in &channel[at..to] {
+        let mut scan = |samples: &[f32]| {
+            for &sample in samples {
                 peak = peak.max(sample.abs());
+            }
+        };
+        match audio {
+            ClipAudio::Memory { channels, .. } => {
+                for channel in channels {
+                    scan(&channel[at..to]);
+                }
+            }
+            ClipAudio::Stream(stream) => {
+                left.resize(to - at, 0.0);
+                right.resize(if stream.channels() == 2 { to - at } else { 0 }, 0.0);
+                let got = readers
+                    .read(stream, at as u64, &mut left, &mut right)
+                    .unwrap_or(0);
+                scan(&left[..got]);
+                scan(&right[..got.min(right.len())]);
             }
         }
         read(to - at);

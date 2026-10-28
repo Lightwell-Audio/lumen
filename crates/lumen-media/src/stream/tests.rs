@@ -476,3 +476,59 @@ fn a_cancelled_conversion_leaves_nothing_that_is_found() {
     let left: Vec<_> = fs::read_dir(cache.dir()).unwrap().collect();
     assert!(left.is_empty(), "no copy or key is left: {left:?}");
 }
+
+#[test]
+fn peaks_read_in_blocks_equal_the_peaks_of_the_file_in_memory() {
+    let dir = folder("peaks");
+    let cancel = AtomicBool::new(false);
+    // Longer than one scan block, and not a whole number of buckets.
+    let frames = 2 * SCAN + 1_234;
+    for channels in [
+        vec![signal(frames, 0.01)],
+        vec![signal(frames, 0.01), signal(frames, 0.002)],
+    ] {
+        let path = dir.join(format!("{}.wav", channels.len()));
+        write_wav(&path, 48_000, Sample::I24, &channels);
+        let want = decoded(&path).peaks(&cancel).unwrap();
+        let mut last = 0.0;
+        let got = peaks(&path, &cancel, &mut |p| last = p).unwrap().unwrap();
+        assert_eq!(got, want, "{} channels", channels.len());
+        assert_eq!(last, 1.0);
+    }
+    cancel.store(true, Ordering::Relaxed);
+    assert_eq!(peaks(&dir.join("1.wav"), &cancel, &mut |_| {}), Ok(None));
+}
+
+#[test]
+fn a_reversed_copy_holds_the_frames_in_the_other_order_and_is_made_once() {
+    let dir = folder("reversed");
+    let source = dir.join("source.wav");
+    // More than one block, so blocks are reversed and joined.
+    let frames = 70_000;
+    let channels = vec![signal(frames, 0.01), signal(frames, 0.003)];
+    write_wav(&source, 48_000, Sample::I16, &channels);
+    let cache = Cache::new(dir.join("cache"));
+    let cancel = AtomicBool::new(false);
+    let made = cache.reversed(&source, &cancel).unwrap();
+    assert!(made.converted);
+    assert_eq!(made.layout.frames, frames as u64);
+    let forward = read(&source, 0, frames);
+    let back = read(&made.path, 0, frames);
+    for c in 0..2 {
+        let mut want = forward[c].clone();
+        want.reverse();
+        assert_eq!(back[c], want, "channel {c}");
+    }
+    let modified = fs::metadata(&made.path).unwrap().modified().unwrap();
+    let again = cache.reversed(&source, &cancel).unwrap();
+    assert_eq!(again.path, made.path);
+    assert_eq!(
+        fs::metadata(&again.path).unwrap().modified().unwrap(),
+        modified
+    );
+
+    cancel.store(true, Ordering::Relaxed);
+    let other = dir.join("other.wav");
+    write_wav(&other, 48_000, Sample::F32, &[signal(1_000, 0.1)]);
+    assert_eq!(cache.reversed(&other, &cancel), Err(MediaError::Cancelled));
+}

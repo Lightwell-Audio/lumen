@@ -189,12 +189,15 @@ impl RenderAudio {
     }
 
     /// The clips a job starts with: the loaded ones when they are at the
-    /// project's rate, none when the worker makes them (`Self::again`).
+    /// project's rate, none when the worker makes them (`Self::again`). Clips
+    /// played from disk read through a pool of the job's own, filled as the
+    /// render reaches each page (M9 slice R6), so call this once per job:
+    /// one job's pool is read by one thread.
     pub fn clips(&self) -> Vec<Clip> {
         if self.again.is_some() {
             Vec::new()
         } else {
-            self.loaded.clone()
+            crate::media::streams::offline(self.loaded.clone())
         }
     }
 

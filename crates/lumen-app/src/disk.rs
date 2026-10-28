@@ -8,16 +8,15 @@
 
 pub mod plan;
 
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::media::streams::Readers;
 use lumen_engine::{PAGE, PagePool, PoolWriter, StreamAudio, TransportReader};
 use lumen_media::MediaError;
-use lumen_media::stream::Reader;
 
 use plan::{Horizon, Position, Scene, Want};
 
@@ -30,7 +29,7 @@ const ROUND: Duration = Duration::from_millis(5);
 const FULL: Duration = Duration::from_millis(2);
 
 /// Reads pages of streamed files. The real one reads stream files
-/// ([`Files`]); tests inject slow or failing ones.
+/// ([`Readers`]); tests inject slow or failing ones.
 pub trait Pages: Send {
     /// Reads `audio`'s `page` into `left` and `right` ([`PAGE`] frames each;
     /// `right` is left alone for a mono file). Returns the frames read.
@@ -46,21 +45,7 @@ pub trait Pages: Send {
     fn keep(&mut self, streams: &[StreamAudio]);
 }
 
-/// Stream files on disk, by the id the library gave each.
-#[derive(Default)]
-pub struct Files {
-    paths: Arc<Mutex<HashMap<u64, PathBuf>>>,
-    open: HashMap<u64, Reader>,
-}
-
-impl Files {
-    /// The paths the app registers files under, shared with the thread.
-    pub fn paths(&self) -> Arc<Mutex<HashMap<u64, PathBuf>>> {
-        Arc::clone(&self.paths)
-    }
-}
-
-impl Pages for Files {
+impl Pages for Readers {
     fn read(
         &mut self,
         audio: &StreamAudio,
@@ -68,38 +53,23 @@ impl Pages for Files {
         left: &mut [f32],
         right: &mut [f32],
     ) -> Result<usize, MediaError> {
-        let id = audio.id();
-        if !self.open.contains_key(&id) {
-            let path = self
-                .paths
-                .lock()
-                .map_err(|_| MediaError::Io("the stream file table was poisoned".to_owned()))?
-                .get(&id)
-                .cloned()
-                .ok_or_else(|| MediaError::Io(format!("no stream file for media {id}")))?;
-            self.open.insert(id, Reader::open(&path)?);
-        }
-        let reader = self.open.get_mut(&id).expect("opened above");
-        let from = (page * PAGE) as u64;
-        if audio.channels() == 1 || reader.layout().channels == 1 {
-            reader.read(from, &mut [left])
-        } else {
-            reader.read(from, &mut [left, right])
-        }
+        Readers::read(self, audio, (page * PAGE) as u64, left, right)
     }
 
     fn keep(&mut self, streams: &[StreamAudio]) {
-        self.open
-            .retain(|id, _| streams.iter().any(|s| s.id() == *id));
+        Readers::keep(self, streams);
     }
 }
 
 /// What the app tells the thread.
 enum Message {
     /// The clip list the engine now plays.
-    Scene(Scene),
+    Scene(Arc<Scene>),
     /// Read from here first: the app is about to start or jump there.
     Cue(Option<i64>),
+    /// End the thread. Sent rather than closing the channel, which the
+    /// [`Cuer`]s keep open.
+    Stop,
 }
 
 /// What the thread reports.
@@ -132,21 +102,17 @@ pub struct Disk {
 
 impl Disk {
     /// Starts the thread that fills `pool`, reading through `pages`, following
-    /// the transport `transport` reads, at `rate`.
-    pub fn start(
-        pool: &Arc<PagePool>,
-        pages: Box<dyn Pages>,
-        transport: TransportReader,
-        rate: u32,
-    ) -> Self {
+    /// the transport `transport` reads. It reads ahead by the rate of each
+    /// clip list it is given.
+    pub fn start(pool: &Arc<PagePool>, pages: Box<dyn Pages>, transport: TransportReader) -> Self {
         let (messages, inbox) = channel();
         let stats = Arc::new(Stats::default());
         let worker = Worker {
             writer: PoolWriter::new(pool),
             pages,
             transport,
-            horizon: Horizon::at(rate),
-            scene: Scene::default(),
+            horizon: Horizon::at(0),
+            scene: Arc::default(),
             cue: None,
             stats: Arc::clone(&stats),
             wants: Vec::new(),
@@ -177,13 +143,18 @@ impl Disk {
     }
 
     /// The clip list the engine now plays.
-    pub fn set_scene(&self, scene: Scene) {
-        self.send(Message::Scene(scene));
+    pub fn set_scene(&self, scene: impl Into<Arc<Scene>>) {
+        self.send(Message::Scene(scene.into()));
     }
 
     /// Reads the audio after `sample` first, until the next cue.
     pub fn cue(&self, sample: Option<i64>) {
         self.send(Message::Cue(sample));
+    }
+
+    /// A handle that cues this thread from elsewhere (the transport, L A).
+    pub fn cuer(&self) -> Cuer {
+        Cuer(self.messages.clone())
     }
 
     fn send(&self, message: Message) {
@@ -194,9 +165,25 @@ impl Disk {
     }
 }
 
+/// Cues a disk thread: [`Disk::cue`] from another owner. Does nothing once
+/// the thread has stopped.
+#[derive(Clone)]
+pub struct Cuer(Option<Sender<Message>>);
+
+impl Cuer {
+    /// Reads the audio after `sample` first, until the next cue.
+    pub fn cue(&self, sample: Option<i64>) {
+        if let Some(messages) = &self.0 {
+            let _ = messages.send(Message::Cue(sample));
+        }
+    }
+}
+
 impl Drop for Disk {
     fn drop(&mut self) {
-        self.messages = None;
+        if let Some(messages) = self.messages.take() {
+            let _ = messages.send(Message::Stop);
+        }
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -208,7 +195,7 @@ struct Worker {
     pages: Box<dyn Pages>,
     transport: TransportReader,
     horizon: Horizon,
-    scene: Scene,
+    scene: Arc<Scene>,
     cue: Option<i64>,
     stats: Arc<Stats>,
     wants: Vec<Want>,
@@ -227,6 +214,7 @@ impl Worker {
         let mut wait = Duration::ZERO;
         loop {
             match inbox.recv_timeout(wait) {
+                Ok(Message::Stop) => return,
                 Ok(message) => self.take(message),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => return,
@@ -244,9 +232,13 @@ impl Worker {
             Message::Scene(scene) => {
                 self.pages.keep(scene.streams());
                 self.broken.clear();
+                if scene.rate() > 0 {
+                    self.horizon = Horizon::at(scene.rate());
+                }
                 self.scene = scene;
             }
             Message::Cue(cue) => self.cue = cue,
+            Message::Stop => {}
         }
     }
 
@@ -261,6 +253,7 @@ impl Worker {
             sample: transport.sample,
             playing: transport.playing,
             cue: self.cue,
+            marker: Some(self.scene.sample_at(transport.marker)),
         };
         self.writer.tick();
         self.scene.plan(at, self.horizon, &mut self.wants);

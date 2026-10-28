@@ -90,6 +90,7 @@ fn at(sample: i64, playing: bool) -> Position {
         sample,
         playing,
         cue: None,
+        marker: None,
     }
 }
 
@@ -169,6 +170,7 @@ fn the_cue_comes_first_then_the_playhead_then_the_points_then_the_rest() {
         sample: 0,
         playing: true,
         cue: Some(80 * P),
+        marker: None,
     };
     let pages: Vec<usize> = planned(&scene, at, horizon(P, 3 * P))
         .into_iter()
@@ -244,7 +246,7 @@ fn the_thread_reads_ahead_of_the_playhead_and_the_samples_are_the_files() {
     let clips = vec![clip(&a, 0, 0, 100 * P)];
     let (handle, _) = player(clips.clone());
     let (pages, reads) = fake(Duration::ZERO);
-    let disk = Disk::start(&pool, pages, handle.transport_reader(), RATE);
+    let disk = Disk::start(&pool, pages, handle.transport_reader());
     let scene = scene(&clips, None, vec![]);
     disk.set_scene(scene);
     let check = Scene::new(&clips, &Timeline::default(), RATE, None, vec![]);
@@ -269,7 +271,7 @@ fn a_cue_is_read_before_the_playhead() {
     let (handle, _) = player(clips.clone());
     // Slow enough that the order shows.
     let (pages, _) = fake(Duration::from_millis(2));
-    let disk = Disk::start(&pool, pages, handle.transport_reader(), RATE);
+    let disk = Disk::start(&pool, pages, handle.transport_reader());
     disk.cue(Some(500 * P));
     disk.set_scene(scene(&clips, None, vec![]));
     eventually("the cue is read", || a.resident(500));
@@ -285,7 +287,7 @@ fn slow_reads_cost_underruns_and_never_hold_the_audio_up() {
     // 30 ms for a page of 85 ms: one file keeps up in real time, but not
     // rendered as fast as the engine can.
     let (pages, _) = fake(Duration::from_millis(30));
-    let disk = Disk::start(&pool, pages, handle.transport_reader(), RATE);
+    let disk = Disk::start(&pool, pages, handle.transport_reader());
     disk.set_scene(scene(&clips, None, vec![]));
     handle.send(Command::Play).unwrap();
     let started = Instant::now();
@@ -306,7 +308,7 @@ fn a_pool_too_small_for_the_plan_holds_the_nearest_pages() {
     let clips = vec![clip(&a, 0, 0, 100 * P)];
     let (handle, _) = player(clips.clone());
     let (pages, reads) = fake(Duration::ZERO);
-    let disk = Disk::start(&pool, pages, handle.transport_reader(), RATE);
+    let disk = Disk::start(&pool, pages, handle.transport_reader());
     disk.set_scene(scene(&clips, None, vec![]));
     eventually("the pool fills", || (0..8).all(|p| a.resident(p)));
     std::thread::sleep(Duration::from_millis(50));
@@ -321,9 +323,12 @@ fn the_pool_follows_a_locate() {
     let clips = vec![clip(&a, 0, 0, 1_000 * P)];
     let (mut handle, mut process) = player(clips.clone());
     let (pages, _) = fake(Duration::ZERO);
-    let disk = Disk::start(&pool, pages, handle.transport_reader(), RATE);
+    let disk = Disk::start(&pool, pages, handle.transport_reader());
     disk.set_scene(scene(&clips, None, vec![]));
-    eventually("the start is read", || a.resident(0));
+    // All two seconds of it, 24 of the 32 pages, so the new place needs room
+    // (under a loaded test run, page 0 alone came in first).
+    let ahead = (2 * RATE as usize).div_ceil(PAGE);
+    eventually("the start is read", || (0..ahead).all(|p| a.resident(p)));
     // 20 quarters: 480,000 samples, page 117.
     handle.send(Command::Locate(Ticks::quarters(20))).unwrap();
     process(1);
@@ -344,7 +349,7 @@ fn a_page_that_cannot_be_read_is_counted_once() {
         reads: Arc::clone(&reads),
         broken: Some(9),
     });
-    let disk = Disk::start(&pool, pages, handle.transport_reader(), RATE);
+    let disk = Disk::start(&pool, pages, handle.transport_reader());
     disk.set_scene(scene(&clips, None, vec![]));
     eventually("every page was tried", || disk.stats().failed() == 10);
     std::thread::sleep(Duration::from_millis(50));
@@ -359,7 +364,7 @@ fn a_loop_and_its_points_stay_in_memory_while_playing_elsewhere() {
     let clips = vec![clip(&a, 0, 0, 1_000 * P)];
     let (mut handle, mut process) = player(clips.clone());
     let (pages, _) = fake(Duration::ZERO);
-    let disk = Disk::start(&pool, pages, handle.transport_reader(), RATE);
+    let disk = Disk::start(&pool, pages, handle.transport_reader());
     // A loop from quarter 40 (960,000 samples, page 234) to 44, and a marker
     // at page 500 (a point).
     handle
@@ -386,7 +391,7 @@ fn a_loop_and_its_points_stay_in_memory_while_playing_elsewhere() {
 }
 
 #[test]
-fn files_read_pages_of_stream_files_by_media_id() {
+fn readers_read_pages_of_stream_files_by_their_id() {
     use lumen_media::wav::{Sample, Spec, Writer};
 
     let path = std::env::temp_dir().join(format!("lumen-disk-files-{}.wav", std::process::id()));
@@ -403,19 +408,36 @@ fn files_read_pages_of_stream_files_by_media_id() {
     writer.finish().unwrap();
 
     let pool = PagePool::new(1);
-    let audio = StreamAudio::new(&pool, 4, RATE, 2, frames as u64);
-    let mut files = Files::default();
+    let unknown = StreamAudio::new(&pool, u64::MAX, RATE, 2, frames as u64);
+    let mut files = Readers::default();
     let (mut l, mut r) = (vec![0.0; PAGE], vec![0.0; PAGE]);
     assert!(
-        files.read(&audio, 0, &mut l, &mut r).is_err(),
+        Pages::read(&mut files, &unknown, 0, &mut l, &mut r).is_err(),
         "not registered"
     );
-    files.paths().lock().unwrap().insert(4, path.clone());
-    assert_eq!(files.read(&audio, 1, &mut l, &mut r).unwrap(), 100);
+    let id = crate::media::streams::register(path.clone());
+    let audio = StreamAudio::new(&pool, id, RATE, 2, frames as u64);
+    assert_eq!(
+        Pages::read(&mut files, &audio, 1, &mut l, &mut r).unwrap(),
+        100
+    );
     assert_eq!((l[99], r[99]), (left[PAGE + 99], right[PAGE + 99]));
     assert_eq!(l[100], 0.0, "past the end is silence");
     // Readers of files the scene no longer has are closed.
-    files.keep(&[]);
-    assert!(files.open.is_empty());
+    Pages::keep(&mut files, &[]);
+    crate::media::streams::forget(id);
     std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn the_thread_stops_while_a_cuer_is_still_held() {
+    let pool = PagePool::new(4);
+    let (handle, _) = player(vec![]);
+    let (pages, _) = fake(Duration::ZERO);
+    let disk = Disk::start(&pool, pages, handle.transport_reader());
+    let cuer = disk.cuer();
+    // Dropping joins the thread: it must end although the cuer keeps the
+    // channel open (the transport holds one).
+    drop(disk);
+    cuer.cue(Some(0));
 }

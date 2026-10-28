@@ -148,6 +148,25 @@ impl Growing {
         }
     }
 
+    /// The finished peaks, the partly filled last bucket included: the same
+    /// as [`Peaks::build`] over every frame added (a file read in blocks).
+    pub fn finish(mut self) -> Peaks {
+        if self.filled > 0 {
+            let [l_min, l_max, r_min, r_max] = self.pending;
+            self.fine
+                .push([down(l_min), up(l_max), down(r_min), up(r_max)]);
+        }
+        let mut levels = vec![self.fine];
+        while levels.len() < LEVELS {
+            let below = levels.last().map_or(&[][..], Vec::as_slice);
+            levels.push(below.chunks(FACTOR).map(merge).collect());
+        }
+        Peaks {
+            channels: self.channels.clamp(1, 2),
+            levels,
+        }
+    }
+
     /// Frames in the buckets so far.
     pub fn frames(&self) -> usize {
         self.fine.len() * BASE

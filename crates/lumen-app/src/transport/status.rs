@@ -23,6 +23,10 @@ const DOT_RADIUS: f32 = theme::size::STATUS_DOT;
 const DROPOUT_HELP: &str =
     "Audio didn't reach the interface in time: you may have heard a click. A larger buffer helps.";
 
+/// What a late disk read means, and what helps (M9 slice R6).
+const DISK_HELP: &str = "A file playing from disk was read too late, so it was silent for a \
+     moment. A faster disk helps, as does turning off Play audio from disk in the audio settings.";
+
 impl Transport {
     /// CPU load (the peak over the last second) and, after dropouts, the
     /// dropout chip; returns the chip, which opens the audio panel.
@@ -76,14 +80,11 @@ impl Transport {
         } else {
             0.0
         };
-        let dropout = self
-            .dropouts
-            .showing(Instant::now())
-            .map_or(0.0, |episode| {
-                let font = egui::FontId::proportional(theme::size::CAPTION);
-                let text = format!("\u{26A0} {}", dropouts::chip(episode));
-                super::fit::text_width(ui, &text, font) + 2.0 * theme::space::S + gap
-            });
+        let dropout = self.warning(Instant::now()).map_or(0.0, |(text, _)| {
+            let font = egui::FontId::proportional(theme::size::CAPTION);
+            let text = format!("\u{26A0} {text}");
+            super::fit::text_width(ui, &text, font) + 2.0 * theme::space::S + gap
+        });
         let compensation = match self.audio.status {
             Status::Running { .. } => {
                 let rate = self.state().sample_rate;
@@ -97,25 +98,40 @@ impl Transport {
         (cpu, dropout, compensation)
     }
 
-    /// "Dropout" or "Dropouts ×3" in amber while dropouts are recent; it
-    /// fades out after 10 s of clean audio (owner's A).
+    /// What the warning chip says while dropouts or late disk reads are
+    /// recent, and what it means: dropouts first, as the worse news.
+    fn warning(&self, now: Instant) -> Option<(String, &'static str)> {
+        if let Some(episode) = self.dropouts.showing(now) {
+            return Some((dropouts::chip(episode), DROPOUT_HELP));
+        }
+        let episode = self.late.showing(now)?;
+        Some((late_chip(episode), DISK_HELP))
+    }
+
+    /// "Dropout" or "Dropouts ×3" in amber while dropouts are recent, or
+    /// "Disk late" after an underrun (M9 slice R6); it fades out after 10 s
+    /// of clean audio (owner's A).
     fn dropout_chip(&mut self, ui: &mut Ui) -> Option<egui::Response> {
         let now = Instant::now();
-        let showing = self.dropouts.showing(now);
-        if let Some(left) = self.dropouts.hides_in(now) {
+        let showing = self.warning(now);
+        for left in [self.dropouts.hides_in(now), self.late.hides_in(now)]
+            .into_iter()
+            .flatten()
+        {
             ui.ctx().request_repaint_after(left);
         }
         let id = ui.id().with("dropout chip");
         let shown = crate::motion::fade(ui.ctx(), id, showing.is_some());
-        if let Some(episode) = showing {
-            ui.ctx().data_mut(|d| d.insert_temp(id, episode));
+        if let Some(warning) = &showing {
+            ui.ctx().data_mut(|d| d.insert_temp(id, warning.clone()));
         }
         if shown <= 0.0 {
             return None;
         }
-        // While fading out, the episode it last showed.
-        let episode = showing.or_else(|| ui.ctx().data(|d| d.get_temp::<u64>(id)))?;
-        let text = format!("⚠ {}", dropouts::chip(episode));
+        // While fading out, what it last showed.
+        let (words, help) =
+            showing.or_else(|| ui.ctx().data(|d| d.get_temp::<(String, &'static str)>(id)))?;
+        let text = format!("⚠ {words}");
         let galley = ui.painter().layout_no_wrap(
             text,
             egui::FontId::proportional(theme::size::CAPTION),
@@ -143,12 +159,12 @@ impl Transport {
             galley,
             theme::p().warning,
         );
-        let name = format!("Audio: {}", dropouts::chip(episode));
+        let name = format!("Audio: {words}");
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
         Some(
             response
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .on_hover_text(format!("{DROPOUT_HELP}\n\nClick for the audio panel")),
+                .on_hover_text(format!("{help}\n\nClick for the audio panel")),
         )
     }
 
@@ -165,8 +181,11 @@ impl Transport {
             ctx,
             &self.audio,
             midi,
-            self.test_tone,
-            self.record_offset_ms,
+            crate::audio_settings::Lent {
+                test_tone: self.test_tone,
+                record_offset_ms: self.record_offset_ms,
+                from_disk: self.from_disk,
+            },
         ) {
             match action {
                 Action::Midi(action) => asked.push(action),
@@ -178,6 +197,7 @@ impl Transport {
                 Action::ControlPanel => self.audio.open_control_panel(),
                 Action::DismissNotice => self.audio.dismiss_notice(),
                 Action::RecordOffset(ms) => self.offset_asked = Some(ms),
+                Action::FromDisk(on) => self.from_disk_asked = Some(on),
                 Action::TestTone(on) => {
                     self.test_tone = on;
                     self.send(Command::TestTone(on));
@@ -272,6 +292,11 @@ impl Transport {
             ui.add(egui::Label::new(RichText::new(DROPOUT_HELP).small()).wrap());
             ui.separator();
         }
+        if let Some(summary) = late_summary(&self.late, Instant::now()) {
+            ui.label(RichText::new(format!("⚠ {summary}")).color(theme::p().warning));
+            ui.add(egui::Label::new(RichText::new(DISK_HELP).small()).wrap());
+            ui.separator();
+        }
         if let Some(meters) = self.audio.meters().cloned() {
             egui::Grid::new("audio meters")
                 .num_columns(2)
@@ -298,9 +323,26 @@ impl Transport {
                     ui.label("Clip audio in memory");
                     ui.label(format!("{:.0} MB", self.clip_memory as f64 / 1_048_576.0));
                     ui.end_row();
+                    // Only while audio plays from disk (the owner's D A).
+                    if let Some(disk) = self.disk {
+                        let late = disk.underruns.saturating_sub(self.disk_base);
+                        let tip = "The share of the last second spent reading files that play \
+                                   from disk, and the reads that came too late since audio \
+                                   started or the counts were reset";
+                        ui.label("Disk").on_hover_text(tip);
+                        let mut text = format!("{:.0}% · {late} late", disk.load * 100.0);
+                        if disk.failed > 0 {
+                            text.push_str(&format!(" · {} unreadable", disk.failed));
+                        }
+                        ui.label(text).on_hover_text(tip);
+                        ui.end_row();
+                    }
                 });
             // CPU is a live reading; only the counts can be reset.
-            let counted = meters.overloads() + meters.dropouts() > 0;
+            let late = self
+                .disk
+                .map_or(0, |d| d.underruns.saturating_sub(self.disk_base));
+            let counted = meters.overloads() + meters.dropouts() + late > 0;
             if ui
                 .add_enabled(counted, |ui: &mut egui::Ui| {
                     crate::widgets::raised::button(ui, "Reset overload and dropout counts")
@@ -309,6 +351,9 @@ impl Transport {
                 .clicked()
             {
                 meters.reset_counters();
+                if let Some(disk) = self.disk {
+                    self.disk_base = disk.underruns;
+                }
             }
         }
         ui.separator();
@@ -383,6 +428,10 @@ impl Transport {
         if let Some(meters) = self.audio.meters() {
             self.dropouts.update(meters.dropouts(), Instant::now());
         }
+        let late = self
+            .disk
+            .map_or(0, |d| d.underruns.saturating_sub(self.disk_base));
+        self.late.update(late, Instant::now());
         // What shows beyond the dot is `fit`'s to say (transport/fit.rs).
         let chip = self.health(ui);
         let (text, color, tip) = match &self.audio.status {
@@ -405,8 +454,7 @@ impl Transport {
         };
         // A dot that always fits shows the state at a glance; the text
         // shortens in narrow windows, and the tooltip always has all of it.
-        let hidden_dropouts =
-            !self.fit.plan.dropout && self.dropouts.showing(Instant::now()).is_some();
+        let hidden_dropouts = !self.fit.plan.dropout && self.warning(Instant::now()).is_some();
         let dot = match self.audio.status {
             // The dropout chip gave way: the dot says so.
             Status::Running { .. } if hidden_dropouts => theme::p().warning,
@@ -515,4 +563,29 @@ impl Transport {
         }
         widgets::Menu::below(&response).show(|ui| self.audio_panel(ui, project));
     }
+}
+
+/// The chip's words after late disk reads: "Disk late", or "Disk late ×3".
+fn late_chip(episode: u64) -> String {
+    if episode == 1 {
+        "Disk late".into()
+    } else {
+        format!("Disk late ×{episode}")
+    }
+}
+
+/// The panel's warning while late disk reads are recent: "2 late disk reads
+/// just now · 5 since audio started".
+fn late_summary(late: &dropouts::Dropouts, now: Instant) -> Option<String> {
+    let episode = late.showing(now)?;
+    let plural = if episode == 1 { "read" } else { "reads" };
+    let since = if late.was_reset() {
+        "since you reset"
+    } else {
+        "since audio started"
+    };
+    Some(format!(
+        "{episode} late disk {plural} just now · {} {since}",
+        late.total()
+    ))
 }

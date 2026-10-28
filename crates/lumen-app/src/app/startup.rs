@@ -164,6 +164,7 @@ impl App {
             settings_path,
             user_dir,
             settings_changed: None,
+            disk_scene: None,
             settings_writer: settings::Writer::start(),
             document,
             synced: None,

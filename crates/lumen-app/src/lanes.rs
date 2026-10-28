@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use eframe::egui::{self, Pos2, RichText};
 use lumen_core::time::Ticks;
-use lumen_engine::{Clip, ClipsHandle, MidiHandle, MixerHandle};
+use lumen_engine::{Clip, ClipAudio, ClipsHandle, MidiHandle, MixerHandle};
 use lumen_project::model::{ClipContent, Id, Project};
 
 use crate::document::{Document, DropInto, Imported};
@@ -58,6 +58,9 @@ pub struct Lanes {
     built: Option<u64>,
     /// The engine's clip list needs rebuilding.
     dirty: bool,
+    /// The streamed clips of the list last sent, and a count of the lists
+    /// sent, for the disk thread's scene (M9 slice R6).
+    streamed: (u64, Vec<Clip>),
     /// The audio tracks being recorded over that the clip list was built
     /// with, so it is built again when a take begins or ends.
     masked: Vec<crate::midi_play::Replacing>,
@@ -377,6 +380,12 @@ impl Lanes {
             .map(|r| (r.from, r.until))
     }
 
+    /// The streamed clips the engine plays, and a count that changes with
+    /// every list sent (M9 slice R6).
+    pub fn streamed(&self) -> (u64, &[Clip]) {
+        (self.streamed.0, &self.streamed.1)
+    }
+
     pub fn is_loading(&self) -> bool {
         !self.pending.is_empty() || !self.landing.is_empty()
     }
@@ -481,7 +490,15 @@ impl Lanes {
             // A frozen track plays its file (M7b E5), not its clips.
             let sounding = lumen_project::edit::freeze::played(doc.project());
             let list = self.engine_clips(&without_replaced(sounding, &masked), rate);
+            let streamed: Vec<Clip> = list
+                .iter()
+                .filter(|c| matches!(&*c.audio, ClipAudio::Stream(_)))
+                .cloned()
+                .collect();
             self.dirty = clips.set(list).is_err();
+            if !self.dirty {
+                self.streamed = (self.streamed.0 + 1, streamed);
+            }
             self.built = Some(doc.state());
             self.masked = masked;
         }

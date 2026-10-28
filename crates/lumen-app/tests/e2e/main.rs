@@ -98,6 +98,7 @@ mod smf;
 mod solo;
 mod song_lanes;
 mod stepped;
+mod streaming;
 mod templates;
 mod tools;
 mod track_resize;

@@ -20,6 +20,10 @@ use std::time::UNIX_EPOCH;
 
 use super::{Layout, convert, layout};
 use crate::MediaError;
+use crate::wav::{Sample, Spec, Writer};
+
+/// Frames a reversal reads and writes at a time.
+const BLOCK: usize = 65_536;
 
 fn io(error: std::io::Error) -> MediaError {
     MediaError::Io(error.to_string())
@@ -50,6 +54,12 @@ impl Key {
             ),
             rate,
         })
+    }
+
+    /// The key of the reversed copy of the same file.
+    fn reversed(mut self) -> Self {
+        self.text.push_str("reversed\n");
+        self
     }
 
     /// The copy's file name, without its extension.
@@ -146,6 +156,63 @@ impl Cache {
         crate::write_new(&key_file, key.text.as_bytes())?;
         let found = layout(&audio)?
             .ok_or_else(|| MediaError::Io("the converted copy could not be read".into()))?;
+        Ok(Prepared {
+            path: audio,
+            layout: found,
+            converted: true,
+        })
+    }
+
+    /// A stream file with the frames of the stream file `stream` in the other
+    /// order (a reversed clip's audio), made now when there is none (slow:
+    /// call on a background thread). Read and written in blocks, so neither
+    /// file is held whole. Keyed as a conversion is, so a changed file is
+    /// reversed again.
+    pub fn reversed(&self, stream: &Path, cancel: &AtomicBool) -> Result<Prepared, MediaError> {
+        let mut reader = super::Reader::open(stream)?;
+        let source = *reader.layout();
+        let key = Key::of(stream, source.sample_rate)?.reversed();
+        let (audio, key_file) = self.paths(&key);
+        if fs::read_to_string(&key_file).is_ok_and(|text| text == key.text)
+            && let Ok(Some(found)) = layout(&audio)
+            && found.frames == source.frames
+        {
+            return Ok(Prepared {
+                path: audio,
+                layout: found,
+                converted: true,
+            });
+        }
+        fs::create_dir_all(&self.dir).map_err(io)?;
+        let _ = fs::remove_file(&key_file);
+        let channels = source.played();
+        let mut writer = Writer::create(
+            &audio,
+            Spec {
+                sample_rate: source.sample_rate,
+                channels: channels as u16,
+                sample: Sample::F32,
+            },
+        )?;
+        let mut blocks = vec![vec![0.0; BLOCK]; channels];
+        let mut end = source.frames;
+        while end > 0 {
+            crate::cancelled(cancel)?;
+            let from = end.saturating_sub(BLOCK as u64);
+            let count = (end - from) as usize;
+            let mut parts: Vec<&mut [f32]> = blocks.iter_mut().map(|b| &mut b[..count]).collect();
+            reader.read(from, &mut parts)?;
+            for block in &mut blocks {
+                block[..count].reverse();
+            }
+            let parts: Vec<&[f32]> = blocks.iter().map(|b| &b[..count]).collect();
+            writer.write(&parts)?;
+            end = from;
+        }
+        writer.finish()?;
+        crate::write_new(&key_file, key.text.as_bytes())?;
+        let found = layout(&audio)?
+            .ok_or_else(|| MediaError::Io("the reversed copy could not be read".into()))?;
         Ok(Prepared {
             path: audio,
             layout: found,

@@ -182,6 +182,41 @@ impl Reader {
     }
 }
 
+/// Frames a whole-file scan reads at a time.
+const SCAN: usize = 65_536;
+
+/// The waveform peaks of the stream file `path`, read in blocks so the file
+/// is never held whole: the same as [`crate::Peaks::build`] over the file in
+/// memory. `progress` gets 0 to 1; `None` if `cancel` was set.
+pub fn peaks(
+    path: &Path,
+    cancel: &std::sync::atomic::AtomicBool,
+    progress: &mut dyn FnMut(f32),
+) -> Result<Option<crate::Peaks>, MediaError> {
+    let mut reader = Reader::open(path)?;
+    let layout = *reader.layout();
+    let mut growing = crate::GrowingPeaks::default();
+    let mut blocks = vec![vec![0.0; SCAN]; layout.played()];
+    let mut at = 0;
+    while at < layout.frames {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let mut parts: Vec<&mut [f32]> = blocks.iter_mut().map(Vec::as_mut_slice).collect();
+        let read = reader.read(at, &mut parts)?;
+        if read == 0 {
+            break;
+        }
+        growing.add(&blocks[0][..read], blocks.get(1).map(|r| &r[..read]));
+        at += read as u64;
+        progress(at as f32 / layout.frames as f32);
+    }
+    if layout.played() == 1 {
+        growing.channels = 1;
+    }
+    Ok(Some(growing.finish()))
+}
+
 /// Fills `buf` from `offset` without moving a shared cursor.
 fn read_at(file: &File, buf: &mut [u8], offset: u64) -> Result<(), MediaError> {
     #[cfg(unix)]

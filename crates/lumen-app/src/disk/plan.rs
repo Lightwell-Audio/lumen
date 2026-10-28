@@ -15,9 +15,12 @@ pub struct Scene {
     streams: Vec<StreamAudio>,
     /// The loop region, in timeline samples, while looping is on.
     looped: Option<(i64, i64)>,
-    /// Places playback can jump to (loop start, markers, the play marker):
+    /// Places playback can jump to (loop start, markers, the song's start):
     /// the audio after each is kept in memory.
     points: Vec<i64>,
+    /// The rate the clips play at, and the timeline that places them.
+    rate: u32,
+    timeline: Timeline,
 }
 
 struct Placed {
@@ -55,6 +58,8 @@ pub struct Position {
     /// Where the app is about to start or jump to (L A): read before
     /// anything else.
     pub cue: Option<i64>,
+    /// The play marker, where Play starts from: read after the playhead.
+    pub marker: Option<i64>,
 }
 
 /// A page wanted in memory: a file of the scene and a page of it.
@@ -76,6 +81,8 @@ impl Scene {
         let mut scene = Self {
             looped: looped.filter(|(a, b)| a < b),
             points,
+            rate,
+            timeline: timeline.clone(),
             ..Self::default()
         };
         for clip in clips {
@@ -109,9 +116,19 @@ impl Scene {
         self.clips.is_empty()
     }
 
+    /// The rate the scene's clips play at (0 for an empty scene).
+    pub fn rate(&self) -> u32 {
+        self.rate
+    }
+
+    /// The timeline sample of `at`.
+    pub fn sample_at(&self, at: lumen_core::time::Ticks) -> i64 {
+        self.timeline.sample_at(at, self.rate)
+    }
+
     /// The pages wanted from `at`, in the order to read them, into `out`:
-    /// the cue, then the next moments at the playhead, then after each
-    /// point, then the rest of the read-ahead. Each page once.
+    /// the cue, then the next moments at the playhead, at the play marker
+    /// and after each point, then the rest of the read-ahead. Each page once.
     pub fn plan(&self, at: Position, horizon: Horizon, out: &mut Vec<Want>) {
         out.clear();
         let mut seen = HashSet::new();
@@ -120,8 +137,12 @@ impl Scene {
             self.walk(&self.ahead(cue, 0..near, at.playing), &mut seen, out);
         }
         self.walk(&self.ahead(at.sample, 0..near, at.playing), &mut seen, out);
-        for &point in &self.points {
-            self.walk(std::slice::from_ref(&(point..point + near)), &mut seen, out);
+        for point in at.marker.iter().chain(&self.points) {
+            self.walk(
+                std::slice::from_ref(&(*point..point + near)),
+                &mut seen,
+                out,
+            );
         }
         if horizon.far > near {
             let rest = self.ahead(at.sample, near..horizon.far, at.playing);

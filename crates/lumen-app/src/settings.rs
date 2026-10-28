@@ -298,6 +298,18 @@ pub struct Settings {
     /// What Bounce did last (M7b slice E4): an added section with defaults,
     /// so older files read as before (no version change).
     pub bounce: BounceChoices,
+    /// How audio files play (M9 slice R6): an added section with defaults,
+    /// so older files read as before (no version change).
+    pub playback: Playback,
+}
+
+/// How audio files play.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Playback {
+    /// "Play audio from disk": long files stream rather than load into
+    /// memory. Off until the soak and MT-STREAM-1 pass (the owner's R5 A).
+    pub from_disk: bool,
 }
 
 /// The choices in Bounce's popover, remembered (the owner's B1).
@@ -349,6 +361,7 @@ impl Default for Settings {
             plugins: Default::default(),
             editing: Editing::default(),
             bounce: BounceChoices::default(),
+            playback: Playback::default(),
         }
     }
 }
@@ -609,6 +622,7 @@ mod tests {
                 effects: false,
                 tail: false,
             },
+            playback: Playback { from_disk: true },
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings.clone(), None));

@@ -22,6 +22,7 @@ mod devices;
 mod editor;
 mod media_pool;
 mod midi;
+mod streaming;
 mod tools;
 
 pub use crate::audio::{InputDeviceTurn, input_device, input_device_turn};

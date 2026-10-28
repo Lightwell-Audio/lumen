@@ -5,10 +5,15 @@
 //! Where they go on screen is worked out here in f64 and sent as viewport
 //! pixels, so it stays exact deep into a long file.
 
-use std::sync::Arc;
+use std::sync::mpsc::{Sender, channel};
+use std::sync::{Arc, Mutex, PoisonError};
 
-use lumen_engine::ClipAudio;
+use eframe::egui;
+
+use lumen_engine::{ClipAudio, StreamAudio};
 use lumen_render::{STRIP_CAPACITY, StripEntry};
+
+use crate::media::streams::Readers;
 
 /// Below this many frames per pixel a wave is drawn from its samples (the
 /// finest peaks hold 16 frames a bucket).
@@ -72,6 +77,8 @@ pub(super) struct Strips {
     cached: Vec<Option<Cached>>,
     /// Space handed out in the sample atlas.
     used: u32,
+    /// Reads the samples of files played from disk.
+    reader: StripReader,
     /// Strips were in use at the last update (so a clear is sent once).
     active: bool,
 }
@@ -98,6 +105,7 @@ impl Strips {
         waves: &[Geometry],
         visible: std::ops::Range<u32>,
         px: Pixels,
+        ctx: &egui::Context,
         audio: impl Fn(u64) -> Option<Arc<ClipAudio>>,
     ) -> Option<Update> {
         self.cached.resize(waves.len(), None);
@@ -152,7 +160,13 @@ impl Strips {
                     self.cached[i] = None;
                     continue;
                 }
-                writes.push((self.used, samples(&sound, a, count)));
+                let Some(samples) = self.reader.samples(&sound, a, count, ctx) else {
+                    // A file played from disk is read on a worker: until
+                    // then this wave draws from its peaks.
+                    self.cached[i] = None;
+                    continue;
+                };
+                writes.push((self.used, samples));
                 self.cached[i] = Some(Cached {
                     first: a,
                     count,
@@ -176,19 +190,127 @@ impl Strips {
     }
 }
 
-/// `count` samples of `audio` from frame `first`, left and right (mono
-/// repeats), as 16-bit fractions of full scale.
-fn samples(audio: &ClipAudio, first: i64, count: u32) -> Vec<[i16; 2]> {
-    let channels = audio.memory().unwrap_or_default();
+/// Samples as the strips hold them: left and right (mono repeats), as 16-bit
+/// fractions of full scale.
+fn to_strip(left: &[f32], right: &[f32]) -> Vec<[i16; 2]> {
+    let at = |v: f32| (v.clamp(-1.0, 1.0) * 32_767.0).round() as i16;
+    left.iter()
+        .zip(right)
+        .map(|(l, r)| [at(*l), at(*r)])
+        .collect()
+}
+
+/// `count` samples of `audio` in memory from frame `first`; frames past the
+/// end are silent.
+fn in_memory(channels: &[Vec<f32>], first: i64, count: u32) -> Vec<[i16; 2]> {
     let left = channels.first().map_or(&[][..], Vec::as_slice);
     let right = channels.get(1).map_or(left, Vec::as_slice);
-    let at = |side: &[f32], i: usize| {
-        side.get(i)
-            .map_or(0, |v| (v.clamp(-1.0, 1.0) * 32_767.0).round() as i16)
+    let range = |side: &[f32]| {
+        let mut out = vec![0.0; count as usize];
+        let from = (first.max(0) as usize).min(side.len());
+        let to = (from + count as usize).min(side.len());
+        out[..to - from].copy_from_slice(&side[from..to]);
+        out
     };
-    (first as usize..first as usize + count as usize)
-        .map(|i| [at(left, i), at(right, i)])
-        .collect()
+    to_strip(&range(left), &range(right))
+}
+
+/// Which samples were asked for: a file, its first frame and the count.
+type Want = (u64, i64, u32);
+
+/// What the worker read: the request and its samples.
+type Read = (Want, Vec<[i16; 2]>);
+
+/// Reads strips of files played from disk on a worker thread (M9 slice R6),
+/// so the UI never waits for the disk. One request at a time is kept: a
+/// newer one replaces what was asked before.
+#[derive(Default)]
+struct StripReader {
+    worker: Option<Worker>,
+}
+
+impl std::fmt::Debug for StripReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StripReader").finish_non_exhaustive()
+    }
+}
+
+struct Worker {
+    requests: Sender<(StreamAudio, Want, egui::Context)>,
+    done: Arc<Mutex<Option<Read>>>,
+    asked: Option<Want>,
+}
+
+impl StripReader {
+    /// `count` samples of `audio` from frame `first`: at once for audio in
+    /// memory; for a file played from disk once the worker has read them
+    /// (`None` until then, and `ctx` is woken when they are there).
+    fn samples(
+        &mut self,
+        audio: &ClipAudio,
+        first: i64,
+        count: u32,
+        ctx: &egui::Context,
+    ) -> Option<Vec<[i16; 2]>> {
+        let stream = match audio {
+            ClipAudio::Memory { channels, .. } => return Some(in_memory(channels, first, count)),
+            ClipAudio::Stream(stream) => stream,
+        };
+        let want = (stream.id(), first, count);
+        let worker = self.worker.get_or_insert_with(Worker::spawn);
+        let mut done = worker.done.lock().unwrap_or_else(PoisonError::into_inner);
+        if done.as_ref().is_some_and(|(read, _)| *read == want) {
+            worker.asked = None;
+            return done.take().map(|(_, samples)| samples);
+        }
+        drop(done);
+        if worker.asked != Some(want) {
+            worker.asked = Some(want);
+            // The worker only ends when this reader drops.
+            let _ = worker.requests.send((stream.clone(), want, ctx.clone()));
+        }
+        None
+    }
+}
+
+impl Worker {
+    fn spawn() -> Self {
+        let (requests, inbox) = channel::<(StreamAudio, Want, egui::Context)>();
+        let done = Arc::new(Mutex::new(None));
+        let results = Arc::clone(&done);
+        std::thread::Builder::new()
+            .name("lumen-strip-read".into())
+            .spawn(move || {
+                let mut readers = Readers::default();
+                while let Ok(mut request) = inbox.recv() {
+                    // Only the newest request is wanted.
+                    while let Ok(newer) = inbox.try_recv() {
+                        request = newer;
+                    }
+                    let (stream, want @ (_, first, count), ctx) = request;
+                    let (mut left, mut right) =
+                        (vec![0.0; count as usize], vec![0.0; count as usize]);
+                    let from = first.max(0) as u64;
+                    if readers.read(&stream, from, &mut left, &mut right).is_err() {
+                        // A file that cannot be read draws from its peaks.
+                        continue;
+                    }
+                    if stream.channels() == 1 {
+                        right.copy_from_slice(&left);
+                    }
+                    readers.keep(std::slice::from_ref(&stream));
+                    *results.lock().unwrap_or_else(PoisonError::into_inner) =
+                        Some((want, to_strip(&left, &right)));
+                    ctx.request_repaint();
+                }
+            })
+            .expect("spawn the strip reader");
+        Self {
+            requests,
+            done,
+            asked: None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -245,9 +367,10 @@ mod tests {
     #[test]
     fn strips_are_placed_exactly_and_reused_while_scrolling() {
         let mut strips = Strips::default();
+        let ctx = egui::Context::default();
         let sound = audio();
         let update = strips
-            .update(&[WAVE], 0..1, DEEP, |_| Some(Arc::clone(&sound)))
+            .update(&[WAVE], 0..1, DEEP, &ctx, |_| Some(Arc::clone(&sound)))
             .unwrap();
         // One strip, a screen's width to spare either side.
         assert_eq!(update.writes.len(), 1);
@@ -266,7 +389,7 @@ mod tests {
             ..DEEP
         };
         let update = strips
-            .update(&[WAVE], 0..1, moved, |_| Some(Arc::clone(&sound)))
+            .update(&[WAVE], 0..1, moved, &ctx, |_| Some(Arc::clone(&sound)))
             .unwrap();
         assert!(update.writes.is_empty());
         assert_eq!(update.table[0][..2], [0, 385]);
@@ -275,6 +398,7 @@ mod tests {
     #[test]
     fn coarser_zooms_and_hidden_rows_draw_from_peaks() {
         let mut strips = Strips::default();
+        let ctx = egui::Context::default();
         let sound = audio();
         // 20 frames per pixel: peaks.
         let coarse = Pixels {
@@ -283,25 +407,77 @@ mod tests {
         };
         assert!(
             strips
-                .update(&[WAVE], 0..1, coarse, |_| Some(Arc::clone(&sound)))
+                .update(&[WAVE], 0..1, coarse, &ctx, |_| Some(Arc::clone(&sound)))
                 .is_none()
         );
         // Deep, but the row is out of view.
         assert!(
             strips
-                .update(&[WAVE], 0..0, DEEP, |_| Some(Arc::clone(&sound)))
+                .update(&[WAVE], 0..0, DEEP, &ctx, |_| Some(Arc::clone(&sound)))
                 .is_none()
         );
         // After strips were in use, leaving sample level clears them once.
-        strips.update(&[WAVE], 0..1, DEEP, |_| Some(Arc::clone(&sound)));
+        strips.update(&[WAVE], 0..1, DEEP, &ctx, |_| Some(Arc::clone(&sound)));
         let clear = strips
-            .update(&[WAVE], 0..1, coarse, |_| Some(Arc::clone(&sound)))
+            .update(&[WAVE], 0..1, coarse, &ctx, |_| Some(Arc::clone(&sound)))
             .unwrap();
         assert_eq!(clear.table[0][1], 0);
         assert!(
             strips
-                .update(&[WAVE], 0..1, coarse, |_| Some(Arc::clone(&sound)))
+                .update(&[WAVE], 0..1, coarse, &ctx, |_| Some(Arc::clone(&sound)))
                 .is_none()
         );
+    }
+
+    #[test]
+    fn a_streamed_file_gets_its_strip_from_the_worker_with_the_same_samples() {
+        use lumen_media::wav::{Sample, Spec, Writer};
+
+        let sound = audio();
+        let channels = sound.memory().unwrap();
+        let path = std::env::temp_dir().join(format!("lumen-strips-{}.wav", std::process::id()));
+        let mut writer = Writer::create(
+            &path,
+            Spec {
+                sample_rate: 48_000,
+                channels: 2,
+                sample: Sample::F32,
+            },
+        )
+        .unwrap();
+        writer.write(&[&channels[0], &channels[1]]).unwrap();
+        writer.finish().unwrap();
+        let id = crate::media::streams::register(path.clone());
+        let pool = lumen_engine::PagePool::new(1);
+        let streamed = Arc::new(ClipAudio::Stream(StreamAudio::new(
+            &pool, id, 48_000, 2, 48_000,
+        )));
+
+        let ctx = egui::Context::default();
+        let mut memory = Strips::default();
+        let want = memory
+            .update(&[WAVE], 0..1, DEEP, &ctx, |_| Some(Arc::clone(&sound)))
+            .unwrap();
+        let mut strips = Strips::default();
+        // Asked for: nothing to draw yet but the peaks.
+        let first = strips
+            .update(&[WAVE], 0..1, DEEP, &ctx, |_| Some(Arc::clone(&streamed)))
+            .unwrap();
+        assert!(first.writes.is_empty() && first.table[0][1] == 0);
+        let started = std::time::Instant::now();
+        let got = loop {
+            let update = strips
+                .update(&[WAVE], 0..1, DEEP, &ctx, |_| Some(Arc::clone(&streamed)))
+                .unwrap();
+            if !update.writes.is_empty() {
+                break update;
+            }
+            assert!(started.elapsed().as_secs() < 10, "the strip never came");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        };
+        assert_eq!(got.writes, want.writes);
+        assert_eq!(got.table, want.table);
+        crate::media::streams::forget(id);
+        let _ = std::fs::remove_file(path);
     }
 }

@@ -317,6 +317,7 @@ impl Arrangement {
                 origin: left_px - left_px.round(),
                 width: f64::from(canvas.width() * ppp),
             },
+            ctx,
             |media| match lanes.library.get(media).map(|i| &i.state) {
                 Some(State::Ready(audio)) => Some(Arc::clone(audio)),
                 _ => None,
