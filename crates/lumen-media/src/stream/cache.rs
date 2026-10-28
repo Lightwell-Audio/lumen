@@ -1,0 +1,155 @@
+//! The cache of converted audio (ADR-0108; owner's C A). A file that does not
+//! stream as it is gets a converted copy here: a 32-bit float WAV at the
+//! device rate, named after a hash of its key, with the key itself beside it
+//! in a small text file.
+//!
+//! The key is the source's full path, size, modified time and the rate. A
+//! file that changes, by any of those, has a different key, so a stale copy
+//! is never played: the new key misses and the file is converted again. A
+//! copy is found only when its key file matches word for word, so a hash
+//! collision is a miss, not a wrong file.
+//!
+//! The copy is written under a temporary name and renamed when complete
+//! ([`crate::wav::Writer`]); the key file is written after it. A crash during
+//! a conversion leaves no key, so the copy is made again.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::time::UNIX_EPOCH;
+
+use super::{Layout, convert, layout};
+use crate::MediaError;
+
+fn io(error: std::io::Error) -> MediaError {
+    MediaError::Io(error.to_string())
+}
+
+/// What identifies one conversion of one file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Key {
+    text: String,
+    rate: u32,
+}
+
+impl Key {
+    /// The key of `source` converted to `rate`, from the file as it is now.
+    pub fn of(source: &Path, rate: u32) -> Result<Self, MediaError> {
+        let meta = fs::metadata(source).map_err(io)?;
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_nanos());
+        let path = fs::canonicalize(source).unwrap_or_else(|_| source.to_owned());
+        Ok(Self {
+            text: format!(
+                "lumen stream cache 1\n{}\n{}\n{modified}\n{rate}\n",
+                path.display(),
+                meta.len()
+            ),
+            rate,
+        })
+    }
+
+    /// The copy's file name, without its extension.
+    fn stem(&self) -> String {
+        // FNV-1a: stable across runs and platforms, unlike the std hasher.
+        let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+        for byte in self.text.bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+        format!("{hash:016x}-{}", self.rate)
+    }
+}
+
+/// The stream file that plays a source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prepared {
+    pub path: PathBuf,
+    pub layout: Layout,
+    /// Whether `path` is a converted copy (else it is the source itself).
+    pub converted: bool,
+}
+
+/// The folder of converted copies.
+#[derive(Debug, Clone)]
+pub struct Cache {
+    dir: PathBuf,
+}
+
+impl Cache {
+    pub fn new(dir: impl Into<PathBuf>) -> Self {
+        Self { dir: dir.into() }
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    fn paths(&self, key: &Key) -> (PathBuf, PathBuf) {
+        let stem = key.stem();
+        (
+            self.dir.join(format!("{stem}.wav")),
+            self.dir.join(format!("{stem}.key")),
+        )
+    }
+
+    /// The stream file for `source` at `rate` if one is ready: the source
+    /// itself when it streams as it is, else a converted copy whose key
+    /// matches. Never converts.
+    pub fn find(&self, source: &Path, rate: u32) -> Result<Option<Prepared>, MediaError> {
+        if let Some(found) = layout(source)?.filter(|l| l.sample_rate == rate) {
+            return Ok(Some(Prepared {
+                path: source.to_owned(),
+                layout: found,
+                converted: false,
+            }));
+        }
+        let key = Key::of(source, rate)?;
+        let (audio, key_file) = self.paths(&key);
+        let matches = fs::read_to_string(&key_file).is_ok_and(|text| text == key.text);
+        if !matches {
+            return Ok(None);
+        }
+        match layout(&audio) {
+            Ok(Some(found)) if found.sample_rate == rate => Ok(Some(Prepared {
+                path: audio,
+                layout: found,
+                converted: true,
+            })),
+            // A copy that cannot be read is made again.
+            _ => Ok(None),
+        }
+    }
+
+    /// The stream file for `source` at `rate`, converting it now when there
+    /// is none (slow: call on a background thread). `progress` gets 0 to 1.
+    pub fn prepare(
+        &self,
+        source: &Path,
+        rate: u32,
+        cancel: &AtomicBool,
+        progress: &mut dyn FnMut(f32),
+    ) -> Result<Prepared, MediaError> {
+        if let Some(found) = self.find(source, rate)? {
+            progress(1.0);
+            return Ok(found);
+        }
+        let key = Key::of(source, rate)?;
+        let (audio, key_file) = self.paths(&key);
+        fs::create_dir_all(&self.dir).map_err(io)?;
+        // An old key would vouch for the new copy before it is complete.
+        let _ = fs::remove_file(&key_file);
+        convert::convert(source, rate, &audio, cancel, progress)?;
+        crate::write_new(&key_file, key.text.as_bytes())?;
+        let found = layout(&audio)?
+            .ok_or_else(|| MediaError::Io("the converted copy could not be read".into()))?;
+        Ok(Prepared {
+            path: audio,
+            layout: found,
+            converted: true,
+        })
+    }
+}
