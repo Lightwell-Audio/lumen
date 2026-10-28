@@ -12,15 +12,28 @@
 //! The copy is written under a temporary name and renamed when complete
 //! ([`crate::wav::Writer`]); the key file is written after it. A crash during
 //! a conversion leaves no key, so the copy is made again.
+//!
+//! Waveform peaks are kept here too, for every stream file (a converted
+//! copy or a source that streams as it is), so a file opened again shows
+//! its waveform without being read whole ([`Cache::peaks`]).
+//!
+//! The folder has a size limit ([`LIMIT`]); [`Cache::trim`] clears the
+//! entries used longest ago, never one that is playing. An entry is the
+//! files that share a name before the first dot; a hit refreshes its
+//! modified time, which is its time of last use.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{Layout, convert, layout};
-use crate::MediaError;
 use crate::wav::{Sample, Spec, Writer};
+use crate::{MediaError, Peaks};
+
+/// How much the cache holds before [`Cache::trim`] clears it: 20 GB (the
+/// owner's C A). Choosing it comes with R7's Preferences.
+pub const LIMIT: u64 = 20_000_000_000;
 
 /// Frames a reversal reads and writes at a time.
 const BLOCK: usize = 65_536;
@@ -54,6 +67,12 @@ impl Key {
             ),
             rate,
         })
+    }
+
+    /// The key of the waveform peaks of the same file.
+    fn peaks(mut self) -> Self {
+        self.text.push_str("peaks\n");
+        self
     }
 
     /// The key of the reversed copy of the same file.
@@ -124,11 +143,14 @@ impl Cache {
             return Ok(None);
         }
         match layout(&audio) {
-            Ok(Some(found)) if found.sample_rate == rate => Ok(Some(Prepared {
-                path: audio,
-                layout: found,
-                converted: true,
-            })),
+            Ok(Some(found)) if found.sample_rate == rate => {
+                used(&key_file);
+                Ok(Some(Prepared {
+                    path: audio,
+                    layout: found,
+                    converted: true,
+                }))
+            }
             // A copy that cannot be read is made again.
             _ => Ok(None),
         }
@@ -177,6 +199,7 @@ impl Cache {
             && let Ok(Some(found)) = layout(&audio)
             && found.frames == source.frames
         {
+            used(&key_file);
             return Ok(Prepared {
                 path: audio,
                 layout: found,
@@ -218,5 +241,116 @@ impl Cache {
             layout: found,
             converted: true,
         })
+    }
+
+    /// The waveform peaks of the stream file `stream`: read from the cache
+    /// when they are there for the file as it is now, else read from the
+    /// file in blocks and kept for next time (slow: call on a background
+    /// thread). `progress` gets 0 to 1; `None` if `cancel` was set. Failing
+    /// to keep them is not an error: they are made again next time.
+    pub fn peaks(
+        &self,
+        stream: &Path,
+        cancel: &AtomicBool,
+        progress: &mut dyn FnMut(f32),
+    ) -> Result<Option<Peaks>, MediaError> {
+        let rate = layout(stream)?.map_or(0, |l| l.sample_rate);
+        let key = Key::of(stream, rate)?.peaks();
+        let file = self.dir.join(format!("{}.peaks", key.stem()));
+        if let Ok(bytes) = fs::read(&file)
+            && let Some(peaks) = bytes
+                .strip_prefix(key.text.as_bytes())
+                .and_then(Peaks::from_bytes)
+        {
+            used(&file);
+            progress(1.0);
+            return Ok(Some(peaks));
+        }
+        let Some(peaks) = super::peaks(stream, cancel, progress)? else {
+            return Ok(None);
+        };
+        let mut bytes = key.text.into_bytes();
+        bytes.extend(peaks.to_bytes());
+        if fs::create_dir_all(&self.dir).is_ok() {
+            let _ = crate::write_new(&file, &bytes);
+        }
+        Ok(Some(peaks))
+    }
+
+    /// Clears the entries used longest ago until the folder holds at most
+    /// `limit` bytes, never an entry of a stream file in `keep` (those
+    /// playing now: their converted copy, and their peaks). Files being
+    /// written are neither counted nor cleared. Returns the bytes cleared.
+    pub fn trim(&self, limit: u64, keep: &[PathBuf]) -> u64 {
+        let Ok(read) = fs::read_dir(&self.dir) else {
+            return 0;
+        };
+        // Entries by name: their files, bytes and time of last use.
+        let mut entries: std::collections::HashMap<String, (Vec<PathBuf>, u64, SystemTime)> =
+            Default::default();
+        for file in read.flatten() {
+            let name = file.file_name().to_string_lossy().into_owned();
+            let Ok(meta) = file.metadata() else { continue };
+            if !meta.is_file() || name.ends_with(".writing") {
+                continue;
+            }
+            let stem = name.split('.').next().unwrap_or_default().to_owned();
+            let modified = meta.modified().unwrap_or(UNIX_EPOCH);
+            let entry = entries
+                .entry(stem)
+                .or_insert_with(|| (Vec::new(), 0, UNIX_EPOCH));
+            entry.0.push(file.path());
+            entry.1 += meta.len();
+            entry.2 = entry.2.max(modified);
+        }
+        let mut total: u64 = entries.values().map(|e| e.1).sum();
+        if total <= limit {
+            return 0;
+        }
+        let kept: std::collections::HashSet<String> =
+            keep.iter().flat_map(|path| self.stems_of(path)).collect();
+        let mut oldest: Vec<_> = entries
+            .into_iter()
+            .filter(|(stem, _)| !kept.contains(stem))
+            .collect();
+        oldest.sort_by_key(|(_, (_, _, used))| *used);
+        let mut cleared = 0;
+        for (_, (files, bytes, _)) in oldest {
+            if total <= limit {
+                break;
+            }
+            for file in files {
+                let _ = fs::remove_file(file);
+            }
+            total -= bytes;
+            cleared += bytes;
+        }
+        cleared
+    }
+
+    /// The entries that belong to the stream file `path`: its own, when it
+    /// is a copy in this folder, and its peaks.
+    fn stems_of(&self, path: &Path) -> Vec<String> {
+        let mut stems = Vec::new();
+        if path.parent() == Some(self.dir.as_path())
+            && let Some(name) = path.file_name()
+        {
+            let name = name.to_string_lossy();
+            stems.push(name.split('.').next().unwrap_or_default().to_owned());
+        }
+        if let Ok(Some(found)) = layout(path)
+            && let Ok(key) = Key::of(path, found.sample_rate)
+        {
+            stems.push(key.peaks().stem());
+        }
+        stems
+    }
+}
+
+/// Marks a cache file as used now (its modified time), so [`Cache::trim`]
+/// clears it last. A file that cannot be touched only ages sooner.
+fn used(file: &Path) {
+    if let Ok(handle) = fs::OpenOptions::new().write(true).open(file) {
+        let _ = handle.set_modified(SystemTime::now());
     }
 }

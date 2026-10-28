@@ -10,6 +10,9 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// What [`Peaks::to_bytes`] begins with: the format and its version.
+const PEAKS_TAG: &[u8] = b"lumen peaks 1\n";
+
 /// Frames per bucket at the finest level.
 pub const BASE: usize = 16;
 /// Buckets of the level below that one bucket covers.
@@ -49,15 +52,54 @@ impl Peaks {
             let (r_min, r_max) = extent(r);
             finest.push([down(l_min), up(l_max), down(r_min), up(r_max)]);
         }
+        Some(Self::of_finest(channels.len(), finest))
+    }
+
+    /// The peaks whose finest level is `finest`, the levels above built from
+    /// it.
+    fn of_finest(channels: usize, finest: Vec<Bucket>) -> Self {
         let mut levels = vec![finest];
         while levels.len() < LEVELS {
             let below = levels.last().map_or(&[][..], Vec::as_slice);
             levels.push(below.chunks(FACTOR).map(merge).collect());
         }
-        Some(Self {
-            channels: channels.len().clamp(1, 2),
+        Self {
+            channels: channels.clamp(1, 2),
             levels,
-        })
+        }
+    }
+
+    /// The peaks as bytes, for the peak cache (M9 slice R6): a tag, the
+    /// channels and the finest level; the levels above are built again when
+    /// read.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let finest = self.levels.first().map_or(&[][..], Vec::as_slice);
+        let mut out = Vec::with_capacity(PEAKS_TAG.len() + 9 + finest.len() * 4);
+        out.extend(PEAKS_TAG);
+        out.push(self.channels as u8);
+        out.extend((finest.len() as u64).to_le_bytes());
+        for bucket in finest {
+            out.extend(bucket.map(|v| v as u8));
+        }
+        out
+    }
+
+    /// Peaks written by [`Self::to_bytes`]; `None` if `bytes` are not that.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let rest = bytes.strip_prefix(PEAKS_TAG)?;
+        let (&channels, rest) = rest.split_first()?;
+        let (count, rest) = rest.split_first_chunk::<8>()?;
+        let count = usize::try_from(u64::from_le_bytes(*count)).ok()?;
+        if !(1..=2).contains(&channels) || rest.len() != count.checked_mul(4)? {
+            return None;
+        }
+        let finest = rest
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| b.map(|v| v as i8))
+            .collect();
+        Some(Self::of_finest(usize::from(channels), finest))
     }
 
     /// The levels, finest first: level `n` has a bucket for every
@@ -156,15 +198,7 @@ impl Growing {
             self.fine
                 .push([down(l_min), up(l_max), down(r_min), up(r_max)]);
         }
-        let mut levels = vec![self.fine];
-        while levels.len() < LEVELS {
-            let below = levels.last().map_or(&[][..], Vec::as_slice);
-            levels.push(below.chunks(FACTOR).map(merge).collect());
-        }
-        Peaks {
-            channels: self.channels.clamp(1, 2),
-            levels,
-        }
+        Peaks::of_finest(self.channels, self.fine)
     }
 
     /// Frames in the buckets so far.
@@ -198,6 +232,30 @@ mod tests {
 
     fn build(channels: &[Vec<f32>]) -> Peaks {
         Peaks::build(channels, &AtomicBool::new(false)).unwrap()
+    }
+
+    #[test]
+    fn peaks_read_back_from_their_bytes_as_they_were() {
+        for channels in [1, 2] {
+            let audio: Vec<Vec<f32>> = (0..channels)
+                .map(|c| {
+                    (0..100_000)
+                        .map(|i| ((i * (c + 7)) % 1_999) as f32 / 1_000.0 - 1.0)
+                        .collect()
+                })
+                .collect();
+            let peaks = build(&audio);
+            let bytes = peaks.to_bytes();
+            assert_eq!(Peaks::from_bytes(&bytes), Some(peaks));
+            assert_eq!(
+                Peaks::from_bytes(&bytes[..bytes.len() - 1]),
+                None,
+                "cut short"
+            );
+            assert_eq!(Peaks::from_bytes(b"something else"), None);
+        }
+        let empty = build(&[vec![]]);
+        assert_eq!(Peaks::from_bytes(&empty.to_bytes()), Some(empty));
     }
 
     #[test]

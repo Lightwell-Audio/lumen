@@ -532,3 +532,97 @@ fn a_reversed_copy_holds_the_frames_in_the_other_order_and_is_made_once() {
     write_wav(&other, 48_000, Sample::F32, &[signal(1_000, 0.1)]);
     assert_eq!(cache.reversed(&other, &cancel), Err(MediaError::Cancelled));
 }
+
+#[test]
+fn peaks_are_kept_and_a_changed_file_scans_again() {
+    let dir = folder("kept-peaks");
+    let source = dir.join("source.wav");
+    write_wav(&source, 48_000, Sample::F32, &[signal(40_000, 0.01)]);
+    let cache = Cache::new(dir.join("cache"));
+    let cancel = AtomicBool::new(false);
+    let first = cache.peaks(&source, &cancel, &mut |_| {}).unwrap().unwrap();
+    assert_eq!(Some(first.clone()), decoded(&source).peaks(&cancel));
+    // Kept: found again with no scan, even when a scan would be cancelled.
+    cancel.store(true, Ordering::Relaxed);
+    assert_eq!(
+        cache.peaks(&source, &cancel, &mut |_| {}).unwrap(),
+        Some(first.clone())
+    );
+    cancel.store(false, Ordering::Relaxed);
+    // A changed file is scanned again.
+    write_wav(&source, 48_000, Sample::F32, &[signal(40_000, 0.07)]);
+    let second = cache.peaks(&source, &cancel, &mut |_| {}).unwrap().unwrap();
+    assert_ne!(second, first);
+    assert_eq!(Some(second), decoded(&source).peaks(&cancel));
+}
+
+#[test]
+fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
+    let dir = folder("trim");
+    let cache = Cache::new(dir.join("cache"));
+    let cancel = AtomicBool::new(false);
+    // Three converted files, each with its peaks, made one after another.
+    let prepared: Vec<_> = (0..3)
+        .map(|i| {
+            let source = dir.join(format!("{i}.wav"));
+            write_wav(&source, 44_100, Sample::F32, &[signal(20_000, 0.01)]);
+            let prepared = cache
+                .prepare(&source, 48_000, &cancel, &mut |_| {})
+                .unwrap();
+            cache.peaks(&prepared.path, &cancel, &mut |_| {}).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            prepared
+        })
+        .collect();
+    let count = || fs::read_dir(cache.dir()).unwrap().count();
+    assert_eq!(count(), 9, "copy, key and peaks of each");
+    let total: u64 = fs::read_dir(cache.dir())
+        .unwrap()
+        .map(|f| f.unwrap().metadata().unwrap().len())
+        .sum();
+    assert_eq!(cache.trim(total, &[]), 0, "under the limit nothing goes");
+    assert_eq!(count(), 9);
+
+    // The oldest is the first, but it is playing: the second goes, then the
+    // second's peaks.
+    let playing = [prepared[0].path.clone()];
+    let cleared = cache.trim(total - 1, &playing);
+    assert!(cleared > 0);
+    assert!(!prepared[1].path.exists(), "the oldest entry not playing");
+    assert!(prepared[0].path.exists() && prepared[2].path.exists());
+    assert_eq!(count(), 7, "only the second's copy and key");
+    // Its peaks are kept, read with no scan.
+    cancel.store(true, Ordering::Relaxed);
+    assert!(
+        cache
+            .peaks(&prepared[0].path, &cancel, &mut |_| {})
+            .unwrap()
+            .is_some()
+    );
+    cancel.store(false, Ordering::Relaxed);
+
+    // A hit makes an entry the newest: with room for the third's copy
+    // alone, every other entry goes.
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    assert!(cache.find(&dir.join("2.wav"), 48_000).unwrap().is_some());
+    let third: u64 = fs::read_dir(cache.dir())
+        .unwrap()
+        .map(|f| f.unwrap())
+        .filter(|f| {
+            let name = f.file_name().to_string_lossy().into_owned();
+            let stem = prepared[2]
+                .path
+                .file_stem()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            name.starts_with(&stem)
+        })
+        .map(|f| f.metadata().unwrap().len())
+        .sum();
+    cache.trim(third, &[]);
+    assert!(prepared[2].path.exists(), "used last, kept");
+    assert_eq!(count(), 2, "the third's copy and key alone");
+    cache.trim(1, &[]);
+    assert_eq!(count(), 0, "a limit below every entry clears them all");
+}

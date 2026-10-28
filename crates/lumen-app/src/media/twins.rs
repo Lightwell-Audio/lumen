@@ -93,7 +93,7 @@ fn make(
     };
     match stream {
         Some((path, cache)) => match cache.reversed(&path, cancel) {
-            Ok(prepared) => match lumen_media::stream::peaks(&prepared.path, cancel, &mut |_| {}) {
+            Ok(prepared) => match cache.peaks(&prepared.path, cancel, &mut |_| {}) {
                 Ok(Some(peaks)) => (Ok(Made::Stream(prepared)), Some(peaks)),
                 Ok(None) => (Err(MediaError::Cancelled), None),
                 Err(why) => (Err(why), None),

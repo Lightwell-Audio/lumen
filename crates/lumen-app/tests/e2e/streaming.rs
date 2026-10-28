@@ -79,3 +79,44 @@ fn the_switch_loads_files_again_in_memory_or_from_disk() {
         "the same from disk ({streamed}) as from memory ({in_memory})"
     );
 }
+
+/// The waveform peaks kept in the test's cache folder.
+fn kept_peaks(lumen: &Lumen) -> Vec<std::path::PathBuf> {
+    std::fs::read_dir(lumen.dir().join("Cache"))
+        .map(|files| {
+            files
+                .flatten()
+                .map(|f| f.path())
+                .filter(|p| p.extension().is_some_and(|e| e == "peaks"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_file_opened_again_shows_its_waveform_from_the_cache() {
+    let mut lumen = Lumen::start_with(TempDir::new("e2e-streaming-peaks"), |launch| {
+        launch.playing_from_disk()
+    });
+    let long = wav(&lumen.dir().join("long.wav"), 40.0);
+    lumen.drop_files(std::slice::from_ref(&long));
+    let kept = kept_peaks(&lumen);
+    assert_eq!(kept.len(), 1, "the long file's peaks are kept: {kept:?}");
+    // Aged, so a hit is seen as the entry being used now.
+    let aged = std::time::UNIX_EPOCH + Duration::from_secs(1_000);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&kept[0])
+        .unwrap()
+        .set_modified(aged)
+        .unwrap();
+
+    // A new session opens the same file.
+    let dir = lumen.crash();
+    let mut lumen = Lumen::start_with(dir, |launch| launch.playing_from_disk());
+    lumen.drop_files(&[long]);
+    assert_eq!(lumen.app().media_from_disk(), [("long".into(), true)]);
+    assert_eq!(kept_peaks(&lumen), kept, "read, not made again");
+    let used = std::fs::metadata(&kept[0]).unwrap().modified().unwrap();
+    assert!(used > aged, "the waveform came from the cache");
+}

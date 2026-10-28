@@ -39,6 +39,11 @@ pub fn forget(id: u64) {
     files().remove(&id);
 }
 
+/// The stream files registered now: those playing, which the cache keeps.
+pub fn in_use() -> Vec<PathBuf> {
+    files().values().cloned().collect()
+}
+
 /// The stream file registered as `id`.
 pub fn path(id: u64) -> Option<PathBuf> {
     files().get(&id).cloned()

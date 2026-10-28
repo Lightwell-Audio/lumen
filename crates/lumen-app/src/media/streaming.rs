@@ -103,11 +103,19 @@ pub(super) fn load(
     report: &mut dyn FnMut(f32),
 ) -> Result<Streamed, MediaError> {
     let prepared = cache.prepare(path, rate, cancel, &mut |p| report(p * 0.9))?;
-    let peaks = lumen_media::stream::peaks(&prepared.path, cancel, &mut |p| {
+    // Kept in the cache, so a file opened again shows its waveform at once.
+    let peaks = cache.peaks(&prepared.path, cancel, &mut |p| {
         report(0.9 + p * 0.1);
     })?;
     if peaks.is_none() {
         return Err(MediaError::Cancelled);
+    }
+    // Within its limit, keeping what plays now and what was just made.
+    let mut playing = streams::in_use();
+    playing.push(prepared.path.clone());
+    let cleared = cache.trim(lumen_media::stream::cache::LIMIT, &playing);
+    if cleared > 0 {
+        crate::trace::log(|| format!("cache: cleared {cleared} bytes"));
     }
     let own = header.sample_rate.unwrap_or(prepared.layout.sample_rate);
     let frames = header.frames.unwrap_or_else(|| {
