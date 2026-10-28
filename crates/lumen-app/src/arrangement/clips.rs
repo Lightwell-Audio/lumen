@@ -744,7 +744,7 @@ fn body_color(paint: &Paint, palette: &theme::Palette, alpha: f32) -> Color32 {
 fn outline_color(paint: &Paint, track: Color32, alpha: f32) -> Color32 {
     match paint.outline {
         Some(color) => color.gamma_multiply(alpha),
-        None => track.gamma_multiply(0.6 * alpha),
+        None => track.gamma_multiply(theme::CLIP_EDGE * alpha),
     }
 }
 

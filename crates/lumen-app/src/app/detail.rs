@@ -46,14 +46,6 @@ pub(crate) struct DetailState {
 /// The properties column beside an opened audio clip's wave: the clip
 /// card's rows, with its padding.
 const PROPS_WIDTH: f32 = super::clip_card::CARD_WIDTH + 2.0 * theme::space::M;
-/// The bar numbers over the wave.
-const RULER: f32 = 18.0;
-/// The least room between two bar numbers; past it, every second, fourth…
-const BAR_ROOM: f32 = 32.0;
-/// The widest the subject's name is drawn before it truncates.
-const SUBJECT_WIDTH: f32 = 160.0;
-/// The subject's colour bar.
-const SUBJECT_BAR: f32 = 3.0;
 
 impl App {
     /// The track holding clip `clip`.
@@ -371,7 +363,7 @@ impl App {
             let bars = (last - first + 1).max(1);
             let per_bar = inner.width() / bars as f32;
             let mut every = 1;
-            while per_bar * (every as f32) < BAR_ROOM && every < bars {
+            while per_bar * (every as f32) < theme::size::BAR_NUMBER_ROOM && every < bars {
                 every *= 2;
             }
             let font = FontId::monospace(theme::size::MONO_SMALL);
@@ -381,7 +373,10 @@ impl App {
                 if at >= start {
                     let x = x_of(at.as_quarters());
                     painter.text(
-                        pos2(x + theme::space::XXS, inner.top() + RULER / 2.0),
+                        pos2(
+                            x + theme::space::XXS,
+                            inner.top() + theme::size::CLIP_RULER / 2.0,
+                        ),
                         egui::Align2::LEFT_CENTER,
                         (bar + 1).to_string(),
                         font.clone(),
@@ -394,7 +389,10 @@ impl App {
         }
 
         let colour = arrangement::clip_color(track, model);
-        let body = Rect::from_min_max(pos2(inner.left(), inner.top() + RULER), inner.max);
+        let body = Rect::from_min_max(
+            pos2(inner.left(), inner.top() + theme::size::CLIP_RULER),
+            inner.max,
+        );
         if body.height() < arrangement::TITLE * 2.0 {
             return;
         }
@@ -418,7 +416,11 @@ impl App {
             title.width() - 2.0 * theme::space::XS,
         );
         painter.text(
-            pos2(title.left() + theme::space::XS + 1.0, title.center().y),
+            // The name clears the outline's hairline by the inset.
+            pos2(
+                title.left() + theme::stroke::HAIRLINE + theme::space::XS,
+                title.center().y,
+            ),
             egui::Align2::LEFT_CENTER,
             name,
             FontId::proportional(theme::size::CAPTION),
@@ -429,7 +431,10 @@ impl App {
         painter.rect_stroke(
             body,
             radius,
-            Stroke::new(theme::stroke::HAIRLINE, colour.gamma_multiply(0.6)),
+            Stroke::new(
+                theme::stroke::HAIRLINE,
+                colour.gamma_multiply(theme::CLIP_EDGE),
+            ),
             egui::StrokeKind::Inside,
         );
     }
@@ -468,9 +473,14 @@ impl App {
         let spans = waves::one_clip(self.document.project(), clip.id, rate, |key| {
             ready(key).map(|(source, _)| source)
         });
-        let Some(peaks) = spans.first().and_then(|s| ready(s.media)).map(|(_, p)| p) else {
+        // Each span's own peaks: a span reads its own media.
+        let peaks: Vec<_> = spans
+            .iter()
+            .map(|s| ready(s.media).map(|(_, p)| p))
+            .collect();
+        if peaks.iter().all(Option::is_none) {
             return;
-        };
+        }
         let start = clip.start.as_quarters();
         let quarters = clip.length.as_quarters().max(f64::EPSILON);
         let fade_in = clip.fade_in.length.as_quarters();
@@ -481,20 +491,27 @@ impl App {
         // scaled.
         let pixel = 1.0 / painter.pixels_per_point();
         let columns = (lane.width() / pixel).floor().max(0.0) as usize;
-        let frame_at = |q: f64| {
-            spans
-                .iter()
-                .find(|s| q >= s.start && q < s.end)
-                .or(spans.last())
-                .map(|s| (s.first_frame + (q - s.start) * s.frames_per_beat, s.gain))
-        };
         let mut mesh = egui::Mesh::default();
         for column in 0..columns {
             let q0 = start + quarters * column as f64 / columns as f64;
             let q1 = start + quarters * (column + 1) as f64 / columns as f64;
-            let (Some((f0, gain)), Some((f1, _))) = (frame_at(q0), frame_at(q1)) else {
+            // The span under the column's middle; a column over no span
+            // (before the first, or between two) is left empty.
+            let middle_q = (q0 + q1) / 2.0;
+            let Some(at) = spans
+                .iter()
+                .position(|s| middle_q >= s.start && middle_q < s.end)
+            else {
                 continue;
             };
+            let (span, Some(peaks)) = (&spans[at], &peaks[at]) else {
+                continue;
+            };
+            let frame = |q: f64| {
+                span.first_frame
+                    + (q.clamp(span.start, span.end) - span.start) * span.frames_per_beat
+            };
+            let (f0, f1, gain) = (frame(q0), frame(q1), span.gain);
             let [lmin, lmax, rmin, rmax] = peaks.extent(f0.min(f1), f0.max(f1));
             let (lo, hi) = (
                 f32::from(lmin.min(rmin)) / 127.0,
@@ -535,10 +552,10 @@ fn subject_chip(ui: &mut Ui, subject: Option<&(String, Color32)>, quiet: bool) {
     };
     let text = subject.map_or("No track selected", |(name, _)| name.as_str());
     let font = fonts::medium(theme::size::BODY);
-    let fitted = widgets::fit(ui.painter(), text, font.clone(), SUBJECT_WIDTH);
+    let fitted = widgets::fit(ui.painter(), text, font.clone(), theme::size::SUBJECT_NAME);
     let galley = ui.painter().layout_no_wrap(fitted, font, ink);
     let bar_room = if subject.is_some() {
-        SUBJECT_BAR + theme::space::S
+        theme::size::SUBJECT_BAR + theme::space::S
     } else {
         0.0
     };
@@ -551,13 +568,13 @@ fn subject_chip(ui: &mut Ui, subject: Option<&(String, Color32)>, quiet: bool) {
     );
     let mut x = rect.left() + theme::space::M;
     if let Some((_, colour)) = subject {
-        let alpha = if quiet { 0.5 } else { 1.0 };
+        let alpha = if quiet { theme::DIMMED } else { 1.0 };
         let bar = Rect::from_center_size(
-            pos2(x + SUBJECT_BAR / 2.0, rect.center().y),
-            vec2(SUBJECT_BAR, theme::size::TAB_DIVIDER),
+            pos2(x + theme::size::SUBJECT_BAR / 2.0, rect.center().y),
+            vec2(theme::size::SUBJECT_BAR, theme::size::TAB_DIVIDER),
         );
         ui.painter()
-            .rect_filled(bar, 1.0, colour.gamma_multiply(alpha));
+            .rect_filled(bar, theme::radius::MARK, colour.gamma_multiply(alpha));
         x += bar_room;
     }
     ui.painter().galley(

@@ -93,6 +93,9 @@ pub(super) struct Look<'a> {
     pub outputs: Option<&'a outputs::Look>,
     /// The tray is short: the card is the compact one (D2).
     pub compact: bool,
+    /// What the compact card says in its knobs' place, worked out once a
+    /// frame: its height and its paint both read it.
+    pub message: std::cell::OnceCell<Option<compact::Message>>,
 }
 
 /// What a card's own buttons asked for.
@@ -173,7 +176,9 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     let palette = *theme::p();
     let rect = rect.round_to_pixels(ui.pixels_per_point());
     let radius = f32::from(RADIUS);
-    let painter = ui.painter().with_clip_rect(rect.expand(24.0));
+    let painter = ui
+        .painter()
+        .with_clip_rect(rect.expand(theme::size::SHADOW_ROOM));
     // The body first, so the power and the buttons sit on top of it. A press
     // that moves picks the card up.
     let body = ui.interact(rect, id.with("card"), Sense::click_and_drag());
@@ -392,7 +397,9 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
 fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Response) -> Out {
     let palette = *theme::p();
     let radius = f32::from(RADIUS);
-    let painter = ui.painter().with_clip_rect(rect.expand(24.0));
+    let painter = ui
+        .painter()
+        .with_clip_rect(rect.expand(theme::size::SHADOW_ROOM));
     let hover = motion::hover(ui.ctx(), id.with("card hover"), body.hovered());
     painter.add(
         Shadow {

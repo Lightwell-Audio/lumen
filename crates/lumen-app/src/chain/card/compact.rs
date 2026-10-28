@@ -13,22 +13,27 @@ use crate::chain::geometry::{COMPACT_FOOTER, COMPACT_H, COMPACT_HEADER};
 /// The knobs' row starts this far under the header, and sits this far in
 /// from the card's sides.
 const ROW_TOP: f32 = theme::space::XS;
-const ROW_SIDE: f32 = 6.0;
+const ROW_SIDE: f32 = theme::size::CARD_INSET;
 /// A message's words: their line, and the room above and below them.
-const LINE: f32 = 14.0;
+const LINE: f32 = theme::size::CAPTION_LINE;
 const WORDS_TOP: f32 = theme::space::S;
 const WORDS_BOTTOM: f32 = theme::space::XS;
 /// A footer with buttons has this much room above and below them (DESIGN:
 /// a control never touches a card's edge).
-const BUTTONS_PAD: f32 = 6.0;
+const BUTTONS_PAD: f32 = theme::size::CARD_INSET;
 
 /// What a card that is not running (or has lost its sidechain's source)
 /// says in its knobs' place.
-struct Message {
+pub(in crate::chain) struct Message {
     title: &'static str,
     warn: bool,
     words: String,
     buttons: Vec<(&'static str, Action)>,
+}
+
+/// What `look`'s compact card says, if anything.
+fn message<'l>(look: &'l Look<'_>) -> Option<&'l Message> {
+    look.message.get_or_init(|| message_of(look)).as_ref()
 }
 
 fn message_of(look: &Look<'_>) -> Option<Message> {
@@ -134,7 +139,7 @@ pub(in crate::chain) fn height(ui: &Ui, look: &Look<'_>) -> f32 {
     if look.folded {
         return COMPACT_H;
     }
-    let Some(message) = message_of(look) else {
+    let Some(message) = message(look) else {
         return COMPACT_H;
     };
     let painter = ui.painter();
@@ -154,7 +159,9 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     let palette = *theme::p();
     let pixels = ui.pixels_per_point();
     let radius = f32::from(RADIUS);
-    let painter = ui.painter().with_clip_rect(rect.expand(24.0));
+    let painter = ui
+        .painter()
+        .with_clip_rect(rect.expand(theme::size::SHADOW_ROOM));
     let hover = motion::hover(ui.ctx(), id.with("card hover"), body.hovered());
     painter.add(
         Shadow {
@@ -167,9 +174,9 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     );
     painter.rect_filled(rect, radius, palette.raised);
 
-    let message = message_of(look);
+    let message = message(look);
     let side = theme::space::M;
-    let rows = message.as_ref().map_or(0, |m| {
+    let rows = message.map_or(0, |m| {
         button_rows(&painter, &m.buttons, rect.width() - 2.0 * side)
     });
     let header = Rect::from_min_size(rect.min, vec2(rect.width(), COMPACT_HEADER));
@@ -281,7 +288,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     // Between header and footer: the knobs, or what replaces them.
     let middle = Rect::from_min_max(header.left_bottom(), pos2(rect.right(), footer.top()));
     let mut action = None;
-    match &message {
+    match message {
         Some(message) => {
             let area = middle.shrink2(vec2(side, 0.0));
             let top = area.top() + WORDS_TOP;

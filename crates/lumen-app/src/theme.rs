@@ -399,6 +399,8 @@ pub const METER_PEAK_ALPHA: f32 = 0.4;
 /// The opacity of what steps back beside something lit: the info line's
 /// other actions while a modifier is held (the interface audit's I1).
 pub const DIMMED: f32 = 0.45;
+/// How strong a clip's outline is in its colour.
+pub const CLIP_EDGE: f32 = 0.6;
 
 /// A meter's colour at `db`: `base` (the accent, or the track's colour with
 /// the owner's M2 setting) up to [`METER_WARN_DB`], the warning colour up to
@@ -462,6 +464,8 @@ pub mod space {
 /// Corner radii, by the height of what they round (`DESIGN.md` §5): a
 /// piece inside a trough takes the trough's radius less its 2 pt inset.
 pub mod radius {
+    /// Marks a few points wide: a colour bar, a tick.
+    pub const MARK: u8 = 1;
     /// 20 pt controls and troughs, clips, notes, keycaps, chips in 20 pt
     /// rows.
     pub const SMALL: u8 = 4;
@@ -587,6 +591,28 @@ pub mod size {
     /// The hairline between groups of a tab row, and the detail panel's
     /// subject bar (DP1).
     pub const TAB_DIVIDER: f32 = 14.0;
+    /// The detail panel's subject (DP1): the widest its name is drawn
+    /// before it truncates, and its colour bar's width.
+    pub const SUBJECT_NAME: f32 = 160.0;
+    pub const SUBJECT_BAR: f32 = 3.0;
+    /// The widest a tab's note (a clip's name after "Clip") is drawn.
+    pub const TAB_NOTE: f32 = 140.0;
+    /// The Clip tab's ruler of bar numbers over the wave, and the least
+    /// room between two numbers before only every second, fourth… shows.
+    pub const CLIP_RULER: f32 = 18.0;
+    pub const BAR_NUMBER_ROOM: f32 = 32.0;
+    /// How far a card's shadow reaches past it: what its painter's clip
+    /// keeps around the card.
+    pub const SHADOW_ROOM: f32 = 24.0;
+    /// How far a device card's contents sit in from its edges: the compact
+    /// knobs' row at the sides, a footer's buttons above and below.
+    pub const CARD_INSET: f32 = 6.0;
+    /// One line of caption type: a card's message, a compact knob's name.
+    pub const CAPTION_LINE: f32 = 14.0;
+    /// A full card's knob names: their line, and the gap above it under
+    /// the knob.
+    pub const KNOB_NAME_LINE: f32 = 13.0;
+    pub const KNOB_NAME_GAP: f32 = 3.0;
     /// A menu row (the interface audit's M1, the owner's choice): rows
     /// touch, and a shortcut's cap and light sit 5 pt in from the
     /// highlight's top and bottom.

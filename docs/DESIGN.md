@@ -628,7 +628,7 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   the formats as its hint and **Import audio…** as its button.
 - **Clip:**
   - `clip_body` (dark in the dark theme), a 1 pt border of the track
-    colour at 60%;
+    colour at 60% (`CLIP_EDGE`);
   - a 15 pt title bar in the track colour, with the name in `caption`,
     shown on clips at least 24 pt wide (narrower, a name is a letter or
     two of noise);
@@ -842,14 +842,15 @@ Chosen from interactive specimens:
 The panel always says which track it is about, and has no tab that opens
 onto an empty page.
 
-- **Subject, at the left:** a 3 × 14 pt bar in the track's colour, its name
-  in medium 13 pt (cut with "…" past 160 pt), then a 14 pt `border_strong`
+- **Subject, at the left:** a 3 × 14 pt bar in the track's colour
+  (`size::SUBJECT_BAR`), its name in medium 13 pt (cut with "…" past 160 pt,
+  `size::SUBJECT_NAME`), then a 14 pt `border_strong`
   hairline (`size::TAB_DIVIDER`, `widgets::tab_divider`). The subject is the
   track of the header or clip clicked last (`DetailState::anchor`: the clip
   selection is an unordered set, so the panel keeps its own); with nothing
   selected it is the opened clip's track. Master, groups and returns name
   themselves. "No track selected" in `text_hint` when there is none. While
-  Mixer is chosen the subject is `text_hint` and its bar at half strength,
+  Mixer is chosen the subject is `text_hint` and its bar at `DIMMED`,
   since the mixer is not about one track. The subject is as wide as its name,
   so Devices and Clip move with it; Mixer does not.
 - **Devices** shows the subject's chain.
@@ -857,7 +858,7 @@ onto an empty page.
   clip", or a double-click; an audio clip as well as a MIDI one), with the
   clip's name as an 11 pt note 6 pt after the word (`text_secondary` while
   Clip is chosen, `text_hint` otherwise), cut with
-  "…" past 140 pt; the underline spans word and note. It stays while other
+  "…" past 140 pt (`size::TAB_NOTE`); the underline spans word and note. It stays while other
   things are clicked, is replaced when another clip opens, and goes when that
   clip is deleted: the panel shows Devices, and the keyboard follows if it was
   in the panel. A header click while on Clip goes to Devices, even on the header
@@ -867,7 +868,8 @@ onto an empty page.
 - **An audio clip's Clip tab:** its properties (the clip card's rows,
   `docked_clip_props`) in a 296 pt column on `app` with a hairline at its
   right, scrolling when short, beside the clip's wave: bar numbers in mono
-  10 pt over the clip body in its colour with the title strip, the wave drawn
+  10 pt on an 18 pt ruler, at least 32 pt apart (`size::CLIP_RULER`,
+  `BAR_NUMBER_ROOM`), over the clip body in its colour with the title strip, the wave drawn
   one column per physical pixel with its gain and fades.
 - **Commands:** Show devices, Show clip and Show mixer (no default keys);
   Show clip needs an open clip.
@@ -1279,7 +1281,7 @@ a soft shadow, radius `XL`).
   moves into the footer at `CONTROL_SMALL`, its word into the tooltip. A
   card that is not running says what happened in the knobs' place, whole
   (never cut), with its buttons in a footer that gives them 6 pt above and
-  below and `space::M` at the sides; such a card is as tall as its words
+  below (`size::CARD_INSET`) and `space::M` at the sides; such a card is as tall as its words
   need. The Devices tab's least height is the tallest compact card in its
   tray (212 pt for a plain card), and picking Devices grows the panel back
   only to the height last chosen for it.

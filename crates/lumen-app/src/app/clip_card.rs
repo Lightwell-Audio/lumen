@@ -6,6 +6,8 @@
 //! step; a lock keeps a clip in place, so locked clips can still be muted,
 //! renamed and recoloured.
 
+use std::sync::Arc;
+
 use eframe::egui::{self, FontId, Key, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use eframe::egui::{pos2, vec2};
 use lumen_core::fade::FadeShape;
@@ -52,12 +54,14 @@ impl ClipProps {
 }
 
 /// The clip `id`, and its track's colour.
-fn find(project: &Project, id: Id) -> Option<(&Clip, egui::Color32)> {
+/// Shared (`Arc`), so a card can hold its clip while it edits the document
+/// without copying it each frame.
+fn find(project: &Project, id: Id) -> Option<(&Arc<Clip>, egui::Color32)> {
     project.tracks.iter().find_map(|t| {
         t.clips
             .iter()
             .find(|c| c.id == id)
-            .map(|c| (&**c, color_of(t.color)))
+            .map(|c| (c, color_of(t.color)))
     })
 }
 
@@ -488,7 +492,7 @@ impl App {
             self.clip_props = ClipProps::default();
             return;
         };
-        let clip = clip.clone();
+        let clip = Arc::clone(clip);
         let size = self
             .clip_props
             .size
@@ -534,7 +538,7 @@ impl App {
         else {
             return false;
         };
-        let clip = clip.clone();
+        let clip = Arc::clone(clip);
         self.card_contents(ui, &clip, track, &tempo, true);
         true
     }

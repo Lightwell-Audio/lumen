@@ -268,6 +268,7 @@ impl App {
                 sidechain: row.sidechain.as_ref(),
                 outputs: row.outputs.as_ref(),
                 compact,
+                message: Default::default(),
             })
             .collect();
         // The tallest compact card sets how short the panel can get, so a

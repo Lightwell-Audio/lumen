@@ -197,15 +197,15 @@ struct Cells {
 /// The full card's two rows of four.
 const FULL: Cells = Cells {
     knob: KNOB,
-    name_gap: 3.0,
-    line: 13.0,
+    name_gap: theme::size::KNOB_NAME_GAP,
+    line: theme::size::KNOB_NAME_LINE,
 };
 
 /// The compact card's one row (D2): 18 pt knobs, the name's 14 pt line.
 const SMALL: Cells = Cells {
     knob: theme::size::KNOB_SMALL,
-    name_gap: 2.0,
-    line: 14.0,
+    name_gap: theme::space::XXS,
+    line: theme::size::CAPTION_LINE,
 };
 
 /// The first four slots in one row across `area` (the compact card's).

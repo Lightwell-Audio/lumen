@@ -654,15 +654,12 @@ pub fn toggle_button(ui: &mut Ui, on: &mut bool, label: &str) -> egui::Response 
 pub struct Tab<'a> {
     pub label: &'a str,
     /// A small word after the label, in caption type: what the tab shows
-    /// (the opened clip's name, DP1). Truncates past [`NOTE_WIDTH`].
+    /// (the opened clip's name, DP1). Truncates past `theme::size::TAB_NOTE`.
     pub note: Option<&'a str>,
     /// Said on hover: why an unbuilt tab cannot be opened.
     pub disabled_because: Option<&'a str>,
     pub tip: &'a str,
 }
-
-/// The widest a tab's note is drawn before it truncates.
-const NOTE_WIDTH: f32 = 140.0;
 
 /// How a row of [`tabs_with`] is laid out, beyond [`tabs`].
 #[derive(Debug, Clone, Copy, Default)]
@@ -754,7 +751,7 @@ pub fn tabs_with(
                     ink,
                 );
                 job.wrap = egui::text::TextWrapping {
-                    max_width: NOTE_WIDTH,
+                    max_width: theme::size::TAB_NOTE,
                     max_rows: 1,
                     break_anywhere: true,
                     overflow_character: Some('\u{2026}'),
