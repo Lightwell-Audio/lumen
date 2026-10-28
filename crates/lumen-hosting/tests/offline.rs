@@ -39,7 +39,7 @@ fn audio() -> Arc<ClipAudio> {
     let ramp: Vec<f32> = (0..480_000)
         .map(|i| ((i % 997) as f32 - 498.0) / 1e3)
         .collect();
-    Arc::new(ClipAudio {
+    Arc::new(ClipAudio::Memory {
         sample_rate: RATE_HZ,
         channels: vec![ramp.clone(), ramp],
     })

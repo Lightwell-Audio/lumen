@@ -25,7 +25,7 @@ fn ramp(frames: usize, mono: bool) -> Arc<ClipAudio> {
         .map(|i| ((i % 997) as f32 - 498.0) / 1e3)
         .collect();
     let right = left.iter().map(|v| -v * 0.5).collect();
-    Arc::new(ClipAudio {
+    Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: if mono { vec![left] } else { vec![left, right] },
     })
@@ -162,24 +162,27 @@ fn bare_ends_play_a_plain_clip_exactly_and_the_inside_edges_keep_their_fade() {
     let clips = vec![a, b];
     let (left, right) = run(job(clips.clone(), 1_000, 19_000, true, 256));
     // The outer start and end are the source exactly.
-    assert_eq!(left[0], audio.channels[0][1_000]);
-    assert_eq!(right[0], audio.channels[1][1_000]);
+    assert_eq!(left[0], audio.memory().unwrap()[0][1_000]);
+    assert_eq!(right[0], audio.memory().unwrap()[1][1_000]);
     let last = 19_000 - 1;
-    assert_eq!(left[last], audio.channels[0][1_000 + last]);
+    assert_eq!(left[last], audio.memory().unwrap()[0][1_000 + last]);
     // Only the inside end of the first clip is faded: its last 2 ms.
     let edge = (RATE / 500) as usize;
-    assert_eq!(left[..8_000 - edge], audio.channels[0][1_000..9_000 - edge]);
+    assert_eq!(
+        left[..8_000 - edge],
+        audio.memory().unwrap()[0][1_000..9_000 - edge]
+    );
     // The gap is silent, to the sample.
     assert!(left[8_000..11_000].iter().all(|v| *v == 0.0));
     assert!(right[8_000..11_000].iter().all(|v| *v == 0.0));
     // The inside edges are faded like playback's, so there is no click: the
     // first frame after the gap is below the source, the last before it too.
     let inside_start = 11_000;
-    assert!(left[inside_start].abs() < audio.channels[0][12_000].abs());
-    assert!(left[7_999].abs() < audio.channels[0][8_999].abs());
+    assert!(left[inside_start].abs() < audio.memory().unwrap()[0][12_000].abs());
+    assert!(left[7_999].abs() < audio.memory().unwrap()[0][8_999].abs());
     // Without bare ends the outer start is faded too.
     let (faded, _) = run(job(clips, 1_000, 19_000, false, 256));
-    assert!(faded[0].abs() < audio.channels[0][1_000].abs());
+    assert!(faded[0].abs() < audio.memory().unwrap()[0][1_000].abs());
 }
 
 #[test]
@@ -195,7 +198,7 @@ fn a_baked_clip_played_back_equals_the_clips_it_came_from() {
     let clips = vec![a, b];
     let span = 55_000_u64;
     let (left, right) = run(job(clips.clone(), start, span, true, 256));
-    let baked = Arc::new(ClipAudio {
+    let baked = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![left, right],
     });
@@ -214,9 +217,9 @@ fn consolidating_plain_adjacent_source_material_is_bit_identical() {
     let source = ramp(40_000, false);
     let a = clip(1, 5_000, 0, 30_000, &source);
     let (left, right) = run(job(vec![a.clone()], 5_000, 30_000, true, 256));
-    assert_eq!(left, source.channels[0][..30_000]);
-    assert_eq!(right, source.channels[1][..30_000]);
-    let baked = Arc::new(ClipAudio {
+    assert_eq!(left, source.memory().unwrap()[0][..30_000]);
+    assert_eq!(right, source.memory().unwrap()[1][..30_000]);
+    let baked = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![left, right],
     });
@@ -233,7 +236,7 @@ fn a_mono_clip_is_on_both_sides() {
     let a = clip(1, 0, 0, 8_000, &source);
     let (left, right) = run(job(vec![a], 0, 8_000, true, 256));
     assert_eq!(left, right);
-    assert_eq!(left, source.channels[0]);
+    assert_eq!(left, source.memory().unwrap()[0]);
 }
 
 #[test]

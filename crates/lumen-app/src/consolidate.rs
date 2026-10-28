@@ -304,7 +304,7 @@ mod tests {
         let left: Vec<f32> = (0..20_000)
             .map(|i| (i % 500) as f32 / 1_000.0 - 0.25)
             .collect();
-        let audio = Arc::new(ClipAudio {
+        let audio = Arc::new(ClipAudio::Memory {
             sample_rate: RATE,
             channels: if mono {
                 vec![left]
@@ -357,9 +357,9 @@ mod tests {
         let back = lumen_media::decode(&file, &AtomicBool::new(false), &mut |_| {}).unwrap();
         // Bare outer ends: the first frame is the source exactly (32-bit
         // float), and so is the last.
-        assert_eq!(back.channel(0)[0], audio.channels[0][0]);
-        assert_eq!(back.channel(1)[0], audio.channels[1][0]);
-        assert_eq!(back.channel(0)[9_999], audio.channels[0][9_999]);
+        assert_eq!(back.channel(0)[0], audio.memory().unwrap()[0][0]);
+        assert_eq!(back.channel(1)[0], audio.memory().unwrap()[1][0]);
+        assert_eq!(back.channel(0)[9_999], audio.memory().unwrap()[0][9_999]);
     }
 
     #[test]

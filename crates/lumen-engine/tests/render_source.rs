@@ -124,7 +124,7 @@ type Rig = (
 /// A track playing the ramp from the start, behind these devices.
 fn rig(devices: Vec<Device>) -> Rig {
     let samples = ramp();
-    let audio = Arc::new(ClipAudio {
+    let audio = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![samples.clone(), samples],
     });

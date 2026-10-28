@@ -29,14 +29,19 @@ mod render;
 mod scrub;
 mod snapshot;
 mod source;
+mod stream;
 pub mod testing;
 mod timeline;
 
 pub use capture::{
     CaptureReader, CaptureSink, Chunk as CaptureChunk, RING_CHUNKS, RING_SAMPLES, capture,
 };
-pub use clips::{Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, FadeFrames, clip_player};
-pub use engine::{Command, Engine, EngineHandle, HOST_SHARE, OFFLINE_WAIT, Region, engine};
+pub use clips::{
+    Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, FadeFrames, clip_player, for_each_page,
+};
+pub use engine::{
+    Command, Engine, EngineHandle, HOST_SHARE, OFFLINE_WAIT, Region, TransportReader, engine,
+};
 pub use envelope::ClipEnvelope;
 pub use input::{
     CLIP_LEVEL as INPUT_CLIP_LEVEL, InputHandle, InputLevel, InputPlayer, InputRoute, MAX_INPUTS,
@@ -61,4 +66,5 @@ pub use render::{
 pub use scrub::{MAX_SPEED as MAX_SCRUB_SPEED, ScrubStyle};
 pub use snapshot::TransportSnapshot;
 pub use source::{Inputs, Jump, Mode, Output, RenderContext, Source};
+pub use stream::{PAGE, PagePool, PoolWriter, StreamAudio};
 pub use timeline::Timeline;

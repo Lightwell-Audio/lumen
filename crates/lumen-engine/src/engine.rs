@@ -153,6 +153,22 @@ impl EngineHandle {
     pub fn transport(&self) -> TransportSnapshot {
         self.shared.read()
     }
+
+    /// A reader of the transport for another thread (the disk thread, M9
+    /// slice R6).
+    pub fn transport_reader(&self) -> TransportReader {
+        TransportReader(Arc::clone(&self.shared))
+    }
+}
+
+/// Reads the transport the audio thread publishes, from any thread.
+#[derive(Clone)]
+pub struct TransportReader(Arc<Shared>);
+
+impl TransportReader {
+    pub fn read(&self) -> TransportSnapshot {
+        self.0.read()
+    }
 }
 
 /// Audio side. Every method is real-time safe.

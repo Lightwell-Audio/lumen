@@ -32,7 +32,7 @@ struct Rig {
 }
 
 fn steady(level: f32, frames: usize) -> Arc<ClipAudio> {
-    Arc::new(ClipAudio {
+    Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![vec![level; frames]; 2],
     })
@@ -264,7 +264,7 @@ fn a_send_lane_scales_what_reaches_the_return() {
 fn the_same_frames_at_any_block_size() {
     // Audio whose every sample differs, through the production-sized
     // automated routing: groups, returns and sends.
-    let ramp = Arc::new(ClipAudio {
+    let ramp = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![
             (0..200_000)

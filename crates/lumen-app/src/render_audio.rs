@@ -88,7 +88,7 @@ impl Again {
         let native = decoded.sample_rate;
         match lumen_media::resample(&decoded, self.rate, cancel) {
             Ok(converted) => Ok(Some((
-                ClipAudio {
+                ClipAudio::Memory {
                     sample_rate: converted.sample_rate,
                     channels: converted.into_channels(),
                 },
@@ -275,7 +275,7 @@ mod tests {
         let never = AtomicBool::new(false);
         let decoded = lumen_media::decode(path, &never, &mut |_| {}).unwrap();
         let converted = lumen_media::resample(&decoded, rate, &never).unwrap();
-        Arc::new(ClipAudio {
+        Arc::new(ClipAudio::Memory {
             sample_rate: converted.sample_rate,
             channels: converted.into_channels(),
         })
@@ -334,13 +334,13 @@ mod tests {
             .unwrap()
             .expect("not cancelled");
         assert_eq!(made.len(), 1);
-        assert_eq!(made[0].audio.sample_rate, 44_100);
+        assert_eq!(made[0].audio.sample_rate(), 44_100);
         assert_eq!(made[0].audio.frames(), 44_100, "one second at the new rate");
 
         // The same project on a device that runs at 44.1 kHz plays exactly
         // what the worker made: the file was converted once, from the file.
         let direct = playing(&project, &file, 9, 48_000, 44_100);
-        assert_eq!(made[0].audio.channels, direct[0].audio.channels);
+        assert_eq!(made[0].audio.memory(), direct[0].audio.memory());
         assert_eq!(
             (made[0].start, made[0].offset, made[0].length),
             (direct[0].start, direct[0].offset, direct[0].length)
@@ -453,11 +453,11 @@ mod tests {
         let direct = playing(&project, &file, 9, 48_000, 44_100);
         for clip in &direct {
             let own = made.iter().find(|c| c.id == clip.id).expect("made");
-            assert_eq!(own.audio.channels, clip.audio.channels, "clip {}", clip.id);
+            assert_eq!(own.audio.memory(), clip.audio.memory(), "clip {}", clip.id);
         }
         let first = made.iter().find(|c| c.id == 1).unwrap();
         let second = made.iter().find(|c| c.id == 2).unwrap();
-        assert_ne!(first.audio.channels, second.audio.channels);
+        assert_ne!(first.audio.memory(), second.audio.memory());
     }
 
     #[test]

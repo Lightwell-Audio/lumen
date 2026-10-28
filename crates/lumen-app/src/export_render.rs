@@ -448,7 +448,7 @@ mod tests {
             offset: 0,
             length: FRAMES as i64,
             gain: 1.0,
-            audio: Arc::new(ClipAudio {
+            audio: Arc::new(ClipAudio::Memory {
                 sample_rate: RATE,
                 channels: vec![vec![value; FRAMES as usize]; 2],
             }),

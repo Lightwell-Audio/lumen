@@ -179,8 +179,9 @@ impl Strips {
 /// `count` samples of `audio` from frame `first`, left and right (mono
 /// repeats), as 16-bit fractions of full scale.
 fn samples(audio: &ClipAudio, first: i64, count: u32) -> Vec<[i16; 2]> {
-    let left = audio.channels.first().map_or(&[][..], Vec::as_slice);
-    let right = audio.channels.get(1).map_or(left, Vec::as_slice);
+    let channels = audio.memory().unwrap_or_default();
+    let left = channels.first().map_or(&[][..], Vec::as_slice);
+    let right = channels.get(1).map_or(left, Vec::as_slice);
     let at = |side: &[f32], i: usize| {
         side.get(i)
             .map_or(0, |v| (v.clamp(-1.0, 1.0) * 32_767.0).round() as i16)
@@ -198,7 +199,7 @@ mod tests {
     fn audio() -> Arc<ClipAudio> {
         let left: Vec<f32> = (0..48_000).map(|i| i as f32 / 48_000.0).collect();
         let right = left.iter().map(|v| -v).collect();
-        Arc::new(ClipAudio {
+        Arc::new(ClipAudio::Memory {
             sample_rate: 48_000,
             channels: vec![left, right],
         })

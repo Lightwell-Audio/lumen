@@ -130,8 +130,8 @@ pub fn engine_clips(
             };
             // The offset is in the file's frames; the audio is at the
             // device rate.
-            let base_offset =
-                (*offset as f64 * f64::from(samples.sample_rate) / f64::from(native.max(1))) as i64;
+            let base_offset = (*offset as f64 * f64::from(samples.sample_rate())
+                / f64::from(native.max(1))) as i64;
             let source_origin = if clip.loop_length.is_some() {
                 clip.start - clip.loop_phase
             } else {
@@ -205,13 +205,7 @@ pub fn engine_clips(
                     } else {
                         crate::routing::db_to_gain(*gain_db)
                     },
-                    envelope: envelope_of(
-                        clip,
-                        project,
-                        tempo.as_ref(),
-                        rate,
-                        samples.channels.len(),
-                    ),
+                    envelope: envelope_of(clip, project, tempo.as_ref(), rate, samples.channels()),
                     audio: samples,
                     shape,
                 });
@@ -670,7 +664,7 @@ impl Lanes {
             };
             Some((
                 audio.clone(),
-                item.info.sample_rate.unwrap_or(audio.sample_rate),
+                item.info.sample_rate.unwrap_or(audio.sample_rate()),
             ))
         })
     }
@@ -832,10 +826,10 @@ pub fn file_facts(ui: &mut egui::Ui, item: &Item) {
     }
     ui.label(facts.join(" · "));
     match &item.state {
-        State::Ready(audio) if Some(audio.sample_rate) != info.sample_rate => {
+        State::Ready(audio) if Some(audio.sample_rate()) != info.sample_rate => {
             ui.label(format!(
                 "Playing at {:.1} kHz (converted)",
-                f64::from(audio.sample_rate) / 1000.0
+                f64::from(audio.sample_rate()) / 1000.0
             ));
         }
         State::Failed(why) => {
@@ -957,7 +951,7 @@ mod tests {
             })
             .collect();
         doc.import(files);
-        let audio = Arc::new(ClipAudio {
+        let audio = Arc::new(ClipAudio::Memory {
             sample_rate: 48_000,
             channels: vec![vec![0.5; 96_000], vec![0.5; 96_000]],
         });
@@ -1340,7 +1334,7 @@ mod tests {
             let samples: Vec<f32> = (0..520_000)
                 .map(|i| ((i * 37 % 4_093) as f32 / 4_093.0) * 0.5)
                 .collect();
-            let audio = Arc::new(ClipAudio {
+            let audio = Arc::new(ClipAudio::Memory {
                 sample_rate: device_rate,
                 channels: vec![samples.clone(), samples],
             });
@@ -1462,7 +1456,7 @@ mod tests {
         with_envelopes(&mut doc, |clip| {
             clip.envelopes.set(Kind::Pan, lane(&[(0, -0.5)]));
         });
-        let mono = Arc::new(ClipAudio {
+        let mono = Arc::new(ClipAudio::Memory {
             sample_rate: 48_000,
             channels: vec![vec![0.5; 96_000]],
         });
@@ -1576,7 +1570,7 @@ mod tests {
             lumen_media::Peaks::build(&channels, &std::sync::atomic::AtomicBool::new(false))
                 .expect("not cancelled"),
         );
-        let audio = Arc::new(ClipAudio {
+        let audio = Arc::new(ClipAudio::Memory {
             sample_rate: 48_000,
             channels,
         });

@@ -31,7 +31,7 @@ fn sine(frequency: f64, dbfs: f64, seconds: f64) -> Arc<ClipAudio> {
             (amplitude * (2.0 * std::f64::consts::PI * frequency * t).sin()) as f32
         })
         .collect();
-    Arc::new(ClipAudio {
+    Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![side.clone(), side],
     })

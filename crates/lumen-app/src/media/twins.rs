@@ -54,12 +54,14 @@ pub(super) struct Mirrored {
     peaks: Option<Peaks>,
 }
 
-/// `audio` with every channel's frames in the other order.
+/// `audio` with every channel's frames in the other order (of the audio in
+/// memory: a streamed file has none here).
 pub fn mirror(audio: &ClipAudio) -> ClipAudio {
-    ClipAudio {
-        sample_rate: audio.sample_rate,
+    ClipAudio::Memory {
+        sample_rate: audio.sample_rate(),
         channels: audio
-            .channels
+            .memory()
+            .unwrap_or_default()
             .iter()
             .map(|c| c.iter().rev().copied().collect())
             .collect(),
@@ -112,7 +114,7 @@ impl Library {
                 .name("lumen-media-reverse".into())
                 .spawn(move || {
                     let audio = mirror(&from);
-                    let peaks = Peaks::build(&audio.channels, &cancel);
+                    let peaks = Peaks::build(audio.memory().unwrap_or_default(), &cancel);
                     let _ = done.send(Mirrored {
                         key,
                         from,
@@ -160,14 +162,14 @@ mod tests {
     fn audio(frames: usize) -> Arc<ClipAudio> {
         let left: Vec<f32> = (0..frames).map(|i| i as f32 / frames as f32).collect();
         let right: Vec<f32> = left.iter().map(|v| -v).collect();
-        Arc::new(ClipAudio {
+        Arc::new(ClipAudio::Memory {
             sample_rate: 48_000,
             channels: vec![left, right],
         })
     }
 
     fn peaks_of(audio: &ClipAudio) -> Arc<Peaks> {
-        Arc::new(Peaks::build(&audio.channels, &AtomicBool::new(false)).unwrap())
+        Arc::new(Peaks::build(audio.memory().unwrap_or_default(), &AtomicBool::new(false)).unwrap())
     }
 
     fn wait_for_twins(library: &mut Library) {
@@ -193,7 +195,10 @@ mod tests {
         assert_eq!(twin.frames(), 1_000);
         for channel in 0..2 {
             for j in 0..1_000 {
-                assert_eq!(twin.channels[channel][j], audio.channels[channel][999 - j]);
+                assert_eq!(
+                    twin.memory().unwrap()[channel][j],
+                    audio.memory().unwrap()[channel][999 - j]
+                );
             }
         }
     }
@@ -213,7 +218,10 @@ mod tests {
         let State::Ready(made) = &twin.state else {
             panic!("not ready")
         };
-        assert_eq!(made.channels[0][0], source.channels[0][39_999]);
+        assert_eq!(
+            made.memory().unwrap()[0][0],
+            source.memory().unwrap()[0][39_999]
+        );
         assert!(twin.peaks.is_some());
 
         // Asking again makes no second twin.

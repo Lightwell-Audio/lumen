@@ -20,7 +20,7 @@ fn main() {
 /// `clips` clips playing; through the routed mix, each on its own track,
 /// or else all on one track straight to the device.
 fn playing(clips: usize, routed_mix: bool) -> Engine<Mixer<ClipPlayer>> {
-    let audio = Arc::new(ClipAudio {
+    let audio = Arc::new(ClipAudio::Memory {
         sample_rate: 48_000,
         channels: vec![vec![0.1; 480_000], vec![-0.1; 480_000]],
     });

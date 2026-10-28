@@ -51,7 +51,7 @@ impl App {
             let rate = transport.state().sample_rate;
             let channels = bench::stress_audio(rate);
             let peaks = lumen_media::Peaks::build(&channels, &AtomicBool::new(false)).map(Arc::new);
-            let audio = Arc::new(lumen_engine::ClipAudio {
+            let audio = Arc::new(lumen_engine::ClipAudio::Memory {
                 sample_rate: rate,
                 channels,
             });

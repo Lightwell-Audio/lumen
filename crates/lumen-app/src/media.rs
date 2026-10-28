@@ -167,10 +167,10 @@ impl Library {
             name: name.to_owned(),
             info: FileInfo {
                 format: "Generated".into(),
-                sample_rate: Some(audio.sample_rate),
-                channels: Some(audio.channels.len()),
+                sample_rate: Some(audio.sample_rate()),
+                channels: Some(audio.channels()),
                 frames: Some(audio.frames() as u64),
-                seconds: Some(audio.frames() as f64 / f64::from(audio.sample_rate.max(1))),
+                seconds: Some(audio.frames() as f64 / f64::from(audio.sample_rate().max(1))),
                 ..FileInfo::default()
             },
             state: State::Ready(audio),
@@ -289,7 +289,7 @@ impl Library {
                     crate::trace::log(|| {
                         format!("media: {} ready ({:.1} s)", item.name, audio.seconds())
                     });
-                    item.state = State::Ready(Arc::new(ClipAudio {
+                    item.state = State::Ready(Arc::new(ClipAudio::Memory {
                         sample_rate: audio.sample_rate,
                         channels: audio.into_channels(),
                     }));
@@ -311,7 +311,7 @@ impl Library {
             .items
             .iter()
             .filter(|i| match (&i.state, &i.job) {
-                (State::Ready(audio), None) => audio.sample_rate != rate,
+                (State::Ready(audio), None) => audio.sample_rate() != rate,
                 (_, Some(job)) => job.rate != rate && !matches!(i.state, State::Failed(_)),
                 _ => false,
             })
@@ -353,7 +353,7 @@ impl Library {
     pub fn memory(&self) -> usize {
         self.with_twins()
             .map(|i| match &i.state {
-                State::Ready(audio) => audio.frames() * audio.channels.len() * 4,
+                State::Ready(audio) => audio.memory().map_or(0, |c| c.len() * audio.frames() * 4),
                 _ => 0,
             })
             .sum()
@@ -426,7 +426,7 @@ mod tests {
         let State::Ready(audio) = &library.get(id).unwrap().state else {
             panic!("not ready: {:?}", library.get(id).unwrap().state);
         };
-        assert_eq!(audio.sample_rate, 48_000);
+        assert_eq!(audio.sample_rate(), 48_000);
         assert!(library.memory() > 0);
         let info = &library.get(id).unwrap().info;
         assert_eq!(info.format, "WAV");
@@ -442,7 +442,7 @@ mod tests {
         let State::Ready(audio) = &library.get(id).unwrap().state else {
             panic!("not ready after the rate change");
         };
-        assert_eq!(audio.sample_rate, 44_100);
+        assert_eq!(audio.sample_rate(), 44_100);
         let _ = std::fs::remove_file(path);
     }
 

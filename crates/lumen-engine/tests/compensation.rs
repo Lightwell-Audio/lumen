@@ -32,7 +32,7 @@ fn ramp() -> Vec<f32> {
 }
 
 fn audio(samples: Vec<f32>) -> Arc<ClipAudio> {
-    Arc::new(ClipAudio {
+    Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![samples.clone(), samples],
     })

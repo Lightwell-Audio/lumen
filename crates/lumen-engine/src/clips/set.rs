@@ -5,11 +5,16 @@ use std::sync::Arc;
 
 use super::seams::{BARE_LEAD, envelopes_meet, fades_meet, source_meets};
 use super::{Clip, FadeFrames, Fades, MAX_TABLES, TABLE_STEPS, Table};
+use crate::stream::PagePool;
 
 /// A clip list with its lookup, fade and join metadata prepared off-thread.
 pub(super) struct ClipSet {
     pub(super) clips: Vec<Clip>,
     pub(super) levels: Vec<f32>,
+    /// Streamed clips faded out for want of their pages, carried like levels.
+    pub(super) starved: Vec<bool>,
+    /// The page pool the streamed clips read from: one per list.
+    pub(super) pool: Option<Arc<PagePool>>,
     pub(super) by_id: Vec<(u64, u32)>,
     pub(super) swapped: Vec<bool>,
     pub(super) fades: Vec<Fades>,
@@ -79,8 +84,21 @@ impl ClipSet {
                 bare[i][1] = order.get(n + 1).is_none_or(|&j| clips[j].track != track);
             }
         }
+        let pool = clips
+            .iter()
+            .find_map(|clip| clip.audio.stream())
+            .map(|stream| Arc::clone(stream.pool()));
+        debug_assert!(
+            clips
+                .iter()
+                .filter_map(|c| c.audio.stream())
+                .all(|s| pool.as_ref().is_some_and(|p| Arc::ptr_eq(p, s.pool()))),
+            "the streamed clips of a list share one pool"
+        );
         let mut set = Self {
             levels: vec![f32::NAN; clips.len()],
+            starved: vec![false; clips.len()],
+            pool,
             swapped: vec![false; clips.len()],
             fades,
             adjacent,
@@ -127,6 +145,7 @@ impl ClipSet {
                 std::cmp::Ordering::Equal => {
                     let (new_index, old_index) = (new_index as usize, old_index as usize);
                     self.levels[new_index] = old.levels[old_index];
+                    self.starved[new_index] = old.starved[old_index];
                     let moved = !self.clips[new_index].placed_as(&old.clips[old_index]);
                     self.swapped[new_index] = moved;
                     old.swapped[old_index] = moved;

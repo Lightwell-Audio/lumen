@@ -151,7 +151,7 @@ impl GpuClips {
             let (State::Ready(audio), Some(peaks)) = (&item.state, &item.peaks) else {
                 continue;
             };
-            if audio.sample_rate != rate {
+            if audio.sample_rate() != rate {
                 continue;
             }
             let key = Arc::as_ptr(peaks) as usize;
@@ -165,7 +165,7 @@ impl GpuClips {
                 Source {
                     slot: *slot,
                     channels: peaks.channels as u32,
-                    native_rate: item.info.sample_rate.unwrap_or(audio.sample_rate),
+                    native_rate: item.info.sample_rate.unwrap_or(audio.sample_rate()),
                 },
             );
         }

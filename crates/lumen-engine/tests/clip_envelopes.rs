@@ -20,7 +20,7 @@ const RATE: u32 = 48_000;
 
 /// Audio of `level` on both channels, long enough for any test here.
 fn steady(level: f32) -> Arc<ClipAudio> {
-    Arc::new(ClipAudio {
+    Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![vec![level; 400_000], vec![level; 400_000]],
     })
@@ -173,7 +173,7 @@ fn a_pan_envelope_balances_a_stereo_clip() {
 
 #[test]
 fn a_constant_power_pan_drops_a_centred_mono_clip_by_three_db() {
-    let audio = Arc::new(ClipAudio {
+    let audio = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![vec![0.5; 400_000]],
     });

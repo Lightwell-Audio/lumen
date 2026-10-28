@@ -550,7 +550,7 @@ mod tests {
     /// A job for a track that plays the ramp from the start.
     fn job(doc: &Document, track: Id, dir: &std::path::Path, from: i64, frames: u64) -> Job {
         let samples = ramp();
-        let audio = Arc::new(ClipAudio {
+        let audio = Arc::new(ClipAudio::Memory {
             sample_rate: RATE,
             channels: vec![samples.clone(), samples],
         });
@@ -698,7 +698,7 @@ mod tests {
         let mut apart = job(&doc, track, dir.path(), 0, 10_000);
         let left = ramp();
         let right: Vec<f32> = left.iter().map(|s| s * 0.5).collect();
-        apart.clips[0].audio = Arc::new(ClipAudio {
+        apart.clips[0].audio = Arc::new(ClipAudio::Memory {
             sample_rate: RATE,
             channels: vec![left, right],
         });

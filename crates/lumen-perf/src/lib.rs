@@ -156,7 +156,7 @@ type Player = Engine<Mixer<ClipPlayer>>;
 type SynthPlayer = Engine<Mixer<lumen_engine::Layered<ClipPlayer, lumen_engine::MidiPlayer>>>;
 
 fn crossfading_clips() -> Player {
-    let audio = Arc::new(ClipAudio {
+    let audio = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![vec![0.01; 480_000]; 2],
     });
@@ -240,7 +240,7 @@ fn playing_clips(clips: usize, mix: Mix) -> Player {
 /// As [`playing_clips`], with the handle that sends it new routings.
 fn playing_clips_routed(clips: usize, mix: Mix) -> (MixerHandle, Player) {
     let routed_mix = mix != Mix::Direct;
-    let audio = Arc::new(ClipAudio {
+    let audio = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![vec![0.1; 480_000], vec![-0.1; 480_000]],
     });

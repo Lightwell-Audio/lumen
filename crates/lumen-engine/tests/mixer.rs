@@ -29,7 +29,7 @@ struct Rig {
 
 /// Steady audio at `level` on both sides (or distinct sides).
 fn steady(left: f32, right: f32) -> Arc<ClipAudio> {
-    Arc::new(ClipAudio {
+    Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![vec![left; 480_000], vec![right; 480_000]],
     })
@@ -41,7 +41,7 @@ fn ramp() -> Arc<ClipAudio> {
         .map(|i| ((i % 997) as f32 - 498.0) / 1e3)
         .collect();
     let right = left.iter().map(|v| -v * 0.5).collect();
-    Arc::new(ClipAudio {
+    Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![left, right],
     })

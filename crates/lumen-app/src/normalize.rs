@@ -62,7 +62,7 @@ impl Drop for Scan {
 /// The frames of `audio` that `window` covers: from its start to the end of
 /// the stretch or the audio, whichever comes first.
 fn frames_of(audio: &ClipAudio, window: Window) -> std::ops::Range<usize> {
-    let rate = f64::from(audio.sample_rate);
+    let rate = f64::from(audio.sample_rate());
     let first = (window.from * rate).round().max(0.0);
     let last = ((window.from + window.span) * rate).round().max(0.0);
     let total = audio.frames() as f64;
@@ -86,7 +86,7 @@ pub fn peak_of(
             return None;
         }
         let to = (at + CHUNK).min(frames.end);
-        for channel in &audio.channels {
+        for channel in audio.memory()? {
             for &sample in &channel[at..to] {
                 peak = peak.max(sample.abs());
             }
@@ -167,7 +167,7 @@ mod tests {
         let mut right = vec![0.0; frames];
         // The loudest sample is negative, on the second channel.
         right[frames / 2] = -0.9;
-        Arc::new(ClipAudio {
+        Arc::new(ClipAudio::Memory {
             sample_rate: 1_000,
             channels: vec![left, right],
         })
