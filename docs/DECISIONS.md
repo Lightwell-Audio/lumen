@@ -9670,8 +9670,9 @@ real-time scheduler validation.
 release a held start until the disk worker has adopted the current cue and
 scene: an older round could otherwise evict them between the residency
 check and command consumption. Cue and scene updates therefore share a
-wrapping planning generation, acknowledged after the worker marks the
-ordered resident prefix wanted. The independent engine-command serial
+wrapping planning generation, acknowledged after the worker protects the
+ordered resident prefix and fills its selected cue pages. The independent
+engine-command serial
 still controls cue release. Within each priority span, source pages sort
 by first timeline use rather than a clip's place in a PAGE-sized slice;
 this preserves simultaneous current pages under capacity pressure.

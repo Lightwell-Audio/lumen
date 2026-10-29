@@ -140,7 +140,9 @@ impl Scene {
     /// each point. Each page once. A pool too small for the plan keeps its
     /// beginning, so what plays on is read before the places playback might
     /// jump to (a jump that finds its audio missing waits, L A).
-    pub fn plan(&self, at: Position, horizon: Horizon, out: &mut Vec<Want>) {
+    /// Plans pages in priority order and returns how many belong to the cue
+    /// horizon before playhead, marker, and point pages are added.
+    pub fn plan(&self, at: Position, horizon: Horizon, out: &mut Vec<Want>) -> usize {
         out.clear();
         let mut seen = Seen::default();
         let near = horizon.near.max(1);
@@ -150,6 +152,7 @@ impl Scene {
             // including the loop wrap, even while the transport is stopped.
             self.walk(&self.ahead(cue, 0..near, true), &mut seen, out);
         }
+        let cue_prefix = out.len();
         self.walk(&self.ahead(at.sample, 0..near, at.playing), &mut seen, out);
         if let Some(marker) = &at.marker {
             self.walk(&[from(marker)], &mut seen, out);
@@ -161,6 +164,7 @@ impl Scene {
         for point in &self.points {
             self.walk(&[from(point)], &mut seen, out);
         }
+        cue_prefix
     }
 
     /// Whether every page the clips play from `sample` for `span` frames is

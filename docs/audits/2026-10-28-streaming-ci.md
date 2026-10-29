@@ -58,6 +58,63 @@ the actual results here; a failed round is not a successful validation.
 
 ## Results
 
+### Hosted investigation attempt at `10f5c4ec`
+
+[Full CI 40875049859](https://github.com/gummycookie/lumen/actions/runs/40875049859)
+passed all seven jobs, including tests on all three platforms, RTSan and
+the unchanged performance gate. However,
+[streaming soak 40875049767](https://github.com/gummycookie/lumen/actions/runs/40875049767)
+failed on macOS ARM64. This attempt counts as **zero accepted green rounds**.
+
+| Platform | Logical CPUs | Duration / steps | Late reads | Missed callbacks | Longest hold |
+|---|---|---|---|---|---|
+| Linux x86_64 | 4 | 120 s / 60 | 0 | 0 | 63.997 ms |
+| Windows x86_64 | 4 | 120 s / 60 | 0 | 45 | 64.182 ms |
+| macOS ARM64 | 3 | 120 s / 60 | 28 | 26,418 | 46.290 ms |
+
+The macOS log exposes a startup-prefill gap.
+These runners used Rust 1.99.0. Linux used image `ubuntu-24.04`
+`20261025.353.1`; Windows used `windows-2025-vs2026`
+`20261021.278.1`; macOS used `macos-26-arm64` `20261021.0445.8`,
+newer than the original failing job's image.
+
+The cue was sample 1,488,000.
+The 50 ms residency check ended at 1,490,400, before page 364 starts at
+1,490,944 (+61.33 ms). At the failure, playback had reached cue +24 ms;
+its 40 ms lookahead already included page 364. The worker had read that
+page only for streams 1–36; streams 37–64 were still missing. Publishing
+adoption after merely protecting current pages allowed this early release.
+The test's injected 40 ms stalls can exhaust that initial margin.
+
+The correction makes adoption require the existing high-priority cue prefix
+to be resident, limited to pool capacity. The planner returns that prefix
+length without planning twice. This fills the existing 500 ms near horizon
+before normal readiness can release a cold start; it does not enlarge the
+pool, change the 50 ms check or raise the 150 ms hold cap. Cold starts may
+wait longer inside that existing cap. A staged-read regression uses the
+exact failing cue and proves that cached page 363 cannot release while
+following pages are blocked. Removing only the prefill barrier makes the
+regression fail at the intended assertion; restoring it passes.
+
+The soak now uses `Held::due`, the same 150 ms release rule as production.
+Its previous unbounded test hold could otherwise conceal a cold-start
+problem after the new prefill requirement. Zero-late and zero-failed-read
+assertions remain unchanged. It also records render elapsed time and sleep
+overshoot separately, so missed callbacks are measured without assuming
+they were caused by CPU load. The new code still requires three complete
+green hosted rounds; the failed macOS attempt is not credited.
+
+The prefill correction passed local validation: clippy, all 3,331 workspace
+tests, the isolated plugin walkthrough, docs, six smoke tests and 30 focused
+disk regressions. Its 120 s soak, now using the production hold rule, read
+142,809 pages across all 60 steps with zero late reads, zero failed reads,
+zero missed callbacks, a 119.997 ms longest hold and no forced deadline
+release. All 45,000 callbacks rendered; total render elapsed time was 4.282 s,
+with a 3.238 ms maximum, and total sleep overshoot was 3.983 s with a
+2.402 ms maximum. The remeasured unchanged +2% performance gate passed:
+`stream_plan_64` used 162,302,689 instructions (-3.58%); all other scenarios
+also remained within the existing gate. Hosted verification remains pending.
+
 ### Continuation in the Lumen cloud environment
 
 The checkpoint at `a8de11c6ac29107d414cf501e4d7ad388da44e03` was fetched

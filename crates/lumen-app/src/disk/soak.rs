@@ -3,10 +3,10 @@
 //! stall, with a loop going round and locates to markers, to the loop's
 //! start and to places nothing marks, each held until the disk has read
 //! there, as the transport holds them (L A). No late read is allowed. The
-//! wait is not cut off at 150 ms, so that a CI machine under load tests the
-//! read-ahead rather than its own disk; holds longer than that are reported.
-//! Blocks whose time passed while the machine was busy are missed, as a
-//! device misses them, and reported apart: they are dropouts, not late reads.
+//! wait uses the production 150 ms release rule, so cold-start verification
+//! cannot hide behind a longer hold than the application allows.
+//! Callbacks whose deadlines pass before the next render are counted apart
+//! from late reads; render duration and sleep overshoot are reported too.
 //!
 //! `LUMEN_SOAK_SECONDS` runs it longer than CI's default.
 
@@ -189,6 +189,13 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
     let mut late = Vec::new();
     let mut counted = 0;
     let mut missed = 0u32;
+    let mut rendered = 0u32;
+    let mut render_total = Duration::ZERO;
+    let mut render_max = Duration::ZERO;
+    let mut render_over_budget = 0u32;
+    let mut sleep_overshoot_total = Duration::ZERO;
+    let mut sleep_overshoot_max = Duration::ZERO;
+    let mut deadline_releases = 0usize;
     while started.elapsed().as_secs_f64() < seconds {
         // The next step every 2 s, held for the disk.
         if held.is_none()
@@ -220,17 +227,24 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
             }
         }
         if let Some(waiting) = &held
-            && gate.ready(waiting.sample)
+            && waiting.due(Some(&gate), Instant::now())
         {
             let waiting = held.take().expect("checked above");
             let waited = waiting.since.elapsed();
             longest_hold = longest_hold.max(waited);
             overdue += usize::from(waited > LONGEST);
+            deadline_releases += usize::from(waited >= LONGEST);
             handle.send(waiting.command).unwrap();
             gate.cuer.follow_after(handle.sent_command());
             sent = Instant::now();
         }
+        let render_started = Instant::now();
         engine.process(RATE, &mut data, 2, BLOCK);
+        let render_elapsed = render_started.elapsed();
+        rendered += 1;
+        render_total += render_elapsed;
+        render_max = render_max.max(render_elapsed);
+        render_over_budget += u32::from(render_elapsed > block);
         played += 1;
         let now = pool.underruns();
         if now > counted {
@@ -277,7 +291,13 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
         // reads. Processing the missed blocks one after another instead
         // would play faster than real time, which no device does.
         match (block * played).checked_sub(started.elapsed()) {
-            Some(wait) => std::thread::sleep(wait),
+            Some(wait) => {
+                let sleep_started = Instant::now();
+                std::thread::sleep(wait);
+                let overshoot = sleep_started.elapsed().saturating_sub(wait);
+                sleep_overshoot_total += overshoot;
+                sleep_overshoot_max = sleep_overshoot_max.max(overshoot);
+            }
             None => {
                 let due = (started.elapsed().as_secs_f64() / block.as_secs_f64()) as u32;
                 missed += due.saturating_sub(played);
@@ -291,8 +311,13 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
     drop(disk);
     eprintln!(
         "soak: {seconds} s, {next} steps, {} pages read, longest hold {longest_hold:?} \
-         ({overdue} past 150 ms), {underruns} late, {missed} blocks missed (the machine was busy)",
+         ({overdue} past 150 ms), {underruns} late, {missed} callback deadlines missed",
         reads.load(Ordering::Relaxed),
+    );
+    eprintln!(
+        "soak: {rendered} callbacks rendered; render total {render_total:?}, max {render_max:?}, \
+         {render_over_budget} over block budget; sleep overshoot total {sleep_overshoot_total:?}, \
+         max {sleep_overshoot_max:?}; {deadline_releases} releases at the production hold deadline"
     );
     for (n, at, after, step, transport, worker, adopted, missing) in &late {
         eprintln!("soak: {n} late at {at:?}, {after:?} after {step:?} was sent");

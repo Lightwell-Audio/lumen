@@ -413,6 +413,12 @@ performance gate passed locally. Final checks and the required three hosted
 green rounds are tracked in `docs/audits/2026-10-28-streaming-ci.md` and
 `docs/handoffs/streaming-soak-ci.md`. Do not merge or create a new PR.
 Format remains v32; no additional hardware validation is claimed.
+The first hosted attempt passed all CI jobs but exposed a macOS cue-prefill
+gap. The corrected worker now fills its existing cue prefix before normal
+readiness release, and the soak exercises production's 150 ms timeout.
+All 3,331 workspace tests, 30 disk regressions, smoke, isolated walkthrough,
+production-deadline soak and unchanged performance gate pass locally.
+Three fresh full hosted green rounds are still required after this correction.
 
 **Last updated (2026-10-26):** M9 R5 Export is built and verified on
 `m9-s5-audio-export`, cut from `origin/main` at `335b3ecb` after R4 merged.

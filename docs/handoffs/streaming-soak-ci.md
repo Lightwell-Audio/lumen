@@ -2,6 +2,22 @@
 
 ## Continuation status (2026-10-29)
 
+The first hosted repair attempt at `10f5c4ec` passed all seven CI jobs and
+the Windows/Linux streaming soaks, but failed the macOS ARM64 soak with 28
+late reads. It is not a green round. The audit retains run links and the
+exact missing-page trace. A further correction now requires the worker to
+fill the existing cue-priority prefix before acknowledging preparation;
+the old 50 ms check could pass before following pages were loaded. A
+staged-read regression reproduces the exact cue boundary and fails with
+the barrier removed. The correction passed 3,331 full workspace tests,
+the isolated plugin walkthrough, docs, six smoke tests, 30 disk regressions
+and the pinned-container performance gate with its baseline unchanged.
+Its production-deadline 120 s soak passed all 60 steps with zero late reads,
+zero missed callbacks, longest hold 119.997 ms and no forced deadline release.
+Three fresh complete green hosted rounds are still required.
+The soak also uses production's 150 ms release rule and records render
+duration and sleep overshoot, rather than relying on an unbounded test hold.
+
 The original checkpoint below is historical. The continuation uses an isolated
 worktree on `fix/streaming-soak-ci`, based on `a8de11c6`, preserving the
 environment's original checkout. The audit records the additional first-use

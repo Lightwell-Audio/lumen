@@ -1,6 +1,7 @@
 //! Deterministic tests for the cue adoption handshake.
 
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::time::Duration;
 
 use lumen_core::time::Ticks;
 use lumen_engine::{
@@ -40,6 +41,31 @@ impl Pages for PagesForTest {
         left: &mut [f32],
         right: &mut [f32],
     ) -> Result<usize, MediaError> {
+        let from = page * PAGE;
+        let frames = (audio.frames() as usize).saturating_sub(from).min(PAGE);
+        left[..frames].fill(0.1);
+        right[..frames].fill(-0.1);
+        Ok(frames)
+    }
+
+    fn keep(&mut self, _: &[StreamAudio]) {}
+}
+
+struct StagedPages {
+    entered: Sender<usize>,
+    release: Receiver<()>,
+}
+
+impl Pages for StagedPages {
+    fn read(
+        &mut self,
+        audio: &StreamAudio,
+        page: usize,
+        left: &mut [f32],
+        right: &mut [f32],
+    ) -> Result<usize, MediaError> {
+        self.entered.send(page).unwrap();
+        self.release.recv().unwrap();
         let from = page * PAGE;
         let frames = (audio.frames() as usize).saturating_sub(from).min(PAGE);
         left[..frames].fill(0.1);
@@ -143,6 +169,97 @@ fn ready_waits_until_the_latest_cue_is_adopted_after_an_old_plan_round() {
     assert_eq!(snapshot.read_stream, audio.id());
     assert_eq!(snapshot.read_page, 10);
     let _elapsed = snapshot.read_elapsed_nanos;
+}
+
+#[test]
+fn cue_adoption_waits_for_the_capacity_limited_prefill_horizon() {
+    let pool = PagePool::new(3);
+    let audio = StreamAudio::new(&pool, 21, RATE, 2, (400 * PAGE) as u64);
+    let clip = Clip {
+        envelope: Default::default(),
+        id: 21,
+        track: 0,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: (400 * PAGE) as i64,
+        gain: 1.0,
+        audio: Arc::new(ClipAudio::Stream(audio.clone())),
+        shape: ClipShape::default(),
+    };
+    let scene = Arc::new(Scene::new(
+        &[clip],
+        &Timeline::default(),
+        RATE,
+        None,
+        Vec::new(),
+    ));
+    let cues = Arc::new(CueState::default());
+    let (sender, inbox) = channel();
+    let cuer = Cuer(Some(CuePort {
+        sender,
+        state: Arc::clone(&cues),
+    }));
+    let gate = Gate {
+        scene: Arc::clone(&scene),
+        cuer: cuer.clone(),
+    };
+    let (entered_tx, entered_rx) = channel();
+    let (release_tx, release_rx) = channel();
+    let stats = Arc::new(Stats::default());
+    let mut worker = Worker::with_cues(
+        &pool,
+        Box::new(StagedPages {
+            entered: entered_tx,
+            release: release_rx,
+        }),
+        reader(),
+        stats,
+        cues,
+    );
+    worker.take(Message::Scene(Arc::clone(&scene)));
+
+    // The failing hosted cue: 50 ms from 1,488,000 ends before page 364,
+    // while the player's 40 ms lookahead reaches it after 21.33 ms.
+    // Cache the first page; hold both following reads in a controlled order.
+    let sample = 1_488_000;
+    let (left, right) = (vec![0.2; PAGE], vec![-0.2; PAGE]);
+    assert!(worker.writer.load(&audio, 363, &left, &right));
+    assert!(scene.ready(sample, i64::from(RATE) / 20));
+    cuer.cue(Some(sample));
+    worker.take(inbox.try_recv().unwrap());
+    assert!(!gate.ready(sample));
+
+    let join = std::thread::spawn(move || worker.round_for(Duration::MAX));
+    assert_eq!(
+        entered_rx.recv_timeout(Duration::from_secs(10)).unwrap(),
+        364
+    );
+    assert!(audio.resident(363));
+    assert!(!audio.resident(364));
+    assert!(
+        !gate.ready(sample),
+        "first-page residency is not cue prefill"
+    );
+
+    release_tx.send(()).unwrap();
+    assert_eq!(
+        entered_rx.recv_timeout(Duration::from_secs(10)).unwrap(),
+        365
+    );
+    assert!(audio.resident(364));
+    assert!(!audio.resident(365));
+    assert!(
+        !gate.ready(sample),
+        "the rest of the selected horizon is pending"
+    );
+
+    release_tx.send(()).unwrap();
+    let _ = join.join().unwrap();
+    assert!(audio.resident(365));
+    assert!(
+        gate.ready(sample),
+        "adoption follows completion of the cue prefix"
+    );
 }
 
 #[test]

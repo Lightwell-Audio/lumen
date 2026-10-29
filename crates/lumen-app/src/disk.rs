@@ -86,7 +86,8 @@ enum Message {
 }
 
 /// A gate is ready to release a held start only after the worker has planned
-/// with the latest cue and scene and marked resident pages wanted. Scene and
+/// with the latest cue and scene, protected resident pages and filled the
+/// selected cue prefix. Scene and
 /// cue requests share a generation so a changed scene invalidates an older
 /// adoption too. Production requests are issued serially by the UI thread;
 /// generations also discard delayed messages from cloned cuers.
@@ -290,9 +291,9 @@ impl Cuer {
         }
     }
 
-    /// Whether the worker has planned with the latest cue and scene and
-    /// protected their resident pages for that planning round. An idle cuer
-    /// has no worker and imposes no wait.
+    /// Whether the worker has protected the latest plan and filled its
+    /// capacity-limited cue read-ahead prefix. An idle cuer has no worker and
+    /// imposes no wait.
     pub fn adopted(&self) -> bool {
         self.0.as_ref().is_none_or(|port| port.state.is_adopted())
     }
@@ -491,11 +492,12 @@ impl Worker {
             marker: Some(self.scene.sample_at(transport.marker)),
         };
         self.writer.tick();
-        self.scene.plan(at, self.horizon, &mut self.wants);
+        let cue_prefix = self.scene.plan(at, self.horizon, &mut self.wants);
         // The plan is ordered by priority. Do not let pages in a lower-priority
         // tail protect themselves from eviction when the pool cannot hold the
         // whole plan: only the prefix that can fit is wanted this round.
         self.wants.truncate(self.writer.pool().pages() as usize);
+        let cue_prefix = cue_prefix.min(self.wants.len());
         let streams = self.scene.streams();
         let missing: Vec<Want> = self
             .wants
@@ -506,11 +508,12 @@ impl Worker {
                 !self.writer.want(audio, w.page) && !self.broken.contains(&(audio.id(), w.page))
             })
             .collect();
-        // `want` above marks every resident page in this plan before the
-        // acknowledgement is visible to the transport. If the command was
-        // sent while this round was in flight, readiness remains false until
-        // a later round adopts its generation.
-        self.cues.adopt(self.plan_generation);
+        // `want` above protects resident pages, but a cue is not adopted
+        // until its capacity-limited priority prefix is resident. This lets
+        // the existing read-ahead horizon prefill before a held start is
+        // released. `Cuer::adopted` still rejects this acknowledgement if a
+        // newer request arrived while the round was in flight.
+        self.adopt_if_cue_prefix_resident(cue_prefix);
         if missing.is_empty() {
             return IDLE;
         }
@@ -525,6 +528,7 @@ impl Worker {
                 self.busy += started.elapsed();
                 // Pages the audio thread may still read are free in a block;
                 // otherwise the pool holds all it can of what is wanted.
+                self.adopt_if_cue_prefix_resident(cue_prefix);
                 return if self.writer.retiring() > 0 {
                     FULL
                 } else {
@@ -568,7 +572,23 @@ impl Worker {
             }
         }
         self.busy += started.elapsed();
+        self.adopt_if_cue_prefix_resident(cue_prefix);
         Duration::ZERO
+    }
+
+    /// Publishes adoption only when every selected cue page is resident.
+    /// With no cue, the normal planning round is enough to acknowledge a
+    /// scene request. A pool smaller than the full cue horizon acknowledges
+    /// its resident capacity-limited prefix; the gate separately checks the
+    /// pages its start actually needs.
+    fn adopt_if_cue_prefix_resident(&self, cue_prefix: usize) {
+        if self.cue.is_none()
+            || self.wants[..cue_prefix]
+                .iter()
+                .all(|want| self.scene.streams()[want.stream].resident(want.page))
+        {
+            self.cues.adopt(self.plan_generation);
+        }
     }
 
     fn report(&mut self) {
