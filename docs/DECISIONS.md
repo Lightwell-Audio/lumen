@@ -9605,6 +9605,15 @@ atlas row are closed; the reversed-copy row is narrowed to playing from
 memory; new rows say what is untested (hardware, a real file over 4 GiB)
 and that only the jump points that fit in the pool are kept read.
 
+**S6, the default (owner's A, 2026-10-28).** MT-STREAM-1 passed, so "Play
+audio from disk" is on by default (`Playback::default`). A settings file
+with no `playback` section, or one without `from_disk`, plays from disk; a
+file that says `"from_disk": false` keeps it off, because only someone who
+turned the switch off wrote that (the branch was never released with the
+switch off by default). Test launches (`Launch::for_test`) keep it off, so
+scenarios start without making the page pool; `playing_from_disk` turns it
+on. Test: `audio_plays_from_disk_unless_the_file_turned_it_off`.
+
 **Review of the slice** (2026-10-28, a second model's static review of the
 branch; four findings, three taken, plus one the review missed):
 

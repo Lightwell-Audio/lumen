@@ -411,8 +411,9 @@ per slice and move what is no longer current out of it.
 - **Branch `m9-s6-disk-streaming`: M9 R6 (playing audio from disk, the peak
   cache) is built** (ADR-0108; no format change; cut from `main` at
   `a91d1989`; plan `docs/milestones/M9-R6.md`; the owner chose L A, M B, C A,
-  D A, S B on 2026-10-27). "Play audio from disk" (audio settings, off until
-  MT-STREAM-1 passes): files of 30 s or more play from a stream file (the file
+  D A, S B on 2026-10-27). "Play audio from disk" (audio settings, on by
+  default since MT-STREAM-1 passed, the owner's S6 A; a settings file that
+  says off stays off; test launches keep it off): files of 30 s or more play from a stream file (the file
   itself, or a converted float copy in `%LOCALAPPDATA%\Lumen\Cache`, 20 GB,
   peaks kept beside), shorter ones stay in memory. Engine: `PagePool`,
   `StreamAudio`, `PoolWriter`, `OfflineLoader`, `stream_plan`; app: `disk.rs`
@@ -522,9 +523,7 @@ per slice and move what is no longer current out of it.
   its own slice R2b. Next: R3 (takes and Capture MIDI) per `docs/milestones/M9.md`.
 - **Earlier** (M7b E1 to E6, M9 R0 and R1): moved to `docs/HANDOFF_ARCHIVE.md`
   (2026-10-28). M7b closed with E6 (`docs/audits/2026-10-24-m7b.md`).
-- **Next:** turn "Play audio from disk" on by default (S6, MT-STREAM-1
-  passed; pitched to the owner, including what a saved "off" means), then
-  R7 (workflow and preferences) per `docs/milestones/M9.md`; R2b (loopback
+- **Next:** R7 (workflow and preferences) per `docs/milestones/M9.md`; R2b (loopback
   helper) is still unbuilt.
 - **Done:** M1 to M4.5 approved; M5 (MIDI), M6 (VST3 hosting) and M7
   (automation and envelopes) are built, with reports in PROGRESS. M7b
