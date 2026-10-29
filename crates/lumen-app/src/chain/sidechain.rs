@@ -105,20 +105,39 @@ pub(super) fn chooser_id_of(card: EguiId) -> EguiId {
 }
 
 /// The row in `area`, which is `ROOM` tall; answers the chooser.
-pub(super) fn paint(ui: &mut Ui, area: Rect, id: EguiId, look: &Look) -> Response {
+///
+/// In a compact card's footer (`footer` holds the footer's own words, which
+/// move into the tooltip) the chooser fills `area` at the small control's
+/// height, without the word before it.
+pub(super) fn paint(
+    ui: &mut Ui,
+    area: Rect,
+    id: EguiId,
+    look: &Look,
+    footer: Option<&str>,
+) -> Response {
     let palette = *theme::p();
     let pixels = ui.pixels_per_point();
+    let height = if footer.is_some() {
+        theme::size::CONTROL_SMALL
+    } else {
+        HEIGHT
+    };
     let row =
-        Rect::from_center_size(area.center(), vec2(area.width(), HEIGHT)).round_to_pixels(pixels);
-    let chooser = Rect::from_min_max(pos2(row.left() + LABEL, row.top()), row.max);
+        Rect::from_center_size(area.center(), vec2(area.width(), height)).round_to_pixels(pixels);
     let caption = FontId::proportional(theme::size::CAPTION);
-    ui.painter().text(
-        pos2(row.left() + 2.0, row.center().y),
-        Align2::LEFT_CENTER,
-        "Sidechain",
-        caption.clone(),
-        palette.text_secondary,
-    );
+    let chooser = if footer.is_some() {
+        row
+    } else {
+        ui.painter().text(
+            pos2(row.left() + 2.0, row.center().y),
+            Align2::LEFT_CENTER,
+            "Sidechain",
+            caption.clone(),
+            palette.text_secondary,
+        );
+        Rect::from_min_max(pos2(row.left() + LABEL, row.top()), row.max)
+    };
 
     let response = ui.interact(chooser, id, Sense::click());
     let spoken = match &look.source {
@@ -269,7 +288,10 @@ pub(super) fn paint(ui: &mut Ui, area: Rect, id: EguiId, look: &Look) -> Respons
             format!("Keyed from {name}, {}. {state}", tap_name(look.tap))
         }
     };
-    response.on_hover_text(tip)
+    match footer {
+        Some(words) => response.on_hover_text(format!("{tip}\n{words}")),
+        None => response.on_hover_text(tip),
+    }
 }
 
 impl Readings {
@@ -380,25 +402,6 @@ impl App {
         if let Some(device) = self.chain.selected {
             widgets::Menu::open_for(ctx, chooser_id(device));
         }
-    }
-
-    /// Whether a card on the shown track has a sidechain row (the Devices
-    /// panel is never so short that its knobs are crowded).
-    pub(crate) fn shown_chain_keyed(&self) -> bool {
-        let Some(track) = self.chain_track() else {
-            return false;
-        };
-        lumen_project::routing::all_tracks(self.document.project())
-            .find(|t| t.id == track)
-            .is_some_and(|t| {
-                t.devices.iter().any(|d| {
-                    if d.is_instrument() {
-                        !self.hosting.extra_outputs(d.id).is_empty()
-                    } else {
-                        self.hosting.takes_sidechain(d.id)
-                    }
-                })
-            })
     }
 
     /// Whether the chosen card has a sidechain row.

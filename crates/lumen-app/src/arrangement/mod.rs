@@ -63,7 +63,7 @@ mod strip;
 mod strip_output;
 pub(crate) mod strips;
 mod tracks;
-mod waves;
+pub(crate) mod waves;
 
 pub(crate) use listen_light::{Live, shown as listen_light_shown};
 
@@ -241,6 +241,9 @@ pub struct Arrangement {
     pub selected: Vec<Id>,
     /// Where a Shift-click range starts.
     anchor: Option<Id>,
+    /// The track whose header (or strip) was clicked since the detail
+    /// panel last looked, taken by `App::refresh_detail` (DP1).
+    pub header_clicked: Option<Id>,
     /// The track being renamed, with the text so far.
     renaming: Option<(Id, String)>,
     /// The rename field is on the track's mixer strip, not its header

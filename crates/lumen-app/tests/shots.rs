@@ -2484,6 +2484,178 @@ fn device_chain() {
     }
 }
 
+/// The compact cards of a short Devices panel (D2, the owner's A): every
+/// face at the panel's least height, where a stopped card is as tall as its
+/// words.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn compact_chain() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_core::time::Ticks;
+    use lumen_project::model::{Device, DeviceKind, Id, Note};
+    use lumen_project::testing::{midi_track, project_of};
+
+    let class = |n: u8| lumen_plugin_catalog::catalog::class_id(&[n; 16]);
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1900.0, 760.0)),
+        ("light", 1.0, vec2(1900.0, 760.0)),
+        ("dark", 1.5, vec2(1500.0, 760.0)),
+        ("light", 1.5, vec2(1500.0, 760.0)),
+        ("dark", 2.0, vec2(1300.0, 760.0)),
+        ("light", 2.0, vec2(1300.0, 760.0)),
+    ] {
+        let dir = TempDir::new("shots-compact");
+        let mut track = midi_track(
+            1,
+            "Pad",
+            "poly",
+            (0, 64),
+            None,
+            vec![Note::new(Ticks::ZERO, Ticks::quarters(60), 69, 100)],
+            vec![],
+        );
+        let names = [
+            ("Bass Synth", DeviceKind::Instrument),
+            ("Overheat", DeviceKind::Effect),
+            ("Tape Delay", DeviceKind::Effect),
+            ("Bus Comp", DeviceKind::Effect),
+            ("Soft Clip", DeviceKind::Effect),
+            ("Wide Chorus", DeviceKind::Effect),
+            ("Plate", DeviceKind::Effect),
+        ];
+        track.devices = names
+            .iter()
+            .enumerate()
+            .map(|(i, (name, kind))| {
+                Device::vst3(
+                    Id(10 + i as u64),
+                    &class(1 + i as u8),
+                    name,
+                    "Vendor C",
+                    *kind,
+                )
+            })
+            .collect();
+        track.devices[2].bypass = true;
+        track.devices[5].state = vec![0; 14 * 1024];
+        track.devices[6].state = vec![0; 30 * 1024];
+        let project = project_of("Compact", vec![track]);
+        let path = dir.path().join("song.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(size)
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(30);
+        h.state_mut().select_tracks(&[Id(1)]);
+        h.run_steps(4);
+        h.get_all_by_label("Devices tab")
+            .last()
+            .expect("the tabs")
+            .click();
+        h.run_steps(30);
+        for (device, state) in [
+            (10, "ready"),
+            (11, "ready"),
+            (12, "ready"),
+            (13, "loading"),
+            (14, "failed"),
+            (15, "missing"),
+            (16, "safe"),
+        ] {
+            h.state_mut().pretend_device_state(Id(device), state);
+        }
+        h.state_mut().give_device_parameters(
+            Id(10),
+            &[
+                ("Cutoff", 0.62, "2.4 kHz"),
+                ("Resonance", 0.30, "0.31"),
+                ("Attack", 0.80, "12 ms"),
+                ("Release", 0.45, "640 ms"),
+            ],
+        );
+        h.state_mut().give_device_parameters(
+            Id(11),
+            &[
+                ("Drive", 0.62, "6.0 dB"),
+                ("Tone", 0.30, "0.31"),
+                ("Mix", 0.80, "80 %"),
+                ("Output level", 0.73, "-4.2 dB"),
+                ("Wave", 0.5, "Saw"),
+            ],
+        );
+        h.state_mut().give_device_parameters(
+            Id(12),
+            &[("Time", 0.4, "310 ms"), ("Feedback", 0.55, "42 %")],
+        );
+        h.state_mut().give_device_editor(Id(11), "open", false);
+        let least = h.state().panel_limits().1;
+        h.state_mut().set_detail_size(least);
+        h.run_steps(30);
+        h.get_by_label("Overheat on Pad").click();
+        h.run_steps(20);
+        let tag = format!("{appearance}-{}", (scale * 100.0) as u32);
+        save(&mut h, &format!("compact-chain-{tag}"));
+        if appearance == "dark" && scale == 1.0 {
+            h.get_by_label("Menu of Overheat").click();
+            h.run_steps(20);
+            save(&mut h, &format!("compact-chain-menu-{tag}"));
+        }
+    }
+}
+
+/// The detail panel's tab row (DP1): the subject, Devices, an opened audio
+/// clip's Clip tab with its properties beside its wave, and Mixer.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn detail_tabs() {
+    use egui_kittest::kittest::Queryable;
+
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1400.0, 800.0)),
+        ("light", 1.0, vec2(1400.0, 800.0)),
+        ("dark", 1.5, vec2(1300.0, 800.0)),
+        ("light", 1.5, vec2(1300.0, 800.0)),
+        ("dark", 2.0, vec2(1100.0, 800.0)),
+        ("light", 2.0, vec2(1100.0, 800.0)),
+    ] {
+        let dir = TempDir::new("shots-detail-tabs");
+        let mut h = bare_scaled(&dir, appearance, scale, size);
+        drop_files(&mut h, &dir, 8.0);
+        let tag = format!("{appearance}-{}", (scale * 100.0) as u32);
+        let clip = h.state().project().tracks[0].clips[0].id;
+        h.state_mut().select_clip(clip);
+        h.run_steps(4);
+        h.get_all_by_label("Devices tab")
+            .last()
+            .expect("the tabs")
+            .click();
+        h.run_steps(30);
+        save(&mut h, &format!("detail-devices-{tag}"));
+        h.key_press(Key::Enter);
+        h.run_steps(10);
+        h.state_mut().set_detail_size(308.0);
+        h.run_steps(30);
+        save(&mut h, &format!("detail-audio-{tag}"));
+        h.get_by_label("Mixer tab").click();
+        h.run_steps(30);
+        save(&mut h, &format!("detail-mixer-{tag}"));
+    }
+}
+
 /// The preset field on a card, its menu, and the failed faces (M6 slice 5f).
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]

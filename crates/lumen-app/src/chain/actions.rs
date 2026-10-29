@@ -43,15 +43,9 @@ pub(super) fn plugin_ref(listed: &Listed) -> Option<PluginRef> {
 }
 
 impl App {
-    /// The track the Devices tab shows: the last one selected.
+    /// The track the Devices tab shows: the detail panel's subject (DP1).
     pub(crate) fn chain_track(&self) -> Option<Id> {
-        let project = self.document.project();
-        self.arrangement
-            .selected
-            .iter()
-            .rev()
-            .copied()
-            .find(|id| all_tracks(project).any(|t| t.id == *id))
+        self.subject()
     }
 
     /// Double-click or Enter in the browser: puts the device on the selected

@@ -317,3 +317,33 @@ DEVELOPMENT. Repeat visual checks in both themes at 100%, 150% and 200%.
 Automated evidence and limitations: `docs/audits/2026-10-24-m7b.md`.
 The two background-result consistency findings there remain open; do not
 treat this script as verification that concurrent edits are safe in those cases.
+
+## MT-UX-2 — Detail tabs, compact cards, the CPU slot (UX round three)
+
+**State:** Owner verification pending. Branch: `chore/ux-round-three`
+(ADR-0108). Use isolated settings, fake audio and scratch project files, as
+described in DEVELOPMENT. Repeat visual checks in both themes at 100%, 150%
+and 200%.
+
+1. Drop two audio files. Click one clip, then the other track's header: the
+   detail panel's tab row names that track, with its colour bar, before
+   Devices. Press Esc: it reads "No track selected". No Clip tab is shown.
+2. Select a clip and press Enter: a Clip tab appears with the clip's name,
+   showing its properties beside its wave. Click another track's header: the
+   panel shows Devices for that track, and Clip is still there. Delete the
+   opened clip: the Clip tab goes and Devices is shown.
+3. Choose Mixer: the subject greys out. Run Show devices, Show clip and Show
+   mixer from the palette; each picks its tab (Show clip only with a clip
+   open).
+4. In the browser's Devices tab, light the first and last chip of a row: the
+   lit fill is whole at both edges of the pane.
+5. With audio running, watch the CPU readout while the load changes (open
+   and close a plugin editor, or play): the audio chip after it never moves.
+6. Put a device on a track and drag the detail panel's top edge down: below
+   a whole card's height every card turns compact, a row of four knobs, and
+   back above it. Dragging slowly across the switch point does not flicker.
+   Make the panel short, choose Mixer and then Devices: the panel grows
+   back to the height last chosen for Devices (a taller panel stays as it is).
+7. Start in safe mode, or with a plugin that fails: the compact card says
+   what happened in full, and its buttons (Load this plugin, Reload) have a
+   margin at the card's edge below and at the right.

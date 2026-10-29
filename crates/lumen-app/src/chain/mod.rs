@@ -25,10 +25,18 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use lumen_project::model::{Device, Id};
 
 pub(crate) use actions::placeable;
-pub(crate) use geometry::{panel_height, panel_min_height, panel_min_height_keyed};
+pub(crate) use geometry::panel_least;
 pub(crate) use params::unit_name;
 pub(crate) use pictures::Pictures;
 pub(crate) use view::paint_drag_ghost;
+
+impl Chain {
+    /// The least height of the detail panel on the Devices tab: the
+    /// tallest compact card in the tray (D2).
+    pub(crate) fn least_panel(&self) -> f32 {
+        panel_least(self.least.max(geometry::COMPACT_H))
+    }
+}
 
 /// What is being dragged from the browser: a device's catalog id.
 pub(crate) struct Dragged(pub String);
@@ -52,9 +60,20 @@ pub(crate) struct Chain {
     pub live: bool,
     /// The pointer was over the tray last frame.
     pub hovered: bool,
-    /// The detail panel should be tall enough for a whole card at the next
-    /// frame's layout (it only ever grows; the user can drag it back).
+    /// The Devices tab was just picked: the detail panel grows back to the
+    /// height last chosen for Devices at the next frame's layout (it only
+    /// ever grows; the user can drag it back).
     pub grow: bool,
+    /// The height the detail panel last had on the Devices tab (for the
+    /// session).
+    pub height: Option<f32>,
+    /// The chain shows compact cards (D2): the panel is shorter than a full
+    /// card needs. Kept between frames for the switch's hysteresis.
+    pub compact: bool,
+    /// The tallest compact card of the shown chain, as last drawn: a card
+    /// whose message needs more lines is taller, and it sets the panel's
+    /// least height (0 before the tab was first drawn).
+    pub least: f32,
     /// Folded cards (their power button and name only). A view setting, not
     /// an edit; kept for the session.
     pub folded: HashSet<Id>,

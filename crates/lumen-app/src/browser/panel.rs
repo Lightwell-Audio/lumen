@@ -122,11 +122,13 @@ impl App {
         let tabs = [
             widgets::Tab {
                 label: "Devices",
+                note: None,
                 disabled_because: None,
                 tip: "Instruments and effects",
             },
             widgets::Tab {
                 label: "Project media",
+                note: None,
                 disabled_because: None,
                 tip: "The audio files this project holds: relink the ones that moved, clear the ones nothing plays",
             },

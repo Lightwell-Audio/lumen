@@ -49,6 +49,23 @@ struct Row {
     outputs: Option<super::outputs::Look>,
 }
 
+/// What a card's menu offers for its device.
+struct CardMenu {
+    id: Id,
+    bypass: bool,
+    folded: bool,
+    /// The compact card: its menu also holds what the full card shows
+    /// (the preset, Learn, every parameter, the window).
+    compact: bool,
+    /// A running plugin's preset: the sound's name, when one was chosen.
+    preset: Option<Option<String>>,
+    /// How many parameters a running plugin lists.
+    parameters: usize,
+    learning: bool,
+    /// A running plugin with a window: whether it is open.
+    window: Option<bool>,
+}
+
 enum OwnedFace {
     Ready,
     Loading,
@@ -111,6 +128,9 @@ impl App {
             self.add_dropped_device(&device, track);
         }
         self.open_dropped_editor();
+        // The subject follows a selection made above (or by a command since
+        // last frame) before the chosen card is checked against it.
+        self.refresh_detail(ctx);
         let shown = self.chain_track();
         let project = self.document.project();
         let still_there = |chosen: Id| {
@@ -213,13 +233,66 @@ impl App {
         } else {
             0.0
         };
-        let layout = Layout::keyed(&folded, tray.height(), extra);
         let pictures: Vec<Option<egui::TextureHandle>> =
             rows.iter().map(|r| self.picture_of(ui.ctx(), r)).collect();
+        let selected = self.chain.selected;
+        // A short tray turns the whole chain compact (D2), with a little
+        // give either side of the switch so a drag across it does not flicker.
+        let compact = super::geometry::compact(self.chain.compact, tray.height(), extra);
+        self.chain.compact = compact;
+        let mut looks: Vec<Look<'_>> = rows
+            .iter()
+            .enumerate()
+            .map(|(i, row)| Look {
+                name: &row.name,
+                vendor: &row.vendor,
+                identity: &row.identity,
+                instrument: row.instrument,
+                bypass: row.bypass,
+                selected: selected == Some(row.id),
+                face: row.face.face(),
+                latency_ms: row.latency_ms,
+                reports_latency: row.vst3,
+                track_color: track_colour,
+                band: 0.0,
+                folded: folded[i],
+                picture: pictures[i].as_ref(),
+                slots: &row.slots,
+                parameters: row.parameters,
+                editor: &row.editor,
+                learning: row.learning,
+                field: row.field.as_ref().map(|f| Field {
+                    name: f.name.as_deref(),
+                    changed: f.changed,
+                }),
+                sidechain: row.sidechain.as_ref(),
+                outputs: row.outputs.as_ref(),
+                compact,
+                message: Default::default(),
+            })
+            .collect();
+        // The tallest compact card sets how short the panel can get, so a
+        // card's whole message always fits.
+        let heights: Vec<f32> = looks.iter().map(|l| card::compact::height(ui, l)).collect();
+        self.chain.least = heights.iter().copied().fold(0.0, f32::max);
+        let layout = if compact {
+            Layout::sized(&folded, tray.height(), &heights)
+        } else {
+            Layout::keyed(&folded, tray.height(), extra)
+        };
+        if !compact {
+            for (look, row) in looks.iter_mut().zip(&rows) {
+                let room = if row.sidechain.is_some() || row.outputs.is_some() {
+                    super::sidechain::ROOM
+                } else {
+                    0.0
+                };
+                look.band = super::geometry::band(layout.card_h - room);
+            }
+        }
         let playing = self.transport.state().playing;
         let beam = motion::hover(ui.ctx(), egui::Id::new("chain beam"), playing);
         let mut events = Events::default();
-        let selected = self.chain.selected;
         // A device dragged from the browser, or a card of this chain picked
         // up: where it would land.
         let from_browser = egui::DragAndDrop::payload::<Dragged>(ui.ctx()).and_then(|d| {
@@ -301,39 +374,8 @@ impl App {
                         pos2(rect.right(), layout.cable_y + origin.y),
                         beam,
                     );
-                    let look = Look {
-                        name: &row.name,
-                        vendor: &row.vendor,
-                        identity: &row.identity,
-                        instrument: row.instrument,
-                        bypass: row.bypass,
-                        selected: selected == Some(row.id),
-                        face: row.face.face(),
-                        latency_ms: row.latency_ms,
-                        reports_latency: row.vst3,
-                        track_color: track_colour,
-                        band: super::geometry::band(
-                            layout.card_h
-                                - if row.sidechain.is_some() || row.outputs.is_some() {
-                                    super::sidechain::ROOM
-                                } else {
-                                    0.0
-                                },
-                        ),
-                        folded: folded[i],
-                        picture: pictures[i].as_ref(),
-                        slots: &row.slots,
-                        parameters: row.parameters,
-                        editor: &row.editor,
-                        learning: row.learning,
-                        field: row.field.as_ref().map(|f| Field {
-                            name: f.name.as_deref(),
-                            changed: f.changed,
-                        }),
-                        sidechain: row.sidechain.as_ref(),
-                        outputs: row.outputs.as_ref(),
-                    };
-                    let out = card::paint(ui, rect, egui::Id::new(("device", row.id.0)), &look);
+                    let look = &looks[i];
+                    let out = card::paint(ui, rect, egui::Id::new(("device", row.id.0)), look);
                     if let Some(field) = &out.field {
                         self.preset_menu(field, row.id);
                     }
@@ -390,21 +432,32 @@ impl App {
                         Some(Action::LoadOne) => events.load_one = Some(row.id),
                         None => {}
                     }
-                    let (id, bypass, is_folded) = (row.id, row.bypass, folded[i]);
+                    let running = row.vst3 && matches!(row.face, OwnedFace::Ready);
+                    let menu = CardMenu {
+                        id: row.id,
+                        bypass: row.bypass,
+                        folded: folded[i],
+                        compact: compact && !folded[i],
+                        preset: row.field.as_ref().map(|f| f.name.clone()),
+                        parameters: if running { row.parameters } else { 0 },
+                        learning: row.learning,
+                        window: (running && !matches!(row.editor, strip::Editor::Unavailable(_)))
+                            .then_some(matches!(
+                                row.editor,
+                                strip::Editor::Open | strip::Editor::Opening
+                            )),
+                    };
                     widgets::Menu::context(&out.body).show(|ui| {
-                        self.chain.selected = Some(id);
-                        let bypass_label = if bypass { "Turn on" } else { "Bypass" };
-                        self.menu_command(ui, Command::DeviceBypass, bypass_label);
-                        let fold_label = if is_folded { "Open" } else { "Fold" };
-                        self.menu_command(ui, Command::DeviceFold, fold_label);
-                        self.menu_command(ui, Command::DeviceMoveEarlier, "Move earlier");
-                        self.menu_command(ui, Command::DeviceMoveLater, "Move later");
-                        self.menu_command(ui, Command::DeviceDuplicate, "Duplicate");
-                        self.menu_command(ui, Command::DeviceCopy, "Copy");
-                        self.menu_command(ui, Command::DevicePaste, "Paste");
-                        self.send_menus(ui, track_id);
-                        self.menu_command(ui, Command::DeviceRemove, "Remove");
+                        self.card_menu(ui, track_id, &menu);
                     });
+                    // The compact card's name opens the same menu under it.
+                    if let Some(name) = &out.name {
+                        widgets::Menu::below(name).show(|ui| {
+                            if self.card_menu(ui, track_id, &menu) {
+                                ui.close();
+                            }
+                        });
+                    }
                 }
                 if let Some((carried, kind)) = &dragged
                     && let Some(pointer) = ui.ctx().pointer_latest_pos()
@@ -487,6 +540,57 @@ impl App {
         if events.rescan {
             self.rescan_plugins(ui.ctx(), lumen_plugin_catalog::scan::Mode::Changed);
         }
+    }
+
+    /// A card's menu (right-click, or the compact card's name). True when a
+    /// row was chosen.
+    fn card_menu(&mut self, ui: &mut Ui, track: Id, menu: &CardMenu) -> bool {
+        let ctx = ui.ctx().clone();
+        self.chain.selected = Some(menu.id);
+        let mut chosen = false;
+        if menu.compact {
+            if let Some(preset) = &menu.preset {
+                let label = match preset {
+                    Some(name) => format!("Preset: {name}\u{2026}"),
+                    None => "Choose a preset\u{2026}".to_owned(),
+                };
+                chosen |= self.menu_command(ui, Command::DevicePreset, &label);
+                for (label, forward) in [("Previous preset", false), ("Next preset", true)] {
+                    if widgets::menu_item(ui, label, None, true).clicked() {
+                        self.step_preset(&ctx, menu.id, forward);
+                        chosen = true;
+                    }
+                }
+                ui.separator();
+            }
+            if menu.parameters > 0 {
+                let learn = if menu.learning {
+                    "Stop learning"
+                } else {
+                    "Learn"
+                };
+                chosen |= self.menu_command(ui, Command::DeviceLearn, learn);
+                let all = format!("All {} parameters\u{2026}", menu.parameters);
+                chosen |= self.menu_command(ui, Command::DeviceParameters, &all);
+                ui.separator();
+            }
+            if let Some(open) = menu.window {
+                let label = if open { "Close editor" } else { "Open editor" };
+                chosen |= self.menu_command(ui, Command::DeviceEditor, label);
+            }
+        }
+        let bypass_label = if menu.bypass { "Turn on" } else { "Bypass" };
+        chosen |= self.menu_command(ui, Command::DeviceBypass, bypass_label);
+        let fold_label = if menu.folded { "Open" } else { "Fold" };
+        chosen |= self.menu_command(ui, Command::DeviceFold, fold_label);
+        chosen |= self.menu_command(ui, Command::DeviceMoveEarlier, "Move earlier");
+        chosen |= self.menu_command(ui, Command::DeviceMoveLater, "Move later");
+        chosen |= self.menu_command(ui, Command::DeviceDuplicate, "Duplicate");
+        chosen |= self.menu_command(ui, Command::DeviceCopy, "Copy");
+        chosen |= self.menu_command(ui, Command::DevicePaste, "Paste");
+        self.send_menus(ui, track);
+        chosen |= self.menu_command(ui, Command::DeviceRemove, "Remove");
+        chosen
     }
 
     /// The plugin's own picture for `row`, once its bundle has been read.

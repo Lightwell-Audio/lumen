@@ -401,7 +401,18 @@ impl App {
     /// The browser's least width and the least height of the detail panel
     /// on the Devices tab, in points.
     pub fn panel_limits(&self) -> (f32, f32) {
-        (crate::BROWSER_MIN, crate::chain::panel_min_height())
+        (crate::BROWSER_MIN, self.chain.least_panel())
+    }
+
+    /// The device chain is drawn as compact cards (D2).
+    pub fn chain_is_compact(&self) -> bool {
+        self.chain.compact
+    }
+
+    /// Shows `peak` (1.0 is the whole buffer) as the CPU load for the next
+    /// second, as if the engine had measured it.
+    pub fn show_cpu_load(&mut self, peak: f32) {
+        self.transport.show_cpu_load(peak);
     }
 
     /// Some meter is still moving, so the app keeps drawing frames.

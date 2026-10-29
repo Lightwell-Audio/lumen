@@ -310,8 +310,8 @@ impl App {
             Command::SplitNotes => self.split_at(self.transport.position()),
             Command::CreateMidiClip => self.create_midi_clip_here(),
             Command::OpenClipEditor => {
-                if let Some(clip) = self.selected_midi_clip() {
-                    self.open_note_editor(clip);
+                if let Some(clip) = self.first_selected_clip() {
+                    self.open_clip(clip);
                 }
             }
             Command::PopOutEditor => self.note_editor.popped = !self.note_editor.popped,
@@ -508,6 +508,9 @@ impl App {
             Command::Revert => self.begin_revert(),
             Command::ProjectSettings => self.open_project_settings(),
             Command::ExportAudio => self.open_audio_export(),
+            Command::ShowDevices => self.show_detail_tab(crate::app::detail::DetailTab::Devices),
+            Command::ShowClip => self.show_detail_tab(crate::app::detail::DetailTab::Clip),
+            Command::ShowMixer => self.show_detail_tab(crate::app::detail::DetailTab::Mixer),
             Command::MediaPool => self.show_media_pool(),
             Command::LocateMedia => {
                 if let Some(id) = self.selected_missing_media() {

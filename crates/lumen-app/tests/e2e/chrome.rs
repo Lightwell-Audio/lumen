@@ -108,3 +108,67 @@ fn the_browser_and_the_devices_tab_stop_before_they_stop_being_useful() {
         lumen.app().detail_size()
     );
 }
+
+/// The detail panel's Devices tab, on a new MIDI track (it has the synth).
+fn devices_of_a_new_midi_track(name: &str) -> Lumen {
+    let mut lumen = Lumen::start(name);
+    lumen.harness.set_size(eframe::egui::vec2(1280.0, 900.0));
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::T);
+    lumen.frames(30);
+    lumen
+        .harness
+        .get_all_by_label("Devices tab")
+        .last()
+        .expect("the detail panel's tabs")
+        .click();
+    lumen.frames(10);
+    lumen
+}
+
+#[test]
+fn a_short_devices_tab_turns_the_cards_compact_and_a_tall_one_turns_them_back() {
+    let mut lumen = devices_of_a_new_midi_track("compact-chain");
+    lumen.app_mut().set_detail_size(400.0);
+    lumen.frames(10);
+    assert!(!lumen.app().chain_is_compact(), "room for a whole card");
+
+    lumen.app_mut().set_detail_size(40.0);
+    lumen.frames(10);
+    assert!(lumen.app().chain_is_compact());
+    let (_, least) = lumen.app().panel_limits();
+    assert!(
+        lumen.app().detail_size() >= least,
+        "the panel keeps room for a compact card: {} < {least}",
+        lumen.app().detail_size()
+    );
+    // A compact card is far shorter than a whole one: the panel can be
+    // small.
+    assert!(least < 240.0, "the least height is {least}");
+
+    lumen.app_mut().set_detail_size(400.0);
+    lumen.frames(10);
+    assert!(!lumen.app().chain_is_compact(), "whole cards again");
+}
+
+#[test]
+fn the_cpu_readout_keeps_its_width_so_the_audio_chip_never_moves() {
+    let mut lumen = Lumen::start("cpu-slot");
+    lumen.harness.set_size(eframe::egui::vec2(1600.0, 900.0));
+    lumen.frames(5);
+    let mut lefts = vec![];
+    for (peak, text) in [
+        (0.03, "CPU 3%"),
+        (0.42, "CPU 42%"),
+        (1.0, "CPU 100%"),
+        (4.5, "CPU 450%"),
+    ] {
+        lumen.app_mut().show_cpu_load(peak);
+        lumen.frames(3);
+        assert!(lumen.shows(text), "{text} is shown");
+        lefts.push(lumen.harness.get_by_label_contains("Audio: ").rect().left());
+    }
+    assert!(
+        lefts.windows(2).all(|w| (w[0] - w[1]).abs() < 0.01),
+        "the audio chip stays put: {lefts:?}"
+    );
+}

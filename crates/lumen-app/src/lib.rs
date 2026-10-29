@@ -281,6 +281,8 @@ pub struct App {
     show_detail: bool,
     /// Which tab of the detail panel shows (M5 slice 3c).
     detail_tab: app::detail::DetailTab,
+    /// What the detail panel's tab row follows (DP1).
+    detail: app::detail::DetailState,
     /// The MIDI note editor: in the Clip tab, or popped out (slice 3c).
     note_editor: note_editor::NoteEditor,
     /// Full panel sizes, for sliding (kept while the panels are open).
@@ -494,6 +496,7 @@ impl eframe::App for App {
         self.capture_chord(&ctx);
         self.computer_keyboard_keys(&ctx);
         self.refresh_note_editor(&ctx);
+        self.refresh_detail(&ctx);
         self.refresh_chain(&ctx);
         self.take_prompt_enter(&ctx);
         self.command_keys(&ctx);
@@ -729,14 +732,21 @@ impl eframe::App for App {
         // arrive with their milestones. Never shorter than a strip. Its
         // content is drawn after the arrangement, so Tab reaches it in
         // reading order.
-        if std::mem::take(&mut self.chain.grow) {
-            self.detail_size = self.detail_size.max(chain::panel_height());
+        // Picking Devices grows the panel back to the height last chosen
+        // for it, never to a whole card (D2): its compact cards fit the
+        // least height.
+        if std::mem::take(&mut self.chain.grow)
+            && let Some(height) = self.chain.height
+        {
+            self.detail_size = self.detail_size.max(height);
         }
         let mut detail_size = self.detail_size;
         let mut detail_content = None;
-        // The Devices tab is never so short that its card leaves the tray.
-        let detail_min = if self.detail_tab == app::detail::DetailTab::Devices {
-            chain::panel_min_height_keyed(self.shown_chain_keyed())
+        // The Devices tab is never so short that its compact cards leave
+        // the tray.
+        let devices = self.detail_tab == app::detail::DetailTab::Devices;
+        let detail_min = if devices {
+            self.chain.least_panel()
         } else {
             arrangement::strips::min_height() + DETAIL_CHROME
         };
@@ -766,6 +776,9 @@ impl eframe::App for App {
             },
         );
         self.detail_size = detail_size;
+        if devices && self.show_detail {
+            self.chain.height = Some(detail_size);
+        }
         egui::CentralPanel::default().show(ui, |ui| self.arrangement(ui));
         if let Some(content) = detail_content {
             self.detail_content(ui, content);

@@ -130,7 +130,7 @@ impl App {
         {
             match self.hit(&ctx, p, canvas) {
                 Some(hit) if hit.handle.is_some() => self.reset_handle(&hit),
-                Some(hit) => self.open_note_editor(hit.clip),
+                Some(hit) => self.open_clip(hit.clip),
                 None => {
                     if let Some(track) = self.lane_track(&ctx, canvas, p) {
                         let at = self.snapped(self.ticks_at(canvas, p.x), modifiers.alt);

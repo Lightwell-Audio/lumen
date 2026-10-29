@@ -138,13 +138,7 @@ fn a_plugin_that_keeps_stopping_is_counted_and_never_restarted_by_itself() {
 /// The chain's tab for the track the devices are on.
 fn show_cards(lumen: &mut super::Lumen) {
     lumen.app_mut().select_tracks(&[Id(1)]);
-    lumen
-        .harness
-        .get_all_by_label("Devices tab")
-        .last()
-        .expect("the detail panel's tabs")
-        .click();
-    lumen.frames(20);
+    lumen.show_whole_cards();
 }
 
 #[test]
