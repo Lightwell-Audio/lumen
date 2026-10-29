@@ -1,6 +1,6 @@
 # Lumen
 
-[![CI](https://github.com/gummycookie/lumen/actions/workflows/ci.yml/badge.svg)](https://github.com/gummycookie/lumen/actions/workflows/ci.yml)
+[![CI](https://github.com/Lightwell-Audio/lumen/actions/workflows/ci.yml/badge.svg)](https://github.com/Lightwell-Audio/lumen/actions/workflows/ci.yml)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
 
 <p align="center">
@@ -17,13 +17,12 @@ device chain, clip editors and mixer exist to support it. There is no session
 view and no clip launcher.
 
 Lumen is free software under GPL-3.0-or-later. A public project page is at
-[gummycookie.github.io/lumen](https://gummycookie.github.io/lumen/).
+[lightwell-audio.github.io/lumen](https://lightwell-audio.github.io/lumen/).
 
 > **Status: early development, not yet 1.0.** Lumen records and edits MIDI,
 > plays and edits audio clips, hosts VST3 instruments and effects in separate
-> processes, automates parameters, and mixes and saves projects. Audio
-> recording is built and awaiting hardware tests. Export of audio masters and
-> stems, drum maps and the built-in effects are still to come.
+> processes, automates parameters, records audio, and mixes, saves and exports
+> projects. Drum maps and the built-in effects are still to come.
 > See [Roadmap](#roadmap) and [What is not built yet](#what-is-not-built-yet).
 
 ## What works today
@@ -41,17 +40,18 @@ saved in the project — real-plugin testing is still in progress, see
 [docs/PLUGIN_COMPATIBILITY.md](docs/PLUGIN_COMPATIBILITY.md). The mixer has
 groups, sends, returns, delay compensation and LUFS metering; projects save
 to a versioned, autosaving `.lumen` folder with crash recovery and
-migrations. Audio recording is built and awaiting hardware tests.
+migrations. Audio recording with takes, Capture MIDI, the media pool and
+export of masters and stems are built; export awaits its hardware test.
 
 See [docs/PROGRESS.md](docs/PROGRESS.md) for the full requirement-by-requirement
 status.
 
 ### What is not built yet
 
-Export to audio files, takes and Capture MIDI, disk streaming for clips too
-large for memory, drum maps and the step sequencer, the built-in EQ/
-compressor/limiter/delay/reverb/sampler, warp and time-stretch, installers,
-and VST3 hosting on macOS (approved, in progress) and Linux (not scheduled).
+Disk streaming for clips too large for memory, drum maps and the step
+sequencer, the built-in EQ/compressor/limiter/delay/reverb/sampler, warp and
+time-stretch, installers, and VST3 hosting on macOS (approved, in progress)
+and Linux (not scheduled).
 
 ## Roadmap
 
@@ -67,7 +67,7 @@ automated tests, manual tests on real hardware where needed, and a written
 report; the owner reviews each milestone before the next one starts.
 Milestone 9 is being built before milestone 8 (owner decision, 2026-10-23).
 
-The milestone-by-milestone status, last updated 2026-10-25, is the table at
+The milestone-by-milestone status is the table at
 the top of [docs/PROGRESS.md](docs/PROGRESS.md), which also tracks every
 requirement in [CLAUDE.md](CLAUDE.md) against its current status. The plan
 for each milestone is in [docs/milestones/](docs/milestones/), and manual
@@ -110,7 +110,7 @@ Windows build notes, including a setup without admin rights, are in
 ### Build and run
 
 ```bash
-git clone https://github.com/gummycookie/lumen.git
+git clone https://github.com/Lightwell-Audio/lumen.git
 cd lumen
 cargo build --release -p lumen-plugin-host
 cargo run --release -p lumen-app
