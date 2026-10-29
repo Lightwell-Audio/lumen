@@ -119,12 +119,13 @@ irreversible or external) · *Superseded*.
 
 | Question | Decision |
 |---|---|
+| One plan per milestone (2026-10-29) | The owner asked for every sub-plan to be folded into its milestone's plan. M7b went back into M7: its slices keep the names E0 to E6, and older records and code comments still say M7b. M9's slice plans R2 to R5 went into `M9.md`. The M5 recording-window plan went into `M5.md`. M4.5 stays a milestone of its own. Also at the owner's request, the audio clip editor and warp were placed as **M7 E7 and E8**, which wait for the owner to choose when they run (`docs/milestones/M7.md` §5). |
 | Take lanes deferred (M9 R3, 2026-10-26) | Pitched after the owner's runs of R3 (each pass a clip on its own lane under the track, a comp lane that plays, comping by dragging across a lane): the owner likes individual take lanes and **deferred them, with comping, until after M9's must-have slices**, as recommended. Until then a take is a whole pass inside one clip (ADR-0104), reached from the Takes menu; the passes are windows on one file, so dragging a clip's edge past its pass shows the pass beside it (intended, as in common workstations). When lanes are built, the takes inside a clip become lanes by migration. Open for then: whether a comp segment is a copied clip or a reference to its take, whether recording over any material (not only loop passes) makes a lane, and MIDI lanes. |
-| M9 R4 choices (2026-10-26) | P1 A (renders follow the project rate), P2 A (Revert reloads the saved file after a quiet prompt, keeping the unsaved version in `Backups/Reverted`), S A (R4 is the save family and project settings; the media pool, relink and purge are R4b): every recommendation in `docs/milestones/M9-R4.md` §3.  After MT-PROJ-1 run 1 (2026-10-26): projects and templates get their own folders in `Documents/Lumen` (option A of four pitched), and the app menu is grouped (layout A of three pitched as specimens): ADR-0105. |
-| M9 R4b choices (2026-10-26) | M1 A (a "Project media" tab in the browser), M2 A (Locate one file, and search a folder with a report to look at before anything changes), M3 A (remove unused takes entries out as one undo step; Clear moves leftover files to the system trash after a second press), M4 A (a banner with Relinkâ¦ on open): every recommendation in `docs/milestones/M9-R4b.md` Â§3 (ADR-0106). |
+| M9 R4 choices (2026-10-26) | P1 A (renders follow the project rate), P2 A (Revert reloads the saved file after a quiet prompt, keeping the unsaved version in `Backups/Reverted`), S A (R4 is the save family and project settings; the media pool, relink and purge are R4b): every recommendation (`docs/milestones/M9.md` §2). After MT-PROJ-1 run 1 (2026-10-26): projects and templates get their own folders in `Documents/Lumen` (option A of four pitched), and the app menu is grouped (layout A of three pitched as specimens): ADR-0105. |
+| M9 R4b choices (2026-10-26) | M1 A (a "Project media" tab in the browser), M2 A (Locate one file, and search a folder with a report to look at before anything changes), M3 A (remove unused takes entries out as one undo step; Clear moves leftover files to the system trash after a second press), M4 A (a banner with Relink… on open): every recommendation (`docs/milestones/M9.md` §2; ADR-0106). |
 | UX round three (2026-10-28) | DP1 A (the detail panel names its subject; Clip only for an opened clip), B8 A (the chips' clip reaches past the pane), TB2 A (a fixed CPU slot), D2 A (compact cards in a short tray), and a margin round a compact card's Reload: every recommendation on the round-three audit sheet (ADR-0108). |
-| M9 plan choices (2026-10-24) | R1 A, R2 A, R3 A, R4 A, R5 A, X1 A, X2 A, X3 A: every recommendation in `docs/milestones/M9.md` §4. |
-| Milestone sequence (2026-10-23) | After M7 and M7b, deliver the existing M9 (Recording, Media, Export & Production Workflow) before M8 (Drum Maps, Drum Editor & Built-In Devices), because audio recording has higher priority than drum maps. Keep the milestone IDs and scopes unchanged; this only changes delivery order. Recorded in `docs/ROADMAP.md` and `docs/PROGRESS.md`. |
+| M9 plan choices (2026-10-24) | R1 A, R2 A, R3 A, R4 A, R5 A, X1 A, X2 A, X3 A: every recommendation (`docs/milestones/M9.md` §2). |
+| Milestone sequence (2026-10-23) | After M7 and M7b, deliver the existing M9 (Recording, Media, Export & Production Workflow) before M8 (Drum Maps, Drum Editor & Built-In Devices), because audio recording has higher priority than drum maps. Keep the milestone IDs and scopes unchanged; this only changes delivery order. Recorded in `docs/PROGRESS.md`. |
 | Native macOS VST3 hosting (2026-10-19, ADR-0085) | Bring the stretch goal forward now: the full existing workflow, including native editors, for plugins matching the host architecture. Intel bridging remains outside this slice. |
 | Product-neutral documentation (2026-10-14) | Do not use third-party products or vendors as design references, comparisons, endorsements or examples; describe the behavior directly. Preserve technical identifiers, exact protocol requirements, hardware names and required legal attribution. |
 | Lumen's licence (ADR-0039) | GPL-3.0-or-later, open source; the signed packaged binary is sold. Supersedes ADR-0012 (closed source). |
@@ -200,7 +201,7 @@ irreversible or external) · *Superseded*.
 | Production routing (M6 slice 6, 2026-10-18; ADR-0078) | Pitched and **all chosen as recommended**: B1 mono and stereo buses; S1 the sidechain row on the effect's card, with the tap inside its menu (option B) and the light I1 (from rendered specimens); M1 a plugin instrument's outputs as tracks of their own, listed on the card (O1, the row with a switch list, from rendered specimens); L1 effects flush and instruments ring out on a locate; L2 a plugin instrument's reported latency is compensated; C1 a scrub is not late by the compensation. Later, from the owner's runs: every output of a plugin is on and an output with no track plays on the instrument's own track; a block carries 64 channels. |
 | The hosting manager (M6 slice 2c, 2026-10-16) | Plan approved with **C1** (a plugin instrument receives notes only in 2c; controllers, bend, pressure and program are dropped and counted until parameters in slice 3), **C2** (the last reported latency and tail are written into the device when the host reports a different value, as a change that is not an undo step but marks the project changed) and **C3** (removing a device ends its process at once; undo starts a new one). Plan in `docs/milestones/M6.md`. |
 | MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
-| M7 split and deferrals (2026-10-19) | Asked, with a recommendation each: **S1 A** the roadmap's milestone 7 is two milestones, M7 (automation and envelopes) and M7b (advanced editing and render); **T1 A** tempo ramps are deferred, the tempo lane edits steps; **P1 A** the audio pitch envelope is deferred until a time-stretch and pitch engine exists. **X1**: asked why crossfades were to be deferred, the owner kept them in scope; the reason offered (clips never overlap under the owner's overwrite rule) is a design question, so X1 became a choice of crossfade model, recommendation A (a crossfade at a join). **Chosen from the specimens, later the same day:** L1 B (the lane drawn over the track's clip lane); X1 A (a crossfade at a join); K1 the cut gestures (press, aim and release, and the edit cursor with Ctrl+E) and tool keys that follow the common workstation convention listed in CLAUDE.md §5 with no new single-letter tool keys; the rest of the specimens accepted. **Y1 (later the same day): A.** The static clip pitch property is deferred with the envelope, until warp and time-stretch. Plans: `docs/milestones/M7.md`, `docs/milestones/M7b.md`. |
+| M7 split and deferrals (2026-10-19) | Asked, with a recommendation each: **S1 A** the roadmap's milestone 7 is two milestones, M7 (automation and envelopes) and M7b (advanced editing and render); **T1 A** tempo ramps are deferred, the tempo lane edits steps; **P1 A** the audio pitch envelope is deferred until a time-stretch and pitch engine exists. **X1**: asked why crossfades were to be deferred, the owner kept them in scope; the reason offered (clips never overlap under the owner's overwrite rule) is a design question, so X1 became a choice of crossfade model, recommendation A (a crossfade at a join). **Chosen from the specimens, later the same day:** L1 B (the lane drawn over the track's clip lane); X1 A (a crossfade at a join); K1 the cut gestures (press, aim and release, and the edit cursor with Ctrl+E) and tool keys that follow the common workstation convention listed in CLAUDE.md §5 with no new single-letter tool keys; the rest of the specimens accepted. **Y1 (later the same day): A.** The static clip pitch property is deferred with the envelope, until warp and time-stretch. Plan: `docs/milestones/M7.md` (M7b was folded back into it on 2026-10-29). |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 | Logo and light (2026-10-10) | Chosen from rendered specimens on the identity canvas (a Design artifact): four marks, then six colourways. **D, Dawn, in Sunrise**: a sun rising over a horizon, its reflection breaking into a waveform; an amber sun (`#FFC46B`) over water in the accent. **The light layer holds** (five levels: Unlit, Ember, Lit, Beam, Flare, and five rules), and **the mark is a meter** (the sun rises with the master's level, red while recording), with every proposed use of light: the playhead beam, Play's beam, meter heads, the mark above an empty arrangement. ADR-0043. A guitarist-first direction was pitched and set aside by the owner. |
@@ -1249,7 +1250,7 @@ audio in memory for M2, disk streaming in M9; AAC/M4A deferred.
   threads with progress and cancel.
 - **In memory:** converted audio is shared (`Arc`) by the clips that use
   it. The audio thread only reads memory. Disk streaming arrives in M9
-  (ROADMAP.md, PROGRESS.md); this path becomes the per-clip RAM option.
+  (M9 R6); this path becomes the per-clip RAM option.
 - **Rate changes:** when the device rate changes, files are converted again
   in the background. Clips whose audio is not at the device rate stay
   silent rather than play at the wrong speed.
@@ -8345,7 +8346,7 @@ material and permit later join/glue without baking it.
 **Scope.** General clip join/glue remains E1. E0 verifies continuity and undo;
 the join-command round trip is verified when that command is delivered.
 The owner verifies playback by ear and device behavior in
-[MT-EDIT-1](manual-tests/M7b.md#mt-edit-1--tools-and-split-e0).
+[MT-EDIT-1](manual-tests/M7.md#mt-edit-1--tools-and-split-e0).
 
 ## ADR-0093 — Clip commands: join, reverse, polarity and normalize (M7b E1)
 
@@ -9093,7 +9094,7 @@ choose. Separately, a phrase played while not recording is lost. The owner
 chose (2026-10-25): audio takes A (the last pass plays; a Takes menu swaps or
 extracts), MIDI takes A (Replace makes takes; Overdub keeps layering), Capture
 MIDI A (a rolling in-memory buffer that lands where the notes were played).
-Plan: `milestones/M9-R3.md`.
+Plan: `milestones/M9.md` §4.
 
 **Model.** `Clip.takes: Option<Takes>` (written only when set):
 `Takes { active, count, others: Vec<OtherTake { take, Pass }> }` with
@@ -9237,7 +9238,7 @@ update.
 
 **Status:** Accepted 2026-10-26 (built; MT-PROJ-1 passed by the owner, 2026-10-26). Format
 **v32**. The owner took every recommendation of the plan (2026-10-26; the table
-of owner decisions): P1 A, P2 A, S A. Plan: `milestones/M9-R4.md`.
+of owner decisions): P1 A, P2 A, S A. Plan: `milestones/M9.md` §4.
 
 **Context.** A project could be saved, saved as and opened, but not copied
 without moving the open document, not gathered into one folder, not kept as a
@@ -9328,7 +9329,7 @@ passed (2026-10-26, no step detail).
 **Status:** Accepted 2026-10-26 (built; MT-PROJ-2 passed, owner, 2026-10-26). No format
 change (still **v32**). The owner took every recommendation of the plan
 (2026-10-26; the table of owner decisions): M1 A, M2 A, M3 A, M4 A. Plan:
-`milestones/M9-R4b.md`.
+`milestones/M9.md` §4.
 
 **Context.** A project whose audio had moved opened with one toast and silent
 clips, and nothing could put the files back. Deleting a clip left its file entry
@@ -9479,7 +9480,7 @@ file into RAM, as playback does; block processing and temporary FLAC frames
 do not make that a streamed decoder. WAV retains the existing RIFF 4 GiB
 limit and reports an error rather than producing a corrupt file. Disk
 streaming and very-long-file export belong with R6. The exact checks and
-measurements are recorded in `milestones/M9-R5.md`. MT-EXPORT-1 is still
+measurements are recorded in `milestones/M9.md` §4. MT-EXPORT-1 is still
 pending: no real interface or external plugin compatibility is claimed.
 
 Final review kept muted/solo-excluded send paths excluded when extracting

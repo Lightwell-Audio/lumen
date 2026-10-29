@@ -363,9 +363,9 @@ Each step must end with something usable and tested. Reorder or split as you see
 5. **MIDI:** devices, recording, piano roll, quantize, SMF.
 6. **VST3 hosting:** scanning, instruments, effects, editors, state, presets, delay compensation, sidechain, multi-out.
 7. **Automation and envelopes.**
-8. **Editing power tools** (M7b in `docs/ROADMAP.md`): split, consolidate, fades, crossfades, warp, bounce, freeze, takes.
-9. **Recording, media and export** (existing M9 in `docs/ROADMAP.md`): prioritize audio recording ahead of drum-map work, per the owner's 2026-10-23 sequence decision.
-10. **Drum maps, drum editor and step sequencer** (existing M8 in `docs/ROADMAP.md`).
+8. **Editing power tools** (M7's editing part, `docs/milestones/M7.md`): split, consolidate, fades, crossfades, warp, bounce, freeze, takes.
+9. **Recording, media and export** (M9, `docs/milestones/M9.md`): prioritize audio recording ahead of drum-map work, per the owner's 2026-10-23 sequence decision.
+10. **Drum maps, drum editor and step sequencer** (M8).
 11. **Built-in devices** (also in existing M8).
 12. **Projects, recording polish, preferences, first-run experience.**
 13. **Hardening and release:** plugin isolation, performance tuning to the quality bar, long-session soak testing, accessibility, installers, documentation.
@@ -408,7 +408,7 @@ it first in a new session, and update it at the end of every slice.
 `m9-s5-audio-export`, cut from `origin/main` at `335b3ecb` after R4 merged.
 The independent R4b media-pool work is merged and integrated from `main`
 at `0db27218` (PR #71); export is PR #72. See
-`docs/milestones/M9-R5.md` and ADR-0107. Format stays v32. MT-EXPORT-1
+`docs/milestones/M9.md` (§4, R5) and ADR-0107. Format stays v32. MT-EXPORT-1
 is pending; M9 is not closed and R6 has not started. After media-pool integration,
 Windows: 3,217 tests (723 E2E), six smoke tests, clean clippy; macOS cross-clippy and all 13
 instruction gates pass. Linux: clippy and all 720 E2E pass; the full suite
@@ -426,7 +426,7 @@ approved closed and the next milestone has not started. Format remains v29.
 Earlier handoff (2026-10-23): M7b E2 crossfades are built on
 `m7b-s2-join-crossfades`, cut from `origin/main` after E1 merged (PR #52).
 Windows: 2,770 workspace tests (636 E2E), six smoke tests, clean clippy;
-macOS cross-clippy passes. See ADR-0094, `docs/milestones/M7b.md`, and
+macOS cross-clippy passes. See ADR-0094, `docs/milestones/M7.md`, and
 MT-EDIT-3 (owner verification pending). New UI follows
 `docs/DESIGN.md` and the saved design-system tokens. E3 has not started.
 
@@ -435,11 +435,11 @@ capture's compensated positions and uses engine-side loop-pass bounds.
 Disabling Loop before the first wrap preserves the saved visible window.
 Format v16 marks hidden captured notes so they cannot continue an old
 note across a seam; older notes retain their existing behavior. See
-ADR-0064 and `docs/milestones/M5-recording-window.md` for verification.
+ADR-0064 and `docs/milestones/M5.md` (Recording window correction) for verification.
 M5 closeout remains pending.
 
 Before it, 2026-10-14: **MIDI recording window correction**
-(ADR-0064; `docs/milestones/M5-recording-window.md`). Capture continues
+(ADR-0064; `docs/milestones/M5.md` (Recording window correction)). Capture continues
 until Stop or Record-off; loop/punch boundaries mask full hidden MIDI
 content rather than discard it. Replace playback resumes at punch-out;
 first loop entry preserves delayed pre-loop messages. No format change.
@@ -965,7 +965,7 @@ escapes and quotes several times.
   - `lumen-review` for the full repository review **at the end of every
     milestone** (owner decision), before the milestone report.
 - Where to look:
-  - `docs/PROGRESS.md`: every requirement's status, slice tables and the
+  - `docs/PROGRESS.md`: every requirement's status and the
     milestone reports;
   - `docs/DECISIONS.md`: ADR-0001 to ADR-0033, plus the table of owner
     decisions;
