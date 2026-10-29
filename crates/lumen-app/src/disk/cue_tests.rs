@@ -33,6 +33,60 @@ fn a_scene_without_streamed_audio_needs_no_worker_acknowledgement() {
 
 struct PagesForTest;
 
+struct NoReadsAfterStop;
+
+impl Pages for NoReadsAfterStop {
+    fn read(
+        &mut self,
+        _: &StreamAudio,
+        _: usize,
+        _: &mut [f32],
+        _: &mut [f32],
+    ) -> Result<usize, MediaError> {
+        panic!("a queued stop must end the worker before another read")
+    }
+
+    fn keep(&mut self, _: &[StreamAudio]) {}
+}
+
+#[test]
+fn a_stop_queued_behind_a_scene_is_not_lost_while_draining_messages() {
+    let pool = PagePool::new(1);
+    let audio = StreamAudio::new(&pool, 99, RATE, 2, PAGE as u64);
+    let clip = Clip {
+        envelope: Default::default(),
+        id: 99,
+        track: 0,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: PAGE as i64,
+        gain: 1.0,
+        audio: Arc::new(ClipAudio::Stream(audio)),
+        shape: ClipShape::default(),
+    };
+    let scene = Arc::new(Scene::new(
+        &[clip],
+        &Timeline::default(),
+        RATE,
+        None,
+        vec![],
+    ));
+    assert!(!scene.is_empty());
+    let worker = Worker::new(
+        &pool,
+        Box::new(NoReadsAfterStop),
+        reader(),
+        Arc::new(Stats::default()),
+    );
+    let (sender, inbox) = channel();
+    sender.send(Message::Scene(scene)).unwrap();
+    sender.send(Message::Stop).unwrap();
+    std::thread::spawn(move || worker.run(&inbox))
+        .join()
+        .expect("shutdown was already queued before the worker started");
+    drop(sender);
+}
+
 impl Pages for PagesForTest {
     fn read(
         &mut self,

@@ -429,6 +429,33 @@ fn play_until_it_fails(lumen: &mut Lumen, device: Id) {
     lumen.frames(5);
 }
 
+/// Waits for the replacement host without hiding what it was doing if it
+/// never becomes ready. Keep the normal E2E patience and polling cadence;
+/// Loading and a temporarily absent state are still allowed until timeout.
+fn wait_for_restored_host(lumen: &mut Lumen, device: Id) {
+    let started = std::time::Instant::now();
+    loop {
+        lumen.harness.step();
+        if lumen
+            .app()
+            .device_state(device)
+            .is_some_and(|state| state == "ready")
+        {
+            // State changed by another thread can turn after a frame was
+            // drawn: show it once more, as `Lumen::wait_for` does.
+            lumen.harness.step();
+            return;
+        }
+        assert!(
+            started.elapsed() < super::PATIENCE,
+            "timed out waiting for a new host; device_state({device:?})={:?}, plugin_hosts={}",
+            lumen.app().device_state(device),
+            lumen.app().plugin_hosts()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
 #[test]
 fn a_host_that_dies_under_the_song_shows_on_its_card_and_reload_brings_it_back() {
     let mut lumen = launch("dies", &project(vec![effect_device(FIRST)]), &["Dies"]);
@@ -473,9 +500,7 @@ fn removing_a_failed_device_and_undoing_it_loads_it_again_with_its_settings() {
     let kept = lumen.app().project().tracks[1].devices[0].state.clone();
     assert_eq!(kept, state, "the settings came back with it");
     // A new host, not the dead one.
-    lumen.wait_for("a new host", |app| {
-        app.device_state(FIRST).is_some_and(|s| s == "ready")
-    });
+    wait_for_restored_host(&mut lumen, FIRST);
 }
 
 #[test]

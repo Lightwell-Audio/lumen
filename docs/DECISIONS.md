@@ -9683,6 +9683,16 @@ regressions cover capacity, offsets, repeated phases, adoption races and
 both sides of the loop boundary. The existing performance baseline and
 +2% gate remain unchanged; the pinned-container measurement passes.
 
+**Worker scheduling follow-up.** macOS disk workers request UserInitiated
+pthread QoS at startup; plugin-host audio workers request UserInteractive.
+The shared `lumen-rt::thread_qos` helper records before/request/result/after
+outside callbacks. The soak uses a dedicated UserInteractive render thread
+and reports fixed sleep probes outside its timed interval. These hints do
+not guarantee real-time scheduling. The audit records the hosted hypothesis
+and validation; Windows MMCSS and Linux scheduling stay unchanged. A queued
+Stop is terminal during both the worker's receive and drain paths, so it
+cannot disappear behind a scene update.
+
 **Consequences.** Streaming stays off by default until MT-STREAM-1 passes
 on the owner's interface at 64 and 128 frames (S6); then the default
 flips. The 30 s rule and the pool size were kept after the soak and the

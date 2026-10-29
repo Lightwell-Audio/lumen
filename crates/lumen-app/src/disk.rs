@@ -385,6 +385,11 @@ impl Worker {
     }
 
     fn run(mut self, inbox: &Receiver<Message>) {
+        let qos = lumen_rt::thread_qos::request(lumen_rt::thread_qos::Class::UserInitiated);
+        #[cfg(target_os = "macos")]
+        eprintln!("lumen-disk thread QoS: {qos:?}");
+        #[cfg(not(target_os = "macos"))]
+        let _ = qos;
         let mut wait = Duration::ZERO;
         loop {
             match inbox.recv_timeout(wait) {
@@ -394,7 +399,10 @@ impl Worker {
                 Err(RecvTimeoutError::Disconnected) => return,
             }
             while let Ok(message) = inbox.try_recv() {
-                self.take(message);
+                match message {
+                    Message::Stop => return,
+                    message => self.take(message),
+                }
             }
             wait = self.round();
             self.report();

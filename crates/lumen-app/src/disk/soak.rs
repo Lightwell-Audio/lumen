@@ -102,6 +102,32 @@ fn round(round: i64) -> [Step; 4] {
 
 #[test]
 fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
+    let thread = std::thread::Builder::new()
+        .name("lumen-soak-audio".into())
+        .spawn(run_soak)
+        .expect("spawn the soak render thread");
+    thread.join().expect("the soak render thread completed");
+}
+
+fn run_soak() {
+    #[cfg(target_os = "macos")]
+    let before_sleep = sleep_probe();
+    let qos = lumen_rt::thread_qos::request(lumen_rt::thread_qos::Class::UserInteractive);
+    #[cfg(target_os = "macos")]
+    eprintln!("lumen-soak render thread QoS: {qos:?}");
+    #[cfg(target_os = "macos")]
+    assert!(
+        qos.established(),
+        "the macOS soak render thread must establish UserInteractive QoS: {qos:?}"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "lumen-soak fixed sleep probe (32 blocks, total/max overshoot): before {before_sleep:?}, after {:?}",
+        sleep_probe()
+    );
+    #[cfg(not(target_os = "macos"))]
+    let _ = qos;
+
     let seconds: f64 = std::env::var("LUMEN_SOAK_SECONDS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -329,4 +355,21 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
     assert!(heard, "the tracks were heard");
     assert_eq!(failed, 0);
     assert_eq!(underruns, 0, "no read came too late");
+}
+
+/// Observes the same sleep primitive before and after the macOS QoS request.
+/// Fixed sample counts only; this probe never waits for a favorable result
+/// and does not change the soak's timing assertions or 120-second interval.
+#[cfg(target_os = "macos")]
+fn sleep_probe() -> (Duration, Duration) {
+    let period = Duration::from_secs_f64(BLOCK as f64 / f64::from(RATE));
+    let (mut total, mut longest) = (Duration::ZERO, Duration::ZERO);
+    for _ in 0..32 {
+        let started = Instant::now();
+        std::thread::sleep(period);
+        let overshoot = started.elapsed().saturating_sub(period);
+        total += overshoot;
+        longest = longest.max(overshoot);
+    }
+    (total, longest)
 }

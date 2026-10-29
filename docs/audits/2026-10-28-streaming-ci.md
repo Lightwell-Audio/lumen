@@ -58,6 +58,75 @@ the actual results here; a failed round is not a successful validation.
 
 ## Results
 
+### Subsequent prefill validation: incomplete
+
+The functional tree `831d42709d14bde8ffc94350f85c90e7ff941162` received three
+complete workflow launches, without failed-job reruns:
+
+| Commit | Full CI | All platform soaks | Accepted outcome |
+|---|---|---|---|
+| `30a39f1d` | [40884477656](https://github.com/gummycookie/lumen/actions/runs/40884477656), 7/7 passed | [40884477611](https://github.com/gummycookie/lumen/actions/runs/40884477611), 3/3 passed | One historical green pair |
+| `bea14169` | [40886141785](https://github.com/gummycookie/lumen/actions/runs/40886141785), macOS failed | [40886141482](https://github.com/gummycookie/lumen/actions/runs/40886141482), 3/3 passed | Failed round |
+| `faa1f710` | [40888073864](https://github.com/gummycookie/lumen/actions/runs/40888073864), macOS failed | [40888073837](https://github.com/gummycookie/lumen/actions/runs/40888073837), macOS failed | Failed round |
+
+The second CI run timed out after the existing 30 seconds waiting for the
+failed-device remove/undo scenario's replacement host. The third CI run
+passed all 752 active E2E scenarios, including that one, but failed the
+offline instrument comparison: none of its five existing live runs kept
+up. These logs do not establish a shared cause. The undo wait now reports
+device state and host count on failure, with its timeout, polling cadence
+and ready/settings assertions unchanged. No new retry was added.
+
+The macOS soaks measured substantial wakeup delays despite little time in
+rendering: the first successful soak spent 2.705 s rendering and 101.067 s
+in sleep overshoot (maximum 72.152 ms); the second spent 5.527 s rendering
+and 91.948 s in overshoot (maximum 244.172 ms). They recorded 23,218 and
+15,630 missed callbacks respectively. The third failed with 44 late reads
+and 22,479 missed callbacks. At the late event, the worker had consumed the
+new cue but had loaded only streams 1–20 of the next required page when
+the production hold deadline forced playback. A pending engine serial is
+expected while that locate remains held. This is distinct from the earlier
+50 ms readiness gap; the prefill barrier cannot override the existing
+150 ms escape. That limit and all zero-late assertions remain unchanged.
+
+### macOS scheduling investigation and worker shutdown
+
+The next functional revision requests documented, non-privileged pthread
+QoS at thread entry: UserInitiated for the disk worker and UserInteractive
+for the plugin-host audio worker and the soak's dedicated render thread.
+The device-owned audio callback is unchanged. A shared helper in
+`lumen-rt::thread_qos` logs the reported class before the request, setter
+return code and class afterward. Windows retains MMCSS; other targets
+leave their scheduler setup unchanged. This is a scheduling hypothesis,
+not established attribution of the preceding failures. Native macOS logs
+must confirm what classes were actually configured and retain wakeup,
+render, missed-callback and late-read measurements. Fixed 32-sleep probes
+before and after the soak thread's request run outside its 120 s timer;
+they neither retry nor impose a favorable-timing threshold.
+
+A separate deterministic worker defect was found during this review:
+`Stop` received while draining queued scene/cue messages was ignored by
+`take`, so shutdown could be lost while another sender remained alive.
+Both receive paths now terminate on Stop. A regression queues Scene then
+Stop before starting the worker and forbids any page read afterward.
+
+These functional changes reset the required accepted-round count to zero.
+Three fresh fully green CI and three-platform soak pairs are still required.
+
+Local checks for this revision: macOS ARM64 cross-target clippy and Linux
+workspace clippy passed with warnings denied. All 3,332 workspace tests
+across 108 targets passed, including 752 active E2E scenarios; the isolated
+plugin walkthrough, doc tests, six real-binary smoke tests, and 31 optimized
+disk regressions passed. The isolated optimized 120 s soak passed all 60
+steps with 142,960 reads, zero late/failed reads, longest hold 119.991 ms,
+no forced deadline releases, and two missed callback deadlines. It rendered
+44,998 callbacks in 4.346 s total (maximum 8.501 ms); sleep overshoot totaled
+3.484 s (maximum 4.035 ms). These retain observed timing limitations.
+The full pinned Ubuntu 26.04 performance gate also passed with its baseline
+unchanged: streamed playback +0.07%, planning -3.58%, and every other
+scenario within the existing +2% limit.
+
+
 ### Hosted investigation attempt at `10f5c4ec`
 
 [Full CI 40875049859](https://github.com/gummycookie/lumen/actions/runs/40875049859)

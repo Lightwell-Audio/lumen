@@ -418,6 +418,12 @@ gap. The corrected worker now fills its existing cue prefix before normal
 readiness release, and the soak exercises production's 150 ms timeout.
 All 3,331 workspace tests, 30 disk regressions, smoke, isolated walkthrough,
 production-deadline soak and unchanged performance gate pass locally.
+Later hosted prefill rounds produced one green pair followed by macOS CI
+and soak failures; the repair remains provisional. The next revision adds
+observable macOS worker QoS requests and a deterministic queued-Stop fix.
+Three fresh complete green CI/soak rounds are required for that revision;
+the audit retains the failed attempts and timing measurements.
+
 Three fresh full hosted green rounds are still required after this correction.
 
 **Last updated (2026-10-26):** M9 R5 Export is built and verified on

@@ -1,6 +1,6 @@
 [package]
 name = "lumen-rt"
-description = "Real-time safety tooling: allocation guard for audio-thread code"
+description = "Real-time safety tooling and thread QoS hints"
 version.workspace = true
 license.workspace = true
 edition.workspace = true
@@ -9,6 +9,9 @@ publish.workspace = true
 
 [dependencies]
 rtsan-standalone.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
 
 [dev-dependencies]
 divan.workspace = true

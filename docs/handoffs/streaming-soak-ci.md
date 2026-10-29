@@ -1,6 +1,22 @@
 # Continue the disk streaming CI fix in the Lumen Codex environment
 
-## Continuation status (2026-10-29)
+## Latest status: scheduling investigation, not fixed (2026-10-29)
+
+The prefill correction produced one fully green CI/soak pair, followed by
+two failed rounds. The audit links all six runs and describes the macOS
+failures: replacement-host timeout, live instrument lateness, and 44 late
+soak reads after production's hold deadline. The macOS soaks also recorded
+large wakeup overshoot and missed callbacks even when disk reads passed.
+A provisional revision adds observable macOS pthread QoS requests at disk,
+plugin-host and dedicated soak render-thread entry; fixed before/after
+sleep probes run outside the soak timer. This needs native evidence and
+three new complete green pairs. It is not a proven root cause yet.
+The worker also now obeys Stop when draining queued messages, covered by
+a deterministic Scene-then-Stop regression. The failed-device undo wait
+adds timeout diagnostics without changing its patience or assertions.
+No retries, timing limits or zero-late assertions have been weakened.
+
+## Earlier continuation status (2026-10-29)
 
 The first hosted repair attempt at `10f5c4ec` passed all seven CI jobs and
 the Windows/Linux streaming soaks, but failed the macOS ARM64 soak with 28
