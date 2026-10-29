@@ -22,14 +22,14 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 2 | Audio Engine, Devices & Transport | ✅ Approved 2026-10-07 | [M2](milestones/M2.md) |
 | 3 | Arrangement & Project System | ✅ Approved 2026-10-09 | [M3](milestones/M3.md) |
 | 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes, PR #3) | [M4](milestones/M4.md) |
-| 4.5 | Polish pass (the interface audit's fixes) | ✅ Built 2026-10-10; MT-POL-5, MT-POL-6 and MT-APP-18 have no recorded run | [M4.5](milestones/M4.5.md); audit `docs/audits/2026-10-10-design.md` |
+| 4.5 | Polish pass (the interface audit's fixes) | ✅ Built 2026-10-10; MT-POL-1 to 6 passed (owner, 2026-10-10 and 2026-10-12); MT-APP-18 has no recorded run | [M4.5](milestones/M4.5.md); audit `docs/audits/2026-10-10-design.md` |
 | 5 | MIDI & Piano Roll | ✅ Signed off 2026-10-26; MT-MIDI-7 to 9 out of scope for now (owner) | [M5](milestones/M5.md) |
-| 6 | VST3 Hosting & Device System | ✅ Signed off 2026-10-26. MT-VST-3 to 7 and the ADR-0069 callback numbers are out of scope for now (owner); monitoring through an effect passed MT-REC-1 step 8 (owner, 2026-10-26, no figures), so the callback's wait stays on trial | [M6](milestones/M6.md); review `docs/audits/2026-10-18-m6.md` |
+| 6 | VST3 Hosting & Device System | ✅ Signed off 2026-10-26; MT-VST-3 to 7 and the ADR-0069 callback numbers are out of scope for now (owner), so the callback's wait stays on trial | [M6](milestones/M6.md); review `docs/audits/2026-10-18-m6.md` |
 | 7 | Automation, Editing & Render | 🟡 A0 to A8 and E0 to E6 merged (ADR-0081 to 0098; formats v22 to v29); MT-EDIT-2, MT-EDIT-7 and MT-UX-2 and the approval wait; E7 and E8 not started | [M7](milestones/M7.md); reviews `docs/audits/2026-10-22-m7.md`, `docs/audits/2026-10-24-m7b.md` |
 | 9 | Recording, Media, Export & Production Workflow | 🟡 R0 to R5, R1b and R4b merged (ADR-0099 to 0107; formats v30 to v32); MT-EXPORT-1 waits; R2b and R6 to R9 not started | Before M8 (owner, 2026-10-23). [M9](milestones/M9.md) |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | After M9 (owner, 2026-10-23) |
 | 10 | Hardening, Performance & Release | 🔲 | |
-| S | Stretch goals (only with the owner's approval) | 🔲 | VST3 hosting on macOS and Linux ([plan](milestones/macOS-VST3.md)) |
+| S | Stretch goals (only with the owner's approval) | 🟡 | VST3 hosting: macOS approved 2026-10-19 and in progress ([plan](milestones/macOS-VST3.md), ADR-0085); Linux not scheduled |
 
 ---
 
@@ -89,6 +89,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Glitch-free playback, seamless loops, instant seeking | M | 🟡 Clips play sample-exactly from memory, with click-free crossfaded loops and locates (slice 6; golden renders; MT-MEDIA-1 passes by ear). Large sessions need disk streaming (M9) | 2 |
 | Disk streaming of clip audio with read-ahead, so large sessions need not fit in RAM; in-memory playback becomes a per-clip RAM option (owner decision 2026-10-06: memory in M2, streaming in M9) | M | 🔲 | 9 |
 | Crisp, fast waveforms at every zoom | M | ✅ M3 slice 4c (ADR-0027): peak pyramids built at load, drawn per pixel on the GPU; no measurable frame cost with 10,000 waveforms. Disk cache deferred to M9 with disk streaming (owner approved); drawn sample by sample below 16 frames per pixel (4d, ADR-0028) | 3 |
+| Audio clip editor in the detail panel (CLAUDE.md §5) | M | 🔲 Planned as M7 E7 (`docs/milestones/M7.md` §5); today the Clip tab shows a static wave beside the clip's properties | 7 |
 | Recording: multi-arm, monitoring, multichannel, crash-safe capture, latency compensation and offset, punch, count-in, input meters | M | 🟡 Input, per-track input routing (format v30), input meters with clip lights and monitoring In/Auto/Off through the track's chain built in M9 R1 (ADR-0100; MT-REC-1 passed). Audio recording is built in M9 R2 (ADR-0102): capture in the engine into a ring, a worker writing one float WAV per armed track that is valid at every moment, latency compensation plus a manual offset (audio window), punch, count-in, loop (one long clip), one undo step, a growing clip while recording, `Samples/Recorded` on Save, and recovery of a take after a crash; E2E scenarios on a ramp input pass; MT-REC-2 passed (owner, 2026-10-26) | 9 |
 | Loop recording into takes; capture MIDI | S | 🟡 Built in M9 R3 (ADR-0104, format v31): loop recording keeps every pass as a take of one clip (audio always; MIDI in Replace, Overdub still layers), a Takes menu and "n/m" chip on the clip, commands to play the next or previous take, extract one to a new track (audio) and keep only one; Capture MIDI (Shift+F9) turns the last phrase played while not recording into a clip, from a ten-minute in-memory buffer with a switch. E2E scenarios pass; MT-REC-3 passed (owner, 2026-10-26) | 9 |
 | Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🟡 Clip gain and fades along free curves, with four presets (M3 6d, ADR-0031; golden renders, and E2E scenarios that listen). Reverse, polarity and normalize are built (M7 E1, ADR-0093; MT-EDIT-2 waits for the owner); automatic join crossfades are built (M7 E2, ADR-0094; MT-EDIT-3 passed, owner, 2026-10-24). The clip's static pitch needs a pitch engine; the owner deferred it with the audio pitch envelope (2026-10-19, Y1) to warp and time-stretch, M7 E8 | 3, 7 |
@@ -137,7 +138,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Trim mode | L | 🔲 | — |
 | Override state with one-click re-enable | M | ✅ A control moved under its lane takes the lane over; amber ring, chip and a Re-enable button; `edit.automation_reenable` (A4a, ADR-0086; MT-AUTO-5 passed, owner). The master and returns have no lane view, so no button there (KNOWN_ISSUES) | 7 |
 | Smooth, sample-accurate automation for built-ins and plugins | M | 🟡 Mixer values and plugin parameters are sample-exact, the same at any block size, delay-compensated and heap-free (A0, A3; golden renders, allocation guard, link tests). Built-in device parameters wait for M8 | 7 |
-| Tempo and time-signature changes recalculate the timeline | M | 🟡 The engine keeps the bar and beat across tempo and meter changes, and loop and punch follow (slice 3); clips and automation follow when they exist. The tempo lane edits steps (M7 slice A6); built in A6 (ADR-0089: tempo and meter lanes, the time-signature map in the model, format v24); tempo ramps were deferred (2026-10-19) and built in A6 at the owner's request (2026-10-21, ADR-0089 amendment) | 7 |
+| Tempo and time-signature changes recalculate the timeline | M | 🟡 The engine keeps the bar and beat across tempo and meter changes, and loop and punch follow (slice 3); clips and automation follow. Tempo and meter lanes, with ramps, and the time-signature map are built (M7 A6, ADR-0089, format v24). Audio clips do not follow tempo until warp (M7 E8) | 7 |
 
 ## §6.6 Editing actions
 
@@ -427,8 +428,9 @@ workstation names.
   MT-VST-6 and MT-VST-7. The real Windows editor window is compile-checked only in
   the cloud container; its behavior was seen by the owner in MT-VST-4 run 1.
 - **ADR-0069's measurements.** The callback numbers at 64 and 128 frames with 16 and
-  64 hosted tracks (MT-VST-7 steps 7 to 9). **Monitoring through an effect is possible since
-  M9 R1 (MT-REC-1 step 8).** Until that run the callback's wait stays on trial.
+  64 hosted tracks (MT-VST-7 steps 7 to 9). Monitoring through an effect was part of
+  MT-REC-1 (M9 R1), passed as a whole with no figures (owner, 2026-10-26). The
+  callback's wait stays on trial until those numbers are in.
 - **Installed plugins.** Twelve anonymous labels (RP-1 to RP-12) have been tried in
   parts; the probe has not been run over the installed library. This is not a
   compatibility claim.
@@ -503,9 +505,8 @@ other edits remain in KNOWN_ISSUES.
 **Status:** Built 2026-10-10, a mid milestone between M4 and M5. All six
 slices are built and every finding of the interface audit
 (`docs/audits/2026-10-10-design.md`, 20 findings) is built; none was
-deferred. MT-POL-1 to MT-POL-4 passed (owner). MT-POL-5 (motion) and
-MT-POL-6 (the close) wait for the owner, as does MT-APP-18 (light and the
-mark, merged from `main`).
+deferred. MT-POL-1 to MT-POL-6 passed (owner, 2026-10-10 and 2026-10-12).
+MT-APP-18 (light and the mark, merged from `main`) waits.
 
 **Shipped:** 12 commits on `m4.5-polish` (and one merge from `main`), no format change, nothing heard
 differently.
@@ -541,8 +542,8 @@ scenarios, all passing, plus 6 real-binary smoke tests. clippy
 (`-D warnings`) and rustfmt are clean. New shots: `polish_sweep` and
 `mixer_edges` (renders for checking by eye, run on demand).
 
-**Verified by hand:** MT-POL-1 to MT-POL-4 (owner). Not yet: MT-POL-5,
-MT-POL-6, MT-APP-18. Screen readers are still unchecked (Narrator
+**Verified by hand:** MT-POL-1 to MT-POL-6 (owner). Not yet: MT-APP-18.
+Screen readers are still unchecked (Narrator
 deferred); names and Tab order are tested (E2E `access`).
 
 **Key measurements** (Ryzen 7 7700X, RTX 4070; stress project, 200

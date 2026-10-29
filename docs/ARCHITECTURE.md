@@ -23,7 +23,7 @@ This avoids repeated sleep polling in Darwin's callback-side semaphore
 fallback; it trades CPU during an active wait for response latency.
 
 **Built so far:** the current slice, the chain of what each earlier slice
-added, and its ADR, are in `docs/PROGRESS.md`'s Status section and
+added, and its ADR, are in `docs/PROGRESS.md` (milestone table and reports) and
 `CLAUDE.md` §12; the reasoning and evidence behind each is in
 `docs/DECISIONS.md`. This page documents how the parts fit now, by crate and
 module, not the order they arrived in — a few recent slices (noted by name
