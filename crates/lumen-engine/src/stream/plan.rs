@@ -5,8 +5,6 @@
 //! Not real-time code: the thread that writes a pool plans with it, off the
 //! audio thread (it allocates).
 
-use std::collections::HashSet;
-use std::hash::{BuildHasherDefault, DefaultHasher};
 use std::ops::Range;
 
 use crate::{Clip, ClipAudio, PAGE, StreamAudio, Timeline, for_each_page};
@@ -17,6 +15,10 @@ pub struct Scene {
     clips: Vec<Placed>,
     /// Each file once, by the order clips first name it.
     streams: Vec<StreamAudio>,
+    /// Where each file's pages begin in a plan's [`Seen`] bits, and the
+    /// pages of all files.
+    first: Vec<usize>,
+    pages: usize,
     /// The loop region, in timeline samples, while looping is on.
     looped: Option<(i64, i64)>,
     /// Places playback can jump to (loop start, markers, the song's start):
@@ -66,9 +68,29 @@ pub struct Position {
     pub marker: Option<i64>,
 }
 
-/// The pages a plan has listed. Hashed with fixed keys, so a plan takes the
-/// same work every time (the performance gate counts it).
-type Seen = HashSet<Want, BuildHasherDefault<DefaultHasher>>;
+/// The pages a plan has listed: a bit for each page of each file of the
+/// scene. A plan lists thousands of pages every few milliseconds, and a hash
+/// set took most of the disk thread's time to remember them (in a debug build,
+/// more than it spent reading).
+struct Seen {
+    bits: Vec<u64>,
+}
+
+impl Seen {
+    fn new(pages: usize) -> Self {
+        Self {
+            bits: vec![0; pages.div_ceil(64)],
+        }
+    }
+
+    /// Marks bit `i`; returns whether it was clear.
+    fn insert(&mut self, i: usize) -> bool {
+        let (word, bit) = (i / 64, 1u64 << (i % 64));
+        let clear = self.bits[word] & bit == 0;
+        self.bits[word] |= bit;
+        clear
+    }
+}
 
 /// A page wanted in memory: a file of the scene and a page of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -103,6 +125,8 @@ impl Scene {
             let stream = match scene.streams.iter().position(|s| s == audio) {
                 Some(i) => i,
                 None => {
+                    scene.first.push(scene.pages);
+                    scene.pages += audio.pages();
                     scene.streams.push(audio.clone());
                     scene.streams.len() - 1
                 }
@@ -142,7 +166,7 @@ impl Scene {
     /// jump to (a jump that finds its audio missing waits, L A).
     pub fn plan(&self, at: Position, horizon: Horizon, out: &mut Vec<Want>) {
         out.clear();
-        let mut seen = Seen::default();
+        let mut seen = Seen::new(self.pages);
         let near = horizon.near.max(1);
         let from = |point: &i64| *point..point + near;
         if let Some(cue) = at.cue {
@@ -215,14 +239,21 @@ impl Scene {
                 let slice = t..(t + page).min(span.end);
                 for p in &under {
                     let stream = p.stream;
-                    let frames = self.streams[stream].frames();
-                    for_each_page(&p.clip, p.start, slice.clone(), frames, &mut |page| {
-                        let want = Want { stream, page };
-                        if seen.insert(want) {
-                            out.push(want);
-                        }
-                        true
-                    });
+                    let audio = &self.streams[stream];
+                    let (first, pages) = (self.first[stream], audio.pages());
+                    for_each_page(
+                        &p.clip,
+                        p.start,
+                        slice.clone(),
+                        audio.frames(),
+                        &mut |page| {
+                            // for_each_page visits only pages of the source.
+                            if page < pages && seen.insert(first + page) {
+                                out.push(Want { stream, page });
+                            }
+                            true
+                        },
+                    );
                 }
                 t = slice.end;
             }

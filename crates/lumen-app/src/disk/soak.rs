@@ -205,11 +205,13 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
             first = false;
             next += 1;
             step = Some(steps[next - 1]);
+            // As the transport starts (`Transport::start`): the disk reads
+            // there first until the playhead has arrived.
+            gate.cuer.cue(Some(sample));
             if gate.ready(sample) {
                 handle.send(command).unwrap();
                 sent = Instant::now();
             } else {
-                gate.cuer.cue(Some(sample));
                 held = Some(Held {
                     command,
                     sample,
@@ -224,7 +226,6 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
             let waited = waiting.since.elapsed();
             longest_hold = longest_hold.max(waited);
             overdue += usize::from(waited > LONGEST);
-            gate.cuer.cue(None);
             handle.send(waiting.command).unwrap();
             sent = Instant::now();
         }

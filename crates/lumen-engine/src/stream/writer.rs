@@ -87,7 +87,7 @@ impl PoolWriter {
         if page >= audio.pages() || audio.resident(page) {
             return true;
         }
-        self.reclaim();
+        self.make_room();
         let Some(entry) = self.free.pop() else {
             return false;
         };
@@ -158,6 +158,25 @@ impl PoolWriter {
     /// Frees retired pages whose grace period has passed, and pages of files
     /// no clip holds. Returns the pages free.
     pub fn reclaim(&mut self) -> usize {
+        self.retire();
+        self.sweep();
+        self.free.len()
+    }
+
+    /// As [`PoolWriter::reclaim`], but looks for pages of files no clip
+    /// holds only when no page is free otherwise: that look visits every
+    /// page of the pool, and the disk thread makes room before each page it
+    /// reads. Returns the pages free.
+    pub fn make_room(&mut self) -> usize {
+        self.retire();
+        if self.free.is_empty() {
+            self.sweep();
+        }
+        self.free.len()
+    }
+
+    /// Frees retired pages whose grace period has passed.
+    fn retire(&mut self) {
         let now = self.pool.epoch();
         let free = &mut self.free;
         self.retiring.retain(|&(entry, epoch)| {
@@ -170,12 +189,15 @@ impl PoolWriter {
             }
             !passed
         });
+    }
+
+    /// Frees the pages of files no clip holds.
+    fn sweep(&mut self) {
         for (entry, held) in self.held.iter_mut().enumerate() {
             if held.as_ref().is_some_and(|h| h.table.strong_count() == 0) {
                 *held = None;
                 self.free.push(entry as u32);
             }
         }
-        self.free.len()
     }
 }

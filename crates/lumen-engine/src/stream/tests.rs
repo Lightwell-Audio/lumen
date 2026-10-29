@@ -162,6 +162,24 @@ fn the_pages_of_a_file_no_clip_holds_are_freed() {
 }
 
 #[test]
+fn making_room_frees_the_pages_of_a_file_no_clip_holds_once_none_is_free() {
+    let pool = PagePool::new(3);
+    let mut writer = PoolWriter::new(&pool);
+    let gone = StreamAudio::new(&pool, 1, 48_000, 2, (2 * PAGE) as u64);
+    let kept = StreamAudio::new(&pool, 2, 48_000, 2, (2 * PAGE) as u64);
+    assert!(fill(&mut writer, &gone, 0));
+    assert!(fill(&mut writer, &gone, 1));
+    drop(gone);
+    // A page is free: the gone file's pages wait for the pool to fill.
+    assert_eq!(writer.make_room(), 1);
+    assert!(fill(&mut writer, &kept, 0));
+    // None free: they go now, and the next page fills one of them.
+    assert_eq!(writer.make_room(), 2);
+    assert!(fill(&mut writer, &kept, 1));
+    assert_eq!(writer.used(), 2);
+}
+
+#[test]
 fn dropping_a_stream_takes_out_every_page() {
     let pool = PagePool::new(3);
     let mut writer = PoolWriter::new(&pool);

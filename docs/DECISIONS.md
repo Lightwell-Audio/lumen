@@ -9654,9 +9654,42 @@ at places the disk keeps read: when the machine starved the test, it caught
 up by processing the missed blocks one after another, playing faster than
 real time, which no device does. It now misses those blocks as a device's
 callback would (reported as "blocks missed", apart from late reads, as the
-app counts dropouts apart from disk lateness). Pinned to one CPU, missing
-2,300 of its 6,000 blocks: 0 late reads. CI also runs it as a step of its
-own after the other tests. Its assertions did not change.
+app counts dropouts apart from disk lateness). Its assertions did not
+change.
+
+**Why the disk thread was late after a start** (2026-10-29). That change
+was not the cause: the soak still failed in CI, and failed every run in
+the cloud container with nothing else running, each late read 48 to 50 ms
+after a start. Measured inside the disk thread, a round spent 3 to 5 ms
+planning (debug build) and then read about 12 pages, some 1,400 pages a
+second, where 64 tracks play 750 a second and a jump needs far more. Four
+causes, all fixed in the product, not in the test:
+
+- *The plan remembered its pages in a hash set*, about 5,000 inserts a
+  round. It now marks a bit per page of each file of the scene
+  (`plan::Seen`): `stream_plan_64` -76% instructions in release.
+- *The writer looked at every pool page for a file no clip holds before
+  each page it read* (twice, 3,072 pages). It now does so only when no page
+  is free otherwise (`PoolWriter::make_room`); `reclaim` is unchanged.
+- *A released start cleared the disk's cue before the engine had moved the
+  playhead*, so for a round or two the thread planned from the old place.
+  A start now always cues the disk, and the disk thread drops the cue
+  itself once the playhead has arrived (`disk::kept_cue`); cancelling a
+  held start still clears it.
+- *A start went when 50 ms was in memory, 10 ms over the clip player's
+  40 ms*: less than one time slice of a busy machine (15.6 ms on Windows)
+  for the disk thread to read the next page of every track. A start now
+  waits for 140 ms (`hold::READY`: the player's 40 ms and 100 ms for the
+  disk), still within the 150 ms a start may wait.
+
+After the fixes, with the soak back inside CI's ordinary test step: 0 late
+reads in every run in the container, alone, pinned to one, two and four
+CPUs, and inside the whole workspace run (3,314 tests); the longest hold
+fell from about 140 ms to about 100 ms (debug build). Tests:
+`a_cue_is_kept_until_the_playhead_has_arrived_there`,
+`making_room_frees_the_pages_of_a_file_no_clip_holds_once_none_is_free`.
+`stream_plan_64`'s baseline is the container's count (the other engine
+scenarios read within 0.5% of the WSL baseline there).
 
 **Consequences.** Streaming stays off by default until MT-STREAM-1 passes
 on the owner's interface at 64 and 128 frames (S6); then the default

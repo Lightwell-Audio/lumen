@@ -17,6 +17,13 @@ use crate::disk::plan::Scene;
 /// The longest a start waits for the disk.
 pub const LONGEST: Duration = Duration::from_millis(150);
 
+/// How much of what plays after a start is in memory before it goes: the
+/// 40 ms the clip player reads ahead, and 100 ms for the disk thread to read
+/// what follows before the player gets there. With only 10 ms over the
+/// player's need, a disk thread that was not scheduled for one time slice of
+/// a busy machine (15.6 ms on Windows) was late just after a start.
+pub const READY: Duration = Duration::from_millis(140);
+
 /// What a start waits for while audio plays from disk: the clip list the
 /// disk thread reads for, and a way to cue it.
 pub struct Gate {
@@ -30,11 +37,11 @@ impl Gate {
         self.scene.sample_at(at)
     }
 
-    /// Whether what plays from `sample` is in memory: the next 50 ms, more
-    /// than the clip player needs to start (40 ms).
+    /// Whether what plays from `sample` is in memory: the next [`READY`].
     pub fn ready(&self, sample: i64) -> bool {
+        let rate = i64::from(self.scene.rate().max(1));
         self.scene
-            .ready(sample, i64::from(self.scene.rate().max(1)) / 20)
+            .ready(sample, rate * READY.as_millis() as i64 / 1_000)
     }
 }
 

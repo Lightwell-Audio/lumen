@@ -266,11 +266,14 @@ impl Transport {
             return;
         };
         let sample = gate.sample_at(at);
+        // The disk reads there first until the playhead has arrived, also
+        // when the start goes at once: what follows the ready part is read
+        // next.
+        gate.cuer.cue(Some(sample));
         if gate.ready(sample) {
             self.send(command);
             return;
         }
-        gate.cuer.cue(Some(sample));
         crate::trace::log(|| format!("hold {command:?} for the disk"));
         self.held = Some(hold::Held {
             command,
@@ -295,10 +298,8 @@ impl Transport {
         if let Some(held) = &self.held
             && held.due(self.gate.as_ref(), Instant::now())
         {
+            // The disk keeps its cue until the playhead arrives there.
             let held = self.held.take().expect("checked above");
-            if let Some(gate) = &self.gate {
-                gate.cuer.cue(None);
-            }
             self.send(held.command);
         }
     }

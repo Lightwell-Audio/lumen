@@ -429,7 +429,11 @@ per slice and move what is no longer current out of it.
   ignored tests: `measure_streaming_memory_and_open_time` and
   `make_the_streaming_test_project` (MT-STREAM-1's 64-track project).
   MT-STREAM-1 (`docs/manual-tests/M9.md`) passed (owner, 2026-10-28: no
-  issues at 64 or 128 samples; no figures reported).
+  issues at 64 or 128 samples; no figures reported). CI's soak failures
+  (2026-10-29) were the disk thread's: a slow plan, a writer scan per page,
+  a cue cleared before the playhead moved, and a 10 ms margin after a start
+  (now `hold::READY`, 140 ms). Fixed in the product; the soak runs in CI's
+  ordinary test step again (ADR-0109, "Why the disk thread was late").
 - **Branch `chore/ux-round-three`: the UX round three is built** (ADR-0108;
   no format change; cut from `main` at `a91d198`; the owner took every
   recommendation on the audit sheet). The detail panel's tab row names its

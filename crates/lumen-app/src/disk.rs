@@ -65,7 +65,9 @@ impl Pages for Readers {
 enum Message {
     /// The clip list the engine now plays.
     Scene(Arc<Scene>),
-    /// Read from here first: the app is about to start or jump there.
+    /// Read from here first: the app is about to start or jump there. The
+    /// thread keeps reading there first until the engine's playhead has
+    /// arrived, so a start sent once its audio is ready is followed at once.
     Cue(Option<i64>),
     /// End the thread. Sent rather than closing the channel, which the
     /// [`Cuer`]s keep open.
@@ -255,6 +257,7 @@ impl Worker {
             return IDLE;
         }
         let transport = self.transport.read();
+        self.cue = kept_cue(self.cue, transport.sample, self.horizon);
         let at = Position {
             sample: transport.sample,
             playing: transport.playing,
@@ -276,14 +279,14 @@ impl Worker {
         if missing.is_empty() {
             return IDLE;
         }
-        self.writer.reclaim();
+        self.writer.make_room();
         let short = missing.len().saturating_sub(self.writer.free());
         if short > 0 {
             self.writer.evict(short);
         }
         let started = Instant::now();
         for want in missing {
-            if self.writer.reclaim() == 0 {
+            if self.writer.make_room() == 0 {
                 self.busy += started.elapsed();
                 // Pages the audio thread may still read are free in a block;
                 // otherwise the pool holds all it can of what is wanted.
@@ -331,6 +334,15 @@ impl Worker {
             self.since = Instant::now();
         }
     }
+}
+
+/// The cue still to read first with the playhead at `sample`: none once the
+/// playhead has arrived there, since reading at the playhead then reads the
+/// same audio. Until then it is kept, also after the start was sent: the
+/// engine moves the playhead at its next block, and the disk thread reads
+/// what follows the cue meanwhile.
+fn kept_cue(cue: Option<i64>, sample: i64, horizon: Horizon) -> Option<i64> {
+    cue.filter(|cue| !(*cue..cue + horizon.near.max(1)).contains(&sample))
 }
 
 #[cfg(test)]

@@ -302,6 +302,23 @@ fn a_cue_is_read_before_the_playhead() {
 }
 
 #[test]
+fn a_cue_is_kept_until_the_playhead_has_arrived_there() {
+    let h = horizon(2 * P, 4 * P);
+    // Sent and not yet played: the engine moves the playhead at its next
+    // block, and the audio after the cue is still read first.
+    assert_eq!(kept_cue(Some(100 * P), 3 * P, h), Some(100 * P));
+    assert_eq!(kept_cue(Some(100 * P), 100 * P - 1, h), Some(100 * P));
+    // Arrived, and playing on within the near read-ahead: the playhead's
+    // own plan reads there.
+    assert_eq!(kept_cue(Some(100 * P), 100 * P, h), None);
+    assert_eq!(kept_cue(Some(100 * P), 102 * P - 1, h), None);
+    // Past it (the jump never came and playback went on): kept until the
+    // transport cues again or drops it.
+    assert_eq!(kept_cue(Some(100 * P), 102 * P, h), Some(100 * P));
+    assert_eq!(kept_cue(None, 0, h), None);
+}
+
+#[test]
 fn slow_reads_cost_underruns_and_never_hold_the_audio_up() {
     let pool = PagePool::new(512);
     let a = stream(&pool, 1, 400);
