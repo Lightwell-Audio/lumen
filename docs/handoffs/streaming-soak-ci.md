@@ -2,6 +2,17 @@
 
 ## Latest status: scheduling investigation, not fixed (2026-10-29)
 
+Owner clarification: E2E and every platform soak must pass three times in a
+row on CI. Any failure breaks the consecutive streak. Current streak: zero.
+The QoS revision `725679a1` passed all soaks but failed Windows input-menu
+and macOS instantaneous meter E2E assertions; all links are in the audit.
+The next test revision synchronizes the input click with its fully exposed
+hit area and the meter assertion with a freshly rendered callback, retaining
+all exact assertions. Added worker/stall/held diagnostics will explain the
+remaining forced releases. Native QoS setters succeeded but wakeup delays
+did not measurably improve; do not claim the scheduling cause is proved.
+
+
 The prefill correction produced one fully green CI/soak pair, followed by
 two failed rounds. The audit links all six runs and describes the macOS
 failures: replacement-host timeout, live instrument lateness, and 44 late

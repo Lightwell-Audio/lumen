@@ -52,9 +52,10 @@ zero-late / zero-unreadable assertions. It records compiler and runner
 details. It can also be started manually. The workspace CI continues to
 test the worker, transport and pool logic in debug builds.
 
-Before declaring this fixed, require three fully green CI rounds for the
-final functional change, including all three streaming runner jobs. Record
-the actual results here; a failed round is not a successful validation.
+Before declaring this fixed, require three **consecutive** fully green CI
+rounds for the final functional change, including the E2E suite and all
+three streaming runner jobs in every round. Any failure breaks the streak.
+Record the actual results here; failed-job-only reruns do not count.
 
 ## Results
 
@@ -88,6 +89,62 @@ the production hold deadline forced playback. A pending engine serial is
 expected while that locate remains held. This is distinct from the earlier
 50 ms readiness gap; the prefill barrier cannot override the existing
 150 ms escape. That limit and all zero-late assertions remain unchanged.
+
+### QoS revision: soaks passed, full CI failed
+
+At `725679a1`, [soak 40901230905](https://github.com/gummycookie/lumen/actions/runs/40901230905)
+passed on all three platforms, but [full CI 40901230795](https://github.com/gummycookie/lumen/actions/runs/40901230795)
+failed Windows and macOS E2E targets. The consecutive green streak is zero.
+Windows failed the input-chip menu assertion after unfolding; macOS failed
+an instantaneous meter-peak assertion (the held peak matched the expected
+tone). All other jobs passed. The owner clarified the acceptance criterion:
+E2E and all soaks must pass three times **in a row** on CI.
+
+The input-test helper returned when a row appeared in the accessibility
+tree, while expansion could still clip the input chip or leave it under
+the resize hit area. It now waits after one unfold click until the chip's
+entire rectangle clears that area, then performs the original single input
+click and exact menu/model/undo assertions. At full expansion the chip ends
+at row top +80 pt and the resize band begins at +82 pt. This synchronizes
+on the actual hit geometry, with no repeated click.
+
+The meter test used wall-clock sleeps before reading current peak. The fake
+device advances independently on supervisor polls; a UI frame can decay the
+peak without a fresh callback. It now settles by observed audio frames,
+then waits for a post-drain callback tap before drawing the final UI frame.
+The callback measures the engine before writing the tap, so that observation
+precedes taking fresh meter levels. The wait does not examine the peak and
+all peak/RMS/hold/rest assertions remain unchanged.
+
+Native macOS logs confirmed Default → UserInteractive for the soak render
+thread and Default → UserInitiated for the disk worker, both with setter
+return code zero. They **did not establish a wakeup improvement**: fixed
+32-sleep overshoot totaled 250.885 ms before and 282.328 ms after the render
+thread request. The timed soak reported 92.522 s cumulative sleep overshoot,
+119.408 ms maximum, 16,005 missed callbacks, six production-deadline releases,
+and zero late pages. Linux and Windows had zero late pages and zero missed
+callbacks. These are measured results, not proof that QoS caused the older
+failure or that real-time scheduling is guaranteed.
+
+Further test-only diagnostics record actual injected-stall durations and
+held-release readiness, required-page residency, worker phase and per-cue
+planning/preparation/read counters. They print after the worker stops.
+Readiness plans are computed before starting the worker, so diagnostics add
+no warmup and do not replan or allocate before a deadline release. The
+small residency scan's duration and any stall-buffer truncation are explicit.
+These observations will distinguish slow reads, planning overhead, pool
+retirement and an unfinished cue prefix without changing timing limits.
+
+The synchronization/diagnostic revision passed 3,332 local workspace tests
+across 108 targets, including all 752 active E2E scenarios, plus the isolated
+walkthrough, doc tests, six smoke tests and 31 optimized disk regressions.
+The instrumented 120 s soak passed 60 steps and 142,960 reads, with zero
+late/failed reads, zero missed callback deadlines, longest hold 119.990 ms
+and no forced releases. It rendered 45,000 callbacks (4.285 s total,
+maximum 1.905 ms); sleep overshoot totaled 3.908 s (maximum 3.735 ms).
+Linux and macOS cross-target clippy passed with warnings denied. Production
+code is unchanged from the QoS revision; this further revision changes test
+synchronization and diagnostics. Native consecutive validation is pending.
 
 ### macOS scheduling investigation and worker shutdown
 

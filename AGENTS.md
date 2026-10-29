@@ -421,7 +421,7 @@ production-deadline soak and unchanged performance gate pass locally.
 Later hosted prefill rounds produced one green pair followed by macOS CI
 and soak failures; the repair remains provisional. The next revision adds
 observable macOS worker QoS requests and a deterministic queued-Stop fix.
-Three fresh complete green CI/soak rounds are required for that revision;
+Three consecutive complete green CI/soak rounds are required for the final revision;
 the audit retains the failed attempts and timing measurements.
 
 Three fresh full hosted green rounds are still required after this correction.

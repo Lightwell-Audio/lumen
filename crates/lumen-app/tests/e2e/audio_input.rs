@@ -55,19 +55,20 @@ fn input_of(lumen: &Lumen, id: Id) -> Option<AudioInput> {
         .input
 }
 
-/// Unfolds `track`'s header and waits for its rows.
+/// Unfolds once and waits until the input chip clears the resize edge.
 fn unfold(lumen: &mut Lumen, track: &str) {
     lumen.click(&format!("Fold {track}"));
-    for _ in 0..100 {
-        if lumen.shows(&format!("{track} input: None"))
-            || lumen.shows(&format!("Volume {track}: 0.0 dB"))
-        {
-            break;
-        }
-        lumen.frames(1);
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    lumen.frames(5);
+    // Accessibility exposes the row while its expanding header still clips
+    // it. Its center can then land on the next header or the resize band,
+    // which intentionally takes pointer input over the row's bottom edge.
+    lumen.run_until("the input row to clear the resize edge", |lumen| {
+        let chip_label = format!("{track} input:");
+        let edge_label = format!("Resize {track}");
+        let chip = lumen.harness.query_by_label_contains(&chip_label);
+        let edge = lumen.harness.query_by_label(&edge_label);
+        chip.zip(edge)
+            .is_some_and(|(chip, edge)| chip.rect().bottom() <= edge.rect().top())
+    });
 }
 
 fn play_input(levels: &[f32]) {

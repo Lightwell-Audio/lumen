@@ -2,7 +2,7 @@
 //! clip stays lit until clicked, meters come to rest so the app idles, and
 //! the master's loudness starts again on Play from stop.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eframe::egui::{Event, Key, Modifiers, vec2};
 use egui_kittest::kittest::Queryable;
@@ -45,6 +45,28 @@ fn listen(lumen: &mut Lumen, ms: u64) {
     }
 }
 
+/// Waits for a callback after the last UI frame, then lets the app consume
+/// that callback's meter levels. The test device runs independently of UI
+/// frames, so wall-clock sleeps alone do not guarantee a fresh reading.
+fn publish_fresh_meter(lumen: &mut Lumen) {
+    // Discard callbacks already reflected in (or preceding) the last frame.
+    lumen.app_mut().heard_all();
+    let started = Instant::now();
+    loop {
+        if !lumen.app_mut().heard_all().is_empty() {
+            break;
+        }
+        assert!(
+            started.elapsed() < super::PATIENCE,
+            "the audio callback did not produce fresh meter samples"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // The callback measures the engine before writing to the test tap, so
+    // observing its samples above happens before this frame takes the levels.
+    lumen.frames(1);
+}
+
 fn palette(lumen: &mut Lumen, query: &str) {
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.harness.event(Event::Text(query.into()));
@@ -61,7 +83,10 @@ fn a_playing_tracks_level_shows_and_comes_to_rest_when_stopped() {
     let track = lumen.app().project().tracks[0].id;
     let master = lumen.app().project().master.id;
     play(&mut lumen);
-    listen(&mut lumen, 400);
+    // Settle and measure against audio frames, not elapsed wall time. Then
+    // require one callback after the last frame before reading the meters.
+    lumen.listen(Duration::from_millis(400), 256);
+    publish_fresh_meter(&mut lumen);
     // After the fader and the pan: a stereo track at the centre keeps the
     // tone's level.
     let want = tone_db();

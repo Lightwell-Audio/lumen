@@ -142,6 +142,8 @@ pub struct Stats {
     read_page: AtomicUsize,
     #[cfg(test)]
     read_elapsed_nanos: AtomicU64,
+    #[cfg(test)]
+    trace: trace::Trace,
 }
 
 #[cfg(test)]
@@ -154,6 +156,7 @@ pub(super) struct WorkerSnapshot {
     pub read_stream: u64,
     pub read_page: usize,
     pub read_elapsed_nanos: u64,
+    pub trace: trace::Snapshot,
 }
 
 impl Stats {
@@ -177,6 +180,7 @@ impl Stats {
             read_stream: self.read_stream.load(Ordering::Relaxed),
             read_page: self.read_page.load(Ordering::Relaxed),
             read_elapsed_nanos: self.read_elapsed_nanos.load(Ordering::Relaxed),
+            trace: self.trace.snapshot(),
         }
     }
 }
@@ -343,6 +347,8 @@ struct Worker {
     /// Time spent reading since `since`.
     busy: Duration,
     since: Instant,
+    #[cfg(test)]
+    cue_started: Option<Instant>,
 }
 
 impl Worker {
@@ -381,6 +387,8 @@ impl Worker {
             right: vec![0.0; PAGE],
             busy: Duration::ZERO,
             since: Instant::now(),
+            #[cfg(test)]
+            cue_started: None,
         }
     }
 
@@ -426,6 +434,8 @@ impl Worker {
             Message::Cue(cue) => {
                 self.cue = cue;
                 self.follow_after = None;
+                self.cue_started = cue.map(|_| Instant::now());
+                self.stats.trace.reset();
             }
             Message::CueRequest { sample, generation } => {
                 // Cloned cuers can enqueue concurrently, so a delayed older
@@ -436,6 +446,11 @@ impl Worker {
                     return;
                 }
                 self.cue = sample;
+                #[cfg(test)]
+                {
+                    self.cue_started = sample.map(|_| Instant::now());
+                    self.stats.trace.reset();
+                }
                 self.follow_after = None;
                 self.cue_generation = generation;
                 self.plan_generation = generation;
@@ -500,7 +515,18 @@ impl Worker {
             marker: Some(self.scene.sample_at(transport.marker)),
         };
         self.writer.tick();
+        #[cfg(test)]
+        let plan_started = {
+            self.stats.trace.stage(trace::Stage::Planning);
+            Instant::now()
+        };
         let cue_prefix = self.scene.plan(at, self.horizon, &mut self.wants);
+        #[cfg(test)]
+        let prepare_started = {
+            self.stats.trace.plan(plan_started.elapsed());
+            self.stats.trace.stage(trace::Stage::Preparing);
+            Instant::now()
+        };
         // The plan is ordered by priority. Do not let pages in a lower-priority
         // tail protect themselves from eviction when the pool cannot hold the
         // whole plan: only the prefix that can fit is wanted this round.
@@ -523,6 +549,11 @@ impl Worker {
         // newer request arrived while the round was in flight.
         self.adopt_if_cue_prefix_resident(cue_prefix);
         if missing.is_empty() {
+            #[cfg(test)]
+            {
+                self.stats.trace.prepare(prepare_started.elapsed());
+                self.stats.trace.stage(trace::Stage::Idle);
+            }
             return IDLE;
         }
         self.writer.reclaim();
@@ -530,6 +561,8 @@ impl Worker {
         if short > 0 {
             self.writer.evict(short);
         }
+        #[cfg(test)]
+        self.stats.trace.prepare(prepare_started.elapsed());
         let started = Instant::now();
         for want in missing {
             if self.writer.free() == 0 && self.writer.reclaim() == 0 {
@@ -538,19 +571,29 @@ impl Worker {
                 // otherwise the pool holds all it can of what is wanted.
                 self.adopt_if_cue_prefix_resident(cue_prefix);
                 return if self.writer.retiring() > 0 {
+                    #[cfg(test)]
+                    self.stats.trace.stage(trace::Stage::Retiring);
                     FULL
                 } else {
+                    #[cfg(test)]
+                    self.stats.trace.stage(trace::Stage::Full);
                     IDLE
                 };
             }
             let audio = &self.scene.streams()[want.stream];
             #[cfg(test)]
-            let read_started = Instant::now();
+            let read_started = {
+                self.stats.trace.stage(trace::Stage::Reading);
+                Instant::now()
+            };
             let read = self
                 .pages
                 .read(audio, want.page, &mut self.left, &mut self.right);
             #[cfg(test)]
             {
+                self.stats
+                    .trace
+                    .read(read_started.elapsed(), self.cue_started);
                 self.stats.read_stream.store(audio.id(), Ordering::Relaxed);
                 self.stats.read_page.store(want.page, Ordering::Relaxed);
                 self.stats.read_elapsed_nanos.store(
@@ -596,6 +639,8 @@ impl Worker {
                 .all(|want| self.scene.streams()[want.stream].resident(want.page))
         {
             self.cues.adopt(self.plan_generation);
+            #[cfg(test)]
+            self.stats.trace.adopted(self.cue_started);
         }
     }
 
@@ -625,3 +670,6 @@ mod cue_tests;
 
 #[cfg(test)]
 mod soak;
+
+#[cfg(test)]
+mod trace;
