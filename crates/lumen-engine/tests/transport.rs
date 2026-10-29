@@ -39,6 +39,22 @@ fn setup(timeline: Timeline) -> (EngineHandle, Engine<Probe>) {
     engine(timeline, Probe::default(), RATE)
 }
 
+#[test]
+fn command_serial_advances_only_after_successful_queue_and_application() {
+    let (mut handle, mut engine) = setup(Timeline::default());
+    let mut queued = 0;
+    while handle.send(Command::Panic).is_ok() {
+        queued += 1;
+    }
+    let serial = handle.sent_command();
+    assert_eq!(serial, queued as u64);
+    assert!(serial > 0, "the bounded command queue filled");
+    assert_eq!(handle.transport().command_serial, 0);
+
+    run(&mut engine, 128, 128, RATE);
+    assert_eq!(handle.transport().command_serial, serial);
+}
+
 /// Processes `frames` frames in blocks of `block` at `rate`.
 fn run(engine: &mut Engine<Probe>, frames: usize, block: usize, rate: u32) {
     let mut data = vec![0.0; 2 * block];

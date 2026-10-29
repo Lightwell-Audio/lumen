@@ -9,6 +9,10 @@ use lumen_core::time::Ticks;
 /// The transport as of the end of the last processed block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TransportSnapshot {
+    /// The serial of the newest command the audio thread has applied. Each
+    /// successfully queued command gets the next wrapping serial from
+    /// [`crate::EngineHandle`].
+    pub command_serial: u64,
     pub playing: bool,
     /// Timeline sample of the next frame to play.
     pub sample: i64,
@@ -30,6 +34,7 @@ pub struct TransportSnapshot {
 pub(crate) struct Shared {
     /// Odd while the audio thread is writing.
     sequence: AtomicU64,
+    command_serial: AtomicU64,
     playing: AtomicBool,
     sample: AtomicI64,
     ticks: AtomicI64,
@@ -47,6 +52,8 @@ impl Shared {
         let sequence = self.sequence.load(Ordering::Relaxed);
         self.sequence.store(sequence + 1, Ordering::Relaxed);
         fence(Ordering::Release);
+        self.command_serial
+            .store(s.command_serial, Ordering::Relaxed);
         self.playing.store(s.playing, Ordering::Relaxed);
         self.sample.store(s.sample, Ordering::Relaxed);
         self.ticks.store(s.ticks.0, Ordering::Relaxed);
@@ -69,6 +76,7 @@ impl Shared {
                 continue;
             }
             let snapshot = TransportSnapshot {
+                command_serial: self.command_serial.load(Ordering::Relaxed),
                 playing: self.playing.load(Ordering::Relaxed),
                 sample: self.sample.load(Ordering::Relaxed),
                 ticks: Ticks(self.ticks.load(Ordering::Relaxed)),
@@ -96,6 +104,7 @@ mod tests {
     fn readers_never_see_a_torn_snapshot() {
         let shared = Arc::new(Shared::default());
         let state = |k: i64| TransportSnapshot {
+            command_serial: k as u64,
             playing: k % 2 == 0,
             sample: k,
             ticks: Ticks(k * 3),
@@ -118,6 +127,7 @@ mod tests {
         let mut reads = 0;
         while !writer.is_finished() || reads < 1_000 {
             let s = shared.read();
+            assert_eq!(s.command_serial, s.sample as u64, "{s:?}");
             assert_eq!(s.ticks.0, s.sample * 3, "{s:?}");
             assert_eq!(s.marker.0, s.sample * 5, "{s:?}");
             assert_eq!(i64::from(s.sample_rate), s.sample, "{s:?}");

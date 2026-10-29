@@ -237,6 +237,28 @@ bundles named for the fault each should have (a copy named `Crash` crashes,
 `Hang` hangs) and scans them with the real host program. The end-to-end
 scenarios in `tests/e2e/plugins.rs` do the same through the app.
 
+## Disk streaming soak (M9 R6)
+
+The independent `Disk streaming soak` workflow runs 64 streamed stereo tracks
+for 120 seconds on Windows, macOS ARM64 and Linux. It does not wait for the
+workspace unit tests. Its wall-clock deadlines test an optimized build;
+the deterministic worker, page-pool and transport tests still run in the
+debug workspace suite. For a local run:
+
+```powershell
+$env:LUMEN_SOAK_SECONDS = '120'
+cargo test --release -p lumen-app --lib --locked disk::soak:: -- --nocapture --test-threads=1
+Remove-Item Env:LUMEN_SOAK_SECONDS
+```
+
+Build first when measuring under external load (`--no-run`), and keep
+compiler work off the machine during playback. The test reports missed
+callback blocks separately from disk late reads; they are not evidence
+that hardware playback was dropout-free. Zero late reads and zero failed
+page reads remain mandatory. See the
+[CI investigation](audits/2026-10-28-streaming-ci.md) for the original
+runner images, cache and handoff regressions, and repeated CI evidence.
+
 ## The probe and the soak (M6 slice 7)
 
 `lumen-host-probe` runs installed VST3 plugins through the stages a host

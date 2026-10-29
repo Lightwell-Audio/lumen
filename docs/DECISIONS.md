@@ -9656,7 +9656,15 @@ real time, which no device does. It now misses those blocks as a device's
 callback would (reported as "blocks missed", apart from late reads, as the
 app counts dropouts apart from disk lateness). Pinned to one CPU, missing
 2,300 of its 6,000 blocks: 0 late reads. CI also runs it as a step of its
-own after the other tests. Its assertions did not change.
+own after the other tests. Its assertions did not change. That change did
+not resolve the failures: run 40802529823 still failed in isolation on
+macOS and Linux. The follow-up
+[CI investigation](audits/2026-10-28-streaming-ci.md) records the runner
+images, deterministic cache-pressure and cue-handoff defects, their fixes,
+and repeated validation. The soak now runs for 120 s in an independent
+workflow against an optimized build; the logic regressions remain in the
+debug workspace tests. This timing gate does not claim hardware or
+real-time scheduler validation.
 
 **Consequences.** Streaming stays off by default until MT-STREAM-1 passes
 on the owner's interface at 64 and 128 frames (S6); then the default

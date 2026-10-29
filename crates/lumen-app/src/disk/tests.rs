@@ -340,6 +340,66 @@ fn a_pool_too_small_for_the_plan_holds_the_nearest_pages() {
 }
 
 #[test]
+fn an_oversized_plan_does_not_protect_old_point_pages_from_a_cue() {
+    let pool = PagePool::new(4);
+    let a = stream(&pool, 1, 500);
+    let clips = vec![clip(&a, 0, 0, 500 * P)];
+    let (mut handle, mut process) = player(clips.clone());
+    let old_sample = 20 * 24_000;
+    handle.send(Command::Locate(Ticks::quarters(20))).unwrap();
+    process(1);
+
+    let (pages, reads) = fake(Duration::ZERO);
+    let mut worker = Worker::new(
+        &pool,
+        pages,
+        handle.transport_reader(),
+        Arc::new(Stats::default()),
+    );
+    worker.take(Message::Scene(Arc::new(scene(
+        &clips,
+        None,
+        vec![old_sample],
+    ))));
+
+    // Fill the four-page pool from the old playhead and its point.
+    // A round may stop after any read if the test process is descheduled.
+    // Four rounds suffice even if each fills just one page.
+    for _ in 0..4 {
+        worker.round();
+    }
+    assert!((117..121).all(|page| a.resident(page)));
+    assert_eq!(reads.load(Ordering::Relaxed), 4);
+
+    // The new cue is first in the plan. Commit it to the queued Locate, but
+    // keep the old transport published until a later block processes it.
+    worker.take(Message::Cue(Some(0)));
+    handle.send(Command::Locate(Ticks::ZERO)).unwrap();
+    let serial = handle.sent_command();
+    worker.take(Message::FollowAfter(serial));
+    for _ in 0..4 {
+        worker.round();
+    }
+    assert!((0..4).all(|page| a.resident(page)));
+    assert_eq!(reads.load(Ordering::Relaxed), 8);
+    assert_eq!(worker.cue, Some(0), "the old transport has not applied it");
+
+    // Once applied, the acknowledged serial releases the cue. The new
+    // playhead plan keeps the same prefix without rereading it.
+    process(1);
+    worker.round();
+    assert!((0..4).all(|page| a.resident(page)));
+    assert_eq!(reads.load(Ordering::Relaxed), 8);
+    assert_eq!(worker.cue, None);
+
+    worker.take(Message::Cue(Some(P)));
+    worker.take(Message::FollowAfter(serial.wrapping_add(1)));
+    worker.take(Message::Cue(None));
+    assert_eq!(worker.cue, None, "cancel remains immediate");
+    assert_eq!(worker.follow_after, None, "cancel clears a pending ack");
+}
+
+#[test]
 fn the_pool_follows_a_locate() {
     let pool = PagePool::new(32);
     let a = stream(&pool, 1, 1_000);

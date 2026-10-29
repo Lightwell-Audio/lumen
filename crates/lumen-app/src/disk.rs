@@ -67,6 +67,8 @@ enum Message {
     Scene(Arc<Scene>),
     /// Read from here first: the app is about to start or jump there.
     Cue(Option<i64>),
+    /// Keep the cue until the audio thread has applied this command serial.
+    FollowAfter(u64),
     /// End the thread. Sent rather than closing the channel, which the
     /// [`Cuer`]s keep open.
     Stop,
@@ -107,21 +109,7 @@ impl Disk {
     pub fn start(pool: &Arc<PagePool>, pages: Box<dyn Pages>, transport: TransportReader) -> Self {
         let (messages, inbox) = channel();
         let stats = Arc::new(Stats::default());
-        let worker = Worker {
-            writer: PoolWriter::new(pool),
-            pages,
-            transport,
-            horizon: Horizon::at(0),
-            scene: Arc::default(),
-            cue: None,
-            stats: Arc::clone(&stats),
-            wants: Vec::new(),
-            broken: HashSet::new(),
-            left: vec![0.0; PAGE],
-            right: vec![0.0; PAGE],
-            busy: Duration::ZERO,
-            since: Instant::now(),
-        };
+        let worker = Worker::new(pool, pages, transport, Arc::clone(&stats));
         let thread = std::thread::Builder::new()
             .name("lumen-disk".into())
             .spawn(move || worker.run(&inbox))
@@ -183,6 +171,14 @@ impl Cuer {
             let _ = messages.send(Message::Cue(sample));
         }
     }
+
+    /// Keeps the current cue prioritized until `serial` has been applied by
+    /// the audio thread. Does nothing once the disk thread has stopped.
+    pub fn follow_after(&self, serial: u64) {
+        if let Some(messages) = &self.0 {
+            let _ = messages.send(Message::FollowAfter(serial));
+        }
+    }
 }
 
 impl Drop for Disk {
@@ -203,6 +199,9 @@ struct Worker {
     horizon: Horizon,
     scene: Arc<Scene>,
     cue: Option<i64>,
+    /// A committed cue is released only after its queued transport command
+    /// appears in the audio thread's published snapshot.
+    follow_after: Option<u64>,
     stats: Arc<Stats>,
     wants: Vec<Want>,
     /// Pages that could not be read, by file id: not tried again until the
@@ -216,6 +215,30 @@ struct Worker {
 }
 
 impl Worker {
+    fn new(
+        pool: &Arc<PagePool>,
+        pages: Box<dyn Pages>,
+        transport: TransportReader,
+        stats: Arc<Stats>,
+    ) -> Self {
+        Self {
+            writer: PoolWriter::new(pool),
+            pages,
+            transport,
+            horizon: Horizon::at(0),
+            scene: Arc::default(),
+            cue: None,
+            follow_after: None,
+            stats,
+            wants: Vec::new(),
+            broken: HashSet::new(),
+            left: vec![0.0; PAGE],
+            right: vec![0.0; PAGE],
+            busy: Duration::ZERO,
+            since: Instant::now(),
+        }
+    }
+
     fn run(mut self, inbox: &Receiver<Message>) {
         let mut wait = Duration::ZERO;
         loop {
@@ -243,7 +266,11 @@ impl Worker {
                 }
                 self.scene = scene;
             }
-            Message::Cue(cue) => self.cue = cue,
+            Message::Cue(cue) => {
+                self.cue = cue;
+                self.follow_after = None;
+            }
+            Message::FollowAfter(serial) => self.follow_after = Some(serial),
             Message::Stop => {}
         }
     }
@@ -255,6 +282,13 @@ impl Worker {
             return IDLE;
         }
         let transport = self.transport.read();
+        if self
+            .follow_after
+            .is_some_and(|serial| serial_reached(transport.command_serial, serial))
+        {
+            self.cue = None;
+            self.follow_after = None;
+        }
         let at = Position {
             sample: transport.sample,
             playing: transport.playing,
@@ -263,6 +297,10 @@ impl Worker {
         };
         self.writer.tick();
         self.scene.plan(at, self.horizon, &mut self.wants);
+        // The plan is ordered by priority. Do not let pages in a lower-priority
+        // tail protect themselves from eviction when the pool cannot hold the
+        // whole plan: only the prefix that can fit is wanted this round.
+        self.wants.truncate(self.writer.pool().pages() as usize);
         let streams = self.scene.streams();
         let missing: Vec<Want> = self
             .wants
@@ -283,7 +321,7 @@ impl Worker {
         }
         let started = Instant::now();
         for want in missing {
-            if self.writer.reclaim() == 0 {
+            if self.writer.free() == 0 && self.writer.reclaim() == 0 {
                 self.busy += started.elapsed();
                 // Pages the audio thread may still read are free in a block;
                 // otherwise the pool holds all it can of what is wanted.
@@ -331,6 +369,12 @@ impl Worker {
             self.since = Instant::now();
         }
     }
+}
+
+/// Whether `current` is at or after `target` in the wrapping command serial
+/// space. A command queue cannot span half the serial space.
+fn serial_reached(current: u64, target: u64) -> bool {
+    current.wrapping_sub(target) < (1_u64 << 63)
 }
 
 #[cfg(test)]

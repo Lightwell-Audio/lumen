@@ -87,7 +87,11 @@ impl PoolWriter {
         if page >= audio.pages() || audio.resident(page) {
             return true;
         }
-        self.reclaim();
+        // Reclaim scans the pool for files no clip holds. Free pages are
+        // already safe to reuse; do not scan the whole pool for each load.
+        if self.free.is_empty() {
+            self.reclaim();
+        }
         let Some(entry) = self.free.pop() else {
             return false;
         };

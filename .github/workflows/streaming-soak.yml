@@ -1,0 +1,51 @@
+name: Disk streaming soak
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: streaming-soak-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  LUMEN_SOAK_SECONDS: "120"
+
+jobs:
+  soak:
+    name: streaming soak (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev \
+            libfontconfig1-dev mesa-vulkan-drivers
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: streaming-soak-release
+      - name: Record runner and compiler
+        shell: bash
+        run: |
+          rustc -vV
+          python -c 'import os, platform; print(platform.platform(), platform.machine(), "logical CPUs:", os.cpu_count())'
+      # Wall-clock audio deadlines measure the optimized application. Debug
+      # builds and the deterministic cache/transport tests remain in CI.
+      # Build first so compiler work never overlaps the measured playback.
+      - name: Build optimized soak
+        run: cargo test --release -p lumen-app --lib --locked disk::soak:: --no-run
+      - name: Play 64 streamed tracks with loops and seeks
+        run: cargo test --release -p lumen-app --lib --locked disk::soak:: -- --nocapture --test-threads=1

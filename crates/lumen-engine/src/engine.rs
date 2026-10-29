@@ -119,18 +119,36 @@ pub enum Command {
 /// retired timelines. Not real-time; may allocate.
 #[derive(Debug)]
 pub struct EngineHandle {
-    commands: rtrb::Producer<Command>,
+    commands: rtrb::Producer<QueuedCommand>,
     timelines: rtrb::Producer<Box<Timeline>>,
     retired: rtrb::Consumer<Box<Timeline>>,
     shared: Arc<Shared>,
+    sent_command: u64,
+}
+
+/// A command and the serial assigned when it entered the queue.
+#[derive(Debug)]
+struct QueuedCommand {
+    command: Command,
+    serial: u64,
 }
 
 impl EngineHandle {
     /// Queues a command. Returns it if the queue is full.
     pub fn send(&mut self, command: Command) -> Result<(), Command> {
-        self.commands
-            .push(command)
-            .map_err(|rtrb::PushError::Full(c)| c)
+        let serial = self.sent_command.wrapping_add(1);
+        match self.commands.push(QueuedCommand { command, serial }) {
+            Ok(()) => {
+                self.sent_command = serial;
+                Ok(())
+            }
+            Err(rtrb::PushError::Full(queued)) => Err(queued.command),
+        }
+    }
+
+    /// Serial of the most recent command successfully queued by this handle.
+    pub fn sent_command(&self) -> u64 {
+        self.sent_command
     }
 
     /// Queues a new tempo and time-signature map. Returns it if the queue
@@ -173,7 +191,7 @@ impl TransportReader {
 
 /// Audio side. Every method is real-time safe.
 pub struct Engine<S> {
-    commands: rtrb::Consumer<Command>,
+    commands: rtrb::Consumer<QueuedCommand>,
     timelines: rtrb::Consumer<Box<Timeline>>,
     retired: rtrb::Producer<Box<Timeline>>,
     /// A replaced timeline that did not fit in the retired queue.
@@ -206,6 +224,9 @@ pub struct Engine<S> {
     /// Frames processed since the engine was made: the device clock MIDI
     /// out is timed against (`RenderContext::stream`).
     stream: u64,
+    /// Newest command applied, published so off-thread workers can observe
+    /// when a queued transport change has taken effect.
+    command_serial: u64,
     /// Recording, or counting in to it.
     recording: bool,
     /// The song waits at the play marker while these beats click.
@@ -262,6 +283,7 @@ pub fn engine<S: Source>(
         test_tone: TestTone::default(),
         scrub: Scrubber::default(),
         stream: 0,
+        command_serial: 0,
         recording: false,
         counting: None,
         deadline: None,
@@ -273,6 +295,7 @@ pub fn engine<S: Source>(
         timelines: timeline_tx,
         retired: retired_rx,
         shared,
+        sent_command: 0,
     };
     (handle, engine)
 }
@@ -639,9 +662,11 @@ impl<S: Source> Engine<S> {
     fn apply_commands(&mut self, channels: usize) {
         // Bounded, so a flood of commands cannot exhaust the block's budget.
         for _ in 0..COMMAND_CAPACITY {
-            let Ok(command) = self.commands.pop() else {
+            let Ok(queued) = self.commands.pop() else {
                 break;
             };
+            self.command_serial = queued.serial;
+            let command = queued.command;
             match command {
                 Command::Play | Command::Continue => {
                     // A count-in already leads to playing.
@@ -848,6 +873,7 @@ impl<S: Source> Engine<S> {
             self.position
         };
         TransportSnapshot {
+            command_serial: self.command_serial,
             playing: self.playing,
             sample: shown,
             ticks: self.timeline.ticks_at(shown, self.sample_rate),

@@ -5,9 +5,13 @@ v32).** `lumen-engine::stream`: `PagePool` (fixed pages, the audio thread's
 grace-period count), `StreamAudio` (a file's page table; `ClipAudio::Stream`),
 `PoolWriter` (the one writer), `OfflineLoader` (a render's own pool, filled
 on the render thread) and `stream_plan` (`Scene`: the pages wanted, nearest
-first, and whether a span is ready). `lumen-app::disk`: the disk thread
+first, and whether a span is ready). `EngineHandle::sent_command` and the
+published `TransportSnapshot::command_serial` acknowledge queued commands
+without a wait on the audio thread. `lumen-app::disk`: the disk thread
 (`Disk`, `Cuer`, `Stats`; `Pages` reads a page) and its tests, with the
-automated soak in `disk/soak.rs`. `media/streaming.rs`: the live pool, the
+automated soak in `disk/soak.rs`. The worker protects only the priority
+prefix that fits the pool; a committed cue stays protected until its exact
+transport command is acknowledged. `media/streaming.rs`: the live pool, the
 disk thread and the cache while "Play audio from disk" is on, and the 30 s
 rule; `media/streams.rs`: stream ids, never reused, and the blocking
 `Readers`, `read_all` and `offline` every other reader uses, `Unread` (what a

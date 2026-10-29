@@ -266,11 +266,14 @@ impl Transport {
             return;
         };
         let sample = gate.sample_at(at);
+        gate.cuer.cue(Some(sample));
         if gate.ready(sample) {
             self.send(command);
+            if let Some(gate) = &self.gate {
+                gate.cuer.follow_after(self.audio.engine.sent_command());
+            }
             return;
         }
-        gate.cuer.cue(Some(sample));
         crate::trace::log(|| format!("hold {command:?} for the disk"));
         self.held = Some(hold::Held {
             command,
@@ -296,10 +299,10 @@ impl Transport {
             && held.due(self.gate.as_ref(), Instant::now())
         {
             let held = self.held.take().expect("checked above");
-            if let Some(gate) = &self.gate {
-                gate.cuer.cue(None);
-            }
             self.send(held.command);
+            if let Some(gate) = &self.gate {
+                gate.cuer.follow_after(self.audio.engine.sent_command());
+            }
         }
     }
 
@@ -389,6 +392,9 @@ impl Transport {
                 let held = self.held.take();
                 gate.cuer.cue(Some(gate.sample_at(at)));
                 self.send(Command::Locate(at));
+                if let Some(gate) = &self.gate {
+                    gate.cuer.follow_after(self.audio.engine.sent_command());
+                }
                 // A start waiting for the disk waits for the new place.
                 if let Some(held) = held {
                     self.start(held.command, at);
