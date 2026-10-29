@@ -205,12 +205,18 @@ fn peak(heard: &[[f32; 4]]) -> f32 {
 /// whose host answers a block late is bypassed for that block (its input goes
 /// through, by design), and on a loaded CI machine one block in a window is
 /// enough to read a "taken down 60 dB" signal as loud: what an effect takes
-/// away is what its quietest window shows.
+/// away is what its quietest window shows. It listens until a window is
+/// quieter than callers ask for (0.005), up to 20 windows: a chain of two
+/// hosts on a starved CI machine can be late in every one of a few windows.
 fn quietest(lumen: &mut Lumen) -> f32 {
-    let first = peak(&lumen.listen(Duration::from_millis(600), 4_800));
-    (0..4).fold(first, |least, _| {
-        least.min(peak(&lumen.listen(Duration::from_millis(100), 4_800)))
-    })
+    let mut least = peak(&lumen.listen(Duration::from_millis(600), 4_800));
+    for _ in 0..20 {
+        if least < 0.005 {
+            break;
+        }
+        least = least.min(peak(&lumen.listen(Duration::from_millis(100), 4_800)));
+    }
+    least
 }
 
 #[test]

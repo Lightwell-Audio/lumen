@@ -58,7 +58,7 @@ jobs:
       # --no-fail-fast runs every test binary, so one run shows all failures.
       - name: Tests
         run: |
-          cargo test --workspace --all-targets --locked --no-fail-fast -- --skip walkthrough_plugins::
+          cargo test --workspace --all-targets --locked --no-fail-fast -- --skip walkthrough_plugins:: --skip disk::soak::
       # Five live plugin hosts share the callback deadline in this flow.
       # Run it without competing E2E scenarios: peer tests can starve a
       # host and trigger the intended dry fallback, resetting peak meters.
@@ -67,6 +67,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           cargo test -p lumen-app --test e2e --locked walkthrough_plugins:: -- --nocapture
+      # The disk streaming soak plays 64 tracks against the clock from a
+      # disk that spins on every read. Beside a thousand other tests the
+      # disk thread is starved of a core, which tests the runner rather than
+      # the read-ahead; alone it has the machine. Its assertions are unchanged.
+      - name: Disk streaming soak
+        if: ${{ !cancelled() }}
+        run: |
+          cargo test -p lumen-app --lib --locked disk::soak:: -- --nocapture
       - name: Doc tests
         run: cargo test --workspace --doc --locked
       # Scanner isolation: crashing, hanging and broken VST3 modules must be

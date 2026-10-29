@@ -1,8 +1,9 @@
 name: Soak
 
-# The long fault soak (crates/lumen-hosting/tests/soak.rs). It costs Actions
-# minutes, so it runs only when asked: Actions > Soak > Run workflow. The
-# ordinary soak pass runs in every CI test job.
+# The long fault soak (crates/lumen-hosting/tests/soak.rs) and the disk
+# streaming soak (crates/lumen-app/src/disk/soak.rs). They cost Actions
+# minutes, so they run only when asked: Actions > Soak > Run workflow. The
+# ordinary pass of each runs in every CI test job.
 on:
   workflow_dispatch:
     inputs:
@@ -38,3 +39,4 @@ jobs:
         run: |
           export LUMEN_SOAK_SECONDS=$((SOAK_MINUTES * 60))
           cargo test --release --locked -p lumen-hosting --test soak -- --ignored --nocapture
+          cargo test --release --locked -p lumen-app --lib disk::soak:: -- --nocapture

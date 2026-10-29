@@ -9596,6 +9596,10 @@ time at 128 frames from a fake disk whose reads take 50 to 250 µs and stall
 the start, a marker, the loop and unmarked places (each held until read, as
 L A holds). 16 s in CI and 120 s by hand: 0 late reads, 0 unreadable
 pages, the longest hold 107 ms (cued unmarked places), none past 150 ms.
+CI runs it as a step of its own after the other tests (2026-10-28): run
+beside them on the Windows and macOS runners it counted 228 and 323 late
+reads, because the disk thread lost its core to other tests, not because
+the read-ahead fell short. Its assertions did not change.
 
 **Consequences.** Streaming stays off by default until MT-STREAM-1 passes
 on the owner's interface at 64 and 128 frames (S6); then the default
