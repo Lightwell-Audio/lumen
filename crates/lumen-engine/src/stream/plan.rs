@@ -146,7 +146,9 @@ impl Scene {
         let near = horizon.near.max(1);
         let from = |point: &i64| *point..point + near;
         if let Some(cue) = at.cue {
-            self.walk(&self.ahead(cue, 0..near, at.playing), &mut seen, out);
+            // A cue is for a start or jump. Plan what playback will read,
+            // including the loop wrap, even while the transport is stopped.
+            self.walk(&self.ahead(cue, 0..near, true), &mut seen, out);
         }
         self.walk(&self.ahead(at.sample, 0..near, at.playing), &mut seen, out);
         if let Some(marker) = &at.marker {
@@ -163,17 +165,20 @@ impl Scene {
 
     /// Whether every page the clips play from `sample` for `span` frames is
     /// in memory: what the app waits for before it starts or jumps (L A).
+    /// A start plays through an enabled loop, so the ready window wraps too.
     pub fn ready(&self, sample: i64, span: i64) -> bool {
-        let window = sample..sample + span.max(1);
-        self.clips.iter().all(|p| {
-            let audio = &self.streams[p.stream];
-            for_each_page(
-                &p.clip,
-                p.start,
-                window.clone(),
-                audio.frames(),
-                &mut |page| audio.resident(page),
-            )
+        let windows = self.ahead(sample, 0..span.max(1), true);
+        windows.iter().all(|window| {
+            self.clips.iter().all(|p| {
+                let audio = &self.streams[p.stream];
+                for_each_page(
+                    &p.clip,
+                    p.start,
+                    window.clone(),
+                    audio.frames(),
+                    &mut |page| audio.resident(page),
+                )
+            })
         })
     }
 
@@ -182,12 +187,23 @@ impl Scene {
     fn ahead(&self, from: i64, range: Range<i64>, playing: bool) -> Vec<Range<i64>> {
         let (a, b) = (from + range.start, from + range.end);
         match self.looped {
-            Some((start, end)) if playing && (start..end).contains(&from) => {
+            Some((start, end)) if playing && from < end => {
                 let length = end - start;
-                // Frames ahead of the loop's start, wrapped into the loop.
-                let wrap = |t: i64| start + (t - start).rem_euclid(length);
                 let mut spans = Vec::new();
-                let (mut t, mut left) = (wrap(a), (b - a).min(length));
+                let (mut t, mut left) = if from < start && a < end {
+                    let before_wrap = b.min(end);
+                    if a < before_wrap {
+                        spans.push(a..before_wrap);
+                    }
+                    if b <= end {
+                        return spans;
+                    }
+                    (start, (b - end).min(length))
+                } else {
+                    let loop_from = if from < start { end } else { start };
+                    let offset = (a - loop_from).rem_euclid(length);
+                    (start + offset, (b - a).min(length))
+                };
                 while left > 0 {
                     let to = (t + left).min(end);
                     spans.push(t..to);
@@ -200,32 +216,89 @@ impl Scene {
         }
     }
 
-    /// Adds the pages of `spans`, slice by slice so pages nearer in time come
-    /// first across all clips.
+    /// Adds the pages of `spans` in the order they first occur in time across
+    /// all clips.
     fn walk(&self, spans: &[Range<i64>], seen: &mut Seen, out: &mut Vec<Want>) {
-        let page = PAGE as i64;
+        let mut first: Vec<(i64, Want)> = Vec::new();
         for span in spans {
-            let under: Vec<&Placed> = self
+            first.clear();
+            for p in self
                 .clips
                 .iter()
                 .filter(|p| p.start < span.end && p.start + p.clip.length > span.start)
-                .collect();
-            let mut t = span.start;
-            while t < span.end {
-                let slice = t..(t + page).min(span.end);
-                for p in &under {
-                    let stream = p.stream;
-                    let frames = self.streams[stream].frames();
-                    for_each_page(&p.clip, p.start, slice.clone(), frames, &mut |page| {
-                        let want = Want { stream, page };
-                        if seen.insert(want) {
-                            out.push(want);
-                        }
-                        true
-                    });
-                }
-                t = slice.end;
+            {
+                let stream = p.stream;
+                let frames = self.streams[stream].frames();
+                for_each_page(&p.clip, p.start, span.clone(), frames, &mut |page| {
+                    if let Some(at) =
+                        first_page_sample(&p.clip, p.start, span.clone(), frames, page)
+                    {
+                        first.push((at, Want { stream, page }));
+                    }
+                    true
+                });
             }
+            // Stable sorting keeps clip order for pages first needed at the
+            // same timeline sample, while putting every page needed earlier
+            // ahead of a later source page from another clip.
+            first.sort_by_key(|(at, _)| *at);
+            for (_, want) in first.drain(..) {
+                if seen.insert(want) {
+                    out.push(want);
+                }
+            }
+        }
+    }
+}
+
+/// The first timeline sample at which `clip` reads a candidate `page` in
+/// `span`. Callers enumerate candidates through `for_each_page`, so this only
+/// calculates first use for pages touched by the requested span. The mapping
+/// mirrors `source_spans`: linear clips advance with timeline time; repeated
+/// clips wrap through their phase and period.
+fn first_page_sample(
+    clip: &Clip,
+    start: i64,
+    span: Range<i64>,
+    frames: u64,
+    page: usize,
+) -> Option<i64> {
+    let (from, to) = (span.start.max(start), span.end.min(start + clip.length));
+    if from >= to {
+        return None;
+    }
+    let page = i64::try_from(page).unwrap_or(i64::MAX);
+    let page_start = page * PAGE as i64;
+    let page_end = (page + 1) * PAGE as i64;
+    let frames = i64::try_from(frames).unwrap_or(i64::MAX);
+    match clip.shape.period.filter(|period| *period > 0) {
+        Some(period) => {
+            let logical_from = (page_start - clip.offset).max(0);
+            let logical_to = (page_end - clip.offset)
+                .min(period)
+                .min(frames - clip.offset);
+            if logical_from >= logical_to {
+                return None;
+            }
+            let logical_at_from = (from - start + clip.shape.phase).rem_euclid(period);
+            let ahead = if logical_at_from < logical_from {
+                logical_from - logical_at_from
+            } else if logical_at_from < logical_to {
+                0
+            } else {
+                period - logical_at_from + logical_from
+            };
+            let first = from + ahead;
+            (first < to).then_some(first)
+        }
+        None => {
+            let source_from = clip.offset + from - start;
+            let source_to = clip.offset + to - start;
+            if source_from.max(0) >= source_to.min(frames) {
+                return None;
+            }
+            let first = from + (page_start - source_from).max(0);
+            (first < to).then_some(first)
         }
     }
 }

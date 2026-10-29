@@ -58,6 +58,84 @@ the actual results here; a failed round is not a successful validation.
 
 ## Results
 
+### Continuation in the Lumen cloud environment
+
+The checkpoint at `a8de11c6ac29107d414cf501e4d7ad388da44e03` was fetched
+into an isolated worktree, preserving the existing checkout. Its unchanged
+optimized 120 s soak passed in isolation: 60 steps, 142,735 pages read,
+23.998 ms longest hold, zero late reads, zero missed blocks. The local
+environment uses Rust 1.99.0 on Linux x86_64, with a two-CPU quota and
+8 GiB memory limit. This result establishes isolated checkpoint behavior;
+it does not explain away the earlier failures under overlapping workloads.
+
+Review identified additional correctness gaps:
+
+- A PAGE-sized timeline slice could list a future source page of one clip
+  before another clip's current page. With a capacity-limited prefix, this
+  can exclude audio needed immediately. Pages are now ordered by their
+  first timeline use within each priority span, with deterministic tie
+  order. Repeated sources retain their phase and wrap behavior.
+- Checking residency immediately after sending an asynchronous cue could
+  race a worker round still using the previous plan. The worker now
+  acknowledges adoption of a planning generation after marking that plan's
+  resident prefix wanted; both cues and scene changes advance this generation.
+  Transport readiness requires this acknowledgement, including when a scene
+  changes while a start is held.
+  The separate engine-command acknowledgement still controls cue release.
+- Readiness and cue planning must follow playback through a loop boundary,
+  including playback that begins before the loop start. The clip player's
+  page lookahead must continue from the loop start after reaching its end;
+  it must not request post-loop frames that will never be played.
+
+Deterministic regressions cover these cases, including cue replacement and
+cancellation. Timing-soak failures additionally report the observed transport,
+worker round and cue state, latest read duration, and missing source pages.
+These diagnostic observations are snapshots from separate threads and do not
+claim an atomic history of the failure.
+
+The original Windows job used Windows Server 2025 (10.0.26100), image
+`windows-2025-vs2026`, version `20261021.278.1`; its 16 s debug soak had
+zero late reads and zero missed blocks. The original macOS image was
+`macos-26-arm64`, version `20261013.0424.1`. Raw original job logs and local
+verification logs are retained in the worktree's `work/` directory.
+
+The pinned Ubuntu 26.04 performance gate passed with the existing baseline
+and +2% threshold unchanged. `stream_plan_64` measured 162,302,574
+instructions against 168,325,510 (-3.58%); `engine_streamed_64` changed
++0.07%, and every other scenario stayed within the gate. This measurement
+includes the wrapped-head lookahead correction.
+
+The first focused disk run passed 22 tests and exposed an incorrect new
+fixture: its one-frame cue window did not exercise the intended loop wrap,
+while its stopped playhead legitimately requested a post-loop page. The
+fixture now isolates a cue window spanning the boundary from an unrelated
+stopped playhead. All 23 disk tests and the initial three cue adoption tests
+then passed. Scene adoption and wrapped-head regressions were added after
+that run; final integrated tests remain pending.
+
+Final local validation also passed after making direct worker regressions
+independent of scheduler preemption: clippy, 3,330 full workspace tests,
+the isolated plugin walkthrough, doc tests, six real-binary smoke tests,
+29 focused disk regressions and an isolated optimized 120 s soak. That soak
+read 142,960 pages across 60 steps, with longest hold 63.977 ms, zero late
+reads, zero failed reads and zero missed blocks. The live worker's five-ms
+budget and all timing assertions remain unchanged.
+
+Hosted validation is pending. No green hosted rounds are credited by local
+results.
+
+The checkpoint also had a workflow-validation failure before any runner
+started: [run 40809053091](https://github.com/gummycookie/lumen/actions/runs/40809053091)
+reports invalid YAML at line 49 of `streaming-soak.yml`, with no jobs.
+The plain `run:` values containing `disk::soak::` ended a YAML token with
+a colon followed by a space. Both commands now use block strings. All
+repository workflow YAML files parse successfully. This failed validation
+is not a hosted soak execution or a green round.
+
+The final integrated local optimized soak passed for 120 s: 60 steps,
+142,960 page reads, longest hold 63.989 ms, zero late reads, zero failed
+reads and zero missed blocks. All 29 final focused disk tests passed.
+
 - The oversized-plan regression fails without the capacity fix and passes
   with it. The original debug soak still fails in isolation in the Linux
   development environment; changing cache priority alone is insufficient.

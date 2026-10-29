@@ -3,7 +3,7 @@ use std::sync::atomic::AtomicUsize;
 use lumen_core::time::Ticks;
 use lumen_engine::{
     Clip, ClipAudio, ClipShape, Command, Destination, NodeSpec, Region, Routing, Timeline,
-    clip_player, engine, mixer,
+    clip_player, engine, for_each_page, mixer,
 };
 
 use super::plan::{Horizon, Position, Scene, Want};
@@ -109,8 +109,93 @@ fn pages_are_planned_nearest_first_across_clips_and_each_once() {
     let w = |stream, page| Want { stream, page };
     assert_eq!(
         planned(&scene, at(P / 2, true), horizon(2 * P, 2 * P)),
-        [w(0, 0), w(0, 1), w(1, 5), w(1, 6), w(0, 2), w(1, 7)]
+        [w(0, 0), w(1, 5), w(0, 1), w(1, 6), w(0, 2), w(1, 7)]
     );
+}
+
+#[test]
+fn unaligned_source_page_does_not_jump_ahead_of_another_clips_current_page() {
+    let pool = PagePool::new(2);
+    let (a, b) = (stream(&pool, 1, 2), stream(&pool, 2, 1));
+    let scene = scene(&[clip(&a, 0, P - 1, P), clip(&b, 0, 0, P)], None, vec![]);
+    let wants = planned(&scene, at(0, true), horizon(P, P));
+    let w = |stream, page| Want { stream, page };
+
+    // A1 is needed from timeline sample 1; B0 is needed from sample 0.
+    // With the two-page pool, A1 must not displace B0 from the protected
+    // prefix.
+    assert_eq!(wants, [w(0, 0), w(1, 0), w(0, 1)]);
+    assert_eq!(&wants[..pool.pages() as usize], [w(0, 0), w(1, 0)]);
+}
+
+#[test]
+fn repeated_source_pages_keep_their_first_use_order_across_the_wrap() {
+    let pool = PagePool::new(3);
+    let (a, b) = (stream(&pool, 1, 2), stream(&pool, 2, 1));
+    let mut repeated = clip(&a, 0, 0, 2 * P);
+    repeated.shape.period = Some(2 * P);
+    repeated.shape.phase = 2 * P - 1;
+    let scene = scene(&[repeated, clip(&b, 0, 0, 2)], None, vec![]);
+    let w = |stream, page| Want { stream, page };
+
+    // A starts on its last source sample (page 1), then wraps to page 0 on
+    // timeline sample 1. B's page 0 is also needed at sample 0.
+    assert_eq!(
+        planned(&scene, at(0, true), horizon(2, 2)),
+        [w(0, 1), w(1, 0), w(0, 0)]
+    );
+}
+
+#[test]
+fn planned_order_matches_first_page_use_for_small_linear_and_repeated_scenes() {
+    use std::collections::HashSet;
+
+    let cases = [
+        (-5, None, 0, P + 10, -3, P + 15),
+        (P - 1, None, 0, 2 * P + 4, 0, P + 3),
+        (3 * P - 3, None, 0, P + 10, P - 4, 16),
+        (-2, Some(P + 3), P + 1, 2 * P + 10, -4, 2 * P + 15),
+        (P - 2, Some(2 * P + 1), -3, 3 * P + 8, P - 3, 2 * P + 7),
+        (2 * P - 1, Some(3 * P), 2 * P - 1, 2 * P + 10, 0, P + 2),
+    ];
+
+    for (case, &(offset, period, phase, length, sample, span)) in cases.iter().enumerate() {
+        let pool = PagePool::new(16);
+        let (a, b) = (stream(&pool, 1, 3), stream(&pool, 2, 3));
+        let mut first = clip(&a, 0, offset, length);
+        first.shape.period = period;
+        first.shape.phase = phase;
+        let mut second = clip(&b, 0, P - 3, length);
+        second.shape.period = Some(P + 5);
+        second.shape.phase = -2;
+        let clips = [first, second];
+        let scene = scene(&clips, None, vec![]);
+
+        let mut expected = Vec::new();
+        let mut seen = HashSet::new();
+        for timeline_sample in sample..sample + span {
+            for (stream, clip) in clips.iter().enumerate() {
+                for_each_page(
+                    clip,
+                    0,
+                    timeline_sample..timeline_sample + 1,
+                    scene.streams()[stream].frames(),
+                    &mut |page| {
+                        let want = Want { stream, page };
+                        if seen.insert(want) {
+                            expected.push(want);
+                        }
+                        true
+                    },
+                );
+            }
+        }
+        assert_eq!(
+            planned(&scene, at(sample, false), horizon(span, span)),
+            expected,
+            "first-use order differs in case {case}"
+        );
+    }
 }
 
 #[test]
@@ -181,6 +266,55 @@ fn the_cue_comes_first_then_the_playhead_and_marker_then_the_rest_then_the_point
 }
 
 #[test]
+fn a_stopped_cue_plans_through_the_loop_wrap() {
+    let pool = PagePool::new(1);
+    let a = stream(&pool, 1, 10);
+    let scene = scene(&[clip(&a, 0, 0, 10 * P)], Some((0, 2 * P)), vec![]);
+    let sample = 2 * P - P / 4;
+    let position = Position {
+        sample,
+        playing: false,
+        cue: Some(sample),
+        marker: None,
+    };
+
+    assert_eq!(
+        planned(&scene, position, horizon(P, P)),
+        [
+            Want { stream: 0, page: 1 },
+            Want { stream: 0, page: 0 },
+            Want { stream: 0, page: 2 }
+        ]
+    );
+}
+
+#[test]
+fn a_cue_before_the_loop_start_prefetches_the_loop_instead_of_post_end_pages() {
+    let pool = PagePool::new(1);
+    let a = stream(&pool, 1, 10);
+    let clips = [clip(&a, 0, 0, 10 * P)];
+    let scene = scene(&clips, Some((2 * P, 4 * P)), vec![]);
+    let sample = 2 * P - 1;
+    let position = Position {
+        // Keep the stopped playhead outside the clip so this assertion
+        // measures the cued playback window alone.
+        sample: 100 * P,
+        playing: false,
+        cue: Some(sample),
+        marker: None,
+    };
+
+    assert_eq!(
+        planned(&scene, position, horizon(5 * P / 2, 5 * P / 2)),
+        [
+            Want { stream: 0, page: 1 },
+            Want { stream: 0, page: 2 },
+            Want { stream: 0, page: 3 },
+        ]
+    );
+}
+
+#[test]
 fn many_points_never_cut_the_read_ahead_at_the_playhead() {
     // Room for the read-ahead (24 pages) and four points of six pages, and
     // twenty points wanted: the read-ahead is read whole and first.
@@ -216,6 +350,23 @@ fn ready_asks_for_every_page_the_span_plays() {
     assert!(scene.ready(0, P + 1));
     // Outside every clip there is nothing to wait for.
     assert!(scene.ready(20 * P, P));
+}
+
+#[test]
+fn ready_requires_the_loop_start_page_when_its_window_wraps() {
+    let pool = PagePool::new(4);
+    let mut writer = PoolWriter::new(&pool);
+    let a = stream(&pool, 1, 10);
+    let scene = scene(&[clip(&a, 0, 0, 10 * P)], Some((0, 2 * P)), vec![]);
+    let sample = 2 * P - P / 2;
+
+    // The linear window's pages are resident, but playback wraps to page 0
+    // before its full ready span has elapsed.
+    assert!(writer.load(&a, 1, &[0.0; PAGE], &[0.0; PAGE]));
+    assert!(writer.load(&a, 2, &[0.0; PAGE], &[0.0; PAGE]));
+    assert!(!scene.ready(sample, P));
+    assert!(writer.load(&a, 0, &[0.0; PAGE], &[0.0; PAGE]));
+    assert!(scene.ready(sample, P));
 }
 
 /// An engine playing `clips` from the pool, at 120 BPM.
@@ -340,6 +491,38 @@ fn a_pool_too_small_for_the_plan_holds_the_nearest_pages() {
 }
 
 #[test]
+fn worker_keeps_the_ordered_capacity_prefix_resident_after_replanning() {
+    let pool = PagePool::new(2);
+    let (a, b) = (stream(&pool, 1, 2), stream(&pool, 2, 1));
+    let clips = vec![clip(&a, 0, P - 1, P), clip(&b, 0, 0, P)];
+    let (handle, _process) = player(clips.clone());
+    let (pages, reads) = fake(Duration::ZERO);
+    let mut worker = Worker::new(
+        &pool,
+        pages,
+        handle.transport_reader(),
+        Arc::new(Stats::default()),
+    );
+    worker.take(Message::Scene(Arc::new(scene(&clips, None, vec![]))));
+
+    worker.round_for(Duration::MAX);
+    assert!(a.resident(0));
+    assert!(
+        b.resident(0),
+        "the other clip's current page fits the prefix"
+    );
+    assert!(
+        !a.resident(1),
+        "the later page is outside the two-page pool"
+    );
+    assert_eq!(reads.load(Ordering::Relaxed), 2);
+
+    worker.round_for(Duration::MAX);
+    assert!(a.resident(0) && b.resident(0));
+    assert_eq!(reads.load(Ordering::Relaxed), 2, "the prefix is not reread");
+}
+
+#[test]
 fn an_oversized_plan_does_not_protect_old_point_pages_from_a_cue() {
     let pool = PagePool::new(4);
     let a = stream(&pool, 1, 500);
@@ -366,7 +549,7 @@ fn an_oversized_plan_does_not_protect_old_point_pages_from_a_cue() {
     // A round may stop after any read if the test process is descheduled.
     // Four rounds suffice even if each fills just one page.
     for _ in 0..4 {
-        worker.round();
+        worker.round_for(Duration::MAX);
     }
     assert!((117..121).all(|page| a.resident(page)));
     assert_eq!(reads.load(Ordering::Relaxed), 4);
@@ -378,7 +561,7 @@ fn an_oversized_plan_does_not_protect_old_point_pages_from_a_cue() {
     let serial = handle.sent_command();
     worker.take(Message::FollowAfter(serial));
     for _ in 0..4 {
-        worker.round();
+        worker.round_for(Duration::MAX);
     }
     assert!((0..4).all(|page| a.resident(page)));
     assert_eq!(reads.load(Ordering::Relaxed), 8);
@@ -387,7 +570,7 @@ fn an_oversized_plan_does_not_protect_old_point_pages_from_a_cue() {
     // Once applied, the acknowledged serial releases the cue. The new
     // playhead plan keeps the same prefix without rereading it.
     process(1);
-    worker.round();
+    worker.round_for(Duration::MAX);
     assert!((0..4).all(|page| a.resident(page)));
     assert_eq!(reads.load(Ordering::Relaxed), 8);
     assert_eq!(worker.cue, None);

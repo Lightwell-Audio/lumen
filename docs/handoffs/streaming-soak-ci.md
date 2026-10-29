@@ -1,5 +1,32 @@
 # Continue the disk streaming CI fix in the Lumen Codex environment
 
+## Continuation status (2026-10-29)
+
+The original checkpoint below is historical. The continuation uses an isolated
+worktree on `fix/streaming-soak-ci`, based on `a8de11c6`, preserving the
+environment's original checkout. The audit records the additional first-use
+page ordering, cue/scene adoption handshake and loop-lookahead repairs.
+All 29 focused disk regressions and the integrated optimized 120 s soak passed
+(zero late reads and zero missed blocks). The full workspace passed 3,330
+tests, including 752 E2E; the isolated plugin walkthrough, doc tests and six
+real-binary smoke tests passed. Smoke required access to its isolated Xvfb
+display; the sandboxed attempt failed before opening a window.
+
+The existing performance baseline and +2% gate passed in the pinned Ubuntu
+26.04 image. The new soak workflow's checkpoint YAML syntax error is fixed
+and both changed workflows pass actionlint. Direct worker regressions now
+use a complete logical round independent of OS preemption; the live worker
+keeps its five-millisecond read budget. The final checks for that test seam
+also passed: full workspace, isolated plugin walkthrough, docs, six smoke
+tests, 29 focused disk regressions, and another isolated optimized 120 s
+soak (zero late and missed, longest hold 63.977 ms).
+
+Hosted validation is still outstanding: zero of three required complete green
+rounds are credited here. No PR has been created and nothing has been merged.
+See `docs/audits/2026-10-28-streaming-ci.md` for evidence and the eventual run
+ledger. Do not claim completion until that ledger contains three full green
+CI and platform-soak rounds for the final functional change.
+
 ## Owner request
 
 Investigate and permanently fix the failing CI soak tests linked at

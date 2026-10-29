@@ -461,9 +461,36 @@ fn play(
         // Read from disk: while any page it reads in this block or a little
         // after is missing, it glides out (on audio it still has) and back in
         // once its pages are there. Each time it has to is one underrun.
-        let ready = for_each_page(clip, start, a..b + block.ahead, stream.frames(), &mut |p| {
-            stream.ensure(p)
-        });
+        let ahead = b + block.ahead;
+        // The engine splits blocks at the loop end and jumps to its start.
+        // Check both timeline pieces of this block plus its lookahead: the
+        // tail before the end, then the wrapped head. Never check post-loop
+        // pages as if they would be heard.
+        let ready = if let Some((loop_start, loop_end)) =
+            cx.looping.filter(|(start, end)| start < end && a < *end)
+        {
+            let tail_ready = for_each_page(
+                clip,
+                start,
+                a..ahead.min(loop_end),
+                stream.frames(),
+                &mut |p| stream.ensure(p),
+            );
+            let wrapped = ahead.saturating_sub(loop_end).min(loop_end - loop_start);
+            let head_ready = wrapped == 0
+                || for_each_page(
+                    clip,
+                    start,
+                    loop_start..loop_start + wrapped,
+                    stream.frames(),
+                    &mut |p| stream.ensure(p),
+                );
+            tail_ready && head_ready
+        } else {
+            for_each_page(clip, start, a..ahead, stream.frames(), &mut |p| {
+                stream.ensure(p)
+            })
+        };
         if !ready {
             goal = 0.0;
         }
@@ -1091,5 +1118,82 @@ mod tests {
             }
         ));
         assert_eq!(asked, 3);
+    }
+
+    #[test]
+    fn streamed_clip_lookahead_stops_at_the_transport_loop_end() {
+        let page = PAGE as i64;
+        let loop_end = 2 * page;
+        let pool = PagePool::new(2);
+        let stream = StreamAudio::new(&pool, 1, 48_000, 2, (5 * PAGE) as u64);
+        let mut writer = crate::stream::PoolWriter::new(&pool);
+        assert!(writer.load(&stream, 0, &[0.25; PAGE], &[0.25; PAGE]));
+        assert!(writer.load(&stream, 1, &[0.25; PAGE], &[0.25; PAGE]));
+        assert!(!stream.resident(2));
+
+        let streamed = Clip {
+            audio: Arc::new(ClipAudio::Stream(stream.clone())),
+            ..clip(0, 5 * page, None, 0)
+        };
+        let (mut handle, mut player) = clip_player();
+        handle.set(vec![streamed]).unwrap();
+        let by_id = [(0, 0)];
+        let mut data = vec![0.0; crate::mixer::BUS_CHANNELS * crate::mixer::CHUNK];
+        let timeline = Timeline::default();
+        let cx = RenderContext {
+            timeline: &timeline,
+            sample_rate: 48_000,
+            start: loop_end - 128,
+            tail: false,
+            stopping: false,
+            mode: Mode::Play,
+            stream: 0,
+            device: 0,
+            recording: false,
+            looping: Some((0, loop_end)),
+            deadline: None,
+        };
+        player.render(&cx, &mut Buses::over(&by_id, &mut data, 128));
+
+        assert!(!stream.resident(2), "the post-loop page stays absent");
+        assert_eq!(pool.underruns(), 0, "the loop's resident pages are ready");
+    }
+
+    #[test]
+    fn streamed_clip_lookahead_detects_a_missing_loop_head_before_the_wrap() {
+        let page = PAGE as i64;
+        let loop_end = 2 * page;
+        let pool = PagePool::new(1);
+        let stream = StreamAudio::new(&pool, 2, 48_000, 2, (5 * PAGE) as u64);
+        let mut writer = crate::stream::PoolWriter::new(&pool);
+        assert!(writer.load(&stream, 1, &[0.25; PAGE], &[0.25; PAGE]));
+        assert!(!stream.resident(0));
+
+        let streamed = Clip {
+            audio: Arc::new(ClipAudio::Stream(stream.clone())),
+            ..clip(0, 5 * page, None, 0)
+        };
+        let (mut handle, mut player) = clip_player();
+        handle.set(vec![streamed]).unwrap();
+        let by_id = [(0, 0)];
+        let mut data = vec![0.0; crate::mixer::BUS_CHANNELS * crate::mixer::CHUNK];
+        let timeline = Timeline::default();
+        let cx = RenderContext {
+            timeline: &timeline,
+            sample_rate: 48_000,
+            start: loop_end - 128,
+            tail: false,
+            stopping: false,
+            mode: Mode::Play,
+            stream: 0,
+            device: 0,
+            recording: false,
+            looping: Some((0, loop_end)),
+            deadline: None,
+        };
+        player.render(&cx, &mut Buses::over(&by_id, &mut data, 128));
+
+        assert!(!stream.resident(0), "the wrapped page is still missing");
+        assert_eq!(pool.underruns(), 1, "the miss is found before loop end");
     }
 }

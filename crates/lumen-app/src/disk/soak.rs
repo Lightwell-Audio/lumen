@@ -167,6 +167,7 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
         scene,
         cuer: disk.cuer(),
     };
+    let transport = handle.transport_reader();
 
     let mut data = vec![0.0; 2 * BLOCK];
     let block = Duration::from_secs_f64(BLOCK as f64 / f64::from(RATE));
@@ -233,7 +234,41 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
         played += 1;
         let now = pool.underruns();
         if now > counted {
-            late.push((now - counted, started.elapsed(), sent.elapsed(), step));
+            let snapshot = transport.read();
+            let mut wants = Vec::new();
+            gate.scene.plan(
+                plan::Position {
+                    sample: snapshot.sample,
+                    playing: snapshot.playing,
+                    ..Default::default()
+                },
+                plan::Horizon {
+                    near: i64::from(RATE) / 25,
+                    far: i64::from(RATE) / 25,
+                },
+                &mut wants,
+            );
+            let missing: Vec<_> = wants
+                .into_iter()
+                .filter_map(|want| {
+                    let audio = &gate.scene.streams()[want.stream];
+                    (!audio.resident(want.page)).then_some((
+                        audio.id(),
+                        want.page,
+                        want.page * PAGE,
+                    ))
+                })
+                .collect();
+            late.push((
+                now - counted,
+                started.elapsed(),
+                sent.elapsed(),
+                step,
+                snapshot,
+                disk.stats().worker_snapshot(),
+                gate.cuer.adopted(),
+                missing,
+            ));
             counted = now;
         }
         // In real time: wait for the block's time to come. A block whose
@@ -259,8 +294,11 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
          ({overdue} past 150 ms), {underruns} late, {missed} blocks missed (the machine was busy)",
         reads.load(Ordering::Relaxed),
     );
-    for (n, at, after, step) in &late {
+    for (n, at, after, step, transport, worker, adopted, missing) in &late {
         eprintln!("soak: {n} late at {at:?}, {after:?} after {step:?} was sent");
+        eprintln!(
+            "soak: transport {transport:?}; cue adopted={adopted}; worker {worker:?}; missing (stream, page, source frame) {missing:?}"
+        );
     }
     let _ = (&clips_handle, &routing);
     assert!(heard, "the tracks were heard");

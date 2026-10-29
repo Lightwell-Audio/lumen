@@ -10,7 +10,9 @@ pub use lumen_engine::stream_plan as plan;
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+#[cfg(test)]
+use std::sync::atomic::{AtomicI64, AtomicUsize};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::time::{Duration, Instant};
 
@@ -63,15 +65,56 @@ impl Pages for Readers {
 
 /// What the app tells the thread.
 enum Message {
-    /// The clip list the engine now plays.
+    /// The clip list the engine now plays (unit-test worker setup).
+    #[cfg(test)]
     Scene(Arc<Scene>),
-    /// Read from here first: the app is about to start or jump there.
+    /// A scene request participates in the same adoption order as cues.
+    SceneRequest { scene: Arc<Scene>, generation: u64 },
+    /// Direct cue for worker-level unit tests.
+    #[cfg(test)]
     Cue(Option<i64>),
+    /// Read from here first: the app is about to start or jump there.
+    CueRequest {
+        sample: Option<i64>,
+        generation: u64,
+    },
     /// Keep the cue until the audio thread has applied this command serial.
     FollowAfter(u64),
     /// End the thread. Sent rather than closing the channel, which the
     /// [`Cuer`]s keep open.
     Stop,
+}
+
+/// A gate is ready to release a held start only after the worker has planned
+/// with the latest cue and scene and marked resident pages wanted. Scene and
+/// cue requests share a generation so a changed scene invalidates an older
+/// adoption too. Production requests are issued serially by the UI thread;
+/// generations also discard delayed messages from cloned cuers.
+#[derive(Debug, Default)]
+struct CueState {
+    requested: AtomicU64,
+    adopted: AtomicU64,
+}
+
+impl CueState {
+    /// Allocates a wrapping serial for a cue or scene request. Since only
+    /// the latest request matters, every live request is less than half a
+    /// serial space from the one the worker last adopted.
+    fn request(&self) -> u64 {
+        self.requested
+            .fetch_add(1, Ordering::AcqRel)
+            .wrapping_add(1)
+    }
+
+    fn is_adopted(&self) -> bool {
+        let requested = self.requested.load(Ordering::Acquire);
+        let adopted = self.adopted.load(Ordering::Acquire);
+        requested == adopted && self.requested.load(Ordering::Acquire) == requested
+    }
+
+    fn adopt(&self, generation: u64) {
+        self.adopted.store(generation, Ordering::Release);
+    }
 }
 
 /// What the thread reports.
@@ -81,6 +124,35 @@ pub struct Stats {
     load: AtomicU32,
     /// Pages read that failed (a file gone or unreadable), all told.
     failed: AtomicU32,
+    /// Lightweight worker state for diagnosing timing-soak misses.
+    #[cfg(test)]
+    worker_round: AtomicU64,
+    #[cfg(test)]
+    planned_sample: AtomicI64,
+    #[cfg(test)]
+    planned_cue: AtomicI64,
+    #[cfg(test)]
+    planned_cue_present: AtomicU32,
+    #[cfg(test)]
+    command_serial: AtomicU64,
+    #[cfg(test)]
+    read_stream: AtomicU64,
+    #[cfg(test)]
+    read_page: AtomicUsize,
+    #[cfg(test)]
+    read_elapsed_nanos: AtomicU64,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy)]
+pub(super) struct WorkerSnapshot {
+    pub round: u64,
+    pub sample: i64,
+    pub cue: Option<i64>,
+    pub command_serial: u64,
+    pub read_stream: u64,
+    pub read_page: usize,
+    pub read_elapsed_nanos: u64,
 }
 
 impl Stats {
@@ -92,11 +164,26 @@ impl Stats {
     pub fn failed(&self) -> u32 {
         self.failed.load(Ordering::Relaxed)
     }
+
+    #[cfg(test)]
+    pub(super) fn worker_snapshot(&self) -> WorkerSnapshot {
+        WorkerSnapshot {
+            round: self.worker_round.load(Ordering::Relaxed),
+            sample: self.planned_sample.load(Ordering::Relaxed),
+            cue: (self.planned_cue_present.load(Ordering::Relaxed) != 0)
+                .then(|| self.planned_cue.load(Ordering::Relaxed)),
+            command_serial: self.command_serial.load(Ordering::Relaxed),
+            read_stream: self.read_stream.load(Ordering::Relaxed),
+            read_page: self.read_page.load(Ordering::Relaxed),
+            read_elapsed_nanos: self.read_elapsed_nanos.load(Ordering::Relaxed),
+        }
+    }
 }
 
 /// The disk thread. Dropping it stops the thread.
 pub struct Disk {
     messages: Option<Sender<Message>>,
+    cues: Arc<CueState>,
     pool: Arc<PagePool>,
     stats: Arc<Stats>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -108,14 +195,22 @@ impl Disk {
     /// clip list it is given.
     pub fn start(pool: &Arc<PagePool>, pages: Box<dyn Pages>, transport: TransportReader) -> Self {
         let (messages, inbox) = channel();
+        let cues = Arc::new(CueState::default());
         let stats = Arc::new(Stats::default());
-        let worker = Worker::new(pool, pages, transport, Arc::clone(&stats));
+        let worker = Worker::with_cues(
+            pool,
+            pages,
+            transport,
+            Arc::clone(&stats),
+            Arc::clone(&cues),
+        );
         let thread = std::thread::Builder::new()
             .name("lumen-disk".into())
             .spawn(move || worker.run(&inbox))
             .expect("spawn the disk thread");
         Self {
             messages: Some(messages),
+            cues,
             pool: Arc::clone(pool),
             stats,
             thread: Some(thread),
@@ -132,31 +227,46 @@ impl Disk {
 
     /// The clip list the engine now plays.
     pub fn set_scene(&self, scene: impl Into<Arc<Scene>>) {
-        self.send(Message::Scene(scene.into()));
+        let Some(messages) = &self.messages else {
+            return;
+        };
+        let generation = self.cues.request();
+        if messages
+            .send(Message::SceneRequest {
+                scene: scene.into(),
+                generation,
+            })
+            .is_err()
+            && self.cues.requested.load(Ordering::Acquire) == generation
+        {
+            self.cues.adopt(generation);
+        }
     }
 
     /// Reads the audio after `sample` first, until the next cue.
     pub fn cue(&self, sample: Option<i64>) {
-        self.send(Message::Cue(sample));
+        self.cuer().cue(sample);
     }
 
     /// A handle that cues this thread from elsewhere (the transport, L A).
     pub fn cuer(&self) -> Cuer {
-        Cuer(self.messages.clone())
-    }
-
-    fn send(&self, message: Message) {
-        if let Some(messages) = &self.messages {
-            // The thread only ends when this handle drops.
-            let _ = messages.send(message);
-        }
+        Cuer(self.messages.as_ref().map(|sender| CuePort {
+            sender: sender.clone(),
+            state: Arc::clone(&self.cues),
+        }))
     }
 }
 
 /// Cues a disk thread: [`Disk::cue`] from another owner. Does nothing once
 /// the thread has stopped.
 #[derive(Clone)]
-pub struct Cuer(Option<Sender<Message>>);
+pub struct Cuer(Option<CuePort>);
+
+#[derive(Clone)]
+struct CuePort {
+    sender: Sender<Message>,
+    state: Arc<CueState>,
+}
 
 impl Cuer {
     /// A cuer with no disk thread behind it, for tests of what is held.
@@ -167,16 +277,31 @@ impl Cuer {
 
     /// Reads the audio after `sample` first, until the next cue.
     pub fn cue(&self, sample: Option<i64>) {
-        if let Some(messages) = &self.0 {
-            let _ = messages.send(Message::Cue(sample));
+        if let Some(port) = &self.0 {
+            let generation = port.state.request();
+            if port
+                .sender
+                .send(Message::CueRequest { sample, generation })
+                .is_err()
+                && port.state.requested.load(Ordering::Acquire) == generation
+            {
+                port.state.adopt(generation);
+            }
         }
+    }
+
+    /// Whether the worker has planned with the latest cue and scene and
+    /// protected their resident pages for that planning round. An idle cuer
+    /// has no worker and imposes no wait.
+    pub fn adopted(&self) -> bool {
+        self.0.as_ref().is_none_or(|port| port.state.is_adopted())
     }
 
     /// Keeps the current cue prioritized until `serial` has been applied by
     /// the audio thread. Does nothing once the disk thread has stopped.
     pub fn follow_after(&self, serial: u64) {
-        if let Some(messages) = &self.0 {
-            let _ = messages.send(Message::FollowAfter(serial));
+        if let Some(port) = &self.0 {
+            let _ = port.sender.send(Message::FollowAfter(serial));
         }
     }
 }
@@ -199,6 +324,11 @@ struct Worker {
     horizon: Horizon,
     scene: Arc<Scene>,
     cue: Option<i64>,
+    /// Latest accepted cue generation, for rejecting delayed cue messages.
+    cue_generation: u64,
+    /// Latest accepted cue or scene generation, whose plan gets acknowledged.
+    plan_generation: u64,
+    cues: Arc<CueState>,
     /// A committed cue is released only after its queued transport command
     /// appears in the audio thread's published snapshot.
     follow_after: Option<u64>,
@@ -215,11 +345,22 @@ struct Worker {
 }
 
 impl Worker {
+    #[cfg(test)]
     fn new(
         pool: &Arc<PagePool>,
         pages: Box<dyn Pages>,
         transport: TransportReader,
         stats: Arc<Stats>,
+    ) -> Self {
+        Self::with_cues(pool, pages, transport, stats, Arc::new(CueState::default()))
+    }
+
+    fn with_cues(
+        pool: &Arc<PagePool>,
+        pages: Box<dyn Pages>,
+        transport: TransportReader,
+        stats: Arc<Stats>,
+        cues: Arc<CueState>,
     ) -> Self {
         Self {
             writer: PoolWriter::new(pool),
@@ -228,6 +369,9 @@ impl Worker {
             horizon: Horizon::at(0),
             scene: Arc::default(),
             cue: None,
+            cue_generation: 0,
+            plan_generation: 0,
+            cues,
             follow_after: None,
             stats,
             wants: Vec::new(),
@@ -258,30 +402,81 @@ impl Worker {
 
     fn take(&mut self, message: Message) {
         match message {
+            #[cfg(test)]
             Message::Scene(scene) => {
-                self.pages.keep(scene.streams());
-                self.broken.clear();
-                if scene.rate() > 0 {
-                    self.horizon = Horizon::at(scene.rate());
-                }
-                self.scene = scene;
+                self.install_scene(scene);
             }
+            Message::SceneRequest { scene, generation } => {
+                if !serial_reached(generation, self.plan_generation) {
+                    return;
+                }
+                self.install_scene(scene);
+                self.plan_generation = generation;
+            }
+            #[cfg(test)]
             Message::Cue(cue) => {
                 self.cue = cue;
                 self.follow_after = None;
+            }
+            Message::CueRequest { sample, generation } => {
+                // Cloned cuers can enqueue concurrently, so a delayed older
+                // message must not replace a newer cue or scene request.
+                if !serial_reached(generation, self.plan_generation)
+                    || !serial_reached(generation, self.cue_generation)
+                {
+                    return;
+                }
+                self.cue = sample;
+                self.follow_after = None;
+                self.cue_generation = generation;
+                self.plan_generation = generation;
             }
             Message::FollowAfter(serial) => self.follow_after = Some(serial),
             Message::Stop => {}
         }
     }
 
+    fn install_scene(&mut self, scene: Arc<Scene>) {
+        self.pages.keep(scene.streams());
+        self.broken.clear();
+        if scene.rate() > 0 {
+            self.horizon = Horizon::at(scene.rate());
+        }
+        self.scene = scene;
+    }
+
     /// Plans, frees what is not wanted when room is needed, and reads what is
     /// missing for a while. Returns how long to wait before the next round.
     fn round(&mut self) -> Duration {
+        self.round_for(ROUND)
+    }
+
+    /// Direct regressions use an unlimited budget to test a complete logical
+    /// round independently of scheduler preemption. The live worker always
+    /// passes the five-millisecond read budget above.
+    fn round_for(&mut self, budget: Duration) -> Duration {
+        #[cfg(test)]
+        self.stats.worker_round.fetch_add(1, Ordering::Relaxed);
         if self.scene.is_empty() {
+            self.cues.adopt(self.plan_generation);
             return IDLE;
         }
         let transport = self.transport.read();
+        #[cfg(test)]
+        {
+            self.stats
+                .planned_sample
+                .store(transport.sample, Ordering::Relaxed);
+            self.stats
+                .planned_cue
+                .store(self.cue.unwrap_or_default(), Ordering::Relaxed);
+            self.stats
+                .planned_cue_present
+                .store(u32::from(self.cue.is_some()), Ordering::Relaxed);
+            self.stats
+                .command_serial
+                .store(transport.command_serial, Ordering::Relaxed);
+        }
         if self
             .follow_after
             .is_some_and(|serial| serial_reached(transport.command_serial, serial))
@@ -311,6 +506,11 @@ impl Worker {
                 !self.writer.want(audio, w.page) && !self.broken.contains(&(audio.id(), w.page))
             })
             .collect();
+        // `want` above marks every resident page in this plan before the
+        // acknowledgement is visible to the transport. If the command was
+        // sent while this round was in flight, readiness remains false until
+        // a later round adopts its generation.
+        self.cues.adopt(self.plan_generation);
         if missing.is_empty() {
             return IDLE;
         }
@@ -332,9 +532,20 @@ impl Worker {
                 };
             }
             let audio = &self.scene.streams()[want.stream];
+            #[cfg(test)]
+            let read_started = Instant::now();
             let read = self
                 .pages
                 .read(audio, want.page, &mut self.left, &mut self.right);
+            #[cfg(test)]
+            {
+                self.stats.read_stream.store(audio.id(), Ordering::Relaxed);
+                self.stats.read_page.store(want.page, Ordering::Relaxed);
+                self.stats.read_elapsed_nanos.store(
+                    read_started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64,
+                    Ordering::Relaxed,
+                );
+            }
             match read {
                 Ok(frames) => {
                     let frames = frames.min(PAGE);
@@ -352,7 +563,7 @@ impl Worker {
                     self.stats.failed.fetch_add(1, Ordering::Relaxed);
                 }
             }
-            if started.elapsed() >= ROUND {
+            if started.elapsed() >= budget {
                 break;
             }
         }
@@ -371,14 +582,18 @@ impl Worker {
     }
 }
 
-/// Whether `current` is at or after `target` in the wrapping command serial
-/// space. A command queue cannot span half the serial space.
+/// Whether `current` is at or after `target` in a wrapping 64-bit serial
+/// space. Command and cue requests cannot span half the serial space.
 fn serial_reached(current: u64, target: u64) -> bool {
     current.wrapping_sub(target) < (1_u64 << 63)
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "disk/cue_tests.rs"]
+mod cue_tests;
 
 #[cfg(test)]
 mod soak;

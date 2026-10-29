@@ -33,8 +33,11 @@ impl Gate {
     /// Whether what plays from `sample` is in memory: the next 50 ms, more
     /// than the clip player needs to start (40 ms).
     pub fn ready(&self, sample: i64) -> bool {
-        self.scene
-            .ready(sample, i64::from(self.scene.rate().max(1)) / 20)
+        self.scene.is_empty()
+            || (self.cuer.adopted()
+                && self
+                    .scene
+                    .ready(sample, i64::from(self.scene.rate().max(1)) / 20))
     }
 }
 

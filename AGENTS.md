@@ -404,6 +404,16 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
+**CI repair continuation (2026-10-29):** `fix/streaming-soak-ci` continues
+the provisional `a8de11c6` checkpoint and depends on unmerged PR #74 at
+`cc4266a6` (`m9-s6-disk-streaming`). Streaming priority, cue/scene adoption
+and loop-boundary regressions are covered; the isolated optimized soak,
+full workspace, plugin walkthrough, doc tests, smoke and pinned-container
+performance gate passed locally. Final checks and the required three hosted
+green rounds are tracked in `docs/audits/2026-10-28-streaming-ci.md` and
+`docs/handoffs/streaming-soak-ci.md`. Do not merge or create a new PR.
+Format remains v32; no additional hardware validation is claimed.
+
 **Last updated (2026-10-26):** M9 R5 Export is built and verified on
 `m9-s5-audio-export`, cut from `origin/main` at `335b3ecb` after R4 merged.
 The independent R4b media-pool work is merged and integrated from `main`

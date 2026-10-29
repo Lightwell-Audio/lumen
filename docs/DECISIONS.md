@@ -9666,6 +9666,22 @@ workflow against an optimized build; the logic regressions remain in the
 debug workspace tests. This timing gate does not claim hardware or
 real-time scheduler validation.
 
+**CI repair continuation (`fix/streaming-soak-ci`).** Resident pages cannot
+release a held start until the disk worker has adopted the current cue and
+scene: an older round could otherwise evict them between the residency
+check and command consumption. Cue and scene updates therefore share a
+wrapping planning generation, acknowledged after the worker marks the
+ordered resident prefix wanted. The independent engine-command serial
+still controls cue release. Within each priority span, source pages sort
+by first timeline use rather than a clip's place in a PAGE-sized slice;
+this preserves simultaneous current pages under capacity pressure.
+Planning and readiness follow the engine's loop wrap, including a start
+before the loop. The audio thread's allocation-free lookahead checks the
+tail and wrapped head, without checking skipped post-loop frames. Direct
+regressions cover capacity, offsets, repeated phases, adoption races and
+both sides of the loop boundary. The existing performance baseline and
++2% gate remain unchanged; the pinned-container measurement passes.
+
 **Consequences.** Streaming stays off by default until MT-STREAM-1 passes
 on the owner's interface at 64 and 128 frames (S6); then the default
 flips. The 30 s rule and the pool size were kept after the soak and the

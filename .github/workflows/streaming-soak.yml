@@ -2,7 +2,7 @@ name: Disk streaming soak
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/streaming-soak-ci]
   pull_request:
   workflow_dispatch:
 
@@ -46,6 +46,8 @@ jobs:
       # builds and the deterministic cache/transport tests remain in CI.
       # Build first so compiler work never overlaps the measured playback.
       - name: Build optimized soak
-        run: cargo test --release -p lumen-app --lib --locked disk::soak:: --no-run
+        run: |
+          cargo test --release -p lumen-app --lib --locked disk::soak:: --no-run
       - name: Play 64 streamed tracks with loops and seeks
-        run: cargo test --release -p lumen-app --lib --locked disk::soak:: -- --nocapture --test-threads=1
+        run: |
+          cargo test --release -p lumen-app --lib --locked disk::soak:: -- --nocapture --test-threads=1
