@@ -48,9 +48,10 @@ status.
 
 ### What is not built yet
 
-Disk streaming for clips too large for memory, drum maps and the step sequencer, the built-in EQ/
-compressor/limiter/delay/reverb/sampler, warp and time-stretch, installers,
-and VST3 hosting on macOS (approved, in progress) and Linux (not scheduled).
+Disk streaming for clips too large for memory, drum maps and the step
+sequencer, the built-in EQ/compressor/limiter/delay/reverb/sampler, warp and
+time-stretch, installers, and VST3 hosting on macOS (approved, in progress)
+and Linux (not scheduled).
 
 ## Roadmap
 

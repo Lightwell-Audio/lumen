@@ -7,17 +7,10 @@ below) and every milestone's report (at the end). Plans and slice lists are in
 
 ## Now (2026-10-29)
 
-- **M7, automation, editing and render.** A0 to A8 and E0 to E6 are merged;
-  the UX round three is merged too (ADR-0108, PR #75). Waiting for the owner:
-  MT-EDIT-2, MT-EDIT-7 and MT-UX-2, then the milestone's approval. Planned and
-  not started: E7, the audio clip editor, and E8, warp and time-stretch
-  ([M7 plan §5](milestones/M7.md)); the owner chooses when they run.
-- **M9, recording, media and export.** R0 to R5, R1b and R4b are merged; every
-  manual test passed but MT-EXPORT-1. Next: R2b and R6 to R9
-  ([M9 plan §3](milestones/M9.md)).
-- **Out of scope for now** (owner, 2026-10-26): the manual tests of M5 and M6
-  that are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7) and the ADR-0069
-  callback numbers. M4.5's MT-POL-5 and MT-POL-6 were never run.
+M7 waits for the owner (MT-EDIT-2, MT-EDIT-7, MT-UX-2, then the approval); its
+planned E7 (audio clip editor) and E8 (warp and time-stretch) start when the
+owner chooses. M9 continues with R2b and R6 to R9. Details: the table below
+and `CLAUDE.md` §12.
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
 
@@ -29,9 +22,9 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 2 | Audio Engine, Devices & Transport | ✅ Approved 2026-10-07 | [M2](milestones/M2.md) |
 | 3 | Arrangement & Project System | ✅ Approved 2026-10-09 | [M3](milestones/M3.md) |
 | 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes, PR #3) | [M4](milestones/M4.md) |
-| 4.5 | Polish pass (the interface audit's fixes) | ✅ Approved; MT-POL-5 and 6 not run | [M4.5](milestones/M4.5.md); audit `docs/audits/2026-10-10-design.md` |
-| 5 | MIDI & Piano Roll | ✅ Signed off 2026-10-26 | [M5](milestones/M5.md) |
-| 6 | VST3 Hosting & Device System | ✅ Signed off 2026-10-26; ADR-0069's callback wait stays on trial | [M6](milestones/M6.md); review `docs/audits/2026-10-18-m6.md` |
+| 4.5 | Polish pass (the interface audit's fixes) | ✅ Built 2026-10-10; MT-POL-5, MT-POL-6 and MT-APP-18 have no recorded run | [M4.5](milestones/M4.5.md); audit `docs/audits/2026-10-10-design.md` |
+| 5 | MIDI & Piano Roll | ✅ Signed off 2026-10-26; MT-MIDI-7 to 9 out of scope for now (owner) | [M5](milestones/M5.md) |
+| 6 | VST3 Hosting & Device System | ✅ Signed off 2026-10-26. MT-VST-3 to 7 and the ADR-0069 callback numbers are out of scope for now (owner); monitoring through an effect passed MT-REC-1 step 8 (owner, 2026-10-26, no figures), so the callback's wait stays on trial | [M6](milestones/M6.md); review `docs/audits/2026-10-18-m6.md` |
 | 7 | Automation, Editing & Render | 🟡 A0 to A8 and E0 to E6 merged (ADR-0081 to 0098; formats v22 to v29); MT-EDIT-2, MT-EDIT-7 and MT-UX-2 and the approval wait; E7 and E8 not started | [M7](milestones/M7.md); reviews `docs/audits/2026-10-22-m7.md`, `docs/audits/2026-10-24-m7b.md` |
 | 9 | Recording, Media, Export & Production Workflow | 🟡 R0 to R5, R1b and R4b merged (ADR-0099 to 0107; formats v30 to v32); MT-EXPORT-1 waits; R2b and R6 to R9 not started | Before M8 (owner, 2026-10-23). [M9](milestones/M9.md) |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | After M9 (owner, 2026-10-23) |
@@ -580,9 +573,6 @@ no format change.* All met except the two manual tests that wait.
 - The ASIO SDK agreement is still to be signed (owner action, before any
   distribution).
 
-**Proposed next:** M5, MIDI and the piano roll, in
-`docs/milestones/M5.md`, with five choices for the owner (§4).
-
 ### Milestone 4 — report (2026-10-10)
 **Status:** Complete 2026-10-10. All eight slices are built, and every
 manual test passed (MT-APP-17 and MT-MIX-1 to MT-MIX-8, owner). The
@@ -678,10 +668,6 @@ returns and the master bus, with predictable solo and mute behaviour.*
   are split before M5 builds on them.
 - The ASIO SDK agreement is still to be signed (owner action, before any
   distribution).
-
-**Proposed next:** the review's fixes on their own branch. Then M5, MIDI
-and the piano roll, planned in `docs/milestones/M5.md` for the owner's
-approval.
 
 ### Milestone 3 — report (2026-10-09)
 **Status:** Complete; approved by the owner 2026-10-09 (MT-APP-16 passed).
@@ -800,9 +786,6 @@ state.*
   with a routing graph, the largest engine change since M2.
 - The ASIO SDK agreement is still to be signed (owner action, before any
   distribution).
-
-**Proposed next:** M4, Mixer, Routing & Groups, planned in
-`docs/milestones/M4.md` (a proposal for the owner's approval).
 
 ### Milestone 2 — report (2026-10-06)
 **Status:** Complete; approved by the owner 2026-10-07. All 8 slices are done, and
