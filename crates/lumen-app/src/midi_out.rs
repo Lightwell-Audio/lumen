@@ -859,6 +859,7 @@ mod sender_tests {
         let mut rig = rig();
         rig.output.set_sync_delays(&[30]);
         // Frame 0 is heard now; the clock goes 30 ms after it.
+        let heard = Instant::now();
         rig.clock.publish(0, 128, 48_000);
         rig.queue.push(at(0, Msg::START)).unwrap();
         rig.queue.push(at(0, Msg::note_on(0, 60, 90))).unwrap();
@@ -866,8 +867,11 @@ mod sender_tests {
         let sent = rig.fake.sent_timed();
         assert_eq!(sent[0].1, Msg::note_on(0, 60, 90).bytes(), "the note first");
         assert_eq!(sent[1].1, Msg::START.bytes());
-        let gap = sent[1].2 - sent[0].2;
-        assert!(gap >= Duration::from_millis(20), "{gap:?}");
+        // Measured from the frame, not from the note: a sender woken late
+        // sends the note late too, which shortens the gap between them
+        // without moving the clock (seen on a busy CI machine).
+        let after = sent[1].2 - heard;
+        assert!(after >= Duration::from_millis(25), "{after:?}");
         // The stream stands still: the note lets go and the clock stops.
         wait_for(&rig.fake, 4);
         let sent = rig.fake.sent();

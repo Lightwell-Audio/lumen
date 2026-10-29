@@ -9648,10 +9648,15 @@ time at 128 frames from a fake disk whose reads take 50 to 250 µs and stall
 the start, a marker, the loop and unmarked places (each held until read, as
 L A holds). 16 s in CI and 120 s by hand: 0 late reads, 0 unreadable
 pages, the longest hold 107 ms (cued unmarked places), none past 150 ms.
-CI runs it as a step of its own after the other tests (2026-10-28): run
-beside them on the Windows and macOS runners it counted 228 and 323 late
-reads, because the disk thread lost its core to other tests, not because
-the read-ahead fell short. Its assertions did not change.
+On CI it first counted late reads (228 and 323 beside the other tests on
+Windows and macOS, 4 alone on Linux). Each came 20 to 110 ms after a start,
+at places the disk keeps read: when the machine starved the test, it caught
+up by processing the missed blocks one after another, playing faster than
+real time, which no device does. It now misses those blocks as a device's
+callback would (reported as "blocks missed", apart from late reads, as the
+app counts dropouts apart from disk lateness). Pinned to one CPU, missing
+2,300 of its 6,000 blocks: 0 late reads. CI also runs it as a step of its
+own after the other tests. Its assertions did not change.
 
 **Consequences.** Streaming stays off by default until MT-STREAM-1 passes
 on the owner's interface at 64 and 128 frames (S6); then the default

@@ -5,6 +5,8 @@
 //! there, as the transport holds them (L A). No late read is allowed. The
 //! wait is not cut off at 150 ms, so that a CI machine under load tests the
 //! read-ahead rather than its own disk; holds longer than that are reported.
+//! Blocks whose time passed while the machine was busy are missed, as a
+//! device misses them, and reported apart: they are dropouts, not late reads.
 //!
 //! `LUMEN_SOAK_SECONDS` runs it longer than CI's default.
 
@@ -179,6 +181,13 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
     let mut first = true;
     let mut longest_hold = Duration::ZERO;
     let mut overdue = 0usize;
+    // Each late read: when, how long after the last start was sent, and in
+    // which step, so a failure says where the read-ahead fell short.
+    let mut sent = Instant::now();
+    let mut step = None;
+    let mut late = Vec::new();
+    let mut counted = 0;
+    let mut missed = 0u32;
     while started.elapsed().as_secs_f64() < seconds {
         // The next step every 2 s, held for the disk.
         if held.is_none()
@@ -195,8 +204,10 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
             };
             first = false;
             next += 1;
+            step = Some(steps[next - 1]);
             if gate.ready(sample) {
                 handle.send(command).unwrap();
+                sent = Instant::now();
             } else {
                 gate.cuer.cue(Some(sample));
                 held = Some(Held {
@@ -215,12 +226,27 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
             overdue += usize::from(waited > LONGEST);
             gate.cuer.cue(None);
             handle.send(waiting.command).unwrap();
+            sent = Instant::now();
         }
         engine.process(RATE, &mut data, 2, BLOCK);
         played += 1;
-        // In real time: wait for the block's time to come.
-        if let Some(wait) = (block * played).checked_sub(started.elapsed()) {
-            std::thread::sleep(wait);
+        let now = pool.underruns();
+        if now > counted {
+            late.push((now - counted, started.elapsed(), sent.elapsed(), step));
+            counted = now;
+        }
+        // In real time: wait for the block's time to come. A block whose
+        // time has passed is missed, as a device's callback is when the
+        // machine is busy: a dropout, which the app counts apart from late
+        // reads. Processing the missed blocks one after another instead
+        // would play faster than real time, which no device does.
+        match (block * played).checked_sub(started.elapsed()) {
+            Some(wait) => std::thread::sleep(wait),
+            None => {
+                let due = (started.elapsed().as_secs_f64() / block.as_secs_f64()) as u32;
+                missed += due.saturating_sub(played);
+                played = due.max(played);
+            }
         }
     }
     let heard = data.iter().any(|v| *v != 0.0);
@@ -229,9 +255,12 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
     drop(disk);
     eprintln!(
         "soak: {seconds} s, {next} steps, {} pages read, longest hold {longest_hold:?} \
-         ({overdue} past 150 ms), {underruns} late",
+         ({overdue} past 150 ms), {underruns} late, {missed} blocks missed (the machine was busy)",
         reads.load(Ordering::Relaxed),
     );
+    for (n, at, after, step) in &late {
+        eprintln!("soak: {n} late at {at:?}, {after:?} after {step:?} was sent");
+    }
     let _ = (&clips_handle, &routing);
     assert!(heard, "the tracks were heard");
     assert_eq!(failed, 0);

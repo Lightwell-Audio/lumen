@@ -646,11 +646,14 @@ fn the_audio_panel_shows_each_plugins_work_in_the_block_budget() {
         lumen
             .harness
             .query_by_label_contains(&format!("{r}work"))
-            .is_none_or(|row| millis_after(&text(&row), "work ") == 0.0)
+            .is_none_or(|row| millis_after(&text(&row), "work ") < 1.0)
     }) {
+        // Both listed with milliseconds of work. A block the host answers
+        // late lowers the figure (see below), so on a busy machine the first
+        // readings can be under a millisecond: wait for a steadier one.
         assert!(
             std::time::Instant::now() < until,
-            "the budget never listed both plugins"
+            "the budget never listed both plugins at a millisecond or more"
         );
         std::thread::sleep(Duration::from_millis(20));
         lumen.frames(1);
