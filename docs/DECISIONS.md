@@ -9490,7 +9490,7 @@ offline render at the next block instead of continuing to render unused audio.
 ## ADR-0108 — Playing audio from disk, and the peak cache (M9 R6)
 
 **Date:** 2026-10-28. **Slice:** M9 R6, `m9-s6-disk-streaming`, cut from
-`main` at `a91d1989`. **Status:** Accepted (built; MT-STREAM-1 pending).
+`main` at `a91d1989`. **Status:** Accepted (built; MT-STREAM-1 passed, owner, 2026-10-28).
 Plan and evidence: `milestones/M9-R6.md`. Owner choices (2026-10-27): L A,
 M B, C A, D A, S B (owner table).
 

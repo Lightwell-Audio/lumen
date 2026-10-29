@@ -427,7 +427,8 @@ per slice and move what is no longer current out of it.
   soak (`disk/soak.rs`) and 9 E2E scenarios (`streaming.rs`) pass. Two
   ignored tests: `measure_streaming_memory_and_open_time` and
   `make_the_streaming_test_project` (MT-STREAM-1's 64-track project).
-  MT-STREAM-1 (`docs/manual-tests/M9.md`) is pending.
+  MT-STREAM-1 (`docs/manual-tests/M9.md`) passed (owner, 2026-10-28: no
+  issues at 64 or 128 samples; no figures reported).
 - **Branch `m9-s5-audio-export`: M9 R5 export is built** (ADR-0107;
   `docs/milestones/M9-R5.md`; PR #72). Export and the media pool are integrated
   with `main` at `0db27218` after PR #71 merged. Both sets of commands,
@@ -521,10 +522,10 @@ per slice and move what is no longer current out of it.
   its own slice R2b. Next: R3 (takes and Capture MIDI) per `docs/milestones/M9.md`.
 - **Earlier** (M7b E1 to E6, M9 R0 and R1): moved to `docs/HANDOFF_ARCHIVE.md`
   (2026-10-28). M7b closed with E6 (`docs/audits/2026-10-24-m7b.md`).
-- **Next:** MT-STREAM-1 on the owner's interface, then R7 (workflow and
-  preferences) per `docs/milestones/M9.md`; R2b (loopback helper) is still
-  unbuilt. If MT-STREAM-1 passes, "Play audio from disk" becomes the default
-  (S6).
+- **Next:** turn "Play audio from disk" on by default (S6, MT-STREAM-1
+  passed; pitched to the owner, including what a saved "off" means), then
+  R7 (workflow and preferences) per `docs/milestones/M9.md`; R2b (loopback
+  helper) is still unbuilt.
 - **Done:** M1 to M4.5 approved; M5 (MIDI), M6 (VST3 hosting) and M7
   (automation and envelopes) are built, with reports in PROGRESS. M7b
   (editing power tools, E0 to E6) is built and merged.
