@@ -5,11 +5,10 @@ on:
     branches: [main, fix/streaming-soak-ci]
   pull_request:
 
-# A new push to a pull request cancels its superseded run, which saves
-# Actions minutes (macOS minutes cost ten times as much). Pushes to main
-# always finish.
+# Pull requests cancel superseded runs. Each push has its own group so
+# complete validation rounds finish, including when several pushes queue.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

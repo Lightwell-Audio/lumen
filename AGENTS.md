@@ -419,8 +419,10 @@ readiness release, and the soak exercises production's 150 ms timeout.
 All 3,331 workspace tests, 30 disk regressions, smoke, isolated walkthrough,
 production-deadline soak and unchanged performance gate pass locally.
 Later hosted prefill rounds produced one green pair followed by macOS CI
-and soak failures; the repair remains provisional. The next revision adds
-observable macOS worker QoS requests and a deterministic queued-Stop fix.
+and soak failures; the repair remains provisional. The queued-Stop regression and E2E synchronization fixes remain. New
+telemetry proved a synthetic 40 ms sleep lasted 184.812 ms, exceeding the
+150 ms hold; the fault model now uses elapsed service delay on all platforms.
+The unproven QoS experiment was removed.
 Three consecutive complete green CI/soak rounds are required for the final revision;
 the audit retains the failed attempts and timing measurements.
 

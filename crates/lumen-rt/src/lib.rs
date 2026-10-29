@@ -20,9 +20,6 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Best-effort platform scheduling hints for latency-sensitive worker threads.
-pub mod thread_qos;
-
 // Const-initialised and without a destructor, so accessing these from inside
 // the allocator never allocates.
 thread_local! {

@@ -1,6 +1,20 @@
 # Continue the disk streaming CI fix in the Lumen Codex environment
 
-## Latest status: scheduling investigation, not fixed (2026-10-29)
+## Latest status: measured injected-stall defect, not yet verified
+
+`fec1f582` failed the macOS soak with 57 late pages. Detailed telemetry proves
+an injected 40 ms sleep actually lasted 184.812 ms, outliving production's
+150 ms hold; cue consumption, planning and pool retirement were not delaying
+this event. The fault injector now uses its existing portable monotonic
+elapsed-time service delay for the 40 ms interval too. It consumes CPU and
+models bounded reader service, with actual elapsed stalls still reported.
+No timing limits, assertions or fault frequency were weakened. The unrelated
+QoS experiment was removed; the real queued-Stop and E2E synchronization
+repairs remain. Local verification and three new consecutive full CI/E2E
+and all-platform-soak green rounds are required. Current streak: zero.
+The audit retains the exact timestamps and all failed run links.
+
+## Historical scheduling investigation (2026-10-29)
 
 Owner clarification: E2E and every platform soak must pass three times in a
 row on CI. Any failure breaks the consecutive streak. Current streak: zero.

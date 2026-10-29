@@ -2448,7 +2448,6 @@ name = "lumen-rt"
 version = "0.0.1"
 dependencies = [
  "divan",
- "libc",
  "rtsan-standalone",
 ]
 

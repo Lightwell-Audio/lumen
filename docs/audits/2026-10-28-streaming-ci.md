@@ -57,7 +57,62 @@ rounds for the final functional change, including the E2E suite and all
 three streaming runner jobs in every round. Any failure breaks the streak.
 Record the actual results here; failed-job-only reruns do not count.
 
+Push concurrency groups include the commit SHA, so independent complete
+validation pushes finish instead of replacing a queued run on the same
+branch. Pull-request groups retain their branch identity and cancellation
+of superseded runs. Each hosted job uses its own runner; assertions and
+job coverage are identical for every validation round.
+
 ## Results
+
+### Measured root cause of the remaining macOS soak failure
+
+At `fec1f582`, [soak 40939049964](https://github.com/gummycookie/lumen/actions/runs/40939049964)
+failed macOS ARM64 with 57 late reads. Its paired
+[full CI 40939049941](https://github.com/gummycookie/lumen/actions/runs/40939049941)
+passed all seven jobs, including all three platforms' E2E suites; that does
+not make this a green pair. The new trace identifies the event:
+
+- Step 50, cue sample 1,776,000: held from 100.010414 s until command send
+  at 100.161217 s (150.803 ms), with 57 required pages still missing.
+- The worker consumed the cue within about 0.7 ms. Three plans took 1.492 ms
+  and preparation 0.206 ms; it recorded no full-pool or retiring waits.
+- Injected read #100999 began at 100.025015 s and returned at 100.209828 s.
+  Its nominal **40 ms sleep actually lasted 184.812 ms**, and was still
+  blocking the reader when production's hold deadline forced the command.
+
+This establishes the immediate cause of this failure. It does not attribute
+all historical failures to the same cause. The other five forced releases
+had their critical 50 ms pages resident. QoS setters had succeeded, but
+could not make this sleeping read complete within the declared fault profile.
+The consecutive green streak remains zero.
+
+`thread::sleep` promises a lower bound, so the synthetic workload was adding
+unbounded scheduler/timer wakeup delay to its stated 40 ms service interval.
+The corrected fault injector uses the same portable `Instant`-elapsed spin
+already used by its 50–250 µs reads, uniformly on every OS. Actual stall
+elapsed time remains recorded: a descheduled worker can still overrun and
+fail the unchanged zero-late assertion. This is a controlled reader-service
+model, not physical blocked-I/O throughput; it consumes one core during each
+40 ms interval (about 4–5% of one core across a typical 120 s run).
+The render thread's ordinary sleep and all missed-callback telemetry remain.
+The 96 MiB pool, 500 ms/2 s horizons, 5 ms worker read budget, 50 ms readiness
+check, 150 ms hold limit and zero-late/failed assertions are unchanged.
+The unproven production/test QoS experiment and probe were removed; the
+independently demonstrated Stop-drain and E2E synchronization fixes remain.
+Three fresh consecutive complete green hosted rounds are required.
+
+The corrected service-delay revision passed all 3,332 workspace tests across
+108 targets, including 752 active E2E scenarios; the isolated plugin
+walkthrough, docs, six smoke tests, and 31 optimized disk regressions passed.
+Its isolated 120 s soak passed 60 steps and 142,888 reads, with zero late or
+failed reads, longest hold 119.987 ms, no forced releases, and one missed
+callback deadline. All 142 injected stalls were measured: 40.000081 to
+40.031909 ms. It rendered 44,999 callbacks (4.187 s total, maximum 5.404 ms);
+sleep overshoot totaled 4.288 s (maximum 2.955 ms). Linux workspace and
+macOS ARM64 cross-target clippy passed with warnings denied. Changed
+workflows passed actionlint and YAML parsing. No performance baseline changed.
+
 
 ### Subsequent prefill validation: incomplete
 

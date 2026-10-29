@@ -250,18 +250,7 @@ pub fn remove_names(names: &Names) {
     }
 }
 
-/// Requests the macOS user-interactive class for the host's block thread.
-/// Darwin QoS hints do not require real-time scheduling privileges. Other
-/// Unix targets retain their normal scheduler policy.
+/// Unix retains its normal scheduling policy here.
 pub fn audio_thread_priority() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        let qos = lumen_rt::thread_qos::request(lumen_rt::thread_qos::Class::UserInteractive);
-        eprintln!("lumen-host audio thread QoS: {qos:?}");
-        qos.established()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        false
-    }
+    false
 }

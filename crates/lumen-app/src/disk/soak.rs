@@ -31,8 +31,11 @@ const FILE_SECONDS: u64 = 60;
 /// A quarter at 120 BPM.
 const QUARTER: i64 = 24_000;
 
-/// Pages read after a time that varies from 50 to 250 µs (a fast disk under
-/// load), and every 1,000th read stalls for 40 ms (the disk busy elsewhere).
+/// Synthetic page-service latency: 50–250 µs, with a 40 ms stall every
+/// 1,000 reads. This controls elapsed worker service time, not physical I/O
+/// throughput. The same elapsed-time delay is used on every platform:
+/// a sleeping 40 ms injection actually lasted 184.8 ms on a hosted runner.
+/// It consumes CPU; actual stall telemetry still includes any preemption.
 struct Uneven {
     reads: Arc<AtomicUsize>,
     stalls: Arc<Mutex<Vec<InjectedStall>>>,
@@ -92,7 +95,7 @@ impl Pages for Uneven {
         let n = self.reads.fetch_add(1, Ordering::Relaxed);
         if n % 1_000 == 999 {
             let started = Instant::now();
-            std::thread::sleep(Duration::from_millis(40));
+            service_delay(Duration::from_millis(40));
             let ended = Instant::now();
             let mut stalls = self.stalls.lock().expect("soak stall diagnostics lock");
             if stalls.len() < stalls.capacity() {
@@ -106,13 +109,9 @@ impl Pages for Uneven {
                 self.dropped_stalls.fetch_add(1, Ordering::Relaxed);
             }
         } else {
-            // Spun: a sleep this short lasts a millisecond or more on some
-            // systems.
+            // Elapsed service time, using the same fault model as the stall.
             let wait = Duration::from_micros(50 + (n as u64 * 7_919) % 200);
-            let started = Instant::now();
-            while started.elapsed() < wait {
-                std::hint::spin_loop();
-            }
+            service_delay(wait);
         }
         let from = page * PAGE;
         let frames = (audio.frames() as usize).saturating_sub(from).min(PAGE);
@@ -122,6 +121,16 @@ impl Pages for Uneven {
     }
 
     fn keep(&mut self, _: &[StreamAudio]) {}
+}
+
+/// Uses the declared latency rather than adding OS sleep-timer leeway to
+/// the fault model. A descheduled worker can still overrun: the clock keeps
+/// advancing, its actual stall is reported, and deadline assertions remain.
+fn service_delay(wait: Duration) {
+    let started = Instant::now();
+    while started.elapsed() < wait {
+        std::hint::spin_loop();
+    }
 }
 
 /// What the soak does, in seconds after it starts.
@@ -160,32 +169,6 @@ fn round(round: i64) -> [Step; 4] {
 
 #[test]
 fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
-    let thread = std::thread::Builder::new()
-        .name("lumen-soak-audio".into())
-        .spawn(run_soak)
-        .expect("spawn the soak render thread");
-    thread.join().expect("the soak render thread completed");
-}
-
-fn run_soak() {
-    #[cfg(target_os = "macos")]
-    let before_sleep = sleep_probe();
-    let qos = lumen_rt::thread_qos::request(lumen_rt::thread_qos::Class::UserInteractive);
-    #[cfg(target_os = "macos")]
-    eprintln!("lumen-soak render thread QoS: {qos:?}");
-    #[cfg(target_os = "macos")]
-    assert!(
-        qos.established(),
-        "the macOS soak render thread must establish UserInteractive QoS: {qos:?}"
-    );
-    #[cfg(target_os = "macos")]
-    eprintln!(
-        "lumen-soak fixed sleep probe (32 blocks, total/max overshoot): before {before_sleep:?}, after {:?}",
-        sleep_probe()
-    );
-    #[cfg(not(target_os = "macos"))]
-    let _ = qos;
-
     let seconds: f64 = std::env::var("LUMEN_SOAK_SECONDS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -566,21 +549,4 @@ fn run_soak() {
     assert!(heard, "the tracks were heard");
     assert_eq!(failed, 0);
     assert_eq!(underruns, 0, "no read came too late");
-}
-
-/// Observes the same sleep primitive before and after the macOS QoS request.
-/// Fixed sample counts only; this probe never waits for a favorable result
-/// and does not change the soak's timing assertions or 120-second interval.
-#[cfg(target_os = "macos")]
-fn sleep_probe() -> (Duration, Duration) {
-    let period = Duration::from_secs_f64(BLOCK as f64 / f64::from(RATE));
-    let (mut total, mut longest) = (Duration::ZERO, Duration::ZERO);
-    for _ in 0..32 {
-        let started = Instant::now();
-        std::thread::sleep(period);
-        let overshoot = started.elapsed().saturating_sub(period);
-        total += overshoot;
-        longest = longest.max(overshoot);
-    }
-    (total, longest)
 }

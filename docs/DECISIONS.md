@@ -9683,15 +9683,17 @@ regressions cover capacity, offsets, repeated phases, adoption races and
 both sides of the loop boundary. The existing performance baseline and
 +2% gate remain unchanged; the pinned-container measurement passes.
 
-**Worker scheduling follow-up.** macOS disk workers request UserInitiated
-pthread QoS at startup; plugin-host audio workers request UserInteractive.
-The shared `lumen-rt::thread_qos` helper records before/request/result/after
-outside callbacks. The soak uses a dedicated UserInteractive render thread
-and reports fixed sleep probes outside its timed interval. These hints do
-not guarantee real-time scheduling. The audit records the hosted hypothesis
-and validation; Windows MMCSS and Linux scheduling stay unchanged. A queued
-Stop is terminal during both the worker's receive and drain paths, so it
-cannot disappear behind a scene update.
+**CI timing model follow-up.** The synthetic 40 ms read sleep actually
+lasted 184.812 ms on a macOS ARM64 runner, extending beyond production's
+150 ms hold and leaving 57 required pages missing. Detailed timing ruled
+out queue, planner and retirement delay for that event. The soak now uses
+its existing monotonic elapsed-time service delay for both short reads and
+the 40 ms fault on every platform, retaining actual stall measurements and
+all deadline assertions. This consumes CPU and tests controlled reader
+service latency, rather than physical I/O throughput. Scheduling experiments
+were removed because they did not establish a causal fix. A queued Stop is
+terminal during both receive and drain paths, so it cannot disappear behind
+a scene update. The audit retains failed runs and consecutive validation.
 
 **Consequences.** Streaming stays off by default until MT-STREAM-1 passes
 on the owner's interface at 64 and 128 frames (S6); then the default
