@@ -33,6 +33,7 @@ mod controllers;
 mod copies;
 mod crossfades;
 mod cue;
+mod detail_tabs;
 mod devices;
 mod dropdown;
 mod editing;
@@ -303,6 +304,23 @@ impl Lumen {
         self.harness
             .event(egui::Event::ModifiersChanged(Modifiers::NONE));
         self.frames(1);
+    }
+
+    /// Opens the detail panel's Devices tab (the browser has one too: the
+    /// panel's comes last), tall enough for whole cards: a short panel shows
+    /// compact ones (D2).
+    pub fn show_whole_cards(&mut self) {
+        // The tab row moves with the subject's name: let a new selection
+        // draw first, and the click land before the panel grows.
+        self.frames(1);
+        self.harness
+            .get_all_by_label("Devices tab")
+            .last()
+            .expect("the detail panel's tabs")
+            .click();
+        self.frames(2);
+        self.app_mut().set_detail_size(460.0);
+        self.frames(20);
     }
 
     /// Right-clicks at `p`, then lets the app react (a menu opens).

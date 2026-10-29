@@ -409,7 +409,7 @@ per slice and move what is no longer current out of it.
 
 **Now (2026-10-28)**
 - **Branch `m9-s6-disk-streaming`: M9 R6 (playing audio from disk, the peak
-  cache) is built** (ADR-0108; no format change; cut from `main` at
+  cache) is built** (ADR-0109; no format change; cut from `main` at
   `a91d1989`; plan `docs/milestones/M9-R6.md`; the owner chose L A, M B, C A,
   D A, S B on 2026-10-27). "Play audio from disk" (audio settings, on by
   default since MT-STREAM-1 passed, the owner's S6 A; a settings file that
@@ -424,12 +424,22 @@ per slice and move what is no longer current out of it.
   3,085 MB in memory, 170 MB from disk; a warm cache opens them in 0.03 s.
   A second model reviewed the branch: the fixes (renders fail on an
   unreadable page, a real-time export reads into memory first, held starts,
-  the cache trim) and the performance gate are at the end of ADR-0108. The
+  the cache trim) and the performance gate are at the end of ADR-0109. The
   soak (`disk/soak.rs`) and 9 E2E scenarios (`streaming.rs`) pass. Two
   ignored tests: `measure_streaming_memory_and_open_time` and
   `make_the_streaming_test_project` (MT-STREAM-1's 64-track project).
   MT-STREAM-1 (`docs/manual-tests/M9.md`) passed (owner, 2026-10-28: no
   issues at 64 or 128 samples; no figures reported).
+- **Branch `chore/ux-round-three`: the UX round three is built** (ADR-0108;
+  no format change; cut from `main` at `a91d198`; the owner took every
+  recommendation on the audit sheet). The detail panel's tab row names its
+  subject (`DetailState::anchor`) and shows Clip only for an opened clip,
+  audio or MIDI; Show devices/clip/mixer are commands at the end of
+  `Command`. Browser chips' clip reaches 4 pt past the pane; the CPU readout
+  is a fixed slot; a short Devices tab turns cards compact (116 pt,
+  `chain/card/compact.rs`, least tab height 212 pt). E2E that works on whole
+  cards calls `Lumen::show_whole_cards()` first. MT-UX-2
+  (`docs/manual-tests/M7b.md`) is pending.
 - **Branch `m9-s5-audio-export`: M9 R5 export is built** (ADR-0107;
   `docs/milestones/M9-R5.md`; PR #72). Export and the media pool are integrated
   with `main` at `0db27218` after PR #71 merged. Both sets of commands,
@@ -539,7 +549,7 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status, slice tables and reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0108 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0109 and the table of owner decisions.
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
 - `docs/KNOWN_ISSUES.md`, `docs/ARCHITECTURE.md` (crates, threads, module

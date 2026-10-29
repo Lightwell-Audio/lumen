@@ -1,4 +1,4 @@
-//! Stream files by id (M9 slice R6, ADR-0108). The library gives every file
+//! Stream files by id (M9 slice R6, ADR-0109). The library gives every file
 //! it streams an id of its own, never reused, and registers the stream file's
 //! path under it. Whoever holds a [`StreamAudio`] can then read it: the disk
 //! thread into the live pool, a render into its own pool, a scan or a

@@ -227,6 +227,7 @@ impl App {
             self.note_editor.framed_for = None;
         }
         self.note_editor.clip = Some(clip);
+        self.opened_in_note_editor(clip);
         self.detail_tab = DetailTab::Clip;
         self.show_detail = true;
         self.arrangement.tool_keys = false;
@@ -296,12 +297,6 @@ impl App {
     /// and menus work without the pointer in the editor).
     pub(crate) fn notes_are_picked(&self) -> bool {
         self.note_editor.clip.is_some() && !self.note_editor.picked().is_empty()
-    }
-
-    /// The first selected arrangement clip, if it is a MIDI clip.
-    pub(crate) fn selected_midi_clip(&self) -> Option<Id> {
-        let id = self.first_selected_clip()?;
-        self.editor_clip(id).map(|_| id)
     }
 
     /// The MIDI track Create MIDI clip puts a clip on: the first selected

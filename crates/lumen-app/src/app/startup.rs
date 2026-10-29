@@ -199,6 +199,7 @@ impl App {
             show_browser: true,
             show_detail: true,
             detail_tab: Default::default(),
+            detail: Default::default(),
             note_editor: Default::default(),
             browser_size: 260.0,
             detail_size: 220.0,

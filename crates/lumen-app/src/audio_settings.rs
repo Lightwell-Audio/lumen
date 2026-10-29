@@ -334,11 +334,13 @@ impl Window {
                     let pages = [
                         widgets::Tab {
                             label: "Audio",
+                            note: None,
                             disabled_because: None,
                             tip: "Audio device, latency and test tone",
                         },
                         widgets::Tab {
                             label: "MIDI",
+                            note: None,
                             disabled_because: None,
                             tip: "MIDI inputs and outputs",
                         },

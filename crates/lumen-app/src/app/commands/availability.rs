@@ -369,10 +369,10 @@ impl App {
                 self.midi_track_for_new_clip().is_some(),
                 "Select a MIDI track first",
             ),
-            Command::OpenClipEditor => need(
-                self.selected_midi_clip().is_some(),
-                "Select a MIDI clip first",
-            ),
+            Command::OpenClipEditor => {
+                need(self.first_selected_clip().is_some(), "Select a clip first")
+            }
+            Command::ShowClip => need(self.opened_clip().is_some(), "Open a clip first"),
             Command::DrawTool => Ok(()),
             Command::PopOutEditor
             | Command::Quantize
@@ -586,6 +586,8 @@ impl App {
             | Command::OpenTemplatesFolder
             | Command::ProjectSettings
             | Command::ExportAudio
+            | Command::ShowDevices
+            | Command::ShowMixer
             | Command::MediaPool => Ok(()),
         }
     }

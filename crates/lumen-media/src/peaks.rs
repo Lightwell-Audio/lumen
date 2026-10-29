@@ -108,6 +108,29 @@ impl Peaks {
         &self.levels
     }
 
+    /// The bucket covering frames `from..to`: the extent of every bucket
+    /// under them, from the coarsest level that still has four buckets
+    /// across the range. Frames past the end are silent, and a range is
+    /// never narrower than one bucket.
+    pub fn extent(&self, from: f64, to: f64) -> Bucket {
+        let span = to - from;
+        let mut level = 0;
+        let mut size = BASE;
+        while level + 1 < self.levels.len() && span >= (size * FACTOR * 4) as f64 {
+            level += 1;
+            size *= FACTOR;
+        }
+        let Some(buckets) = self.levels.get(level) else {
+            return [0; 4];
+        };
+        let first = ((from.max(0.0) / size as f64) as usize).min(buckets.len());
+        let last = ((to.max(0.0) / size as f64).ceil() as usize).max(first + 1);
+        buckets
+            .get(first..last.min(buckets.len()))
+            .filter(|s| !s.is_empty())
+            .map_or([0; 4], merge)
+    }
+
     /// Bytes held.
     pub fn memory(&self) -> usize {
         self.levels
@@ -256,6 +279,18 @@ mod tests {
         }
         let empty = build(&[vec![]]);
         assert_eq!(Peaks::from_bytes(&empty.to_bytes()), Some(empty));
+    }
+
+    #[test]
+    fn an_extent_covers_its_frames_at_any_width() {
+        // Silence, then one loud frame at 10,000, then silence.
+        let mut audio = vec![0.0; 40_000];
+        audio[10_000] = 0.5;
+        let peaks = build(&[audio]);
+        assert_eq!(peaks.extent(9_000.0, 11_000.0)[1], 64);
+        assert_eq!(peaks.extent(0.0, 40_000.0)[1], 64);
+        assert_eq!(peaks.extent(20_000.0, 30_000.0), [0; 4]);
+        assert_eq!(peaks.extent(50_000.0, 60_000.0), [0; 4]);
     }
 
     #[test]

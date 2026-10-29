@@ -1,4 +1,4 @@
-//! Audio read from disk as it plays (M9 slice R6, ADR-0108).
+//! Audio read from disk as it plays (M9 slice R6, ADR-0109).
 //!
 //! A streamed file is cut into pages of [`PAGE`] frames. A [`PagePool`]
 //! holds a fixed number of pages, allocated once. Each streamed file has a

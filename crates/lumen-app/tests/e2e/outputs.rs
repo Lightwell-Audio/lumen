@@ -101,13 +101,7 @@ fn the_outputs_menu_keeps_its_width_when_an_output_is_switched_on() {
     let mut lumen = launch("menu", &song(&[61], &[]), &["Multi"]);
     wait_for_state(&mut lumen, PLUGIN, "ready");
     lumen.app_mut().select_tracks(&[KEYS]);
-    lumen
-        .harness
-        .get_all_by_label("Devices tab")
-        .last()
-        .expect("the detail panel's tabs")
-        .click();
-    lumen.frames(20);
+    lumen.show_whole_cards();
 
     // The menu's switches: one for each output but the main one, below the
     // menu's caption (the browser has switches of its own above).
@@ -173,17 +167,10 @@ fn an_output_without_a_track_is_heard_on_the_instruments_own_not_on_another_outp
 
 /// The song with the instrument's track chosen and its Devices tab showing.
 fn open_card(name: &str, project: &Project) -> Lumen {
-    use egui_kittest::kittest::Queryable;
     let mut lumen = launch(name, project, &["Multi"]);
     wait_for_state(&mut lumen, PLUGIN, "ready");
     lumen.app_mut().select_tracks(&[KEYS]);
-    lumen
-        .harness
-        .get_all_by_label("Devices tab")
-        .last()
-        .expect("the detail panel's tabs")
-        .click();
-    lumen.frames(20);
+    lumen.show_whole_cards();
     lumen
 }
 

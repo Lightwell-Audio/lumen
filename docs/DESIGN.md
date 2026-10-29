@@ -57,7 +57,7 @@ restrained and purposeful.
 │ collapsible│ arrangement: track headers │ lanes, clips, playhead      │
 │ 220 pt)    │                                                         │
 ├────────────┴─────────────────────────────────────────────────────────┤
-│ Detail panel (bottom, collapsible): Devices · Clip · Mixer           │
+│ Detail panel (bottom): subject │ Devices · Clip │ Mixer (at right)  │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Info line: what is under the pointer · its gestures and keys, 32 pt  │
 └──────────────────────────────────────────────────────────────────────┘
@@ -493,7 +493,9 @@ piece, which clears every solo); and the numbers, tempo, meter and
 position in one well with hairlines between them (`well::dividers`). The
 pieces of the icon wells have no hairlines between them. The position's
 wash covers its bars, the part a click types into. The position is typed in its own piece:
-click or Enter, Esc puts it back. The audio status is one raised chip with
+click or Enter, Esc puts it back. The CPU readout before it sits in a slot as wide as "CPU 100%" in
+mono, its figure at the slot's right, so the chip after it never moves as
+the load changes (TB2). The audio status is one raised chip with
 its light and the device and rate; its tooltip has the whole status line,
 and the panel it opens lists the sample rate, buffer, output latency,
 round trip and delay compensation under the device's name. The palette
@@ -626,7 +628,7 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   the formats as its hint and **Import audio…** as its button.
 - **Clip:**
   - `clip_body` (dark in the dark theme), a 1 pt border of the track
-    colour at 60%;
+    colour at 60% (`CLIP_EDGE`);
   - a 15 pt title bar in the track colour, with the name in `caption`,
     shown on clips at least 24 pt wide (narrower, a name is a letter or
     two of noise);
@@ -835,10 +837,46 @@ Chosen from interactive specimens:
 - Meters draw frames only while a level moves and come to rest when it
   stops, so a silent project idles.
 
+### The detail panel's tab row (DP1, the owner's A, ADR-0108)
+
+The panel always says which track it is about, and has no tab that opens
+onto an empty page.
+
+- **Subject, at the left:** a 3 × 14 pt bar in the track's colour
+  (`size::SUBJECT_BAR`), its name in medium 13 pt (cut with "…" past 160 pt,
+  `size::SUBJECT_NAME`), then a 14 pt `border_strong`
+  hairline (`size::TAB_DIVIDER`, `widgets::tab_divider`). The subject is the
+  track of the header or clip clicked last (`DetailState::anchor`: the clip
+  selection is an unordered set, so the panel keeps its own); with nothing
+  selected it is the opened clip's track. Master, groups and returns name
+  themselves. "No track selected" in `text_hint` when there is none. While
+  Mixer is chosen the subject is `text_hint` and its bar at `DIMMED`,
+  since the mixer is not about one track. The subject is as wide as its name,
+  so Devices and Clip move with it; Mixer does not.
+- **Devices** shows the subject's chain.
+- **Clip** is there only while a clip is open (Enter, the command "Open
+  clip", or a double-click; an audio clip as well as a MIDI one), with the
+  clip's name as an 11 pt note 6 pt after the word (`text_secondary` while
+  Clip is chosen, `text_hint` otherwise), cut with
+  "…" past 140 pt (`size::TAB_NOTE`); the underline spans word and note. It stays while other
+  things are clicked, is replaced when another clip opens, and goes when that
+  clip is deleted: the panel shows Devices, and the keyboard follows if it was
+  in the panel. A header click while on Clip goes to Devices, even on the header
+  already selected; a selection made another way (the arrow keys, a range)
+  moves the subject and leaves Clip open.
+- **Mixer** sits at the right after a hairline (`TabsLayout::right_from`).
+- **An audio clip's Clip tab:** its properties (the clip card's rows,
+  `docked_clip_props`) in a 296 pt column on `app` with a hairline at its
+  right, scrolling when short, beside the clip's wave: bar numbers in mono
+  10 pt on an 18 pt ruler, at least 32 pt apart (`size::CLIP_RULER`,
+  `BAR_NUMBER_ROOM`), over the clip body in its colour with the title strip, the wave drawn
+  one column per physical pixel with its gain and fades.
+- **Commands:** Show devices, Show clip and Show mixer (no default keys);
+  Show clip needs an open clip.
+
 ### The Mixer tab (M4 slice 5, owner's choices, ADR-0040)
 
-- **Layout:** the detail panel's Mixer tab (Devices and Clip arrive with
-  their milestones). Strips follow the arrangement's order, skipping
+- **Layout:** the detail panel's Mixer tab. Strips follow the arrangement's order, skipping
   tracks hidden in folded groups (one fold for both views, B4); the
   returns after a 10 pt gap; the master pinned at the right, and the
   loudness column (L2, 108 pt) beside it. The panel is one `header`
@@ -1161,7 +1199,8 @@ a soft shadow, radius `XL`).
   drawn by the send knob's own `draw`: the ring in `control_press`, the trail
   and head in `accent`, dimmed when the parameter is read only), each with its
   name in `text_secondary` caption under it and the plugin's own text for its
-  value in mono. A card is 232 pt wide and 310 pt tall with its picture. An
+  value in mono. Full-card knobs are 24 pt (`size::KNOB`). A card is 232 pt wide and 344 pt
+  tall with its picture. An
   empty slot is a dashed ring with a "+" that opens the panel. Drag up or
   right (Shift for fine), double-click for the plugin's default, the wheel and
   arrow keys; a stepped parameter moves a step at a time. **Typing:** a
@@ -1182,7 +1221,8 @@ a soft shadow, radius `XL`).
   or opening, the glyph in the warning colour when it stopped answering, dim
   when the plugin has no window (named "No editor", the tooltip says why).
 - **The row under the knobs** (M6 slice 4f, changed in 5h): up to two raised
-  buttons at the caption size, 22 pt tall, 4 pt apart, widths 1 : 2.2. Learn
+  buttons at the caption size, 20 pt tall (`CONTROL_SMALL`), 4 pt apart,
+  widths 1 : 2.2. Learn
   reads "Learn" and "Learning…" lit; the other carries the plugin's parameter
   count, "All 259 parameters" (exact below a thousand, then "1.2k", then "12k";
   named "All parameters (N)"; it opens the panel of every parameter). A window
@@ -1230,6 +1270,21 @@ a soft shadow, radius `XL`).
   input?" in the menu. A track that plays an output shows a warning triangle in
   its header, with the reason, when its instrument is not running. A switch
   changed while its row is scrolled out of view does not glide when it comes back.
+- **Compact cards** (D2, the owner's A): when the tray is too short for a
+  whole card without its picture (with 8 pt of hysteresis each way, so
+  dragging the panel's edge never makes them flicker), every card turns
+  compact: as wide as a full card and 116 pt tall. A 36 pt header holds the
+  power and window buttons at `CONTROL_SMALL` and the name, which opens the
+  card's menu (it also holds the preset, Learn and All parameters); one row
+  of the strip's first four knobs at 18 pt (`KNOB_SMALL`); a 24 pt footer
+  with the signal and latency and "All N ▸". A sidechain or outputs chooser
+  moves into the footer at `CONTROL_SMALL`, its word into the tooltip. A
+  card that is not running says what happened in the knobs' place, whole
+  (never cut), with its buttons in a footer that gives them 6 pt above and
+  below (`size::CARD_INSET`) and `space::M` at the sides; such a card is as tall as its words
+  need. The Devices tab's least height is the tallest compact card in its
+  tray (212 pt for a plain card), and picking Devices grows the panel back
+  only to the height last chosen for it.
 - **Chosen:** a 1.5 pt accent edge. Under the pointer: the Ember wash.
 - **Cables:** 2 pt `border_strong` when unlit; the Beam (accent line, `core`
   inside, halo and cast) while the song plays. Dotted for notes. A port is a
@@ -1272,7 +1327,8 @@ names).
 - **Chips:** Favorites, Recent and the categories are browser chips
   (`chip_toggle`, 8 pt each side of the words) in one flow that fills each
   line, 4 pt apart; their words start on the field's left edge and end by
-  its right one, so a lit chip's fill hangs 8 pt outside. "More ▾" is a
+  its right one, so a lit chip's fill hangs 8 pt outside. The chips' clip
+  reaches 4 pt past the pane's own, so that fill is never cut (B8). "More ▾" is a
   bare word with the chips' room and a down arrow (`chip_button`), so the
   row reads as one flow of words.
 - **Rows:** the star shows on a favourite, and on the hovered or selected

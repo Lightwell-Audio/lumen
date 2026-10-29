@@ -186,6 +186,10 @@ pub(super) fn chips(ui: &mut Ui, chosen: &Chip, categories: &[(String, usize)]) 
             ..Default::default()
         })
         .show(ui, |ui| {
+            // The pane clips its body a step in from its edge, which would
+            // cut the hanging fill of a lit first chip: let the chips draw
+            // to half a step from the pane's edge.
+            ui.set_clip_rect(ui.clip_rect().expand2(vec2(theme::space::XS, 0.0)));
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(theme::space::XS, theme::space::XS);
                 for (chip, label, tip) in [

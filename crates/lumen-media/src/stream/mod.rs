@@ -9,7 +9,7 @@
 //!
 //! A [`Reader`] reads with positioned reads, never a memory map: a mapped
 //! page that is not resident is a blocking read wherever it is touched, and
-//! the audio thread must never be that place (ADR-0108, S1). Samples become
+//! the audio thread must never be that place (ADR-0109, S1). Samples become
 //! `f32` by the same arithmetic the decoder uses, so a file streamed plays
 //! exactly what the same file loaded into memory plays.
 //!

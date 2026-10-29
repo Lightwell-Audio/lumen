@@ -32,22 +32,41 @@ pub(super) const PAD: f32 = 16.0;
 /// A port's radius.
 pub(super) const PORT: f32 = 4.0;
 
-/// How tall the detail panel needs to be for a whole card with its picture:
-/// the card, the tray's padding and room, and the panel's tabs.
-pub(crate) fn panel_height() -> f32 {
-    CARD_H + 2.0 * PAD + 2.0 * crate::theme::space::S + crate::DETAIL_CHROME
+/// The least the detail panel can be on the Devices tab: a compact card
+/// `card` tall (D2; [`COMPACT_H`] unless a message makes one taller), in the
+/// tray's padding, so the card never sits past the tray.
+pub(crate) fn panel_least(card: f32) -> f32 {
+    card + 2.0 * PAD + 2.0 * crate::theme::space::S + crate::DETAIL_CHROME
 }
 
-/// The least the detail panel can be on the Devices tab when a card has the
-/// sidechain row: the card keeps its knobs whole, so it is that much taller.
-pub(crate) fn panel_min_height_keyed(keyed: bool) -> f32 {
-    panel_min_height() + if keyed { KEY_ROOM } else { 0.0 }
+/// The least the detail panel can be on the Devices tab, with every card at
+/// its compact height.
+#[cfg(test)]
+fn panel_min_height() -> f32 {
+    panel_least(COMPACT_H)
 }
 
-/// The least the detail panel can be on the Devices tab: a card without its
-/// picture, in the tray's padding, so the card never sits past the tray.
-pub(crate) fn panel_min_height() -> f32 {
-    HEADER + BODY + FOOTER + 2.0 * PAD + 2.0 * crate::theme::space::S + crate::DETAIL_CHROME
+/// A compact card (D2, the owner's A): a 36 pt header, one row of the strip's
+/// first four knobs at 18 pt, and a 24 pt footer, as wide as a full card.
+pub(super) const COMPACT_H: f32 = 116.0;
+pub(super) const COMPACT_HEADER: f32 = 36.0;
+pub(super) const COMPACT_FOOTER: f32 = 24.0;
+/// How far past the switch point the room must go before the chain changes
+/// its cards, each way: dragging the panel's edge never makes them flicker.
+const HYSTERESIS: f32 = 8.0;
+
+/// Whether the chain shows compact cards in a tray `tray_height` tall, given
+/// whether it did last frame. A full card loses its picture first; the
+/// chain turns compact when even a full card without one does not fit (with
+/// `extra` for a sidechain row), and turns back once one fits again.
+pub(super) fn compact(was: bool, tray_height: f32, extra: f32) -> bool {
+    let room = tray_height - 2.0 * PAD;
+    let switch = HEADER + BODY + FOOTER + extra;
+    if was {
+        room < switch + HYSTERESIS
+    } else {
+        room < switch - HYSTERESIS
+    }
 }
 
 /// The card height when `room` points are free: the card shrinks (the
@@ -80,12 +99,13 @@ pub(super) const RAIL_W: f32 = 48.0;
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Layout {
     pub cards: usize,
+    /// The tallest card's height.
     pub card_h: f32,
     /// The y of the cables and chips, from the tray's top.
     pub cable_y: f32,
     top: f32,
-    /// Each card's left edge and width, from the chain's left edge.
-    spans: Vec<(f32, f32)>,
+    /// Each card's left edge, width and height, from the chain's left edge.
+    spans: Vec<(f32, f32, f32)>,
     /// Where the output chip starts.
     end: f32,
 }
@@ -101,18 +121,35 @@ impl Layout {
     /// card in the chain (0 when none has one).
     pub fn keyed(folded: &[bool], tray_height: f32, extra: f32) -> Self {
         let card_h = card_height_with(tray_height - 2.0 * PAD, extra);
+        Self::build(folded, tray_height, &vec![card_h; folded.len()], card_h)
+    }
+
+    /// The chain of compact cards, card `i` `heights[i]` tall (a message can
+    /// make one taller than the rest): their tops line up, the tallest is
+    /// centred in the tray, and the cables cross every card where a compact
+    /// card's would.
+    pub fn sized(folded: &[bool], tray_height: f32, heights: &[f32]) -> Self {
+        Self::build(folded, tray_height, heights, COMPACT_H)
+    }
+
+    /// The chain with card `i` `heights[i]` tall; an empty chain lays its
+    /// chips out as if for a card `empty` tall.
+    fn build(folded: &[bool], tray_height: f32, heights: &[f32], empty: f32) -> Self {
+        let card_h = heights.iter().copied().fold(0.0, f32::max);
+        let card_h = if heights.is_empty() { empty } else { card_h };
+        let least = heights.iter().copied().fold(card_h, f32::min);
         let top = ((tray_height - card_h) / 2.0).max(PAD.min(tray_height / 2.0));
         let mut x = PAD + CHIP_W + CABLE;
         let mut spans = Vec::with_capacity(folded.len());
-        for &fold in folded {
+        for (&fold, &h) in folded.iter().zip(heights) {
             let w = if fold { RAIL_W } else { CARD_W };
-            spans.push((x, w));
+            spans.push((x, w, h));
             x += w + CABLE;
         }
         Self {
             cards: folded.len(),
             card_h,
-            cable_y: top + card_h * 0.54,
+            cable_y: top + least * 0.54,
             top,
             spans,
             end: x,
@@ -120,8 +157,8 @@ impl Layout {
     }
 
     pub fn card(&self, i: usize) -> Rect {
-        let (x, w) = self.spans[i];
-        Rect::from_min_size(pos2(x, self.top), vec2(w, self.card_h))
+        let (x, w, h) = self.spans[i];
+        Rect::from_min_size(pos2(x, self.top), vec2(w, h))
     }
 
     pub fn input(&self) -> Rect {
@@ -186,34 +223,47 @@ mod tests {
     }
 
     #[test]
-    fn at_the_shortest_panel_the_card_sits_whole_inside_the_tray() {
+    fn at_the_shortest_panel_a_compact_card_sits_whole_inside_the_tray() {
         let space = crate::theme::space::S;
+        // The owner's figure: 116 + 32 + 16 + 48.
+        assert_eq!(panel_min_height(), 212.0);
         let tray = panel_min_height() - crate::DETAIL_CHROME - 2.0 * space;
-        let layout = Layout::new(&[false], tray);
+        assert!(compact(false, tray, 0.0) && compact(false, tray, KEY_ROOM));
+        let layout = Layout::sized(&[false], tray, &[COMPACT_H]);
         let card = layout.card(0);
         // The tray's scrolling area is a point in from each edge.
         assert!(card.top() >= 1.0, "{card:?}");
         assert!(card.bottom() <= tray - 1.0, "{card:?} in {tray}");
-        assert_eq!(card.height(), HEADER + BODY + FOOTER);
-        assert_eq!(band(card.height()), 0.0, "no picture: nothing to clip");
-        assert!(panel_min_height() < panel_height());
+        assert!(panel_least(COMPACT_H + 28.0) > panel_min_height());
     }
 
     #[test]
-    fn with_a_sidechain_row_the_knobs_keep_their_room_at_the_shortest_panel() {
-        let space = crate::theme::space::S;
-        let tray = panel_min_height_keyed(true) - crate::DETAIL_CHROME - 2.0 * space;
-        let layout = Layout::keyed(&[false], tray, KEY_ROOM);
-        let card = layout.card(0);
-        assert!(card.bottom() <= tray - 1.0, "{card:?} in {tray}");
-        assert_eq!(card.height(), HEADER + BODY + FOOTER + KEY_ROOM);
-        // The same tray holds an unkeyed card as it always did.
-        assert_eq!(
-            Layout::new(&[false], tray).card(0).height(),
-            card_height(tray - 2.0 * PAD)
-        );
-        assert!(panel_min_height_keyed(true) > panel_min_height());
-        assert_eq!(panel_min_height_keyed(false), panel_min_height());
+    fn the_chain_turns_compact_past_the_switch_and_back_past_it_the_other_way() {
+        let switch = HEADER + BODY + FOOTER + 2.0 * PAD;
+        // Full: it stays full until the room is 8 pt short.
+        assert!(!compact(false, switch - 7.0, 0.0));
+        assert!(compact(false, switch - 9.0, 0.0));
+        // Compact: it stays compact until there is 8 pt to spare.
+        assert!(compact(true, switch + 7.0, 0.0));
+        assert!(!compact(true, switch + 9.0, 0.0));
+        // A sidechain row moves the switch by its room.
+        assert!(compact(false, switch + KEY_ROOM - 9.0, KEY_ROOM));
+        // Even 8 pt short, a full card stays in the tray's padding.
+        let tray = switch - 7.0;
+        let card = Layout::new(&[false], tray).card(0);
+        assert!(card.bottom() <= tray, "{card:?} in {tray}");
+    }
+
+    #[test]
+    fn a_taller_compact_card_grows_down_and_the_cable_still_crosses_every_card() {
+        let tall = COMPACT_H + 28.0;
+        let tray = panel_least(tall) - crate::DETAIL_CHROME - 2.0 * crate::theme::space::S;
+        let layout = Layout::sized(&[false, false], tray, &[COMPACT_H, tall]);
+        let (a, b) = (layout.card(0), layout.card(1));
+        assert_eq!(a.top(), b.top());
+        assert_eq!((a.height(), b.height()), (COMPACT_H, tall));
+        assert!(b.bottom() <= tray - 1.0, "{b:?} in {tray}");
+        assert!(layout.cable_y > a.top() && layout.cable_y < a.bottom());
     }
 
     #[test]

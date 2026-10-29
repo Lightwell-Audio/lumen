@@ -126,13 +126,7 @@ fn open(name: &str, project: &Project) -> Lumen {
     let mut lumen = launch(name, project, &["Keyed"]);
     ready(&mut lumen);
     lumen.app_mut().select_tracks(&[VOICE]);
-    lumen
-        .harness
-        .get_all_by_label("Devices tab")
-        .last()
-        .expect("the detail panel's tabs")
-        .click();
-    lumen.frames(20);
+    lumen.show_whole_cards();
     lumen
 }
 

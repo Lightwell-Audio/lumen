@@ -1,4 +1,4 @@
-//! What the disk thread reads next (M9 slice R6, ADR-0108): from the clip
+//! What the disk thread reads next (M9 slice R6, ADR-0109): from the clip
 //! list the engine plays, the playhead and the places playback can jump to,
 //! the pages of streamed files wanted in memory, nearest first.
 //!

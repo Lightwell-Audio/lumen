@@ -1,4 +1,4 @@
-//! Playing audio from disk (M9 slice R6, ADR-0108), when "Play audio from
+//! Playing audio from disk (M9 slice R6, ADR-0109), when "Play audio from
 //! disk" is on: the live page pool the engine reads streamed clips from, the
 //! disk thread that fills it, and the cache of converted files.
 //!

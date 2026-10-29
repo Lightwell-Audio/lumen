@@ -1,4 +1,4 @@
-//! The disk thread (M9 slice R6, ADR-0108): keeps the pages of streamed
+//! The disk thread (M9 slice R6, ADR-0109): keeps the pages of streamed
 //! files that the engine will read next in its page pool. It plans from the
 //! clip list the engine plays and the playhead the engine publishes
 //! ([`plan::Scene`]), reads what is missing nearest first, and frees what is

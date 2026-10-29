@@ -68,13 +68,7 @@ fn launch(name: &str) -> Lumen {
     lumen.wait_for("the plugin to run", |app| {
         app.device_state(FX).is_some_and(|s| s.starts_with("ready"))
     });
-    lumen
-        .harness
-        .get_all_by_label("Devices tab")
-        .last()
-        .expect("the detail panel's tabs")
-        .click();
-    lumen.frames(20);
+    lumen.show_whole_cards();
     lumen
 }
 

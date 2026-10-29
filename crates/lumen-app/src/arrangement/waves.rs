@@ -53,149 +53,242 @@ pub(super) fn wave_instances(
             let (clip, blend) = played
                 .get(&model.id)
                 .map_or((&**model, false), |p| (&p.clip, p.blend[0]));
-            let [r, g, b, a] = color(track, model).to_srgba_unmultiplied();
-            let ClipContent::Audio {
-                media,
-                offset,
-                gain_db,
-            } = &clip.content
-            else {
-                continue;
+            let shown = Shown {
+                model,
+                clip,
+                blend,
+                row: row as u32,
+                color: color(track, model),
             };
-            // A reversed clip draws the reversed twin of its file.
-            let key = if clip.reversed {
-                crate::media::reversed_key(media.0)
-            } else {
-                media.0
-            };
-            let Some(source) = source(key) else {
-                continue;
-            };
-            // The file offset in the device-rate frames the peaks index.
-            let base =
-                (*offset as f64 * f64::from(rate) / f64::from(source.native_rate.max(1))) as i64;
-            let origin = if clip.loop_length.is_some() {
-                clip.start - clip.loop_phase
-            } else {
-                clip.start
-            };
-            let source_anchor = ((tempo.seconds_at(origin) - clip.audio_phase_seconds)
-                * f64::from(rate))
-            .round() as i64;
-            let offset = (base + tempo.sample_at(origin, rate) - source_anchor) as f64;
-            let (start, end) = (clip.start, clip.start + clip.length);
-            let mut cuts: Vec<Ticks> = tempo
-                .points()
-                .iter()
-                .map(|p| p.at)
-                .filter(|&at| at > start && at < end)
-                .collect();
-            // Over a ramp the audio stretches a little more or less each beat:
-            // one wave per quarter note there, exact where each begins.
-            for pair in tempo.points().windows(2) {
-                if !pair[0].ramp || pair[0].bpm == pair[1].bpm {
-                    continue;
-                }
-                let (from, to) = (pair[0].at.max(start), pair[1].at.min(end));
-                let mut at = Ticks((from.0 / PPQ + 1) * PPQ);
-                while at < to && cuts.len() < MAX_REPEATS {
-                    cuts.push(at);
-                    at = at + Ticks(PPQ);
-                }
-            }
-            cuts.sort_unstable();
-            cuts.dedup();
-            // A looping clip draws its content again from each repeat
-            // (slice 6c), as the engine plays it.
-            let period = clip.loop_length.filter(|p| *p > Ticks::ZERO);
-            let cycle = period.and_then(|period| {
-                let origin = start - clip.loop_phase;
-                let origin_frame = tempo.sample_at(origin, rate);
-                let frames = tempo.sample_at(origin + period, rate) - origin_frame;
-                (frames > 0).then_some((origin_frame, frames))
-            });
-            if let Some((origin, period)) = cycle {
-                let start_frame = tempo.sample_at(start, rate);
-                let phase = (start_frame - origin).rem_euclid(period);
-                let end_frame = tempo.sample_at(end, rate);
-                let mut frame = start_frame + period - phase;
-                while frame < end_frame && cuts.len() < MAX_REPEATS {
-                    cuts.push(tempo.ticks_at_sample(frame, rate));
-                    frame += period;
-                }
-                cuts.sort_unstable();
-                cuts.dedup();
-            }
-            cuts.push(end);
-            // Drawn at the clip's gain and through its fades (slice 6d),
-            // as the engine plays it.
-            // A polarity-inverted clip is drawn with a negative gain, upside down.
-            let gain = 10f32.powf(gain_db / 20.0) * if clip.inverted { -1.0 } else { 1.0 };
-            let (curve_in, curve_out) = (clip.fade_in.curve.into(), clip.fade_out.curve.into());
-            let fade_start = start - clip.fade_in.offset;
-            let fade_end = end + clip.fade_out.offset;
-            // A crossfade that is not played (nothing to blend) is not a
-            // fade-in either.
-            let (curve_in, fade_in) = if model.crossfade && !blend {
-                (curve_in, [beats(start.as_quarters()); 2])
-            } else {
-                (
-                    curve_in,
-                    [
-                        beats(fade_start.as_quarters()),
-                        beats(
-                            (fade_start + clip.fade_in.span.max(clip.fade_in.length)).as_quarters(),
-                        ),
-                    ],
-                )
-            };
-            let fade_out = [
-                beats((fade_end - clip.fade_out.span.max(clip.fade_out.length)).as_quarters()),
-                beats(fade_end.as_quarters()),
-            ];
-            let mut from = start;
-            for to in cuts {
-                let length = (to - from).as_quarters();
-                if length <= 0.0 {
-                    continue;
-                }
-                let frames = (tempo.sample_at(to, rate) - tempo.sample_at(from, rate)) as f64;
-                let from_frame = tempo.sample_at(from, rate);
-                let source_frame = cycle.map_or(
-                    from_frame - tempo.sample_at(start, rate),
-                    |(origin, period)| (from_frame - origin).rem_euclid(period),
-                );
-                let first_frame = offset + source_frame as f64;
-                waves.push(Wave {
-                    instance: WaveInstance {
-                        start: beats(from.as_quarters()),
-                        end: beats(to.as_quarters()),
-                        row: row as u32,
-                        slot: source.slot,
-                        first_frame: first_frame as f32,
-                        frames_per_beat: (frames / length) as f32,
-                        color: rgba(r, g, b, a),
-                        channels: source.channels,
-                        gain,
-                        curve_in,
-                        curve_out,
-                        fade_in,
-                        fade_out,
-                    },
-                    geometry: Geometry {
-                        media: key,
-                        row: row as u32,
-                        start: from.as_quarters(),
-                        first_frame,
-                        frames_per_beat: frames / length,
-                        frames,
-                    },
-                });
-                from = to;
-            }
+            clip_waves(&mut waves, &tempo, rate, &shown, &source);
         }
     }
     waves
+}
+
+/// One stretch of a clip's wave at one tempo, for drawing it on the CPU:
+/// from beat `start` to `end`, starting at device-rate frame `first_frame`
+/// of `media` (a reversed clip's twin), at the clip's `gain` (negative when
+/// inverted).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Span {
+    pub media: u64,
+    pub start: f64,
+    pub end: f64,
+    pub first_frame: f64,
+    pub frames_per_beat: f64,
+    pub gain: f32,
+}
+
+/// The waves of clip `id` alone, as it is modelled (a crossfade does not
+/// cut it): the Clip tab's wave (DP1).
+pub(crate) fn one_clip(
+    project: &Project,
+    id: lumen_project::model::Id,
+    rate: u32,
+    source: impl Fn(u64) -> Option<Source>,
+) -> Vec<Span> {
+    clip_spans(project, id, rate, source)
+        .into_iter()
+        .map(|w| Span {
+            media: w.geometry.media,
+            start: w.geometry.start,
+            end: f64::from(w.instance.end[0]) + f64::from(w.instance.end[1]),
+            first_frame: w.geometry.first_frame,
+            frames_per_beat: w.geometry.frames_per_beat,
+            gain: w.instance.gain,
+        })
+        .collect()
+}
+
+fn clip_spans(
+    project: &Project,
+    id: lumen_project::model::Id,
+    rate: u32,
+    source: impl Fn(u64) -> Option<Source>,
+) -> Vec<Wave> {
+    let mut waves = Vec::new();
+    let Ok(tempo) = TempoMap::new(project.tempo.clone()) else {
+        return waves;
+    };
+    let found = project
+        .tracks
+        .iter()
+        .find_map(|t| t.clips.iter().find(|c| c.id == id));
+    if let Some(model) = found {
+        let shown = Shown {
+            model,
+            clip: model,
+            blend: false,
+            row: 0,
+            color: Color32::WHITE,
+        };
+        clip_waves(&mut waves, &tempo, rate, &shown, &source);
+    }
+    waves
+}
+
+/// One clip for [`clip_waves`]: as modelled, as played (cut by a
+/// crossfade), whether that crossfade blends, its row and colour.
+struct Shown<'a> {
+    model: &'a Clip,
+    clip: &'a Clip,
+    blend: bool,
+    row: u32,
+    color: Color32,
+}
+
+/// Pushes the waves of one clip.
+fn clip_waves(
+    waves: &mut Vec<Wave>,
+    tempo: &TempoMap,
+    rate: u32,
+    shown: &Shown<'_>,
+    source: &impl Fn(u64) -> Option<Source>,
+) {
+    let Shown {
+        model,
+        clip,
+        blend,
+        row,
+        color,
+    } = *shown;
+    let [r, g, b, a] = color.to_srgba_unmultiplied();
+    let ClipContent::Audio {
+        media,
+        offset,
+        gain_db,
+    } = &clip.content
+    else {
+        return;
+    };
+    // A reversed clip draws the reversed twin of its file.
+    let key = if clip.reversed {
+        crate::media::reversed_key(media.0)
+    } else {
+        media.0
+    };
+    let Some(source) = source(key) else {
+        return;
+    };
+    // The file offset in the device-rate frames the peaks index.
+    let base = (*offset as f64 * f64::from(rate) / f64::from(source.native_rate.max(1))) as i64;
+    let origin = if clip.loop_length.is_some() {
+        clip.start - clip.loop_phase
+    } else {
+        clip.start
+    };
+    let source_anchor =
+        ((tempo.seconds_at(origin) - clip.audio_phase_seconds) * f64::from(rate)).round() as i64;
+    let offset = (base + tempo.sample_at(origin, rate) - source_anchor) as f64;
+    let (start, end) = (clip.start, clip.start + clip.length);
+    let mut cuts: Vec<Ticks> = tempo
+        .points()
+        .iter()
+        .map(|p| p.at)
+        .filter(|&at| at > start && at < end)
+        .collect();
+    // Over a ramp the audio stretches a little more or less each beat:
+    // one wave per quarter note there, exact where each begins.
+    for pair in tempo.points().windows(2) {
+        if !pair[0].ramp || pair[0].bpm == pair[1].bpm {
+            continue;
+        }
+        let (from, to) = (pair[0].at.max(start), pair[1].at.min(end));
+        let mut at = Ticks((from.0 / PPQ + 1) * PPQ);
+        while at < to && cuts.len() < MAX_REPEATS {
+            cuts.push(at);
+            at = at + Ticks(PPQ);
+        }
+    }
+    cuts.sort_unstable();
+    cuts.dedup();
+    // A looping clip draws its content again from each repeat
+    // (slice 6c), as the engine plays it.
+    let period = clip.loop_length.filter(|p| *p > Ticks::ZERO);
+    let cycle = period.and_then(|period| {
+        let origin = start - clip.loop_phase;
+        let origin_frame = tempo.sample_at(origin, rate);
+        let frames = tempo.sample_at(origin + period, rate) - origin_frame;
+        (frames > 0).then_some((origin_frame, frames))
+    });
+    if let Some((origin, period)) = cycle {
+        let start_frame = tempo.sample_at(start, rate);
+        let phase = (start_frame - origin).rem_euclid(period);
+        let end_frame = tempo.sample_at(end, rate);
+        let mut frame = start_frame + period - phase;
+        while frame < end_frame && cuts.len() < MAX_REPEATS {
+            cuts.push(tempo.ticks_at_sample(frame, rate));
+            frame += period;
+        }
+        cuts.sort_unstable();
+        cuts.dedup();
+    }
+    cuts.push(end);
+    // Drawn at the clip's gain and through its fades (slice 6d),
+    // as the engine plays it.
+    // A polarity-inverted clip is drawn with a negative gain, upside down.
+    let gain = 10f32.powf(gain_db / 20.0) * if clip.inverted { -1.0 } else { 1.0 };
+    let (curve_in, curve_out) = (clip.fade_in.curve.into(), clip.fade_out.curve.into());
+    let fade_start = start - clip.fade_in.offset;
+    let fade_end = end + clip.fade_out.offset;
+    // A crossfade that is not played (nothing to blend) is not a
+    // fade-in either.
+    let (curve_in, fade_in) = if model.crossfade && !blend {
+        (curve_in, [beats(start.as_quarters()); 2])
+    } else {
+        (
+            curve_in,
+            [
+                beats(fade_start.as_quarters()),
+                beats((fade_start + clip.fade_in.span.max(clip.fade_in.length)).as_quarters()),
+            ],
+        )
+    };
+    let fade_out = [
+        beats((fade_end - clip.fade_out.span.max(clip.fade_out.length)).as_quarters()),
+        beats(fade_end.as_quarters()),
+    ];
+    let mut from = start;
+    for to in cuts {
+        let length = (to - from).as_quarters();
+        if length <= 0.0 {
+            continue;
+        }
+        let frames = (tempo.sample_at(to, rate) - tempo.sample_at(from, rate)) as f64;
+        let from_frame = tempo.sample_at(from, rate);
+        let source_frame = cycle.map_or(
+            from_frame - tempo.sample_at(start, rate),
+            |(origin, period)| (from_frame - origin).rem_euclid(period),
+        );
+        let first_frame = offset + source_frame as f64;
+        waves.push(Wave {
+            instance: WaveInstance {
+                start: beats(from.as_quarters()),
+                end: beats(to.as_quarters()),
+                row,
+                slot: source.slot,
+                first_frame: first_frame as f32,
+                frames_per_beat: (frames / length) as f32,
+                color: rgba(r, g, b, a),
+                channels: source.channels,
+                gain,
+                curve_in,
+                curve_out,
+                fade_in,
+                fade_out,
+            },
+            geometry: Geometry {
+                media: key,
+                row,
+                start: from.as_quarters(),
+                first_frame,
+                frames_per_beat: frames / length,
+                frames,
+            },
+        });
+        from = to;
+    }
 }
 
 #[cfg(test)]

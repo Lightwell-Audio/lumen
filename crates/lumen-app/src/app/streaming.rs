@@ -1,4 +1,4 @@
-//! Playing audio from disk in the app (M9 slice R6, ADR-0108): turns the
+//! Playing audio from disk in the app (M9 slice R6, ADR-0109): turns the
 //! library's streaming on and off with "Play audio from disk", keeps the disk
 //! thread's scene in step with the clips the engine plays, the tempo map, the
 //! loop and the markers, and lends the transport what its start waits for

@@ -175,10 +175,12 @@ impl App {
             if (focused && chord.used_by_controls()) || self.availability(ctx, command).is_err() {
                 continue;
             }
-            // While the save question is up, a plain Enter runs no command.
-            // The main window took it for the question already; a popped-out
-            // editor has its own keyboard, and there Enter does nothing.
-            if self.prompt.is_some()
+            // While a window is up (the save question, the bounce popover,
+            // Export, Project settings, ...), a plain Enter runs no command:
+            // it belongs to the window, and would otherwise open the
+            // selected clip behind it. A popped-out editor has its own
+            // keyboard, and there Enter does nothing.
+            if self.window_open()
                 && chord == Chord::pressed(egui::Modifiers::NONE, egui::Key::Enter)
             {
                 continue;

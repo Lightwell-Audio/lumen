@@ -95,18 +95,6 @@ impl Lumen {
         self.frames(10);
     }
 
-    /// Opens the detail panel's Devices tab (the browser has one too: the
-    /// panel's comes last).
-    #[track_caller]
-    fn show_devices_tab(&mut self) {
-        self.harness
-            .get_all_by_label("Devices tab")
-            .last()
-            .expect("the detail panel's tabs")
-            .click();
-        self.frames(10);
-    }
-
     fn devices_on(&self, track: Id) -> Vec<String> {
         self.app()
             .project()
@@ -190,7 +178,7 @@ fn an_effect_goes_after_the_chosen_card() {
         &["Plug"],
     );
     lumen.app_mut().select_tracks(&[AUDIO]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     // Choose the first card, then add: it lands between the two.
     lumen.click(&format!("{EFFECT} on Audio"));
     assert_eq!(lumen.app().chosen_card(), Some(FIRST));
@@ -249,7 +237,7 @@ fn an_instrument_replaces_the_synth_on_the_selected_midi_track() {
 fn the_power_button_and_the_commands_bypass_and_remove_the_chosen_device() {
     let mut lumen = launch("power", &project(vec![effect_device(FIRST)]), &["Plug"]);
     lumen.app_mut().select_tracks(&[AUDIO]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     let bypassed = |l: &Lumen| l.app().project().tracks[1].devices[0].bypass;
     assert!(!bypassed(&lumen));
     assert!(lumen.is_on(&format!("Power {EFFECT}")));
@@ -279,7 +267,7 @@ fn the_power_button_and_the_commands_bypass_and_remove_the_chosen_device() {
 fn dragging_a_device_from_the_browser_drops_it_where_the_line_shows() {
     let mut lumen = launch("drag", &project(vec![effect_device(FIRST)]), &["Plug"]);
     lumen.app_mut().select_tracks(&[AUDIO]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     let row = lumen
         .harness
         .get_by_label_contains(&format!("{EFFECT}, "))
@@ -329,7 +317,7 @@ fn dragging_a_device_from_the_browser_drops_it_where_the_line_shows() {
 fn a_drag_that_ends_outside_the_chain_adds_nothing() {
     let mut lumen = launch("drag-away", &project(vec![]), &["Plug"]);
     lumen.app_mut().select_tracks(&[AUDIO]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     let row = lumen
         .harness
         .get_by_label_contains(&format!("{EFFECT}, "))
@@ -344,7 +332,7 @@ fn a_missing_plugin_says_so_and_offers_a_rescan() {
     // The project names the test effect, but no module is installed.
     let mut lumen = launch("missing", &project(vec![effect_device(FIRST)]), &[]);
     lumen.app_mut().select_tracks(&[AUDIO]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     assert_eq!(lumen.app().device_state(FIRST).as_deref(), Some("missing"));
     assert!(lumen.shows("Rescan plugins"), "the card's button");
     lumen.click("Rescan plugins");
@@ -354,10 +342,44 @@ fn a_missing_plugin_says_so_and_offers_a_rescan() {
 }
 
 #[test]
+fn a_failed_compact_card_still_offers_reload() {
+    let mut lumen = launch(
+        "reload-compact",
+        &project(vec![effect_device(FIRST)]),
+        &["Plug"],
+    );
+    lumen.app_mut().select_tracks(&[AUDIO]);
+    lumen.show_whole_cards();
+    lumen.app_mut().set_detail_size(40.0);
+    lumen.frames(10);
+    assert!(lumen.app().chain_is_compact());
+    lumen.wait_for("the host", |app| {
+        app.device_state(FIRST).is_some_and(|s| s == "ready")
+    });
+    lumen.app_mut().pretend_device_state(FIRST, "failed");
+    lumen.frames(5);
+    // The footer gives the button room on every side (D2).
+    let button = lumen.harness.get_by_label("Reload").rect();
+    let card = lumen
+        .harness
+        .get_all_by_label_contains(EFFECT)
+        .map(|n| n.rect())
+        .find(|r| r.contains_rect(button))
+        .expect("the card around its button");
+    // space::M at the side, 6 pt below (BUTTONS_PAD).
+    assert!(card.right() - button.right() >= 11.5, "room at the right");
+    assert!(card.bottom() - button.bottom() >= 5.5, "room below");
+    lumen.click("Reload");
+    lumen.wait_for("the new host", |app| {
+        app.device_state(FIRST).is_some_and(|s| s == "ready")
+    });
+}
+
+#[test]
 fn a_failed_plugin_offers_reload_and_it_starts_again() {
     let mut lumen = launch("reload", &project(vec![effect_device(FIRST)]), &["Plug"]);
     lumen.app_mut().select_tracks(&[AUDIO]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     lumen.wait_for("the host", |app| {
         app.device_state(FIRST).is_some_and(|s| s == "ready")
     });
@@ -411,7 +433,7 @@ fn play_until_it_fails(lumen: &mut Lumen, device: Id) {
 fn a_host_that_dies_under_the_song_shows_on_its_card_and_reload_brings_it_back() {
     let mut lumen = launch("dies", &project(vec![effect_device(FIRST)]), &["Dies"]);
     lumen.app_mut().select_tracks(&[AUDIO]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     play_until_it_fails(&mut lumen, FIRST);
     assert!(lumen.shows("Reload"), "the failed card's button");
     // The card says what happened, not only that it did.
@@ -439,7 +461,7 @@ fn removing_a_failed_device_and_undoing_it_loads_it_again_with_its_settings() {
     device.state = state.clone();
     let mut lumen = launch("undo-failed", &project(vec![device]), &["Dies"]);
     lumen.app_mut().select_tracks(&[AUDIO]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     play_until_it_fails(&mut lumen, FIRST);
     lumen.app_mut().remove_device(AUDIO, FIRST);
     lumen.frames(5);
@@ -464,7 +486,7 @@ fn removing_a_device_while_it_is_loading_leaves_no_host_and_no_card() {
         &["Plug"],
     );
     lumen.app_mut().select_tracks(&[AUDIO]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     lumen.app_mut().remove_device(AUDIO, FIRST);
     lumen.frames(60);
     assert!(lumen.devices_on(AUDIO).is_empty());
@@ -488,7 +510,7 @@ fn every_control_on_every_card_face_has_a_name_and_tab_reaches_them() {
         &["Plug"],
     );
     lumen.app_mut().select_tracks(&[AUDIO]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     lumen.wait_for("both hosts", |app| {
         [FIRST, Id(21)]
             .iter()
@@ -562,7 +584,7 @@ impl Lumen {
             &["Plug"],
         );
         lumen.app_mut().select_tracks(&[AUDIO]);
-        lumen.show_devices_tab();
+        lumen.show_whole_cards();
         lumen
     }
 }
@@ -672,7 +694,7 @@ fn dropping_a_card_on_a_track_header_moves_it_and_alt_copies_it() {
 fn an_instrument_dropped_on_an_audio_track_is_refused_and_nothing_changes() {
     let mut lumen = launch("refused", &project(vec![]), &["Plug"]);
     lumen.app_mut().select_tracks(&[KEYS]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     let before = lumen.app().project().clone();
     let synth = lumen.card("Synth on Keys");
     let audio = lumen.harness.get_by_label_contains("Track Audio").rect();
@@ -754,7 +776,7 @@ fn clicking_the_master_shows_its_chain_and_a_device_can_be_added_dropped_and_rem
         &project(vec![effect_device(FIRST)]),
         &["Plug"],
     );
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     let master = lumen.app().project().master.id;
     lumen.click("Track Master, master track");
     lumen.frames(5);
@@ -872,7 +894,7 @@ fn a_plugin_with_a_snapshot_in_its_bundle_shows_it_on_its_card() {
     let project = project(vec![effect_device(FIRST)]);
     let mut lumen = launch_with_snapshot("snapshot", &project, &snapshot_png());
     lumen.app_mut().select_tracks(&[AUDIO]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     lumen.wait_for("the picture", |app| app.device_picture(FIRST) == "ready");
     // The built-in synth has no bundle.
     lumen.app_mut().select_tracks(&[KEYS]);
@@ -886,7 +908,7 @@ fn a_damaged_or_missing_snapshot_leaves_the_generated_picture() {
     let project = project(vec![effect_device(FIRST)]);
     let mut lumen = launch_with_snapshot("bad-snapshot", &project, b"this is not a png");
     lumen.app_mut().select_tracks(&[AUDIO]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     lumen.wait_for("the picture to be given up", |app| {
         app.device_picture(FIRST) == "absent"
     });
@@ -896,7 +918,7 @@ fn a_damaged_or_missing_snapshot_leaves_the_generated_picture() {
     // A bundle with no snapshot at all is the same.
     let mut lumen = launch("no-snapshot", &project, &["Plug"]);
     lumen.app_mut().select_tracks(&[AUDIO]);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     lumen.wait_for("the picture to be given up", |app| {
         app.device_picture(FIRST) == "absent"
     });
@@ -907,7 +929,7 @@ fn an_empty_chain_says_so_and_browse_devices_opens_the_browser_on_its_devices() 
     let mut lumen = launch("empty-chain", &project(vec![]), &["Plug"]);
     lumen.app_mut().select_tracks(&[AUDIO]);
     lumen.frames(3);
-    lumen.show_devices_tab();
+    lumen.show_whole_cards();
     assert!(
         lumen
             .harness

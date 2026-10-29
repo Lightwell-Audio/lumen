@@ -42,13 +42,7 @@ fn launch(name: &str) -> Lumen {
     lumen
         .app_mut()
         .show_on_strip(PLUGIN, &[LEVEL, WAVE, PROGRAM]);
-    lumen
-        .harness
-        .get_all_by_label("Devices tab")
-        .last()
-        .expect("the detail panel's tabs")
-        .click();
-    lumen.frames(30);
+    lumen.show_whole_cards();
     lumen
 }
 

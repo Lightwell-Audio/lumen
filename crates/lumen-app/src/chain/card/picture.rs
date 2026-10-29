@@ -147,7 +147,10 @@ pub(super) fn paint_badge(painter: &egui::Painter, rect: Rect, look: &Look<'_>) 
     };
     painter.extend(icons::shapes(
         icon,
-        Rect::from_center_size(rect.center(), vec2(16.0, 16.0)),
+        Rect::from_center_size(
+            rect.center(),
+            egui::Vec2::splat(theme::size::button_icon(rect.height())),
+        ),
         palette.text_secondary,
     ));
 }
@@ -175,7 +178,10 @@ pub(super) fn power_button(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_
     );
     ui.painter().extend(icons::shapes(
         Icon::Power,
-        Rect::from_center_size(body.center(), vec2(16.0, 16.0)),
+        Rect::from_center_size(
+            body.center(),
+            egui::Vec2::splat(theme::size::button_icon(rect.height())),
+        ),
         face.text(),
     ));
     raised::focus_ring(ui.painter(), &response, rect);
