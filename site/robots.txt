@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://gummycookie.github.io/lumen/sitemap.xml
+Sitemap: https://lightwell-audio.github.io/lumen/sitemap.xml

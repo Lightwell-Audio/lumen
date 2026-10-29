@@ -1,6 +1,6 @@
 # Lumen website
 
-The public page at https://gummycookie.github.io/lumen/: one static
+The public page at https://lightwell-audio.github.io/lumen/: one static
 `index.html` with its fonts, videos and images under `assets/`. There is no
 build step.
 

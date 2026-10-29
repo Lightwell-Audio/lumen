@@ -1,6 +1,6 @@
 # Lumen
 
-[![CI](https://github.com/gummycookie/lumen/actions/workflows/ci.yml/badge.svg)](https://github.com/gummycookie/lumen/actions/workflows/ci.yml)
+[![CI](https://github.com/Lightwell-Audio/lumen/actions/workflows/ci.yml/badge.svg)](https://github.com/Lightwell-Audio/lumen/actions/workflows/ci.yml)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
 
 <p align="center">
@@ -17,7 +17,7 @@ device chain, clip editors and mixer exist to support it. There is no session
 view and no clip launcher.
 
 Lumen is free software under GPL-3.0-or-later. A public project page is at
-[gummycookie.github.io/lumen](https://gummycookie.github.io/lumen/).
+[lightwell-audio.github.io/lumen](https://lightwell-audio.github.io/lumen/).
 
 > **Status: early development, not yet 1.0.** Lumen records and edits MIDI,
 > plays and edits audio clips, hosts VST3 instruments and effects in separate
@@ -110,7 +110,7 @@ Windows build notes, including a setup without admin rights, are in
 ### Build and run
 
 ```bash
-git clone https://github.com/gummycookie/lumen.git
+git clone https://github.com/Lightwell-Audio/lumen.git
 cd lumen
 cargo build --release -p lumen-plugin-host
 cargo run --release -p lumen-app
