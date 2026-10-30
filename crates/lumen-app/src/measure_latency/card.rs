@@ -44,6 +44,8 @@ pub struct Shown<'a> {
     /// was measured.
     pub offset_ms: f32,
     pub offset_measured: Option<&'a MeasuredWith>,
+    /// The device setup running now.
+    pub running: &'a MeasuredWith,
 }
 
 /// What the card asks for.
@@ -174,7 +176,7 @@ impl Card {
                     });
                     trace(ui, busy, outcome);
                     if let Some(outcome) = outcome.filter(|_| !busy) {
-                        asked = result(ui, outcome, shown.offset_ms, shown.offset_measured);
+                        asked = result(ui, outcome, &shown);
                     }
                     ui.horizontal(|ui| {
                         let again = outcome.is_some();
@@ -302,12 +304,8 @@ fn trace(ui: &mut Ui, busy: bool, outcome: Option<&Outcome>) {
 
 /// The round trip found and the offset it asks for, or what went wrong and
 /// what to do.
-fn result(
-    ui: &mut Ui,
-    outcome: &Outcome,
-    offset_ms: f32,
-    offset_measured: Option<&MeasuredWith>,
-) -> Option<Asked> {
+fn result(ui: &mut Ui, outcome: &Outcome, shown: &Shown<'_>) -> Option<Asked> {
+    let offset_ms = shown.offset_ms;
     let ms = |frames: u32| f64::from(frames) * 1000.0 / f64::from(outcome.rate.max(1));
     let measured = match &outcome.result {
         Ok(measured) => measured,
@@ -344,11 +342,23 @@ fn result(
         );
     }
     let offset = outcome.offset_ms()?;
+    // A round trip measured on another setup does not hold for this one.
+    if !outcome.with.same_setup(shown.running) {
+        hint(
+            ui,
+            "The audio device, rate or buffer changed since this was measured. Measure              again to find the offset for this setup.",
+        );
+        return None;
+    }
     let mut asked = None;
     ui.horizontal(|ui| {
         // The same number measured on another setup (or typed) is still
         // offered, so the setup it holds for is remembered.
-        if (offset - offset_ms).abs() < 0.05 && offset_measured == Some(&outcome.with) {
+        if (offset - offset_ms).abs() < 0.05
+            && shown
+                .offset_measured
+                .is_some_and(|with| with.same_setup(&outcome.with))
+        {
             ui.label(RichText::new(format!("The recording offset is {offset:+.1} ms")).weak());
         } else if raised::primary_button(ui, &format!("Use {offset:+.1} ms"))
             .on_hover_text(format!(

@@ -4349,8 +4349,16 @@ fn measure_latency_card() {
     use lumen_audio::fake::{Cable, Pace};
 
     let turn = lumen_app::testing::input_device_turn();
+    // Each theme at each scale, and the smallest window (the page scrolls).
+    let mut runs: Vec<(&str, f32, eframe::egui::Vec2, &str)> = Vec::new();
     for appearance in ["dark", "light"] {
         for scale in [1.0_f32, 1.5, 2.0] {
+            runs.push((appearance, scale, vec2(1280.0, 1000.0), ""));
+        }
+    }
+    runs.push(("dark", 1.0, vec2(960.0, 540.0), "-smallest"));
+    for (appearance, scale, size, small) in runs {
+        {
             turn.set(|d| {
                 d.pace = Some(Pace::RealTime);
                 d.cable = Some(Cable {
@@ -4360,12 +4368,12 @@ fn measure_latency_card() {
                     gain: 0.5,
                 });
             });
-            let dir = TempDir::new(&format!("shots-measure-{appearance}-{scale}"));
+            let dir = TempDir::new(&format!("shots-measure-{appearance}-{scale}{small}"));
             let launch = Launch::for_test(dir.path())
                 .appearing(appearance)
                 .with_input_device();
             let mut h = Harness::builder()
-                .with_size(vec2(1280.0, 1000.0))
+                .with_size(size)
                 .with_pixels_per_point(scale)
                 .with_theme(if appearance == "light" {
                     eframe::egui::Theme::Light
@@ -4402,12 +4410,14 @@ fn measure_latency_card() {
             h.key_press(Key::Enter);
             wait(&mut h, "Cable to: 1  In 1");
             h.run_steps(20);
-            let tag = format!("{appearance}-{scale}");
+            let tag = format!("{appearance}-{scale}{small}");
             save(&mut h, &format!("measure-idle-{tag}"));
             h.get_by_label("Cable to: 1  In 1").click();
             h.run_steps(5);
             h.get_by_label("2  In 2").click();
             h.run_steps(5);
+            h.get_by_label("Measure").scroll_to_me();
+            h.run_steps(10);
             h.get_by_label("Measure").click();
             h.run_steps(3);
             save(&mut h, &format!("measure-listening-{tag}"));
@@ -4415,6 +4425,8 @@ fn measure_latency_card() {
             h.run_steps(10);
             save(&mut h, &format!("measure-result-{tag}"));
             turn.set(|d| d.cable = None);
+            h.get_by_label("Measure again").scroll_to_me();
+            h.run_steps(10);
             h.get_by_label("Measure again").click();
             wait(&mut h, "Nothing came back");
             h.run_steps(10);

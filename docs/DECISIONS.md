@@ -9799,7 +9799,9 @@ Lumen to show by how much.
    it. When the running setup differs, a hint under the field says what the
    offset was measured with and to measure again. The offer stays when the
    number already matches but was typed or measured on another setup, so
-   taking it remembers the setup (review 1).
+   taking it remembers the setup (review 1). A result measured before the
+   device, rate or buffer changed is not offered: the card asks to measure
+   again (review 2).
 5. **The card** (`measure_latency::card`): Cable from (the open output pairs)
    to (the open inputs), a strip with each click's correlation with what
    came back laid over the others (one sharp line where they agree; the

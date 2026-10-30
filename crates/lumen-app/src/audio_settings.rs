@@ -268,11 +268,7 @@ fn record_offset(ui: &mut Ui, offset_ms: f32, measure: &mut bool, actions: &mut 
 /// Says so when the offset was measured on another device setup than the
 /// one running.
 fn measured_elsewhere(ui: &mut Ui, with: &MeasuredWith, running: &MeasuredWith) {
-    let same = with.driver == running.driver
-        && with.device_id == running.device_id
-        && with.sample_rate == running.sample_rate
-        && with.buffer_frames == running.buffer_frames;
-    if same {
+    if with.same_setup(running) {
         return;
     }
     row(ui, "", |ui| {
@@ -896,6 +892,7 @@ impl Window {
                             held: measure_held,
                             offset_ms: record_offset_ms,
                             offset_measured,
+                            running: &running,
                         };
                         match self.measure.show(ui, shown) {
                             Some(Asked::Measure(cable)) => actions.push(Action::Measure(cable)),

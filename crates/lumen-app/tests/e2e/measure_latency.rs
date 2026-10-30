@@ -44,6 +44,22 @@ fn launch(name: &str, delay: Option<u32>) -> (Lumen, InputDeviceTurn) {
     (lumen, turn)
 }
 
+/// Scrolls to the control named `label` and clicks it until `done` holds:
+/// a click while the page still scrolls lands where the control was.
+#[track_caller]
+fn press(lumen: &mut Lumen, label: &str, done: impl Fn(&Lumen) -> bool) {
+    let started = std::time::Instant::now();
+    while !done(lumen) {
+        assert!(
+            started.elapsed() < super::PATIENCE,
+            "{label} never answered"
+        );
+        lumen.harness.get_by_label(label).scroll_to_me();
+        lumen.frames(3);
+        lumen.click(label);
+    }
+}
+
 /// Plugs the card's input end into input 2.
 fn to_input_2(lumen: &mut Lumen) {
     lumen.click("Cable to: 1  In 1");
@@ -125,5 +141,35 @@ fn a_measured_offset_equal_to_the_current_one_is_still_offered() {
     assert_eq!(lumen.app().record_offset().0, 0.0);
     lumen.run_until("the offer taken", |l| {
         l.shows("The recording offset is +0.0 ms")
+    });
+}
+
+/// A round trip measured before the buffer changed is not offered for the
+/// new one: the card asks to measure again, and measuring again offers it.
+#[test]
+fn a_result_from_another_setup_asks_to_measure_again() {
+    let (mut lumen, _turn) = launch("measure-changed", Some(DELAY));
+    to_input_2(&mut lumen);
+    lumen.click("Measure");
+    lumen.run_until("the round trip", |l| l.shows(OFFSET));
+    // Up the page.
+    press(&mut lumen, "Buffer size: 128 samples", |l| {
+        l.shows("64 samples")
+    });
+    lumen.click("64 samples");
+    lumen.wait_for("the device at 64 samples", |app| {
+        app.audio_running() && app.open_inputs() == 2
+    });
+    lumen.run_until("the card to ask again", |l| {
+        l.harness
+            .query_by_label_contains("changed since this was measured")
+            .is_some()
+    });
+    assert!(!lumen.shows(OFFSET), "the old offer is gone");
+    press(&mut lumen, "Measure again", |l| {
+        l.shows("Listening for the clicks") || l.harness.query_by_label_contains("Use +").is_some()
+    });
+    lumen.run_until("an offer for this setup", |l| {
+        l.harness.query_by_label_contains("Use +").is_some()
     });
 }

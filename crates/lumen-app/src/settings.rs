@@ -318,6 +318,17 @@ pub struct MeasuredWith {
     pub buffer_frames: u32,
 }
 
+impl MeasuredWith {
+    /// The same driver, device, rate and buffer: a measurement on one holds
+    /// for the other. The device's name is only for showing.
+    pub fn same_setup(&self, other: &MeasuredWith) -> bool {
+        self.driver == other.driver
+            && self.device_id == other.device_id
+            && self.sample_rate == other.sample_rate
+            && self.buffer_frames == other.buffer_frames
+    }
+}
+
 /// How audio files play.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
