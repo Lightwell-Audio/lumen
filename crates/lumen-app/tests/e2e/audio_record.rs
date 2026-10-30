@@ -466,14 +466,9 @@ fn a_crash_while_recording_leaves_a_take_the_next_start_puts_back() {
     lumen.wait_for("frames to be written", |app| {
         app.audio_take_frames(VOX).is_some_and(|f| f >= 12_000)
     });
-    let autosaves = lumen.dir().join("autosave");
-    lumen.wait_for("an autosave", |_| {
-        std::fs::read_dir(&autosaves).is_ok_and(|entries| {
-            entries
-                .flatten()
-                .any(|e| e.path().extension().is_some_and(|x| x == "lumen"))
-        })
-    });
+    // File appearance can precede the worker's handoff of the session lock.
+    // Let the app receive it before this simulated crash drops the app.
+    lumen.wait_for("an autosave", |app| app.autosave_finished());
     // The file is on disk, beside a note that it is unfinished.
     let recordings = lumen.dir().join("Recordings");
     let sidecars = || {
