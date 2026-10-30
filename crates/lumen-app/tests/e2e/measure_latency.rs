@@ -24,6 +24,10 @@ const OFFSET: &str = "Use +5.2 ms";
 /// long from output 1 to input 2 if there is one, and opens the helper
 /// from the command palette.
 fn launch(name: &str, delay: Option<u32>) -> (Lumen, InputDeviceTurn) {
+    launch_at(name, delay, super::SIZE)
+}
+
+fn launch_at(name: &str, delay: Option<u32>, size: eframe::egui::Vec2) -> (Lumen, InputDeviceTurn) {
     let turn = lumen_app::testing::input_device_turn();
     turn.set(|d| {
         d.pace = Some(Pace::RealTime);
@@ -39,6 +43,7 @@ fn launch(name: &str, delay: Option<u32>) -> (Lumen, InputDeviceTurn) {
     lumen.wait_for("the device's inputs", |app| {
         app.audio_running() && app.open_inputs() == 2
     });
+    lumen.harness.set_size(size);
     palette(&mut lumen, "Measure recording latency");
     lumen.run_until("the helper's card", |l| l.shows("Cable to: 1  In 1"));
     (lumen, turn)
@@ -60,6 +65,16 @@ fn press(lumen: &mut Lumen, label: &str, done: impl Fn(&Lumen) -> bool) {
     }
 }
 
+/// The card is revealed with an animated scroll. Seeing its labels does
+/// not mean a click at their current position will land: keep bringing
+/// Measure into view until the card acknowledges it. A very fast result
+/// can already offer Measure again by the next frame.
+fn measure(lumen: &mut Lumen) {
+    press(lumen, "Measure", |l| {
+        l.shows("Listening for the clicks") || l.shows("Measure again")
+    });
+}
+
 /// Plugs the card's input end into input 2.
 fn to_input_2(lumen: &mut Lumen) {
     lumen.click("Cable to: 1  In 1");
@@ -72,7 +87,7 @@ fn a_cable_measures_the_round_trip_and_one_click_makes_it_the_offset() {
     let (mut lumen, _turn) = launch("measure-latency", Some(DELAY));
     assert_eq!(lumen.app().record_offset(), (0.0, None));
     to_input_2(&mut lumen);
-    lumen.click("Measure");
+    measure(&mut lumen);
     lumen.run_until("the round trip", |l| l.shows(OFFSET));
     assert!(lumen.shows("Returned clicks: 5 of 5 agree"));
     assert!(
@@ -101,7 +116,21 @@ fn a_cable_measures_the_round_trip_and_one_click_makes_it_the_offset() {
 #[test]
 fn without_a_cable_the_card_says_what_to_check() {
     let (mut lumen, _turn) = launch("measure-no-cable", None);
-    lumen.click("Measure");
+    no_cable(&mut lumen);
+}
+
+#[test]
+fn without_a_cable_in_a_short_window_the_card_says_what_to_check() {
+    let (mut lumen, _turn) = launch_at(
+        "measure-no-cable-short",
+        None,
+        eframe::egui::vec2(960.0, 540.0),
+    );
+    no_cable(&mut lumen);
+}
+
+fn no_cable(lumen: &mut Lumen) {
+    measure(lumen);
     lumen.run_until("the failure", |l| {
         l.harness
             .query_by_label_contains("Nothing came back on input 1 (In 1)")
@@ -134,7 +163,7 @@ fn measuring_waits_for_playback_to_stop() {
 fn a_measured_offset_equal_to_the_current_one_is_still_offered() {
     let (mut lumen, _turn) = launch("measure-same", Some(352));
     to_input_2(&mut lumen);
-    lumen.click("Measure");
+    measure(&mut lumen);
     lumen.run_until("the round trip", |l| l.shows("Use +0.0 ms"));
     lumen.click("Use +0.0 ms");
     lumen.wait_for("the measured setup", |app| app.record_offset().1.is_some());
@@ -150,7 +179,7 @@ fn a_measured_offset_equal_to_the_current_one_is_still_offered() {
 fn a_result_from_another_setup_asks_to_measure_again() {
     let (mut lumen, _turn) = launch("measure-changed", Some(DELAY));
     to_input_2(&mut lumen);
-    lumen.click("Measure");
+    measure(&mut lumen);
     lumen.run_until("the round trip", |l| l.shows(OFFSET));
     // Up the page.
     press(&mut lumen, "Buffer size: 128 samples", |l| {
