@@ -429,6 +429,16 @@ per slice and move what is no longer current out of it.
   the audio settings' Latency section plays five clicks through a cable and
   offers the measured offset with one click (owner: placement A, 2026-10-29).
   MT-REC-5 waits for the owner's Focusrite. Next: R7 to R9.
+- **Branch `m9-s7-preferences`: M9 R7 is planned** (`docs/milestones/M9.md`
+  §8, reviewed once; nothing built yet). The owner's choices, 2026-10-30:
+  - SP A: R7 is cut into R7 (Preferences, tap tempo, command coverage), R7b
+    (the first-run wizard) and R7c (the browser's tabs with audition).
+  - PW A: a page list with search, using `widgets::switch` for its on and
+    off rows.
+  - TT A: a Tap piece on the bar.
+  - KS: only End gets a new default key.
+
+  Part 1, the commands, is next.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
@@ -534,6 +544,10 @@ error where it can be)
   on one-off branches (`fix/…`, `chore/…`, `docs/…`) cut from `main`. A
   session that starts on a generated `claude/…` branch renames it first. The
   rules are in the `lumen-branching` skill.
+- **One plan file per milestone** (owner, 2026-10-30): a slice's plan is a
+  section of `docs/milestones/M<n>.md`, never a file of its own
+  (`M9-R7.md`). When the slice is built, its section shrinks to the summary
+  of what was built.
 - **Build location:** build in the repository's `target/` folder; never
   set `CARGO_TARGET_DIR`. A running `lumen.exe` blocks a rebuild: for
   screenshots, use the debug build (`target/debug/lumen.exe --screenshot`),
