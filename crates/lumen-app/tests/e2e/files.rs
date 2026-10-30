@@ -71,18 +71,10 @@ fn work_survives_a_crash_through_the_autosave() {
     lumen.key(Modifiers::COMMAND, Key::T);
     lumen.key(Modifiers::COMMAND, Key::T);
     let names = lumen.track_names();
-    let autosaves = lumen.dir().join("autosave");
-    // An autosave that holds both tracks: one may have been written between
-    // the two keys (a busy machine can put more than the 50 ms between them).
-    lumen.wait_for("an autosave of both tracks", |_| {
-        std::fs::read_dir(&autosaves).is_ok_and(|entries| {
-            entries
-                .flatten()
-                .filter(|e| e.path().extension().is_some_and(|x| x == PROJECT_EXTENSION))
-                .filter_map(|e| std::fs::read_to_string(e.path()).ok())
-                .any(|text| names.iter().all(|name| text.contains(name.as_str())))
-        })
-    });
+    // The file can appear before the worker hands its session lock back.
+    // A simulated crash drops the app while the worker thread can still
+    // run: wait for the current state's completed write so the app owns it.
+    lumen.wait_for("an autosave of both tracks", |app| app.autosave_finished());
 
     // Lumen stops without closing normally; the next start offers the work.
     let dir = lumen.crash();
