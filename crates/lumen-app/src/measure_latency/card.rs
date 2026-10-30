@@ -40,8 +40,10 @@ pub struct Shown<'a> {
     pub input_names: &'a [String],
     /// Why Measure cannot run now (playing, recording), if it cannot.
     pub held: Option<&'static str>,
-    /// The recording offset in use.
+    /// The recording offset in use, and what it was measured with if it
+    /// was measured.
     pub offset_ms: f32,
+    pub offset_measured: Option<&'a MeasuredWith>,
 }
 
 /// What the card asks for.
@@ -172,7 +174,7 @@ impl Card {
                     });
                     trace(ui, busy, outcome);
                     if let Some(outcome) = outcome.filter(|_| !busy) {
-                        asked = result(ui, outcome, shown.offset_ms);
+                        asked = result(ui, outcome, shown.offset_ms, shown.offset_measured);
                     }
                     ui.horizontal(|ui| {
                         let again = outcome.is_some();
@@ -300,7 +302,12 @@ fn trace(ui: &mut Ui, busy: bool, outcome: Option<&Outcome>) {
 
 /// The round trip found and the offset it asks for, or what went wrong and
 /// what to do.
-fn result(ui: &mut Ui, outcome: &Outcome, offset_ms: f32) -> Option<Asked> {
+fn result(
+    ui: &mut Ui,
+    outcome: &Outcome,
+    offset_ms: f32,
+    offset_measured: Option<&MeasuredWith>,
+) -> Option<Asked> {
     let ms = |frames: u32| f64::from(frames) * 1000.0 / f64::from(outcome.rate.max(1));
     let measured = match &outcome.result {
         Ok(measured) => measured,
@@ -339,7 +346,9 @@ fn result(ui: &mut Ui, outcome: &Outcome, offset_ms: f32) -> Option<Asked> {
     let offset = outcome.offset_ms()?;
     let mut asked = None;
     ui.horizontal(|ui| {
-        if (offset - offset_ms).abs() < 0.05 {
+        // The same number measured on another setup (or typed) is still
+        // offered, so the setup it holds for is remembered.
+        if (offset - offset_ms).abs() < 0.05 && offset_measured == Some(&outcome.with) {
             ui.label(RichText::new(format!("The recording offset is {offset:+.1} ms")).weak());
         } else if raised::primary_button(ui, &format!("Use {offset:+.1} ms"))
             .on_hover_text(format!(

@@ -895,6 +895,7 @@ impl Window {
                             input_names: &info.input_channels,
                             held: measure_held,
                             offset_ms: record_offset_ms,
+                            offset_measured,
                         };
                         match self.measure.show(ui, shown) {
                             Some(Asked::Measure(cable)) => actions.push(Action::Measure(cable)),

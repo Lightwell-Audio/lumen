@@ -9797,7 +9797,9 @@ Lumen to show by how much.
    settings remember `offset_measured` (driver, device, rate, buffer), an
    added field, so the version is unchanged. Typing an offset by hand clears
    it. When the running setup differs, a hint under the field says what the
-   offset was measured with and to measure again.
+   offset was measured with and to measure again. The offer stays when the
+   number already matches but was typed or measured on another setup, so
+   taking it remembers the setup (review 1).
 5. **The card** (`measure_latency::card`): Cable from (the open output pairs)
    to (the open inputs), a strip with each click's correlation with what
    came back laid over the others (one sharp line where they agree; the

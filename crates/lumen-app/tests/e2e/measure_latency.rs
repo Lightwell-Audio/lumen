@@ -20,16 +20,17 @@ const DELAY: u32 = 600;
 /// (600 − 352) frames at 48 kHz, to a tenth of a millisecond.
 const OFFSET: &str = "Use +5.2 ms";
 
-/// Starts on the input device at real-time pace, a cable from output 1 to
-/// input 2 if `cable`, and opens the helper from the command palette.
-fn launch(name: &str, cable: bool) -> (Lumen, InputDeviceTurn) {
+/// Starts on the input device at real-time pace, a cable `delay` frames
+/// long from output 1 to input 2 if there is one, and opens the helper
+/// from the command palette.
+fn launch(name: &str, delay: Option<u32>) -> (Lumen, InputDeviceTurn) {
     let turn = lumen_app::testing::input_device_turn();
     turn.set(|d| {
         d.pace = Some(Pace::RealTime);
-        d.cable = cable.then_some(Cable {
+        d.cable = delay.map(|delay| Cable {
             output: 0,
             input: 1,
-            delay: DELAY,
+            delay,
             gain: 0.5,
         });
     });
@@ -52,7 +53,7 @@ fn to_input_2(lumen: &mut Lumen) {
 
 #[test]
 fn a_cable_measures_the_round_trip_and_one_click_makes_it_the_offset() {
-    let (mut lumen, _turn) = launch("measure-latency", true);
+    let (mut lumen, _turn) = launch("measure-latency", Some(DELAY));
     assert_eq!(lumen.app().record_offset(), (0.0, None));
     to_input_2(&mut lumen);
     lumen.click("Measure");
@@ -83,7 +84,7 @@ fn a_cable_measures_the_round_trip_and_one_click_makes_it_the_offset() {
 
 #[test]
 fn without_a_cable_the_card_says_what_to_check() {
-    let (mut lumen, _turn) = launch("measure-no-cable", false);
+    let (mut lumen, _turn) = launch("measure-no-cable", None);
     lumen.click("Measure");
     lumen.run_until("the failure", |l| {
         l.harness
@@ -96,7 +97,7 @@ fn without_a_cable_the_card_says_what_to_check() {
 
 #[test]
 fn measuring_waits_for_playback_to_stop() {
-    let (mut lumen, _turn) = launch("measure-held", true);
+    let (mut lumen, _turn) = launch("measure-held", Some(DELAY));
     lumen.key(eframe::egui::Modifiers::NONE, eframe::egui::Key::Space);
     lumen.run_until("the hold", |l| l.shows("Stop playback to measure"));
     assert!(
@@ -109,4 +110,20 @@ fn measuring_waits_for_playback_to_stop() {
     lumen.click("Measure");
     lumen.frames(10);
     assert!(!lumen.shows(OFFSET), "nothing measured while playing");
+}
+
+/// A round trip just as the driver reports it asks for no offset, but is
+/// still offered: taking it remembers the setup the offset holds for.
+#[test]
+fn a_measured_offset_equal_to_the_current_one_is_still_offered() {
+    let (mut lumen, _turn) = launch("measure-same", Some(352));
+    to_input_2(&mut lumen);
+    lumen.click("Measure");
+    lumen.run_until("the round trip", |l| l.shows("Use +0.0 ms"));
+    lumen.click("Use +0.0 ms");
+    lumen.wait_for("the measured setup", |app| app.record_offset().1.is_some());
+    assert_eq!(lumen.app().record_offset().0, 0.0);
+    lumen.run_until("the offer taken", |l| {
+        l.shows("The recording offset is +0.0 ms")
+    });
 }
