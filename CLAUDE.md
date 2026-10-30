@@ -420,21 +420,15 @@ per slice and move what is no longer current out of it.
   and time-stretch, which also carries the deferred static clip pitch and
   audio pitch envelope (`docs/milestones/M7.md` §5). The owner chooses when
   they run.
-- **M9 (recording, media and export):** R0 to R5, R1b and R4b are merged
-  (PR #60 to #72; format v32). Every manual test passed but MT-EXPORT-1. Next:
-  R2b (the loopback helper) and R6 to R9 (`docs/milestones/M9.md` §3).
-- **Branch `m9-s6-disk-streaming` (PR #74): M9 R6, playing audio from disk
-  and the peak cache, is built** (ADR-0109; no format change; summarised in
-  `docs/milestones/M9.md` §4). "Play audio from
-  disk" is on by default since MT-STREAM-1 passed (2026-10-28); files of 30 s
-  or more play from a stream file, shorter ones stay in memory; test launches
-  keep it off. CI's soak failures (2026-10-29) were the disk thread's: a slow
-  plan, a writer scan per page, a cue cleared before the playhead moved, and
-  a 10 ms margin after a start (now `hold::READY`, 140 ms). Fixed in the
-  product; the soak runs in CI's ordinary test step again. The MIDI sender
-  thread joins the Pro Audio class on Windows (`lumen_audio::priority`),
-  after it ran 22 ms late on a busy runner. CI passed three times in a row
-  on `3005a74` (run 40982044625, 2026-10-30).
+- **M9 (recording, media and export):** R0 to R6, R1b and R4b are merged
+  (PR #60 to #74; format v32). Every manual test passed but MT-EXPORT-1
+  (`docs/milestones/M9.md` §3). Since R6 (ADR-0109), "Play audio from disk"
+  is on by default and files of 30 s or more stream.
+- **Branch `m9-s2b-loopback-helper`: M9 R2b, the loopback helper, is built**
+  (ADR-0110; no format change, the settings gain `offset_measured`). A card in
+  the audio settings' Latency section plays five clicks through a cable and
+  offers the measured offset with one click (owner: placement A, 2026-10-29).
+  MT-REC-5 waits for the owner's Focusrite. Next: R7 to R9.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

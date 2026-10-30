@@ -276,6 +276,19 @@ impl App {
         self.document.is_dirty()
     }
 
+    /// The current document state has finished autosaving, including the
+    /// worker's handoff of the session lock to the app.
+    pub fn autosave_finished(&self) -> bool {
+        self.autosave
+            .as_ref()
+            .is_some_and(|a| a.has_saved(self.document.change_mark()))
+    }
+
+    /// An autosave is being written on its worker thread.
+    pub fn autosave_writing(&self) -> bool {
+        self.autosave.as_ref().is_some_and(|a| a.is_writing())
+    }
+
     /// The audio device is running.
     pub fn audio_running(&self) -> bool {
         matches!(self.transport.audio.status, Status::Running { .. })

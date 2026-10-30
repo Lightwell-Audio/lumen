@@ -57,6 +57,7 @@ mod light;
 mod live_lights;
 mod locators;
 mod looping;
+mod measure_latency;
 mod media_pool;
 mod meters;
 mod midi;
@@ -168,7 +169,22 @@ impl Lumen {
 
     /// Stops without closing normally, as a crash would (the autosave
     /// stays), and hands back the folder.
-    pub fn crash(self) -> TempDir {
+    ///
+    /// A real crash ends every thread with the process. Here the app is
+    /// dropped and an autosave worker still writing would outlive it, holding
+    /// the session's lock, so the next start would take the session for a
+    /// running one and offer nothing. The write in progress is let finish
+    /// first, with no frame after it that could start another.
+    pub fn crash(mut self) -> TempDir {
+        let started = Instant::now();
+        while self.app().autosave_writing() {
+            assert!(
+                started.elapsed() < PATIENCE,
+                "timed out waiting for the autosave in progress"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+            self.harness.step();
+        }
         self.dir
     }
 

@@ -75,6 +75,9 @@ pub struct Transport {
     /// the one it asked for, taken by the app (M9 slice R2).
     pub record_offset_ms: f32,
     pub offset_asked: Option<f32>,
+    /// A measured recording offset the loopback helper's card asked to use,
+    /// with what it was measured on (M9 slice R2b).
+    pub measured_asked: Option<(f32, crate::settings::MeasuredWith)>,
     /// "Play audio from disk" as the app has it, and a change the audio
     /// window asked for, taken by the app (M9 slice R6).
     pub from_disk: bool,
@@ -162,6 +165,7 @@ impl Transport {
             midi_asked: Vec::new(),
             record_offset_ms: 0.0,
             offset_asked: None,
+            measured_asked: None,
             from_disk: false,
             from_disk_asked: None,
             disk: None,

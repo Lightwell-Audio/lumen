@@ -849,3 +849,45 @@ fn the_synth_never_touches_the_heap() {
     }
     assert!(synth.voices() > 0 || !synth.active());
 }
+
+#[test]
+fn a_loopback_measurement_never_touches_the_heap() {
+    use lumen_engine::loopback::{Block, Ended, Job, loopback};
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let (mut handle, mut player) = loopback();
+    let (block, outs, ins) = (64, 4, 2);
+    let mut inputs = vec![0.0_f32; ins * block];
+    let mut outputs = vec![0.0_f32; outs * block];
+    let mut measured = 0;
+    for n in 0..6_000_u32 {
+        // Measurements are made and taken back outside the real-time
+        // section, as in the app; the second one meets a rate change.
+        if n % 2_000 == 0 {
+            handle
+                .start(Job::new(u64::from(n), 48_000, 2, true, 1))
+                .unwrap();
+        }
+        let rate = if n < 3_000 { 48_000 } else { 44_100 };
+        inputs.iter_mut().for_each(|s| *s = (n as f32).sin() * 0.1);
+        let ((), heap) = count_rt_violations(|| {
+            player.process(Block {
+                rate,
+                inputs: &inputs,
+                input_channels: ins,
+                outputs: &mut outputs,
+                output_channels: outs,
+                frames: block,
+            })
+        });
+        assert_eq!(
+            heap, 0,
+            "heap operation in the loopback player at block {n}"
+        );
+        if let Some(job) = handle.ended() {
+            assert_ne!(job.ended(), Ended::Running);
+            measured += 1;
+        }
+    }
+    assert_eq!(measured, 3);
+}

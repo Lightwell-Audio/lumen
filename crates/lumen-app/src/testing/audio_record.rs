@@ -55,3 +55,18 @@ impl App {
         self.document.media_files.get(&id).cloned()
     }
 }
+
+impl App {
+    /// The recording offset in use, in milliseconds, and the driver, rate
+    /// and buffer it was measured with when the loopback helper set it (M9
+    /// slice R2b).
+    pub fn record_offset(&self) -> (f32, Option<(String, u32, u32)>) {
+        (
+            self.settings.record.offset_ms,
+            self.settings
+                .offset_measured
+                .as_ref()
+                .map(|w| (w.driver.clone(), w.sample_rate, w.buffer_frames)),
+        )
+    }
+}

@@ -114,7 +114,7 @@ fn found(root: &Path) -> Vec<PathBuf> {
         let path = entry.path();
         if path.is_dir() {
             out.extend(found(&path));
-        } else {
+        } else if path.extension().is_some_and(|ext| ext == "vstpreset") {
             out.push(path);
         }
     }

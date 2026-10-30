@@ -189,9 +189,13 @@ impl Transport {
         &mut self,
         ctx: &egui::Context,
         midi: crate::midi_settings::Shown<'_>,
+        offset_measured: Option<&crate::settings::MeasuredWith>,
     ) -> Vec<crate::midi::Action> {
         use crate::audio_settings::Action;
         let mut asked = std::mem::take(&mut self.midi_asked);
+        let snap = self.audio.engine.transport();
+        let measure_held = (snap.playing || snap.recording || snap.count_in_left > 0)
+            .then_some("Stop playback to measure");
         for action in self.settings_window.show(
             ctx,
             &self.audio,
@@ -199,6 +203,8 @@ impl Transport {
             crate::audio_settings::Lent {
                 test_tone: self.test_tone,
                 record_offset_ms: self.record_offset_ms,
+                offset_measured,
+                measure_held,
                 from_disk: self.from_disk,
             },
         ) {
@@ -212,6 +218,11 @@ impl Transport {
                 Action::ControlPanel => self.audio.open_control_panel(),
                 Action::DismissNotice => self.audio.dismiss_notice(),
                 Action::RecordOffset(ms) => self.offset_asked = Some(ms),
+                Action::Measure(cable) => {
+                    crate::trace::log(|| format!("audio: measure the round trip {cable:?}"));
+                    self.audio.measure(cable);
+                }
+                Action::UseMeasured(ms, with) => self.measured_asked = Some((ms, with)),
                 Action::FromDisk(on) => self.from_disk_asked = Some(on),
                 Action::TestTone(on) => {
                     self.test_tone = on;

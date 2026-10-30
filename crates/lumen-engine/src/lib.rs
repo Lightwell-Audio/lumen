@@ -10,6 +10,7 @@
 //!   [`TrackSource`] plays into each track; [`ClipPlayer`] plays audio
 //!   clips.
 //! - [`TransportSnapshot`]: the transport as the UI sees it.
+//! - [`loopback`]: measuring the round trip through a cable (M9 slice R2b).
 //!
 //! The engine runs inside the device callback and never allocates, locks or
 //! blocks there; `tests/realtime.rs` checks that, and RealtimeSanitizer
@@ -21,6 +22,7 @@ mod declick;
 mod engine;
 mod envelope;
 mod input;
+pub mod loopback;
 mod metronome;
 mod midi;
 mod mixer;

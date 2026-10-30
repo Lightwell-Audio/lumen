@@ -53,7 +53,24 @@ pub struct FakeDevice {
     /// block however long it took, which a busy machine turns into a device
     /// that runs slow and falls ever further behind the wall clock.
     pub pace: Option<Pace>,
+    /// A cable from an output to an input (M9 slice R2b): what the output
+    /// played comes back on the input `delay` frames later, times `gain`,
+    /// in place of `input_levels`. Delays shorter than a block read as
+    /// silence, as no real device is that quick.
+    pub cable: Option<Cable>,
 }
+
+/// A loopback cable on the fake device, by device channel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Cable {
+    pub output: usize,
+    pub input: usize,
+    pub delay: u32,
+    pub gain: f32,
+}
+
+/// Frames of output a fake cable remembers.
+const CABLE_FRAMES: usize = 1 << 18;
 
 /// How a paced device counts the blocks it owes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +114,7 @@ impl FakeDevice {
             input_levels: Vec::new(),
             input_ramp: false,
             pace: None,
+            cable: None,
             buffer_sizes: BufferSizes {
                 min: 32,
                 max: 2048,
@@ -194,6 +212,8 @@ impl Backend for FakeBackend {
             },
             inputs: vec![0.0; inputs * frames as usize],
             input_map,
+            output_map: config.output_channels.clone(),
+            line: Vec::new(),
             outputs: vec![0.0; outputs * frames as usize],
             position: device.start_position,
             polls: 0,
@@ -210,6 +230,11 @@ struct FakeStream {
     inputs: Vec<f32>,
     /// The device channel each input of the callback is.
     input_map: Vec<usize>,
+    /// The device channel each output of the callback is.
+    output_map: Vec<usize>,
+    /// What the cable's output played, by stream frame modulo its length;
+    /// made when a cable is first plugged in.
+    line: Vec<f32>,
     outputs: Vec<f32>,
     position: u64,
     polls: u32,
@@ -237,13 +262,45 @@ impl FakeStream {
     }
 }
 
+impl FakeStream {
+    /// The cable's input hears what its output played `delay` frames ago.
+    fn cable_in(&mut self, cable: Cable) {
+        let Some(i) = self.input_map.iter().position(|&c| c == cable.input) else {
+            return;
+        };
+        let frames = self.info.buffer_frames as usize;
+        let delay = u64::from(cable.delay);
+        for (n, sample) in self.inputs[i * frames..(i + 1) * frames]
+            .iter_mut()
+            .enumerate()
+        {
+            let at = self.position + n as u64;
+            *sample = if delay < frames as u64 || at < delay || delay >= CABLE_FRAMES as u64 {
+                0.0
+            } else {
+                self.line[((at - delay) % CABLE_FRAMES as u64) as usize] * cable.gain
+            };
+        }
+    }
+
+    /// Remembers what the cable's output played in this block.
+    fn cable_out(&mut self, cable: Cable) {
+        let frames = self.info.buffer_frames as usize;
+        let played = self.output_map.iter().position(|&c| c == cable.output);
+        for n in 0..frames {
+            let at = ((self.position + n as u64) % CABLE_FRAMES as u64) as usize;
+            self.line[at] = played.map_or(0.0, |o| self.outputs[o * frames + n]);
+        }
+    }
+}
+
 impl Stream for FakeStream {
     fn info(&self) -> StreamInfo {
         self.info.clone()
     }
 
     fn poll(&mut self) -> Option<StreamEvent> {
-        let (present, reset, stalled, every, skip, resync, pace, ramp) = {
+        let (present, reset, stalled, every, skip, resync, pace, ramp, cable) = {
             let device = self.control.0.lock().expect("fake device lock");
             let frames = self.info.buffer_frames as usize;
             for (i, &channel) in self.input_map.iter().enumerate() {
@@ -263,8 +320,12 @@ impl Stream for FakeStream {
                 device.resync_jump.take(),
                 device.pace,
                 device.input_ramp,
+                device.cable,
             )
         };
+        if cable.is_some() && self.line.is_empty() {
+            self.line = vec![0.0; CABLE_FRAMES];
+        }
         self.position += skip + resync.unwrap_or(0);
         self.polls += 1;
         if !self.polls.is_multiple_of(every) {
@@ -278,7 +339,8 @@ impl Stream for FakeStream {
             return Some(StreamEvent::ResetRequested);
         }
         let blocks = pace.map_or(1, |pace| self.owed(pace));
-        if let Some(callback) = self.callback.as_mut() {
+        // Held out while it runs, so the cable can use the stream meanwhile.
+        if let Some(mut callback) = self.callback.take() {
             for n in 0..blocks {
                 if ramp {
                     let frames = self.info.buffer_frames as usize;
@@ -287,6 +349,9 @@ impl Stream for FakeStream {
                             *sample = ramp_at(self.position + i as u64);
                         }
                     }
+                }
+                if let Some(cable) = cable {
+                    self.cable_in(cable);
                 }
                 self.outputs.fill(0.0);
                 let mut block = Block {
@@ -299,8 +364,12 @@ impl Stream for FakeStream {
                     position: (resync.is_none() || n > 0).then_some(self.position),
                 };
                 callback.process(&mut block);
+                if let Some(cable) = cable {
+                    self.cable_out(cable);
+                }
                 self.position += u64::from(self.info.buffer_frames);
             }
+            self.callback = Some(callback);
         }
         None
     }

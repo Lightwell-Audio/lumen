@@ -589,6 +589,7 @@ impl App {
             | Command::ShowDevices
             | Command::ShowMixer
             | Command::MediaPool => Ok(()),
+            Command::MeasureLatency => self.transport.audio.measure_unavailable(),
         }
     }
 }

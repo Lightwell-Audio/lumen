@@ -237,6 +237,7 @@ pub(crate) enum Command {
     ShowDevices,
     ShowClip,
     ShowMixer,
+    MeasureLatency,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -539,6 +540,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::ShowDevices, "view.show_devices", "Show devices", Area::View, &[], "Shows the Devices tab of the detail panel: the chain of the track named at its left, the one whose header or clip was clicked last."),
     info(Command::ShowClip, "view.show_clip", "Show clip", Area::View, &[], "Shows the Clip tab of the detail panel: the opened clip's properties and wave, or its notes."),
     info(Command::ShowMixer, "view.show_mixer", "Show mixer", Area::View, &[], "Shows the Mixer tab of the detail panel: every track's channel strip."),
+    info(Command::MeasureLatency, "transport.measure_latency", "Measure recording latency…", Area::Transport, &[], "Opens the audio settings at the loopback helper: with a cable from an output to an input, five clicks measure how long sound takes to go out and come back, and the difference from what the driver reports can become the recording offset, so takes land where they were played."),
 ];
 
 const fn info(
@@ -602,7 +604,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::ShowMixer as usize + 1,
+            Command::MeasureLatency as usize + 1,
             ALL.len(),
             "a command is missing"
         );

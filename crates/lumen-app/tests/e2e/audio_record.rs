@@ -201,9 +201,24 @@ fn project_with_old_clip() -> Project {
 
 #[test]
 fn the_old_clip_is_silenced_under_a_take_and_cut_when_it_ends() {
-    let (mut lumen, _turn) = launch("over", &project_with_old_clip(), |l| l);
+    record_over_old_clip("over", false);
+}
+
+#[test]
+fn recording_inside_an_old_clip_preserves_its_prefix_and_cuts_under_the_take() {
+    record_over_old_clip("over-inside", true);
+}
+
+fn record_over_old_clip(name: &str, inside: bool) {
+    let (mut lumen, _turn) = launch(name, &project_with_old_clip(), |l| l);
     assert!(lumen.app().audio_tracks_recorded_over().is_empty());
     lumen.click("Arm Vox");
+    if inside {
+        lumen.key(Modifiers::NONE, Key::Space);
+        lumen.wait_for("playback inside the old clip", |app| {
+            app.is_playing() && app.playhead() >= Ticks::quarters(1)
+        });
+    }
     lumen.key(Modifiers::NONE, Key::F9);
     lumen.wait_for("the old clip to be silenced", |app| {
         app.recording() && app.audio_tracks_recorded_over() == vec![VOX]
@@ -225,16 +240,33 @@ fn the_old_clip_is_silenced_under_a_take_and_cut_when_it_ends() {
         "the old clip to play again where it is not covered",
         |app| app.audio_tracks_recorded_over().is_empty(),
     );
-    // The take began where the old clip did, so the old clip is cut to what
-    // the take does not cover (or gone), never under it.
+    // Only the take's actual recorded span is replaced. An old prefix is
+    // kept if the first captured frame lands after zero, as is the suffix.
     let take = clips_of(&lumen, VOX)
         .into_iter()
         .find(|c| c.name != "Old")
         .expect("the take");
-    for old in clips_of(&lumen, VOX).iter().filter(|c| c.name == "Old") {
+    let clips = clips_of(&lumen, VOX);
+    let end = take.start + take.length;
+    for old in clips.iter().filter(|c| c.name == "Old") {
+        let old_end = old.start + old.length;
         assert!(
-            old.start >= take.start + take.length,
-            "the old clip starts under the take"
+            old_end <= take.start || old.start >= end,
+            "old clip {:?}..{old_end:?} overlaps take {:?}..{end:?}",
+            old.start,
+            take.start,
+        );
+    }
+    if inside {
+        assert!(
+            take.start > Ticks::ZERO && take.start < Ticks::quarters(8),
+            "the take starts inside the old clip"
+        );
+        assert!(
+            clips
+                .iter()
+                .any(|c| c.name == "Old" && c.start == Ticks::ZERO),
+            "the old prefix is preserved"
         );
     }
 }
@@ -434,14 +466,9 @@ fn a_crash_while_recording_leaves_a_take_the_next_start_puts_back() {
     lumen.wait_for("frames to be written", |app| {
         app.audio_take_frames(VOX).is_some_and(|f| f >= 12_000)
     });
-    let autosaves = lumen.dir().join("autosave");
-    lumen.wait_for("an autosave", |_| {
-        std::fs::read_dir(&autosaves).is_ok_and(|entries| {
-            entries
-                .flatten()
-                .any(|e| e.path().extension().is_some_and(|x| x == "lumen"))
-        })
-    });
+    // File appearance can precede the worker's handoff of the session lock.
+    // Let the app receive it before this simulated crash drops the app.
+    lumen.wait_for("an autosave", |app| app.autosave_finished());
     // The file is on disk, beside a note that it is unfinished.
     let recordings = lumen.dir().join("Recordings");
     let sidecars = || {

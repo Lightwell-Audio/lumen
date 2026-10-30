@@ -562,6 +562,9 @@ fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
     let cache = Cache::new(dir.join("cache"));
     let cancel = AtomicBool::new(false);
     // Three converted files, each with its peaks, made one after another.
+    // Each step waits longer than the file system's time step (a few ms on
+    // Linux), or a copy and its peaks can share a modified time and trim's
+    // order between them is left to chance.
     let prepared: Vec<_> = (0..3)
         .map(|i| {
             let source = dir.join(format!("{i}.wav"));
@@ -569,6 +572,7 @@ fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
             let prepared = cache
                 .prepare(&source, 48_000, &cancel, &mut |_| {})
                 .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(30));
             cache.peaks(&prepared.path, &cancel, &mut |_| {}).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(30));
             prepared
