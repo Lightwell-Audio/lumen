@@ -56,9 +56,23 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # --all-targets also runs every divan benchmark once as a smoke test.
       # --no-fail-fast runs every test binary, so one run shows all failures.
+      # The output is kept so that a failure names its tests below.
       - name: Tests
+        shell: bash
         run: |
-          cargo test --workspace --all-targets --locked --no-fail-fast -- --skip walkthrough_plugins::
+          set -o pipefail
+          cargo test --workspace --all-targets --locked --no-fail-fast -- --skip walkthrough_plugins:: 2>&1 | tee test-output.txt
+      # Each failed test and where it panicked, as annotations on the run:
+      # readable on the run's page and through the API without the full log.
+      - name: Name the failed tests
+        if: failure()
+        shell: bash
+        run: |
+          # One annotation per panic (a step shows at most ten): the thread,
+          # which names the test, the place and the message's first lines.
+          awk '/panicked at/ { n = 3; msg = $0; next }
+               n > 0 { msg = msg " | " $0; if (--n == 0) print "::error title=Failed test::" msg }' test-output.txt | head -10
+          grep -E "^test .* FAILED$" test-output.txt | head -20
       # Five live plugin hosts share the callback deadline in this flow.
       # Run it without competing E2E scenarios: peer tests can starve a
       # host and trigger the intended dry fallback, resetting peak meters.
