@@ -775,15 +775,15 @@ mod sender_tests {
             median < Duration::from_millis(8),
             "median lateness {median:?}"
         );
-        assert!(
-            worst < Duration::from_millis(25),
-            "worst lateness {worst:?}"
-        );
+        let allowed_lateness = Duration::from_millis(25);
+        assert!(worst < allowed_lateness, "worst lateness {worst:?}");
         // Spacing: the gaps between notes follow the frames (100 ms apart,
         // each send up to the lateness above off; a wrong rule is far out).
+        // One note can be late and the next on time, shortening the gap by
+        // that lateness. Include the 1 ms early allowance checked above too.
         let gap = sent[2].2 - sent[0].2;
         assert!(
-            gap > Duration::from_millis(88) && gap < Duration::from_millis(115),
+            gap.abs_diff(Duration::from_millis(100)) < allowed_lateness + Duration::from_millis(1),
             "{gap:?}"
         );
     }
