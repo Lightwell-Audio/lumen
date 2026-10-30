@@ -16,12 +16,13 @@ use lumen_audio::{
 use lumen_core::product::PRODUCT_NAME;
 use lumen_engine::{
     ClipsHandle, EngineHandle, InputHandle, Layered, MidiHandle, MixerHandle, Timeline,
-    clip_player, engine, input_player, midi_player, mixer,
+    clip_player, engine, input_player, loopback, midi_player, mixer,
 };
 
 use crate::export_live;
+use crate::measure_latency::{Cable, Measurement};
 use crate::midi_out::StreamClock;
-use crate::settings::AudioSettings;
+use crate::settings::{AudioSettings, MeasuredWith};
 use crate::take_worker::TakeWorker;
 
 /// What the test device's tap holds: 40 seconds of the fake device's
@@ -407,6 +408,8 @@ pub struct Audio {
     pub(crate) takes: TakeWorker,
     /// Installs callback-driven real-time export sessions from worker threads.
     pub(crate) export: Arc<Mutex<export_live::Handle>>,
+    /// The loopback helper's measurement (M9 slice R2b).
+    pub(crate) measurement: Measurement,
     /// What the test device played, left and right frame by frame, for the
     /// end-to-end tests to listen to (`testing`). Real devices have none.
     pub(crate) heard: Option<rtrb::Consumer<f32>>,
@@ -484,6 +487,7 @@ impl Audio {
         };
         let clock = StreamClock::new();
         let (export, mut export_tap) = export_live::channel();
+        let (measure, mut clicks) = loopback::loopback();
         let export = Arc::new(Mutex::new(export));
         let stream = Arc::clone(&clock);
         let mut processed = 0_u64;
@@ -501,6 +505,15 @@ impl Audio {
                 frames,
             );
             export_tap.process(block);
+            // While measuring, only the clicks are heard.
+            clicks.process(loopback::Block {
+                rate,
+                inputs: block.inputs,
+                input_channels: block.input_channels,
+                outputs: &mut *block.outputs,
+                output_channels: channels,
+                frames,
+            });
             if let Some(tap) = &mut tap {
                 listen(tap, block.outputs, channels, frames);
             }
@@ -516,6 +529,7 @@ impl Audio {
             inputs,
             takes,
             export,
+            measurement: Measurement::new(measure),
             heard,
             status: Status::Off(String::new()),
             driver: String::new(),
@@ -627,6 +641,41 @@ impl Audio {
             (Some(config), Some(info)) => config.inputs_on(info.input_channels),
             _ => Vec::new(),
         }
+    }
+
+    /// The device channels open as outputs, in the order the engine plays
+    /// them: the main pair, the cue pair, then further pairs.
+    pub fn open_outputs(&self) -> Vec<usize> {
+        match (&self.config, &self.info) {
+            (Some(config), Some(_)) => config.output_channels.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Why the loopback helper cannot measure now, if it cannot.
+    pub fn measure_unavailable(&self) -> Result<(), &'static str> {
+        match (&self.status, &self.info) {
+            (Status::Running { .. }, Some(info)) if info.input_channels == 0 => {
+                Err("The audio device has no inputs open")
+            }
+            (Status::Running { .. }, Some(_)) => Ok(()),
+            _ => Err("Audio is off"),
+        }
+    }
+
+    /// Measures the round trip through `cable` on the running device.
+    pub fn measure(&mut self, cable: Cable) {
+        let (Some(info), Some(settings)) = (self.info.clone(), self.settings()) else {
+            return;
+        };
+        let with = MeasuredWith {
+            driver: settings.driver,
+            device_id: settings.device_id,
+            device_name: settings.device_name,
+            sample_rate: info.sample_rate,
+            buffer_frames: info.buffer_frames,
+        };
+        self.measurement.start(&info, cable, with);
     }
 
     /// The main pair: the opened outputs before the cue pair (and any
@@ -839,8 +888,11 @@ impl Audio {
     /// Applies device events. Call every frame; returns true if the status
     /// changed.
     pub fn poll(&mut self) -> bool {
+        let measured = self
+            .measurement
+            .poll(matches!(self.status, Status::Running { .. }));
         let Some(system) = &self.system else {
-            return false;
+            return measured;
         };
         // Taken first: handling a failure may reopen the previous setup.
         let events: Vec<DeviceEvent> = std::iter::from_fn(|| system.try_event()).collect();
@@ -901,7 +953,7 @@ impl Audio {
         self.clips.collect_garbage();
         self.midi.collect_garbage();
         self.mixer.collect_garbage();
-        changed
+        changed || measured
     }
 }
 

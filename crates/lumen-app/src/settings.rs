@@ -301,6 +301,21 @@ pub struct Settings {
     /// How audio files play (M9 slice R6): an added section with defaults,
     /// so older files read as before (no version change).
     pub playback: Playback,
+    /// What the recording offset was measured with, when it came from the
+    /// loopback helper (M9 slice R2b): the audio settings say so when the
+    /// device in use differs. An added field, no version change.
+    pub offset_measured: Option<MeasuredWith>,
+}
+
+/// The device setup a loopback measurement was taken on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeasuredWith {
+    /// `asio`, `wasapi`, `exclusive` or `cpal`.
+    pub driver: String,
+    pub device_id: String,
+    pub device_name: String,
+    pub sample_rate: u32,
+    pub buffer_frames: u32,
 }
 
 /// How audio files play.
@@ -369,6 +384,7 @@ impl Default for Settings {
             editing: Editing::default(),
             bounce: BounceChoices::default(),
             playback: Playback::default(),
+            offset_measured: None,
         }
     }
 }
@@ -630,6 +646,13 @@ mod tests {
                 tail: false,
             },
             playback: Playback { from_disk: true },
+            offset_measured: Some(MeasuredWith {
+                driver: "asio".into(),
+                device_id: "{1234}".into(),
+                device_name: "Focusrite USB ASIO".into(),
+                sample_rate: 48_000,
+                buffer_frames: 128,
+            }),
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings.clone(), None));

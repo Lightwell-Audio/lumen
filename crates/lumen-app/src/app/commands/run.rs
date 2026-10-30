@@ -511,6 +511,7 @@ impl App {
             Command::ShowDevices => self.show_detail_tab(crate::app::detail::DetailTab::Devices),
             Command::ShowClip => self.show_detail_tab(crate::app::detail::DetailTab::Clip),
             Command::ShowMixer => self.show_detail_tab(crate::app::detail::DetailTab::Mixer),
+            Command::MeasureLatency => self.transport.settings_window.open_measure(),
             Command::MediaPool => self.show_media_pool(),
             Command::LocateMedia => {
                 if let Some(id) = self.selected_missing_media() {

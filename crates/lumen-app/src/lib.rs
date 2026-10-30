@@ -77,6 +77,7 @@ mod light;
 mod live;
 mod live_tap;
 mod loop_passes;
+mod measure_latency;
 mod media;
 mod meters;
 mod midi;
@@ -665,13 +666,22 @@ impl eframe::App for App {
         };
         self.transport.record_offset_ms = self.settings.record.offset_ms;
         self.transport.from_disk = self.settings.playback.from_disk;
-        let asked = self.transport.windows(&ctx, shown);
+        let asked = self
+            .transport
+            .windows(&ctx, shown, self.settings.offset_measured.as_ref());
         if let Some(on) = self.transport.from_disk_asked.take() {
             self.settings.playback.from_disk = on;
             self.settings_changed = Some(Instant::now());
         }
         if let Some(ms) = self.transport.offset_asked.take() {
+            // Typed by hand: no longer the measured one.
             self.settings.record.offset_ms = ms;
+            self.settings.offset_measured = None;
+            self.settings_changed = Some(Instant::now());
+        }
+        if let Some((ms, with)) = self.transport.measured_asked.take() {
+            self.settings.record.offset_ms = ms;
+            self.settings.offset_measured = Some(with);
             self.settings_changed = Some(Instant::now());
         }
         for action in asked {

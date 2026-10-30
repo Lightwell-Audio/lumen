@@ -112,6 +112,7 @@ irreversible or external) · *Superseded*.
 | [0098](#adr-0098--freeze-unfreeze-and-flatten-m7b-e5) | Freeze, unfreeze and flatten (M7b E5) | Accepted 2026-10-24 | Yes (v29) |
 | [0099](#adr-0099--a-render-or-scan-result-is-applied-only-to-what-it-read-m9-r0) | A render or scan result is applied only to what it read; the clips of a track being recorded are read-only (M9 R0) | Accepted 2026-10-24 | No |
 | [0108](#adr-0108--the-ux-round-three-detail-tabs-compact-cards-the-cpu-slot-the-chip-clip) | UX round three: detail tabs, compact cards, the CPU slot, the chip clip | Accepted 2026-10-28 | No |
+| [0110](#adr-0110--the-loopback-helper-measuring-the-round-trip-m9-r2b) | The loopback helper: measuring the round trip (M9 R2b) | Accepted 2026-10-29 (MT-REC-5 pending) | No |
 
 ---
 
@@ -123,6 +124,7 @@ irreversible or external) · *Superseded*.
 | Take lanes deferred (M9 R3, 2026-10-26) | Pitched after the owner's runs of R3 (each pass a clip on its own lane under the track, a comp lane that plays, comping by dragging across a lane): the owner likes individual take lanes and **deferred them, with comping, until after M9's must-have slices**, as recommended. Until then a take is a whole pass inside one clip (ADR-0104), reached from the Takes menu; the passes are windows on one file, so dragging a clip's edge past its pass shows the pass beside it (intended, as in common workstations). When lanes are built, the takes inside a clip become lanes by migration. Open for then: whether a comp segment is a copied clip or a reference to its take, whether recording over any material (not only loop passes) makes a lane, and MIDI lanes. |
 | M9 R4 choices (2026-10-26) | P1 A (renders follow the project rate), P2 A (Revert reloads the saved file after a quiet prompt, keeping the unsaved version in `Backups/Reverted`), S A (R4 is the save family and project settings; the media pool, relink and purge are R4b): every recommendation (`docs/milestones/M9.md` §2). After MT-PROJ-1 run 1 (2026-10-26): projects and templates get their own folders in `Documents/Lumen` (option A of four pitched), and the app menu is grouped (layout A of three pitched as specimens): ADR-0105. |
 | M9 R4b choices (2026-10-26) | M1 A (a "Project media" tab in the browser), M2 A (Locate one file, and search a folder with a report to look at before anything changes), M3 A (remove unused takes entries out as one undo step; Clear moves leftover files to the system trash after a second press), M4 A (a banner with Relink… on open): every recommendation (`docs/milestones/M9.md` §2; ADR-0106). |
+| M9 R2b choices (2026-10-29) | Placement A (a card that unfolds under the recording offset in the Latency section, with the returned clicks drawn; chosen from three rendered mocks), five short clicks at −12 dBFS, the measured offset offered with one click rather than applied, and remembering the driver, device, rate and buffer it was measured on, with a hint to measure again when they differ (the offset itself stays global, as chosen for R4): every recommendation (ADR-0110). |
 | UX round three (2026-10-28) | DP1 A (the detail panel names its subject; Clip only for an opened clip), B8 A (the chips' clip reaches past the pane), TB2 A (a fixed CPU slot), D2 A (compact cards in a short tray), and a margin round a compact card's Reload: every recommendation on the round-three audit sheet (ADR-0108). |
 | M9 R6 choices (2026-10-27) | L A (Play and a locate wait until the audio is read, at most 150 ms, so everything starts together), **M B** (audio is kept in memory automatically, short files always; no per-clip switch and no format change, because the owner does not want the process to be complex for users; this replaces the "per-clip RAM option" of the 2026-10-06 wording), C A (converted audio and peaks in Lumen's cache folder with a 20 GB limit, after asking what workstations commonly do: a shared, rebuildable cache or a converted copy in the project), D A (a Disk row in the status panel and an amber chip after an underrun), **S B** (one slice: streaming, the peak cache, the cache limit, export in blocks with RF64 and the atlas reclaim on one branch). Plan: `milestones/M9.md` (R6). |
 | M9 plan choices (2026-10-24) | R1 A, R2 A, R3 A, R4 A, R5 A, X1 A, X2 A, X3 A: every recommendation (`docs/milestones/M9.md` §2). |
@@ -9748,3 +9750,80 @@ clips cache the pool's samples and the file's length per side (-16%). Two
 scenarios are new: `engine_streamed_64` (64 streamed clips, every page in
 memory, about 2.3 times the in-memory mix) and `stream_plan_64`. The
 baseline is rewritten with all of them.
+
+## ADR-0110 — The loopback helper: measuring the round trip (M9 R2b)
+
+**Date:** 2026-10-29. **Slice:** M9 R2b, `m9-s2b-loopback-helper`, cut from
+`main` at `8a4f5acf`. **Status:** Accepted (built; MT-REC-5 waits for the
+owner's hardware). Plan: `milestones/M9.md` (R2b). Owner choices
+(2026-10-29): placement A (a card inside the Latency section), five clicks,
+an offer taken with one click, and remembering the setup measured on (owner
+table).
+
+**Context.** Recording places a take by the latencies the driver reports
+plus a manual offset (ADR-0102). Drivers report their safety buffers and
+converter delays unevenly, and WASAPI's input figure is an estimate
+(KNOWN_ISSUES), so takes can land a few milliseconds off with nothing in
+Lumen to show by how much.
+
+**Choice.**
+
+1. **The measurement runs beside the engine, in the device callback**
+   (`lumen_engine::loopback`). The callback runs the engine, then the
+   loopback player. While a measurement runs, the player replaces every
+   output with silence and five clicks on the chosen output (one channel or
+   a pair). It also keeps the chosen input in a buffer made with the job.
+   Output and input are numbered in the same callback frames, so the delay
+   found is the shift recording placement needs. A job comes in through an
+   SPSC queue and goes back through another to be freed off the audio thread.
+   A rate change or a missing channel ends it at once. The allocation guard
+   covers it (`tests/realtime.rs`).
+2. **The click** is 256 steps of ±0.25 (−12 dBFS) from an 8-bit
+   maximal-length sequence. The five clicks start 0.3 s apart after 0.1 s of
+   lead, and the run lasts about 1.6 s. A sequence correlates to one sharp
+   peak after the converters' filters too, and it sounds like a tick.
+3. **Analysis** (`find_round_trip`, a pure function, run on a thread of its
+   own). Each click is cross-correlated over lags of 0 to 250 ms. That is
+   shorter than the spacing, so no click is taken for its neighbour. The
+   checks:
+   - an input below −60 dBFS is **Silent**;
+   - a peak less than 8 times the RMS of the rest of its window is **Unclear**;
+   - delays more than 2 frames apart **Disagree**;
+   - otherwise the result is the median delay.
+
+   Clipping and a polarity flip are reported but do not refuse the result.
+4. **The offer.** The offset offered is (measured − reported in + out) / rate
+   in ms, to a tenth, within the field's ±500 ms. "Use +x ms" sets it. The
+   settings remember `offset_measured` (driver, device, rate, buffer), an
+   added field, so the version is unchanged. Typing an offset by hand clears
+   it. When the running setup differs, a hint under the field says what the
+   offset was measured with and to measure again.
+5. **The card** (`measure_latency::card`): Cable from (the open output pairs)
+   to (the open inputs), a strip with each click's correlation with what
+   came back laid over the others (one sharp line where they agree; the
+   converters' filters ring around it) and a dashed line at the delay
+   found, the result, and Measure /
+   Measure again. Measure is held while playing, recording or counting in.
+   Failures say what to check: the cable, the input's gain, other audio
+   programs or the buffer. A note says that a loopback input inside the
+   device skips the converters. The card made the Audio page taller than a
+   900-point screen, so the settings window's pages now scroll in what the
+   window has room for, and the card scrolls into view when it opens.
+6. **Command:** "Measure recording latency…" (`transport.measure_latency`)
+   opens the audio settings at the card. It is unavailable while audio is off
+   or no input is open.
+7. **Test seam:** the fake device has a `Cable` (output, input, delay, gain).
+   The E2E scenarios measure a 600-frame cable and offer +5.2 ms.
+
+**Options not taken.**
+- A separate window (B): one more window for a two-step task.
+- A compact two-row form (C): it shows no trace.
+- A log sweep: more robust in noise, but a single run cannot check itself
+  and is a less obvious sound.
+- Applying the offset at once.
+- Per-device offsets: they would replace the owner's global offset of R4.
+
+**Consequences.** No project format change. On real hardware the number
+depends on the cable and the interface. A digital loopback input (one that
+does not pass through the converters) measures short, which the card warns
+about. MT-REC-5 checks it on the Focusrite with ASIO and WASAPI.

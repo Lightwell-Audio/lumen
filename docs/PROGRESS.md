@@ -9,7 +9,7 @@ below) and every milestone's report (at the end). Plans and slice lists are in
 
 M7 waits for the owner (MT-EDIT-2, MT-EDIT-7, MT-UX-2, then the approval); its
 planned E7 (audio clip editor) and E8 (warp and time-stretch) start when the
-owner chooses. M9 continues with R2b and R6 to R9. Details: the table below
+owner chooses. M9 continues with R7 to R9; R6 is merged and R2b (the loopback helper, ADR-0110) is built on its branch. Details: the table below
 and `CLAUDE.md` §12.
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -26,7 +26,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 5 | MIDI & Piano Roll | ✅ Signed off 2026-10-26; MT-MIDI-7 to 9 out of scope for now (owner) | [M5](milestones/M5.md) |
 | 6 | VST3 Hosting & Device System | ✅ Signed off 2026-10-26; MT-VST-3 to 7 and the ADR-0069 callback numbers are out of scope for now (owner), so the callback's wait stays on trial | [M6](milestones/M6.md); review `docs/audits/2026-10-18-m6.md` |
 | 7 | Automation, Editing & Render | 🟡 A0 to A8 and E0 to E6 merged (ADR-0081 to 0098; formats v22 to v29); MT-EDIT-2, MT-EDIT-7 and MT-UX-2 and the approval wait; E7 and E8 not started | [M7](milestones/M7.md); reviews `docs/audits/2026-10-22-m7.md`, `docs/audits/2026-10-24-m7b.md` |
-| 9 | Recording, Media, Export & Production Workflow | 🟡 R0 to R5, R1b and R4b merged (ADR-0099 to 0107; formats v30 to v32); MT-EXPORT-1 waits; R6 (disk streaming, ADR-0109) built on its branch, MT-STREAM-1 passed; R2b and R7 to R9 not started | Before M8 (owner, 2026-10-23). [M9](milestones/M9.md) |
+| 9 | Recording, Media, Export & Production Workflow | 🟡 R0 to R5, R1b and R4b merged (ADR-0099 to 0107; formats v30 to v32); MT-EXPORT-1 waits; R6 merged (PR #74, ADR-0109), MT-STREAM-1 passed; R2b (loopback helper, ADR-0110) built on its branch, MT-REC-5 waits; R7 to R9 not started | Before M8 (owner, 2026-10-23). [M9](milestones/M9.md) |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | After M9 (owner, 2026-10-23) |
 | 10 | Hardening, Performance & Release | 🔲 | |
 | S | Stretch goals (only with the owner's approval) | 🟡 | VST3 hosting: macOS approved 2026-10-19 and in progress ([plan](milestones/macOS-VST3.md), ADR-0085); Linux not scheduled |
@@ -237,7 +237,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Take lanes and comping | S | 🔲 Deferred by the owner until after M9's must-have slices (2026-10-26) |
 | Unlimited undo/redo with visible history | M | 🟡 Undo and redo for imports, tempo and time signature (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y), a History window, and a note after each undo (M3 slice 3, ADR-0024). Every later edit joins it as it is built |
 | Audio recording with monitoring, multitrack, input meters | M | 🟡 Monitoring, input routing and input meters (M9 R1, ADR-0100); recording is built in R2 (ADR-0102), MT-REC-2 passed (owner, 2026-10-26) |
-| Latency compensation with manual offset; crash-safe capture | M | 🟡 MIDI recording takes off the output latency automatically and commits takes about once a second (M5 slice 6, ADR-0055). Audio capture takes off the input and output latency plus a manual offset (audio window, M9 R2, ADR-0102); the file is valid at every moment and recovered after a crash. MT-REC-2 passed (owner, 2026-10-26) but reported no measured figures. The manual offset does not yet apply to MIDI |
+| Latency compensation with manual offset; crash-safe capture | M | 🟡 MIDI recording takes off the output latency automatically and commits takes about once a second (M5 slice 6, ADR-0055). Audio capture takes off the input and output latency plus a manual offset (audio window, M9 R2, ADR-0102); the file is valid at every moment and recovered after a crash. MT-REC-2 passed (owner, 2026-10-26) but reported no measured figures. The loopback helper (M9 R2b, ADR-0110) measures the real round trip through a cable and offers the difference as the offset, remembering the setup it was measured on; MT-REC-5 (hardware) waits. The manual offset does not yet apply to MIDI |
 | MIDI recording: overdub/replace, count-in, punch | M | 🟡 Built in M5 slice 6 (ADR-0055): Record (F9 or the button) on armed MIDI tracks, a count-in of 1, 2 or 4 bars, Replace and Overdub, punch from the loop brace's switches, loop passes that layer, commits about once a second, one undo step per take, and autosave every 10 s while recording. Real-controller timing is unverified: MT-MIDI-7 is out of scope for now (owner, 2026-10-26) |
 | Computer keyboard as MIDI input | M | 🟡 Built in M5 slice 2 (ADR-0046): the computer-keyboard MIDI layout in a mode (Ctrl+Shift+K), octave and velocity keys, lit transport button and readout; E2E hears it. MT-MIDI-3 passed (2026-10-11) |
 | Loop recording into takes; capture MIDI | S | 🟡 Built in M9 R3 (ADR-0104, format v31): loop recording keeps every pass as a take of one clip (audio always; MIDI in Replace, Overdub still layers), a Takes menu and "n/m" chip on the clip, commands to play the next or previous take, extract one to a new track (audio) and keep only one; Capture MIDI (Shift+F9) turns the last phrase played while not recording into a clip, from a ten-minute in-memory buffer with a switch. E2E scenarios pass; MT-REC-3 passed (owner, 2026-10-26) |

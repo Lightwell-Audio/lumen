@@ -57,6 +57,7 @@ mod light;
 mod live_lights;
 mod locators;
 mod looping;
+mod measure_latency;
 mod media_pool;
 mod meters;
 mod midi;

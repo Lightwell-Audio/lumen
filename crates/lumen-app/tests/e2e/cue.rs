@@ -48,6 +48,14 @@ fn choose_cue_pair(lumen: &mut Lumen) {
             .query_all_by_label(label)
             .last()
             .expect("the cue pair is offered");
+        // The page scrolls in a short window: bring the list into view.
+        cue.scroll_to_me();
+        lumen.frames(2);
+        let cue = lumen
+            .harness
+            .query_all_by_label(label)
+            .last()
+            .expect("the cue pair is offered");
         cue.click();
         lumen.frames(3);
         let chosen = lumen

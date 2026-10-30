@@ -4337,3 +4337,88 @@ fn media_pool() {
         }
     }
 }
+
+/// M9 R2b: the loopback helper's card in the audio settings, before a
+/// measurement, with a result, and with nothing come back, in both themes at
+/// 100, 150 and 200%. A cable on the input test device runs from output 1
+/// to input 2, 600 frames long.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn measure_latency_card() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_audio::fake::{Cable, Pace};
+
+    let turn = lumen_app::testing::input_device_turn();
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            turn.set(|d| {
+                d.pace = Some(Pace::RealTime);
+                d.cable = Some(Cable {
+                    output: 0,
+                    input: 1,
+                    delay: 600,
+                    gain: 0.5,
+                });
+            });
+            let dir = TempDir::new(&format!("shots-measure-{appearance}-{scale}"));
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .with_input_device();
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 1000.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            let wait = |h: &mut Harness<'static, App>, label: &str| {
+                for _ in 0..3_000 {
+                    if h.query_by_label_contains(label).is_some() {
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    h.run_steps(1);
+                }
+                panic!("{label} never showed");
+            };
+            for _ in 0..200 {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                h.run_steps(1);
+                if h.state().audio_running() && h.state().open_inputs() == 2 {
+                    break;
+                }
+            }
+            h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+            h.run_steps(3);
+            h.event(Event::Text("Measure recording latency".into()));
+            h.run_steps(3);
+            h.key_press(Key::Enter);
+            wait(&mut h, "Cable to: 1  In 1");
+            h.run_steps(20);
+            let tag = format!("{appearance}-{scale}");
+            save(&mut h, &format!("measure-idle-{tag}"));
+            h.get_by_label("Cable to: 1  In 1").click();
+            h.run_steps(5);
+            h.get_by_label("2  In 2").click();
+            h.run_steps(5);
+            h.get_by_label("Measure").click();
+            h.run_steps(3);
+            save(&mut h, &format!("measure-listening-{tag}"));
+            wait(&mut h, "Use +5.2 ms");
+            h.run_steps(10);
+            save(&mut h, &format!("measure-result-{tag}"));
+            turn.set(|d| d.cable = None);
+            h.get_by_label("Measure again").click();
+            wait(&mut h, "Nothing came back");
+            h.run_steps(10);
+            save(&mut h, &format!("measure-silent-{tag}"));
+        }
+    }
+}

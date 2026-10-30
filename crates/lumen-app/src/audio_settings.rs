@@ -13,7 +13,8 @@ use eframe::egui::{self, RichText, Ui};
 use lumen_audio::{DeviceId, DeviceInfo};
 
 use crate::audio::{self, Audio, DRIVERS, Status, driver_label};
-use crate::settings::AudioSettings;
+use crate::measure_latency::{Asked, Cable, Card, Shown};
+use crate::settings::{AudioSettings, MeasuredWith};
 use crate::{theme, widgets};
 use widgets::Dropdown;
 
@@ -30,6 +31,11 @@ pub enum Action {
     RecordOffset(f32),
     /// "Play audio from disk" on or off (M9 slice R6).
     FromDisk(bool),
+    /// Measure the round trip through a cable (M9 slice R2b).
+    Measure(Cable),
+    /// Make a measured offset the recording offset, remembering what it was
+    /// measured with.
+    UseMeasured(f32, MeasuredWith),
     DismissNotice,
     /// Something on the MIDI page.
     Midi(crate::midi::Action),
@@ -147,12 +153,22 @@ pub struct Window {
     pub page: usize,
     /// The notice shown last, kept while it fades out.
     last_notice: Option<String>,
+    /// The loopback helper's card in the Latency section.
+    measure: Card,
 }
 
 /// Width of the label column, so every section lines up.
 const LABEL_WIDTH: f32 = theme::size::LABEL_COLUMN;
 
 impl Window {
+    /// Opens the window at the loopback helper.
+    pub fn open_measure(&mut self) {
+        self.open = true;
+        self.page = 0;
+        self.measure.open = true;
+        self.measure.reveal = true;
+    }
+
     /// The output channel names of `driver`'s device `id`, looked up in the
     /// background the first time (an ASIO driver in a helper process, as
     /// the window does). `None` while looking.
@@ -194,6 +210,13 @@ impl Window {
 
 /// Fixed, so a notice or a long device name never resizes the window.
 const WINDOW_WIDTH: f32 = 440.0;
+/// Where it opens, as the other windows do.
+const TOP: f32 = 72.0;
+/// What the window's bottom margin and the space below it take of the
+/// height under the page.
+const BELOW: f32 = 40.0;
+/// The least height the page gets, however short the window.
+const MOST_SHRUNK: f32 = 160.0;
 
 /// A section heading with even spacing above and below.
 pub(crate) fn section(ui: &mut Ui, title: &str) {
@@ -202,10 +225,10 @@ pub(crate) fn section(ui: &mut Ui, title: &str) {
     ui.add_space(theme::space::XS);
 }
 
-/// A label in the left column and `contents` beside it.
 /// The recording offset field: milliseconds added to the latency the driver
-/// reports, for drivers that report it wrongly.
-fn record_offset(ui: &mut Ui, offset_ms: f32, actions: &mut Vec<Action>) {
+/// reports, for drivers that report it wrongly; and the loopback helper's
+/// Measure… button, which unfolds its card.
+fn record_offset(ui: &mut Ui, offset_ms: f32, measure: &mut bool, actions: &mut Vec<Action>) {
     row(ui, "Recording offset", |ui| {
         let mut ms = offset_ms;
         let field = ui
@@ -229,9 +252,52 @@ fn record_offset(ui: &mut Ui, offset_ms: f32, actions: &mut Vec<Action>) {
         if (ms - offset_ms).abs() > f32::EPSILON {
             actions.push(Action::RecordOffset(ms));
         }
+        let button = crate::widgets::raised::button(
+            ui,
+            if *measure { "Hide measuring" } else { "Measure…" },
+        )
+        .on_hover_text(
+            "Measures the real round trip with a cable from an output to an input, and offers              the offset it asks for",
+        );
+        if button.clicked() {
+            *measure = !*measure;
+        }
     });
 }
 
+/// Says so when the offset was measured on another device setup than the
+/// one running.
+fn measured_elsewhere(ui: &mut Ui, with: &MeasuredWith, running: &MeasuredWith) {
+    let same = with.driver == running.driver
+        && with.device_id == running.device_id
+        && with.sample_rate == running.sample_rate
+        && with.buffer_frames == running.buffer_frames;
+    if same {
+        return;
+    }
+    row(ui, "", |ui| {
+        let width = ui.available_width().max(120.0);
+        ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
+            ui.set_max_width(width);
+            ui.add(
+                egui::Label::new(
+                    RichText::new(format!(
+                        "Measured with {} · {} at {}, {} samples. Measure again.",
+                        driver_label(&with.driver),
+                        with.device_name,
+                        khz(with.sample_rate),
+                        with.buffer_frames
+                    ))
+                    .small()
+                    .weak(),
+                )
+                .wrap(),
+            )
+        });
+    });
+}
+
+/// A label in the left column and `contents` beside it.
 pub(crate) fn row(ui: &mut Ui, label: &str, contents: impl FnOnce(&mut Ui)) {
     ui.horizontal(|ui| {
         ui.allocate_ui_with_layout(
@@ -305,10 +371,14 @@ fn channels_of(pair: usize, names: &[String]) -> Vec<usize> {
 
 /// What the window shows of settings it does not own, lent each frame.
 #[derive(Debug, Clone, Copy)]
-pub struct Lent {
+pub struct Lent<'a> {
     pub test_tone: bool,
     /// The recording offset, in milliseconds.
     pub record_offset_ms: f32,
+    /// What the offset was measured with, if the loopback helper set it.
+    pub offset_measured: Option<&'a MeasuredWith>,
+    /// Why the loopback helper cannot measure now (playing, recording).
+    pub measure_held: Option<&'static str>,
     /// "Play audio from disk".
     pub from_disk: bool,
 }
@@ -319,14 +389,14 @@ impl Window {
         ctx: &egui::Context,
         audio: &Audio,
         midi: crate::midi_settings::Shown<'_>,
-        lent: Lent,
+        lent: Lent<'_>,
     ) -> Vec<Action> {
         let mut actions = Vec::new();
         if !self.open {
             return actions;
         }
         self.catalog.poll();
-        let top_centre = egui::pos2(ctx.content_rect().center().x, 72.0);
+        let top_centre = egui::pos2(ctx.content_rect().center().x, TOP);
         let close =
             crate::widgets::Dialog::new("audio settings", "Audio and MIDI settings", WINDOW_WIDTH)
                 .at(top_centre, egui::Align2::CENTER_TOP)
@@ -350,26 +420,38 @@ impl Window {
                     {
                         self.page = page;
                     }
-                    if self.page == 1 {
-                        let mut asked = Vec::new();
-                        crate::midi_settings::page(ui, midi, &mut asked);
-                        actions.extend(asked.into_iter().map(Action::Midi));
-                        // New devices appear while the window is open.
-                        ui.ctx()
-                            .request_repaint_after(std::time::Duration::from_millis(300));
-                    } else {
-                        self.contents(ui, audio, lent, &mut actions);
-                    }
+                    // A short window scrolls the page rather than cutting it.
+                    let room =
+                        (ctx.content_rect().bottom() - ui.cursor().top() - BELOW).max(MOST_SHRUNK);
+                    egui::ScrollArea::vertical()
+                        .id_salt(("settings page", self.page))
+                        .max_height(room)
+                        .min_scrolled_height(room)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            if self.page == 1 {
+                                let mut asked = Vec::new();
+                                crate::midi_settings::page(ui, midi, &mut asked);
+                                actions.extend(asked.into_iter().map(Action::Midi));
+                                // New devices appear while the window is open.
+                                ui.ctx()
+                                    .request_repaint_after(std::time::Duration::from_millis(300));
+                            } else {
+                                self.contents(ui, audio, lent, &mut actions);
+                            }
+                        });
                 });
         let open = !close;
         self.open = open;
         actions
     }
 
-    fn contents(&mut self, ui: &mut Ui, audio: &Audio, lent: Lent, actions: &mut Vec<Action>) {
+    fn contents(&mut self, ui: &mut Ui, audio: &Audio, lent: Lent<'_>, actions: &mut Vec<Action>) {
         let Lent {
             test_tone,
             record_offset_ms,
+            offset_measured,
+            measure_held,
             from_disk,
         } = lent;
         let ctx = ui.ctx().clone();
@@ -791,7 +873,37 @@ impl Window {
                     );
                 });
                 if i.input_channels > 0 {
-                    record_offset(ui, record_offset_ms, actions);
+                    let was_open = self.measure.open;
+                    record_offset(ui, record_offset_ms, &mut self.measure.open, actions);
+                    self.measure.reveal |= self.measure.open && !was_open;
+                    let running = MeasuredWith {
+                        driver: current.driver.clone(),
+                        device_id: current.device_id.clone(),
+                        device_name: current.device_name.clone(),
+                        sample_rate: i.sample_rate,
+                        buffer_frames: i.buffer_frames,
+                    };
+                    if let Some(with) = offset_measured {
+                        measured_elsewhere(ui, with, &running);
+                    }
+                    if self.measure.open {
+                        let shown = Shown {
+                            measurement: &audio.measurement,
+                            outputs: &audio.open_outputs(),
+                            inputs: &audio.open_inputs(),
+                            output_names: &info.output_channels,
+                            input_names: &info.input_channels,
+                            held: measure_held,
+                            offset_ms: record_offset_ms,
+                        };
+                        match self.measure.show(ui, shown) {
+                            Some(Asked::Measure(cable)) => actions.push(Action::Measure(cable)),
+                            Some(Asked::Use(ms, with)) => {
+                                actions.push(Action::UseMeasured(ms, with))
+                            }
+                            None => {}
+                        }
+                    }
                 }
             }
             None => row(ui, "", |ui| hint(ui, "Shown once the device is running")),
