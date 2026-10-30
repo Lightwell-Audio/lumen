@@ -60,6 +60,8 @@ mod commands;
 mod consolidate;
 mod crash;
 mod crossfades;
+#[allow(dead_code, reason = "the app starts the disk thread in R6 step 4")]
+mod disk;
 mod document;
 mod export;
 mod export_live;
@@ -275,6 +277,10 @@ pub struct App {
     /// Settings changed at this time and are not saved yet (saved once
     /// changes stop for half a second, so dragging a slider is one write).
     settings_changed: Option<Instant>,
+    /// What the disk thread's scene was last built from (M9 slice R6).
+    disk_scene: Option<app::streaming::SceneKey>,
+    /// Tests: the disk thread waits this long before each page it reads.
+    slow_disk: Option<std::time::Duration>,
     /// Writes settings on a background thread (audit H1).
     settings_writer: settings::Writer,
     show_browser: bool,
@@ -585,6 +591,9 @@ impl eframe::App for App {
                 latent.insert(first.id, frames);
             }
         }
+        // Before the library loads anything, so files load the way the
+        // switch says from the first frame (M9 slice R6).
+        self.update_streaming();
         let cue = self.cue();
         let inputs = self.listen_inputs();
         self.lanes.update(
@@ -655,7 +664,12 @@ impl eframe::App for App {
             saved: &self.settings.midi,
         };
         self.transport.record_offset_ms = self.settings.record.offset_ms;
+        self.transport.from_disk = self.settings.playback.from_disk;
         let asked = self.transport.windows(&ctx, shown);
+        if let Some(on) = self.transport.from_disk_asked.take() {
+            self.settings.playback.from_disk = on;
+            self.settings_changed = Some(Instant::now());
+        }
         if let Some(ms) = self.transport.offset_asked.take() {
             self.settings.record.offset_ms = ms;
             self.settings_changed = Some(Instant::now());

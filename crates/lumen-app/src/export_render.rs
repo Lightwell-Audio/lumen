@@ -272,7 +272,7 @@ pub fn render_job(
         .unwrap_or_else(|| std::path::Path::new("."));
     std::fs::create_dir_all(parent)
         .map_err(|e| format!("Could not make {}: {e}", parent.display()))?;
-    let mut writer = Writer::create(
+    let mut writer = Writer::create_long(
         &job.file,
         Spec {
             sample_rate: job.rate,
@@ -448,7 +448,7 @@ mod tests {
             offset: 0,
             length: FRAMES as i64,
             gain: 1.0,
-            audio: Arc::new(ClipAudio {
+            audio: Arc::new(ClipAudio::Memory {
                 sample_rate: RATE,
                 channels: vec![vec![value; FRAMES as usize]; 2],
             }),

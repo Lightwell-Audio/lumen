@@ -15,6 +15,7 @@ use super::{Buses, Format, Options, Report};
 use crate::export_live;
 use crate::export_render;
 use crate::hosting::OfflinePlugin;
+use crate::media::streams::{self, Unread};
 use crate::render_audio::Again;
 
 pub struct Job {
@@ -31,6 +32,8 @@ pub struct Job {
     pub live: Option<Arc<Mutex<export_live::Handle>>>,
     /// Existing project and media files may never be export destinations.
     pub protected: Vec<PathBuf>,
+    /// What the clips could not read from disk; an export with a hole fails.
+    pub unread: Unread,
 }
 
 fn safe_name(name: &str) -> String {
@@ -112,37 +115,50 @@ fn encoding(options: Options) -> lumen_media::export::Spec {
     }
 }
 
+/// The loudness and true peak of an exported file, read block by block so
+/// the file is never held whole (M9 slice R6).
 fn measure(path: &Path, cancel: &AtomicBool) -> Result<Option<Report>, String> {
-    let audio = match lumen_media::decode(path, cancel, &mut |_| {}) {
-        Ok(audio) => audio,
+    let mut found: Option<(u32, Blocks, Loudness, [TruePeak; 2])> = None;
+    let mut peak = 0f32;
+    let mut frames = 0u64;
+    let read = lumen_media::read_blocks(path, cancel, &mut |rate, parts| {
+        let (_, blocks, loudness, peaks) = found.get_or_insert_with(|| {
+            (
+                rate,
+                Blocks::new(rate),
+                Loudness::new(),
+                [TruePeak::new(), TruePeak::new()],
+            )
+        });
+        let (left, right) = (parts[0], parts.get(1).copied().unwrap_or(parts[0]));
+        for from in (0..left.len()).step_by(4096) {
+            let end = (from + 4096).min(left.len());
+            let (left, right) = (&left[from..end], &right[from..end]);
+            blocks.add(left, right, |mean| loudness.push(mean));
+            peak = peak
+                .max(peaks[0].process(left))
+                .max(peaks[1].process(right));
+            peak = left.iter().chain(right).fold(peak, |p, x| p.max(x.abs()));
+        }
+        frames += left.len() as u64;
+        Ok(())
+    });
+    match read {
+        Ok(()) => {}
         Err(MediaError::Cancelled) => return Ok(None),
         Err(why) => return Err(why.to_string()),
-    };
-    let mut blocks = Blocks::new(audio.sample_rate);
-    let mut loudness = Loudness::new();
-    let mut peaks = [TruePeak::new(), TruePeak::new()];
-    let mut peak = 0f32;
-    for from in (0..audio.frames()).step_by(4096) {
-        if cancel.load(Ordering::Relaxed) {
-            return Ok(None);
-        }
-        let end = (from + 4096).min(audio.frames());
-        let left = &audio.channel(0)[from..end];
-        let right = &audio.channel(1)[from..end];
-        blocks.add(left, right, |mean| loudness.push(mean));
-        peak = peak
-            .max(peaks[0].process(left))
-            .max(peaks[1].process(right));
-        peak = left.iter().chain(right).fold(peak, |p, x| p.max(x.abs()));
     }
+    let Some((rate, _, loudness, mut peaks)) = found else {
+        return Err(MediaError::Empty.to_string());
+    };
     // Flush the finite interpolation filter so the final samples count.
     for p in &mut peaks {
         peak = peak.max(p.process(&[0.0; 64]));
     }
     Ok(Some(Report {
         path: path.into(),
-        frames: audio.frames() as u64,
-        rate: audio.sample_rate,
+        frames,
+        rate,
         lufs: loudness.integrated(),
         true_peak: peak,
     }))
@@ -215,6 +231,11 @@ pub(super) fn run(
         };
         job.clips = clips;
     }
+    if job.live.is_some() {
+        // The audio callback plays a real-time export: nothing it plays may
+        // read the disk, so streamed files are read into memory first.
+        job.clips = streams::in_memory(std::mem::take(&mut job.clips))?;
+    }
     let count = job.targets.len().max(1) as f32;
     let mut reports = Vec::new();
     let mut publishing = Vec::new();
@@ -249,6 +270,7 @@ pub(super) fn run(
         })? {
             return Ok(None);
         }
+        job.unread.check()?;
         let encoded = stage.0.join(format!(
             "encoded-{index}.{}",
             job.options.format.extension()

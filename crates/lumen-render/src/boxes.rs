@@ -282,6 +282,13 @@ impl Renderer {
             .set_peaks(device, queue, slot, levels)
     }
 
+    /// Empties a layer's peak atlas, to store the peaks still drawn again
+    /// from its start (M9 slice R6: space held by peaks no longer drawn is
+    /// reclaimed).
+    pub fn clear_peaks(&mut self, queue: &wgpu::Queue, id: BoxLayerId) {
+        self.box_layers[id.0].waves.clear_peaks(queue);
+    }
+
     /// Sample strips for waves drawn sample by sample (deep zoom): see
     /// [`StripEntry`].
     pub fn update_strips(

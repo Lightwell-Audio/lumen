@@ -7,6 +7,7 @@
 //! - [`supervisor`]: [`AudioSystem`], which keeps audio running through
 //!   driver resets, configuration changes and device loss.
 //! - [`fake`]: a scriptable backend for tests.
+//! - [`priority`]: scheduling for threads that keep time.
 
 #[cfg(windows)]
 pub mod asio;
@@ -17,6 +18,7 @@ pub mod cpal_host;
 #[cfg(windows)]
 mod drift;
 pub mod fake;
+pub mod priority;
 pub mod supervisor;
 pub mod types;
 #[cfg(windows)]

@@ -298,6 +298,25 @@ pub struct Settings {
     /// What Bounce did last (M7b slice E4): an added section with defaults,
     /// so older files read as before (no version change).
     pub bounce: BounceChoices,
+    /// How audio files play (M9 slice R6): an added section with defaults,
+    /// so older files read as before (no version change).
+    pub playback: Playback,
+}
+
+/// How audio files play.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Playback {
+    /// "Play audio from disk": long files stream rather than load into
+    /// memory. On by default since the soak and MT-STREAM-1 passed (the
+    /// owner's S6 A, 2026-10-28); a file that says off stays off.
+    pub from_disk: bool,
+}
+
+impl Default for Playback {
+    fn default() -> Self {
+        Self { from_disk: true }
+    }
 }
 
 /// The choices in Bounce's popover, remembered (the owner's B1).
@@ -349,6 +368,7 @@ impl Default for Settings {
             plugins: Default::default(),
             editing: Editing::default(),
             bounce: BounceChoices::default(),
+            playback: Playback::default(),
         }
     }
 }
@@ -609,6 +629,7 @@ mod tests {
                 effects: false,
                 tail: false,
             },
+            playback: Playback { from_disk: true },
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings.clone(), None));
@@ -711,5 +732,26 @@ mod tests {
         assert_eq!(warning, None);
         assert_eq!(settings.record.count_in, CountIn::Off);
         assert!(settings.record.overdub);
+    }
+
+    /// Audio plays from disk unless a file says otherwise (the owner's S6 A):
+    /// a file from before the switch existed plays from disk, one that turned
+    /// it off keeps it off.
+    #[test]
+    fn audio_plays_from_disk_unless_the_file_turned_it_off() {
+        assert!(Settings::default().playback.from_disk);
+        let dir = temp_dir("playback");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        for (text, from_disk) in [
+            (r#"{"version": 1}"#, true),
+            (r#"{"version": 1, "playback": {}}"#, true),
+            (r#"{"version": 1, "playback": {"from_disk": false}}"#, false),
+        ] {
+            std::fs::write(&path, text).unwrap();
+            let (settings, warning) = load(&path);
+            assert_eq!(warning, None);
+            assert_eq!(settings.playback.from_disk, from_disk, "{text}");
+        }
     }
 }

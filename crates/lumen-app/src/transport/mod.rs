@@ -10,9 +10,12 @@ mod budget_view;
 mod compensation;
 mod dropouts;
 mod fit;
+pub mod hold;
 mod midi_chip;
 mod record;
 mod status;
+#[cfg(test)]
+mod tests;
 
 use std::time::{Duration, Instant};
 
@@ -25,6 +28,17 @@ use crate::audio::{Audio, Choice};
 pub use bar::punch_menu;
 pub use fit::divider;
 pub use midi_chip::{Lights as MidiLights, View as MidiView};
+
+/// What the disk thread reports, for the audio panel and the chip.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct DiskReading {
+    /// The share of the last second spent reading (0.0 to 1.0).
+    pub load: f32,
+    /// Underruns since the pool was made.
+    pub underruns: u64,
+    /// Pages that could not be read (a file gone or unreadable).
+    pub failed: u32,
+}
 
 pub struct Transport {
     pub audio: Audio,
@@ -61,6 +75,17 @@ pub struct Transport {
     /// the one it asked for, taken by the app (M9 slice R2).
     pub record_offset_ms: f32,
     pub offset_asked: Option<f32>,
+    /// "Play audio from disk" as the app has it, and a change the audio
+    /// window asked for, taken by the app (M9 slice R6).
+    pub from_disk: bool,
+    pub from_disk_asked: Option<bool>,
+    /// The disk thread's reading while audio plays from disk, set by the app
+    /// each frame (M9 slice R6, the owner's D A).
+    pub disk: Option<DiskReading>,
+    /// What a start waits for while audio plays from disk, set by the app,
+    /// and a start held for it (the owner's L A).
+    pub gate: Option<hold::Gate>,
+    held: Option<hold::Held>,
     /// What the chip's lights showed when last drawn.
     pub midi_lights: MidiLights,
     /// CPU load shown: the peak over the last second, refreshed once a second.
@@ -71,6 +96,10 @@ pub struct Transport {
     pub(crate) budget: budget::Budget,
     /// Dropouts told as episodes in the bar and counts in the panel.
     dropouts: dropouts::Dropouts,
+    /// Underruns (pages the disk read too late) told the same way, counted
+    /// from `disk_base`, the pool's count at the last Reset.
+    late: dropouts::Dropouts,
+    disk_base: u64,
     /// The playhead as drawn while playing: smooth, where the engine's
     /// position moves once per audio block (`playhead.rs`).
     clock: crate::playhead::Clock,
@@ -133,6 +162,13 @@ impl Transport {
             midi_asked: Vec::new(),
             record_offset_ms: 0.0,
             offset_asked: None,
+            from_disk: false,
+            from_disk_asked: None,
+            disk: None,
+            gate: None,
+            held: None,
+            late: Default::default(),
+            disk_base: 0,
             midi_lights: Default::default(),
             cpu_peak: 0.0,
             cpu_taken: None,
@@ -195,7 +231,10 @@ impl Transport {
     /// after a command until the engine has applied it.
     pub fn animating(&self) -> bool {
         let state = self.state();
-        state.playing || state.recording || self.settle_until.is_some_and(|t| Instant::now() < t)
+        state.playing
+            || state.recording
+            || self.held.is_some()
+            || self.settle_until.is_some_and(|t| Instant::now() < t)
     }
 
     fn settle(&mut self) {
@@ -216,20 +255,75 @@ impl Transport {
         let _ = self.audio.engine.send(command);
     }
 
+    /// Sends `command`, which starts playback at `at`: while audio plays
+    /// from disk, once what plays there is in memory, for at most
+    /// [`hold::LONGEST`] (the owner's L A).
+    fn start(&mut self, command: Command, at: Ticks) {
+        // A new start replaces one still waiting, which never fires.
+        self.drop_held();
+        let Some(gate) = &self.gate else {
+            self.send(command);
+            return;
+        };
+        let sample = gate.sample_at(at);
+        // The disk reads there first until the playhead has arrived, also
+        // when the start goes at once: what follows the ready part is read
+        // next.
+        gate.cuer.cue(Some(sample));
+        if gate.ready(sample) {
+            self.send(command);
+            return;
+        }
+        crate::trace::log(|| format!("hold {command:?} for the disk"));
+        self.held = Some(hold::Held {
+            command,
+            sample,
+            since: Instant::now(),
+        });
+        self.settle();
+    }
+
+    /// Forgets a start held for the disk, and the disk's cue for it.
+    /// Whether one was held.
+    fn drop_held(&mut self) -> bool {
+        let dropped = self.held.take().is_some();
+        if dropped && let Some(gate) = &self.gate {
+            gate.cuer.cue(None);
+        }
+        dropped
+    }
+
+    /// Sends a held start once it is due.
+    fn release(&mut self) {
+        if let Some(held) = &self.held
+            && held.due(self.gate.as_ref(), Instant::now())
+        {
+            // The disk keeps its cue until the playhead arrives there.
+            let held = self.held.take().expect("checked above");
+            self.send(held.command);
+        }
+    }
+
     /// Stops and silences everything, MIDI notes included.
     pub fn panic(&mut self) {
+        self.drop_held();
         self.send(Command::Panic);
         self.panic_midi = true;
     }
 
     pub fn play_stop(&mut self) {
-        let command = if self.state().playing {
-            Command::Stop
+        // Pressed again while Play waits for the disk: it never starts. A
+        // locate held while playing is dropped, and playback stops.
+        if self.drop_held() && !self.state().playing {
+            return;
+        }
+        if self.state().playing {
+            self.send(Command::Stop);
         } else {
             self.played_from_stop = true;
-            Command::Play
-        };
-        self.send(command);
+            let marker = self.state().marker;
+            self.start(Command::Play, marker);
+        }
     }
 
     /// Applies saved metronome settings.
@@ -241,14 +335,18 @@ impl Transport {
     /// Starts recording from the play marker, after `count_in` beats of
     /// clicks when stopped (M5 slice 6).
     pub fn record(&mut self, count_in: u32) {
-        if !self.state().playing {
+        let state = self.state();
+        if state.playing {
+            self.send(Command::Record { count_in });
+        } else {
             self.played_from_stop = true;
+            self.start(Command::Record { count_in }, state.marker);
         }
-        self.send(Command::Record { count_in });
     }
 
     /// Stops (a count-in too), without the Stop-twice rule of [`Self::play_stop`].
     pub fn stop(&mut self) {
+        self.drop_held();
         self.send(Command::Stop);
     }
 
@@ -268,17 +366,37 @@ impl Transport {
 
     /// Shift+Space: stop where playback is, or continue from the playhead.
     pub fn pause_continue(&mut self) {
-        let command = if self.state().playing {
-            Command::Pause
+        // As Play: a held start is dropped; a held locate is dropped and
+        // playback pauses.
+        if self.drop_held() && !self.state().playing {
+            return;
+        }
+        let state = self.state();
+        if state.playing {
+            self.send(Command::Pause);
         } else {
-            Command::Continue
-        };
-        self.send(command);
+            self.start(Command::Continue, state.ticks);
+        }
     }
 
     pub fn locate(&mut self, at: Ticks) {
-        self.located = Some((at, self.state().ticks));
-        self.send(Command::Locate(at));
+        let state = self.state();
+        self.located = Some((at, state.ticks));
+        match &self.gate {
+            // While playing, the playhead holds at the old place until the
+            // new one is ready (L A); stopped, the disk reads there first.
+            Some(_) if state.playing => self.start(Command::Locate(at), at),
+            Some(gate) => {
+                let held = self.held.take();
+                gate.cuer.cue(Some(gate.sample_at(at)));
+                self.send(Command::Locate(at));
+                // A start waiting for the disk waits for the new place.
+                if let Some(held) = held {
+                    self.start(held.command, at);
+                }
+            }
+            None => self.send(Command::Locate(at)),
+        }
     }
 
     /// Where the playhead is, counting a locate the audio thread has not
@@ -358,6 +476,7 @@ impl Transport {
         {
             self.located = None;
         }
+        self.release();
         if self.timeline_pending {
             self.timeline_pending = self
                 .audio

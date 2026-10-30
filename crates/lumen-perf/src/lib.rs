@@ -16,10 +16,12 @@ use std::hint::black_box;
 use std::sync::Arc;
 
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
+use lumen_engine::stream_plan::{Horizon, Position, Scene};
 use lumen_engine::testing::{automated, latent, routed};
 use lumen_engine::{
     ClickSound, Clip, ClipAudio, ClipPlayer, Command, Destination, Engine, MetronomeSettings,
-    Mixer, MixerHandle, NodeSpec, Region, Routing, Timeline, clip_player, engine, mixer,
+    Mixer, MixerHandle, NodeSpec, PAGE, PagePool, PoolWriter, Region, Routing, StreamAudio,
+    Timeline, clip_player, engine, mixer,
 };
 use lumen_project::model::Project;
 use lumen_project::testing::synthetic;
@@ -66,6 +68,14 @@ pub const SCENARIOS: &[(&str, &str)] = &[
     (
         "engine_transport",
         "2,000 blocks of 128 frames: loop wraps, locates and the metronome",
+    ),
+    (
+        "engine_streamed_64",
+        "1,000 blocks of 128 frames with 64 stereo clips sounding, played from disk pages all in memory",
+    ),
+    (
+        "stream_plan_64",
+        "50 disk-thread plans of 64 streamed files with a loop, markers and a cue",
     ),
     (
         "tempo_conversions",
@@ -131,6 +141,14 @@ pub fn run(name: &str) -> bool {
             let (handle, mut engine) = transport_only();
             measured_engine_transport(handle, &mut engine);
         }
+        "engine_streamed_64" => {
+            let (_pool, mut engine) = playing_streams();
+            measured_engine_streamed_64(&mut engine);
+        }
+        "stream_plan_64" => {
+            let scene = streamed_scene();
+            measured_stream_plan_64(&scene);
+        }
         "tempo_conversions" => {
             let map = busy_tempo_map();
             measured_tempo_conversions(&map);
@@ -156,7 +174,7 @@ type Player = Engine<Mixer<ClipPlayer>>;
 type SynthPlayer = Engine<Mixer<lumen_engine::Layered<ClipPlayer, lumen_engine::MidiPlayer>>>;
 
 fn crossfading_clips() -> Player {
-    let audio = Arc::new(ClipAudio {
+    let audio = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![vec![0.01; 480_000]; 2],
     });
@@ -240,7 +258,7 @@ fn playing_clips(clips: usize, mix: Mix) -> Player {
 /// As [`playing_clips`], with the handle that sends it new routings.
 fn playing_clips_routed(clips: usize, mix: Mix) -> (MixerHandle, Player) {
     let routed_mix = mix != Mix::Direct;
-    let audio = Arc::new(ClipAudio {
+    let audio = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![vec![0.1; 480_000], vec![-0.1; 480_000]],
     });
@@ -639,6 +657,122 @@ pub fn measured_engine_transport(mut handle: lumen_engine::EngineHandle, engine:
     black_box(&data);
 }
 
+/// Pages of each streamed file: 163,840 frames, more than the 1,010 blocks
+/// play.
+const STREAM_PAGES: usize = 40;
+
+/// 64 streamed clips on one track, every page in memory: the audio
+/// thread's page copy (M9 slice R6), beside `engine_clips_64`'s memory.
+fn playing_streams() -> (Arc<PagePool>, Player) {
+    let pool = PagePool::new(64 * STREAM_PAGES as u32);
+    let mut writer = PoolWriter::new(&pool);
+    let (left, right) = (vec![0.1; PAGE], vec![-0.1; PAGE]);
+    let frames = (STREAM_PAGES * PAGE) as u64;
+    let clips = (0..64u64)
+        .map(|i| {
+            let audio = StreamAudio::new(&pool, i + 1, RATE, 2, frames);
+            for page in 0..STREAM_PAGES {
+                assert!(writer.load(&audio, page, &left, &right), "room in the pool");
+            }
+            Clip {
+                envelope: Default::default(),
+                id: i,
+                start: Ticks::ZERO,
+                offset: 0,
+                length: frames as i64,
+                gain: 0.5,
+                track: 0,
+                audio: Arc::new(ClipAudio::Stream(audio)),
+                shape: Default::default(),
+            }
+        })
+        .collect();
+    let (mut handle, player) = clip_player();
+    handle.set(clips).expect("room for one clip list");
+    let (mut routing, source) = mixer(player);
+    assert!(
+        routing
+            .set(&Routing {
+                nodes: vec![NodeSpec::unity(0, Destination::Hardware(0))],
+                cue: None,
+                measure: None,
+            })
+            .expect("a valid routing")
+    );
+    let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
+    transport.send(Command::Play).expect("room for a command");
+    let mut data = vec![0.0; 2 * FRAMES];
+    for _ in 0..10 {
+        engine.process(RATE, &mut data, 2, FRAMES);
+    }
+    (pool, engine)
+}
+
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub fn measured_engine_streamed_64(engine: &mut Player) {
+    let mut data = vec![0.0; 2 * FRAMES];
+    for _ in 0..1_000 {
+        engine.process(RATE, &mut data, 2, FRAMES);
+    }
+    // Distinct from the other scenarios, so the linker keeps it apart.
+    black_box((&data, engine.transport().playing));
+}
+
+/// The disk thread's scene: 64 streamed files of a minute each, one per
+/// track, with a loop and two markers.
+fn streamed_scene() -> Scene {
+    let pool = PagePool::new(1);
+    let frames = 60 * u64::from(RATE);
+    let clips: Vec<Clip> = (0..64u64)
+        .map(|i| Clip {
+            envelope: Default::default(),
+            id: i,
+            start: Ticks::ZERO,
+            offset: 0,
+            length: frames as i64,
+            gain: 1.0,
+            track: i,
+            audio: Arc::new(ClipAudio::Stream(StreamAudio::new(
+                &pool,
+                i + 1,
+                RATE,
+                2,
+                frames,
+            ))),
+            shape: Default::default(),
+        })
+        .collect();
+    // A loop of two seconds from 8 s; markers at 20 s and 40 s.
+    let rate = i64::from(RATE);
+    Scene::new(
+        &clips,
+        &Timeline::default(),
+        RATE,
+        Some((8 * rate, 10 * rate)),
+        vec![0, 8 * rate, 20 * rate, 40 * rate],
+    )
+}
+
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub fn measured_stream_plan_64(scene: &Scene) {
+    let mut out = Vec::new();
+    let mut wanted = 0;
+    // A plan every 100 ms of playback, half of them inside the loop.
+    for step in 0..50i64 {
+        let at = Position {
+            sample: 4_800 * step + if step % 2 == 0 { 0 } else { 8 * 48_000 },
+            playing: true,
+            cue: (step % 10 == 0).then_some(30 * 48_000),
+            marker: Some(0),
+        };
+        scene.plan(at, Horizon::at(RATE), &mut out);
+        wanted += out.len();
+    }
+    black_box(wanted);
+}
+
 fn busy_tempo_map() -> TempoMap {
     TempoMap::new(
         (0..64)
@@ -700,6 +834,8 @@ mod tests {
             "engine_hosted_64",
             "engine_plugin_lanes_64",
             "engine_transport",
+            "engine_streamed_64",
+            "stream_plan_64",
             "tempo_conversions",
         ] {
             assert!(run(name), "{name}");

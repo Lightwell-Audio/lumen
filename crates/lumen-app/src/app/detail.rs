@@ -458,12 +458,12 @@ impl App {
                 let (State::Ready(audio), Some(peaks)) = (&item.state, &item.peaks) else {
                     return None;
                 };
-                (audio.sample_rate == rate).then(|| {
+                (audio.sample_rate() == rate).then(|| {
                     (
                         waves::Source {
                             slot: 0,
                             channels: peaks.channels as u32,
-                            native_rate: item.info.sample_rate.unwrap_or(audio.sample_rate),
+                            native_rate: item.info.sample_rate.unwrap_or(audio.sample_rate()),
                         },
                         std::sync::Arc::clone(peaks),
                     )

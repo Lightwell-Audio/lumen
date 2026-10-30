@@ -193,8 +193,14 @@ fn an_armed_track_is_heard_and_metered_and_a_disarmed_one_is_only_metered() {
     lumen.wait_for("the monitor to go quiet", |app| {
         app.meter(VOX).peak_db.is_infinite()
     });
-    // The input is still metered.
-    assert!(lumen.app().input_meter(0).peak_db > -7.0);
+    // The input is still metered. Waited for, not read once: a meter falls
+    // 20 dB a second between callbacks, so one late callback on a busy
+    // machine reads under -7 dB for a frame. Had Monitor Off stopped the
+    // input's meter, it would have fallen silent with the track's above.
+    lumen.wait_for("the input still metered", |app| {
+        let peak = app.input_meter(0).peak_db;
+        peak > -7.0 && peak < -5.0
+    });
 }
 
 #[test]

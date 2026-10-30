@@ -33,7 +33,7 @@ fn file() -> Arc<ClipAudio> {
         .map(|i| (i % 1_999) as f32 / 4_000.0 - 0.25 + (i as f32 * 1e-6))
         .collect();
     let right = left.clone();
-    Arc::new(ClipAudio {
+    Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![left, right],
     })
@@ -254,10 +254,11 @@ fn a_normalized_clip_plays_its_file_scaled_so_the_stretch_reaches_full_scale() {
     let normalized = render_file(doc.project(), 96_000, 128, source.clone(), |_| false);
 
     // The oracle: the same clip at unity over a file scaled by hand.
-    let scaled = Arc::new(ClipAudio {
+    let scaled = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: source
-            .channels
+            .memory()
+            .unwrap()
             .iter()
             .map(|c| c.iter().map(|v| v / peak).collect())
             .collect(),

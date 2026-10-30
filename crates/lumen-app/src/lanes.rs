@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use eframe::egui::{self, Pos2, RichText};
 use lumen_core::time::Ticks;
-use lumen_engine::{Clip, ClipsHandle, MidiHandle, MixerHandle};
+use lumen_engine::{Clip, ClipAudio, ClipsHandle, MidiHandle, MixerHandle};
 use lumen_project::model::{ClipContent, Id, Project};
 
 use crate::document::{Document, DropInto, Imported};
@@ -58,6 +58,9 @@ pub struct Lanes {
     built: Option<u64>,
     /// The engine's clip list needs rebuilding.
     dirty: bool,
+    /// The streamed clips of the list last sent, and a count of the lists
+    /// sent, for the disk thread's scene (M9 slice R6).
+    streamed: (u64, Vec<Clip>),
     /// The audio tracks being recorded over that the clip list was built
     /// with, so it is built again when a take begins or ends.
     masked: Vec<crate::midi_play::Replacing>,
@@ -130,8 +133,8 @@ pub fn engine_clips(
             };
             // The offset is in the file's frames; the audio is at the
             // device rate.
-            let base_offset =
-                (*offset as f64 * f64::from(samples.sample_rate) / f64::from(native.max(1))) as i64;
+            let base_offset = (*offset as f64 * f64::from(samples.sample_rate())
+                / f64::from(native.max(1))) as i64;
             let source_origin = if clip.loop_length.is_some() {
                 clip.start - clip.loop_phase
             } else {
@@ -205,13 +208,7 @@ pub fn engine_clips(
                     } else {
                         crate::routing::db_to_gain(*gain_db)
                     },
-                    envelope: envelope_of(
-                        clip,
-                        project,
-                        tempo.as_ref(),
-                        rate,
-                        samples.channels.len(),
-                    ),
+                    envelope: envelope_of(clip, project, tempo.as_ref(), rate, samples.channels()),
                     audio: samples,
                     shape,
                 });
@@ -383,6 +380,12 @@ impl Lanes {
             .map(|r| (r.from, r.until))
     }
 
+    /// The streamed clips the engine plays, and a count that changes with
+    /// every list sent (M9 slice R6).
+    pub fn streamed(&self) -> (u64, &[Clip]) {
+        (self.streamed.0, &self.streamed.1)
+    }
+
     pub fn is_loading(&self) -> bool {
         !self.pending.is_empty() || !self.landing.is_empty()
     }
@@ -487,7 +490,15 @@ impl Lanes {
             // A frozen track plays its file (M7b E5), not its clips.
             let sounding = lumen_project::edit::freeze::played(doc.project());
             let list = self.engine_clips(&without_replaced(sounding, &masked), rate);
+            let streamed: Vec<Clip> = list
+                .iter()
+                .filter(|c| matches!(&*c.audio, ClipAudio::Stream(_)))
+                .cloned()
+                .collect();
             self.dirty = clips.set(list).is_err();
+            if !self.dirty {
+                self.streamed = (self.streamed.0 + 1, streamed);
+            }
             self.built = Some(doc.state());
             self.masked = masked;
         }
@@ -670,7 +681,7 @@ impl Lanes {
             };
             Some((
                 audio.clone(),
-                item.info.sample_rate.unwrap_or(audio.sample_rate),
+                item.info.sample_rate.unwrap_or(audio.sample_rate()),
             ))
         })
     }
@@ -832,10 +843,10 @@ pub fn file_facts(ui: &mut egui::Ui, item: &Item) {
     }
     ui.label(facts.join(" · "));
     match &item.state {
-        State::Ready(audio) if Some(audio.sample_rate) != info.sample_rate => {
+        State::Ready(audio) if Some(audio.sample_rate()) != info.sample_rate => {
             ui.label(format!(
                 "Playing at {:.1} kHz (converted)",
-                f64::from(audio.sample_rate) / 1000.0
+                f64::from(audio.sample_rate()) / 1000.0
             ));
         }
         State::Failed(why) => {
@@ -957,7 +968,7 @@ mod tests {
             })
             .collect();
         doc.import(files);
-        let audio = Arc::new(ClipAudio {
+        let audio = Arc::new(ClipAudio::Memory {
             sample_rate: 48_000,
             channels: vec![vec![0.5; 96_000], vec![0.5; 96_000]],
         });
@@ -1340,7 +1351,7 @@ mod tests {
             let samples: Vec<f32> = (0..520_000)
                 .map(|i| ((i * 37 % 4_093) as f32 / 4_093.0) * 0.5)
                 .collect();
-            let audio = Arc::new(ClipAudio {
+            let audio = Arc::new(ClipAudio::Memory {
                 sample_rate: device_rate,
                 channels: vec![samples.clone(), samples],
             });
@@ -1462,7 +1473,7 @@ mod tests {
         with_envelopes(&mut doc, |clip| {
             clip.envelopes.set(Kind::Pan, lane(&[(0, -0.5)]));
         });
-        let mono = Arc::new(ClipAudio {
+        let mono = Arc::new(ClipAudio::Memory {
             sample_rate: 48_000,
             channels: vec![vec![0.5; 96_000]],
         });
@@ -1576,7 +1587,7 @@ mod tests {
             lumen_media::Peaks::build(&channels, &std::sync::atomic::AtomicBool::new(false))
                 .expect("not cancelled"),
         );
-        let audio = Arc::new(ClipAudio {
+        let audio = Arc::new(ClipAudio::Memory {
             sample_rate: 48_000,
             channels,
         });

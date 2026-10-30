@@ -1021,3 +1021,66 @@ escapes and quotes several times.
   - `docs/DESIGN.md`: the design system;
   - `docs/DEVELOPMENT.md`: setup, test flags, WSL mirror, performance gate.
 
+
+## Moved from CLAUDE.md "Now" on 2026-10-28
+
+These paragraphs were current while M7b closed and M9 began (M7b E1 to E6, M9 R0 and R1).
+
+- **Branch `m9-s1-audio-input`: M9 slice R1 (audio input) is built** (ADR-0100;
+  format **v30**; cut from `m9-s0-render-consistency`; not pushed). Input reaches
+  the engine (`Source::input`, `Engine::process_with_input`); an audio track routes a
+  mono input or a pair (`Track.input`; arming picks the first free one, one undo
+  step); the In chip sits on the unfolded third row beside pan (layout R, from the owner's
+  pick of mocks; unfolded tracks are now five steps, 110 pt), with a menu of
+  inputs by name, a level bar and a clip light that stays until clicked; monitoring Auto/In/Off plays the
+  input through the track's chain; commands `track.input_next` and
+  `track.monitor_next`. WASAPI input reads the capture endpoints of the device's
+  adapter in shared mode, kept in step with the render clock by rubato's `Slip`
+  (`drift.rs`, `wasapi_input.rs`); All inputs is the new default. cpal input is
+  compile-only. MT-REC-1 (`docs/manual-tests/M9.md`) passed on the owner's Focusrite
+  (2026-10-26; no figures reported), which includes ADR-0069's trial through an effect (step 8).
+  Next: R2 (audio recording) per `docs/milestones/M9.md`.
+- **Branch `m9-s0-render-consistency`: M9 slice R0 is built** (ADR-0099; no
+  format change; not pushed; it contains the M9 plan from `m9-plan`, merged in).
+  Consolidate is stale if any clip touching its span changed; normalize applies
+  a peak only to a clip that still plays what it scanned; the clips of a track
+  being recorded are refused edits, with a note (`History::guard_recording`,
+  `apply_take`). Gates run: fmt, clippy, macOS cross-clippy, workspace tests
+  (2,900), smoke. Not yet
+  run: the WSL mirror and performance gate (they test the pushed branch). Next: slice R1
+  (audio input) per `docs/milestones/M9.md`; the owner took every
+  recommendation for R1 to R5 and X1 to X3 (2026-10-24).
+- **Branch `m7b-s6-close`: E6 audit and small UX corrections are built.**
+  Report: `docs/audits/2026-10-24-m7b.md`; repeatable visual check MT-EDIT-7.
+  Shared menus scroll within the window, crossfades use a switch, track
+  colours have names/focus, menu focus has its accent ring, the copy-import
+  preference schedules a save, and render directories are made by workers.
+  The combined editing walkthrough covers save/reopen and audible playback.
+  The normalize/consolidate stale-result checks were fixed in M9 R0 (ADR-0099).
+  Owner closeout and the next milestone's approval remain pending.
+- **Branch `m7b-s5-freeze`: M7b E5 (freeze, unfreeze, flatten) is built**
+  (ADR-0098; format **v29**; not pushed). `Track.frozen` (`edit::freeze`:
+  planner, `played`, `violations`); a frozen track plays its file and runs no
+  plugin (`lanes` and `hosting::wanted` take `played`); `History::apply`
+  refuses edits to a frozen track and says why (`take_refused`); the render is
+  the bounce worker with `Bake::Sound`; commands `track.freeze`, `.unfreeze`,
+  `.flatten` (last in `Command`, no default keys), a header pill (a padlock when
+  narrow) that unfreezes; E2E `freeze.rs`. Not shown to the owner: tempo and
+  meter changes are refused while a track is frozen, and the way out is the pill,
+  not a toast action (ADR-0098). Gates run: fmt, clippy, workspace tests, E2E,
+  smoke, macOS cross-clippy, WSL clippy and perf (`compact_scalar_arrays` is now
+  `#[inline(never)]`: the new field moved serialize by +7% through inlining).
+  MT-EDIT-6 passed (owner, 2026-10-24).
+- **E3 (consolidate, ADR-0095, MT-EDIT-4) and E4 (bounce, ADR-0096 and
+  ADR-0097, MT-EDIT-5) are merged (PR #55, #56), no format change.** Rendered
+  files are 32-bit float WAVs at the device rate in a `Renders` folder, copied
+  into `Samples/Rendered` on Save; `lumen_engine::render_source` and
+  `lumen-app::bounce` are the shared render. The user-visible word for
+  consolidate is Join (owner, 2026-10-24). Replace-with-effects falls back to a
+  new track when the span is not the whole track or a clip is locked (not yet
+  shown to the owner: tell them).
+- **M7b E2 (crossfades, ADR-0094, format v28) is merged (PR #54;
+  MT-EDIT-3 passed).** A crossfade is a true overlap: drag the left clip's
+  fade-out handle over the right clip.
+- **M7b E1 is merged (PR #52)** (ADR-0093; format **v27**): join, crop,
+  unloop, nudge, reverse, polarity, normalize and the select variants.

@@ -63,8 +63,14 @@ fn a_playing_tracks_level_shows_and_comes_to_rest_when_stopped() {
     play(&mut lumen);
     listen(&mut lumen, 400);
     // After the fader and the pan: a stereo track at the centre keeps the
-    // tone's level.
+    // tone's level, as does the master. Waited for, not read once: a shown
+    // peak falls 20 dB a second between callbacks, so on a busy machine one
+    // late block takes a frame's reading 0.3 dB under the tone.
     let want = tone_db();
+    lumen.wait_for("the track and the master at the tone's level", |app| {
+        (app.meter(track).peak_db - want).abs() < 0.3
+            && (app.meter(master).peak_db - want).abs() < 0.3
+    });
     let shown = lumen.app().meter(track);
     assert!((shown.peak_db - want).abs() < 0.3, "{shown:?}, want {want}");
     assert!(shown.rms_db < shown.peak_db && shown.rms_db > want - 4.0);

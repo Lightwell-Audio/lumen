@@ -32,6 +32,7 @@ use lumen_media::wav::{Sample, Spec, Writer};
 use lumen_project::model::{Id, Media, Project, TrackKind};
 
 use crate::hosting::{HOSTED_KIND, OfflinePlugin, stand_in};
+use crate::media::streams::Unread;
 use crate::midi_play::{self, Hosts, Inputs, PortTable};
 use crate::midi_runs::Cache;
 use crate::render_audio::Again;
@@ -80,6 +81,8 @@ pub struct Job {
     /// Where the file goes, and the media id it will have.
     pub file: PathBuf,
     pub media: Id,
+    /// What the clips could not read from disk; a job with a hole fails.
+    pub unread: Unread,
 }
 
 /// What a finished job made.
@@ -237,6 +240,7 @@ pub fn render_job(
         frames,
         file,
         media,
+        unread,
     } = job;
     if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)
@@ -417,6 +421,12 @@ pub fn render_job(
         }
         Ended::Done => {}
     }
+    if let Err(why) = unread.check() {
+        discard(writer);
+        return Err(format!(
+            "{why}. Nothing was {done} and the project is unchanged"
+        ));
+    }
     let frames_written = writer.finish().map_err(|e| e.to_string())?;
     let mut channels = 2;
     if let Some(twin) = twin.take() {
@@ -550,7 +560,7 @@ mod tests {
     /// A job for a track that plays the ramp from the start.
     fn job(doc: &Document, track: Id, dir: &std::path::Path, from: i64, frames: u64) -> Job {
         let samples = ramp();
-        let audio = Arc::new(ClipAudio {
+        let audio = Arc::new(ClipAudio::Memory {
             sample_rate: RATE,
             channels: vec![samples.clone(), samples],
         });
@@ -579,6 +589,7 @@ mod tests {
             frames,
             file: dir.join("bounce.wav"),
             media: Id(777),
+            unread: Default::default(),
         }
     }
 
@@ -698,7 +709,7 @@ mod tests {
         let mut apart = job(&doc, track, dir.path(), 0, 10_000);
         let left = ramp();
         let right: Vec<f32> = left.iter().map(|s| s * 0.5).collect();
-        apart.clips[0].audio = Arc::new(ClipAudio {
+        apart.clips[0].audio = Arc::new(ClipAudio::Memory {
             sample_rate: RATE,
             channels: vec![left, right],
         });

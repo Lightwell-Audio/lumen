@@ -3,7 +3,8 @@
 //! waveform peaks, slice 4c) with progress and cancel, and held in memory
 //! for the clip player. When the device rate
 //! changes, ready files are converted again in the background; their clips
-//! stay silent until then.
+//! stay silent until then. With "Play audio from disk" on (M9 slice R6),
+//! files of half a minute or more play from disk instead ([`streaming`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -11,9 +12,11 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use eframe::egui;
-use lumen_engine::ClipAudio;
+use lumen_engine::{ClipAudio, StreamAudio};
 use lumen_media::{MediaError, Peaks};
 
+pub mod streaming;
+pub mod streams;
 mod twins;
 pub use twins::{mirror, reversed_key};
 
@@ -68,6 +71,15 @@ pub struct Item {
     /// Waveform peaks of the audio at the device rate, once ready.
     pub peaks: Option<Arc<Peaks>>,
     job: Option<Job>,
+    /// Whether streaming was on when the file loaded: it loads again when
+    /// that changes. `None` for audio given ready, which never loads.
+    streamed: Option<bool>,
+}
+
+impl Drop for Item {
+    fn drop(&mut self) {
+        streaming::release(&self.state);
+    }
 }
 
 struct Job {
@@ -75,22 +87,27 @@ struct Job {
     /// Progress 0.0–1.0, as `f32` bits.
     progress: Arc<AtomicU32>,
     rate: u32,
+    /// Streaming was on when it started.
+    stream: bool,
 }
 
 struct Done {
     id: u64,
     rate: u32,
+    stream: bool,
     /// The file's own rate, channels and length (frames, seconds).
-    source: Option<(u32, usize, u64, f64)>,
+    source: Option<Source>,
     /// The file's size on disk, read here rather than on the UI thread
     /// (M4 review L8: a stat on a network path can stall a frame).
     size_bytes: u64,
-    result: Result<lumen_media::Audio, MediaError>,
+    result: Result<streaming::Loaded, MediaError>,
     peaks: Option<Peaks>,
 }
 
 pub struct Library {
     items: Vec<Item>,
+    /// The page pool, disk thread and cache while streaming is on.
+    streaming: Option<streaming::Streaming>,
     /// Reversed copies of files, by `twins::reversed_key` (M7b slice E1).
     twins: Vec<twins::Twin>,
     twin_tx: Sender<twins::Mirrored>,
@@ -105,6 +122,7 @@ impl Default for Library {
         let (twin_tx, twin_rx) = mpsc::channel();
         Self {
             items: Vec::new(),
+            streaming: None,
             twins: Vec::new(),
             twin_tx,
             twin_rx,
@@ -153,6 +171,7 @@ impl Library {
             info,
             peaks: None,
             job: None,
+            streamed: None,
         });
         self.start_job(id, rate, ctx);
     }
@@ -167,15 +186,16 @@ impl Library {
             name: name.to_owned(),
             info: FileInfo {
                 format: "Generated".into(),
-                sample_rate: Some(audio.sample_rate),
-                channels: Some(audio.channels.len()),
+                sample_rate: Some(audio.sample_rate()),
+                channels: Some(audio.channels()),
                 frames: Some(audio.frames() as u64),
-                seconds: Some(audio.frames() as f64 / f64::from(audio.sample_rate.max(1))),
+                seconds: Some(audio.frames() as f64 / f64::from(audio.sample_rate().max(1))),
                 ..FileInfo::default()
             },
             state: State::Ready(audio),
             peaks: Some(peaks),
             job: None,
+            streamed: None,
         });
     }
 
@@ -195,8 +215,25 @@ impl Library {
                 cancel: Arc::new(AtomicBool::new(false)),
                 progress: Arc::new(AtomicU32::new(0)),
                 rate,
+                stream: false,
             }),
+            streamed: None,
         });
+    }
+
+    /// Turns playing from disk on (with the pool, disk thread and cache it
+    /// uses) or off. Files whose way of playing changes load again at the
+    /// next [`Self::update`]. Until then, clips of files in memory play as
+    /// before; turned off, clips of streamed files are silent (their disk
+    /// thread has stopped).
+    pub fn set_streaming(&mut self, streaming: Option<streaming::Streaming>) {
+        // The old disk thread stops here.
+        self.streaming = streaming;
+    }
+
+    /// The pool, disk thread and cache while streaming is on.
+    pub fn streaming(&self) -> Option<&streaming::Streaming> {
+        self.streaming.as_ref()
     }
 
     fn start_job(&mut self, id: u64, rate: u32, ctx: &egui::Context) {
@@ -206,11 +243,14 @@ impl Library {
         if let Some(old) = item.job.take() {
             old.cancel.store(true, Ordering::Relaxed);
         }
+        let cache = self.streaming.as_ref().map(|s| Arc::clone(s.cache()));
         let job = Job {
             cancel: Arc::new(AtomicBool::new(false)),
             progress: Arc::new(AtomicU32::new(0)),
             rate,
+            stream: cache.is_some(),
         };
+        let stream = job.stream;
         let (cancel, progress) = (Arc::clone(&job.cancel), Arc::clone(&job.progress));
         let (path, done, ctx) = (item.path.clone(), self.done_tx.clone(), ctx.clone());
         item.job = Some(job);
@@ -229,22 +269,32 @@ impl Library {
                     }
                 };
                 let size_bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
-                // Decode and convert separately, to keep the file's own details.
-                let decoded = lumen_media::decode(&path, &cancel, &mut |p| report(p * 0.8));
-                let source = decoded
-                    .as_ref()
-                    .ok()
-                    .map(|a| (a.sample_rate, a.channels(), a.frames() as u64, a.seconds()));
-                let result = decoded.and_then(|audio| {
-                    let converted = lumen_media::resample(&audio, rate, &cancel);
-                    report(0.98);
-                    converted
-                });
                 let started = std::time::Instant::now();
-                let peaks = result.as_ref().ok().and_then(|audio| audio.peaks(&cancel));
+                // A long file plays from disk when streaming is on (M B).
+                let header = cache
+                    .as_ref()
+                    .and_then(|_| lumen_media::probe(&path).ok())
+                    .filter(streaming::streams);
+                let (source, result, peaks) = match (&cache, header) {
+                    (Some(cache), Some(header)) => {
+                        match streaming::load(cache, &path, &header, rate, &cancel, &mut report) {
+                            Ok(streamed) => (
+                                Some(streamed.source),
+                                Ok(streaming::Loaded::Stream(streamed.prepared)),
+                                streamed.peaks,
+                            ),
+                            Err(why) => (None, Err(why), None),
+                        }
+                    }
+                    _ => {
+                        let (source, result) = decode(&path, rate, &cancel, &mut report);
+                        let peaks = result.as_ref().ok().and_then(|audio| audio.peaks(&cancel));
+                        (source, result.map(streaming::Loaded::Memory), peaks)
+                    }
+                };
                 crate::trace::log(|| {
                     format!(
-                        "media: peaks of {} in {:.1} ms",
+                        "media: {} loaded in {:.1} ms",
                         path.display(),
                         started.elapsed().as_secs_f64() * 1000.0
                     )
@@ -253,6 +303,7 @@ impl Library {
                 let _ = done.send(Done {
                     id,
                     rate,
+                    stream,
                     source,
                     size_bytes,
                     result,
@@ -263,20 +314,27 @@ impl Library {
             .expect("spawn media loader");
     }
 
-    /// Applies finished loads, and converts ready files again when the
-    /// device rate is no longer theirs. Returns true if any file became
-    /// ready, failed or was removed, so the engine's clips need rebuilding.
+    /// Applies finished loads, and loads ready files again when the device
+    /// rate is no longer theirs or streaming was turned on or off. Returns
+    /// true if any file became ready, failed or was removed, so the engine's
+    /// clips need rebuilding.
     pub fn update(&mut self, rate: u32, ctx: &egui::Context) -> bool {
         let mut changed = false;
         while let Ok(done) = self.done_rx.try_recv() {
             let Some(item) = self.items.iter_mut().find(|i| i.id == done.id) else {
                 continue;
             };
-            // A load superseded by a newer one (another rate) is ignored.
-            if item.job.as_ref().is_some_and(|j| j.rate != done.rate) {
+            // A load superseded by a newer one (another rate, streaming
+            // turned on or off) is ignored.
+            if item
+                .job
+                .as_ref()
+                .is_some_and(|j| j.rate != done.rate || j.stream != done.stream)
+            {
                 continue;
             }
             item.job = None;
+            item.streamed = Some(done.stream);
             item.info.size_bytes = done.size_bytes;
             if let Some((rate, channels, frames, seconds)) = done.source {
                 item.info.sample_rate = Some(rate);
@@ -284,19 +342,46 @@ impl Library {
                 item.info.frames = Some(frames);
                 item.info.seconds = Some(seconds);
             }
-            match done.result {
-                Ok(audio) => {
-                    crate::trace::log(|| {
-                        format!("media: {} ready ({:.1} s)", item.name, audio.seconds())
-                    });
-                    item.state = State::Ready(Arc::new(ClipAudio {
-                        sample_rate: audio.sample_rate,
-                        channels: audio.into_channels(),
-                    }));
-                    item.peaks = done.peaks.map(Arc::new);
+            let ready = match done.result {
+                Ok(streaming::Loaded::Memory(audio)) => Some(ClipAudio::Memory {
+                    sample_rate: audio.sample_rate,
+                    channels: audio.into_channels(),
+                }),
+                Ok(streaming::Loaded::Stream(prepared)) => {
+                    self.streaming.as_ref().map(|streaming| {
+                        let layout = prepared.layout;
+                        ClipAudio::Stream(StreamAudio::new(
+                            streaming.pool(),
+                            streams::register(prepared.path),
+                            layout.sample_rate,
+                            layout.played() as u16,
+                            layout.frames,
+                        ))
+                    })
                 }
-                Err(MediaError::Cancelled) => {}
-                Err(error) => item.state = State::Failed(error.to_string()),
+                Err(MediaError::Cancelled) => None,
+                Err(error) => {
+                    streaming::release(&item.state);
+                    item.state = State::Failed(error.to_string());
+                    None
+                }
+            };
+            if let Some(audio) = ready {
+                crate::trace::log(|| {
+                    format!(
+                        "media: {} ready ({:.1} s, {})",
+                        item.name,
+                        audio.frames() as f64 / f64::from(audio.sample_rate().max(1)),
+                        if audio.memory().is_some() {
+                            "in memory"
+                        } else {
+                            "from disk"
+                        }
+                    )
+                });
+                streaming::release(&item.state);
+                item.state = State::Ready(Arc::new(audio));
+                item.peaks = done.peaks.map(Arc::new);
             }
             changed = true;
         }
@@ -307,12 +392,17 @@ impl Library {
             .retain(|i| !(matches!(i.state, State::Loading) && i.job.is_none()));
         changed |= self.items.len() != before;
 
+        let on = self.streaming.is_some();
         let stale: Vec<u64> = self
             .items
             .iter()
             .filter(|i| match (&i.state, &i.job) {
-                (State::Ready(audio), None) => audio.sample_rate != rate,
-                (_, Some(job)) => job.rate != rate && !matches!(i.state, State::Failed(_)),
+                (State::Ready(audio), None) => {
+                    audio.sample_rate() != rate || i.streamed.is_some_and(|was| was != on)
+                }
+                (_, Some(job)) => {
+                    (job.rate != rate || job.stream != on) && !matches!(i.state, State::Failed(_))
+                }
                 _ => false,
             })
             .map(|i| i.id)
@@ -349,15 +439,42 @@ impl Library {
             .retain(|i| !(i.id == id && matches!(i.state, State::Failed(_))));
     }
 
-    /// Bytes of audio held in memory.
+    /// Bytes of audio held in memory: files in memory, and the page pool
+    /// while streaming is on.
     pub fn memory(&self) -> usize {
-        self.with_twins()
+        let files: usize = self
+            .with_twins()
             .map(|i| match &i.state {
-                State::Ready(audio) => audio.frames() * audio.channels.len() * 4,
+                State::Ready(audio) => audio.memory().map_or(0, |c| c.len() * audio.frames() * 4),
                 _ => 0,
             })
-            .sum()
+            .sum();
+        files + self.streaming.as_ref().map_or(0, |s| s.pool().memory())
     }
+}
+
+/// The file's own rate, channels and length (frames, seconds).
+type Source = (u32, usize, u64, f64);
+
+/// Decodes `path` and converts it to `rate`, keeping the file's own details.
+/// Blocks.
+fn decode(
+    path: &Path,
+    rate: u32,
+    cancel: &AtomicBool,
+    report: &mut dyn FnMut(f32),
+) -> (Option<Source>, Result<lumen_media::Audio, MediaError>) {
+    let decoded = lumen_media::decode(path, cancel, &mut |p| report(p * 0.8));
+    let source = decoded
+        .as_ref()
+        .ok()
+        .map(|a| (a.sample_rate, a.channels(), a.frames() as u64, a.seconds()));
+    let result = decoded.and_then(|audio| {
+        let converted = lumen_media::resample(&audio, rate, cancel);
+        report(0.98);
+        converted
+    });
+    (source, result)
 }
 
 #[cfg(test)]
@@ -426,7 +543,7 @@ mod tests {
         let State::Ready(audio) = &library.get(id).unwrap().state else {
             panic!("not ready: {:?}", library.get(id).unwrap().state);
         };
-        assert_eq!(audio.sample_rate, 48_000);
+        assert_eq!(audio.sample_rate(), 48_000);
         assert!(library.memory() > 0);
         let info = &library.get(id).unwrap().info;
         assert_eq!(info.format, "WAV");
@@ -442,7 +559,7 @@ mod tests {
         let State::Ready(audio) = &library.get(id).unwrap().state else {
             panic!("not ready after the rate change");
         };
-        assert_eq!(audio.sample_rate, 44_100);
+        assert_eq!(audio.sample_rate(), 44_100);
         let _ = std::fs::remove_file(path);
     }
 

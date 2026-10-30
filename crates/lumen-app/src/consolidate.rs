@@ -15,6 +15,7 @@ use lumen_media::wav::{Sample, Spec, Writer};
 use lumen_project::edit::consolidate::{Baked, Part};
 use lumen_project::model::{Id, Media};
 
+use crate::media::streams::Unread;
 use crate::render_audio::Again;
 
 /// One file to render.
@@ -28,6 +29,8 @@ pub struct Job {
     /// Where the file goes, and the media id it will have.
     pub file: PathBuf,
     pub media: Id,
+    /// What the clips could not read from disk; a job with a hole fails.
+    pub unread: Unread,
 }
 
 /// Where a render stands.
@@ -70,6 +73,7 @@ pub fn render_job(
         frames,
         file,
         media,
+        unread,
     } = job;
     if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)
@@ -123,6 +127,7 @@ pub fn render_job(
     if ended == Finished::Cancelled {
         return Ok(None);
     }
+    unread.check()?;
     let frames = writer.finish().map_err(|e| e.to_string())?;
     let size_bytes = std::fs::metadata(&file).map_or(0, |m| m.len());
     Ok(Some(Baked {
@@ -304,7 +309,7 @@ mod tests {
         let left: Vec<f32> = (0..20_000)
             .map(|i| (i % 500) as f32 / 1_000.0 - 0.25)
             .collect();
-        let audio = Arc::new(ClipAudio {
+        let audio = Arc::new(ClipAudio::Memory {
             sample_rate: RATE,
             channels: if mono {
                 vec![left]
@@ -330,6 +335,7 @@ mod tests {
             frames: 10_000,
             file: dir.join("out.wav"),
             media: Id(777),
+            unread: Default::default(),
         };
         (job, audio)
     }
@@ -357,9 +363,9 @@ mod tests {
         let back = lumen_media::decode(&file, &AtomicBool::new(false), &mut |_| {}).unwrap();
         // Bare outer ends: the first frame is the source exactly (32-bit
         // float), and so is the last.
-        assert_eq!(back.channel(0)[0], audio.channels[0][0]);
-        assert_eq!(back.channel(1)[0], audio.channels[1][0]);
-        assert_eq!(back.channel(0)[9_999], audio.channels[0][9_999]);
+        assert_eq!(back.channel(0)[0], audio.memory().unwrap()[0][0]);
+        assert_eq!(back.channel(1)[0], audio.memory().unwrap()[1][0]);
+        assert_eq!(back.channel(0)[9_999], audio.memory().unwrap()[0][9_999]);
     }
 
     #[test]

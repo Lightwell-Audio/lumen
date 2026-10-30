@@ -22,7 +22,7 @@ const FADE: i64 = 96;
 fn ramp(frames: usize, rate: u32) -> Arc<ClipAudio> {
     let left: Vec<f32> = (0..frames).map(|i| (i + 1) as f32 / 1e7).collect();
     let right = left.iter().map(|v| -v).collect();
-    Arc::new(ClipAudio {
+    Arc::new(ClipAudio::Memory {
         sample_rate: rate,
         channels: vec![left, right],
     })
@@ -72,7 +72,10 @@ fn expected(audio: &ClipAudio, offset: i64, length: i64, pos: i64) -> (f32, f32)
     let edge = FADE.min(length / 2).max(1);
     let gain = ((pos + 1).min(edge).min(length - pos) as f32 / edge as f32).min(1.0);
     let i = (offset + pos) as usize;
-    (audio.channels[0][i] * gain, audio.channels[1][i] * gain)
+    (
+        audio.memory().unwrap()[0][i] * gain,
+        audio.memory().unwrap()[1][i] * gain,
+    )
 }
 
 #[test]
@@ -521,7 +524,7 @@ fn the_loop_wrap_crossfades_and_stays_on_the_exact_sample() {
     handle.send(Command::Play).unwrap();
     let out = run(&mut engine, 200_000, 128);
     let left = |frame: usize| out[frame].0;
-    let source = |sample: usize| audio.channels[0][sample];
+    let source = |sample: usize| audio.memory().unwrap()[0][sample];
 
     // Starting playback fades in over 2 ms...
     assert!(left(0) < source(96_000) / 10.0, "no fade-in at play");
@@ -565,7 +568,7 @@ fn stopping_fades_out_instead_of_cutting() {
         let out = run(&mut engine, 256, 128);
         // The audio that was playing ramps down to silence over 2 ms...
         for (k, &(left, _)) in out.iter().enumerate().take(FADE as usize) {
-            let want = audio.channels[0][at + k] * (1.0 - (k + 1) as f32 / FADE as f32);
+            let want = audio.memory().unwrap()[0][at + k] * (1.0 - (k + 1) as f32 / FADE as f32);
             assert!((left - want).abs() < 1e-9, "{stop:?} frame {k}");
         }
         // ...then silence, and the transport is where it should be.
@@ -596,7 +599,7 @@ fn a_locate_lands_on_the_exact_sample_and_fades_in() {
     run(&mut engine, 1_024, 128);
     handle.send(Command::Locate(bars(2))).unwrap();
     let out = run(&mut engine, 1_024, 128);
-    let full = |i: usize| audio.channels[0][192_000 + i] * 0.5;
+    let full = |i: usize| audio.memory().unwrap()[0][192_000 + i] * 0.5;
     // Rising over 2 ms from the exact sample, then exact.
     assert!(out[0].0 > 0.0 && out[0].0 < full(0));
     assert!(out.windows(2).take(95).all(|w| w[1].0 > w[0].0));
@@ -606,7 +609,7 @@ fn a_locate_lands_on_the_exact_sample_and_fades_in() {
 
 #[test]
 fn mono_plays_on_both_sides_and_gain_applies() {
-    let mono = Arc::new(ClipAudio {
+    let mono = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![vec![0.5; 10_000]],
     });
@@ -768,7 +771,7 @@ fn a_tempo_change_while_playing_crossfades() {
 
 /// Steady audio, so any step in the output is a change of level.
 fn steady(frames: usize) -> Arc<ClipAudio> {
-    Arc::new(ClipAudio {
+    Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![vec![0.5; frames], vec![0.5; frames]],
     })
@@ -863,7 +866,7 @@ fn tone(frames: usize) -> Arc<ClipAudio> {
     let wave: Vec<f32> = (0..frames)
         .map(|i| 0.5 * (i as f32 * std::f32::consts::TAU * 200.0 / RATE as f32).sin())
         .collect();
-    Arc::new(ClipAudio {
+    Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![wave.clone(), wave],
     })
@@ -928,7 +931,7 @@ fn dragging_a_playing_clip_crossfades_instead_of_clicking() {
     // After each crossfade the clip plays its exact samples at its new place.
     let start = Timeline::default().sample_at(Ticks(Ticks::quarters(12).0 / 7), RATE);
     let at = settled - 1;
-    let want = audio.channels[0][(96_000 + at as i64 - start) as usize];
+    let want = audio.memory().unwrap()[0][(96_000 + at as i64 - start) as usize];
     assert!((out[at].0 - want).abs() < 1e-6, "{} vs {want}", out[at].0);
 }
 
@@ -1201,7 +1204,7 @@ fn a_clip_with_no_channels_plays_silence_and_does_not_stop_the_others() {
         audio,
         shape: Default::default(),
     };
-    let empty = Arc::new(ClipAudio {
+    let empty = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![],
     });

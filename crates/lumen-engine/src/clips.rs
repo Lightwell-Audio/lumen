@@ -51,6 +51,7 @@ use set::ClipSet;
 use crate::envelope::{ClipEnvelope, EnvelopeGains};
 use crate::mixer::{BUS_CHANNELS, Buses, TrackSource};
 use crate::source::{Jump, Mode, RenderContext};
+use crate::stream::{PAGE, PagePool, StreamAudio, StreamSide};
 use crate::timeline::Timeline;
 
 /// Clip edge fades: 2 ms.
@@ -60,6 +61,8 @@ const FADE_PER_SECOND: u32 = 500;
 const GLIDE_PER_SECOND: f32 = 50.0;
 /// A clip list change that moves clips crossfades over 5 ms.
 const SWAP_PER_SECOND: u32 = 200;
+/// A streamed clip needs its pages 40 ms ahead (twice a full glide).
+const LOOKAHEAD_PER_SECOND: u32 = 25;
 const QUEUE: usize = 4;
 /// Fade curves are read from tables of this many steps: within about
 /// 10⁻⁶ of the curve (far below hearing) for all but its steepest
@@ -71,16 +74,75 @@ const MAX_TABLES: usize = 256;
 /// A fade curve's levels at `TABLE_STEPS + 1` evenly spaced points.
 type Table = Arc<[f32]>;
 
-/// Audio for clips, channel after channel, at `sample_rate`.
+/// Audio for clips.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ClipAudio {
-    pub sample_rate: u32,
-    pub channels: Vec<Vec<f32>>,
+pub enum ClipAudio {
+    /// Held in memory, channel after channel, at `sample_rate`.
+    Memory {
+        sample_rate: u32,
+        channels: Vec<Vec<f32>>,
+    },
+    /// Read from disk as it plays (M9 slice R6): only the pages a disk
+    /// thread has put in memory can be heard.
+    Stream(StreamAudio),
 }
 
 impl ClipAudio {
+    pub fn sample_rate(&self) -> u32 {
+        match self {
+            ClipAudio::Memory { sample_rate, .. } => *sample_rate,
+            ClipAudio::Stream(stream) => stream.sample_rate(),
+        }
+    }
+
     pub fn frames(&self) -> usize {
-        self.channels.first().map_or(0, Vec::len)
+        match self {
+            ClipAudio::Memory { channels, .. } => channels.first().map_or(0, Vec::len),
+            ClipAudio::Stream(stream) => stream.frames() as usize,
+        }
+    }
+
+    /// Channels played: all of a file in memory, one or two streamed.
+    pub fn channels(&self) -> usize {
+        match self {
+            ClipAudio::Memory { channels, .. } => channels.len(),
+            ClipAudio::Stream(stream) => stream.channels(),
+        }
+    }
+
+    /// The samples in memory, channel after channel; `None` when streamed.
+    pub fn memory(&self) -> Option<&[Vec<f32>]> {
+        match self {
+            ClipAudio::Memory { channels, .. } => Some(channels),
+            ClipAudio::Stream(_) => None,
+        }
+    }
+
+    pub fn stream(&self) -> Option<&StreamAudio> {
+        match self {
+            ClipAudio::Memory { .. } => None,
+            ClipAudio::Stream(stream) => Some(stream),
+        }
+    }
+}
+
+/// Where the clip player reads one channel's samples from, passed by value
+/// so the loops read a slice as directly as before streaming.
+trait Samples: Copy {
+    fn at(&self, frame: usize) -> Option<f32>;
+}
+
+impl Samples for &[f32] {
+    #[inline(always)]
+    fn at(&self, frame: usize) -> Option<f32> {
+        self.get(frame).copied()
+    }
+}
+
+impl Samples for &StreamSide<'_> {
+    #[inline(always)]
+    fn at(&self, frame: usize) -> Option<f32> {
+        StreamSide::at(self, frame)
     }
 }
 
@@ -306,6 +368,9 @@ struct Block {
     edge: i64,
     /// How far a level moves in one frame.
     glide: f32,
+    /// How far past the block a streamed clip's pages must be in memory: more
+    /// than a glide, so a clip that will run out fades while it still plays.
+    ahead: i64,
 }
 
 /// The block being rendered and the room to work out its envelope gains.
@@ -359,7 +424,7 @@ impl Ramp {
 /// not move it.
 fn play(
     clip: &Clip,
-    kept: &mut f32,
+    kept: Kept<'_>,
     cx: &RenderContext<'_>,
     work: &mut Work<'_>,
     ramp: Ramp,
@@ -369,18 +434,18 @@ fn play(
     let ClipRender { fades, seam } = render;
     let Work { block, gains } = work;
     let rate = cx.sample_rate;
-    if clip.audio.sample_rate != rate || clip.length <= 0 {
+    if clip.audio.sample_rate() != rate || clip.length <= 0 {
         return;
     }
-    let mut scratch = *kept;
-    let level = if cx.tail { &mut scratch } else { kept };
+    let mut scratch = *kept.level;
+    let level = if cx.tail { &mut scratch } else { kept.level };
     let Some(mut bus) = buses.track(clip.track) else {
         // Its track is not in the routing: not heard, so it fades in if
         // the track joins while it plays.
         *level = f32::NAN;
         return;
     };
-    let goal = clip.gain;
+    let mut goal = clip.gain;
     let start = cx.timeline.sample_at(clip.start, rate);
     let end = start + clip.length;
     let (a, mut b) = (block.from.max(start), block.to.min(end));
@@ -392,6 +457,23 @@ fn play(
         *level = goal;
         return;
     }
+    if let ClipAudio::Stream(stream) = &*clip.audio {
+        // Read from disk: while any page it reads in this block or a little
+        // after is missing, it glides out (on audio it still has) and back in
+        // once its pages are there. Each time it has to is one underrun.
+        let ready = for_each_page(clip, start, a..b + block.ahead, stream.frames(), &mut |p| {
+            stream.ensure(p)
+        });
+        if !ready {
+            goal = 0.0;
+        }
+        if !cx.tail {
+            if !ready && !*kept.starved {
+                stream.pool().underrun();
+            }
+            *kept.starved = !ready;
+        }
+    }
     if level.is_nan() {
         // First heard. At its start the edge fade covers it; partway
         // through, it fades in.
@@ -400,7 +482,7 @@ fn play(
     if goal == 0.0 && *level == 0.0 {
         return;
     }
-    let sources = clip.audio.channels.len();
+    let sources = clip.audio.channels();
     if sources == 0 {
         // A clip with no channels has nothing to play (and no side to pick).
         return;
@@ -418,11 +500,7 @@ fn play(
         );
     }
     let gains: &EnvelopeGains = gains;
-    let mix = if clip.shape.plain() && !enveloped {
-        mix
-    } else {
-        mix_shaped
-    };
+    let plain = clip.shape.plain() && !enveloped;
     let mut gain = *level;
     // A crossfade half needs no 2 ms edge fade at its end of the clip.
     let blend = [clip.shape.fade_in.blend, clip.shape.fade_out.blend];
@@ -443,25 +521,134 @@ fn play(
             seam_lead,
             seam_total: seam.total,
         };
-        // Mono plays on both sides; extra channels are ignored.
-        let samples = &clip.audio.channels[side.min(sources - 1)];
         let target = bus.channel(side);
-        gain = *level;
-        let mut t = a;
+        let side_mix = SideMix {
+            clip,
+            at,
+            span: a..b,
+            from: *level,
+            goal,
+            glide: block.glide,
+            ramp,
+            plain,
+        };
+        // Mono plays on both sides; extra channels are ignored.
+        gain = match &*clip.audio {
+            ClipAudio::Memory { channels, .. } => {
+                side_mix.run(target, channels[side.min(sources - 1)].as_slice())
+            }
+            ClipAudio::Stream(stream) => side_mix.run(target, &stream.side(side)),
+        };
+    }
+    *level = gain;
+}
+
+/// A clip's kept state across blocks.
+struct Kept<'a> {
+    level: &'a mut f32,
+    /// A streamed clip faded out because its audio was not in memory.
+    starved: &'a mut bool,
+}
+
+/// One side of a clip in one block.
+struct SideMix<'a> {
+    clip: &'a Clip,
+    at: Placement<'a>,
+    span: std::ops::Range<i64>,
+    /// The level it starts at and the level it goes to.
+    from: f32,
+    goal: f32,
+    glide: f32,
+    ramp: Ramp,
+    /// Without fades, repeats or envelopes.
+    plain: bool,
+}
+
+impl SideMix<'_> {
+    /// Mixes the side into `target`; returns the level it ends at.
+    #[inline(always)]
+    fn run<S: Samples>(&self, target: &mut [f32], samples: S) -> f32 {
+        let mix: fn(&mut [f32], S, &Clip, Placement<'_>, std::ops::Range<i64>, f32) =
+            if self.plain { mix } else { mix_shaped };
+        let (clip, at, ramp, goal) = (self.clip, self.at, self.ramp, self.goal);
+        let mut gain = self.from;
+        let mut t = self.span.start;
         // Gliding or crossfading: a new gain every frame until both settle.
-        while t < b && (gain != goal || ramp.active(t)) {
-            gain = if (goal - gain).abs() <= block.glide {
+        while t < self.span.end && (gain != goal || ramp.active(t)) {
+            gain = if (goal - gain).abs() <= self.glide {
                 goal
             } else {
-                gain + block.glide.copysign(goal - gain)
+                gain + self.glide.copysign(goal - gain)
             };
             mix(target, samples, clip, at, t..t + 1, gain * ramp.gain(t));
             t += 1;
         }
         // Steady: the common case, kept as tight as before.
-        mix(target, samples, clip, at, t..b, gain);
+        mix(target, samples, clip, at, t..self.span.end, gain);
+        gain
     }
-    *level = gain;
+}
+
+/// The frames of `clip`'s source it plays from timeline sample `from` to
+/// `to`, with the clip starting at timeline sample `start`: one span, or two
+/// where its repeats wrap. Spans are clipped to the clip.
+fn source_spans(clip: &Clip, start: i64, from: i64, to: i64) -> [Option<(i64, i64)>; 2] {
+    let (a, b) = (from.max(start), to.min(start + clip.length));
+    if a >= b {
+        return [None, None];
+    }
+    match clip.shape.period.filter(|p| *p > 0) {
+        Some(period) => {
+            let inner = (a - start + clip.shape.phase).rem_euclid(period);
+            let len = b - a;
+            if len >= period {
+                [Some((clip.offset, clip.offset + period)), None]
+            } else if inner + len <= period {
+                [Some((clip.offset + inner, clip.offset + inner + len)), None]
+            } else {
+                [
+                    Some((clip.offset + inner, clip.offset + period)),
+                    Some((clip.offset, clip.offset + inner + len - period)),
+                ]
+            }
+        }
+        None => [
+            Some((clip.offset + a - start, clip.offset + b - start)),
+            None,
+        ],
+    }
+}
+
+/// Calls `f` with each page of a streamed source `frames` long that `clip`
+/// reads from timeline sample `span.start` to `span.end`, the clip starting
+/// at timeline sample `start`, until `f` returns false; returns whether it
+/// never did. Pages past the end of the source are not read and not visited.
+/// Allocates nothing: the audio thread checks pages with it, and the disk
+/// thread plans with it.
+pub fn for_each_page(
+    clip: &Clip,
+    start: i64,
+    span: std::ops::Range<i64>,
+    frames: u64,
+    f: &mut dyn FnMut(usize) -> bool,
+) -> bool {
+    let frames = i64::try_from(frames).unwrap_or(i64::MAX);
+    let page = PAGE as i64;
+    for (lo, hi) in source_spans(clip, start, span.start, span.end)
+        .into_iter()
+        .flatten()
+    {
+        let (lo, hi) = (lo.max(0), hi.min(frames));
+        if lo >= hi {
+            continue;
+        }
+        for p in lo / page..=(hi - 1) / page {
+            if !f(p as usize) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// Where a clip sits in the block being rendered.
@@ -489,9 +676,9 @@ struct Placement<'a> {
 /// Adds `clip`'s audio at `gain` for the timeline samples `frames` into
 /// `target`: the plain path, for clips without fades or repeats.
 #[inline(always)]
-fn mix(
+fn mix<S: Samples>(
     target: &mut [f32],
-    samples: &[f32],
+    samples: S,
     clip: &Clip,
     at: Placement<'_>,
     frames: std::ops::Range<i64>,
@@ -499,9 +686,9 @@ fn mix(
 ) {
     for t in frames {
         let pos = t - at.start;
-        let Some(&sample) = usize::try_from(clip.offset + pos)
+        let Some(sample) = usize::try_from(clip.offset + pos)
             .ok()
-            .and_then(|i| samples.get(i))
+            .and_then(|i| samples.at(i))
         else {
             continue;
         };
@@ -526,9 +713,9 @@ fn mix(
 /// [`mix`] for a clip with fades or repeats: each repeat plays the content
 /// from the offset again, with its own edge fades.
 #[inline(always)]
-fn mix_shaped(
+fn mix_shaped<S: Samples>(
     target: &mut [f32],
-    samples: &[f32],
+    samples: S,
     clip: &Clip,
     at: Placement<'_>,
     frames: std::ops::Range<i64>,
@@ -550,9 +737,9 @@ fn mix_shaped(
             }
             _ => (pos, clip.length, 0, false),
         };
-        let Some(&sample) = usize::try_from(clip.offset + inner)
+        let Some(sample) = usize::try_from(clip.offset + inner)
             .ok()
-            .and_then(|i| samples.get(i))
+            .and_then(|i| samples.at(i))
         else {
             continue;
         };
@@ -647,6 +834,26 @@ impl ClipPlayer {
         }
     }
 
+    /// The page pools the lists playing read from: at most one each, and the
+    /// old list's only when it is another pool.
+    fn pools(&self) -> [Option<&PagePool>; 2] {
+        let current = self.current.pool.as_deref();
+        let old = self
+            .swap
+            .as_ref()
+            .and_then(|s| s.old.pool.as_deref())
+            .filter(|old| current.is_none_or(|c| !std::ptr::eq(*old, c)));
+        [current, old]
+    }
+
+    fn enter_pools(&self) {
+        self.pools().into_iter().flatten().for_each(PagePool::enter);
+    }
+
+    fn leave_pools(&self) {
+        self.pools().into_iter().flatten().for_each(PagePool::leave);
+    }
+
     /// Ends the crossfade once it is done, or at once with `now`.
     fn finish_swap(&mut self, now: bool) {
         if self.stash.is_some() {
@@ -678,7 +885,10 @@ impl TrackSource for ClipPlayer {
             to: cx.start + frames,
             edge: i64::from(fade_length(rate)),
             glide: GLIDE_PER_SECOND / rate as f32,
+            ahead: i64::from(rate / LOOKAHEAD_PER_SECOND),
         };
+        // Pages read in this block stay in memory until it ends.
+        self.enter_pools();
         set_seams(&mut self.current, cx);
         let crossfade = self.swap.as_mut().map(|swap| {
             if swap.length == 0 {
@@ -701,7 +911,10 @@ impl TrackSource for ClipPlayer {
             };
             play(
                 &set.clips[i],
-                &mut set.levels[i],
+                Kept {
+                    level: &mut set.levels[i],
+                    starved: &mut set.starved[i],
+                },
                 cx,
                 &mut work,
                 ramp,
@@ -722,7 +935,10 @@ impl TrackSource for ClipPlayer {
             for i in (0..old.clips.len()).filter(|&i| old.swapped[i]) {
                 play(
                     &old.clips[i],
-                    &mut old.levels[i],
+                    Kept {
+                        level: &mut old.levels[i],
+                        starved: &mut old.starved[i],
+                    },
                     cx,
                     &mut work,
                     Ramp::Out(x),
@@ -741,6 +957,7 @@ impl TrackSource for ClipPlayer {
                 swap.done += frames;
             }
         }
+        self.leave_pools();
         self.finish_swap(false);
     }
 
@@ -782,5 +999,97 @@ mod tests {
             edge_gain(0, 1_000, 1_000, 96, [true, false], 24),
             25.0 / 96.0
         );
+    }
+
+    fn clip(offset: i64, length: i64, period: Option<i64>, phase: i64) -> Clip {
+        Clip {
+            id: 1,
+            track: 0,
+            start: Ticks::ZERO,
+            offset,
+            length,
+            gain: 1.0,
+            audio: Arc::new(ClipAudio::Memory {
+                sample_rate: 48_000,
+                channels: vec![],
+            }),
+            shape: ClipShape {
+                period,
+                phase,
+                ..Default::default()
+            },
+            envelope: Default::default(),
+        }
+    }
+
+    #[test]
+    fn source_spans_follow_the_clip_and_wrap_with_its_repeats() {
+        let plain = clip(1_000, 10_000, None, 0);
+        // Clipped to the clip, offset into the source.
+        assert_eq!(
+            source_spans(&plain, 500, 0, 2_000),
+            [Some((1_000, 2_500)), None]
+        );
+        assert_eq!(source_spans(&plain, 500, 20_000, 30_000), [None, None]);
+        // Repeating every 3,000 frames: a span across a repeat reads the
+        // end of the loop, then its start.
+        let looped = clip(1_000, 10_000, Some(3_000), 0);
+        assert_eq!(
+            source_spans(&looped, 0, 2_500, 3_500),
+            [Some((3_500, 4_000)), Some((1_000, 1_500))]
+        );
+        assert_eq!(
+            source_spans(&looped, 0, 3_100, 3_200),
+            [Some((1_100, 1_200)), None]
+        );
+        // A span longer than the loop reads all of it once.
+        assert_eq!(
+            source_spans(&looped, 0, 0, 7_000),
+            [Some((1_000, 4_000)), None]
+        );
+        // The phase moves where the clip begins in the loop.
+        let phased = clip(1_000, 10_000, Some(3_000), 2_000);
+        assert_eq!(
+            source_spans(&phased, 0, 0, 100),
+            [Some((3_000, 3_100)), None]
+        );
+    }
+
+    #[test]
+    fn the_pages_a_clip_reads_are_each_visited_once_within_the_file() {
+        let pages = |clip: &Clip, span: std::ops::Range<i64>, frames: u64| {
+            let mut seen = Vec::new();
+            assert!(for_each_page(clip, 0, span, frames, &mut |p| {
+                seen.push(p);
+                true
+            }));
+            seen
+        };
+        let page = PAGE as i64;
+        let plain = clip(page - 1, 10 * page, None, 0);
+        // Frames page-1 to page+1: pages 0 and 1.
+        assert_eq!(pages(&plain, 0..2, 100 * PAGE as u64), [0, 1]);
+        // Past the end of the file nothing is visited.
+        assert_eq!(pages(&plain, 0..3 * page, 2 * PAGE as u64), [0, 1]);
+        assert!(pages(&plain, 0..10, (page - 1) as u64).is_empty());
+        // A wrapping loop visits the loop's end, then its start.
+        let looped = clip(0, 10 * page, Some(3 * page), 0);
+        assert_eq!(
+            pages(&looped, 3 * page - 1..3 * page + 1, 100 * PAGE as u64),
+            [2, 0]
+        );
+        // Stops at the first page `f` refuses.
+        let mut asked = 0;
+        assert!(!for_each_page(
+            &plain,
+            0,
+            0..5 * page,
+            100 * PAGE as u64,
+            &mut |p| {
+                asked += 1;
+                p < 2
+            }
+        ));
+        assert_eq!(asked, 3);
     }
 }

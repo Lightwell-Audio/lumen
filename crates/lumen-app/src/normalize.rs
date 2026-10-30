@@ -62,7 +62,7 @@ impl Drop for Scan {
 /// The frames of `audio` that `window` covers: from its start to the end of
 /// the stretch or the audio, whichever comes first.
 fn frames_of(audio: &ClipAudio, window: Window) -> std::ops::Range<usize> {
-    let rate = f64::from(audio.sample_rate);
+    let rate = f64::from(audio.sample_rate());
     let first = (window.from * rate).round().max(0.0);
     let last = ((window.from + window.span) * rate).round().max(0.0);
     let total = audio.frames() as f64;
@@ -81,14 +81,34 @@ pub fn peak_of(
     let frames = frames_of(audio, window);
     let mut peak = 0.0f32;
     let mut at = frames.start;
+    // A file played from disk is read a chunk at a time (M9 slice R6); one
+    // that cannot be read counts as silent, as a missing file plays.
+    let mut readers = crate::media::streams::Readers::default();
+    let (mut left, mut right) = (Vec::new(), Vec::new());
     while at < frames.end {
         if cancel.load(Ordering::Relaxed) {
             return None;
         }
         let to = (at + CHUNK).min(frames.end);
-        for channel in &audio.channels {
-            for &sample in &channel[at..to] {
+        let mut scan = |samples: &[f32]| {
+            for &sample in samples {
                 peak = peak.max(sample.abs());
+            }
+        };
+        match audio {
+            ClipAudio::Memory { channels, .. } => {
+                for channel in channels {
+                    scan(&channel[at..to]);
+                }
+            }
+            ClipAudio::Stream(stream) => {
+                left.resize(to - at, 0.0);
+                right.resize(if stream.channels() == 2 { to - at } else { 0 }, 0.0);
+                let got = readers
+                    .read(stream, at as u64, &mut left, &mut right)
+                    .unwrap_or(0);
+                scan(&left[..got]);
+                scan(&right[..got.min(right.len())]);
             }
         }
         read(to - at);
@@ -167,7 +187,7 @@ mod tests {
         let mut right = vec![0.0; frames];
         // The loudest sample is negative, on the second channel.
         right[frames / 2] = -0.9;
-        Arc::new(ClipAudio {
+        Arc::new(ClipAudio::Memory {
             sample_rate: 1_000,
             channels: vec![left, right],
         })

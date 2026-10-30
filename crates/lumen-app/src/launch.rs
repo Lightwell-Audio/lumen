@@ -66,6 +66,9 @@ pub struct Launch {
     /// first track, to try delay compensation before devices exist (M4
     /// slice 6).
     pub(crate) test_latency: Option<f64>,
+    /// Tests: the disk thread waits this long before each page it reads, so
+    /// streamed audio arrives late (M9 slice R6).
+    pub(crate) slow_disk: Option<Duration>,
     /// `--safe-mode`: no plugin is scanned, loaded or hosted (M6 slice 5e).
     pub(crate) safe_mode: bool,
     /// Where preset files are kept, when the caller chose (tests); the
@@ -187,6 +190,7 @@ impl Launch {
             test_latency: value("--test-latency")
                 .and_then(|ms| ms.parse().ok())
                 .filter(|ms: &f64| ms.is_finite() && *ms > 0.0),
+            slow_disk: None,
             safe_mode: has("--safe-mode"),
             preset_places: None,
             plugin_marker,

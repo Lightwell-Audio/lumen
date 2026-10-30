@@ -3,7 +3,7 @@
 //! All work is intended for a worker thread. WAV output is written in bounded
 //! blocks to a sibling temporary file and installed only after it is complete.
 //! FLAC frames are encoded individually to a temporary file, with cancellation
-//! between frames. Decoding and rate conversion currently hold audio in RAM.
+//! between frames. The render is read in blocks and never held whole.
 
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
@@ -14,10 +14,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use flacenc::component::{BitRepr, Stream};
 use flacenc::error::Verify;
 use flacenc::source::{Context, Fill, FrameBuf};
-use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
-use rubato::{Fft, FixedSync, Indexing, Resampler};
 
-use crate::{Audio, MediaError, cancelled};
+use crate::{MediaError, cancelled};
 
 const BLOCK_FRAMES: usize = 16_384;
 
@@ -70,9 +68,12 @@ pub struct ResultInfo {
 
 /// Encodes a stereo 32-bit float WAV render to `destination`.
 ///
-/// The destination is untouched until encoding succeeds. Cancellation is
-/// checked during decode, rate-conversion blocks, WAV writes and between FLAC
-/// frames. Progress runs from 0.0 to 1.0.
+/// The destination is untouched until encoding succeeds. The render is read
+/// in blocks and never held whole (M9 slice R6): a rate change converts it
+/// into a temporary file beside the destination first, normalizing reads it
+/// once for its peak, then the output is written block by block. WAV output
+/// becomes RF64 beyond 4 GiB. Cancellation is checked between blocks and
+/// between FLAC frames. Progress runs from 0.0 to 1.0.
 pub fn encode(
     source: &Path,
     destination: &Path,
@@ -85,80 +86,81 @@ pub fn encode(
     }
     validate_float_stereo_wav(source)?;
     cancelled(cancel)?;
-    let mut decode_progress = |p: f32| progress(p * 0.25);
-    let decoded = crate::decode(source, cancel, &mut decode_progress)?;
-    if decoded.channels() != 2 {
-        return Err(MediaError::Unsupported(format!(
-            "{} channels (export requires stereo)",
-            decoded.channels()
-        )));
-    }
-    let audio = if decoded.sample_rate == spec.sample_rate {
-        decoded
+    let rate = crate::stream::layout(source)?
+        .ok_or_else(|| MediaError::Unsupported("source is not a WAV render".into()))?
+        .sample_rate;
+    let converted = TempCleanup(temporary_path(destination)?);
+    let audio = if rate == spec.sample_rate {
+        source
     } else {
-        resample_stereo(&decoded, spec.sample_rate, cancel, progress)?
+        convert_stereo(
+            source,
+            rate,
+            spec.sample_rate,
+            &converted.0,
+            cancel,
+            &mut |p| progress(0.3 * p),
+        )?;
+        converted.0.as_path()
     };
-    cancelled(cancel)?;
+    progress(0.3);
 
     let mut peak = 0.0f32;
-    for channel in &audio.channels {
-        for block in channel.chunks(BLOCK_FRAMES) {
-            cancelled(cancel)?;
-            for &v in block {
-                if !v.is_finite() {
-                    return Err(MediaError::Encode(
-                        "the render contains non-finite samples".into(),
-                    ));
-                }
-                peak = peak.max(v.abs());
-            }
-        }
+    if spec.normalize_peak {
+        blocks(audio, BLOCK_FRAMES, cancel, &mut |left, right, done| {
+            scan(left, right, &mut peak)?;
+            progress(0.3 + 0.2 * done);
+            Ok(())
+        })?;
     }
     let normalization_gain = if spec.normalize_peak && peak > 0.0 {
         10.0_f64.powf(-1.0 / 20.0) / f64::from(peak)
     } else {
         1.0
     };
-    let mut output_peak = (f64::from(peak) * normalization_gain) as f32;
-    if !spec.format.is_float() {
-        output_peak = output_peak.min(1.0);
-    }
-    let result = ResultInfo {
-        frames: audio.frames() as u64,
-        sample_peak: output_peak,
-        normalization_gain,
-    };
+    progress(0.5);
 
-    if spec.format.is_flac() {
+    let frames = if spec.format.is_flac() {
         cancelled(cancel)?;
-        let (header, frames) = encode_flac(
-            &audio,
+        let (header, frames, written) = encode_flac(
+            audio,
             spec,
             normalization_gain,
             destination,
+            &mut peak,
             cancel,
             progress,
         )?;
         commit_parts(destination, &header, &frames.0, cancel, progress)?;
         progress(1.0);
+        written
     } else {
         encode_wav(
             destination,
-            &audio,
+            audio,
             spec,
             normalization_gain,
+            &mut peak,
             cancel,
             progress,
-        )?;
+        )?
+    };
+    let mut output_peak = (f64::from(peak) * normalization_gain) as f32;
+    if !spec.format.is_float() {
+        output_peak = output_peak.min(1.0);
     }
-    Ok(result)
+    Ok(ResultInfo {
+        frames,
+        sample_peak: output_peak,
+        normalization_gain,
+    })
 }
 
 fn validate_float_stereo_wav(path: &Path) -> Result<(), MediaError> {
     let mut file = File::open(path).map_err(crate::wav::io)?;
     let mut header = [0_u8; 12];
     file.read_exact(&mut header).map_err(crate::wav::io)?;
-    if &header[..4] != b"RIFF" || &header[8..] != b"WAVE" {
+    if !matches!(&header[..4], b"RIFF" | b"RF64") || &header[8..] != b"WAVE" {
         return Err(MediaError::Unsupported("source is not a RIFF WAV".into()));
     }
     loop {
@@ -186,65 +188,91 @@ fn validate_float_stereo_wav(path: &Path) -> Result<(), MediaError> {
     }
 }
 
-fn resample_stereo(
-    audio: &Audio,
-    rate: u32,
+/// What [`blocks`] hands each block to: the left and right samples and the
+/// share of the file read so far.
+type Block<'b> = dyn FnMut(&[f32], &[f32], f32) -> Result<(), MediaError> + 'b;
+
+/// Reads the stereo file `path` in blocks of `size` frames; returns the
+/// frames read.
+fn blocks(
+    path: &Path,
+    size: usize,
+    cancel: &AtomicBool,
+    block: &mut Block<'_>,
+) -> Result<u64, MediaError> {
+    let mut reader = crate::stream::Reader::open(path)?;
+    let frames = reader.layout().frames;
+    if reader.layout().channels != 2 {
+        return Err(MediaError::Unsupported(format!(
+            "{} channels (export requires stereo)",
+            reader.layout().channels
+        )));
+    }
+    let (mut left, mut right) = (vec![0.0; size], vec![0.0; size]);
+    let mut at = 0;
+    while at < frames {
+        cancelled(cancel)?;
+        let n = ((frames - at) as usize).min(size);
+        reader.read(at, &mut [&mut left[..n], &mut right[..n]])?;
+        at += n as u64;
+        block(&left[..n], &right[..n], at as f32 / frames as f32)?;
+    }
+    Ok(frames)
+}
+
+/// Checks a block is finite and raises `peak` to its largest sample.
+fn scan(left: &[f32], right: &[f32], peak: &mut f32) -> Result<(), MediaError> {
+    for &v in left.iter().chain(right) {
+        if !v.is_finite() {
+            return Err(MediaError::Encode(
+                "the render contains non-finite samples".into(),
+            ));
+        }
+        *peak = peak.max(v.abs());
+    }
+    Ok(())
+}
+
+/// Converts the stereo render `source` from `from` to `to` into a float
+/// file at `destination`, block by block.
+fn convert_stereo(
+    source: &Path,
+    from: u32,
+    to: u32,
+    destination: &Path,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(f32),
-) -> Result<Audio, MediaError> {
+) -> Result<(), MediaError> {
+    use crate::wav::{Sample, Spec as WavSpec, Writer};
+    let mut converter = crate::stream::convert::Converter::new(from, to, 2)?;
+    let mut writer = Writer::create_long(
+        destination,
+        WavSpec {
+            sample_rate: to,
+            channels: 2,
+            sample: Sample::F32,
+        },
+    )?;
+    blocks(source, BLOCK_FRAMES, cancel, &mut |left, right, done| {
+        converter.push(&[left, right], &mut |block| writer.write(block))?;
+        progress(done);
+        Ok(())
+    })?;
+    converter.finish(&mut |block| writer.write(block))?;
     cancelled(cancel)?;
-    let mut resampler = Fft::<f32>::new(
-        audio.sample_rate as usize,
-        rate as usize,
-        4096,
-        2,
-        FixedSync::Input,
-    )
-    .map_err(|e| MediaError::Resample(e.to_string()))?;
-    let input = SequentialSliceOfVecs::new(&audio.channels, 2, audio.frames())
-        .map_err(|e| MediaError::Resample(e.to_string()))?;
-    let expected =
-        (audio.frames() as f64 * f64::from(rate) / f64::from(audio.sample_rate)).ceil() as usize;
-    let mut channels: Vec<_> = (0..2).map(|_| Vec::with_capacity(expected)).collect();
-    let mut consumed = 0usize;
-    let mut delay = resampler.output_delay();
-    let size = resampler.output_frames_max();
-    let mut buffers = vec![vec![0.0; size]; 2];
-    while channels[0].len() < expected {
-        cancelled(cancel)?;
-        let left = audio.frames().saturating_sub(consumed);
-        let indexing = Indexing {
-            input_offset: consumed,
-            output_offset: 0,
-            partial_len: (left < resampler.input_frames_next()).then_some(left),
-            active_channels_mask: None,
-        };
-        let mut output = SequentialSliceOfVecs::new_mut(&mut buffers, 2, size)
-            .map_err(|e| MediaError::Resample(e.to_string()))?;
-        let (read, written) = resampler
-            .process_into_buffer(&input, &mut output, Some(&indexing))
-            .map_err(|e| MediaError::Resample(e.to_string()))?;
-        consumed = consumed.saturating_add(read.min(left));
-        let skip = delay.min(written);
-        delay -= skip;
-        let take = (written - skip).min(expected - channels[0].len());
-        for c in 0..2 {
-            channels[c].extend_from_slice(&buffers[c][skip..skip + take]);
-        }
-        progress(0.3 + 0.2 * consumed as f32 / audio.frames().max(1) as f32);
-    }
-    progress(0.5);
-    Audio::new(rate, channels)
+    writer.finish()?;
+    Ok(())
 }
 
 fn encode_wav(
     destination: &Path,
-    audio: &Audio,
+    audio: &Path,
     spec: Spec,
     gain: f64,
+    peak: &mut f32,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(f32),
-) -> Result<(), MediaError> {
+) -> Result<u64, MediaError> {
     use crate::wav::{Sample, Spec as WavSpec, Writer};
     let sample = match spec.format {
         Format::WavI16 => Sample::I16,
@@ -254,7 +282,7 @@ fn encode_wav(
     };
     let temp = temporary_path(destination)?;
     let _cleanup = TempCleanup(temp.clone());
-    let mut writer = Writer::create(
+    let mut writer = Writer::create_long(
         &temp,
         WavSpec {
             sample_rate: spec.sample_rate,
@@ -263,14 +291,14 @@ fn encode_wav(
         },
     )?;
     let mut rng = Dither::new();
-    for start in (0..audio.frames()).step_by(BLOCK_FRAMES) {
-        cancelled(cancel)?;
-        let end = (start + BLOCK_FRAMES).min(audio.frames());
-        let mut left = Vec::with_capacity(end - start);
-        let mut right = Vec::with_capacity(end - start);
-        for i in start..end {
-            let mut l = f64::from(audio.channels[0][i]) * gain;
-            let mut r = f64::from(audio.channels[1][i]) * gain;
+    let (mut left, mut right) = (Vec::new(), Vec::new());
+    let frames = blocks(audio, BLOCK_FRAMES, cancel, &mut |l, r, done| {
+        scan(l, r, peak)?;
+        left.clear();
+        right.clear();
+        for (&l, &r) in l.iter().zip(r) {
+            let mut l = f64::from(l) * gain;
+            let mut r = f64::from(r) * gain;
             if spec.tpdf_dither && !spec.format.is_float() {
                 let scale = 2_f64.powi(spec.format.bits() as i32 - 1);
                 l += f64::from(rng.tpdf()) / scale;
@@ -293,23 +321,25 @@ fn encode_wav(
             right.push(pcm(r));
         }
         writer.write(&[&left, &right])?;
-        progress(0.5 + 0.49 * end as f32 / audio.frames().max(1) as f32);
-    }
+        progress(0.5 + 0.49 * done);
+        Ok(())
+    })?;
     cancelled(cancel)?;
     writer.finish()?;
     install_temp(&temp, destination)?;
     progress(1.0);
-    Ok(())
+    Ok(frames)
 }
 
 fn encode_flac(
-    audio: &Audio,
+    audio: &Path,
     spec: Spec,
     gain: f64,
     destination: &Path,
+    peak: &mut f32,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(f32),
-) -> Result<(Vec<u8>, TempCleanup), MediaError> {
+) -> Result<(Vec<u8>, TempCleanup, u64), MediaError> {
     let bits = spec.format.bits() as usize;
     let scale = (1_i64 << (bits - 1)) as f64;
     let config = flacenc::config::Encoder::default()
@@ -325,13 +355,14 @@ fn encode_flac(
     let mut stream = Stream::new(spec.sample_rate as usize, 2, bits)
         .map_err(|e| MediaError::Encode(e.to_string()))?;
     let mut rng = Dither::new();
-    for (frame_number, start) in (0..audio.frames()).step_by(block_size).enumerate() {
-        cancelled(cancel)?;
-        let end = (start + block_size).min(audio.frames());
-        let mut samples = Vec::with_capacity((end - start) * 2);
-        for i in start..end {
-            for channel in 0..2 {
-                let mut value = f64::from(audio.channels[channel][i]) * gain;
+    let mut frame_number = 0;
+    let mut samples = Vec::with_capacity(block_size * 2);
+    let frames = blocks(audio, block_size, cancel, &mut |left, right, done| {
+        scan(left, right, peak)?;
+        samples.clear();
+        for (&l, &r) in left.iter().zip(right) {
+            for v in [l, r] {
+                let mut value = f64::from(v) * gain;
                 if spec.tpdf_dither {
                     value += f64::from(rng.tpdf()) / scale;
                 }
@@ -355,6 +386,7 @@ fn encode_flac(
             stream.stream_info(),
         )
         .map_err(|e| MediaError::Encode(e.to_string()))?;
+        frame_number += 1;
         stream.stream_info_mut().update_frame_info(&frame);
         let mut sink = flacenc::bitsink::ByteSink::new();
         frame
@@ -363,12 +395,13 @@ fn encode_flac(
         frame_file
             .write_all(sink.as_slice())
             .map_err(crate::wav::io)?;
-        progress(0.5 + 0.24 * end as f32 / audio.frames().max(1) as f32);
-    }
+        progress(0.5 + 0.24 * done);
+        Ok(())
+    })?;
     frame_file.flush().map_err(crate::wav::io)?;
     frame_file.get_ref().sync_all().map_err(crate::wav::io)?;
     drop(frame_file);
-    stream.stream_info_mut().set_total_samples(audio.frames());
+    stream.stream_info_mut().set_total_samples(frames as usize);
     // Fixed blocking uses this nominal size even when the last frame is
     // shorter. Readers derive frame positions from it.
     stream
@@ -382,7 +415,7 @@ fn encode_flac(
     stream
         .write(&mut sink)
         .map_err(|e| MediaError::Encode(e.to_string()))?;
-    Ok((sink.as_slice().to_vec(), cleanup))
+    Ok((sink.as_slice().to_vec(), cleanup, frames))
 }
 
 struct Dither(u64);
@@ -523,6 +556,60 @@ mod tests {
         writer.finish().unwrap();
     }
 
+    #[test]
+    fn an_rf64_render_is_read_in_blocks_converted_and_encoded() {
+        let dir = folder("rf64");
+        let input = dir.join("render.wav");
+        let left: Vec<_> = (0..70_000).map(|i| (i as f32 * 0.01).sin() * 0.5).collect();
+        let mut writer = Writer::create_long(
+            &input,
+            WavSpec {
+                sample_rate: 48_000,
+                channels: 2,
+                sample: Sample::F32,
+            },
+        )
+        .unwrap();
+        writer.rf64_past(1_000);
+        writer.write(&[&left, &left]).unwrap();
+        writer.finish().unwrap();
+        assert_eq!(&fs::read(&input).unwrap()[..4], b"RF64");
+        for (format, name) in [(Format::WavI24, "out.wav"), (Format::FlacI16, "out.flac")] {
+            let output = dir.join(name);
+            let options = Spec {
+                sample_rate: 44_100,
+                normalize_peak: true,
+                ..spec(format)
+            };
+            let result = encode(
+                &input,
+                &output,
+                options,
+                &AtomicBool::new(false),
+                &mut |_| {},
+            )
+            .unwrap();
+            assert_eq!(result.frames, 64_313, "{name}: 70,000 frames at 44.1 kHz");
+            assert!((result.sample_peak - 10f32.powf(-1.0 / 20.0)).abs() < 0.01);
+            let mut read = 0;
+            crate::read_blocks(&output, &AtomicBool::new(false), &mut |rate, parts| {
+                assert_eq!((rate, parts.len()), (44_100, 2));
+                read += parts[0].len();
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(read, 64_313, "{name}");
+        }
+        let leftover: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with('.'))
+            .collect();
+        assert!(leftover.is_empty(), "no temporary file stays: {leftover:?}");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     fn spec(format: Format) -> Spec {
         Spec {
             sample_rate: 48_000,
@@ -562,7 +649,8 @@ mod tests {
                 let streaminfo = u64::from_be_bytes(bytes[18..26].try_into().unwrap());
                 ((streaminfo >> 36) & 0x1f) as u16 + 1
             } else {
-                u16::from_le_bytes([bytes[34], bytes[35]])
+                // After the 36-byte JUNK chunk kept for RF64.
+                u16::from_le_bytes([bytes[70], bytes[71]])
             };
             assert_eq!(found_depth, depth, "{format:?}");
         }

@@ -5,17 +5,20 @@
 //! project first has a reversed clip of a file, is named by
 //! [`reversed_key`] wherever a media id is wanted, and goes when no clip
 //! needs it. Until it is ready the reversed clip is silent and has no
-//! waveform, as a clip is while its file loads.
+//! waveform, as a clip is while its file loads. The twin of a file played
+//! from disk is a reversed stream file in the cache, played from disk too
+//! (M9 slice R6), so a reversed clip never holds a second copy in memory.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use eframe::egui;
-use lumen_engine::ClipAudio;
-use lumen_media::Peaks;
+use lumen_engine::{ClipAudio, StreamAudio};
+use lumen_media::stream::cache::{Cache, Prepared};
+use lumen_media::{MediaError, Peaks};
 
-use super::{Item, Library, State};
+use super::{Item, Library, State, streaming, streams};
 
 /// Set in a media id to name the reversed twin of that file.
 const REVERSED: u64 = 1 << 62;
@@ -46,23 +49,62 @@ impl Drop for Twin {
     }
 }
 
+/// What a twin's worker made: the audio in memory, or a stream file.
+enum Made {
+    Memory(ClipAudio),
+    Stream(Prepared),
+}
+
 /// A finished twin on its way back to the library.
 pub(super) struct Mirrored {
     key: u64,
     from: Arc<ClipAudio>,
-    audio: ClipAudio,
+    made: Result<Made, MediaError>,
     peaks: Option<Peaks>,
 }
 
-/// `audio` with every channel's frames in the other order.
+/// `audio` with every channel's frames in the other order, in memory (a
+/// streamed file is read whole from disk: a render's own copy, on its
+/// worker). A file that cannot be read is silent.
 pub fn mirror(audio: &ClipAudio) -> ClipAudio {
-    ClipAudio {
-        sample_rate: audio.sample_rate,
-        channels: audio
-            .channels
-            .iter()
-            .map(|c| c.iter().rev().copied().collect())
+    ClipAudio::Memory {
+        sample_rate: audio.sample_rate(),
+        channels: streams::read_all(audio)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|mut c| {
+                c.reverse();
+                c
+            })
             .collect(),
+    }
+}
+
+/// The twin of `from`, made on its worker: a reversed stream file when
+/// `from` plays from disk and there is a cache, else a copy in memory.
+fn make(
+    from: &ClipAudio,
+    cache: Option<&Cache>,
+    cancel: &AtomicBool,
+) -> (Result<Made, MediaError>, Option<Peaks>) {
+    let stream = match (from, cache) {
+        (ClipAudio::Stream(stream), Some(cache)) => streams::path(stream.id()).map(|p| (p, cache)),
+        _ => None,
+    };
+    match stream {
+        Some((path, cache)) => match cache.reversed(&path, cancel) {
+            Ok(prepared) => match cache.peaks(&prepared.path, cancel, &mut |_| {}) {
+                Ok(Some(peaks)) => (Ok(Made::Stream(prepared)), Some(peaks)),
+                Ok(None) => (Err(MediaError::Cancelled), None),
+                Err(why) => (Err(why), None),
+            },
+            Err(why) => (Err(why), None),
+        },
+        None => {
+            let audio = mirror(from);
+            let peaks = Peaks::build(audio.memory().unwrap_or_default(), cancel);
+            (Ok(Made::Memory(audio)), peaks)
+        }
     }
 }
 
@@ -103,20 +145,21 @@ impl Library {
                     info: item.info.clone(),
                     peaks: None,
                     job: None,
+                    streamed: None,
                 },
                 from: Arc::clone(&from),
                 cancel: Arc::clone(&cancel),
             });
             let (done, ctx) = (self.twin_tx.clone(), ctx.clone());
+            let cache = self.streaming.as_ref().map(|s| Arc::clone(s.cache()));
             std::thread::Builder::new()
                 .name("lumen-media-reverse".into())
                 .spawn(move || {
-                    let audio = mirror(&from);
-                    let peaks = Peaks::build(&audio.channels, &cancel);
+                    let (made, peaks) = make(&from, cache.as_deref(), &cancel);
                     let _ = done.send(Mirrored {
                         key,
                         from,
-                        audio,
+                        made,
                         peaks,
                     });
                     ctx.request_repaint();
@@ -137,8 +180,33 @@ impl Library {
             else {
                 continue;
             };
+            let audio = match done.made {
+                Ok(Made::Memory(audio)) => audio,
+                Ok(Made::Stream(prepared)) => {
+                    let Some(streaming) = &self.streaming else {
+                        // Streaming was turned off meanwhile: the file loads
+                        // again, and a new twin is made from it.
+                        continue;
+                    };
+                    let layout = prepared.layout;
+                    ClipAudio::Stream(StreamAudio::new(
+                        streaming.pool(),
+                        streams::register(prepared.path),
+                        layout.sample_rate,
+                        layout.played() as u16,
+                        layout.frames,
+                    ))
+                }
+                Err(MediaError::Cancelled) => continue,
+                Err(why) => {
+                    twin.item.state = State::Failed(why.to_string());
+                    changed = true;
+                    continue;
+                }
+            };
+            streaming::release(&twin.item.state);
             twin.item.peaks = done.peaks.map(Arc::new);
-            twin.item.state = State::Ready(Arc::new(done.audio));
+            twin.item.state = State::Ready(Arc::new(audio));
             changed = true;
         }
         changed
@@ -160,14 +228,14 @@ mod tests {
     fn audio(frames: usize) -> Arc<ClipAudio> {
         let left: Vec<f32> = (0..frames).map(|i| i as f32 / frames as f32).collect();
         let right: Vec<f32> = left.iter().map(|v| -v).collect();
-        Arc::new(ClipAudio {
+        Arc::new(ClipAudio::Memory {
             sample_rate: 48_000,
             channels: vec![left, right],
         })
     }
 
     fn peaks_of(audio: &ClipAudio) -> Arc<Peaks> {
-        Arc::new(Peaks::build(&audio.channels, &AtomicBool::new(false)).unwrap())
+        Arc::new(Peaks::build(audio.memory().unwrap_or_default(), &AtomicBool::new(false)).unwrap())
     }
 
     fn wait_for_twins(library: &mut Library) {
@@ -193,7 +261,10 @@ mod tests {
         assert_eq!(twin.frames(), 1_000);
         for channel in 0..2 {
             for j in 0..1_000 {
-                assert_eq!(twin.channels[channel][j], audio.channels[channel][999 - j]);
+                assert_eq!(
+                    twin.memory().unwrap()[channel][j],
+                    audio.memory().unwrap()[channel][999 - j]
+                );
             }
         }
     }
@@ -213,7 +284,10 @@ mod tests {
         let State::Ready(made) = &twin.state else {
             panic!("not ready")
         };
-        assert_eq!(made.channels[0][0], source.channels[0][39_999]);
+        assert_eq!(
+            made.memory().unwrap()[0][0],
+            source.memory().unwrap()[0][39_999]
+        );
         assert!(twin.peaks.is_some());
 
         // Asking again makes no second twin.

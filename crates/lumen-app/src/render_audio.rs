@@ -19,6 +19,7 @@ use lumen_media::MediaError;
 use lumen_project::model::{self, ClipContent, Id, Project};
 
 use crate::lanes::{Lanes, engine_clips};
+use crate::media::streams::Unread;
 use crate::media::{mirror, reversed_key};
 
 /// One file a render plays, and which of its forms: as it is, and mirrored.
@@ -88,7 +89,7 @@ impl Again {
         let native = decoded.sample_rate;
         match lumen_media::resample(&decoded, self.rate, cancel) {
             Ok(converted) => Ok(Some((
-                ClipAudio {
+                ClipAudio::Memory {
                     sample_rate: converted.sample_rate,
                     channels: converted.into_channels(),
                 },
@@ -107,6 +108,8 @@ pub struct RenderAudio {
     loaded: Vec<Clip>,
     /// Present when the device's rate is not the project's.
     again: Option<Arc<Again>>,
+    /// What the render could not read from disk, for every job.
+    unread: Unread,
 }
 
 impl RenderAudio {
@@ -180,6 +183,7 @@ impl RenderAudio {
             rate,
             loaded,
             again,
+            unread: Unread::default(),
         }
     }
 
@@ -189,13 +193,22 @@ impl RenderAudio {
     }
 
     /// The clips a job starts with: the loaded ones when they are at the
-    /// project's rate, none when the worker makes them (`Self::again`).
+    /// project's rate, none when the worker makes them (`Self::again`). Clips
+    /// played from disk read through a pool of the job's own, filled as the
+    /// render reaches each page (M9 slice R6), so call this once per job:
+    /// one job's pool is read by one thread.
     pub fn clips(&self) -> Vec<Clip> {
         if self.again.is_some() {
             Vec::new()
         } else {
-            self.loaded.clone()
+            crate::media::streams::offline(self.loaded.clone(), &self.unread)
         }
+    }
+
+    /// What the jobs' clips could not read from disk: the worker checks it
+    /// before it keeps a file.
+    pub fn unread(&self) -> Unread {
+        self.unread.clone()
     }
 
     /// What the worker makes the clips with, when the rates differ.
@@ -275,7 +288,7 @@ mod tests {
         let never = AtomicBool::new(false);
         let decoded = lumen_media::decode(path, &never, &mut |_| {}).unwrap();
         let converted = lumen_media::resample(&decoded, rate, &never).unwrap();
-        Arc::new(ClipAudio {
+        Arc::new(ClipAudio::Memory {
             sample_rate: converted.sample_rate,
             channels: converted.into_channels(),
         })
@@ -334,13 +347,13 @@ mod tests {
             .unwrap()
             .expect("not cancelled");
         assert_eq!(made.len(), 1);
-        assert_eq!(made[0].audio.sample_rate, 44_100);
+        assert_eq!(made[0].audio.sample_rate(), 44_100);
         assert_eq!(made[0].audio.frames(), 44_100, "one second at the new rate");
 
         // The same project on a device that runs at 44.1 kHz plays exactly
         // what the worker made: the file was converted once, from the file.
         let direct = playing(&project, &file, 9, 48_000, 44_100);
-        assert_eq!(made[0].audio.channels, direct[0].audio.channels);
+        assert_eq!(made[0].audio.memory(), direct[0].audio.memory());
         assert_eq!(
             (made[0].start, made[0].offset, made[0].length),
             (direct[0].start, direct[0].offset, direct[0].length)
@@ -369,6 +382,7 @@ mod tests {
             frames: frames as u64,
             file: file.clone(),
             media: Id(70),
+            unread: audio.unread(),
         };
         let ctx = eframe::egui::Context::default();
         let render = Render::start(vec![job], timeline, audio.rate, audio.again(), &ctx);
@@ -453,11 +467,11 @@ mod tests {
         let direct = playing(&project, &file, 9, 48_000, 44_100);
         for clip in &direct {
             let own = made.iter().find(|c| c.id == clip.id).expect("made");
-            assert_eq!(own.audio.channels, clip.audio.channels, "clip {}", clip.id);
+            assert_eq!(own.audio.memory(), clip.audio.memory(), "clip {}", clip.id);
         }
         let first = made.iter().find(|c| c.id == 1).unwrap();
         let second = made.iter().find(|c| c.id == 2).unwrap();
-        assert_ne!(first.audio.channels, second.audio.channels);
+        assert_ne!(first.audio.memory(), second.audio.memory());
     }
 
     #[test]

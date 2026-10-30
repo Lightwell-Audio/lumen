@@ -247,6 +247,7 @@ impl App {
             project,
             clips: audio.clips(),
             again: audio.again(),
+            unread: audio.unread(),
             plugins,
             rate: audio.rate,
             from,

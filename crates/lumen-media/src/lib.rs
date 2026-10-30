@@ -1,7 +1,7 @@
 //! Audio files for playback (M2 slice 6): decode with symphonia (MPL-2.0,
 //! owner decision, used unmodified) and convert to the device's sample rate
-//! with rubato (MIT/Apache-2.0). The result lives in memory; disk streaming
-//! replaces that for large sessions in M9 (owner decision, 2026-10-06).
+//! with rubato (MIT/Apache-2.0). The result lives in memory, or, for large
+//! sessions, is read from disk as it plays ([`stream`], M9 slice R6).
 //!
 //! Formats: WAV, AIFF, FLAC, MP3, Ogg Vorbis. AAC/M4A are deferred until
 //! their licensing is checked.
@@ -12,6 +12,7 @@
 
 pub mod export;
 mod peaks;
+pub mod stream;
 pub mod take;
 pub mod wav;
 
@@ -120,6 +121,18 @@ impl std::fmt::Display for MediaError {
 
 impl std::error::Error for MediaError {}
 
+/// Writes a small file whole: under a temporary name, then renamed into
+/// place, so a reader never sees half of it.
+pub(crate) fn write_new(path: &Path, bytes: &[u8]) -> Result<(), MediaError> {
+    let failed = |e: std::io::Error| MediaError::Io(e.to_string());
+    let temp = path.with_extension(format!("{}.writing", std::process::id()));
+    std::fs::write(&temp, bytes).map_err(failed)?;
+    std::fs::rename(&temp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&temp);
+        failed(e)
+    })
+}
+
 fn cancelled(cancel: &AtomicBool) -> Result<(), MediaError> {
     if cancel.load(Ordering::Relaxed) {
         Err(MediaError::Cancelled)
@@ -135,6 +148,75 @@ pub fn decode(
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(f32),
 ) -> Result<Audio, MediaError> {
+    let mut rate = None;
+    let mut channels: Vec<Vec<f32>> = Vec::new();
+    decode_blocks(path, cancel, progress, &mut |from, planes, frames| {
+        rate = Some(from);
+        if channels.is_empty() {
+            channels = vec![Vec::new(); planes.len()];
+        }
+        for (all, part) in channels.iter_mut().zip(planes) {
+            all.extend_from_slice(&part[..frames]);
+        }
+        Ok(())
+    })?;
+    let rate = rate.ok_or(MediaError::Empty)?;
+    Audio::new(rate, channels)
+}
+
+/// What [`read_blocks`] hands each block to: the file's rate and one slice
+/// per channel, all of one length.
+pub type Blocks<'s> = dyn FnMut(u32, &[&[f32]]) -> Result<(), MediaError> + 's;
+
+/// Reads `path` block by block without holding it whole (M9 slice R6), its
+/// first two channels: an uncompressed WAV, RF64 or AIFF file directly
+/// (RF64 is beyond the decoder), any other file decoded packet by packet.
+/// Fails with [`MediaError::Empty`] when the file holds no audio, and with
+/// [`MediaError::Cancelled`] when `cancel` is set.
+pub fn read_blocks(
+    path: &Path,
+    cancel: &AtomicBool,
+    sink: &mut Blocks<'_>,
+) -> Result<(), MediaError> {
+    const BLOCK: usize = 65_536;
+    if crate::stream::layout(path).ok().flatten().is_none() {
+        return decode_blocks(path, cancel, &mut |_| {}, &mut |rate, planes, frames| {
+            let parts: Vec<&[f32]> = planes.iter().take(2).map(|p| &p[..frames]).collect();
+            sink(rate, &parts)
+        });
+    }
+    let mut reader = crate::stream::Reader::open(path)?;
+    let layout = *reader.layout();
+    if layout.frames == 0 {
+        return Err(MediaError::Empty);
+    }
+    let mut planes = vec![vec![0.0; BLOCK]; layout.played()];
+    let mut at = 0;
+    while at < layout.frames {
+        cancelled(cancel)?;
+        let n = ((layout.frames - at) as usize).min(BLOCK);
+        let mut parts: Vec<&mut [f32]> = planes.iter_mut().map(|p| &mut p[..n]).collect();
+        reader.read(at, &mut parts)?;
+        let parts: Vec<&[f32]> = planes.iter().map(|p| &p[..n]).collect();
+        sink(layout.sample_rate, &parts)?;
+        at += n as u64;
+    }
+    Ok(())
+}
+
+/// What [`decode_blocks`] hands each packet to: the file's rate, the planes
+/// and the frames in them.
+pub(crate) type Packets<'s> = dyn FnMut(u32, &[Vec<f32>], usize) -> Result<(), MediaError> + 's;
+
+/// Decodes `path` packet by packet: `sink` receives the file's rate and each
+/// packet's planes (one per channel, the first `frames` samples valid). Fails
+/// with [`MediaError::Empty`] when no audio was decoded.
+pub(crate) fn decode_blocks(
+    path: &Path,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(f32),
+    sink: &mut Packets<'_>,
+) -> Result<(), MediaError> {
     let file = File::open(path).map_err(|e| MediaError::Io(e.to_string()))?;
     let stream = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -164,7 +246,8 @@ pub fn decode(
         .make_audio_decoder(params, &AudioDecoderOptions::default())
         .map_err(|e| MediaError::Unsupported(e.to_string()))?;
 
-    let mut channels: Vec<Vec<f32>> = Vec::new();
+    let mut count = None;
+    let mut decoded = 0_u64;
     let mut packet_planes: Vec<Vec<f32>> = Vec::new();
     loop {
         cancelled(cancel)?;
@@ -184,27 +267,26 @@ pub fn decode(
             Err(e) => return Err(MediaError::Decode(e.to_string())),
         };
         sample_rate = sample_rate.or(Some(buffer.spec().rate()));
+        let rate =
+            sample_rate.ok_or_else(|| MediaError::Unsupported("unknown sample rate".into()))?;
+        let frames = buffer.frames();
         buffer.copy_to_vecs_planar::<f32>(&mut packet_planes);
-        if channels.is_empty() {
-            channels = vec![Vec::new(); packet_planes.len()];
-        }
-        if packet_planes.len() != channels.len() {
+        if *count.get_or_insert(packet_planes.len()) != packet_planes.len() {
             return Err(MediaError::Decode("the channel count changed".into()));
         }
-        for (all, part) in channels.iter_mut().zip(&packet_planes) {
-            all.extend_from_slice(&part[..buffer.frames()]);
+        if frames > 0 {
+            sink(rate, &packet_planes, frames)?;
+            decoded += frames as u64;
         }
         if let Some(total) = total.filter(|&t| t > 0) {
-            progress((channels[0].len() as f64 / total as f64).min(1.0) as f32);
+            progress((decoded as f64 / total as f64).min(1.0) as f32);
         }
     }
-    if channels.first().is_none_or(Vec::is_empty) {
+    if decoded == 0 || count == Some(0) {
         return Err(MediaError::Empty);
     }
-    let sample_rate =
-        sample_rate.ok_or_else(|| MediaError::Unsupported("unknown sample rate".into()))?;
     progress(1.0);
-    Audio::new(sample_rate, channels)
+    Ok(())
 }
 
 /// What a file's header says, found without decoding it.

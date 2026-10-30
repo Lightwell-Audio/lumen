@@ -84,7 +84,7 @@ fn split_clip_seam_resolution_never_touches_the_heap() {
     use lumen_engine::{Clip, ClipAudio, Destination, NodeSpec, Routing, clip_player, mixer};
 
     assert!(guard_is_active(), "guarded allocator not installed");
-    let audio = Arc::new(ClipAudio {
+    let audio = Arc::new(ClipAudio::Memory {
         sample_rate: 48_000,
         channels: vec![vec![0.1; 48_000], vec![0.1; 48_000]],
     });
@@ -129,6 +129,83 @@ fn split_clip_seam_resolution_never_touches_the_heap() {
 }
 
 #[test]
+fn streamed_clips_never_touch_the_heap() {
+    use std::sync::Arc;
+
+    use lumen_engine::{
+        Clip, ClipAudio, Destination, NodeSpec, PAGE, PagePool, PoolWriter, Routing, StreamAudio,
+        clip_player, mixer,
+    };
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let frames = 30 * PAGE;
+    let pool = PagePool::new(12);
+    let mut writer = PoolWriter::new(&pool);
+    let stream = StreamAudio::new(&pool, 1, 48_000, 2, frames as u64);
+    let page = vec![0.1; PAGE];
+    let (mut clips, player) = clip_player();
+    clips
+        .set(vec![Clip {
+            envelope: Default::default(),
+            id: 1,
+            track: 0,
+            start: Ticks::ZERO,
+            offset: 0,
+            length: frames as i64,
+            gain: 1.0,
+            audio: Arc::new(ClipAudio::Stream(stream.clone())),
+            shape: Default::default(),
+        }])
+        .unwrap();
+    let (mut routing, source) = mixer(player);
+    assert!(
+        routing
+            .set(&Routing {
+                nodes: vec![NodeSpec::unity(0, Destination::Hardware(0))],
+                cue: None,
+                measure: None,
+            })
+            .unwrap()
+    );
+    let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
+    // One bar at 120 BPM: 96,000 frames.
+    handle
+        .send(Command::SetLoop(Region::new(
+            Ticks::ZERO,
+            Ticks::quarters(4),
+            true,
+        )))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    for block in 0..6_000_usize {
+        // The disk thread's work, between blocks: keep the next pages in
+        // memory, evicting older ones, and now and then fall behind.
+        if block % 40 == 0 && block % 1_000 > 100 {
+            // Where a 96,000-frame loop has reached.
+            let at = block * 128 % 96_000 / PAGE;
+            writer.tick();
+            for p in at..(at + 4).min(30) {
+                writer.want(&stream, p);
+            }
+            writer.evict(4);
+            for p in at..(at + 4).min(30) {
+                writer.load(&stream, p, &page, &page);
+            }
+        }
+        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
+        assert_eq!(
+            heap, 0,
+            "heap operation playing a streamed clip at block {block}"
+        );
+        let _ = handle.transport();
+        clips.collect_garbage();
+        routing.collect_garbage();
+    }
+    assert!(pool.underruns() > 0, "the test fell behind on purpose");
+}
+
+#[test]
 fn scrubbing_never_touches_the_heap() {
     let (mut handle, mut engine) = engine(Timeline::default(), Tone { phase: 0.0 }, 48_000);
     let mut data = vec![0.0; 2 * 128];
@@ -164,7 +241,7 @@ fn delay_compensation_never_touches_the_heap() {
     use lumen_engine::{Clip, ClipAudio, clip_player, mixer};
 
     assert!(guard_is_active(), "guarded allocator not installed");
-    let audio = Arc::new(ClipAudio {
+    let audio = Arc::new(ClipAudio::Memory {
         sample_rate: 48_000,
         channels: vec![vec![0.1; 96_000], vec![0.1; 96_000]],
     });
@@ -225,7 +302,7 @@ fn automated_lanes_never_touch_the_heap() {
     use lumen_engine::{Clip, ClipAudio, clip_player, mixer};
 
     assert!(guard_is_active(), "guarded allocator not installed");
-    let audio = Arc::new(ClipAudio {
+    let audio = Arc::new(ClipAudio::Memory {
         sample_rate: 48_000,
         channels: vec![vec![0.1; 96_000], vec![0.1; 96_000]],
     });
@@ -250,7 +327,7 @@ fn automated_lanes_never_touch_the_heap() {
     handle
         .send(Command::SetLoop(Region::new(
             Ticks::ZERO,
-            Ticks::quarters(8),
+            Ticks::quarters(4),
             true,
         )))
         .unwrap();
@@ -287,7 +364,7 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
     use lumen_engine::{Clip, ClipAudio, clip_player, mixer};
 
     assert!(guard_is_active(), "guarded allocator not installed");
-    let audio = Arc::new(ClipAudio {
+    let audio = Arc::new(ClipAudio::Memory {
         sample_rate: 48_000,
         channels: vec![vec![0.1; 96_000], vec![0.1; 96_000]],
     });
@@ -360,7 +437,7 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
     handle
         .send(Command::SetLoop(Region::new(
             Ticks::ZERO,
-            Ticks::quarters(8),
+            Ticks::quarters(4),
             true,
         )))
         .unwrap();
@@ -407,7 +484,7 @@ fn overlapping_crossfade_never_touches_the_heap() {
     use lumen_engine::{Clip, ClipAudio, FadeFrames, clip_player, mixer};
 
     assert!(guard_is_active(), "guarded allocator not installed");
-    let audio = Arc::new(ClipAudio {
+    let audio = Arc::new(ClipAudio::Memory {
         sample_rate: 48_000,
         channels: vec![vec![0.2; 30_000], vec![0.2; 30_000]],
     });

@@ -99,6 +99,7 @@ mod smf;
 mod solo;
 mod song_lanes;
 mod stepped;
+mod streaming;
 mod templates;
 mod tools;
 mod track_resize;
@@ -480,7 +481,11 @@ pub fn wav(path: &Path, seconds: f32) -> PathBuf {
 
 /// [`wav`] with its peak at `peak` (of 32,767).
 pub fn wav_at(path: &Path, seconds: f32, peak: f32) -> PathBuf {
-    let rate = 48_000_u32;
+    wav_rated(path, seconds, peak, 48_000)
+}
+
+/// [`wav_at`] at `rate`.
+pub fn wav_rated(path: &Path, seconds: f32, peak: f32, rate: u32) -> PathBuf {
     let frames = (seconds * rate as f32) as usize;
     let data: Vec<u8> = (0..frames)
         .flat_map(|i| {

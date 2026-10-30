@@ -460,6 +460,18 @@ impl Waves {
         true
     }
 
+    /// Empties the atlas for peaks to be stored again from its start: the
+    /// way space held by peaks no longer drawn (another rate's, a removed
+    /// file's) is reclaimed (M9 slice R6). Every slot draws nothing until
+    /// stored again; the textures keep their size.
+    pub(crate) fn clear_peaks(&mut self, queue: &wgpu::Queue) {
+        self.used = 0;
+        for slot in 0..self.entries.len() {
+            self.entries[slot] = [[0; 2]; MAX_LEVELS];
+            self.write_entry(queue, slot);
+        }
+    }
+
     fn write_entry(&self, queue: &wgpu::Queue, slot: usize) {
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -647,6 +659,33 @@ mod tests {
         let read = read_atlas(&device, &queue, &waves, 1_000 + ATLAS_WIDE * 100);
         assert_eq!(read[..1_000], first[..], "the first peaks were kept");
         assert_eq!(read[1_000..], second[..], "the second peaks are whole");
+    }
+
+    #[test]
+    fn a_cleared_atlas_stores_peaks_from_its_start_again() {
+        let Some((device, queue)) = gpu() else {
+            eprintln!("no GPU here: skipped");
+            return;
+        };
+        let mut waves = Waves::new(&device);
+        let old: Vec<[i8; 4]> = (0..2_000).map(|i| [(i % 50) as i8, 1, 2, 3]).collect();
+        let new: Vec<[i8; 4]> = (0..1_500).map(|i| [-((i % 60) as i8), 4, 5, 6]).collect();
+        assert!(waves.set_peaks(&device, &queue, 0, &[&old]));
+        assert_eq!(waves.used, 2_000);
+        waves.clear_peaks(&queue);
+        assert_eq!(waves.used, 0);
+        assert_eq!(
+            waves.entries[0], [[0; 2]; MAX_LEVELS],
+            "slot 0 draws nothing"
+        );
+        assert!(waves.set_peaks(&device, &queue, 1, &[&new]));
+        assert_eq!(
+            waves.entries[1][0],
+            [0, 1_500],
+            "stored where the old ones were"
+        );
+        let read = read_atlas(&device, &queue, &waves, 1_500);
+        assert_eq!(read, new);
     }
 
     #[test]

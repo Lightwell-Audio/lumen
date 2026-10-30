@@ -22,6 +22,7 @@ mod devices;
 mod editor;
 mod media_pool;
 mod midi;
+mod streaming;
 mod tools;
 
 pub use crate::audio::{InputDeviceTurn, input_device, input_device_turn};
@@ -42,11 +43,16 @@ pub enum NoteEdit {
 
 impl Launch {
     /// A clean start for a test: default settings that are never saved,
-    /// autosaves in `dir/autosave`, and the silent test device.
+    /// autosaves in `dir/autosave`, and the silent test device. Audio plays
+    /// from memory unless the scenario asks for the disk
+    /// (`playing_from_disk`): the page pool takes a moment to make in a debug
+    /// build, and most scenarios play short files that stay in memory anyway.
     pub fn for_test(dir: &Path) -> Self {
+        let mut settings = settings::Settings::default();
+        settings.playback.from_disk = false;
         Self {
             started: Instant::now(),
-            settings: settings::Settings::default(),
+            settings,
             settings_warning: None,
             settings_path: None,
             audio: audio::Choice::test_device(),
@@ -72,6 +78,7 @@ impl Launch {
             callback_bench: None,
             autoplay: None,
             test_latency: None,
+            slow_disk: None,
             safe_mode: false,
             preset_places: None,
             plugin_marker: Some(dir.join(crate::app::safe_mode::MARKER)),

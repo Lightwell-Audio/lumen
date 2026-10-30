@@ -33,6 +33,8 @@ struct Resources {
     peaks_uploaded: HashSet<u32>,
     /// The atlas is full: waves of further files are not drawn.
     atlas_full: bool,
+    /// The peak list last checked for peaks no longer drawn, by address.
+    peaks_checked: usize,
     /// The notes inside the arrangement's MIDI clips (M5 slice 3b): a box
     /// layer beside the clips, with its own row table.
     mini: BoxLayerId,
@@ -248,6 +250,7 @@ pub fn install(
             clips_generation: None,
             peaks_uploaded: HashSet::new(),
             atlas_full: false,
+            peaks_checked: 0,
             mini,
             mini_rows: Vec::new(),
             live,
@@ -462,6 +465,22 @@ impl egui_wgpu::CallbackTrait for ClipsCallback {
             return Vec::new();
         };
         let frame = &self.frame;
+        // Peaks in the atlas that are no longer drawn (another rate's after a
+        // rate change, a removed file's): start the atlas again with those
+        // that are, so their space is reclaimed (M9 slice R6). Rare, and
+        // cheap next to the change that caused it.
+        let list = Arc::as_ptr(&frame.peaks) as usize;
+        if r.peaks_checked != list
+            && r.peaks_uploaded
+                .iter()
+                .any(|slot| !frame.peaks.iter().any(|(s, _)| s == slot))
+        {
+            crate::trace::log(|| "waveforms: the peak atlas is rebuilt".into());
+            r.renderer.clear_peaks(queue, r.clips);
+            r.peaks_uploaded.clear();
+            r.atlas_full = false;
+        }
+        r.peaks_checked = list;
         for (slot, peaks) in frame.peaks.iter() {
             if r.atlas_full || r.peaks_uploaded.contains(slot) {
                 continue;
