@@ -424,14 +424,17 @@ per slice and move what is no longer current out of it.
   (PR #60 to #72; format v32). Every manual test passed but MT-EXPORT-1. Next:
   R2b (the loopback helper) and R6 to R9 (`docs/milestones/M9.md` §3).
 - **Branch `m9-s6-disk-streaming` (PR #74): M9 R6, playing audio from disk
-  and the peak cache, is built** (ADR-0109; no format change; plan
-  `docs/milestones/M9-R6.md`, not yet folded into `M9.md`). "Play audio from
+  and the peak cache, is built** (ADR-0109; no format change; summarised in
+  `docs/milestones/M9.md` §4). "Play audio from
   disk" is on by default since MT-STREAM-1 passed (2026-10-28); files of 30 s
   or more play from a stream file, shorter ones stay in memory; test launches
   keep it off. CI's soak failures (2026-10-29) were the disk thread's: a slow
   plan, a writer scan per page, a cue cleared before the playhead moved, and
   a 10 ms margin after a start (now `hold::READY`, 140 ms). Fixed in the
-  product; the soak runs in CI's ordinary test step again.
+  product; the soak runs in CI's ordinary test step again. The MIDI sender
+  thread joins the Pro Audio class on Windows (`lumen_audio::priority`),
+  after it ran 22 ms late on a busy runner. CI passed three times in a row
+  on `3005a74` (run 40982044625, 2026-10-30).
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

@@ -124,7 +124,7 @@ irreversible or external) · *Superseded*.
 | M9 R4 choices (2026-10-26) | P1 A (renders follow the project rate), P2 A (Revert reloads the saved file after a quiet prompt, keeping the unsaved version in `Backups/Reverted`), S A (R4 is the save family and project settings; the media pool, relink and purge are R4b): every recommendation (`docs/milestones/M9.md` §2). After MT-PROJ-1 run 1 (2026-10-26): projects and templates get their own folders in `Documents/Lumen` (option A of four pitched), and the app menu is grouped (layout A of three pitched as specimens): ADR-0105. |
 | M9 R4b choices (2026-10-26) | M1 A (a "Project media" tab in the browser), M2 A (Locate one file, and search a folder with a report to look at before anything changes), M3 A (remove unused takes entries out as one undo step; Clear moves leftover files to the system trash after a second press), M4 A (a banner with Relink… on open): every recommendation (`docs/milestones/M9.md` §2; ADR-0106). |
 | UX round three (2026-10-28) | DP1 A (the detail panel names its subject; Clip only for an opened clip), B8 A (the chips' clip reaches past the pane), TB2 A (a fixed CPU slot), D2 A (compact cards in a short tray), and a margin round a compact card's Reload: every recommendation on the round-three audit sheet (ADR-0108). |
-| M9 R6 choices (2026-10-27) | L A (Play and a locate wait until the audio is read, at most 150 ms, so everything starts together), **M B** (audio is kept in memory automatically, short files always; no per-clip switch and no format change, because the owner does not want the process to be complex for users; this replaces the "per-clip RAM option" of the 2026-10-06 wording), C A (converted audio and peaks in Lumen's cache folder with a 20 GB limit, after asking what workstations commonly do: a shared, rebuildable cache or a converted copy in the project), D A (a Disk row in the status panel and an amber chip after an underrun), **S B** (one slice: streaming, the peak cache, the cache limit, export in blocks with RF64 and the atlas reclaim on one branch). Plan: `milestones/M9-R6.md`. |
+| M9 R6 choices (2026-10-27) | L A (Play and a locate wait until the audio is read, at most 150 ms, so everything starts together), **M B** (audio is kept in memory automatically, short files always; no per-clip switch and no format change, because the owner does not want the process to be complex for users; this replaces the "per-clip RAM option" of the 2026-10-06 wording), C A (converted audio and peaks in Lumen's cache folder with a 20 GB limit, after asking what workstations commonly do: a shared, rebuildable cache or a converted copy in the project), D A (a Disk row in the status panel and an amber chip after an underrun), **S B** (one slice: streaming, the peak cache, the cache limit, export in blocks with RF64 and the atlas reclaim on one branch). Plan: `milestones/M9.md` (R6). |
 | M9 plan choices (2026-10-24) | R1 A, R2 A, R3 A, R4 A, R5 A, X1 A, X2 A, X3 A: every recommendation (`docs/milestones/M9.md` §2). |
 | Milestone sequence (2026-10-23) | After M7 and M7b, deliver the existing M9 (Recording, Media, Export & Production Workflow) before M8 (Drum Maps, Drum Editor & Built-In Devices), because audio recording has higher priority than drum maps. Keep the milestone IDs and scopes unchanged; this only changes delivery order. Recorded in `docs/PROGRESS.md`. |
 | Native macOS VST3 hosting (2026-10-19, ADR-0085) | Bring the stretch goal forward now: the full existing workflow, including native editors, for plugins matching the host architecture. Intel bridging remains outside this slice. |
@@ -9544,7 +9544,7 @@ by shots only. Measured: none needed (no engine or project change).
 
 **Date:** 2026-10-28. **Slice:** M9 R6, `m9-s6-disk-streaming`, cut from
 `main` at `a91d1989`. **Status:** Accepted (built; MT-STREAM-1 passed, owner, 2026-10-28).
-Plan and evidence: `milestones/M9-R6.md`. Owner choices (2026-10-27): L A,
+Plan: `milestones/M9.md` (R6; its own plan file until 2026-10-30). Owner choices (2026-10-27): L A,
 M B, C A, D A, S B (owner table).
 
 **Context.** Every audio file was decoded whole into memory at the device
@@ -9606,8 +9606,8 @@ stopped at the RIFF limit. A reversed clip held a second copy of its file.
    loads the files again the other way; the settings file version is
    unchanged (a new section with a default).
 8. **Starts wait briefly** (L A, `transport/hold.rs`). Play, Continue,
-   Record and a locate while playing are held until the next 50 ms at the
-   new place are in memory, for at most 150 ms, with the disk thread cued
+   Record and a locate while playing are held until the next 140 ms at the
+   new place are in memory (`hold::READY`; 50 ms until 2026-10-29), for at most 150 ms, with the disk thread cued
    there; then they are sent anyway. MIDI, the metronome and clips start
    together.
 9. **Feedback** (D A). The audio panel has a Disk row ("12% · 0 late", and
