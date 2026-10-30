@@ -126,6 +126,12 @@ impl Autosave {
         self.written == Some(state) && self.writing.is_none()
     }
 
+    /// A write is on the worker thread, which may hold the session's lock
+    /// until the app takes its answer.
+    pub(crate) fn is_writing(&self) -> bool {
+        self.writing.is_some()
+    }
+
     /// Where autosaves go (`None`: autosave is off).
     pub fn dir(&self) -> Option<&Path> {
         self.dir.as_deref()
