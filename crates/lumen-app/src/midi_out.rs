@@ -385,6 +385,9 @@ impl Drop for Output {
 }
 
 fn run(mut parts: Parts, stop: &AtomicBool, latency: &AtomicU32) {
+    // Sends keep the audio clock's time, so the thread is scheduled like an
+    // audio thread: at normal priority a busy machine ran it 20 ms late.
+    let _priority = lumen_audio::priority::ProAudio::join();
     let mut ports: Vec<PortId> = Vec::new();
     let mut delays: Vec<i64> = Vec::new();
     let mut map = ClockMap::default();
@@ -704,16 +707,18 @@ mod sender_tests {
         let mut rig = rig();
         rig.output.set_latency(480);
         let base = Instant::now();
-        // Blocks of 128 frames at the pace of real time, as a device runs.
+        // Blocks of 128 frames at the pace of real time, as a device runs,
+        // each stamped with the time it began: a device's clock is exact,
+        // so only the sender's own lateness is measured.
         let running = Arc::new(AtomicBool::new(true));
         let ticker = {
             let (clock, running) = (Arc::clone(&rig.clock), Arc::clone(&running));
-            let start = clock.now();
+            let start = clock.nanos_of(base);
             thread::spawn(move || {
                 while running.load(Ordering::Relaxed) {
                     let elapsed = (clock.now() - start).max(0) as u128;
-                    let frame = elapsed * 48_000 / 1_000_000_000 / 128 * 128;
-                    clock.publish(frame as u64, 128, 48_000);
+                    let frame = (elapsed * 48_000 / 1_000_000_000 / 128 * 128) as u64;
+                    clock.publish_at(frame, 128, 48_000, start + frame_ns(frame, 48_000));
                     thread::sleep(Duration::from_micros(2_666));
                 }
             })
@@ -758,8 +763,9 @@ mod sender_tests {
         running.store(false, Ordering::Relaxed);
         ticker.join().unwrap();
         // The sender keeps time to a few milliseconds; a shared CI runner
-        // (macOS measured a 5 ms median and a 17 ms worst) can run any
-        // thread late, so both bounds leave room for that. The median still
+        // (macOS measured a 5 ms median and a 17 ms worst; Windows, before
+        // the sender joined the Pro Audio class, a 22 ms median) can run
+        // any thread late, so both bounds leave room for that. The median still
         // catches a sender that is systematically late; real timing is
         // MT-MIDI-2 on hardware.
         lateness.sort();

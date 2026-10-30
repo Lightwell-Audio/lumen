@@ -24,22 +24,18 @@ use std::sync::mpsc::{self, SyncSender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use wasapi::{
-    AudioClient, AudioRenderClient, Device, DeviceEnumerator, DeviceState, Direction, Handle,
-    SampleType, StreamMode, WasapiError, WaveFormat, calculate_period_100ns,
-};
-use windows_sys::Win32::Foundation::HANDLE;
-use windows_sys::Win32::System::Threading::{
-    AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW,
-};
-
 use crate::backend::{Backend, OpenError, Stream, StreamEvent};
 use crate::convert::{SampleFormat, interleave_bytes};
+use crate::priority::ProAudio;
 use crate::types::{
     AudioCallback, AudioError, Block, BufferSizes, DeviceId, DeviceInfo, DriverKind, MOST_INPUTS,
     StreamConfig, StreamInfo,
 };
 use crate::wasapi_input::{self, Capture};
+use wasapi::{
+    AudioClient, AudioRenderClient, Device, DeviceEnumerator, DeviceState, Direction, Handle,
+    SampleType, StreamMode, WasapiError, WaveFormat, calculate_period_100ns,
+};
 
 // HRESULTs from audioclient.h and winerror.h.
 const DEVICE_INVALIDATED: u32 = 0x8889_0004;
@@ -280,7 +276,7 @@ fn render_thread(
     ready: &Ready,
 ) -> Option<Box<dyn AudioCallback>> {
     let _ = wasapi::initialize_mta();
-    let _priority = Mmcss::join();
+    let _priority = ProAudio::join();
     let opened = Render::open(config, exclusive, Timing::Events).and_then(|mut r| {
         r.start()?;
         if !exclusive || r.keeps_time() {
@@ -653,28 +649,6 @@ impl Render {
         self.render.write_to_device(self.period, bytes, None)?;
         self.position += self.period as u64;
         Ok(())
-    }
-}
-
-/// Joins the "Pro Audio" MMCSS class for the life of the guard.
-struct Mmcss(HANDLE);
-
-impl Mmcss {
-    fn join() -> Option<Self> {
-        let task: Vec<u16> = "Pro Audio\0".encode_utf16().collect();
-        let mut index = 0;
-        // SAFETY: `task` is a NUL-terminated UTF-16 string that outlives the
-        // call; `index` is a valid out-pointer.
-        let handle = unsafe { AvSetMmThreadCharacteristicsW(task.as_ptr(), &mut index) };
-        (!handle.is_null()).then_some(Self(handle))
-    }
-}
-
-impl Drop for Mmcss {
-    fn drop(&mut self) {
-        // SAFETY: the handle came from AvSetMmThreadCharacteristicsW on this
-        // thread and is reverted once.
-        unsafe { AvRevertMmThreadCharacteristics(self.0) };
     }
 }
 
