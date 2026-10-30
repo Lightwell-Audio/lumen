@@ -1,9 +1,19 @@
 name: CI
 
+# A change that only touches documentation cannot break the build, so it
+# skips CI. Nothing compiled reads these files (tests/third_party_names.rs
+# and tests/product_name.rs scan Rust sources only). A change that also
+# touches any other file still runs everything.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
 
 # A new push to a pull request cancels its superseded run, which saves
 # Actions minutes (macOS minutes cost ten times as much). Pushes to main
