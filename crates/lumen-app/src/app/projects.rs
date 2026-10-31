@@ -60,6 +60,10 @@ pub(crate) enum FileDialog {
     Locate(Option<PathBuf>),
     /// The folder to search for the missing files (none when cancelled; M9 R4b).
     RelinkFolder(Option<PathBuf>),
+    /// The folder the cache is kept in (none when cancelled; M9 R7).
+    CacheFolder(Option<PathBuf>),
+    /// The projects folder (none when cancelled; M9 R7).
+    ProjectsFolder(Option<PathBuf>),
 }
 
 /// The folder the person's own projects and templates are kept in:
@@ -123,8 +127,48 @@ impl App {
             .path
             .as_deref()
             .and_then(|p| p.parent()?.parent().map(PathBuf::from))
-            .or_else(|| self.user_dir.as_ref().map(|d| d.join(PROJECTS)))
+            .or_else(|| self.projects_folder())
             .or_else(documents_folder)
+    }
+
+    /// The projects folder: the one chosen in Preferences, or the user
+    /// folder's Projects (`Documents/Lumen/Projects`).
+    pub(crate) fn projects_folder(&self) -> Option<PathBuf> {
+        self.settings
+            .projects
+            .folder
+            .as_ref()
+            .map(PathBuf::from)
+            .or_else(|| self.user_dir.as_ref().map(|d| d.join(PROJECTS)))
+    }
+
+    /// Asks for the projects folder (Preferences, Files).
+    pub(crate) fn pick_projects_folder(&mut self, ctx: &egui::Context) {
+        let owner = self.owner;
+        let start = self.projects_folder();
+        let show = move || {
+            let mut dialog = rfd::FileDialog::new().set_title("Choose the projects folder");
+            if let Some(dir) = start {
+                dialog = dialog.set_directory(dir);
+            }
+            if let Some(owner) = &owner {
+                dialog = dialog.set_parent(owner);
+            }
+            FileDialog::ProjectsFolder(dialog.pick_folder())
+        };
+        self.file_dialog(ctx, show, |paths| {
+            FileDialog::ProjectsFolder(paths.into_iter().next())
+        });
+    }
+
+    /// The projects folder was chosen (`None`: the standard one). Projects
+    /// already saved stay where they are.
+    pub(crate) fn projects_folder_chosen(&mut self, folder: Option<PathBuf>) {
+        let folder = folder.map(|f| f.to_string_lossy().into_owned());
+        if folder != self.settings.projects.folder {
+            self.settings.projects.folder = folder;
+            self.settings_changed = Some(Instant::now());
+        }
     }
 
     /// Save (Ctrl+S): to the project's file, or ask where (Save As).
@@ -367,6 +411,10 @@ impl App {
     /// to the start, and the transport follows its tempo.
     pub(crate) fn replace_document(&mut self, document: document::Document) {
         self.document = document;
+        // The Undo steps preference acts from the next project opened or
+        // made, on a history that holds no steps yet.
+        self.document
+            .set_undo_limit(self.settings.editing.undo_steps);
         self.lanes = lanes::Lanes::default();
         self.arrangement = arrangement::Arrangement::default();
         self.chain.folded.clear();
@@ -432,12 +480,18 @@ impl App {
                 }
                 FileDialog::Locate(path) => self.located(ctx, path),
                 FileDialog::RelinkFolder(Some(folder)) => self.searching_folder(ctx, folder),
+                FileDialog::CacheFolder(Some(folder)) => self.cache_folder_chosen(Some(folder)),
+                FileDialog::ProjectsFolder(Some(folder)) => {
+                    self.projects_folder_chosen(Some(folder))
+                }
                 // Cancelled: whatever was waiting on it is off too.
                 FileDialog::SaveAs(None) | FileDialog::Open(None) => self.after_save = None,
                 FileDialog::PluginFolder(None)
                 | FileDialog::SaveCopy(None)
                 | FileDialog::Collect(None)
-                | FileDialog::RelinkFolder(None) => {}
+                | FileDialog::RelinkFolder(None)
+                | FileDialog::CacheFolder(None)
+                | FileDialog::ProjectsFolder(None) => {}
             }
         }
         if let Some(result) = self.saving.as_ref().and_then(|rx| rx.try_recv().ok()) {

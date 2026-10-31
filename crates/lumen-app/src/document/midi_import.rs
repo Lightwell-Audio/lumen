@@ -9,13 +9,11 @@ use std::sync::Arc;
 use lumen_core::meter::{Meter, MeterPoint, tidy};
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
 use lumen_project::edit;
-use lumen_project::model::{
-    Clip, ClipContent, ClipEvent, Device, Id, Note, Project, Track, TrackKind,
-};
+use lumen_project::model::{Clip, ClipContent, ClipEvent, Id, Note, Project, Track, TrackKind};
 use lumen_project::smf::{FileTrack, MidiFile};
 
 use super::clips::fresh_ids;
-use super::{Document, MAX_BEATS_PER_BAR, instrument, track_color};
+use super::{Document, MAX_BEATS_PER_BAR, track_color};
 
 /// A clip's content from parts of a file: their notes and events merged,
 /// in time order.
@@ -171,6 +169,7 @@ impl Document {
             1 => format!("Import {name}"),
             n => format!("Import {name} ({n} tracks)"),
         };
+        let new_tracks = self.new_tracks;
         self.history.apply(&label, None, |project| {
             let group = group.filter(|g| {
                 project
@@ -190,7 +189,7 @@ impl Document {
                     first + k,
                     Arc::new(Track {
                         parent: group,
-                        devices: vec![Device::synth(synth, instrument::DEFAULT_PRESET.id())],
+                        devices: new_tracks.instrument(synth),
                         clips: vec![clip(clip_id, track_name, at, length, notes, events)],
                         ..Track::new(track, track_name.as_str(), TrackKind::Midi, color)
                     }),
@@ -356,6 +355,33 @@ mod tests {
             doc.import_midi_tracks(None, None, q(0), "x", &MidiFile::default())
                 .is_empty()
         );
+    }
+
+    /// A MIDI file on new tracks gives each the New tracks instrument (M9
+    /// R7): the chosen preset, or none.
+    #[test]
+    fn imported_parts_get_the_new_tracks_instrument() {
+        let mut doc = Document::new(crate::empty_project());
+        doc.set_new_tracks(super::super::NewTracks {
+            monitor: lumen_project::model::Monitor::Auto,
+            instrument: Some(lumen_devices::Preset::Keys),
+        });
+        let ids = doc.import_midi_tracks(None, None, q(0), "song", &song());
+        for id in &ids {
+            let track = doc.project().tracks.iter().find(|t| t.id == *id).unwrap();
+            assert_eq!(track.devices.len(), 1);
+            assert_eq!(track.devices[0].state, b"keys");
+        }
+        doc.set_new_tracks(super::super::NewTracks {
+            monitor: lumen_project::model::Monitor::Auto,
+            instrument: None,
+        });
+        let ids = doc.import_midi_tracks(None, None, q(0), "song", &song());
+        for id in &ids {
+            let track = doc.project().tracks.iter().find(|t| t.id == *id).unwrap();
+            assert!(track.devices.is_empty());
+        }
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
     }
 
     #[test]

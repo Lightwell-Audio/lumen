@@ -38,9 +38,15 @@ pub struct Streaming {
 
 impl Streaming {
     /// Starts the disk thread over a new pool, following the transport
-    /// `transport` reads, with the cache in `cache_dir`. Tests pass `slow`
-    /// to make every page read wait that long first.
-    pub fn start(cache_dir: PathBuf, transport: TransportReader, slow: Option<Duration>) -> Self {
+    /// `transport` reads, with the cache in `cache_dir` holding at most
+    /// `limit` bytes. Tests pass `slow` to make every page read wait that
+    /// long first.
+    pub fn start(
+        cache_dir: PathBuf,
+        limit: u64,
+        transport: TransportReader,
+        slow: Option<Duration>,
+    ) -> Self {
         let pool = PagePool::new(POOL_PAGES);
         let readers = Readers::default();
         let pages: Box<dyn Pages> = match slow {
@@ -48,11 +54,18 @@ impl Streaming {
             None => Box::new(readers),
         };
         let disk = Disk::start(&pool, pages, transport);
+        let cache = Cache::new(cache_dir);
+        cache.set_limit(limit);
         Self {
             pool,
             disk,
-            cache: Arc::new(Cache::new(cache_dir)),
+            cache: Arc::new(cache),
         }
+    }
+
+    /// The Cache limit preference changed: the next trim keeps to it.
+    pub fn set_cache_limit(&self, bytes: u64) {
+        self.cache.set_limit(bytes);
     }
 
     pub fn pool(&self) -> &Arc<PagePool> {
@@ -139,7 +152,7 @@ pub(super) fn load(
     // Within its limit, keeping what plays now and what was just made.
     let mut playing = streams::in_use();
     playing.push(prepared.path.clone());
-    let cleared = cache.trim(lumen_media::stream::cache::LIMIT, &playing);
+    let cleared = cache.trim_to_limit(&playing);
     if cleared > 0 {
         crate::trace::log(|| format!("cache: cleared {cleared} bytes"));
     }

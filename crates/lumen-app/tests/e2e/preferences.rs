@@ -1,7 +1,11 @@
 //! Preferences (M9 R7): one window of pages, opened from the app menu, the
 //! palette and the transport's chips; a search that finds any setting by a
 //! word and opens its page with the row outlined; a page menu instead of the
-//! list in a small window; and changes kept across a restart.
+//! list in a small window; changes kept across a restart; and the settings
+//! R7 added: undo steps, the autosave interval, what new tracks start with,
+//! the projects folder and the cache.
+
+use std::time::Duration;
 
 use eframe::egui::{Event, Key, Modifiers, vec2};
 use egui_kittest::kittest::Queryable;
@@ -296,4 +300,135 @@ fn the_palette_opens_preferences_on_a_page_and_the_history() {
     lumen.key(Modifiers::NONE, Key::Escape);
     run_from_palette(&mut lumen, "History");
     assert!(lumen.app().history_shown());
+}
+
+#[test]
+fn new_tracks_start_with_what_the_editing_page_chose() {
+    let mut lumen = Lumen::start("preferences-new-tracks");
+    lumen.open_preferences("Editing");
+    lumen.click("New audio tracks: monitor In");
+    assert!(lumen.is_on("New audio tracks: monitor In"));
+    lumen.click("New MIDI tracks: instrument: Synth: Poly");
+    lumen.frames(2);
+    lumen.click("None");
+    lumen.frames(2);
+    assert!(lumen.shows("New MIDI tracks: instrument: None"));
+    lumen.key(Modifiers::NONE, Key::Escape);
+    run_from_palette(&mut lumen, "Add audio track");
+    run_from_palette(&mut lumen, "Add MIDI track");
+    lumen.frames(30);
+    let tracks = &lumen.app().project().tracks;
+    let audio = tracks.iter().find(|t| t.name == "Audio 1").unwrap();
+    assert_eq!(audio.monitor, lumen_project::model::Monitor::In);
+    let midi = tracks.iter().find(|t| t.name == "MIDI 1").unwrap();
+    assert!(midi.devices.is_empty(), "no instrument");
+}
+
+#[test]
+fn the_autosave_interval_applies_at_once_and_undo_steps_from_the_next_project() {
+    let mut lumen = Lumen::start("preferences-history");
+    assert_eq!(lumen.app().autosave_delay(), Some(Duration::from_secs(60)));
+    assert_eq!(lumen.app().undo_limit(), 10_000);
+    lumen.open_preferences("Editing");
+    lumen.click("Autosave every 30 seconds");
+    lumen.frames(2);
+    assert_eq!(lumen.app().autosave_delay(), Some(Duration::from_secs(30)));
+    lumen.click("Undo steps: 1,000");
+    lumen.frames(2);
+    assert_eq!(
+        lumen.app().undo_limit(),
+        10_000,
+        "this project keeps its own"
+    );
+    assert!(lumen.shows("Used from the next project opened or made"));
+    lumen.key(Modifiers::NONE, Key::Escape);
+    run_from_palette(&mut lumen, "New project");
+    lumen.frames(5);
+    assert_eq!(lumen.app().undo_limit(), 1_000, "the next project");
+}
+
+#[test]
+fn the_projects_folder_is_where_save_and_open_start() {
+    let dir = TempDir::new("e2e-preferences-projects");
+    let songs = dir.path().join("Songs");
+    std::fs::create_dir_all(&songs).unwrap();
+    let mut lumen = Lumen::start_with(dir, |l| l);
+    lumen.open_preferences("Files");
+    lumen.app_mut().answer_next_dialog(vec![songs.clone()]);
+    lumen.click("Choose the projects folder");
+    let shown = format!("Projects folder: {}", songs.display());
+    lumen.run_until("the folder shown", move |l| l.shows(&shown));
+    assert_eq!(lumen.app().dialog_start_folder(), Some(songs.clone()));
+    lumen.click("Projects folder: use the standard folder");
+    lumen.frames(3);
+    assert_ne!(lumen.app().dialog_start_folder(), Some(songs));
+}
+
+/// Puts an entry of the cache's own, and a file of the user's, in `dir`,
+/// marked as the cache's.
+fn fill_cache(dir: &std::path::Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(dir.join("lumen-cache.json"), "{}").unwrap();
+    std::fs::write(dir.join("0123456789abcdef-48000.wav"), vec![0u8; 250_000]).unwrap();
+    std::fs::write(dir.join("0123456789abcdef-48000.key"), "key").unwrap();
+    let foreign = dir.join("my notes.txt");
+    std::fs::write(&foreign, "mine").unwrap();
+    foreign
+}
+
+#[test]
+fn the_cache_is_counted_cleared_limited_and_moved_from_the_files_page() {
+    let dir = TempDir::new("e2e-preferences-cache");
+    let file = dir.path().join("settings.json");
+    let elsewhere = dir.path().join("Scratch");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let mut lumen = Lumen::start_with(dir, |l| l.with_settings_file(&file));
+    let standard = lumen.app().cache_dir_in_use();
+    let foreign = fill_cache(&standard);
+    lumen.open_preferences("Files");
+    lumen.wait_for("the cache counted", |app| {
+        app.cache_size_counted() == Some(250_003)
+    });
+    assert!(lumen.shows("250 KB"));
+
+    lumen.click("Clear cache");
+    lumen.wait_for("the cache cleared", |app| {
+        app.cache_size_counted() == Some(0)
+    });
+    assert!(foreign.exists(), "a file the cache did not make stays");
+    assert!(!standard.join("0123456789abcdef-48000.wav").exists());
+
+    lumen.click("Cache limit: 5 GB");
+    assert!(lumen.is_on("Cache limit: 5 GB"));
+    assert_eq!(lumen.app().cache_limit_gb(), 5);
+
+    // A new folder is used from the next start; nothing moves now.
+    lumen.app_mut().answer_next_dialog(vec![elsewhere.clone()]);
+    lumen.click("Choose the cache folder");
+    lumen.run_until("the next start noted", |l| {
+        l.harness
+            .query_by_label_contains("Used from the next start")
+            .is_some()
+    });
+    assert_eq!(lumen.app().cache_dir_in_use(), standard);
+    lumen.wait_for("the settings saved", |_| {
+        std::fs::read_to_string(&file).is_ok_and(|t| t.contains("Scratch"))
+    });
+    fill_cache(&standard);
+
+    let dir = lumen.crash();
+    let mut again = Lumen::start_with(dir, |l| l.with_settings_file(&file));
+    assert_eq!(
+        again.app().cache_dir_in_use(),
+        elsewhere.join("Lumen cache"),
+        "a folder of its own inside the chosen one"
+    );
+    again.open_preferences("Files");
+    // The folder left behind is offered for Clear once.
+    again.run_until("the old folder offered", |l| l.shows("Clear old cache"));
+    again.click("Clear old cache");
+    again.run_until("the offer gone", |l| !l.shows("Clear old cache"));
+    assert!(!standard.join("0123456789abcdef-48000.wav").exists());
+    assert!(foreign.exists());
+    assert_eq!(again.app().cache_limit_gb(), 5, "the limit was kept");
 }

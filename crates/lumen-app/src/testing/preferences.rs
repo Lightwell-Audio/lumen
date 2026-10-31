@@ -29,6 +29,36 @@ impl App {
         self.settings.plugins.folders.clone()
     }
 
+    /// How long after a change the autosave waits now.
+    pub fn autosave_delay(&self) -> Option<std::time::Duration> {
+        self.autosave.as_ref().map(|a| a.delay())
+    }
+
+    /// The undo steps the open project keeps.
+    pub fn undo_limit(&self) -> usize {
+        self.document.undo_limit()
+    }
+
+    /// Where a save or open dialog starts now.
+    pub fn dialog_start_folder(&self) -> Option<std::path::PathBuf> {
+        self.dialog_start()
+    }
+
+    /// The cache folder in use this run.
+    pub fn cache_dir_in_use(&self) -> std::path::PathBuf {
+        self.cache_dir()
+    }
+
+    /// The cache's limit, as the settings keep it, in gigabytes.
+    pub fn cache_limit_gb(&self) -> u32 {
+        self.settings.cache.limit_gb
+    }
+
+    /// The bytes the cache holds, once Preferences counted them.
+    pub fn cache_size_counted(&self) -> Option<u64> {
+        self.cache.size.filter(|_| !self.cache.busy())
+    }
+
     /// The names of the pages, in the list's order.
     pub fn preference_pages() -> Vec<&'static str> {
         Page::ALL.map(Page::name).to_vec()

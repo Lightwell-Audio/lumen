@@ -284,6 +284,8 @@ pub struct App {
     disk_scene: Option<app::streaming::SceneKey>,
     /// Tests: the disk thread waits this long before each page it reads.
     slow_disk: Option<std::time::Duration>,
+    /// The cache's folder, size and Clear (M9 R7).
+    cache: app::cache_folder::CacheFolder,
     /// Writes settings on a background thread (audit H1).
     settings_writer: settings::Writer,
     show_browser: bool,
@@ -521,6 +523,7 @@ impl eframe::App for App {
             self.run(&ctx, command);
         }
         self.poll_files(&ctx);
+        self.poll_cache(&ctx);
         self.poll_collecting(&ctx);
         self.poll_templates(&ctx);
         self.autosave(&ctx);
@@ -566,6 +569,11 @@ impl eframe::App for App {
         self.arrangement.auto.at = self.transport.position();
         self.document
             .set_lock_envelopes(self.settings.editing.lock_envelopes);
+        self.document
+            .set_new_tracks(self.settings.editing.new_tracks.for_document());
+        if let Some(autosave) = self.autosave.as_mut() {
+            autosave.set_interval(self.settings.editing.autosave());
+        }
         self.hosting.set_overridden(self.document.overrides());
         if self.lanes.devices.overridden != *self.document.overrides() {
             self.lanes.devices.overridden = self.document.overrides().clone();

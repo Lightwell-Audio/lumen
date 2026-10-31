@@ -58,8 +58,19 @@ impl History {
     }
 
     pub fn with_limit(mut self, limit: usize) -> Self {
-        self.limit = limit.max(1);
+        self.set_limit(limit);
         self
+    }
+
+    /// Keeps at most `limit` undo steps (at least one). Steps beyond it go
+    /// at the next edit, oldest first: the app sets it only on a history
+    /// that has just been made (the Undo steps preference, M9 R7).
+    pub fn set_limit(&mut self, limit: usize) {
+        self.limit = limit.max(1);
+    }
+
+    pub fn limit(&self) -> usize {
+        self.limit
     }
 
     pub fn project(&self) -> &Project {
@@ -606,6 +617,16 @@ mod tests {
         assert_eq!(history.state(), saved);
         history.redo();
         assert_ne!(history.state(), saved);
+    }
+
+    #[test]
+    fn the_limit_can_be_set_and_is_never_below_one() {
+        let mut history = History::new(small_project(1));
+        assert_eq!(history.limit(), DEFAULT_LIMIT);
+        history.set_limit(1_000);
+        assert_eq!(history.limit(), 1_000);
+        history.set_limit(0);
+        assert_eq!(history.limit(), 1);
     }
 
     #[test]

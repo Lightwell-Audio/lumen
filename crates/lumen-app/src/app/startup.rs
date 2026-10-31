@@ -24,6 +24,8 @@ impl App {
             // The rate chosen for the audio device last time, when there is one.
             empty_project_at(saved.audio.as_ref().and_then(|a| a.sample_rate))
         });
+        document.set_undo_limit(saved.editing.undo_steps);
+        document.set_new_tracks(saved.editing.new_tracks.for_document());
         let mut arrangement = arrangement::Arrangement::default();
         if launch.bench_lanes {
             for track in &document.project().tracks {
@@ -165,6 +167,7 @@ impl App {
             settings_changed: None,
             disk_scene: None,
             slow_disk: launch.slow_disk,
+            cache: Default::default(),
             settings_writer: settings::Writer::start(),
             document,
             synced: None,
@@ -260,10 +263,14 @@ impl App {
         fonts::install(&cc.egui_ctx);
         app.apply_appearance(&cc.egui_ctx);
         let mut autosave = autosave::Autosave::new(launch.autosave_dir);
+        autosave.set_interval(app.settings.editing.autosave());
         if let Some(delay) = launch.autosave_after {
             autosave = autosave.with_delay(delay);
         }
         app.autosave = Some(autosave);
+        // Settled for the run: a folder chosen later is used from the next
+        // start.
+        app.cache.dir = app.chosen_cache_dir();
         app.leftover = app.next_leftover();
         if launch.recover_latest
             && let Some(leftover) = app.leftover.take()

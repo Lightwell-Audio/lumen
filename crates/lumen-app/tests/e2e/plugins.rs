@@ -275,6 +275,23 @@ fn retry_loads_a_blocked_module_again_and_it_joins_the_list_once_it_works() {
 }
 
 #[test]
+fn the_plugins_page_lists_a_blocked_module_and_retries_it() {
+    MENDED.store(false, Ordering::Relaxed);
+    let mut lumen = start("preferences-blocked", &["Mended"]);
+    assert_eq!(lumen.app().blocked_plugins(), ["Mended"]);
+    lumen.open_preferences("Plugins");
+    assert!(lumen.shows("Blocked plugins"));
+    assert!(lumen.shows("Retry Mended"));
+    MENDED.store(true, Ordering::Relaxed);
+    lumen.click("Retry Mended");
+    lumen.settled();
+    assert!(lumen.app().blocked_plugins().is_empty());
+    assert!(!lumen.shows("Retry Mended"));
+    assert!(lumen.shows("None. A plugin that fails while it is scanned is listed here."));
+    MENDED.store(false, Ordering::Relaxed);
+}
+
+#[test]
 fn a_module_added_since_is_found_by_rescan() {
     let mut lumen = start("rescan", &["Good"]);
     assert!(lumen.app().blocked_plugins().is_empty());

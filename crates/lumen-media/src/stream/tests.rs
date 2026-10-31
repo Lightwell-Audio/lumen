@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::cache::Cache;
+use super::cache::{Cache, MARKER, is_cache_file};
 use super::convert::Converter;
 use super::*;
 use crate::take::TakeWriter;
@@ -20,6 +20,15 @@ fn folder(label: &str) -> PathBuf {
     ));
     fs::create_dir_all(&path).unwrap();
     path
+}
+
+/// The cache's own files in its folder (not its marker).
+fn cache_files(cache: &Cache) -> Vec<fs::DirEntry> {
+    fs::read_dir(cache.dir())
+        .unwrap()
+        .map(|f| f.unwrap())
+        .filter(|f| is_cache_file(&f.file_name().to_string_lossy()))
+        .collect()
 }
 
 fn signal(frames: usize, step: f32) -> Vec<f32> {
@@ -473,7 +482,11 @@ fn a_cancelled_conversion_leaves_nothing_that_is_found() {
     });
     assert_eq!(result, Err(MediaError::Cancelled));
     assert_eq!(cache.find(&source, 48_000).unwrap(), None);
-    let left: Vec<_> = fs::read_dir(cache.dir()).unwrap().collect();
+    let left: Vec<_> = fs::read_dir(cache.dir())
+        .unwrap()
+        .map(|f| f.unwrap().file_name())
+        .filter(|name| name != MARKER)
+        .collect();
     assert!(left.is_empty(), "no copy or key is left: {left:?}");
 }
 
@@ -578,12 +591,13 @@ fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
             prepared
         })
         .collect();
-    let count = || fs::read_dir(cache.dir()).unwrap().count();
+    let count = || cache_files(&cache).len();
     assert_eq!(count(), 9, "copy, key and peaks of each");
-    let total: u64 = fs::read_dir(cache.dir())
-        .unwrap()
-        .map(|f| f.unwrap().metadata().unwrap().len())
+    let total: u64 = cache_files(&cache)
+        .iter()
+        .map(|f| f.metadata().unwrap().len())
         .sum();
+    assert_eq!(cache.size(), total);
     assert_eq!(cache.trim(total, &[]), 0, "under the limit nothing goes");
     assert_eq!(count(), 9);
 
@@ -609,9 +623,8 @@ fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
     // alone, every other entry goes.
     std::thread::sleep(std::time::Duration::from_millis(30));
     assert!(cache.find(&dir.join("2.wav"), 48_000).unwrap().is_some());
-    let third: u64 = fs::read_dir(cache.dir())
-        .unwrap()
-        .map(|f| f.unwrap())
+    let third: u64 = cache_files(&cache)
+        .into_iter()
         .filter(|f| {
             let name = f.file_name().to_string_lossy().into_owned();
             let stem = prepared[2]
@@ -629,6 +642,98 @@ fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
     assert_eq!(count(), 2, "the third's copy and key alone");
     cache.trim(1, &[]);
     assert_eq!(count(), 0, "a limit below every entry clears them all");
+}
+
+/// The cache folder can be one the user chose (M9 R7): trim and Clear act
+/// only on the cache's own names, so a file of the user's survives both.
+#[test]
+fn trimming_and_clearing_never_touch_a_file_the_cache_did_not_make() {
+    let dir = folder("foreign");
+    let cache = Cache::new(dir.join("cache"));
+    let cancel = AtomicBool::new(false);
+    let source = dir.join("source.wav");
+    write_wav(&source, 44_100, Sample::F32, &[signal(20_000, 0.01)]);
+    let prepared = cache
+        .prepare(&source, 48_000, &cancel, &mut |_| {})
+        .unwrap();
+    assert!(
+        cache.dir().join(MARKER).is_file(),
+        "marked when first written"
+    );
+    // The user's files beside the cache's, old enough to go first.
+    let foreign = [
+        "notes.txt",
+        "song.wav",
+        "0123456789ABCDEF-48000.wav",
+        "0123456789abcdef-48000.wav.bak",
+        "0123456789abcdef.wav",
+    ];
+    for name in foreign {
+        fs::write(cache.dir().join(name), vec![7u8; 4096]).unwrap();
+        let old = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(cache.dir().join(name))
+            .unwrap();
+        file.set_modified(old).unwrap();
+    }
+    let own: u64 = cache_files(&cache)
+        .iter()
+        .map(|f| f.metadata().unwrap().len())
+        .sum();
+    assert_eq!(cache.size(), own, "only the cache's own files count");
+
+    assert!(cache.trim(1, &[]) > 0);
+    assert!(!prepared.path.exists());
+    for name in foreign {
+        assert!(cache.dir().join(name).exists(), "{name} survives a trim");
+    }
+
+    cache
+        .prepare(&source, 48_000, &cancel, &mut |_| {})
+        .unwrap();
+    assert!(cache.clear(&[]) > 0);
+    assert_eq!(cache.size(), 0);
+    for name in foreign {
+        assert!(cache.dir().join(name).exists(), "{name} survives Clear");
+    }
+    assert!(cache.dir().join(MARKER).exists(), "the mark stays");
+}
+
+/// A folder without the mark is not the cache's: nothing in it is counted
+/// or cleared, even names the cache would give.
+#[test]
+fn a_folder_without_the_mark_is_left_alone() {
+    let dir = folder("unmarked");
+    let cache = Cache::new(dir.join("cache"));
+    fs::create_dir_all(cache.dir()).unwrap();
+    let lookalike = cache.dir().join("0123456789abcdef-48000.wav");
+    fs::write(&lookalike, vec![1u8; 4096]).unwrap();
+    assert_eq!(cache.size(), 0);
+    assert_eq!(cache.clear(&[]), 0);
+    assert!(lookalike.exists());
+}
+
+#[test]
+fn the_cache_knows_its_own_names() {
+    assert!(is_cache_file("0123456789abcdef-48000.wav"));
+    assert!(is_cache_file("0123456789abcdef-44100.key"));
+    assert!(is_cache_file("0123456789abcdef-96000.peaks"));
+    assert!(!is_cache_file("0123456789abcdef-48000.wav.1234.writing"));
+    assert!(!is_cache_file(".0123456789abcdef-48000.wav.1234.writing"));
+    assert!(!is_cache_file("0123456789abcdef-48000.txt"));
+    assert!(!is_cache_file("0123456789abcde-48000.wav"));
+    assert!(!is_cache_file("0123456789abcdeg-48000.wav"));
+    assert!(!is_cache_file("0123456789abcdef-.wav"));
+    assert!(!is_cache_file(MARKER));
+}
+
+#[test]
+fn the_limit_can_change() {
+    let cache = Cache::new(folder("limit").join("cache"));
+    assert_eq!(cache.limit(), super::cache::LIMIT);
+    cache.set_limit(5_000_000_000);
+    assert_eq!(cache.limit(), 5_000_000_000);
 }
 
 /// A copy that cannot be removed (open in another instance, here a handle

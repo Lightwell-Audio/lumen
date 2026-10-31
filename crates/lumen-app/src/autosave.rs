@@ -23,8 +23,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::files;
 
-/// How long after the first unsaved change the copy is written.
+/// How long after the first unsaved change the copy is written, unless the
+/// Autosave preference says otherwise (M9 R7).
 pub const DELAY: Duration = Duration::from_secs(60);
+
+/// The intervals the Autosave preference offers. More than two minutes is
+/// not offered: a crash may cost at most a couple of minutes (CLAUDE.md §4).
+pub const INTERVALS: [Duration; 3] = [
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+    Duration::from_secs(120),
+];
 
 /// The folder for autosaves: `%LOCALAPPDATA%\Lumen\Autosave` on Windows,
 /// `~/Library/Application Support/Lumen/Autosave` on macOS,
@@ -79,7 +88,14 @@ pub struct Autosave {
     writing: Option<Receiver<Written>>,
     /// The session's lock, held while it has an autosave on disk.
     lock: Option<File>,
-    delay: Duration,
+    /// The wait when nothing is recorded: the preference, or a fixed delay.
+    interval: Duration,
+    /// The interval was fixed at launch (`--autosave-after-ms`, tests): the
+    /// preference does not change it.
+    fixed: bool,
+    /// A shorter wait while a take or an automation pass is under way, so a
+    /// crash costs seconds.
+    hurried: Option<Duration>,
 }
 
 /// What the autosave thread sends back: the save's result, and the
@@ -101,19 +117,41 @@ impl Autosave {
             written: None,
             writing: None,
             lock: None,
-            delay: DELAY,
+            interval: DELAY,
+            fixed: false,
+            hurried: None,
         }
     }
 
-    /// Changes the delay: shorter while recording, so a crash costs seconds.
-    pub fn set_delay(&mut self, delay: Duration) {
-        self.delay = delay;
+    /// A fixed delay, which the preference does not change
+    /// (`--autosave-after-ms`, tests).
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.interval = delay;
+        self.fixed = true;
+        self
     }
 
-    /// A shorter delay (tests).
-    pub fn with_delay(mut self, delay: Duration) -> Self {
-        self.delay = delay;
-        self
+    /// The Autosave preference's interval; ignored when the delay is fixed.
+    pub fn set_interval(&mut self, interval: Duration) {
+        if !self.fixed {
+            self.interval = interval;
+        }
+    }
+
+    /// Waits at most `delay` while recording, so a crash costs seconds.
+    pub fn hurry(&mut self, delay: Duration) {
+        self.hurried = Some(delay);
+    }
+
+    /// Back to the interval once recording ends.
+    pub fn unhurry(&mut self) {
+        self.hurried = None;
+    }
+
+    /// How long after the first unsaved change the copy is written now.
+    pub fn delay(&self) -> Duration {
+        self.hurried
+            .map_or(self.interval, |hurried| hurried.min(self.interval))
     }
 
     pub fn session(&self) -> &str {
@@ -212,7 +250,7 @@ impl Autosave {
             return;
         }
         let since = *self.pending_since.get_or_insert(now);
-        if now.duration_since(since) < self.delay || self.writing.is_some() {
+        if now.duration_since(since) < self.delay() || self.writing.is_some() {
             return;
         }
         let (Some(file), Some(note_file)) = (self.file(), self.note_file()) else {
@@ -256,7 +294,7 @@ impl Autosave {
     /// When the next autosave is due, to wake up for it.
     pub fn due_in(&self, now: Instant) -> Option<Duration> {
         self.pending_since
-            .map(|since| self.delay.saturating_sub(now.duration_since(since)))
+            .map(|since| self.delay().saturating_sub(now.duration_since(since)))
     }
 }
 
@@ -362,6 +400,32 @@ mod tests {
     use crate::document::{Document, Imported};
     use lumen_core::time::Ticks;
     use lumen_project::testing::TempDir;
+
+    #[test]
+    fn the_interval_is_the_preference_shortened_while_recording() {
+        let mut autosave = Autosave::new(None);
+        assert_eq!(autosave.delay(), DELAY);
+        autosave.set_interval(Duration::from_secs(30));
+        assert_eq!(autosave.delay(), Duration::from_secs(30));
+        autosave.hurry(Duration::from_secs(10));
+        assert_eq!(autosave.delay(), Duration::from_secs(10));
+        // A preference changed while recording waits until it ends.
+        autosave.set_interval(Duration::from_secs(120));
+        assert_eq!(autosave.delay(), Duration::from_secs(10));
+        autosave.unhurry();
+        assert_eq!(autosave.delay(), Duration::from_secs(120));
+    }
+
+    #[test]
+    fn a_fixed_delay_wins_over_the_preference_and_recording_never_lengthens_it() {
+        let mut autosave = Autosave::new(None).with_delay(Duration::from_millis(50));
+        autosave.set_interval(Duration::from_secs(30));
+        assert_eq!(autosave.delay(), Duration::from_millis(50));
+        autosave.hurry(Duration::from_secs(10));
+        assert_eq!(autosave.delay(), Duration::from_millis(50));
+        autosave.unhurry();
+        assert_eq!(autosave.delay(), Duration::from_millis(50));
+    }
 
     fn request(doc: &Document, file: PathBuf) -> files::SaveRequest {
         files::SaveRequest {

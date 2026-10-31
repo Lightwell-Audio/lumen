@@ -116,6 +116,7 @@ impl Document {
             additions.push((track, clip, file));
         }
         let next = &mut self.next_id;
+        let new_tracks = self.new_tracks;
         self.history.apply(&label, None, |project| {
             let mut placed = Vec::new();
             let mut next_at: HashMap<Id, Ticks> = HashMap::new();
@@ -188,11 +189,13 @@ impl Document {
                         .iter()
                         .any(|t| t.id == *g && t.kind == TrackKind::Group)
                 });
-                let new_track = Arc::new(Track {
+                let mut new_track = Track {
                     clips: vec![new_clip],
                     parent: group,
                     ..Track::new(track, file.name, TrackKind::Audio, color)
-                });
+                };
+                new_tracks.give(&mut new_track);
+                let new_track = Arc::new(new_track);
                 let before = before.and_then(|id| project.tracks.iter().position(|t| t.id == id));
                 match before {
                     Some(i) => project.tracks.insert(i, new_track),

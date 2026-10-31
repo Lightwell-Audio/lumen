@@ -59,10 +59,10 @@ impl Page {
             Page::Audio => "The audio device, its format and channels, latency and the test tone",
             Page::Midi => "MIDI inputs and outputs, and hearing notes while editing",
             Page::Recording => "Count-in, Overdub, played notes and the metronome",
-            Page::Editing => "How edits treat automation",
+            Page::Editing => "Undo, autosave, automation and new tracks",
             Page::Mixing => "Solo and the meters",
-            Page::Plugins => "Where plugins are looked for, and scanning",
-            Page::Files => "Imported audio and crash reports",
+            Page::Plugins => "Where plugins are looked for, blocked plugins and scanning",
+            Page::Files => "Projects, imported audio, the cache and crash reports",
             Page::Appearance => "Theme, interface size, motion and the info line",
         }
     }
@@ -224,10 +224,34 @@ pub const ROWS: &[Row] = &[
         "click cue headphones main",
     ),
     row(
+        "edit.undo_steps",
+        Page::Editing,
+        "Undo steps",
+        "history memory depth levels redo",
+    ),
+    row(
+        "edit.autosave",
+        Page::Editing,
+        "Autosave every",
+        "backup crash recovery interval minutes seconds save",
+    ),
+    row(
         "edit.lock_envelopes",
         Page::Editing,
         "Lock envelopes",
         "automation clips move",
+    ),
+    row(
+        "edit.new_audio_monitor",
+        Page::Editing,
+        "New audio tracks: monitoring",
+        "default track input monitor in auto off",
+    ),
+    row(
+        "edit.new_midi_instrument",
+        Page::Editing,
+        "New MIDI tracks: instrument",
+        "default track synth preset poly keys bass pluck pad none",
     ),
     row(
         "mix.additive_solo",
@@ -254,6 +278,12 @@ pub const ROWS: &[Row] = &[
         "vst3 default system paths",
     ),
     row(
+        "plugins.blocked",
+        Page::Plugins,
+        "Blocked plugins",
+        "crashed failed retry vst3 scan problems",
+    ),
+    row(
         "plugins.scan_at_startup",
         Page::Plugins,
         "Scan plugins at startup",
@@ -266,10 +296,34 @@ pub const ROWS: &[Row] = &[
         "scan again refresh vst3 all",
     ),
     row(
+        "files.projects_folder",
+        Page::Files,
+        "Projects folder",
+        "songs save open new location directory documents",
+    ),
+    row(
         "files.copy_imported",
         Page::Files,
         "Copy imported audio into the project",
         "collect import samples media",
+    ),
+    row(
+        "files.cache_folder",
+        Page::Files,
+        "Cache folder",
+        "converted audio waveforms peaks location directory disk",
+    ),
+    row(
+        "files.cache_limit",
+        Page::Files,
+        "Cache limit",
+        "size gb disk space converted",
+    ),
+    row(
+        "files.cache_clear",
+        Page::Files,
+        "Clear cache",
+        "size space delete converted waveforms disk",
     ),
     row(
         "files.crash_reports",

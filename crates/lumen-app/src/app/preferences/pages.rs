@@ -6,9 +6,12 @@
 use std::time::Instant;
 
 use eframe::egui::{self, Ui};
+use lumen_devices::Preset;
 use lumen_engine::{ClickSound, MetronomeSettings};
+use lumen_project::model::Monitor;
 
 use crate::commands::Command;
+use crate::icons::{self, Icon};
 use crate::preferences::{self, Marks, Page, audio};
 use crate::record_settings::CountIn;
 use crate::transport::record;
@@ -198,11 +201,111 @@ impl App {
     }
 
     fn editing_page(&mut self, ui: &mut Ui, marks: &Marks) {
+        let before = self.settings.editing.clone();
+        section(ui, "History");
+        marks.row(ui, "edit.undo_steps", |ui| {
+            row(ui, "Undo steps", |ui| {
+                let labels = settings::Editing::UNDO_STEPS.map(steps_label);
+                let names = labels.clone().map(|l| format!("Undo steps: {l}"));
+                let steps: Vec<_> = settings::Editing::UNDO_STEPS
+                    .iter()
+                    .zip(labels.iter().zip(&names))
+                    .map(|(n, (label, name))| widgets::Choice::new(*n, label).named(name))
+                    .collect();
+                let chosen = self.settings.editing.undo_steps;
+                if let Some(picked) =
+                    widgets::segmented(ui, ui.id().with("undo steps"), chosen, &steps)
+                {
+                    self.settings.editing.undo_steps = picked;
+                }
+            });
+        });
+        if self.settings.editing.undo_steps != self.document.undo_limit() {
+            row(ui, "", |ui| {
+                hint(ui, "Used from the next project opened or made");
+            });
+        }
+        marks.row(ui, "edit.autosave", |ui| {
+            row(ui, "Autosave every", |ui| {
+                let intervals = crate::autosave::INTERVALS.map(|d| {
+                    let seconds = d.as_secs();
+                    let (label, name) = match seconds {
+                        30 => ("30 s", "Autosave every 30 seconds"),
+                        60 => ("1 min", "Autosave every minute"),
+                        _ => ("2 min", "Autosave every 2 minutes"),
+                    };
+                    widgets::Choice::new(seconds, label).named(name)
+                });
+                let chosen = self.settings.editing.autosave_seconds;
+                if let Some(picked) =
+                    widgets::segmented(ui, ui.id().with("autosave"), chosen, &intervals)
+                {
+                    self.settings.editing.autosave_seconds = picked;
+                }
+            });
+        });
+        row(ui, "", |ui| {
+            hint(
+                ui,
+                "A copy is kept this soon after a change, so a crash loses no more",
+            );
+        });
+
         section(ui, "Automation");
         marks.row(ui, "edit.lock_envelopes", |ui| {
             let on = self.settings.editing.lock_envelopes;
             self.command_switch(ui, Command::LockEnvelopes, on);
         });
+
+        section(ui, "New tracks");
+        marks.row(ui, "edit.new_audio_monitor", |ui| {
+            row(ui, "Audio monitoring", |ui| {
+                let modes = [
+                    widgets::Choice::new(Monitor::In, "In")
+                        .named("New audio tracks: monitor In")
+                        .tip("The input is always heard"),
+                    widgets::Choice::new(Monitor::Auto, "Auto")
+                        .named("New audio tracks: monitor Auto")
+                        .tip("The input is heard while the track is armed"),
+                    widgets::Choice::new(Monitor::Off, "Off")
+                        .named("New audio tracks: monitor Off")
+                        .tip("The input is never heard"),
+                ];
+                let chosen = self.settings.editing.new_tracks.audio_monitor;
+                if let Some(picked) =
+                    widgets::segmented(ui, ui.id().with("new monitor"), chosen, &modes)
+                {
+                    self.settings.editing.new_tracks.audio_monitor = picked;
+                }
+            });
+        });
+        marks.row(ui, "edit.new_midi_instrument", |ui| {
+            row(ui, "MIDI instrument", |ui| {
+                let options: Vec<String> = std::iter::once("None".to_owned())
+                    .chain(Preset::ALL.iter().map(|p| format!("Synth: {}", p.name())))
+                    .collect();
+                let chosen = self
+                    .settings
+                    .editing
+                    .new_tracks
+                    .for_document()
+                    .instrument
+                    .map_or(0, |p| {
+                        1 + Preset::ALL.iter().position(|q| *q == p).unwrap_or(0)
+                    });
+                let width = theme::size::PREFERENCES_SLIDER.min(ui.available_width());
+                if let Some(i) =
+                    widgets::Dropdown::new("New MIDI tracks: instrument", &options[chosen], width)
+                        .show(ui, ui.id().with("new instrument"), &options, Some(chosen))
+                {
+                    self.settings.editing.new_tracks.midi_instrument =
+                        i.checked_sub(1).map(|i| Preset::ALL[i].id().to_owned());
+                }
+            });
+        });
+        if self.settings.editing != before {
+            self.settings_changed = Some(Instant::now());
+        }
     }
 
     fn mixing_page(&mut self, ui: &mut Ui, marks: &Marks) {
@@ -248,6 +351,8 @@ impl App {
             folder_row(ui, &folder.display().to_string(), false);
         }
 
+        self.blocked_plugins_rows(ui, marks);
+
         section(ui, "Scanning");
         marks.row(ui, "plugins.scan_at_startup", |ui| {
             let on = self.settings.plugins.scan_at_startup;
@@ -262,7 +367,73 @@ impl App {
         });
     }
 
+    /// The plugins a scan blocked, each with why and Retry; the browser lists
+    /// them too, under "Blocked".
+    fn blocked_plugins_rows(&mut self, ui: &mut Ui, marks: &Marks) {
+        marks.row(ui, "plugins.blocked", |ui| section(ui, "Blocked plugins"));
+        let blocked: Vec<_> = self
+            .plugins
+            .catalog()
+            .blocked()
+            .iter()
+            .map(|b| (b.name.clone(), b.path.clone(), b.reason.headline()))
+            .collect();
+        if blocked.is_empty() {
+            hint(
+                ui,
+                "None. A plugin that fails while it is scanned is listed here.",
+            );
+            return;
+        }
+        hint(ui, lumen_plugin_catalog::blocklist::WHEN_RETRIED);
+        let ready = !self.safe.on && !self.plugins.busy();
+        let mut retried = None;
+        for (name, path, why) in &blocked {
+            let width = ui.available_width();
+            ui.allocate_ui_with_layout(
+                egui::vec2(width, theme::size::CONTROL),
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| {
+                    ui.set_min_size(egui::vec2(width, theme::size::CONTROL));
+                    let button = ui
+                        .add_enabled_ui(ready, |ui| widgets::raised::button(ui, "Retry"))
+                        .inner;
+                    let label = format!("Retry {name}");
+                    button.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Button, ready, &label)
+                    });
+                    let button = if self.safe.on {
+                        button.on_disabled_hover_text(crate::app::commands::availability::SAFE_MODE)
+                    } else {
+                        button.on_disabled_hover_text("Wait for the scan to finish")
+                    };
+                    if button
+                        .on_hover_text("Scan it again; it is listed if it loads")
+                        .clicked()
+                    {
+                        retried = Some(path.to_string_lossy().into_owned());
+                    }
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        let (icon, _) = ui.allocate_exact_size(
+                            egui::vec2(theme::size::MENU_ICON, theme::size::MENU_ICON),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter()
+                            .extend(icons::shapes(Icon::Warning, icon, theme::p().warning));
+                        ui.add(egui::Label::new(name.as_str()).truncate())
+                            .on_hover_text(format!("{why}\n{}", path.display()));
+                    });
+                },
+            );
+        }
+        if let Some(module) = retried {
+            self.plugins
+                .retry(&module, &self.settings.plugins, ui.ctx());
+        }
+    }
+
     fn files_page(&mut self, ui: &mut Ui, marks: &Marks) {
+        self.projects_folder_row(ui, marks);
         section(ui, "Importing");
         marks.row(ui, "files.copy_imported", |ui| {
             let mut on = self.settings.projects.copy_imported;
@@ -277,6 +448,7 @@ impl App {
                 self.settings_changed = Some(Instant::now());
             }
         });
+        self.cache_rows(ui, marks);
         section(ui, "Problems");
         marks.row(ui, "files.crash_reports", |ui| {
             let dir = self.crash_dir.clone();
@@ -419,4 +591,14 @@ fn folder_row(ui: &mut Ui, folder: &str, yours: bool) -> bool {
         },
     )
     .inner
+}
+
+/// An undo depth as the choice shows it: "1,000".
+fn steps_label(steps: usize) -> String {
+    let thousands = steps / 1_000;
+    if thousands > 0 && steps.is_multiple_of(1_000) {
+        format!("{thousands},000")
+    } else {
+        steps.to_string()
+    }
 }

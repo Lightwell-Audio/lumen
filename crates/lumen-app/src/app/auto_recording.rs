@@ -286,9 +286,9 @@ impl App {
         let midi_taking = self.record.active();
         if let Some(autosave) = self.autosave.as_mut() {
             if active {
-                autosave.set_delay(self.lane_commits.autosave);
+                autosave.hurry(self.lane_commits.autosave);
             } else if !midi_taking {
-                autosave.set_delay(crate::autosave::DELAY);
+                autosave.unhurry();
             }
         }
     }

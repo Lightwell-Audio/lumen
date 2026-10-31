@@ -3,6 +3,7 @@
 //! background (audit H1). The Preferences window is `window.rs`, its pages
 //! `pages.rs`.
 
+mod files;
 mod pages;
 mod window;
 
