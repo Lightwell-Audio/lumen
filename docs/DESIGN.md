@@ -489,8 +489,13 @@ M S ● well is: each piece `space::XXS` inside a `CONTROL_LARGE` well,
 the pointer and filled in its tone while on. Three wells, with a
 hairline between one well and the next: go to start, Stop, Play and Record; the modes (Overdub, Loop,
 Metronome, Follow, the computer keyboard with its octave, and the solo
-piece, which clears every solo); and the numbers, tempo, meter and
+piece, which clears every solo); and the numbers, tempo, Tap, meter and
 position in one well with hairlines between them (`well::dividers`). The
+Tap piece (M9 R7, the owner's TT A) says "Tap" in the unit type and
+`text_secondary` until a run starts, then counts the run's taps in the value
+type and `accent`; the count is the button's accessible value, so the run is
+read, not only seen. It gives way after the CPU readout and before delay
+compensation (`transport/fit.rs`). The
 pieces of the icon wells have no hairlines between them. The position's
 wash covers its bars, the part a click types into. The position is typed in its own piece:
 click or Enter, Esc puts it back. The CPU readout before it sits in a slot as wide as "CPU 100%" in
@@ -1458,6 +1463,14 @@ a 96 pt label column (`size::LABEL_COLUMN`) for chosen values, and on/off settin
   "…" and shows in full on hover. A path the user added has Remove at the right edge (named
   "Remove <path>"). The standard folders are always searched, so theirs are quiet text with no
   button.
+- **A chosen folder** (projects, cache): the path on one line, cut short with "…" and in full on
+  hover (named "<Setting>: <path>"), then "Choose…" and, once one is chosen, "Standard". A
+  choice that acts later says when under the row in `text_secondary` ("Used from the next start").
+- **Choices of a few values** (undo steps, autosave, cache limit, new-track monitoring) are segmented
+  controls with the label column; each choice is named in full for the screen reader ("Autosave
+  every 30 seconds").
+- **Blocked plugins:** one row per plugin: the warning shape (`MENU_ICON`), the name cut short with
+  "…", and Retry at the right edge (named "Retry <name>"). An empty list says so in a sentence.
 
 ## 8. Key flows
 

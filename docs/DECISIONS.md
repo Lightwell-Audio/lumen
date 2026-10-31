@@ -113,6 +113,7 @@ irreversible or external) · *Superseded*.
 | [0099](#adr-0099--a-render-or-scan-result-is-applied-only-to-what-it-read-m9-r0) | A render or scan result is applied only to what it read; the clips of a track being recorded are read-only (M9 R0) | Accepted 2026-10-24 | No |
 | [0108](#adr-0108--the-ux-round-three-detail-tabs-compact-cards-the-cpu-slot-the-chip-clip) | UX round three: detail tabs, compact cards, the CPU slot, the chip clip | Accepted 2026-10-28 | No |
 | [0110](#adr-0110--the-loopback-helper-measuring-the-round-trip-m9-r2b) | The loopback helper: measuring the round trip (M9 R2b) | Accepted 2026-10-29 (MT-REC-5 pending) | No |
+| [0112](#adr-0112--preferences-tap-tempo-and-command-coverage-m9-r7) | Preferences, tap tempo and command coverage (M9 R7) | Accepted 2026-10-31 (MT-PREF-1 pending) | No |
 
 ---
 
@@ -124,6 +125,7 @@ irreversible or external) · *Superseded*.
 | Take lanes deferred (M9 R3, 2026-10-26) | Pitched after the owner's runs of R3 (each pass a clip on its own lane under the track, a comp lane that plays, comping by dragging across a lane): the owner likes individual take lanes and **deferred them, with comping, until after M9's must-have slices**, as recommended. Until then a take is a whole pass inside one clip (ADR-0104), reached from the Takes menu; the passes are windows on one file, so dragging a clip's edge past its pass shows the pass beside it (intended, as in common workstations). When lanes are built, the takes inside a clip become lanes by migration. Open for then: whether a comp segment is a copied clip or a reference to its take, whether recording over any material (not only loop passes) makes a lane, and MIDI lanes. |
 | M9 R4 choices (2026-10-26) | P1 A (renders follow the project rate), P2 A (Revert reloads the saved file after a quiet prompt, keeping the unsaved version in `Backups/Reverted`), S A (R4 is the save family and project settings; the media pool, relink and purge are R4b): every recommendation (`docs/milestones/M9.md` §2). After MT-PROJ-1 run 1 (2026-10-26): projects and templates get their own folders in `Documents/Lumen` (option A of four pitched), and the app menu is grouped (layout A of three pitched as specimens): ADR-0105. |
 | M9 R4b choices (2026-10-26) | M1 A (a "Project media" tab in the browser), M2 A (Locate one file, and search a folder with a report to look at before anything changes), M3 A (remove unused takes entries out as one undo step; Clear moves leftover files to the system trash after a second press), M4 A (a banner with Relink… on open): every recommendation (`docs/milestones/M9.md` §2; ADR-0106). |
+| M9 R7 choices (2026-10-30) | SP A (R7 is Preferences, tap tempo and command coverage; the first-run wizard is R7b and the browser's tabs R7c), PW A (a page list with search, on and off rows as switches), TT A (a Tap piece after the tempo), and KS: only End (Go to end) gets a new default key. The defaults of the plan's §8.4 were taken (ADR-0112). |
 | M9 R2b choices (2026-10-29) | Placement A (a card that unfolds under the recording offset in the Latency section, with the returned clicks drawn; chosen from three rendered mocks), five short clicks at −12 dBFS, the measured offset offered with one click rather than applied, and remembering the driver, device, rate and buffer it was measured on, with a hint to measure again when they differ (the offset itself stays global, as chosen for R4): every recommendation (ADR-0110). |
 | UX round three (2026-10-28) | DP1 A (the detail panel names its subject; Clip only for an opened clip), B8 A (the chips' clip reaches past the pane), TB2 A (a fixed CPU slot), D2 A (compact cards in a short tray), and a margin round a compact card's Reload: every recommendation on the round-three audit sheet (ADR-0108). |
 | M9 R6 choices (2026-10-27) | L A (Play and a locate wait until the audio is read, at most 150 ms, so everything starts together), **M B** (audio is kept in memory automatically, short files always; no per-clip switch and no format change, because the owner does not want the process to be complex for users; this replaces the "per-clip RAM option" of the 2026-10-06 wording), C A (converted audio and peaks in Lumen's cache folder with a 20 GB limit, after asking what workstations commonly do: a shared, rebuildable cache or a converted copy in the project), D A (a Disk row in the status panel and an amber chip after an underrun), **S B** (one slice: streaming, the peak cache, the cache limit, export in blocks with RF64 and the atlas reclaim on one branch). Plan: `milestones/M9.md` (R6). |
@@ -9920,3 +9922,90 @@ Blacksmith ones did; macOS has three where Blacksmith had six, so the macOS
 jobs may run longer than the times above. Caches are limited to 10 GB for the
 repository on GitHub; evictions would show as cold runs.
 
+## ADR-0112 — Preferences, tap tempo and command coverage (M9 R7)
+
+**Date:** 2026-10-31. **Slice:** M9 R7, `m9-s7-preferences`. **Status:**
+Accepted (built; MT-PREF-1 waits for the owner). Plan:
+`milestones/M9.md` §4 (R7). Owner choices (2026-10-30, the table of owner
+decisions): SP A, PW A with switches, TT A, and End as the only new default
+key.
+
+**Context.** The audio and MIDI settings were one window, and the app menu
+held a few preferences of its own. CLAUDE.md §7 also asks for an autosave
+interval, an undo depth, defaults for new tracks, plugin paths, file and
+cache locations, and tap tempo, none of which Lumen had. The application
+audit (2026-10-24, M4) found controls with no palette entry.
+
+**Choice.**
+
+1. **Commands first** (part 1). Loop, metronome, punch in and out, Go to
+   end (End), Audio on or off, Next time format, Show or hide the browser,
+   Solo or Cue, Add return track and Add group track became commands, and
+   the controls that did these things run them, so their tooltips show
+   their keys. A coverage test (`tests/e2e/coverage.rs`) holds every
+   transport-bar control and app-menu row with the command it runs or the
+   reason it has none. It reads what was drawn (`testing::coverage`), not
+   the source.
+2. **One Preferences window** (part 2, PW A): eight pages with a list and a
+   search that finds any setting by a word. Every searchable row is in
+   `preferences::ROWS` and is drawn through `marks.row`; E2E checks that
+   every row is drawn. The list folds into a page menu below 560 pt. The
+   window state moved to `App`, and the audio and MIDI pages moved
+   unchanged into `preferences/`.
+3. **The new settings** (part 3). They are added fields with serde defaults,
+   so the settings version stays 1, and `Settings::bound` brings a value
+   written by hand to the nearest choice offered:
+   - **Autosave every** 30 s, 1 min or 2 min, applied at once. Recording
+     and lane passes now *hurry* the autosave (`Autosave::hurry`, 10 s) and
+     *unhurry* it when they end, rather than putting back a constant. The
+     delay is the shorter of the two, so a test's `--autosave-after-ms` is
+     never lengthened by a recording (before, recording set 10 s even then).
+   - **Undo steps** 1,000, 5,000 or 10,000 (`History::set_limit`). The
+     setting is given to every new document (`replace_document` and start),
+     never to the open one, so lowering it drops no step now; the row says
+     "Used from the next project opened or made".
+   - **New tracks**: the monitoring of new audio tracks (In, Auto, Off) and
+     the instrument of new MIDI tracks (none or a synth preset). *Deviation
+     from the plan:* the plan made this a parameter of `insert_track`. The
+     app sets it on the document each frame (`Document::set_new_tracks`), as
+     it does the lock-envelopes option, so every path that makes a track
+     (add, a device dropped on the empty space, audio and MIDI import)
+     takes it without a parameter threaded through each.
+   - **Projects folder**: where New, Open and Save as start. Unset, it is
+     `Documents/Lumen/Projects` (ADR-0105).
+   - **Cache**: folder, limit (5 to 100 GB, default 20) and Clear. A chosen
+     folder X gets `X/Lumen cache`, used from the next start; the folder
+     left behind is offered once for Clear and never cleared unasked.
+     *Deviation from the plan:* unset, the cache stays where R6 put it
+     (beside the autosaves, `Lumen/Cache`), so an existing cache is not
+     orphaned. **The cache only touches its own files:** `Cache` writes a
+     `lumen-cache.json` marker, and trim and Clear act only in a marked
+     folder and only on names `<16 hex>-<rate>.wav|.key|.peaks`. The count,
+     Clear and a trim to a lower limit run on a worker; what plays now is
+     kept. Temporary `.writing` files are not cleared.
+   - **Plugins**: added folders can be removed, and the blocked plugins are
+     listed with Retry (disabled in safe mode).
+4. **Tap tempo** (part 4, TT A). The model is pure (`tap_tempo.rs`) and
+   takes its times as arguments. From the third tap the tempo is 60 ÷ the
+   mean of the last four intervals, rounded to a whole BPM within 20 to 999.
+   An interval more than 40% from the mean is ignored, and two in a row
+   start the run again from the last tap. A run ends after 3 s without a tap
+   or at any other edit (the document's state changed). It edits the segment
+   in force where the run started (on a ramp, its start) through
+   `Document::tap_tempo`, one undo step "Tap tempo" that `sync_document`
+   keeps open while the run lasts; a restart after a change of mind stays in
+   that step. A frozen track refuses the first tap with the frozen notice
+   (`track_freeze::FROZEN_TIMING`), and no run starts. Key repeats are not
+   taps (`command_keys`). **The Tap piece** follows the tempo in the numeric
+   well: "Tap" in the unit type until a run starts, then the run's taps
+   counted in the value type, which is also the button's accessible value.
+   It gives way after the CPU readout and before delay compensation
+   (`transport/fit.rs`); the command still taps when it is hidden.
+
+**Consequences.** No project format change. `lumen-project` gains
+`History::set_limit` and `limit`; `lumen-media`'s cache gains the marker,
+the name filter and an adjustable limit. Preferences hold what the user wants
+in every project; Project settings hold the song's own values. A log file
+with Reveal logs (M10), saving quantize options (KNOWN_ISSUES), preferences
+import and export, the first-run wizard (R7b) and the browser's tabs (R7c)
+are not in R7.
