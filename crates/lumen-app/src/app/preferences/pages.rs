@@ -386,7 +386,8 @@ impl App {
             return;
         }
         hint(ui, lumen_plugin_catalog::blocklist::WHEN_RETRIED);
-        let ready = !self.safe.on && !self.plugins.busy();
+        // During a scan, Retry waits for it to end (ADR-0114).
+        let ready = !self.safe.on;
         let mut retried = None;
         for (name, path, why) in &blocked {
             let width = ui.available_width();
@@ -402,11 +403,8 @@ impl App {
                     button.widget_info(|| {
                         egui::WidgetInfo::labeled(egui::WidgetType::Button, ready, &label)
                     });
-                    let button = if self.safe.on {
-                        button.on_disabled_hover_text(crate::app::commands::availability::SAFE_MODE)
-                    } else {
-                        button.on_disabled_hover_text("Wait for the scan to finish")
-                    };
+                    let button = button
+                        .on_disabled_hover_text(crate::app::commands::availability::SAFE_MODE);
                     if button
                         .on_hover_text("Scan it again; it is listed if it loads")
                         .clicked()
