@@ -504,6 +504,12 @@ impl App {
         format!("{:?}", self.plugins.status())
     }
 
+    /// When a scan waits for the running one to end, the folders it will
+    /// check that the running one does not.
+    pub fn plugin_scan_waiting(&self) -> Option<Vec<std::path::PathBuf>> {
+        self.plugins.waiting().map(|w| w.folders().to_vec())
+    }
+
     /// The installed plugins (not Lumen's own devices), by name.
     pub fn plugin_names(&self) -> Vec<String> {
         self.plugins

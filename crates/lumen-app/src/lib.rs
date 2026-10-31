@@ -558,7 +558,7 @@ impl eframe::App for App {
         self.poll_freeze(&ctx);
         self.poll_media_pool(&ctx);
         self.say_frozen_refusals();
-        self.plugins.poll();
+        self.plugins.poll(&self.settings.plugins, &ctx);
         if let Some(wait) = self.plugins.rebuild_wait() {
             ctx.request_repaint_after(wait);
         }
