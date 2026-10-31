@@ -28,9 +28,9 @@ env:
 jobs:
   fmt:
     name: rustfmt
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install
       - run: cargo fmt --all -- --check
@@ -42,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [blacksmith-4vcpu-windows-2025, blacksmith-6vcpu-macos-15, blacksmith-4vcpu-ubuntu-2404]
+        os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -76,7 +76,7 @@ jobs:
         # macos-latest is Apple silicon (aarch64-apple-darwin, Metal). macOS
         # was paused from 2026-10-07 (Actions minutes ran out) and is back
         # since 2026-10-10 (owner).
-        os: [blacksmith-4vcpu-windows-2025, blacksmith-6vcpu-macos-15, blacksmith-4vcpu-ubuntu-2404]
+        os: [windows-latest, macos-latest, ubuntu-latest]
         part: [rest, e2e-1, e2e-2]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
@@ -131,12 +131,12 @@ jobs:
   # allocate. The crate downloads a prebuilt runtime when RTSAN_ENABLE is set.
   rtsan:
     name: realtime sanitizer
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       RTSAN_ENABLE: "1"
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
       - name: Install Linux system libraries
         run: |
           sudo apt-get update
@@ -190,7 +190,7 @@ jobs:
   # its runner images.
   perf:
     name: performance gate
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     container: ubuntu:26.04
     timeout-minutes: 30
     steps:
@@ -198,7 +198,7 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends             ca-certificates curl git build-essential pkg-config valgrind
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
       - name: Install rustup
         run: |
           curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
@@ -215,7 +215,7 @@ jobs:
 
   deny:
     name: licenses and advisories
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
