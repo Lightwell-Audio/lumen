@@ -91,6 +91,23 @@ impl App {
                 std::sync::Arc::new(move || ctx.request_repaint()),
             )
         };
+        // The first-run window (M9 R7b): on a first start, never in a run
+        // that drives itself (tests, screenshots, benchmarks), unless asked.
+        let welcome = {
+            let automated = (launch.smoke_test
+                || launch.stress
+                || launch.bench.is_some()
+                || launch.callback_bench.is_some()
+                || launch.save_as.is_some()
+                || launch.screenshot.is_some()
+                || launch.scripted_dialogs)
+                && !launch.first_start_rule;
+            let mut welcome = crate::welcome::Welcome::default();
+            if crate::welcome::opens_at_start(launch.first_run, saved.setup_done, automated) {
+                welcome.show();
+            }
+            welcome
+        };
         let safe = app::safe_mode::SafeMode::start(
             launch.safe_mode,
             launch.plugin_marker.clone(),
@@ -218,6 +235,7 @@ impl App {
                 }
                 window
             },
+            welcome,
             rebind: None,
             panes: Default::default(),
             nav: app::navigate::Nav::default(),

@@ -9,9 +9,9 @@ Where this file and the design system differ, the design system wins.
 (colour for both themes, type, spacing, radius, size, duration and stroke
 tokens, each with its usage). It was checked against `theme.rs`: every colour
 value, the 12 clip colours and the size, radius, stroke and duration values
-agree; v3 adds the spacing steps `space_xl` (24) and `space_2xl` (32), which
-the code does not have yet (add them to `theme::space` when a screen needs
-them, not before).
+agree; v3 adds the spacing steps `space_xl` (24), in the code as `theme::space::XL`
+since M9 R7b, and `space_2xl` (32), which the code does not have yet (add it
+to `theme::space` when a screen needs it, not before).
 Code: `crates/lumen-app/src/theme.rs` (colour, type, spacing, shape,
 strokes, the on states and the egui style built from them), `motion.rs`
 (motion), `light.rs` (light) and `widgets/raised.rs` (material, §5a).
@@ -231,17 +231,18 @@ Licences: SIL Open Font License, see `THIRD_PARTY_NOTICES.md`.
 | `readout` | Martian Mono | 20 | The master's integrated loudness in the mixer (M4) |
 | `mono_small` | Martian Mono | 10 | Units after a readout, ruler numbers, clip meta |
 | `keycap` | Inter | 11 | The letters on K5 keycaps (the caption size) |
-| `display` | Unbounded | 24 | Welcome and first-run titles only (added to `theme::size` with those screens, M9) |
+| `display` | Unbounded | 24 | The first-run window's step titles only (`theme::size::DISPLAY`, M9 R7b) |
 
 Sentence case for every label ("Audio settings", not
 "Audio Settings").
 
 ## 5. Spacing and shape
 
-- **4 pt grid:** `XXS 2 · XS 4 · S 8 · M 12 · L 16 · XL 24 · XXL 32`
-  (`theme::space`; L for panel toolbars and empty states; XL and XXL, for
-  first-run layouts, join `theme::space` with those screens in M9). Controls
-  sit 8 apart. Sections in a window are divided by a separator with 12
+- **4 pt grid:** `XXS 2 · XS 4 · S 8 · M 12 · L 16 · XL 24`
+  (`theme::space`; L for panel toolbars and empty states; XL, since M9 R7b,
+  between the first-run window's picture and title; 32 joins if a layout
+  needs it). Controls sit 8 apart. Sections in a window are divided by a
+  separator with 12
   above each heading. Content insets in windows are 12, in strips 8.
 - **Control sizes** (`theme::size`, M4.5): `CONTROL` 24 pt for buttons,
   fields and combos (egui's `interact_size`); `CONTROL_LARGE` 30 pt for the

@@ -146,7 +146,7 @@ fn start(name: &str, modules: &[&str]) -> Lumen {
     start_in(dir, root, |l| l)
 }
 
-fn start_in(
+pub(super) fn start_in(
     dir: TempDir,
     root: PathBuf,
     adjust: impl FnOnce(lumen_app::Launch) -> lumen_app::Launch,

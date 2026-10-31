@@ -326,6 +326,27 @@ impl App {
             ui.add_space(theme::space::M);
             widgets::warning(ui, crate::app::commands::availability::SAFE_MODE, 0.0);
         }
+        self.plugin_folder_rows(ui, marks);
+
+        self.blocked_plugins_rows(ui, marks);
+
+        section(ui, "Scanning");
+        marks.row(ui, "plugins.scan_at_startup", |ui| {
+            let on = self.settings.plugins.scan_at_startup;
+            self.command_switch(ui, Command::DevicesScanAtStartup, on);
+        });
+        ui.add_space(theme::space::XS);
+        marks.row(ui, "plugins.rescan", |ui| {
+            ui.horizontal(|ui| {
+                self.command_button(ui, Command::DevicesRescan, "Rescan plugins");
+                self.command_button(ui, Command::DevicesRescanAll, "Rescan all plugins");
+            });
+        });
+    }
+
+    /// Your plugin folders with Remove, Add plugin folder…, and the
+    /// standard folders. The first-run window shows them too (M9 R7b).
+    pub(crate) fn plugin_folder_rows(&mut self, ui: &mut Ui, marks: &Marks) {
         marks.row(ui, "plugins.folders", |ui| section(ui, "Your folders"));
         let folders = self.settings.plugins.folders.clone();
         if folders.is_empty() {
@@ -350,21 +371,6 @@ impl App {
         for folder in lumen_plugin_catalog::discover::standard_roots() {
             folder_row(ui, &folder.display().to_string(), false);
         }
-
-        self.blocked_plugins_rows(ui, marks);
-
-        section(ui, "Scanning");
-        marks.row(ui, "plugins.scan_at_startup", |ui| {
-            let on = self.settings.plugins.scan_at_startup;
-            self.command_switch(ui, Command::DevicesScanAtStartup, on);
-        });
-        ui.add_space(theme::space::XS);
-        marks.row(ui, "plugins.rescan", |ui| {
-            ui.horizontal(|ui| {
-                self.command_button(ui, Command::DevicesRescan, "Rescan plugins");
-                self.command_button(ui, Command::DevicesRescanAll, "Rescan all plugins");
-            });
-        });
     }
 
     /// The plugins a scan blocked, each with why and Retry; the browser lists

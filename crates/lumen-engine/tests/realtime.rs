@@ -891,3 +891,35 @@ fn a_loopback_measurement_never_touches_the_heap() {
     }
     assert_eq!(measured, 3);
 }
+
+#[test]
+fn the_sound_check_never_touches_the_heap() {
+    use lumen_engine::chime::{Sounding, chime, total_frames};
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let (handle, mut player) = chime();
+    let (block, channels) = (64, 2);
+    let mut outputs = vec![0.0_f32; channels * block];
+    let mut heard = 0;
+    let blocks = 3 * total_frames(48_000) / block;
+    for n in 0..blocks {
+        // Asked from the UI side, outside the real-time section: idle,
+        // played, restarted part way, stopped, played again and met by a
+        // rate change.
+        match n {
+            100 | 600 | 2_000 => handle.play(true),
+            1_000 => handle.stop(),
+            _ => {}
+        }
+        let rate = if n < 2_200 { 48_000 } else { 44_100 };
+        outputs.fill(0.0);
+        let ((), heap) =
+            count_rt_violations(|| player.process(rate, &mut outputs, channels, block));
+        assert_eq!(heap, 0, "heap operation in the sound check at block {n}");
+        if handle.sounding() != Sounding::Silent {
+            heard += 1;
+        }
+    }
+    assert!(heard > 0);
+    assert_eq!(handle.sounding(), Sounding::Silent);
+}

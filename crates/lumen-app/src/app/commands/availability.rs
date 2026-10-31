@@ -596,6 +596,7 @@ impl App {
             | Command::ShowMixer
             | Command::MediaPool => Ok(()),
             Command::MeasureLatency => self.transport.audio.measure_unavailable(),
+            Command::SoundCheck => self.transport.audio.sound_check_unavailable(),
             Command::ToggleLoop
             | Command::ToggleMetronome
             | Command::PunchIn
@@ -608,7 +609,8 @@ impl App {
             | Command::PreferencesMidi
             | Command::PreferencesPlugins
             | Command::History
-            | Command::TapTempo => Ok(()),
+            | Command::TapTempo
+            | Command::Welcome => Ok(()),
             Command::GoToEnd => need(
                 crate::app::navigate::end_of_song(self.document.project()).is_some(),
                 "The song has no clips yet",

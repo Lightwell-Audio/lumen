@@ -116,6 +116,7 @@ irreversible or external) · *Superseded*.
 | [0112](#adr-0112--preferences-tap-tempo-and-command-coverage-m9-r7) | Preferences, tap tempo and command coverage (M9 R7) | Accepted 2026-10-31 (MT-PREF-1 pending) | No |
 | [0113](#adr-0113--device-changes-run-on-a-worker-fix-before-m9-r7b) | Device changes run on a worker (fix before M9 R7b) | Accepted 2026-10-31 (MT-AUDIO-7 pending) | No |
 | [0114](#adr-0114--a-scan-asked-for-during-a-scan-runs-after-it) | A scan asked for during a scan runs after it | Accepted 2026-10-31 | No |
+| [0115](#adr-0115--the-first-run-window-m9-r7b) | The first-run window (M9 R7b) | Accepted 2026-10-31 (MT-FIRSTRUN-1 pending) | No |
 
 ---
 
@@ -10174,3 +10175,98 @@ removed during a scan, and one added during a scan that is then cancelled.
 A folder added in the instant between Cancel and the scan's end is covered
 by the unit test only: in E2E that window is too short to hit reliably.
 Not verified: real plugin folders on the owner's machine.
+
+## ADR-0115 — The first-run window (M9 R7b)
+
+**Date:** 2026-10-31. **Branch:** `m9-s7b-first-run`, after ADR-0113 and
+ADR-0114. **Status:** Accepted (MT-FIRSTRUN-1 pending). Design:
+`milestones/M9.md` §4, R7b (owner: F A, S A, T A, D A, P A, M A, W A, X A,
+2026-10-31).
+
+**Context.** CLAUDE.md §7 asks for a first-run wizard [M] that chooses and
+tests the audio device and sets the plugin paths. Before R7b a first start
+opened an empty song on the Windows default output and scanned in the
+background, and nothing said that an ASIO driver was installed, that the
+sound worked, or where to add a plugin folder.
+
+**Choice.** As the plan, with the departures listed below.
+
+1. **A welcome window** (`app/welcome.rs`, its state in `welcome.rs`): a
+   `widgets::Dialog`, top-centre, 560 pt or what the window leaves, not
+   modal. The step pills stand in its head (`Dialog::head`), with ✓ for a
+   step that is good and the warning shape for one that needs something,
+   and nothing for one not yet seen or still under way. The body scrolls
+   between the head and the footer: Skip setup or Back, the keys hint, and
+   Next or Start making music.
+2. **Sound** shows the Audio page's own Device section
+   (`preferences::audio::State::device`), so a change is applied, refused
+   and restored as on the page; the ASIO offer (one driver: Use ASIO; several:
+   a menu) is skipped on the test devices; recovery rows (Audio on, no
+   output found, Try again and Use Windows audio); then **the sound check**.
+3. **The sound check** (`lumen_engine::chime`, `Command::SoundCheck`, "Play
+   test sound"): three sine notes, E5 left, G♯5 right, B5 on both, 0.5 s
+   apart, at −18 dBFS peak, with a 5 ms attack and an exponential decay.
+   It allocates nothing (an allocation-guard test) and its idle path is
+   one atomic load. Stop, Audio off, a device change and a rate change end
+   it. The lights read the sounding part and its peaks from atomics the
+   player publishes.
+4. **Plugins** shows the scan (progress, Cancel, Retry, the plugins ready,
+   the blocked count with a link to the Plugins page, the folders that wait
+   for the running scan) and the Plugins page's folder rows
+   (`App::plugin_folder_rows`). Safe mode says so and offers Leave safe
+   mode; a run started with `--plugins off` says to start again normally.
+5. **Ready** says what is true: "You are set" with Lumi celebrating, or
+   "Almost set" with what remains and Lumi curious; a summary; the Look
+   rows (theme and interface size, applied as the Appearance page does);
+   Open a project…; Start making music.
+6. **When it opens** (`welcome::opens_at_start`): on a start whose
+   settings have `setup_done: false` (only a start with no settings file;
+   an old, unreadable or newer file reads as done), unless the run drives
+   itself (the smoke test, a screenshot, a benchmark, the test harness);
+   always with `--first-run`; and from "Set up Lumen…"
+   (`Command::Welcome`, the app menu under Preferences…, the palette).
+   Closing it in any way sets `setup_done` and writes the settings.
+7. **Keyboard.** Next takes the focus when a step opens. Esc goes to an
+   open menu, a field or another window first (`Dialog::esc_to_caller`
+   and the window's note of the frame before), then skips. Enter means
+   Next when nothing has focus and no menu is open.
+8. **The product name** in "Set up Lumen…" is built at compile time by
+   `lumen_core::product_name!()`, the macro behind `PRODUCT_NAME`, since a
+   command's name is a static string.
+
+**Departures from the plan.**
+
+- **The chime plays in the app's device callback**, after the export tap,
+  rather than in the engine's mix: it is heard and never exported, and it
+  plays whatever the engine does. `ChimePlayer` still lives in
+  `lumen-engine`, with its tests.
+- **No separate output meter** beside the lights: each light's ring follows
+  that side's chime peak, which says the same thing without a second meter
+  that the master already has.
+- **"Use Windows audio"** replaces "Back to Windows audio": a refused
+  switch already restores the setup before (ADR-0113), so the button shows
+  the Windows driver's devices on the page to choose one.
+- **No "Stopped: 17 of 40 checked" state**: after Cancel, the scan reports
+  idle with what it found, and the step shows the plugins ready and Rescan.
+- **Lumi is on Sound and Ready only**; Plugins has the title alone.
+- **`space::XXL` was not added**: nothing needed it. `space::XL` (24) is
+  between Lumi and the title and above Ready's actions.
+
+**Consequences.** No project format change; the settings gain
+`setup_done` (an added field; the version stays 1). Two commands join the
+end of `Command`. The engine gains `chime`, so the performance gate runs.
+Tests: unit tests for the chime's frames, restart and stop, the start
+rule, the steps, the marks, the ASIO offer and the counts; the allocation
+guard; E2E `first_run.rs` (the walk; the chime as published and as heard,
+left alone, right alone, then both, under −18 dBFS; Stop and Audio off
+ending it with the lights out; Esc with a menu open and with History open;
+Skip and the menu; Enter; the palette; plugins counted; quitting unfinished
+and restarting, then Skip kept across a restart, through a test seam that
+applies the real start rule; the device menus of Preferences and the
+window open together, each on its own; the harness never opening it); a
+smoke test with `--first-run --screenshot`; shots of each step in both
+themes at 100, 150 and 200%, and at 960 × 540 with six folders and the
+scan's error. **Not verified here:** the ASIO offer and a switch on a
+real ASIO driver, and how the chime sounds on real speakers
+(MT-FIRSTRUN-1). The Look row is not driven in E2E, because the theme is
+process-wide there; the shots show it.

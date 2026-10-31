@@ -521,6 +521,8 @@ impl App {
             Command::PreferencesPlugins => self.preferences.show_page(Page::Plugins),
             Command::History => self.show_history = true,
             Command::TapTempo => self.tap_tempo(ctx),
+            Command::SoundCheck => self.transport.audio.sound_check(),
+            Command::Welcome => self.welcome.show(),
             Command::ToggleLoop => {
                 let on = self.document.project().transport.loop_enabled;
                 self.document.set_loop_enabled(!on);

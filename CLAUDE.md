@@ -439,25 +439,23 @@ per slice and move what is no longer current out of it.
   drawn); a new bar control or menu row goes in `tests/e2e/coverage.rs`.
   MT-PREF-1 waits for the owner. R7c (browser tabs) is pitched with
   specimens when it starts.
-- **Branch `m9-s7b-first-run`: M9 R7b, the first-run wizard, is planned**
-  (`docs/milestones/M9.md` §4; owner: all A, 2026-10-31). Two faults in
-  `docs/KNOWN_ISSUES.md` are fixed first, each on its own branch from
-  `main` (X A): `fix/async-device-change` (a driver-model switch blocks the
-  interface) and `fix/rescan-queued-folder` (a folder added during a scan is
-  never scanned). Then the wizard is built in four parts.
-- **Branch `fix/async-device-change`: the first fix before R7b is built**
-  (ADR-0113). A device change (the lookup, and a switch of driver model
-  with its handover) runs on a worker that owns the `AudioSystem`; the Audio
-  page's device controls are disabled until the device answers, and a
-  driver that holds on or does not answer is named after 10 s. Scenarios
-  choose faulty test devices from the Driver menu, which lists only test
-  devices while one runs (`tests/e2e/device_change.rs`). MT-AUDIO-7 waits
-  for the owner's Focusrite. The R7b branch removes its KNOWN_ISSUES row
-  when it merges `main`. With both fixes in, R7b is next.
-- **Branch `fix/rescan-queued-folder`: the rescan fault R7b needs is fixed**
-  (ADR-0114). A rescan, Retry or leaving safe mode asked for during a scan
-  waits, and runs once the scan ends or is cancelled, with the folders as
-  they are then; `Plugins::waiting()` says what waits, for the wizard.
+- **Branch `fix/async-device-change` (PR #86): the first fix before R7b**
+  (ADR-0113). A device change runs on a worker that owns the
+  `AudioSystem`; the device controls are disabled until the device answers,
+  and a driver that holds on or does not answer is named after 10 s
+  (`tests/e2e/device_change.rs`). MT-AUDIO-7 waits for the owner's
+  Focusrite. The second fix, a scan asked for during a scan running after
+  it (ADR-0114, `Plugins::waiting()`), is merged (PR #85).
+- **Branch `m9-s7b-first-run`: M9 R7b, the first-run window, is built**
+  (ADR-0115, `docs/milestones/M9.md` §4; owner: all A). It merges
+  `fix/async-device-change`. Sound (the Audio page's device rows, the ASIO
+  offer, Play test sound: `lumen_engine::chime` in the device callback
+  after the export tap), Plugins (the scan live, folder rows) and Ready
+  (summary, theme and size). It opens when `setup_done` is false and the run
+  does not drive itself (`welcome::opens_at_start`), with `--first-run`,
+  and from "Set up Lumen…". A command name that must say the product uses
+  `lumen_core::product_name!()`. MT-FIRSTRUN-1 waits for the owner. Next:
+  R7c to R9.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
@@ -472,7 +470,7 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status and the milestone reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0114 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0115 and the table of owner decisions.
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
 - `docs/KNOWN_ISSUES.md`, `docs/ARCHITECTURE.md` (crates, threads, module

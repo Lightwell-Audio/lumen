@@ -24,6 +24,7 @@ use lumen_audio::{
     Status as Meters, StreamConfig, StreamInfo, Timing,
 };
 use lumen_core::product::PRODUCT_NAME;
+use lumen_engine::chime::{self, ChimeHandle, Sounding};
 use lumen_engine::{
     ClipsHandle, EngineHandle, InputHandle, Layered, MidiHandle, MixerHandle, Timeline,
     clip_player, engine, input_player, loopback, midi_player, mixer,
@@ -167,6 +168,9 @@ pub fn backend(driver: &str) -> Option<MakeBackend> {
 }
 
 pub const DEFAULT_DRIVER: &str = if cfg!(windows) { "wasapi" } else { "cpal" };
+
+/// Why audio is off after Audio On/Off turned it off.
+const AUDIO_OFF: &str = "Audio is off";
 /// A device found for a choice.
 struct Resolved {
     driver: String,
@@ -368,6 +372,8 @@ pub struct Audio {
     pub(crate) export: Arc<Mutex<export_live::Handle>>,
     /// The loopback helper's measurement (M9 slice R2b).
     pub(crate) measurement: Measurement,
+    /// The sound check's chime (M9 slice R7b).
+    chime: ChimeHandle,
     /// What the test device played, left and right frame by frame, for the
     /// end-to-end tests to listen to (`testing`). Real devices have none.
     pub(crate) heard: Option<rtrb::Consumer<f32>>,
@@ -446,6 +452,7 @@ impl Audio {
         let clock = StreamClock::new();
         let (export, mut export_tap) = export_live::channel();
         let (measure, mut clicks) = loopback::loopback();
+        let (chime, mut chime_player) = chime::chime();
         let export = Arc::new(Mutex::new(export));
         let stream = Arc::clone(&clock);
         let mut processed = 0_u64;
@@ -463,6 +470,8 @@ impl Audio {
                 frames,
             );
             export_tap.process(block);
+            // Heard, not exported.
+            chime_player.process(rate, block.outputs, channels, frames);
             // While measuring, only the clicks are heard.
             clicks.process(loopback::Block {
                 rate,
@@ -491,6 +500,7 @@ impl Audio {
             takes,
             export,
             measurement: Measurement::new(measure),
+            chime,
             heard,
             status: Status::Off(String::new()),
             driver: String::new(),
@@ -828,10 +838,59 @@ impl Audio {
         !matches!(self.status, Status::Off(_))
     }
 
+    /// Audio was switched off (Audio On/Off), rather than failing.
+    pub fn switched_off(&self) -> bool {
+        matches!(&self.status, Status::Off(why) if why == AUDIO_OFF)
+    }
+
+    /// A device was found and chosen at some point (none on a machine
+    /// with no output).
+    pub fn has_device(&self) -> bool {
+        self.config.is_some()
+    }
+
+    /// A test device runs (tests and `--audio test:…`).
+    pub fn on_test_device(&self) -> bool {
+        is_test(&self.driver)
+    }
+
     /// Another application holds the device.
     pub fn is_busy(&self) -> bool {
         matches!(self.status, Status::Off(_))
             && matches!(self.last_error, Some(AudioError::DeviceBusy(_)))
+    }
+
+    /// Plays the sound check's chime on the main pair (M9 slice R7b). It
+    /// ends by itself, on Stop, and when the device stops running.
+    pub fn sound_check(&mut self) {
+        let pair = self
+            .config
+            .as_ref()
+            .is_some_and(|config| self.main_channels(config).len() >= 2);
+        self.chime.play(pair);
+    }
+
+    /// Why the sound check cannot play now, if it cannot.
+    pub fn sound_check_unavailable(&self) -> Result<(), &'static str> {
+        match self.status {
+            Status::Running { .. } => Ok(()),
+            _ => Err("Audio is off"),
+        }
+    }
+
+    /// Silences the sound check.
+    pub fn stop_sound_check(&self) {
+        self.chime.stop();
+    }
+
+    /// What the sound check sounds, and its peaks, left and right. Silent
+    /// whenever the device is not running: a device that stopped mid-note
+    /// may never call back to clear what it last published.
+    pub fn sound_check_sounding(&self) -> (Sounding, [f32; 2]) {
+        if !matches!(self.status, Status::Running { .. }) {
+            return (Sounding::Silent, [0.0; 2]);
+        }
+        (self.chime.sounding(), self.chime.peaks())
     }
 
     /// The Audio On/Off switch: closes the device, or opens it again.
@@ -849,13 +908,18 @@ impl Audio {
             self.status = Status::Starting;
         } else {
             system.stop();
-            self.status = Status::Off("Audio is off".into());
+            self.status = Status::Off(AUDIO_OFF.into());
         }
     }
 
     /// Applies device events. Call every frame; returns true if the status
     /// changed.
     pub fn poll(&mut self) -> bool {
+        // A chime asked of a device that stopped would sound when it
+        // starts again.
+        if !matches!(self.status, Status::Running { .. }) {
+            self.chime.stop();
+        }
         let measured = self
             .measurement
             .poll(matches!(self.status, Status::Running { .. }));
@@ -910,7 +974,7 @@ impl Audio {
                     }
                     self.last_error = Some(error);
                 }
-                DeviceEvent::Stopped => self.status = Status::Off("Audio is off".into()),
+                DeviceEvent::Stopped => self.status = Status::Off(AUDIO_OFF.into()),
             }
         }
         changed |= self.poll_change();

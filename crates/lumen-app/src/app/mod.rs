@@ -66,3 +66,4 @@ mod tools_gestures;
 pub(crate) mod track_freeze;
 mod track_input;
 pub(crate) mod view;
+mod welcome;

@@ -42,6 +42,7 @@ mod editing;
 mod editors;
 mod fades;
 mod files;
+mod first_run;
 mod freeze;
 mod grid;
 mod groups;

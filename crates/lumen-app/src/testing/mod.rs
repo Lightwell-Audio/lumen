@@ -26,6 +26,7 @@ mod midi;
 mod preferences;
 mod streaming;
 mod tools;
+mod welcome;
 
 pub use crate::audio::{
     InputDeviceTurn, TEST_DRIVER, TEST_HOLDS_DRIVER, TEST_LATE_DRIVER, TEST_REFUSES_DRIVER,
@@ -89,7 +90,23 @@ impl Launch {
             plugin_marker: Some(dir.join(crate::app::safe_mode::MARKER)),
             save_as: None,
             scripted_dialogs: true,
+            first_run: false,
+            first_start_rule: false,
         }
+    }
+
+    /// Opens the first-run window at start, as a first start does (M9
+    /// R7b); the harness never opens it otherwise.
+    pub fn first_run(mut self) -> Self {
+        self.first_run = true;
+        self
+    }
+
+    /// Opens the first-run window as a real start would: while the
+    /// settings say setup is not done (use with `with_settings_file`).
+    pub fn with_first_start_rule(mut self) -> Self {
+        self.first_start_rule = true;
+        self
     }
 
     /// Runs the callback benchmark (`--bench-callback`) for `seconds` and

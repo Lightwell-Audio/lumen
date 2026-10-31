@@ -103,6 +103,7 @@ impl App {
                 .on_hover_text("Things change in place instead of sliding or fading");
             });
             self.menu_command(ui, Command::Preferences, "Preferences\u{2026}");
+            self.menu_command(ui, Command::Welcome, Command::Welcome.name());
             self.menu_command(ui, Command::OpenShortcuts, "Keyboard shortcuts\u{2026}");
         });
         self.appearance_chosen(&before, ui.ctx());
@@ -110,7 +111,7 @@ impl App {
 
     /// After the menu or the Appearance page changed the appearance from
     /// `before`: it becomes the saved one, applies and is written.
-    fn appearance_chosen(&mut self, before: &settings::Appearance, ctx: &egui::Context) {
+    pub(crate) fn appearance_chosen(&mut self, before: &settings::Appearance, ctx: &egui::Context) {
         if self.settings.appearance != *before {
             self.appearance_override = false;
             self.saved_appearance = self.settings.appearance.clone();

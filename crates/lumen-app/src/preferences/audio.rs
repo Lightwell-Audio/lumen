@@ -331,66 +331,16 @@ fn channels_of(pair: usize, names: &[String]) -> Vec<usize> {
     }
 }
 
-/// What the page shows of settings it does not own, lent each frame.
-#[derive(Debug, Clone, Copy)]
-pub struct Lent<'a> {
-    pub test_tone: bool,
-    /// The recording offset, in milliseconds.
-    pub record_offset_ms: f32,
-    /// What the offset was measured with, if the loopback helper set it.
-    pub offset_measured: Option<&'a MeasuredWith>,
-    /// Why the loopback helper cannot measure now (playing, recording).
-    pub measure_held: Option<&'static str>,
-    /// "Play audio from disk".
-    pub from_disk: bool,
-}
-
 impl State {
-    /// The page: what it asks for goes in `actions`. `marks` outlines the
-    /// row a search led to.
-    pub fn page(
+    /// The Device section; returns the driver whose devices it shows.
+    fn device_rows(
         &mut self,
         ui: &mut Ui,
         audio: &Audio,
-        lent: Lent<'_>,
-        marks: &Marks,
-        actions: &mut Vec<Action>,
-    ) {
-        let locked = !audio.can_change();
-        if !locked && let Some(id) = self.refocus.take() {
-            ui.ctx().memory_mut(|m| m.request_focus(id));
-        }
-        let applied = |actions: &[Action]| {
-            actions
-                .iter()
-                .filter(|a| matches!(a, Action::Apply(_)))
-                .count()
-        };
-        let before = applied(actions);
-        self.rows(ui, audio, lent, marks, locked, actions);
-        if applied(actions) > before {
-            self.refocus = ui.ctx().memory(|m| m.focused());
-        }
-    }
-
-    /// The page's rows; the device controls are disabled while `locked`.
-    fn rows(
-        &mut self,
-        ui: &mut Ui,
-        audio: &Audio,
-        lent: Lent<'_>,
         marks: &Marks,
         locked: bool,
         actions: &mut Vec<Action>,
-    ) {
-        self.catalog.poll();
-        let Lent {
-            test_tone,
-            record_offset_ms,
-            offset_measured,
-            measure_held,
-            from_disk,
-        } = lent;
+    ) -> String {
         let ctx = ui.ctx().clone();
         let current = audio.settings();
         let driver = self
@@ -411,7 +361,7 @@ impl State {
                     let shown = driver_label(&driver);
                     if let Some(i) = Dropdown::new("Driver", shown, device_menu_width(ui)).show(
                         ui,
-                        egui::Id::new("driver"),
+                        ui.id().with("driver"),
                         &labels,
                         index,
                     ) {
@@ -452,7 +402,7 @@ impl State {
                                 .iter()
                                 .position(|(id, _)| Some(&id.id) == using.as_ref());
                             let pick = Dropdown::new("Device", selected, device_menu_width(ui))
-                                .show(ui, egui::Id::new("device"), &names, index)
+                                .show(ui, ui.id().with("device"), &names, index)
                                 .map(|i| devices[i].clone());
                             if let Some((id, name)) = pick {
                                 actions.push(Action::Apply(AudioSettings {
@@ -537,6 +487,120 @@ impl State {
                 });
             });
         }
+
+        chosen
+    }
+}
+
+/// What the page shows of settings it does not own, lent each frame.
+#[derive(Debug, Clone, Copy)]
+pub struct Lent<'a> {
+    pub test_tone: bool,
+    /// The recording offset, in milliseconds.
+    pub record_offset_ms: f32,
+    /// What the offset was measured with, if the loopback helper set it.
+    pub offset_measured: Option<&'a MeasuredWith>,
+    /// Why the loopback helper cannot measure now (playing, recording).
+    pub measure_held: Option<&'static str>,
+    /// "Play audio from disk".
+    pub from_disk: bool,
+}
+
+impl State {
+    /// The page: what it asks for goes in `actions`. `marks` outlines the
+    /// row a search led to.
+    pub fn page(
+        &mut self,
+        ui: &mut Ui,
+        audio: &Audio,
+        lent: Lent<'_>,
+        marks: &Marks,
+        actions: &mut Vec<Action>,
+    ) {
+        self.refocused(ui, audio, actions, |state, ui, locked, actions| {
+            state.rows(ui, audio, lent, marks, locked, actions);
+        });
+    }
+
+    /// The Device section alone: the driver, the device, what is happening
+    /// and the notice. The first-run window shows it (M9 R7b), so a device
+    /// is chosen, applied, refused and restored there as on the page.
+    pub fn device(&mut self, ui: &mut Ui, audio: &Audio, marks: &Marks, actions: &mut Vec<Action>) {
+        self.refocused(ui, audio, actions, |state, ui, locked, actions| {
+            state.catalog.poll();
+            state.device_rows(ui, audio, marks, locked, actions);
+        });
+    }
+
+    /// Draws with `add`, the device controls disabled while a change runs;
+    /// the control that asked for a change gets the keyboard back once it
+    /// is done.
+    fn refocused(
+        &mut self,
+        ui: &mut Ui,
+        audio: &Audio,
+        actions: &mut Vec<Action>,
+        add: impl FnOnce(&mut Self, &mut Ui, bool, &mut Vec<Action>),
+    ) {
+        let locked = !audio.can_change();
+        if !locked && let Some(id) = self.refocus.take() {
+            ui.ctx().memory_mut(|m| m.request_focus(id));
+        }
+        let applied = |actions: &[Action]| {
+            actions
+                .iter()
+                .filter(|a| matches!(a, Action::Apply(_)))
+                .count()
+        };
+        let before = applied(actions);
+        add(self, ui, locked, actions);
+        if applied(actions) > before {
+            self.refocus = ui.ctx().memory(|m| m.focused());
+        }
+    }
+
+    /// Shows `driver`'s devices in the Device section, to choose one.
+    pub fn show_driver(&mut self, driver: &str) {
+        self.driver = Some(driver.to_owned());
+    }
+
+    /// The ASIO drivers installed, by name, once listed (`None` while
+    /// looking). Not on other platforms.
+    pub fn asio_drivers(&mut self, ctx: &egui::Context) -> Option<Vec<(DeviceId, String)>> {
+        if !audio::drivers_for(audio::DEFAULT_DRIVER)
+            .iter()
+            .any(|(key, _)| *key == "asio")
+        {
+            return Some(Vec::new());
+        }
+        self.catalog.poll();
+        match self.catalog.list("asio", ctx)? {
+            Ok(list) => Some(list.clone()),
+            Err(_) => Some(Vec::new()),
+        }
+    }
+
+    /// The page's rows; the device controls are disabled while `locked`.
+    fn rows(
+        &mut self,
+        ui: &mut Ui,
+        audio: &Audio,
+        lent: Lent<'_>,
+        marks: &Marks,
+        locked: bool,
+        actions: &mut Vec<Action>,
+    ) {
+        self.catalog.poll();
+        let Lent {
+            test_tone,
+            record_offset_ms,
+            offset_measured,
+            measure_held,
+            from_disk,
+        } = lent;
+        let ctx = ui.ctx().clone();
+        let chosen = self.device_rows(ui, audio, marks, locked, actions);
+        let current = audio.settings();
 
         // Everything below describes the device in use.
         let Some(current) = current.as_ref().filter(|s| s.driver == chosen) else {

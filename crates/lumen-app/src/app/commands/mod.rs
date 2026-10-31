@@ -41,10 +41,16 @@ impl App {
         })
     }
 
-    /// A window is open (the shortcuts, Preferences, history, or the
-    /// unsaved-changes question): it takes Esc, and Shift+Tab moves focus in
+    /// A window is open (the shortcuts, Preferences, history, the
+    /// first-run window, or the unsaved-changes question): it takes Esc, and Shift+Tab moves focus in
     /// it.
     pub(crate) fn window_open(&self) -> bool {
+        self.other_window_open() || self.welcome.open
+    }
+
+    /// Whether a window other than the first-run window is open: it takes
+    /// Esc before the first-run window does.
+    pub(crate) fn other_window_open(&self) -> bool {
         self.shortcuts.open
             || self.preferences.open
             || self.show_history

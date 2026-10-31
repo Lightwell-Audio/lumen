@@ -255,6 +255,8 @@ pub(crate) enum Command {
     PreferencesPlugins,
     History,
     TapTempo,
+    SoundCheck,
+    Welcome,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -575,6 +577,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::PreferencesPlugins, "file.preferences_plugins", "Plugin settings…", Area::File, &[], "Opens Preferences on the Plugins page: the folders searched for plugins, and scanning."),
     info(Command::History, "file.history", "History", Area::File, &[], "Shows every step that can be undone or redone; click one to go back or forward to it."),
     info(Command::TapTempo, "transport.tap_tempo", "Tap tempo", Area::Transport, &[], "Tap in time: from the third tap the tempo where the run started follows, rounded to a whole BPM. A pause of 3 seconds ends the run, and each run undoes in one step."),
+    info(Command::SoundCheck, "transport.sound_check", "Play test sound", Area::Transport, &[], "Plays a short chime on the main outputs: a note on the left, one on the right, then one on both, so you can tell that both speakers work and are the right way round. Stop silences it."),
+    info(Command::Welcome, "file.welcome", concat!("Set up ", lumen_core::product_name!(), "…"), Area::File, &[], "Opens the setup window shown on the first start: choose and test the sound, add plugin folders and pick the look. What it sets can also be changed in Preferences."),
 ];
 
 const fn info(
@@ -638,7 +642,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::TapTempo as usize + 1,
+            Command::Welcome as usize + 1,
             ALL.len(),
             "a command is missing"
         );

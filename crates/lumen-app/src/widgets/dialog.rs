@@ -19,7 +19,13 @@ pub struct Dialog<'a> {
     pos: Pos2,
     pivot: Align2,
     closable: bool,
+    /// Esc is left to the caller (`esc_to_caller`).
+    esc_own: bool,
+    /// Drawn in the title row instead of the title (`head`).
+    head: Option<Head<'a>>,
 }
+
+type Head<'a> = Box<dyn FnOnce(&mut Ui) + 'a>;
 
 impl<'a> Dialog<'a> {
     /// `id` stays the same while the title may change ("Save changes to
@@ -32,7 +38,24 @@ impl<'a> Dialog<'a> {
             pos: pos2(0.0, 0.0),
             pivot: Align2::LEFT_TOP,
             closable: true,
+            esc_own: true,
+            head: None,
         }
+    }
+
+    /// The title row shows `head` (left to right, a control high) instead
+    /// of the title, with the close button at the right edge as always.
+    /// The title still names the window for the screen reader.
+    pub fn head(mut self, head: impl FnOnce(&mut Ui) + 'a) -> Self {
+        self.head = Some(Box::new(head));
+        self
+    }
+
+    /// Esc does not close it: the caller decides (a menu or a field takes
+    /// Esc first). The close button still closes it.
+    pub fn esc_to_caller(mut self) -> Self {
+        self.esc_own = false;
+        self
     }
 
     /// Where it first opens: `pivot` of the dialog at `pos`.
@@ -62,10 +85,13 @@ impl<'a> Dialog<'a> {
             .default_pos(self.pos)
             .show(ctx, |ui| {
                 ui.set_width(self.width);
-                close = title_row(ui, self.title, self.closable);
+                close = match self.head {
+                    Some(head) => head_row(ui, head, self.closable),
+                    None => title_row(ui, self.title, self.closable),
+                };
                 contents(ui);
             });
-        if self.closable && ctx.input(|i| i.key_pressed(Key::Escape)) {
+        if self.closable && self.esc_own && ctx.input(|i| i.key_pressed(Key::Escape)) {
             close = true;
         }
         // Remembered as drawn, to fade out when it closes (M4.5).
@@ -138,6 +164,28 @@ pub fn title_row(ui: &mut Ui, title: &str, closable: bool) -> bool {
             .place(button, |ui: &mut Ui| icons::close_button(ui))
             .clicked();
     }
+    ui.add_space(theme::space::XS);
+    close
+}
+
+/// A title row of the caller's own: `head` from the left, a control high,
+/// and the close button at the right edge, centred on the row. True when
+/// the close button was clicked.
+fn head_row(ui: &mut Ui, head: Head<'_>, closable: bool) -> bool {
+    let width = ui.available_width();
+    let height = theme::size::CONTROL.max(icons::CLOSE_SIZE);
+    let close = ui
+        .allocate_ui_with_layout(
+            vec2(width, height),
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| {
+                ui.set_min_size(vec2(width, height));
+                let close = closable && icons::close_button(ui).clicked();
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), head);
+                close
+            },
+        )
+        .inner;
     ui.add_space(theme::space::XS);
     close
 }

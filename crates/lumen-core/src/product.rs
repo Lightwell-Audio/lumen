@@ -5,8 +5,18 @@
 //! these constants so that a rename is a one-line change. Crate names
 //! (`lumen-*`) are internal identifiers and never shown to users.
 
+/// The product name as a literal, for text that must be built at compile
+/// time (`concat!("Set up ", product_name!(), "…")`, a command's name).
+/// [`PRODUCT_NAME`] is made from it, so a rename stays one line.
+#[macro_export]
+macro_rules! product_name {
+    () => {
+        "Lumen"
+    };
+}
+
 /// User-visible product name.
-pub const PRODUCT_NAME: &str = "Lumen";
+pub const PRODUCT_NAME: &str = product_name!();
 
 /// Product version, taken from the workspace version.
 pub const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -30,6 +40,14 @@ mod tests {
     fn display_name_combines_name_and_version() {
         assert_eq!(display_name(), format!("{PRODUCT_NAME} {PRODUCT_VERSION}"));
         assert!(!PRODUCT_NAME.is_empty());
+    }
+
+    #[test]
+    fn the_literal_is_the_name() {
+        assert_eq!(
+            concat!("Set up ", product_name!()),
+            format!("Set up {PRODUCT_NAME}")
+        );
     }
 
     #[test]

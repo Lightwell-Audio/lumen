@@ -84,6 +84,7 @@ const MENU: &[(&str, Has)] = &[
     ("History…", Command("History")),
     ("Appearance", Without("a submenu")),
     ("Preferences…", Command("Preferences…")),
+    ("Set up Lumen…", Command("Set up Lumen…")),
     ("Keyboard shortcuts…", Command("Keyboard shortcuts")),
     // New from template, with the template the test saves.
     (

@@ -459,6 +459,9 @@ pub mod space {
     pub const M: f32 = 12.0;
     /// Panel toolbar insets, and around an empty state's parts.
     pub const L: f32 = 16.0;
+    /// First-run layouts (M9 R7b): between Lumi and the title, and above
+    /// the Ready step's actions.
+    pub const XL: f32 = 24.0;
 }
 
 /// Corner radii, by the height of what they round (`DESIGN.md` §5): a
@@ -530,6 +533,8 @@ pub mod size {
     pub const BODY: f32 = 13.0;
     pub const TITLE: f32 = 15.0;
     pub const HEADING: f32 = 16.0;
+    /// Welcome and first-run titles only, in the display face (M9 R7b).
+    pub const DISPLAY: f32 = 24.0;
     /// The loudness column's integrated LUFS, the one figure read from
     /// across the room (M4 slice 5, the owner's L2).
     pub const READOUT: f32 = 20.0;
@@ -602,6 +607,17 @@ pub mod size {
     pub const PREFERENCES_BELOW: f32 = 40.0;
     pub const PREFERENCES_LEAST_PAGE: f32 = 80.0;
     pub const PREFERENCES_SLIDER: f32 = 160.0;
+    /// The first-run window (M9 R7b): its width where there is room, and
+    /// the width under which Lumi is left out and the title wraps; Lumi's
+    /// size (the picture is 256 px, sharp to 200%); a sound check light;
+    /// the scan's progress bar; and the least width wrapped text keeps
+    /// beside a button.
+    pub const WELCOME: f32 = 560.0;
+    pub const WELCOME_NARROW: f32 = 480.0;
+    pub const LUMI: f32 = 84.0;
+    pub const SPEAKER_LIGHT: f32 = 20.0;
+    pub const PROGRESS_BAR: f32 = 3.0;
+    pub const WRAP_LEAST: f32 = 120.0;
     /// The hairline between groups of a tab row, and the detail panel's
     /// subject bar (DP1).
     pub const TAB_DIVIDER: f32 = 14.0;
