@@ -430,6 +430,7 @@ impl App {
         self.freeze_waiting = None;
         self.freezing = None;
         self.show_history = false;
+        self.tap.end();
         self.media_pool.reset();
         self.revert.kept = None;
         self.forget_passes();

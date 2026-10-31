@@ -247,7 +247,7 @@ impl App {
         row(ui, "", |ui| {
             hint(
                 ui,
-                "A copy is kept this soon after a change, so a crash loses no more",
+                "A copy is kept this soon after each change, so a crash loses at most this much work",
             );
         });
 

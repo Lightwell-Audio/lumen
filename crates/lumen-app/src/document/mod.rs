@@ -109,7 +109,9 @@ pub struct Document {
 /// instrument on a MIDI track (none, or the synth on a preset). Every way a
 /// track is made reads it: the menus and commands, a device dropped on the
 /// empty space (which brings its own instrument), and importing audio or
-/// MIDI files.
+/// MIDI files. Tracks made to hold sound that already exists (a bounce, a
+/// take moved off a locked clip, an instrument's extra output) keep Auto:
+/// monitoring In would put the live input over that sound.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NewTracks {
     pub monitor: Monitor,

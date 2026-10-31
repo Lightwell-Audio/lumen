@@ -369,8 +369,19 @@ fn the_projects_folder_is_where_save_and_open_start() {
 fn fill_cache(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(dir.join("lumen-cache.json"), "{}").unwrap();
-    std::fs::write(dir.join("0123456789abcdef-48000.wav"), vec![0u8; 250_000]).unwrap();
-    std::fs::write(dir.join("0123456789abcdef-48000.key"), "key").unwrap();
+    // Used ten minutes ago: an entry used in the last two is kept.
+    let used = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+    for (name, bytes) in [
+        ("0123456789abcdef-48000.wav", vec![0u8; 250_000]),
+        ("0123456789abcdef-48000.key", b"key".to_vec()),
+    ] {
+        std::fs::write(dir.join(name), bytes).unwrap();
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(dir.join(name))
+            .unwrap();
+        file.set_modified(used).unwrap();
+    }
     let foreign = dir.join("my notes.txt");
     std::fs::write(&foreign, "mine").unwrap();
     foreign
@@ -397,6 +408,16 @@ fn the_cache_is_counted_cleared_limited_and_moved_from_the_files_page() {
     });
     assert!(foreign.exists(), "a file the cache did not make stays");
     assert!(!standard.join("0123456789abcdef-48000.wav").exists());
+
+    // A lower limit chosen while the worker counts is trimmed to once it is
+    // done, then counted again (review of M9 R7).
+    let ctx = lumen.harness.ctx.clone();
+    lumen.app_mut().choose_cache_limit_while_counting(&ctx, 10);
+    assert!(lumen.app().cache_trim_waiting());
+    lumen.wait_for("the waiting trim run and counted", |app| {
+        !app.cache_trim_waiting() && app.cache_size_counted() == Some(0)
+    });
+    assert_eq!(lumen.app().cache_limit_gb(), 10);
 
     lumen.click("Cache limit: 5 GB");
     assert!(lumen.is_on("Cache limit: 5 GB"));

@@ -167,7 +167,7 @@ pub const ROWS: &[Row] = &[
         "midi.outputs",
         Page::Midi,
         "MIDI outputs",
-        "ports sync clock hardware synth",
+        "ports sync clock delay offset hardware synth",
     ),
     row(
         "midi.rescan",

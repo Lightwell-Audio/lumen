@@ -9970,7 +9970,10 @@ audit (2026-10-24, M4) found controls with no palette entry.
      app sets it on the document each frame (`Document::set_new_tracks`), as
      it does the lock-envelopes option, so every path that makes a track
      (add, a device dropped on the empty space, audio and MIDI import)
-     takes it without a parameter threaded through each.
+     takes it without a parameter threaded through each. Tracks the app
+     makes to hold sound that already exists (a bounce, a take moved off a
+     locked clip, an instrument's extra output) start at Auto: monitoring
+     In on them would put the live input over that sound (review round 1).
    - **Projects folder**: where New, Open and Save as start. Unset, it is
      `Documents/Lumen/Projects` (ADR-0105).
    - **Cache**: folder, limit (5 to 100 GB, default 20) and Clear. A chosen
@@ -9978,11 +9981,19 @@ audit (2026-10-24, M4) found controls with no palette entry.
      left behind is offered once for Clear and never cleared unasked.
      *Deviation from the plan:* unset, the cache stays where R6 put it
      (beside the autosaves, `Lumen/Cache`), so an existing cache is not
-     orphaned. **The cache only touches its own files:** `Cache` writes a
-     `lumen-cache.json` marker, and trim and Clear act only in a marked
-     folder and only on names `<16 hex>-<rate>.wav|.key|.peaks`. The count,
-     Clear and a trim to a lower limit run on a worker; what plays now is
-     kept. Temporary `.writing` files are not cleared.
+     orphaned. **The cache only touches its own files:** trim, Clear and
+     the count act only in a folder marked by `lumen-cache.json`, and only
+     on names `<16 hex>-<rate>.wav|.key|.peaks`. The cache marks a folder
+     only when it is new or holds nothing but those names and their
+     temporary `.writing` files; that also claims an R6 cache made before
+     the mark, so Count and Clear see it even when every load is a hit. A
+     folder holding anything else is used but never marked, so never
+     cleared (review round 1). The count, Clear and a trim to a lower limit
+     run on a worker; a lower limit chosen while it is busy is trimmed to
+     when it is done. What plays now is kept, and so is an entry used in the
+     last two minutes (`cache::FRESH`): a load prepares its file before the
+     app lists it as playing, and Clear must not fall in between.
+     Temporary `.writing` files are not cleared.
    - **Plugins**: added folders can be removed, and the blocked plugins are
      listed with Retry (disabled in safe mode).
 4. **Tap tempo** (part 4, TT A). The model is pure (`tap_tempo.rs`) and
@@ -9990,7 +10001,8 @@ audit (2026-10-24, M4) found controls with no palette entry.
    mean of the last four intervals, rounded to a whole BPM within 20 to 999.
    An interval more than 40% from the mean is ignored, and two in a row
    start the run again from the last tap. A run ends after 3 s without a tap
-   or at any other edit (the document's state changed). It edits the segment
+   or at any other edit (the document's state changed) or project (New or
+   Open). It edits the segment
    in force where the run started (on a ramp, its start) through
    `Document::tap_tempo`, one undo step "Tap tempo" that `sync_document`
    keeps open while the run lasts; a restart after a change of mind stays in

@@ -79,3 +79,19 @@ fn a_key_held_down_taps_once() {
     }
     assert_eq!(count(&lumen), Some(1.0));
 }
+
+/// Another project ends the run: a tap after New starts one of its own, and
+/// does not carry the old project's taps (review of M9 R7).
+#[test]
+fn a_new_project_ends_the_run() {
+    let mut lumen = Lumen::start("tap-tempo-new");
+    tap(&mut lumen, 10.0);
+    tap(&mut lumen, 10.6);
+    assert_eq!(count(&lumen), Some(2.0));
+    super::copies::command(&mut lumen, "New project");
+    lumen.frames(5);
+    assert_eq!(count(&lumen), None, "the piece says Tap again");
+    tap(&mut lumen, 11.2);
+    assert_eq!(count(&lumen), Some(1.0), "a run of its own");
+    assert_eq!(bpm(&lumen), 120.0, "one tap sets nothing");
+}

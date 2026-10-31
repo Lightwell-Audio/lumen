@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::cache::{Cache, MARKER, is_cache_file};
 use super::convert::Converter;
@@ -572,7 +572,7 @@ fn peaks_are_kept_and_a_changed_file_scans_again() {
 #[test]
 fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
     let dir = folder("trim");
-    let cache = Cache::new(dir.join("cache"));
+    let cache = Cache::new(dir.join("cache")).fresh_for(Duration::ZERO);
     let cancel = AtomicBool::new(false);
     // Three converted files, each with its peaks, made one after another.
     // Each step waits longer than the file system's time step (a few ms on
@@ -649,7 +649,7 @@ fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
 #[test]
 fn trimming_and_clearing_never_touch_a_file_the_cache_did_not_make() {
     let dir = folder("foreign");
-    let cache = Cache::new(dir.join("cache"));
+    let cache = Cache::new(dir.join("cache")).fresh_for(Duration::ZERO);
     let cancel = AtomicBool::new(false);
     let source = dir.join("source.wav");
     write_wav(&source, 44_100, Sample::F32, &[signal(20_000, 0.01)]);
@@ -700,18 +700,85 @@ fn trimming_and_clearing_never_touch_a_file_the_cache_did_not_make() {
     assert!(cache.dir().join(MARKER).exists(), "the mark stays");
 }
 
-/// A folder without the mark is not the cache's: nothing in it is counted
-/// or cleared, even names the cache would give.
+/// Ages a file: its time of last use `seconds` ago.
+fn age(path: &Path, seconds: u64) {
+    let file = fs::OpenOptions::new().write(true).open(path).unwrap();
+    file.set_modified(SystemTime::now() - Duration::from_secs(seconds))
+        .unwrap();
+}
+
+/// A folder without the mark that holds anything but the cache's names is
+/// not the cache's: it is used, but never marked, and nothing in it is
+/// counted or cleared, even names the cache would give (review of M9 R7).
 #[test]
-fn a_folder_without_the_mark_is_left_alone() {
+fn a_folder_with_files_of_the_users_is_never_claimed() {
     let dir = folder("unmarked");
-    let cache = Cache::new(dir.join("cache"));
+    let cache = Cache::new(dir.join("cache")).fresh_for(Duration::ZERO);
     fs::create_dir_all(cache.dir()).unwrap();
     let lookalike = cache.dir().join("0123456789abcdef-48000.wav");
     fs::write(&lookalike, vec![1u8; 4096]).unwrap();
+    fs::write(cache.dir().join("Mix notes.txt"), "mine").unwrap();
     assert_eq!(cache.size(), 0);
     assert_eq!(cache.clear(&[]), 0);
     assert!(lookalike.exists());
+
+    // Converting into it works, and still leaves it unmarked.
+    let source = dir.join("source.wav");
+    write_wav(&source, 44_100, Sample::F32, &[signal(20_000, 0.01)]);
+    let cancel = AtomicBool::new(false);
+    let prepared = cache
+        .prepare(&source, 48_000, &cancel, &mut |_| {})
+        .unwrap();
+    assert!(prepared.converted);
+    assert!(!cache.dir().join(MARKER).exists(), "not claimed");
+    assert_eq!(cache.clear(&[]), 0);
+    assert!(prepared.path.exists() && lookalike.exists());
+}
+
+/// A cache made before the mark (slice R6) holds only the cache's names: it
+/// is claimed, so Count and Clear see it, even when every load was a hit
+/// (review of M9 R7).
+#[test]
+fn a_cache_made_before_the_mark_is_claimed() {
+    let dir = folder("before-mark");
+    let cache = Cache::new(dir.join("cache")).fresh_for(Duration::ZERO);
+    fs::create_dir_all(cache.dir()).unwrap();
+    for name in [
+        "0123456789abcdef-48000.wav",
+        "0123456789abcdef-48000.key",
+        "fedcba9876543210-44100.peaks",
+        ".0123456789abcdef-44100.wav.4321.writing",
+        "fedcba9876543210-48000.4321.writing",
+    ] {
+        fs::write(cache.dir().join(name), vec![1u8; 1000]).unwrap();
+    }
+    assert_eq!(cache.size(), 3000, "files being written are not counted");
+    assert!(cache.dir().join(MARKER).is_file(), "marked once seen");
+    assert_eq!(cache.clear(&[]), 3000);
+}
+
+/// An entry used in the last two minutes is not cleared: a load prepares
+/// its file before the app lists it as playing (review of M9 R7).
+#[test]
+fn an_entry_used_just_now_is_not_cleared() {
+    let dir = folder("fresh");
+    let cache = Cache::new(dir.join("cache"));
+    let cancel = AtomicBool::new(false);
+    let prepared: Vec<_> = (0..2)
+        .map(|i| {
+            let source = dir.join(format!("{i}.wav"));
+            write_wav(&source, 44_100, Sample::F32, &[signal(20_000, 0.01)]);
+            cache
+                .prepare(&source, 48_000, &cancel, &mut |_| {})
+                .unwrap()
+        })
+        .collect();
+    let old = &prepared[0].path;
+    age(old, 600);
+    age(&old.with_extension("key"), 600);
+    assert!(cache.clear(&[]) > 0);
+    assert!(!old.exists(), "used ten minutes ago: cleared");
+    assert!(prepared[1].path.exists(), "made just now: kept");
 }
 
 #[test]
@@ -743,7 +810,7 @@ fn the_limit_can_change() {
 #[test]
 fn trimming_counts_only_what_it_removed_and_keeps_an_entry_it_cannot_remove_whole() {
     let dir = folder("trim-stuck");
-    let cache = Cache::new(dir.join("cache"));
+    let cache = Cache::new(dir.join("cache")).fresh_for(Duration::ZERO);
     let cancel = AtomicBool::new(false);
     let prepared: Vec<_> = (0..2)
         .map(|i| {

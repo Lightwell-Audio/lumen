@@ -18,8 +18,10 @@ use crate::App;
 use crate::app::projects::FileDialog;
 use crate::files::describe_size;
 
-/// The folder Lumen keeps inside a folder the user chose.
-pub(crate) const CACHE_FOLDER: &str = "Lumen cache";
+/// The folder the app keeps inside a folder the user chose ("Lumen cache").
+pub(crate) fn cache_folder_name() -> String {
+    format!("{} cache", lumen_core::product::PRODUCT_NAME)
+}
 
 /// The cache folder as Preferences shows it between frames.
 #[derive(Default)]
@@ -30,6 +32,9 @@ pub(crate) struct CacheFolder {
     pub size: Option<u64>,
     /// Bytes the folder left behind holds, once counted.
     pub previous_size: Option<u64>,
+    /// A lower limit was chosen while the worker was busy: the trim runs
+    /// when it is done.
+    trim_waiting: bool,
     work: Option<Receiver<Done>>,
 }
 
@@ -37,6 +42,11 @@ impl CacheFolder {
     /// A count or a clear is under way.
     pub fn busy(&self) -> bool {
         self.work.is_some()
+    }
+
+    /// A trim to a lower limit waits for the worker.
+    pub fn trim_waiting(&self) -> bool {
+        self.trim_waiting
     }
 }
 
@@ -57,7 +67,7 @@ enum Done {
 /// it, or `standard` when nothing is chosen.
 pub(crate) fn cache_dir_for(chosen: Option<&str>, standard: PathBuf) -> PathBuf {
     match chosen {
-        Some(folder) => Path::new(folder).join(CACHE_FOLDER),
+        Some(folder) => Path::new(folder).join(cache_folder_name()),
         None => standard,
     }
 }
@@ -110,7 +120,8 @@ impl App {
     }
 
     /// Clears the cache in use (`previous` false) or the folder left behind,
-    /// on a worker. What plays now is kept.
+    /// on a worker. What plays now, and what was used in the last two
+    /// minutes (a file being loaded), is kept.
     pub(crate) fn clear_cache(&mut self, ctx: &egui::Context, previous: bool) {
         if self.cache.busy() {
             return;
@@ -143,18 +154,29 @@ impl App {
         if let Some(streaming) = self.lanes.library.streaming() {
             streaming.set_cache_limit(limit);
         }
-        if lower && !self.cache.busy() {
-            let dir = self.cache.dir.clone();
-            self.cache_work(ctx, move || {
-                let cache = Cache::new(dir);
-                cache.set_limit(limit);
-                Done::Cleared {
-                    bytes: cache.trim_to_limit(&crate::media::streams::in_use()),
-                    previous: false,
-                    trim: true,
-                }
-            });
+        if lower {
+            self.trim_cache(ctx);
         }
+    }
+
+    /// Trims the cache to its limit on a worker, or once the worker is free.
+    fn trim_cache(&mut self, ctx: &egui::Context) {
+        if self.cache.busy() {
+            self.cache.trim_waiting = true;
+            return;
+        }
+        self.cache.trim_waiting = false;
+        let dir = self.cache.dir.clone();
+        let limit = self.settings.cache.limit();
+        self.cache_work(ctx, move || {
+            let cache = Cache::new(dir);
+            cache.set_limit(limit);
+            Done::Cleared {
+                bytes: cache.trim_to_limit(&crate::media::streams::in_use()),
+                previous: false,
+                trim: true,
+            }
+        });
     }
 
     /// The folder Preferences asks for when Choose… is pressed.
@@ -237,6 +259,9 @@ impl App {
             Done::Counted { size, previous } => {
                 self.cache.size = Some(size);
                 self.cache.previous_size = previous;
+                if self.cache.trim_waiting {
+                    self.trim_cache(ctx);
+                }
             }
             Done::Cleared {
                 bytes,
@@ -262,7 +287,12 @@ impl App {
                     // Offered once: cleared, it is not offered again.
                     self.keep_previous_cache();
                 }
-                self.count_cache(ctx);
+                if self.cache.trim_waiting {
+                    // The count follows the trim.
+                    self.trim_cache(ctx);
+                } else {
+                    self.count_cache(ctx);
+                }
             }
         }
     }
@@ -278,7 +308,7 @@ mod tests {
         assert_eq!(cache_dir_for(None, standard.clone()), standard);
         assert_eq!(
             cache_dir_for(Some("/scratch"), standard),
-            Path::new("/scratch").join(CACHE_FOLDER)
+            Path::new("/scratch").join("Lumen cache")
         );
     }
 }

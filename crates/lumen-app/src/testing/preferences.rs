@@ -59,6 +59,18 @@ impl App {
         self.cache.size.filter(|_| !self.cache.busy())
     }
 
+    /// Starts counting the cache, then chooses the limit `gb` in the same
+    /// frame, so the limit meets a busy worker.
+    pub fn choose_cache_limit_while_counting(&mut self, ctx: &eframe::egui::Context, gb: u32) {
+        self.count_cache(ctx);
+        self.cache_limit_chosen(ctx, gb);
+    }
+
+    /// A trim to a lower limit waits for the cache's worker.
+    pub fn cache_trim_waiting(&self) -> bool {
+        self.cache.trim_waiting()
+    }
+
     /// The names of the pages, in the list's order.
     pub fn preference_pages() -> Vec<&'static str> {
         Page::ALL.map(Page::name).to_vec()
