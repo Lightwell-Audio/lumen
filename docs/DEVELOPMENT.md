@@ -289,7 +289,7 @@ Run both **at the end of every slice**, and add scenarios for the
 workflows the slice delivers.
 
 ```powershell
-cargo test -p lumen-app --test e2e                            # the E2E suite (about 3 s; also in CI)
+cargo test -p lumen-app --test e2e                            # the E2E suite (6 to 8 minutes on four cores; CI splits it in two, see "How CI splits the tests")
 cargo test -p lumen-app --test smoke -- --ignored             # the real binary, with its window and GPU
 ```
 
@@ -355,6 +355,18 @@ cargo test -p lumen-app --test smoke -- --ignored             # the real binary,
   function for each new state worth checking.
   `$env:SHOTS = "<folder>"; cargo test -p lumen-app --test shots -- --ignored --test-threads=1`
   (one at a time: the theme is process-wide, so parallel shots mix themes)
+
+## How CI splits the tests (ADR-0111)
+
+Each OS runs three `test` jobs side by side: `rest` (clippy, every test target
+but the E2E suite, doc tests and, on Windows, the scanner self-test) and
+`e2e-1`, `e2e-2` (half of the E2E suite each). The runner is
+`.github/scripts/ci-test.sh`; run `bash .github/scripts/ci-test.sh e2e-1`
+to reproduce one shard. The E2E suite is dealt out by module, never one
+process per scenario, because its scenarios share in-process locks. A new
+module needs no edit: the shards read the same list. The plugin routing
+walkthrough runs after the scenarios of shard 1. To change the number of
+shards, change `E2E_SHARDS` and the `part` list in `ci.yml` together.
 
 ## Test flags for files and recovery (M3 slice 3)
 

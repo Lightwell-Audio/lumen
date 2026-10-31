@@ -9831,3 +9831,50 @@ Lumen to show by how much.
 depends on the cable and the interface. A digital loopback input (one that
 does not pass through the converters) measures short, which the card warns
 about. MT-REC-5 checks it on the Focusrite with ASIO and WASAPI.
+
+## ADR-0111 — Splitting the CI tests across jobs
+
+**Date:** 2026-10-31. **Slice:** one-off CI change (`chore/` branch).
+**Status:** Accepted (verified by running both shards here; the CI timings
+below are the owner's runs to confirm).
+
+**Context.** One `test` job per OS ran clippy, every test and the doc tests
+in sequence, 10 to 13 minutes of wall time per run. The step log of the last
+green run on `main` showed where it went (Linux, `Tests` step, 9 min 36 s):
+the E2E suite, one test binary of 762 scenarios, took 384 s of it; the rest
+of the workspace took about 2.5 minutes, and compiling about 40 s (the cache
+was warm). Windows, the slowest, took 10 min 16 s on that step.
+
+**Choice.**
+
+1. **Split the E2E suite in two shards, by module**, and run each in its own
+   job next to a `rest` job, on every OS. `.github/scripts/ci-test.sh` lists
+   the suite, deals the modules out largest first to the lighter shard and
+   runs the shard's modules. Shards cover every scenario exactly once by
+   construction. A module and the modules whose names end with it
+   (`record`, `audio_record`) are dealt out together, because a test filter
+   is a substring match; the first version ran 66 scenarios twice.
+2. **Not one process per scenario** (the usual way to shard, through a test
+   runner that partitions a list). The suite relies on in-process locks
+   (`timing_sensitive`, the plugin scan queue) that keep real-time scenarios
+   from starving one another's plugin hosts, and builds the test plugin once
+   per process. Separate processes would drop those guarantees.
+3. **The plugin routing walkthrough** still runs alone, after the scenarios
+   of shard 1.
+
+**Options not taken.**
+- Splitting clippy from the tests: clippy took 12 to 25 s, so nothing to gain.
+- Splitting the suite at the workspace level: the other targets take under
+  three minutes.
+- More threads per runner: the suite is timing sensitive under load.
+- Three or more shards: two bring the E2E share (about 3.2 minutes) level
+  with `rest` (about 3.5); a third would only add setup minutes.
+
+**Consequences.** Wall time of a run should fall from about 13 to about 6
+minutes. Billed minutes rise by an estimated 20 to 25% (each job pays its own
+setup), and macOS minutes cost ten times as much; to leave macOS unsplit, give it only the `rest` and an
+unsharded E2E part in the matrix. The check names change from
+`test (<os>)` to `test (<os>, <part>)`: a branch rule that requires the old
+names must be updated. The first run on the new cache keys is cold. Timing
+here: shards 225 s and 250 s on four cores, 381 and 380 scenarios; together
+they run the same 759 passing, 2 ignored scenarios as one process did.
