@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{Event, Key, Modifiers};
+use egui_kittest::kittest::{NodeT, Queryable};
 use std::time::Duration;
 
 use lumen_project::model::{Device, Id, Project};
@@ -110,6 +111,32 @@ fn safe_mode_loads_no_plugin_scans_nothing_and_saves_the_project_as_it_was() {
     lumen.wait_for("the save", |app| !app.is_busy());
     let reopened = lumen_project::load(&path).expect("the saved project loads");
     assert_eq!(reopened.tracks[0].devices[0].state, state);
+}
+
+#[test]
+fn in_safe_mode_the_plugins_page_says_why_it_cannot_scan() {
+    // M9 R7 (§8.4 item 4), round 2 of its review: Rescan looked ready in
+    // safe mode and did nothing.
+    let project = song(vec![instrument_device(PLUGIN)]);
+    let mut lumen = after_a_normal_run("prefs", &project, lumen_app::Launch::in_safe_mode);
+    wait_for_state(&mut lumen, PLUGIN, "safe");
+    lumen.open_preferences("Plugins");
+    assert!(
+        lumen
+            .harness
+            .query_by_label_contains("Safe mode: plugins are not loaded. Leave safe mode")
+            .is_some(),
+        "the page says why"
+    );
+    let disabled =
+        |l: &Lumen, label: &str| l.harness.get_by_label(label).accesskit_node().is_disabled();
+    assert!(disabled(&lumen, "Rescan plugins") && disabled(&lumen, "Rescan all plugins"));
+    lumen.key(eframe::egui::Modifiers::NONE, eframe::egui::Key::Escape);
+    lumen.click("Leave safe mode");
+    lumen.open_preferences("Plugins");
+    lumen.run_until("Rescan ready once the scan ends", |l| {
+        !disabled(l, "Rescan plugins")
+    });
 }
 
 #[test]

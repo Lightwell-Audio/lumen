@@ -430,14 +430,19 @@ impl Window {
         };
         Marks {
             key: Some(mark.key),
+            since: Some(mark.since),
             strength,
             scroll: Cell::new(mark.scroll),
         }
     }
 
     /// Notes what drawing `marks` did: the row, once scrolled to, stays put.
+    /// A mark chosen while drawing (a result clicked) is a newer one, still
+    /// to be scrolled to: only the mark that was drawn is changed.
     pub fn marked(&mut self, marks: &Marks) {
-        if let Some(mark) = &mut self.mark {
+        if let Some(mark) = &mut self.mark
+            && marks.since == Some(mark.since)
+        {
             mark.scroll = marks.scroll.get();
         }
     }
@@ -452,6 +457,8 @@ impl Window {
 #[derive(Debug, Default)]
 pub struct Marks {
     key: Option<&'static str>,
+    /// When the mark drawn was chosen: which mark this is.
+    since: Option<f64>,
     /// 1 while shown, falling to 0 as it fades.
     strength: f32,
     scroll: Cell<bool>,
@@ -541,6 +548,21 @@ mod tests {
         assert_eq!(small.width, 440.0);
         assert!(small.folded);
         assert!(fit(100.0).width >= theme::size::PREFERENCES_LEAST);
+    }
+
+    #[test]
+    fn a_result_chosen_while_another_mark_is_drawn_still_scrolls_to_its_row() {
+        let mut window = Window::default();
+        window.choose(search("buffer")[0], 10.0);
+        // The buffer's row is drawn and scrolled to.
+        let drawn = window.marks(10.1);
+        drawn.scroll.set(false);
+        // In the same frame, the test tone is chosen.
+        window.choose(search("test tone")[0], 10.1);
+        window.marked(&drawn);
+        let next = window.marks(10.2);
+        assert_eq!(next.key, Some("audio.test_tone"));
+        assert!(next.scroll.get(), "the new row is still to be scrolled to");
     }
 
     #[test]

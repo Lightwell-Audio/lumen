@@ -7,6 +7,11 @@ use crate::App;
 use crate::app::panes;
 use crate::commands::Command;
 
+/// Why a scan cannot run in safe mode (the Plugins page of Preferences says
+/// it too).
+pub(crate) const SAFE_MODE: &str =
+    "Safe mode: plugins are not loaded. Leave safe mode (the banner at the top) to scan them";
+
 /// The reasons that mean "wait": the command could act on what is chosen,
 /// but work under way holds it back. A context menu keeps such a row,
 /// greyed with its reason, and leaves out a row refused for any other
@@ -171,6 +176,7 @@ impl App {
             Command::DevicesSearch | Command::DevicesScanAtStartup => Ok(()),
             Command::DevicesRescan | Command::DevicesRescanAll => {
                 need(!self.plugins.is_off(), "Plugins are off for this run")?;
+                need(!self.safe.on, SAFE_MODE)?;
                 need(!self.plugins.busy(), wait::SCAN)
             }
             Command::DevicesAddFolder => {

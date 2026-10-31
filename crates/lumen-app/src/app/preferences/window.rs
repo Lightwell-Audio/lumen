@@ -11,14 +11,9 @@ use eframe::egui::{self, Align, Layout, Ui, vec2};
 use crate::preferences::{self, Fit, Marks, Page};
 use crate::{App, midi, theme, widgets};
 
-/// Where the window's top sits below the app's at most, and as a share of
-/// a short window's height.
-const TOP: f32 = 72.0;
+/// How much of a short window's height the window's top sits below the
+/// app's (at most `size::PREFERENCES_TOP`).
 const TOP_SHARE: f32 = 0.12;
-/// Room kept under the window.
-const BELOW: f32 = 40.0;
-/// The page's least height: a very short window scrolls rather than cuts.
-const LEAST_PAGE: f32 = 80.0;
 /// The search field's words when empty, and its accessible name.
 const SEARCH: &str = "Search preferences";
 
@@ -58,7 +53,7 @@ impl App {
         let content = ctx.content_rect();
         let margins = ctx.global_style().spacing.window_margin.sum().x + 2.0 * theme::space::M;
         let fit = preferences::fit(content.width() - margins);
-        let top = content.top() + TOP.min(content.height() * TOP_SHARE);
+        let top = content.top() + theme::size::PREFERENCES_TOP.min(content.height() * TOP_SHARE);
         // Esc with words in the search clears them; the next Esc closes.
         // (egui lets go of the field on Esc before this runs, so the words,
         // not the focus, decide.)
@@ -75,7 +70,8 @@ impl App {
                 egui::Align2::CENTER_TOP,
             )
             .show(ctx, |ui| {
-                let room = (content.bottom() - ui.cursor().top() - BELOW).max(LEAST_PAGE);
+                let room = (content.bottom() - ui.cursor().top() - theme::size::PREFERENCES_BELOW)
+                    .max(theme::size::PREFERENCES_LEAST_PAGE);
                 if fit.folded {
                     self.preferences_folded(ui, room, &marks, midi_asked);
                 } else {
@@ -159,15 +155,19 @@ impl App {
         ui.add_space(theme::space::S);
         let room =
             (room - theme::size::CONTROL_LARGE - theme::size::CONTROL - 2.0 * theme::space::S)
-                .max(LEAST_PAGE);
+                .max(theme::size::PREFERENCES_LEAST_PAGE);
         self.preferences_body(ui, room, marks, midi_asked);
     }
 
-    /// The search field; Enter takes the first result.
+    /// The search field; Enter in it takes the first result (a result with
+    /// the keyboard takes Enter itself).
     fn preferences_search(&mut self, ui: &mut Ui) {
         let window = &mut self.preferences;
+        // Read before the field draws: it lets go of the keyboard on Enter.
+        let field = egui::Id::new(("browser search", SEARCH));
+        let typing = ui.memory(|m| m.has_focus(field));
         crate::browser::controls::search(ui, &mut window.query, &mut window.focus_search, SEARCH);
-        let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let entered = typing && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if entered && let Some(first) = preferences::search(&window.query).first() {
             window.choose(first, ui.input(|i| i.time));
         }

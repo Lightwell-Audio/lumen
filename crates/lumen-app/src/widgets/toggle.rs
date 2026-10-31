@@ -16,6 +16,9 @@ use crate::{fonts, light, motion, theme};
 
 /// A switch's track: the knob travels along it.
 const TRACK: egui::Vec2 = vec2(30.0, 16.0);
+/// How wide a switch with no label is, for tables that line switches up in
+/// columns.
+pub const SWITCH_WIDTH: f32 = TRACK.x;
 /// Room between the knob and the track's edge.
 const KNOB_INSET: f32 = 2.0;
 

@@ -10,7 +10,7 @@ use super::panes;
 use crate::commands::{Chord, Command};
 use crate::{App, widgets};
 
-mod availability;
+pub(crate) mod availability;
 mod run;
 
 pub(crate) use availability::wait;

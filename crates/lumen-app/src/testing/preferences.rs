@@ -24,6 +24,11 @@ impl App {
         ROWS.iter().map(|r| (r.key, r.page.name())).collect()
     }
 
+    /// The plugin folders the user added, as the settings keep them.
+    pub fn plugin_folders(&self) -> Vec<String> {
+        self.settings.plugins.folders.clone()
+    }
+
     /// The names of the pages, in the list's order.
     pub fn preference_pages() -> Vec<&'static str> {
         Page::ALL.map(Page::name).to_vec()

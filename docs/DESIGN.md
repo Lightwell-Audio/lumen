@@ -1428,12 +1428,13 @@ menu show and hide it; the chip's menu switches between gain and pan and goes ba
 
 ## 7j. Preferences (M9 R7, the owner's PW A)
 
-One `Dialog`, `size::PREFERENCES` (640 pt) wide, opening top-centre at most 72 pt below the
+One `Dialog`, `size::PREFERENCES` (640 pt) wide, opening top-centre at most 72 pt (`size::PREFERENCES_TOP`) below the
 window's top (12% of a short window's height). At the left, `size::PAGE_LIST` (172 pt) wide: the
 search field (the browser's sunk well with its magnifier), then one choice row per page (Audio,
 MIDI, Recording, Editing, Mixing, Plugins, Files, Appearance; each named "<Page> page"), and
 "Keyboard shortcuts…" at the foot. A hairline, then the page, which scrolls in a short window and is
-never shorter than 80 pt. Pages use the form of `widgets::form`: section headings in medium 13 pt,
+never shorter than 80 pt (`size::PREFERENCES_LEAST_PAGE`), with 40 pt kept under the window
+(`size::PREFERENCES_BELOW`). Pages use the form of `widgets::form`: section headings in medium 13 pt,
 a 96 pt label column (`size::LABEL_COLUMN`) for chosen values, and on/off settings as
 `widgets::switch` rows without a label column.
 
@@ -1448,6 +1449,15 @@ a 96 pt label column (`size::LABEL_COLUMN`) for chosen values, and on/off settin
 - A setting that is also a command (Overdub, Additive solo, Scan plugins at startup...) is that
   command: the switch is named as the palette names it, its hover gives the command's keys and
   what it does, and a command that cannot run now is greyed with why.
+- **Tables of switches** (the MIDI ports): every switch on a page ends at the page's right edge.
+  A table gives each switch a 64 pt column with its caption (11 pt, `text_secondary`) centred over
+  it in the section's heading row. The last column ends at that right edge, and each name starts
+  at the same place and is cut short with "…" before the first column. A value that belongs to a
+  row (an output's clock delay) goes on a row of its own under it, below its switch.
+- **Lists of paths** (plugin folders): one row per path, a control high. The path is cut short with
+  "…" and shows in full on hover. A path the user added has Remove at the right edge (named
+  "Remove <path>"). The standard folders are always searched, so theirs are quiet text with no
+  button.
 
 ## 8. Key flows
 

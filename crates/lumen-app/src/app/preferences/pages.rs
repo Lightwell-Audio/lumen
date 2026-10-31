@@ -15,9 +15,6 @@ use crate::transport::record;
 use crate::widgets::{hint, row, section};
 use crate::{App, midi, settings, theme, widgets};
 
-/// The width of the value sliders on the pages.
-const SLIDER: f32 = 160.0;
-
 impl App {
     /// The page shown now.
     pub(super) fn preferences_page(
@@ -139,7 +136,7 @@ impl App {
         marks.row(ui, "record.metronome_volume", |ui| {
             row(ui, "Volume", |ui| {
                 let (rect, _) = ui.allocate_exact_size(
-                    egui::vec2(SLIDER, theme::size::CONTROL_SMALL),
+                    egui::vec2(theme::size::PREFERENCES_SLIDER, theme::size::CONTROL_SMALL),
                     egui::Sense::hover(),
                 );
                 let default = MetronomeSettings::default().volume;
@@ -222,6 +219,10 @@ impl App {
     }
 
     fn plugins_page(&mut self, ui: &mut Ui, marks: &Marks) {
+        if self.safe.on {
+            ui.add_space(theme::space::M);
+            widgets::warning(ui, crate::app::commands::availability::SAFE_MODE, 0.0);
+        }
         marks.row(ui, "plugins.folders", |ui| section(ui, "Your folders"));
         let folders = self.settings.plugins.folders.clone();
         if folders.is_empty() {
@@ -230,18 +231,21 @@ impl App {
                 "None yet. Plugins are looked for in the standard folders below.",
             );
         }
+        let mut removed = None;
         for folder in &folders {
-            ui.add(egui::Label::new(folder.as_str()).truncate())
-                .on_hover_text(folder.as_str());
+            if folder_row(ui, folder, true) {
+                removed = Some(folder);
+            }
+        }
+        if let Some(folder) = removed {
+            self.remove_plugin_folder(ui.ctx(), folder);
         }
         ui.add_space(theme::space::XS);
-        self.command_button(ui, Command::DevicesAddFolder, "Add folder\u{2026}");
+        self.command_button(ui, Command::DevicesAddFolder, "Add plugin folder\u{2026}");
 
         marks.row(ui, "plugins.standard", |ui| section(ui, "Standard folders"));
         for folder in lumen_plugin_catalog::discover::standard_roots() {
-            let shown = folder.display().to_string();
-            ui.add(egui::Label::new(egui::RichText::new(&shown).weak()).truncate())
-                .on_hover_text(shown);
+            folder_row(ui, &folder.display().to_string(), false);
         }
 
         section(ui, "Scanning");
@@ -252,8 +256,8 @@ impl App {
         ui.add_space(theme::space::XS);
         marks.row(ui, "plugins.rescan", |ui| {
             ui.horizontal(|ui| {
-                self.command_button(ui, Command::DevicesRescan, "Rescan");
-                self.command_button(ui, Command::DevicesRescanAll, "Rescan all");
+                self.command_button(ui, Command::DevicesRescan, "Rescan plugins");
+                self.command_button(ui, Command::DevicesRescanAll, "Rescan all plugins");
             });
         });
     }
@@ -383,4 +387,36 @@ impl App {
             self.run(&ctx, command);
         }
     }
+}
+
+/// A plugin folder's row, a control high: its path, cut short before the
+/// right edge, and a Remove button there when it is one of the user's (the
+/// standard folders are always searched, so theirs is quiet). True when
+/// Remove was clicked.
+fn folder_row(ui: &mut Ui, folder: &str, yours: bool) -> bool {
+    let width = ui.available_width();
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, theme::size::CONTROL),
+        egui::Layout::right_to_left(egui::Align::Center),
+        |ui| {
+            ui.set_min_size(egui::vec2(width, theme::size::CONTROL));
+            let removed = yours && {
+                let response = widgets::raised::button(ui, "Remove")
+                    .on_hover_text("Stop looking for plugins in this folder");
+                let name = format!("Remove {folder}");
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name)
+                });
+                response.clicked()
+            };
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                let text = egui::RichText::new(folder);
+                let text = if yours { text } else { text.weak() };
+                ui.add(egui::Label::new(text).truncate())
+                    .on_hover_text(folder);
+            });
+            removed
+        },
+    )
+    .inner
 }

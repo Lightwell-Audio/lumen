@@ -430,7 +430,7 @@ per slice and move what is no longer current out of it.
   offers the measured offset with one click (owner: placement A, 2026-10-29).
   MT-REC-5 waits for the owner's Focusrite. Next: R7 to R9.
 - **Branch `m9-s7-preferences`: M9 R7 is planned** (`docs/milestones/M9.md`
-  §8, reviewed once; nothing built yet). The owner's choices, 2026-10-30:
+  §8, reviewed once; Parts 1 and 2 built). The owner's choices, 2026-10-30:
   - SP A: R7 is cut into R7 (Preferences, tap tempo, command coverage), R7b
     (the first-run wizard) and R7c (the browser's tabs with audition).
   - PW A: a page list with search, using `widgets::switch` for its on and

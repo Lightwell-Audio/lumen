@@ -6,6 +6,7 @@
 use eframe::egui::{Event, Key, Modifiers, vec2};
 use egui_kittest::kittest::Queryable;
 use lumen_app::App;
+use lumen_midi::Direction;
 use lumen_midi::fake::FakeControl;
 use lumen_project::testing::TempDir;
 
@@ -92,6 +93,45 @@ fn a_search_result_opens_its_page_with_the_row_marked() {
 }
 
 #[test]
+fn enter_on_a_result_with_the_keyboard_opens_that_result() {
+    // Round 2 of the review: Enter anywhere took the first result, so a
+    // result reached with Tab could not be opened from the keyboard.
+    let mut lumen = Lumen::start("preferences-tab");
+    lumen.open_preferences("Mixing");
+    search(&mut lumen, "latency");
+    // Latency is first, then Buffer size: the second takes the keyboard.
+    lumen.harness.get_by_label("Buffer size   Audio").focus();
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    assert_eq!(lumen.app().preferences_shown(), Some("Audio"));
+    assert_eq!(lumen.app().marked_preference(), Some("audio.buffer"));
+}
+
+#[test]
+fn a_result_below_the_fold_is_scrolled_into_view() {
+    // Round 1 of the review: the mark drawn before a result was chosen
+    // overwrote the new one's scroll, so a row below the page's fold stayed
+    // there while its outline faded.
+    let mut lumen = Lumen::start("preferences-scroll");
+    lumen.harness.set_size(vec2(1280.0, 720.0));
+    lumen.frames(5);
+    lumen.open_preferences("Audio");
+    let tone = "Test tone (1 kHz, \u{2212}20 dBFS)";
+    let bottom = 720.0 - 40.0;
+    assert!(
+        lumen.harness.get_by_label(tone).rect().top() > bottom,
+        "the test tone starts below the fold"
+    );
+    search(&mut lumen, "test tone");
+    lumen.key(Modifiers::NONE, Key::Enter);
+    assert_eq!(lumen.app().marked_preference(), Some("audio.test_tone"));
+    lumen.run_until("the test tone scrolled into view", |l| {
+        let rect = l.harness.get_by_label(tone).rect();
+        rect.top() > 0.0 && rect.bottom() <= bottom
+    });
+}
+
+#[test]
 fn the_list_folds_into_a_page_menu_in_the_smallest_window_at_200_percent() {
     let mut lumen = Lumen::start("preferences-fold");
     lumen.harness.set_size(vec2(960.0, 540.0));
@@ -115,6 +155,78 @@ fn the_list_folds_into_a_page_menu_in_the_smallest_window_at_200_percent() {
     lumen.click("Mixing");
     assert_eq!(lumen.app().preferences_shown(), Some("Mixing"));
     assert!(lumen.shows("Additive solo"));
+}
+
+#[test]
+fn the_midi_page_lines_its_switches_up_in_columns() {
+    // The owner's run of Part 2: names were centred, and each switch sat
+    // wherever its name ended.
+    let fake = FakeControl::new();
+    fake.plug(Direction::Input, "Keys");
+    fake.plug(Direction::Output, "A synth with a much longer name");
+    fake.plug(Direction::Output, "Keys");
+    let mut lumen = Lumen::start_with(TempDir::new("e2e-preferences-midi"), |l| l.with_midi(fake));
+    lumen.open_preferences("MIDI");
+    lumen.run_until("the ports", |l| l.shows("A synth with a much longer name"));
+    let rect = |l: &Lumen, name: &str| l.harness.get_by_label(name).rect();
+    let track = [
+        rect(&lumen, "Track Keys input"),
+        rect(&lumen, "Track A synth with a much longer name output"),
+        rect(&lumen, "Track Keys output"),
+    ];
+    let second = [
+        rect(&lumen, "Remote Keys input"),
+        rect(&lumen, "Sync A synth with a much longer name output"),
+        rect(&lumen, "Sync Keys output"),
+    ];
+    for column in [track, second] {
+        for r in column {
+            assert!(
+                (r.right() - column[0].right()).abs() < 0.5,
+                "a column's switches share their right edge: {column:?}"
+            );
+        }
+    }
+    let edge = rect(&lumen, "Play notes while editing").right();
+    assert!(
+        (second[0].right() - edge).abs() < 0.5,
+        "the last column ends where the page's other switches do"
+    );
+    // A name starts at the same place in every row, whatever its length.
+    let keys = lumen.harness.get_all_by_label("Keys").next().unwrap();
+    let names = [keys.rect(), rect(&lumen, "A synth with a much longer name")];
+    assert!((names[0].left() - names[1].left()).abs() < 0.5, "{names:?}");
+}
+
+#[test]
+fn a_plugin_folder_can_be_removed_from_the_plugins_page() {
+    let dir = TempDir::new("e2e-preferences-folders");
+    let folders = ["first", "second"].map(|name| {
+        let folder = dir.path().join(name);
+        std::fs::create_dir_all(&folder).unwrap();
+        folder
+    });
+    // Plugins on, with empty folders: nothing is found, so no host is run.
+    let host = dir.path().join("no-host");
+    let cache = dir.path().join("plugin-cache.json");
+    let mut lumen = Lumen::start_with(dir, |l| l.with_plugins(Vec::new(), &host, cache));
+    lumen.open_preferences("Plugins");
+    for folder in &folders {
+        lumen.app_mut().answer_next_dialog(vec![folder.clone()]);
+        lumen.click("Add plugin folder\u{2026}");
+        let shown = folder.display().to_string();
+        lumen.run_until("the folder listed", move |l| l.shows(&shown));
+    }
+    let first = folders[0].display().to_string();
+    lumen.click(&format!("Remove {first}"));
+    lumen.frames(3);
+    assert!(!lumen.shows(&first), "the folder is gone from the page");
+    assert!(lumen.shows(&folders[1].display().to_string()));
+    assert_eq!(
+        lumen.app().plugin_folders(),
+        [folders[1].display().to_string()],
+        "and from the settings"
+    );
 }
 
 #[test]

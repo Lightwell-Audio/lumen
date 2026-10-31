@@ -140,11 +140,28 @@ impl PluginSettings {
         self.folders.push(text);
         true
     }
+
+    /// Forgets a search folder; false if it was not there.
+    pub fn remove_folder(&mut self, folder: &str) -> bool {
+        let before = self.folders.len();
+        self.folders.retain(|f| f != folder);
+        self.folders.len() != before
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folder_added_can_be_removed_once() {
+        let mut s = PluginSettings::default();
+        assert!(s.add_folder(Path::new("D:/Plugins")));
+        assert!(s.add_folder(Path::new("E:/More")));
+        assert!(s.remove_folder("D:/Plugins"));
+        assert_eq!(s.folders, ["E:/More"]);
+        assert!(!s.remove_folder("D:/Plugins"), "already gone");
+    }
 
     #[test]
     fn favorites_toggle_and_keep_their_order() {
