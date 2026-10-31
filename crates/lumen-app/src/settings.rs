@@ -13,7 +13,11 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use lumen_core::product::PRODUCT_NAME;
+use lumen_devices::Preset;
 use lumen_engine::{ClickSound, MetronomeSettings};
+use lumen_project::model::Monitor;
+
+use crate::document::instrument::DEFAULT_PRESET;
 use serde::{Deserialize, Serialize};
 
 use crate::record_settings::RecordSettings;
@@ -201,6 +205,9 @@ pub struct Projects {
     /// Copy imported audio from outside the project folder into
     /// `Samples/Imported` when saving.
     pub copy_imported: bool,
+    /// Where New, Open and Save as start (M9 R7; an added field). `None` is
+    /// `Documents/Lumen/Projects`.
+    pub folder: Option<String>,
 }
 
 impl Default for Projects {
@@ -208,6 +215,43 @@ impl Default for Projects {
         Self {
             recent: Vec::new(),
             copy_imported: true,
+            folder: None,
+        }
+    }
+}
+
+/// The cache of converted audio and waveform peaks (M9 R7; an added
+/// section).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Cache {
+    /// The folder Lumen keeps its cache folder in; `None` is the standard
+    /// place, beside the autosaves. Read at start.
+    pub folder: Option<String>,
+    /// Gigabytes the cache holds before the oldest entries are cleared.
+    pub limit_gb: u32,
+    /// A cache folder left behind by a change of folder, offered for Clear
+    /// once (Lumen never clears it unasked).
+    pub previous: Option<String>,
+}
+
+impl Cache {
+    /// The limits offered, in gigabytes.
+    pub const LIMITS_GB: [u32; 5] = [5, 10, 20, 50, 100];
+
+    /// The limit in bytes.
+    pub fn limit(&self) -> u64 {
+        u64::from(self.limit_gb) * 1_000_000_000
+    }
+}
+
+impl Default for Cache {
+    fn default() -> Self {
+        Self {
+            folder: None,
+            // The owner's C A.
+            limit_gb: 20,
+            previous: None,
         }
     }
 }
@@ -305,6 +349,9 @@ pub struct Settings {
     /// loopback helper (M9 slice R2b): the audio settings say so when the
     /// device in use differs. An added field, no version change.
     pub offset_measured: Option<MeasuredWith>,
+    /// The cache's folder and limit (M9 R7): an added section with
+    /// defaults, so older files read as before (no version change).
+    pub cache: Cache,
 }
 
 /// The device setup a loopback measurement was taken on.
@@ -367,14 +414,108 @@ impl Default for BounceChoices {
     }
 }
 
-/// How clip edits treat automation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+/// How clip edits treat automation, how much history and autosave keep, and
+/// what new tracks start with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Editing {
     /// A clip that moves, is copied or is deleted leaves the track's
     /// automation where it is (the owner's E3: off by default, so the points
     /// under a clip go with it).
     pub lock_envelopes: bool,
+    /// Undo steps a project keeps, from the next project opened or made
+    /// (M9 R7; an added field).
+    pub undo_steps: usize,
+    /// Seconds from the first unsaved change to the autosave (M9 R7; an
+    /// added field).
+    pub autosave_seconds: u64,
+    /// What new tracks start with (M9 R7; an added field).
+    pub new_tracks: NewTracks,
+}
+
+impl Editing {
+    /// The undo depths offered. More is not offered until its memory is
+    /// measured.
+    pub const UNDO_STEPS: [usize; 3] = [1_000, 5_000, 10_000];
+
+    /// The autosave interval.
+    pub fn autosave(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.autosave_seconds)
+    }
+}
+
+impl Default for Editing {
+    fn default() -> Self {
+        Self {
+            lock_envelopes: false,
+            undo_steps: lumen_project::history::DEFAULT_LIMIT,
+            autosave_seconds: crate::autosave::DELAY.as_secs(),
+            new_tracks: NewTracks::default(),
+        }
+    }
+}
+
+/// What new tracks start with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NewTracks {
+    /// An audio track's monitoring: `in`, `auto` or `off`.
+    pub audio_monitor: Monitor,
+    /// A MIDI track's instrument: the synth's preset id (`poly`, `keys`
+    /// ...), or `null` for none.
+    pub midi_instrument: Option<String>,
+}
+
+impl Default for NewTracks {
+    fn default() -> Self {
+        Self {
+            audio_monitor: Monitor::Auto,
+            midi_instrument: Some(DEFAULT_PRESET.id().to_owned()),
+        }
+    }
+}
+
+impl NewTracks {
+    /// What the document gives new tracks; an unknown preset is the
+    /// default one.
+    pub fn for_document(&self) -> crate::document::NewTracks {
+        crate::document::NewTracks {
+            monitor: self.audio_monitor,
+            instrument: self
+                .midi_instrument
+                .as_deref()
+                .map(|id| Preset::from_id(id).unwrap_or(DEFAULT_PRESET)),
+        }
+    }
+}
+
+/// The choice in `offered` nearest to `value`: a value written by hand
+/// becomes one the window shows.
+fn nearest(value: u64, offered: &[u64]) -> u64 {
+    offered
+        .iter()
+        .copied()
+        .min_by_key(|choice| choice.abs_diff(value))
+        .unwrap_or(value)
+}
+
+impl Settings {
+    /// Brings values written by hand within what Preferences offers.
+    fn bound(&mut self) {
+        self.plugins.bound();
+        let editing = &mut self.editing;
+        let steps = Editing::UNDO_STEPS.map(|n| n as u64);
+        editing.undo_steps = nearest(editing.undo_steps as u64, &steps) as usize;
+        let seconds = crate::autosave::INTERVALS.map(|d| d.as_secs());
+        editing.autosave_seconds = nearest(editing.autosave_seconds, &seconds);
+        let limits = Cache::LIMITS_GB.map(u64::from);
+        self.cache.limit_gb = nearest(u64::from(self.cache.limit_gb), &limits) as u32;
+        if let Some(id) = &editing.new_tracks.midi_instrument
+            && Preset::from_id(id).is_none()
+        {
+            editing.new_tracks.midi_instrument = Some(DEFAULT_PRESET.id().to_owned());
+        }
+    }
 }
 
 impl Default for Settings {
@@ -396,6 +537,7 @@ impl Default for Settings {
             bounce: BounceChoices::default(),
             playback: Playback::default(),
             offset_measured: None,
+            cache: Cache::default(),
         }
     }
 }
@@ -434,7 +576,7 @@ pub fn load(path: &Path) -> (Settings, Option<String>) {
     };
     match serde_json::from_str::<Settings>(&text) {
         Ok(mut settings) if settings.version <= VERSION => {
-            settings.plugins.bound();
+            settings.bound();
             (settings, None)
         }
         Ok(settings) => {
@@ -589,6 +731,7 @@ mod tests {
             projects: Projects {
                 recent: vec!["C:/Music/Song/Song.lumen".into()],
                 copy_imported: false,
+                folder: Some("D:/Songs".into()),
             },
             follow: Follow::Continuous,
             time_format: crate::timefmt::TimeFormat::Timecode25,
@@ -650,6 +793,12 @@ mod tests {
             },
             editing: Editing {
                 lock_envelopes: true,
+                undo_steps: 5_000,
+                autosave_seconds: 30,
+                new_tracks: NewTracks {
+                    audio_monitor: Monitor::In,
+                    midi_instrument: None,
+                },
             },
             bounce: BounceChoices {
                 replace: true,
@@ -664,6 +813,11 @@ mod tests {
                 sample_rate: 48_000,
                 buffer_frames: 128,
             }),
+            cache: Cache {
+                folder: Some("E:/Scratch".into()),
+                limit_gb: 50,
+                previous: Some("C:/Users/me/AppData/Local/Lumen/Cache".into()),
+            },
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings.clone(), None));
@@ -680,6 +834,67 @@ mod tests {
     fn missing_settings_are_defaults_without_a_warning() {
         let path = temp_dir("missing").join("settings.json");
         assert_eq!(load(&path), (Settings::default(), None));
+    }
+
+    /// A file from before R7's Preferences reads the new settings as
+    /// today's values (no version change).
+    #[test]
+    fn a_file_from_before_preferences_reads_the_new_settings_as_defaults() {
+        let dir = temp_dir("preferences-missing");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"version": 1, "editing": {"lock_envelopes": true}, "projects": {"recent": []}}"#,
+        )
+        .unwrap();
+        let (settings, warning) = load(&path);
+        assert_eq!(warning, None);
+        assert!(settings.editing.lock_envelopes);
+        assert_eq!(settings.editing.undo_steps, 10_000);
+        assert_eq!(settings.editing.autosave_seconds, 60);
+        assert_eq!(settings.editing.new_tracks.audio_monitor, Monitor::Auto);
+        assert_eq!(
+            settings.editing.new_tracks.midi_instrument.as_deref(),
+            Some("poly")
+        );
+        assert_eq!(settings.projects.folder, None);
+        assert_eq!(settings.cache, Cache::default());
+        assert_eq!(settings.cache.limit(), 20_000_000_000);
+    }
+
+    /// Values written by hand become the nearest the window offers, and an
+    /// unknown preset the default one; `null` is no instrument.
+    #[test]
+    fn hand_written_values_are_brought_within_the_choices() {
+        let dir = temp_dir("preferences-bounds");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"version": 1,
+                "editing": {"undo_steps": 1, "autosave_seconds": 86400,
+                            "new_tracks": {"midi_instrument": "theremin"}},
+                "cache": {"limit_gb": 12}}"#,
+        )
+        .unwrap();
+        let (settings, _) = load(&path);
+        assert_eq!(settings.editing.undo_steps, 1_000);
+        assert_eq!(settings.editing.autosave_seconds, 120, "never past 2 min");
+        assert_eq!(
+            settings.editing.new_tracks.midi_instrument.as_deref(),
+            Some("poly")
+        );
+        assert_eq!(settings.cache.limit_gb, 10);
+
+        std::fs::write(
+            &path,
+            r#"{"version": 1, "editing": {"new_tracks": {"midi_instrument": null}}}"#,
+        )
+        .unwrap();
+        let (settings, _) = load(&path);
+        assert_eq!(settings.editing.new_tracks.midi_instrument, None);
+        assert_eq!(settings.editing.new_tracks.for_document().instrument, None);
     }
 
     #[test]

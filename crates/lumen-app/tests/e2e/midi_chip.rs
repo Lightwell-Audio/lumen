@@ -190,7 +190,7 @@ fn midi_settings_opens_the_window_on_the_midi_page() {
     assert!(!lumen.shows("No MIDI inputs found"));
     lumen.click("MIDI settings\u{2026}");
     lumen.frames(5);
-    assert!(lumen.shows("MIDI tab"));
+    assert!(lumen.is_on("MIDI page"));
     assert!(lumen.shows("Track Keystation input"), "the MIDI page");
     assert!(!lumen.shows("Track Keystation input in the MIDI panel"));
 }

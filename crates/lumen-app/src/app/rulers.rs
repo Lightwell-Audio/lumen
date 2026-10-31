@@ -11,6 +11,7 @@ use lumen_core::time::{PPQ, Ticks};
 
 use super::grid::draw_snap_guide;
 use super::info::{Held, Info, Mouse};
+use crate::commands::Command;
 use crate::timefmt::{self, TimeFormat};
 use crate::timeview::TimeView;
 use crate::{App, motion, ruler, theme, trace, widgets};
@@ -393,14 +394,13 @@ impl App {
     fn time_format_menu(&mut self, ui: &mut egui::Ui) {
         let format = self.transport.time_format;
         for choice in TimeFormat::ALL {
-            if ui
-                .add(egui::Button::selectable(format == choice, choice.name()))
-                .clicked()
-            {
+            if widgets::menu_toggle(ui, choice.name(), None, format == choice).clicked() {
                 self.transport.time_format = choice;
                 ui.close();
             }
         }
+        ui.separator();
+        self.menu_command(ui, Command::NextTimeFormat, Command::NextTimeFormat.name());
     }
 }
 

@@ -175,7 +175,8 @@ impl App {
         {
             self.document.set_loop_enabled(!looped.loop_enabled);
         }
-        widgets::Menu::context(&response).show(|ui| transport::punch_menu(ui, &mut self.document));
+        widgets::Menu::context(&response)
+            .show(|ui| transport::punch_menu(ui, &mut self.document, &self.keymap));
         hint
     }
 }

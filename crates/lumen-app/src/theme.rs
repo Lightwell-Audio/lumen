@@ -588,6 +588,20 @@ pub mod size {
     pub const LABEL_COLUMN: f32 = 96.0;
     /// The label column of a narrow card (the clip's properties).
     pub const LABEL_COLUMN_NARROW: f32 = 72.0;
+    /// The Preferences window (M9 R7): its width where there is room; the
+    /// width under which its page list folds into a menu above the page;
+    /// the least it is drawn; and the page list's column.
+    pub const PREFERENCES: f32 = 640.0;
+    pub const PREFERENCES_FOLD: f32 = 560.0;
+    pub const PREFERENCES_LEAST: f32 = 280.0;
+    pub const PAGE_LIST: f32 = 172.0;
+    /// How far below the app's top the window opens at most; the room kept
+    /// under it; the least height of its page (a short window scrolls it);
+    /// and the width of a value slider on a page.
+    pub const PREFERENCES_TOP: f32 = 72.0;
+    pub const PREFERENCES_BELOW: f32 = 40.0;
+    pub const PREFERENCES_LEAST_PAGE: f32 = 80.0;
+    pub const PREFERENCES_SLIDER: f32 = 160.0;
     /// The hairline between groups of a tab row, and the detail panel's
     /// subject bar (DP1).
     pub const TAB_DIVIDER: f32 = 14.0;

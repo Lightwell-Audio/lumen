@@ -36,6 +36,13 @@ fn unit_font() -> egui::FontId {
     egui::FontId::monospace(theme::size::MONO_SMALL)
 }
 
+/// The Tap piece's width: room for "Tap" or a count of up to three digits.
+fn tap_width(ui: &Ui) -> f32 {
+    let text =
+        fit::text_width(ui, "Tap", unit_font()).max(fit::text_width(ui, "999", value_font()));
+    text + 2.0 * theme::space::S
+}
+
 /// The room beside a readout's values inside its well (`.lm-display`:
 /// `space_m`; the compact bar tightens it to `space_s`, so Record and
 /// Overdub fit beside the position at 960 and the values keep clear of the
@@ -58,6 +65,7 @@ impl Transport {
             Icon::Follow,
             "Follow playhead",
             Tip {
+                command: Some(Run::ToggleFollow),
                 keys: keys.as_ref(),
                 hint: Some("Right-click for page or continuous"),
             },
@@ -101,6 +109,7 @@ impl Transport {
             Icon::Keycap,
             "Computer keyboard plays notes",
             Tip {
+                command: Some(Run::ComputerKeyboard),
                 keys: keys.as_ref(),
                 hint: Some("A to K play notes, Z X octave, C V velocity, Esc leaves"),
             },
@@ -196,6 +205,7 @@ impl Transport {
             icon,
             "Record",
             Tip {
+                command: Some(Run::Record),
                 keys: keys.as_ref(),
                 hint: Some(count_in.as_str()),
             },
@@ -216,6 +226,7 @@ impl Transport {
             Icon::Layers,
             "Overdub",
             Tip {
+                command: Some(Run::Overdub),
                 keys: keys.as_ref(),
                 hint: Some(OVERDUB_HINT),
             },
@@ -239,6 +250,7 @@ impl Transport {
         fit::Wants {
             dropout,
             compensation,
+            tap: tap_width(ui) + widgets::well::PIECE_GAP,
             cpu,
             keyboard,
         }
@@ -277,6 +289,7 @@ impl Transport {
                 Icon::ToStart,
                 "Go to start",
                 Tip {
+                    command: Some(Run::GoToStart),
                     keys: start.as_ref(),
                     hint: None,
                 },
@@ -293,6 +306,7 @@ impl Transport {
                 Icon::Stop,
                 "Stop",
                 Tip {
+                    command: Some(Run::PlayStop),
                     keys: play.as_ref(),
                     hint: Some("Stop twice to return to the start"),
                 },
@@ -324,6 +338,7 @@ impl Transport {
                 icon,
                 label,
                 Tip {
+                    command: Some(Run::PlayStop),
                     keys: play.as_ref(),
                     hint,
                 },
@@ -349,12 +364,14 @@ impl Transport {
         let metronome = widgets::well::row(ui, |ui| {
             self.overdub_button(ui, keymap, record);
             let looped = doc.project().transport;
+            let keys = keymap.keys(Run::ToggleLoop);
             let loop_button = icons::button(
                 ui,
                 Icon::Loop,
                 "Loop",
                 Tip {
-                    keys: None,
+                    command: Some(Run::ToggleLoop),
+                    keys: keys.as_ref(),
                     hint: Some("Right-click for punch in and out"),
                 },
                 looped.loop_enabled,
@@ -364,13 +381,15 @@ impl Transport {
             if loop_button.clicked() {
                 doc.set_loop_enabled(!looped.loop_enabled);
             }
-            widgets::Menu::context(&loop_button).show(|ui| punch_menu(ui, doc));
+            widgets::Menu::context(&loop_button).show(|ui| punch_menu(ui, doc, keymap));
+            let keys = keymap.keys(Run::ToggleMetronome);
             let metronome = icons::button(
                 ui,
                 Icon::Metronome,
                 "Metronome",
                 Tip {
-                    keys: None,
+                    command: Some(Run::ToggleMetronome),
+                    keys: keys.as_ref(),
                     hint: Some("Right-click for volume, sound, count-in and output"),
                 },
                 self.metronome.enabled,
@@ -378,8 +397,7 @@ impl Transport {
                 "",
             );
             if metronome.clicked() {
-                self.metronome.enabled = !self.metronome.enabled;
-                self.send(Command::SetMetronome(self.metronome));
+                self.toggle_metronome();
             }
             self.follow_button(ui, keymap);
             self.keyboard_button(ui, keymap);
@@ -391,7 +409,7 @@ impl Transport {
             .keeping_open()
             .show(|ui| self.metronome_menu(ui, record));
         fit::divider(ui);
-        self.numbers(ui, doc, state, plan.compact);
+        self.numbers(ui, doc, keymap, state, plan);
         // Compact, the dot follows the position without a divider.
         if !plan.compact {
             fit::divider(ui);
@@ -494,9 +512,11 @@ impl Transport {
         &mut self,
         ui: &mut Ui,
         doc: &mut crate::document::Document,
+        keymap: &Keymap,
         state: TransportSnapshot,
-        compact: bool,
+        plan: fit::Plan,
     ) {
+        let compact = plan.compact;
         // The tempo and the time signature in force at the playhead: with
         // changes along the song, the fields show and edit the segment the
         // playhead is in (M7 slice A6, the owner's choice).
@@ -508,11 +528,13 @@ impl Transport {
             theme::space::S + fit::text_width(ui, unit, unit_font())
         });
         let position = self.position_text(ui, state, compact);
-        let widths = [
-            2.0 * pad + value_w + unit_w,
-            widgets::signature::WIDTH,
-            position.width,
-        ];
+        // The Tap piece, when it fits, follows the tempo (the owner's TT A).
+        let tap = plan.tap.then(|| tap_width(ui));
+        let widths: Vec<f32> = [Some(2.0 * pad + value_w + unit_w), tap]
+            .into_iter()
+            .flatten()
+            .chain([widgets::signature::WIDTH, position.width])
+            .collect();
         let (well, _) = ui.allocate_exact_size(
             egui::vec2(widgets::well::width(&widths), theme::size::CONTROL_LARGE),
             egui::Sense::hover(),
@@ -582,12 +604,19 @@ impl Transport {
             doc.set_tempo_at(state.ticks, bpm, Some("tempo"));
         }
 
+        let mut next = 1;
+        if let Some(width) = tap {
+            self.tap_piece(ui, pieces[next], keymap);
+            self.fit.spent(width + widgets::well::PIECE_GAP);
+            next += 1;
+        }
+
         // Time signature: one field (the interface audit's S7).
         let here = self.timeline.meter.meter_at(state.ticks);
         let current = (here.numerator, here.denominator);
         if let Some((beats, unit)) = widgets::time_signature(
             ui,
-            pieces[1],
+            pieces[next],
             ui.id().with("time signature"),
             current,
             crate::document::MAX_BEATS_PER_BAR,
@@ -595,13 +624,53 @@ impl Transport {
             doc.set_time_signature_at(state.ticks, beats, unit, Some("meter"));
         }
 
-        self.position_piece(ui, pieces[2], position);
+        self.position_piece(ui, pieces[next + 1], position);
         if let Some(error) = &self.error {
             let warn = ui
                 .label(RichText::new("⚠").color(theme::p().warning))
                 .on_hover_text(error.as_str());
             let name = format!("Position error: {error}");
             warn.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &name));
+        }
+    }
+
+    /// The Tap piece (M9 R7, the owner's TT A): "Tap" until a run starts,
+    /// then the run's taps counted, so its state is read, not only seen.
+    /// A click is the Tap tempo command, timed by the app.
+    fn tap_piece(&mut self, ui: &mut Ui, piece: egui::Rect, keymap: &Keymap) {
+        let id = ui.id().with("tap tempo");
+        let response = ui.interact(piece, id, egui::Sense::click());
+        let keys = keymap.keys(Run::TapTempo);
+        crate::testing::coverage::drawn(ui.ctx(), "Tap tempo", Run::TapTempo);
+        let response = widgets::tip(
+            response,
+            "Tap tempo",
+            keys.as_ref(),
+            Some("Tap in time: the tempo follows from the third tap"),
+        );
+        // The count is the button's value, so a screen reader hears it too.
+        let taps = self.taps;
+        response.widget_info(|| {
+            let mut info = egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Tap tempo");
+            info.value = (taps > 0).then_some(taps as f64);
+            info
+        });
+        widgets::well::wash_when(ui, piece, id, response.hovered());
+        let c = theme::p();
+        let (text, font, colour) = if self.taps == 0 {
+            ("Tap".to_owned(), unit_font(), c.text_secondary)
+        } else {
+            (self.taps.to_string(), value_font(), c.accent)
+        };
+        let galley = ui.painter().layout_no_wrap(text, font, colour);
+        let at = (piece.center() - galley.size() / 2.0).round();
+        ui.painter().galley(at, galley, colour);
+        if response.has_focus() {
+            let radius = widgets::well::piece_radius(piece.height());
+            widgets::raised::paint_focus(ui.painter(), piece, radius);
+        }
+        if response.clicked() {
+            self.requests.push(Run::TapTempo);
         }
     }
 
@@ -758,34 +827,19 @@ struct PositionText {
 
 /// Loop and punch switches: the loop button's and the loop brace's
 /// right-click menus. Punch in and out act at the loop's edges.
-pub fn punch_menu(ui: &mut Ui, doc: &mut crate::document::Document) {
+pub fn punch_menu(ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) {
     let t = doc.project().transport;
-    if ui
-        .add(egui::Button::selectable(t.loop_enabled, "Loop"))
-        .clicked()
-    {
+    let keys = keymap.keys(Run::ToggleLoop);
+    if widgets::menu_toggle(ui, "Loop", keys.as_ref(), t.loop_enabled).clicked() {
         doc.set_loop_enabled(!t.loop_enabled);
-        ui.close();
     }
-    if ui
-        .add(egui::Button::selectable(
-            t.punch_in,
-            "Punch in at the loop start",
-        ))
-        .clicked()
-    {
+    let keys = keymap.keys(Run::PunchIn);
+    if widgets::menu_toggle(ui, Run::PunchIn.name(), keys.as_ref(), t.punch_in).clicked() {
         doc.set_punch(!t.punch_in, t.punch_out);
-        ui.close();
     }
-    if ui
-        .add(egui::Button::selectable(
-            t.punch_out,
-            "Punch out at the loop end",
-        ))
-        .clicked()
-    {
+    let keys = keymap.keys(Run::PunchOut);
+    if widgets::menu_toggle(ui, Run::PunchOut.name(), keys.as_ref(), t.punch_out).clicked() {
         doc.set_punch(t.punch_in, !t.punch_out);
-        ui.close();
     }
     ui.label(
         RichText::new("A take keeps only what is inside the punch range.")
@@ -814,6 +868,7 @@ fn solo_piece(ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap)
     } else {
         "Nothing is soloed".to_owned()
     };
+    crate::testing::coverage::drawn(ui.ctx(), "Clear all solos", Run::ClearSolos);
     let response = widgets::tip(response, "Clear all solos", keys.as_ref(), Some(&hint));
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, soloed > 0, "Clear all solos")

@@ -43,7 +43,6 @@ mod app;
 mod arrangement;
 mod audio;
 mod audio_input;
-mod audio_settings;
 mod audition;
 mod auto_record;
 mod autosave;
@@ -86,7 +85,6 @@ mod midi_files;
 mod midi_out;
 mod midi_play;
 mod midi_runs;
-mod midi_settings;
 mod motion;
 mod normalize;
 mod note_editor;
@@ -98,6 +96,7 @@ mod playhead;
 mod plugins;
 mod pool;
 mod position;
+mod preferences;
 mod preset_files;
 mod probe;
 mod record_settings;
@@ -111,6 +110,7 @@ mod settings;
 mod song_lanes;
 mod strays;
 mod take_worker;
+mod tap_tempo;
 mod templates;
 pub mod testing;
 mod theme;
@@ -144,6 +144,8 @@ pub struct App {
     synced: Option<u64>,
     /// The undo history window is open.
     show_history: bool,
+    /// The tap tempo run (M9 R7).
+    tap: app::tap_tempo::TapRun,
     /// Track headers, heights, folding and selection (M3 slice 4).
     arrangement: arrangement::Arrangement,
     /// MIDI learn and the controllers that move controls (M7 slice A5).
@@ -200,6 +202,9 @@ pub struct App {
     /// A crash report from an earlier run not shown yet, and `--crash-test`.
     crash_report: Option<PathBuf>,
     crash_test: Option<crash::Test>,
+    /// Where crash reports are written (`--crash-dir`), shown from the
+    /// Files page of Preferences.
+    crash_dir: Option<PathBuf>,
     /// The leftover being recovered (its open is in progress).
     recovering: Option<autosave::Leftover>,
     transport: Transport,
@@ -282,6 +287,8 @@ pub struct App {
     disk_scene: Option<app::streaming::SceneKey>,
     /// Tests: the disk thread waits this long before each page it reads.
     slow_disk: Option<std::time::Duration>,
+    /// The cache's folder, size and Clear (M9 R7).
+    cache: app::cache_folder::CacheFolder,
     /// Writes settings on a background thread (audit H1).
     settings_writer: settings::Writer,
     show_browser: bool,
@@ -303,6 +310,8 @@ pub struct App {
     palette: app::palette::Palette,
     /// The Keyboard shortcuts window.
     shortcuts: app::shortcuts::Shortcuts,
+    /// The Preferences window (M9 R7).
+    preferences: preferences::Window,
     /// A chord being recorded for a command (the window or the palette).
     rebind: Option<app::shortcuts::Rebind>,
     /// Where the keyboard is among the panes (F6).
@@ -517,6 +526,7 @@ impl eframe::App for App {
             self.run(&ctx, command);
         }
         self.poll_files(&ctx);
+        self.poll_cache(&ctx);
         self.poll_collecting(&ctx);
         self.poll_templates(&ctx);
         self.autosave(&ctx);
@@ -562,6 +572,11 @@ impl eframe::App for App {
         self.arrangement.auto.at = self.transport.position();
         self.document
             .set_lock_envelopes(self.settings.editing.lock_envelopes);
+        self.document
+            .set_new_tracks(self.settings.editing.new_tracks.for_document());
+        if let Some(autosave) = self.autosave.as_mut() {
+            autosave.set_interval(self.settings.editing.autosave());
+        }
         self.hosting.set_overridden(self.document.overrides());
         if self.lanes.devices.overridden != *self.document.overrides() {
             self.lanes.devices.overridden = self.document.overrides().clone();
@@ -660,44 +675,7 @@ impl eframe::App for App {
         self.tempo_banner(ui);
         self.recovery_banner(ui);
         self.safe_banner(ui);
-        let shown = midi_settings::Shown {
-            midi: &self.midi,
-            saved: &self.settings.midi,
-        };
-        self.transport.record_offset_ms = self.settings.record.offset_ms;
-        self.transport.from_disk = self.settings.playback.from_disk;
-        let asked = self
-            .transport
-            .windows(&ctx, shown, self.settings.offset_measured.as_ref());
-        if let Some(on) = self.transport.from_disk_asked.take() {
-            self.settings.playback.from_disk = on;
-            self.settings_changed = Some(Instant::now());
-        }
-        if let Some(ms) = self.transport.offset_asked.take() {
-            // Typed by hand: no longer the measured one.
-            self.settings.record.offset_ms = ms;
-            self.settings.offset_measured = None;
-            self.settings_changed = Some(Instant::now());
-        }
-        if let Some((ms, with)) = self.transport.measured_asked.take() {
-            self.settings.record.offset_ms = ms;
-            self.settings.offset_measured = Some(with);
-            self.settings_changed = Some(Instant::now());
-        }
-        for action in asked {
-            self.midi.apply(&action);
-            match &action {
-                midi::Action::Use(id, using) => {
-                    midi::Midi::remember(&mut self.settings.midi, id, *using);
-                    self.settings_changed = Some(Instant::now());
-                }
-                midi::Action::SyncDelay(name, ms) => {
-                    midi::Midi::set_sync_delay(&mut self.settings.midi, name, *ms);
-                    self.settings_changed = Some(Instant::now());
-                }
-                midi::Action::Rescan => {}
-            }
-        }
+        self.preferences_window(&ctx);
         if self.midi.poll() {
             self.midi_ports_seen += 1;
             ctx.request_repaint();

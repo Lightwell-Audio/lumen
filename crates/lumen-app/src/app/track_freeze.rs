@@ -18,6 +18,11 @@ use crate::App;
 use crate::bounce::{Bake, Job, Poll, Render, remove_files};
 use crate::render_audio::RenderAudio;
 
+/// Why the tempo and the time signature do not change while a track is frozen
+/// (the history refuses it; tap tempo says so before its run starts).
+pub(crate) const FROZEN_TIMING: &str = "Tempo and time signature can't change while a track is \
+     frozen, as its file would stay behind the music. Unfreeze the frozen tracks first";
+
 /// How long the plugins are waited for before a freeze starts with the states
 /// it has.
 const PLUGIN_READ_WAIT: std::time::Duration = std::time::Duration::from_secs(4);
@@ -405,11 +410,7 @@ impl App {
             ));
         }
         if timing {
-            sentences.push(
-                "Tempo and time signature can't change while a track is frozen, \
-                 as its file would stay behind the music. Unfreeze the frozen tracks first"
-                    .to_owned(),
-            );
+            sentences.push(FROZEN_TIMING.to_owned());
         }
         self.say(sentences.join(". "));
     }

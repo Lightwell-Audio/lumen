@@ -19,6 +19,7 @@ use crate::commands::Command;
 use crate::note_editor::lane::geometry::LaneKind;
 use crate::note_editor::lane::gesture::LaneTool;
 use crate::note_editor::{EditorZoom, NoteOp, Tool, VELOCITY_STEP};
+use crate::preferences::Page;
 use crate::record_settings::CountIn;
 
 impl App {
@@ -380,6 +381,8 @@ impl App {
             }
             Command::AddAudioTrack => self.arrangement.add_track(doc, TrackKind::Audio),
             Command::AddMidiTrack => self.arrangement.add_track(doc, TrackKind::Midi),
+            Command::AddReturnTrack => self.arrangement.add_track(doc, TrackKind::Return),
+            Command::AddGroupTrack => self.arrangement.add_track(doc, TrackKind::Group),
             Command::GroupTracks => self.arrangement.group_selected(doc),
             Command::Ungroup => self.arrangement.ungroup_selected(doc),
             Command::FoldAllGroups => self.arrangement.collapse_all(doc.project(), true),
@@ -511,7 +514,45 @@ impl App {
             Command::ShowDevices => self.show_detail_tab(crate::app::detail::DetailTab::Devices),
             Command::ShowClip => self.show_detail_tab(crate::app::detail::DetailTab::Clip),
             Command::ShowMixer => self.show_detail_tab(crate::app::detail::DetailTab::Mixer),
-            Command::MeasureLatency => self.transport.settings_window.open_measure(),
+            Command::MeasureLatency => self.preferences.show_measure(),
+            Command::Preferences => self.preferences.show(),
+            Command::PreferencesAudio => self.preferences.show_page(Page::Audio),
+            Command::PreferencesMidi => self.preferences.show_page(Page::Midi),
+            Command::PreferencesPlugins => self.preferences.show_page(Page::Plugins),
+            Command::History => self.show_history = true,
+            Command::TapTempo => self.tap_tempo(ctx),
+            Command::ToggleLoop => {
+                let on = self.document.project().transport.loop_enabled;
+                self.document.set_loop_enabled(!on);
+            }
+            Command::ToggleMetronome => self.transport.toggle_metronome(),
+            Command::PunchIn | Command::PunchOut => {
+                let t = self.document.project().transport;
+                let (punch_in, punch_out) = if command == Command::PunchIn {
+                    (!t.punch_in, t.punch_out)
+                } else {
+                    (t.punch_in, !t.punch_out)
+                };
+                self.document.set_punch(punch_in, punch_out);
+            }
+            Command::GoToEnd => {
+                if let Some(end) = crate::app::navigate::end_of_song(self.document.project()) {
+                    self.transport.locate(end);
+                }
+            }
+            Command::AudioOnOff => {
+                let on = self.transport.audio.is_on();
+                self.transport.audio.set_on(!on);
+            }
+            Command::NextTimeFormat => {
+                self.transport.time_format = self.transport.time_format.next();
+            }
+            Command::ToggleBrowser => self.show_browser = !self.show_browser,
+            Command::CueMode => {
+                let mixing = &mut self.settings.mixing;
+                mixing.cue_mode = !mixing.cue_mode;
+                self.settings_changed = Some(std::time::Instant::now());
+            }
             Command::MediaPool => self.show_media_pool(),
             Command::LocateMedia => {
                 if let Some(id) = self.selected_missing_media() {

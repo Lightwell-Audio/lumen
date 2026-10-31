@@ -930,9 +930,9 @@ fn midi_files_and_clock() {
         save(&mut h, &format!("smf-tempo-offer-{tag}"));
         h.get_by_label("Lumen").click();
         h.run_steps(5);
-        h.get_by_label("Audio and MIDI settings\u{2026}").click();
+        h.get_by_label("Preferences\u{2026}").click();
         h.run_steps(5);
-        h.get_by_label("MIDI tab").click();
+        h.get_by_label("MIDI page").click();
         for _ in 0..60 {
             std::thread::sleep(std::time::Duration::from_millis(5));
             h.run_steps(1);
@@ -940,6 +940,100 @@ fn midi_files_and_clock() {
         h.get_by_label("Sync Drum machine output").click();
         h.run_steps(20);
         save(&mut h, &format!("midi-sync-{tag}"));
+    }
+}
+
+/// M9 R7: the MIDI page's ports in columns, and the Plugins page with
+/// folders of the user's that can be removed.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn preferences_midi_and_plugins() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_midi::{Direction, fake::FakeControl};
+    for (appearance, scale) in [
+        ("dark", 1.0),
+        ("light", 1.0),
+        ("dark", 1.5),
+        ("light", 1.5),
+        ("dark", 2.0),
+        ("light", 2.0),
+    ] {
+        let fake = FakeControl::new();
+        fake.plug(Direction::Input, "Keys");
+        fake.plug(
+            Direction::Output,
+            "A synth with a much longer name than most",
+        );
+        fake.plug(Direction::Output, "Keys");
+        let dir = TempDir::new("shots-prefs");
+        let folders = ["VST3", "More plugins"].map(|name| {
+            let folder = dir.path().join(name);
+            std::fs::create_dir_all(&folder).unwrap();
+            folder
+        });
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .with_midi(fake.clone())
+            .with_plugins(
+                Vec::new(),
+                &dir.path().join("no-host"),
+                dir.path().join("cache.json"),
+            );
+        let mut h = Harness::builder()
+            .with_size(vec2(1280.0, 760.0))
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(10);
+        let tag = format!("{appearance}-{scale}");
+        h.get_by_label("Lumen").click();
+        h.run_steps(5);
+        h.get_by_label("Preferences\u{2026}").click();
+        h.run_steps(5);
+        h.get_by_label("MIDI page").click();
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            h.run_steps(1);
+        }
+        h.get_by_label("Sync Keys output").click();
+        h.run_steps(30);
+        save(&mut h, &format!("prefs-midi-{tag}"));
+        h.get_by_label("Plugins page").click();
+        h.run_steps(5);
+        for folder in &folders {
+            h.state_mut().answer_next_dialog(vec![folder.clone()]);
+            h.get_by_label("Add plugin folder\u{2026}").click();
+            for _ in 0..20 {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                h.run_steps(1);
+            }
+        }
+        h.run_steps(30);
+        save(&mut h, &format!("prefs-plugins-{tag}"));
+        // The settings R7 added: Editing, then Files with a cache folder
+        // chosen (its "next start" hint).
+        h.get_by_label("Editing page").click();
+        h.run_steps(30);
+        save(&mut h, &format!("prefs-editing-{tag}"));
+        h.get_by_label("Files page").click();
+        h.run_steps(5);
+        h.state_mut().answer_next_dialog(vec![folders[1].clone()]);
+        h.get_by_label("Choose the cache folder").click();
+        for _ in 0..30 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            h.run_steps(1);
+        }
+        h.run_steps(30);
+        save(&mut h, &format!("prefs-files-{tag}"));
     }
 }
 
@@ -1352,7 +1446,7 @@ fn polish_sweep() {
             let lumen = h.get_by_label("Lumen").rect();
             click(&mut h, lumen.center());
             h.run_steps(30);
-            h.get_by_label("Audio and MIDI settings\u{2026}").click();
+            h.get_by_label("Preferences\u{2026}").click();
             h.run_steps(30);
             save(&mut h, &name("audio"));
         }

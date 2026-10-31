@@ -21,14 +21,14 @@ const MAGNIFIER: f32 = super::list::ICON;
 const TEXT_EDGE: f32 = theme::space::S + MAGNIFIER + theme::space::S;
 
 /// What the search field did this frame.
-pub(super) struct Searched {
+pub(crate) struct Searched {
     /// Esc pressed while the field had the keyboard.
     pub escaped: bool,
 }
 
 /// The search field: a sunk well with a magnifier and, once there are words,
 /// a way to clear them. `focus` asks for the keyboard (a command did).
-pub(super) fn search(
+pub(crate) fn search(
     ui: &mut Ui,
     text: &mut String,
     focus: &mut bool,

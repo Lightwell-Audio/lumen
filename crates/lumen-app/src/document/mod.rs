@@ -13,7 +13,7 @@ use std::sync::Arc;
 use lumen_core::time::Ticks;
 use lumen_project::History;
 use lumen_project::automation::Target;
-use lumen_project::model::{Color, Device, Id, Marker, Project, Track, TrackKind};
+use lumen_project::model::{Color, Device, Id, Marker, Monitor, Project, Track, TrackKind};
 
 /// The most beats a bar may have (`lumen_project::validate`).
 pub const MAX_BEATS_PER_BAR: u32 = 64;
@@ -29,7 +29,7 @@ mod devices;
 mod freeze;
 mod groups;
 mod import;
-mod instrument;
+pub(crate) mod instrument;
 mod lanes;
 mod mappings;
 mod media;
@@ -100,6 +100,50 @@ pub struct Document {
     /// Inputs the audio device has open (M9 slice R1): arming an audio track
     /// that has none gives it the first free one. Set by the app each frame.
     open_inputs: u16,
+    /// What new tracks start with (the New tracks preferences, M9 R7). Set
+    /// by the app each frame.
+    new_tracks: NewTracks,
+}
+
+/// What a new track starts with: an audio track's monitoring, and the
+/// instrument on a MIDI track (none, or the synth on a preset). Every way a
+/// track is made reads it: the menus and commands, a device dropped on the
+/// empty space (which brings its own instrument), and importing audio or
+/// MIDI files. Tracks made to hold sound that already exists (a bounce, a
+/// take moved off a locked clip, an instrument's extra output) keep Auto:
+/// monitoring In would put the live input over that sound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NewTracks {
+    pub monitor: Monitor,
+    pub instrument: Option<lumen_devices::Preset>,
+}
+
+impl NewTracks {
+    /// Gives a new audio track its monitoring. A MIDI track's instrument is
+    /// placed where the track is made, since it needs a fresh device id.
+    pub(crate) fn give(&self, track: &mut Track) {
+        if track.kind == TrackKind::Audio {
+            track.monitor = self.monitor;
+        }
+    }
+
+    /// The devices a new MIDI track starts with: the synth with id `id`
+    /// on the chosen preset, or none.
+    pub(crate) fn instrument(&self, id: Id) -> Vec<Device> {
+        self.instrument
+            .map(|preset| Device::synth(id, preset.id()))
+            .into_iter()
+            .collect()
+    }
+}
+
+impl Default for NewTracks {
+    fn default() -> Self {
+        Self {
+            monitor: Monitor::Auto,
+            instrument: Some(instrument::DEFAULT_PRESET),
+        }
+    }
 }
 
 impl Document {
@@ -122,6 +166,7 @@ impl Document {
             rests: BTreeMap::new(),
             lock_envelopes: false,
             open_inputs: 0,
+            new_tracks: NewTracks::default(),
         }
     }
 
@@ -133,6 +178,21 @@ impl Document {
     /// Whether clip edits leave the track's automation where it is.
     pub fn set_lock_envelopes(&mut self, lock: bool) {
         self.lock_envelopes = lock;
+    }
+
+    /// What new tracks start with.
+    pub fn set_new_tracks(&mut self, new_tracks: NewTracks) {
+        self.new_tracks = new_tracks;
+    }
+
+    /// Keeps at most `steps` undo steps. Set on a document just made or
+    /// opened, so no step it holds is dropped (the Undo steps preference).
+    pub fn set_undo_limit(&mut self, steps: usize) {
+        self.history.set_limit(steps);
+    }
+
+    pub fn undo_limit(&self) -> usize {
+        self.history.limit()
     }
 
     /// Which document this is (see `state` for which version of it).
@@ -317,8 +377,13 @@ impl Document {
             Some(device) => format!("Add {} on a new track", devices::name_of(device)),
             None => label.to_owned(),
         };
-        // A MIDI track starts with the synth on Poly (format v12).
-        let synth = (kind == TrackKind::Midi && first.is_none()).then(|| self.fresh_id());
+        // A MIDI track starts with the synth on the chosen preset (format
+        // v12; Poly unless the New tracks preference says otherwise).
+        let new_tracks = self.new_tracks;
+        let synth = new_tracks
+            .instrument
+            .filter(|_| kind == TrackKind::Midi && first.is_none())
+            .map(|preset| (self.fresh_id(), preset));
         self.history.apply(&label, None, |project| {
             let number = project.tracks.iter().filter(|t| t.kind == kind).count() + 1;
             let after = after.and_then(|a| project.tracks.iter().position(|t| t.id == a));
@@ -329,20 +394,17 @@ impl Document {
                 .and_then(|i| project.tracks[i].parent)
                 .filter(|_| lumen_project::groups::can_be_grouped(kind));
             let color = track_color(project.new_track_color, project.tracks.len());
-            project.tracks.insert(
-                index,
-                Arc::new(Track {
-                    parent,
-                    devices: first
-                        .clone()
-                        .or_else(|| {
-                            synth.map(|d| Device::synth(d, instrument::DEFAULT_PRESET.id()))
-                        })
-                        .into_iter()
-                        .collect(),
-                    ..Track::new(id, format!("{word} {number}"), kind, color)
-                }),
-            );
+            let mut track = Track {
+                parent,
+                devices: first
+                    .clone()
+                    .or_else(|| synth.map(|(d, preset)| Device::synth(d, preset.id())))
+                    .into_iter()
+                    .collect(),
+                ..Track::new(id, format!("{word} {number}"), kind, color)
+            };
+            new_tracks.give(&mut track);
+            project.tracks.insert(index, Arc::new(track));
             lumen_project::groups::normalize(&mut project.tracks);
         });
         id
@@ -723,6 +785,81 @@ mod tests {
         doc.begin_save();
         doc.mark_saved_at(doc.state());
         assert!(!doc.is_dirty());
+    }
+
+    /// The New tracks preferences (M9 R7) reach every way a track is made:
+    /// the menus and commands, a device dropped on the empty space, and
+    /// imported audio. Imported MIDI is in `midi_import`'s tests.
+    #[test]
+    fn new_tracks_start_with_the_chosen_monitoring_and_instrument() {
+        use lumen_devices::Preset;
+        use lumen_project::model::PluginRef;
+        let mut doc = Document::new(crate::empty_project());
+        let track = |doc: &Document, id: Id| {
+            doc.project()
+                .tracks
+                .iter()
+                .find(|t| t.id == id)
+                .cloned()
+                .unwrap()
+        };
+        // Today's defaults: Auto, and the synth on Poly.
+        let audio = doc.add_track(TrackKind::Audio, None);
+        let midi = doc.add_track(TrackKind::Midi, None);
+        assert_eq!(track(&doc, audio).monitor, Monitor::Auto);
+        let synth = &track(&doc, midi).devices;
+        assert_eq!(synth.len(), 1);
+        assert_eq!(synth[0].state, b"poly");
+
+        doc.set_new_tracks(NewTracks {
+            monitor: Monitor::In,
+            instrument: Some(Preset::Pad),
+        });
+        let audio = doc.add_track(TrackKind::Audio, None);
+        let midi = doc.add_track(TrackKind::Midi, None);
+        assert_eq!(track(&doc, audio).monitor, Monitor::In);
+        assert_eq!(track(&doc, midi).devices[0].state, b"pad");
+        // An effect dropped on the empty space makes an audio track.
+        let (dropped, _) = doc
+            .add_device_on_new_track(
+                PluginRef::Vst3 {
+                    class_id: "0123456789ABCDEF0123456789ABCDEF".into(),
+                    name: "Echo".into(),
+                    vendor: String::new(),
+                    kind: lumen_project::model::DeviceKind::Effect,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(track(&doc, dropped).monitor, Monitor::In);
+        // Imported audio on new tracks.
+        doc.import(vec![file(Id(900), "drums", Ticks::ZERO)]);
+        let imported = doc.project().tracks.last().unwrap();
+        assert_eq!(imported.name, "drums");
+        assert_eq!(imported.monitor, Monitor::In);
+
+        doc.set_new_tracks(NewTracks {
+            monitor: Monitor::Off,
+            instrument: None,
+        });
+        let midi = doc.add_track(TrackKind::Midi, None);
+        assert!(track(&doc, midi).devices.is_empty(), "no instrument");
+        // A group or return has no monitoring of its own to change.
+        let group = doc.add_track(TrackKind::Group, None);
+        assert_eq!(track(&doc, group).monitor, Monitor::Auto);
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+    }
+
+    /// The Undo steps preference: the document keeps at most that many.
+    #[test]
+    fn the_undo_limit_drops_the_oldest_steps_past_it() {
+        let mut doc = Document::new(crate::empty_project());
+        doc.set_undo_limit(1_000);
+        assert_eq!(doc.undo_limit(), 1_000);
+        for _ in 0..1_005 {
+            doc.add_track(TrackKind::Audio, None);
+        }
+        assert_eq!(doc.history().steps().0.len(), 1_000);
     }
 
     pub(super) fn file(media: Id, name: &str, at: Ticks) -> Imported {

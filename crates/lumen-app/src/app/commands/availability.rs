@@ -7,6 +7,11 @@ use crate::App;
 use crate::app::panes;
 use crate::commands::Command;
 
+/// Why a scan cannot run in safe mode (the Plugins page of Preferences says
+/// it too).
+pub(crate) const SAFE_MODE: &str =
+    "Safe mode: plugins are not loaded. Leave safe mode (the banner at the top) to scan them";
+
 /// The reasons that mean "wait": the command could act on what is chosen,
 /// but work under way holds it back. A context menu keeps such a row,
 /// greyed with its reason, and leaves out a row refused for any other
@@ -171,6 +176,7 @@ impl App {
             Command::DevicesSearch | Command::DevicesScanAtStartup => Ok(()),
             Command::DevicesRescan | Command::DevicesRescanAll => {
                 need(!self.plugins.is_off(), "Plugins are off for this run")?;
+                need(!self.safe.on, SAFE_MODE)?;
                 need(!self.plugins.busy(), wait::SCAN)
             }
             Command::DevicesAddFolder => {
@@ -590,6 +596,35 @@ impl App {
             | Command::ShowMixer
             | Command::MediaPool => Ok(()),
             Command::MeasureLatency => self.transport.audio.measure_unavailable(),
+            Command::ToggleLoop
+            | Command::ToggleMetronome
+            | Command::PunchIn
+            | Command::PunchOut
+            | Command::NextTimeFormat
+            | Command::ToggleBrowser
+            | Command::AddGroupTrack
+            | Command::Preferences
+            | Command::PreferencesAudio
+            | Command::PreferencesMidi
+            | Command::PreferencesPlugins
+            | Command::History
+            | Command::TapTempo => Ok(()),
+            Command::GoToEnd => need(
+                crate::app::navigate::end_of_song(self.document.project()).is_some(),
+                "The song has no clips yet",
+            ),
+            Command::AudioOnOff => need(
+                self.transport.audio.can_switch(),
+                "No audio device has been chosen yet",
+            ),
+            Command::CueMode => need(
+                self.transport.audio.cue_ready(),
+                "Choose a cue pair in the audio settings first",
+            ),
+            Command::AddReturnTrack => need(
+                !self.document.returns_full(),
+                "A project holds 12 return tracks at most",
+            ),
         }
     }
 }

@@ -284,8 +284,18 @@ impl Arrangement {
                 "MIDI",
                 Some(Command::AddMidiTrack),
             ),
-            (TrackKind::Group, "Add group track", "Group", None),
-            (TrackKind::Return, "Add return track", "Return", None),
+            (
+                TrackKind::Group,
+                "Add group track",
+                "Group",
+                Some(Command::AddGroupTrack),
+            ),
+            (
+                TrackKind::Return,
+                "Add return track",
+                "Return",
+                Some(Command::AddReturnTrack),
+            ),
         ] {
             let text = if menu == AddMenu::Submenu {
                 short_name
@@ -305,12 +315,7 @@ impl Arrangement {
                 item
             };
             if item.clicked() {
-                if kind == TrackKind::Return {
-                    // After the last return, shown even if folded away.
-                    self.add_track(doc, kind);
-                } else {
-                    self.selected = vec![doc.add_track(kind, after)];
-                }
+                self.add_track_after(doc, kind, after);
             }
         }
     }

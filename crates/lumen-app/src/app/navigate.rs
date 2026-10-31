@@ -417,6 +417,24 @@ impl App {
     }
 }
 
+/// Where Go to end moves the playhead: the end of the last clip, or the
+/// loop's end when the loop is on and ends later. `None` while no track
+/// holds a clip.
+pub(crate) fn end_of_song(project: &lumen_project::model::Project) -> Option<Ticks> {
+    let last = project
+        .tracks
+        .iter()
+        .flat_map(|t| t.clips.iter())
+        .map(|c| c.start + c.length)
+        .max()?;
+    let looped = &project.transport;
+    Some(if looped.loop_enabled {
+        last.max(looped.loop_end)
+    } else {
+        last
+    })
+}
+
 /// Where `follow` puts a view showing `width` points so the playhead at
 /// `head` stays in sight; `None` when it need not move.
 fn follow_view(view: TimeView, follow: Follow, head: f64, width: f64) -> Option<TimeView> {
@@ -444,6 +462,35 @@ mod tests {
         left: 0.0,
         zoom: 10.0,
     };
+
+    #[test]
+    fn the_end_of_the_song_is_the_last_clip_or_a_later_loop_end() {
+        use lumen_project::testing::{midi_track, project_of};
+        let q = Ticks::quarters;
+        assert_eq!(end_of_song(&project_of("empty", Vec::new())), None);
+        let mut project = project_of(
+            "two",
+            vec![
+                midi_track(1000, "A", "Poly", (0, 8), None, Vec::new(), Vec::new()),
+                midi_track(1010, "B", "Poly", (4, 12), None, Vec::new(), Vec::new()),
+            ],
+        );
+        assert_eq!(end_of_song(&project), Some(q(16)), "the later clip's end");
+        project.transport.loop_end = q(32);
+        assert_eq!(
+            end_of_song(&project),
+            Some(q(16)),
+            "an idle loop is not the song"
+        );
+        project.transport.loop_enabled = true;
+        assert_eq!(
+            end_of_song(&project),
+            Some(q(32)),
+            "a loop on, ending later"
+        );
+        project.transport.loop_end = q(8);
+        assert_eq!(end_of_song(&project), Some(q(16)), "a loop ending earlier");
+    }
 
     #[test]
     fn page_follow_turns_the_page_near_the_right_edge() {

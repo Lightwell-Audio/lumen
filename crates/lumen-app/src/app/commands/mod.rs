@@ -10,7 +10,7 @@ use super::panes;
 use crate::commands::{Chord, Command};
 use crate::{App, widgets};
 
-mod availability;
+pub(crate) mod availability;
 mod run;
 
 pub(crate) use availability::wait;
@@ -41,12 +41,12 @@ impl App {
         })
     }
 
-    /// A window is open (the shortcuts, audio settings, history, or the
+    /// A window is open (the shortcuts, Preferences, history, or the
     /// unsaved-changes question): it takes Esc, and Shift+Tab moves focus in
     /// it.
     pub(crate) fn window_open(&self) -> bool {
         self.shortcuts.open
-            || self.transport.settings_window.open
+            || self.preferences.open
             || self.show_history
             || self.show_bounce
             || self.export.open
@@ -100,6 +100,7 @@ impl App {
         let ctx = ui.ctx().clone();
         let ready = self.availability(&ctx, command).is_ok();
         let keys = self.keymap.keys(command);
+        crate::testing::coverage::drawn(&ctx, label, command);
         let clicked = widgets::menu_item(ui, label, keys.as_ref(), ready).clicked();
         if clicked {
             self.run(&ctx, command);
@@ -125,6 +126,7 @@ impl App {
             ContextRow::Left => return false,
         };
         let keys = self.keymap.keys(command);
+        crate::testing::coverage::drawn(&ctx, label, command);
         let row = widgets::menu_item(ui, label, keys.as_ref(), why.is_none());
         if let Some(why) = why {
             row.on_disabled_hover_text(why);
@@ -154,7 +156,7 @@ impl App {
         // control that wants the arrows: they are its notes' keys.
         let editor_owns = self.note_editor.live && panes::focused(ctx) == Some(panes::Pane::Detail);
         let focused = ctx.memory(|m| m.focused().is_some()) && !editor_owns;
-        let pressed: Vec<Chord> = ctx.input(|i| {
+        let pressed: Vec<(Chord, bool)> = ctx.input(|i| {
             i.events
                 .iter()
                 .filter_map(|event| match *event {
@@ -162,19 +164,22 @@ impl App {
                         key,
                         pressed: true,
                         modifiers,
+                        repeat,
                         ..
-                    } => Some(Chord::pressed(modifiers, key)),
+                    } => Some((Chord::pressed(modifiers, key), repeat)),
                     _ => None,
                 })
                 .collect()
         });
-        for chord in pressed {
+        for (chord, repeat) in pressed {
             let Some(command) = self.keymap.command_for(chord) else {
                 continue;
             };
             if (focused && chord.used_by_controls()) || self.availability(ctx, command).is_err() {
                 continue;
             }
+            // A key held down taps once: its repeats are not taps.
+            let ignored = repeat && command == Command::TapTempo;
             // While a window is up (the save question, the bounce popover,
             // Export, Project settings, ...), a plain Enter runs no command:
             // it belongs to the window, and would otherwise open the
@@ -194,7 +199,9 @@ impl App {
                     i.events.remove(at);
                 }
             });
-            self.run(ctx, command);
+            if !ignored {
+                self.run(ctx, command);
+            }
         }
     }
 }

@@ -407,7 +407,7 @@ short: the history of every slice is in `docs/HANDOFF_ARCHIVE.md`
 and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
-**Now (2026-10-29)**
+**Now (2026-10-31)**
 - **M7 (automation, editing and render) is merged:** A0 to A8, E0 to E6
   (built as "M7b"; folded back into `docs/milestones/M7.md` on 2026-10-29)
   and the UX round three (ADR-0108, PR #75). Waiting for the owner:
@@ -429,6 +429,16 @@ per slice and move what is no longer current out of it.
   the audio settings' Latency section plays five clicks through a cable and
   offers the measured offset with one click (owner: placement A, 2026-10-29).
   MT-REC-5 waits for the owner's Focusrite. Next: R7 to R9.
+- **Branch `m9-s7-preferences`: M9 R7 is built** (ADR-0112,
+  `docs/milestones/M9.md` §4; owner: SP A, PW A, TT A, End the only new
+  key). Preferences in one window with search, the new settings (autosave
+  interval, undo steps, new-track defaults, projects folder, the cache's
+  folder, limit and Clear, blocked plugins), tap tempo, and the command
+  coverage test (`testing::coverage`). A new searchable setting gets a
+  `ROWS` entry and a `marks.row` on its page (E2E checks every row is
+  drawn); a new bar control or menu row goes in `tests/e2e/coverage.rs`.
+  MT-PREF-1 waits for the owner. R7b (first-run wizard) and R7c (browser
+  tabs) are next, each pitched with specimens.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
@@ -443,7 +453,7 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status and the milestone reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0109 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0112 and the table of owner decisions.
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
 - `docs/KNOWN_ISSUES.md`, `docs/ARCHITECTURE.md` (crates, threads, module
@@ -534,6 +544,10 @@ error where it can be)
   on one-off branches (`fix/…`, `chore/…`, `docs/…`) cut from `main`. A
   session that starts on a generated `claude/…` branch renames it first. The
   rules are in the `lumen-branching` skill.
+- **One plan file per milestone** (owner, 2026-10-30): a slice's plan is a
+  section of `docs/milestones/M<n>.md`, never a file of its own
+  (`M9-R7.md`). When the slice is built, its section shrinks to the summary
+  of what was built.
 - **Build location:** build in the repository's `target/` folder; never
   set `CARGO_TARGET_DIR`. A running `lumen.exe` blocks a rebuild: for
   screenshots, use the debug build (`target/debug/lumen.exe --screenshot`),

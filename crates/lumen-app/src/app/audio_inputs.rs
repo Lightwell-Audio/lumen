@@ -74,11 +74,7 @@ impl App {
             .device_key()
             .map(|(driver, id)| (driver.to_owned(), id.to_owned()));
         if let (Some((driver, id)), true) = (key, wanted || !choices.names.is_empty()) {
-            match self
-                .transport
-                .settings_window
-                .input_names(&driver, &id, ctx)
-            {
+            match self.preferences.audio.input_names(&driver, &id, ctx) {
                 Some(Ok(names)) => choices.names = names,
                 Some(Err(why)) => choices.status = Some(why),
                 None => choices.status = Some("Looking up the inputs{2026}".into()),

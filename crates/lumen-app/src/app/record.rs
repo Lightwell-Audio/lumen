@@ -330,7 +330,7 @@ impl App {
             wrapped: false,
         });
         if let Some(autosave) = self.autosave.as_mut() {
-            autosave.set_delay(AUTOSAVE_DELAY);
+            autosave.hurry(AUTOSAVE_DELAY);
         }
         // The old audio under the take is cut before the take begins, not a
         // frame later (a clip still sounding there pops when it is removed).
@@ -626,7 +626,7 @@ impl App {
 
     fn restore_autosave(&mut self) {
         if let Some(autosave) = self.autosave.as_mut() {
-            autosave.set_delay(crate::autosave::DELAY);
+            autosave.unhurry();
         }
     }
 }

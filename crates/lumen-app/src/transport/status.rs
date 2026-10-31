@@ -183,54 +183,52 @@ impl Transport {
         )
     }
 
-    /// The audio panel: device, Audio On/Off, test tone, meters, panic.
-    /// The audio settings window, when open; carries out what it asks.
-    pub fn windows(
-        &mut self,
-        ctx: &egui::Context,
-        midi: crate::midi_settings::Shown<'_>,
-        offset_measured: Option<&crate::settings::MeasuredWith>,
-    ) -> Vec<crate::midi::Action> {
-        use crate::audio_settings::Action;
-        let mut asked = std::mem::take(&mut self.midi_asked);
+    /// What the MIDI chip's popover asked for since the last frame.
+    pub fn take_midi_asked(&mut self) -> Vec<crate::midi::Action> {
+        std::mem::take(&mut self.midi_asked)
+    }
+
+    /// The test tone is on.
+    pub fn test_tone(&self) -> bool {
+        self.test_tone
+    }
+
+    /// Why the loopback helper cannot measure now, if it cannot.
+    pub fn measure_held(&self) -> Option<&'static str> {
         let snap = self.audio.engine.transport();
-        let measure_held = (snap.playing || snap.recording || snap.count_in_left > 0)
-            .then_some("Stop playback to measure");
-        for action in self.settings_window.show(
-            ctx,
-            &self.audio,
-            midi,
-            crate::audio_settings::Lent {
-                test_tone: self.test_tone,
-                record_offset_ms: self.record_offset_ms,
-                offset_measured,
-                measure_held,
-                from_disk: self.from_disk,
-            },
-        ) {
-            match action {
-                Action::Midi(action) => asked.push(action),
-                Action::Apply(settings) => {
-                    crate::trace::log(|| format!("audio: apply {settings:?}"));
-                    self.audio.apply(settings);
-                    self.settle();
-                }
-                Action::ControlPanel => self.audio.open_control_panel(),
-                Action::DismissNotice => self.audio.dismiss_notice(),
-                Action::RecordOffset(ms) => self.offset_asked = Some(ms),
-                Action::Measure(cable) => {
-                    crate::trace::log(|| format!("audio: measure the round trip {cable:?}"));
-                    self.audio.measure(cable);
-                }
-                Action::UseMeasured(ms, with) => self.measured_asked = Some((ms, with)),
-                Action::FromDisk(on) => self.from_disk_asked = Some(on),
-                Action::TestTone(on) => {
-                    self.test_tone = on;
-                    self.send(Command::TestTone(on));
-                }
+        (snap.playing || snap.recording || snap.count_in_left > 0)
+            .then_some("Stop playback to measure")
+    }
+
+    /// Carries out what the Audio page of Preferences asked of the device:
+    /// the app keeps the rest (the offset, Play audio from disk), and gets
+    /// those back.
+    pub fn audio_action(
+        &mut self,
+        action: crate::preferences::audio::Action,
+    ) -> Option<crate::preferences::audio::Action> {
+        use crate::preferences::audio::Action;
+        match action {
+            Action::Apply(settings) => {
+                crate::trace::log(|| format!("audio: apply {settings:?}"));
+                self.audio.apply(settings);
+                self.settle();
+            }
+            Action::ControlPanel => self.audio.open_control_panel(),
+            Action::DismissNotice => self.audio.dismiss_notice(),
+            Action::Measure(cable) => {
+                crate::trace::log(|| format!("audio: measure the round trip {cable:?}"));
+                self.audio.measure(cable);
+            }
+            Action::TestTone(on) => {
+                self.test_tone = on;
+                self.send(Command::TestTone(on));
+            }
+            kept @ (Action::RecordOffset(_) | Action::UseMeasured(..) | Action::FromDisk(_)) => {
+                return Some(kept);
             }
         }
-        asked
+        None
     }
 
     fn audio_panel(&mut self, ui: &mut Ui, project: &Project) {
@@ -294,11 +292,13 @@ impl Transport {
         {
             self.audio.set_on(on);
         }
-        if crate::widgets::raised::button(ui, "Audio and MIDI settings…")
-            .on_hover_text("Choose the driver, device, sample rate, buffer and channels")
+        if crate::widgets::raised::button(ui, "Audio settings…")
+            .on_hover_text(
+                "Choose the driver, device, sample rate, buffer and channels in Preferences",
+            )
             .clicked()
         {
-            self.settings_window.open = true;
+            self.open_preferences = Some(crate::preferences::Page::Audio);
             // Close this panel, so the window is not hidden behind it.
             ui.close();
         }

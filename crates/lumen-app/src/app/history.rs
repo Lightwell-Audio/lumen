@@ -31,7 +31,8 @@ impl App {
     pub(crate) fn sync_document(&mut self, ctx: &egui::Context) {
         // A recording commits its growing take as one step, so the gesture
         // stays open while it runs (it is sealed the frame it ends); so does a
-        // lane pass written in parts.
+        // lane pass written in parts, and a tap tempo run.
+        let tapping = self.tap_run_open(ctx);
         if !self.is_recording()
             && !self.lane_commits.writing()
             && !ctx.input(|i| i.pointer.any_down())
@@ -39,6 +40,7 @@ impl App {
             && !self.hosting.gesture_open()
             && !self.controllers.holding()
             && !self.project_settings.editing
+            && !tapping
         {
             self.document.seal();
         }

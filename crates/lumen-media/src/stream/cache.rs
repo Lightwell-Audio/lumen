@@ -17,23 +17,69 @@
 //! copy or a source that streams as it is), so a file opened again shows
 //! its waveform without being read whole ([`Cache::peaks`]).
 //!
-//! The folder has a size limit ([`LIMIT`]); [`Cache::trim`] clears the
-//! entries used longest ago, never one that is playing. An entry is the
-//! files that share a name before the first dot; a hit refreshes its
+//! The folder has a size limit ([`LIMIT`] unless set); [`Cache::trim`]
+//! clears the entries used longest ago, never one that is playing. An entry
+//! is the files that share a name before the first dot; a hit refreshes its
 //! modified time, which is its time of last use.
+//!
+//! The folder can be one the user chose (M9 R7), so the cache never touches
+//! a file it did not make: [`Cache::trim`], [`Cache::clear`] and
+//! [`Cache::size`] act only in a folder marked by a [`MARKER`] file, and only
+//! on names of the form `<16 hex digits>-<rate>.wav`, `.key` or `.peaks`. The
+//! cache marks a folder only when it is new or holds nothing but such names
+//! (an older cache, made before the mark): a folder with anything else in it
+//! is used, but never counted or cleared.
+//!
+//! An entry used in the last [`FRESH`] is not cleared: a file being loaded is
+//! prepared before the app lists it as playing, and must not go in between.
+//! A hit and a removal never overlap ([`HITS`]), and an entry's last use is
+//! read again just before it is removed, so a hit during a trim keeps it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::RwLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::{Layout, convert, layout};
 use crate::wav::{Sample, Spec, Writer};
 use crate::{MediaError, Peaks};
 
-/// How much the cache holds before [`Cache::trim`] clears it: 20 GB (the
-/// owner's C A). Choosing it comes with R7's Preferences.
+/// How much the cache holds before [`Cache::trim`] clears it, unless
+/// [`Cache::set_limit`] says otherwise: 20 GB (the owner's C A).
 pub const LIMIT: u64 = 20_000_000_000;
+
+/// The file that marks a folder as a cache Lumen made, and so may clear.
+pub const MARKER: &str = "lumen-cache.json";
+
+/// How long after its last use an entry is kept from [`Cache::trim`] and
+/// [`Cache::clear`]: the time a load takes from preparing a file to the app
+/// listing it as playing, with room to spare.
+pub const FRESH: Duration = Duration::from_secs(120);
+
+/// Held (shared) by a hit while it checks a copy and marks it used, and
+/// (alone) by a trim while it removes an entry: so a hit either comes first
+/// and makes the entry fresh, which the trim then sees, or comes after and
+/// misses, and the file is converted again.
+static HITS: RwLock<()> = RwLock::new(());
+
+/// Whether `name` is one the cache gives its files: `<16 hex digits>-<rate>`
+/// and `.wav`, `.key` or `.peaks`.
+pub fn is_cache_file(name: &str) -> bool {
+    let Some((stem, extension)) = name.split_once('.') else {
+        return false;
+    };
+    let Some((hash, rate)) = stem.split_once('-') else {
+        return false;
+    };
+    hash.len() == 16
+        && hash
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        && !rate.is_empty()
+        && rate.bytes().all(|b| b.is_ascii_digit())
+        && matches!(extension, "wav" | "key" | "peaks")
+}
 
 /// Frames a reversal reads and writes at a time.
 const BLOCK: usize = 65_536;
@@ -103,18 +149,76 @@ pub struct Prepared {
 }
 
 /// The folder of converted copies.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Cache {
     dir: PathBuf,
+    /// Bytes the folder holds before [`Cache::trim_to_limit`] clears it.
+    limit: AtomicU64,
+    /// Entries used more recently than this are not cleared ([`FRESH`]).
+    fresh: Duration,
 }
 
 impl Cache {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        Self {
+            dir: dir.into(),
+            limit: AtomicU64::new(LIMIT),
+            fresh: FRESH,
+        }
+    }
+
+    /// The same cache, clearing entries however recently they were used
+    /// (the tests, which make and clear entries at once).
+    #[cfg(test)]
+    pub(crate) fn fresh_for(mut self, fresh: Duration) -> Self {
+        self.fresh = fresh;
+        self
     }
 
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// Changes the limit (the Cache limit preference); acts from the next
+    /// trim.
+    pub fn set_limit(&self, bytes: u64) {
+        self.limit.store(bytes, Ordering::Relaxed);
+    }
+
+    pub fn limit(&self) -> u64 {
+        self.limit.load(Ordering::Relaxed)
+    }
+
+    /// Makes the folder before anything is written, and marks it as the
+    /// cache's when it may be ([`Cache::claim`]).
+    fn ready(&self) -> Result<(), MediaError> {
+        fs::create_dir_all(&self.dir).map_err(io)?;
+        self.claim();
+        Ok(())
+    }
+
+    /// Whether the folder is the cache's: marked, or marked now because it
+    /// holds nothing but the cache's own names (an empty folder, or a cache
+    /// made before the mark). A folder that holds anything else is left
+    /// unmarked, so nothing in it is ever counted or cleared.
+    fn claim(&self) -> bool {
+        let marker = self.dir.join(MARKER);
+        if marker.is_file() {
+            return true;
+        }
+        let Ok(read) = fs::read_dir(&self.dir) else {
+            return false;
+        };
+        let only_ours = read.flatten().all(|file| {
+            let name = file.file_name().to_string_lossy().into_owned();
+            file.file_type().is_ok_and(|t| t.is_file())
+                && (is_cache_file(&name) || is_writing(&name))
+        });
+        if !only_ours {
+            return false;
+        }
+        let text = "{\"what\": \"converted audio and waveform peaks\", \"version\": 1}\n";
+        crate::write_new(&marker, text.as_bytes()).is_ok()
     }
 
     fn paths(&self, key: &Key) -> (PathBuf, PathBuf) {
@@ -138,6 +242,7 @@ impl Cache {
         }
         let key = Key::of(source, rate)?;
         let (audio, key_file) = self.paths(&key);
+        let _hit = HITS.read().unwrap_or_else(|e| e.into_inner());
         let matches = fs::read_to_string(&key_file).is_ok_and(|text| text == key.text);
         if !matches {
             return Ok(None);
@@ -171,7 +276,7 @@ impl Cache {
         }
         let key = Key::of(source, rate)?;
         let (audio, key_file) = self.paths(&key);
-        fs::create_dir_all(&self.dir).map_err(io)?;
+        self.ready()?;
         // An old key would vouch for the new copy before it is complete.
         let _ = fs::remove_file(&key_file);
         convert::convert(source, rate, &audio, cancel, progress)?;
@@ -206,7 +311,7 @@ impl Cache {
                 converted: true,
             });
         }
-        fs::create_dir_all(&self.dir).map_err(io)?;
+        self.ready()?;
         let _ = fs::remove_file(&key_file);
         let channels = source.played();
         let mut writer = Writer::create_long(
@@ -271,28 +376,48 @@ impl Cache {
         };
         let mut bytes = key.text.into_bytes();
         bytes.extend(peaks.to_bytes());
-        if fs::create_dir_all(&self.dir).is_ok() {
+        if self.ready().is_ok() {
             let _ = crate::write_new(&file, &bytes);
         }
         Ok(Some(peaks))
     }
 
-    /// Clears the entries used longest ago until the folder holds at most
-    /// `limit` bytes, never an entry of a stream file in `keep` (those
-    /// playing now: their converted copy, and their peaks). Files being
-    /// written are neither counted nor cleared. Returns the bytes cleared.
-    pub fn trim(&self, limit: u64, keep: &[PathBuf]) -> u64 {
-        let Ok(read) = fs::read_dir(&self.dir) else {
-            return 0;
-        };
-        // Entries by name: their files (with their bytes), bytes and time
-        // of last use.
-        type Entry = (Vec<(PathBuf, u64)>, u64, SystemTime);
+    /// Trims the folder to its limit ([`Cache::set_limit`]); see
+    /// [`Cache::trim`].
+    pub fn trim_to_limit(&self, keep: &[PathBuf]) -> u64 {
+        self.trim(self.limit(), keep)
+    }
+
+    /// Clears every entry but those of the stream files in `keep` (those
+    /// playing now). Returns the bytes cleared.
+    pub fn clear(&self, keep: &[PathBuf]) -> u64 {
+        self.trim(0, keep)
+    }
+
+    /// The bytes the cache's own files take in the folder; nothing when the
+    /// folder is not marked as the cache's.
+    pub fn size(&self) -> u64 {
+        self.entries().values().map(|e| e.1).sum()
+    }
+
+    /// The cache's entries by name: their files (with their bytes), bytes
+    /// and time of last use. Only the cache's own names in a folder that is
+    /// the cache's ([`Cache::claim`]); files being written are left out.
+    pub(super) fn entries(&self) -> std::collections::HashMap<String, Entry> {
         let mut entries: std::collections::HashMap<String, Entry> = Default::default();
+        if !self.claim() {
+            return entries;
+        }
+        let Ok(read) = fs::read_dir(&self.dir) else {
+            return entries;
+        };
         for file in read.flatten() {
             let name = file.file_name().to_string_lossy().into_owned();
+            if !is_cache_file(&name) {
+                continue;
+            }
             let Ok(meta) = file.metadata() else { continue };
-            if !meta.is_file() || name.ends_with(".writing") {
+            if !meta.is_file() {
                 continue;
             }
             let stem = name.split('.').next().unwrap_or_default().to_owned();
@@ -304,21 +429,57 @@ impl Cache {
             entry.1 += meta.len();
             entry.2 = entry.2.max(modified);
         }
+        entries
+    }
+
+    /// Clears the entries used longest ago until the folder holds at most
+    /// `limit` bytes, never an entry of a stream file in `keep` (those
+    /// playing now: their converted copy, and their peaks) nor one used in
+    /// the last [`FRESH`] (a file being loaded). Files being written are
+    /// neither counted nor cleared, and nor is any file the cache did not
+    /// make. Returns the bytes cleared.
+    pub fn trim(&self, limit: u64, keep: &[PathBuf]) -> u64 {
+        self.trim_entries(self.entries(), limit, keep)
+    }
+
+    /// [`Cache::trim`] over `entries`, as listed a moment before: an entry
+    /// used since then (a hit while the trim runs) is kept.
+    pub(super) fn trim_entries(
+        &self,
+        entries: std::collections::HashMap<String, Entry>,
+        limit: u64,
+        keep: &[PathBuf],
+    ) -> u64 {
         let mut total: u64 = entries.values().map(|e| e.1).sum();
         if total <= limit {
             return 0;
         }
         let kept: std::collections::HashSet<String> =
             keep.iter().flat_map(|path| self.stems_of(path)).collect();
+        let now = SystemTime::now();
+        let fresh = |used: SystemTime| {
+            now.duration_since(used)
+                .map_or(true, |age| age < self.fresh)
+        };
         let mut oldest: Vec<_> = entries
             .into_iter()
-            .filter(|(stem, _)| !kept.contains(stem))
+            .filter(|(stem, (_, _, used))| !kept.contains(stem) && !fresh(*used))
             .collect();
         oldest.sort_by_key(|(_, (_, _, used))| *used);
         let mut cleared = 0;
         for (_, (mut files, _, _)) in oldest {
             if total <= limit {
                 break;
+            }
+            // No hit while this entry goes; one since the listing kept it.
+            let _removing = HITS.write().unwrap_or_else(|e| e.into_inner());
+            let used_now = files
+                .iter()
+                .filter_map(|(file, _)| fs::metadata(file).and_then(|m| m.modified()).ok())
+                .max()
+                .unwrap_or(UNIX_EPOCH);
+            if fresh(used_now) {
+                continue;
             }
             // The key last, and only once the rest is gone: an entry whose
             // audio cannot be removed (open in another instance) stays
@@ -357,6 +518,27 @@ impl Cache {
         stems
     }
 }
+
+/// Whether `name` is a cache file or the mark being written: the WAV
+/// writer's `.<name>.<pid>.writing`, or `write_new`'s `<stem>.<pid>.writing`.
+fn is_writing(name: &str) -> bool {
+    let Some(rest) = name.strip_suffix(".writing") else {
+        return false;
+    };
+    let rest = rest.strip_prefix('.').unwrap_or(rest);
+    let Some((file, pid)) = rest.rsplit_once('.') else {
+        return false;
+    };
+    !pid.is_empty()
+        && pid.bytes().all(|b| b.is_ascii_digit())
+        && (is_cache_file(file)
+            || is_cache_file(&format!("{file}.wav"))
+            || MARKER.strip_suffix(".json") == Some(file))
+}
+
+/// An entry of the cache: its files (with their bytes), its bytes and its
+/// time of last use.
+pub(super) type Entry = (Vec<(PathBuf, u64)>, u64, SystemTime);
 
 /// Marks a cache file as used now (its modified time), so [`Cache::trim`]
 /// clears it last. A file that cannot be touched only ages sooner.

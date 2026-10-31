@@ -4,7 +4,6 @@
 //! loop and the markers, and lends the transport what its start waits for
 //! (the owner's L A) and the disk thread's reading (D A).
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use lumen_engine::{Region, Timeline};
@@ -27,19 +26,6 @@ pub(crate) struct SceneKey {
 }
 
 impl App {
-    /// Where converted audio is kept: beside the autosaves (the user's
-    /// `Lumen\Cache`, C A), or the system's temporary folder.
-    pub(crate) fn cache_dir(&self) -> PathBuf {
-        self.autosave
-            .as_ref()
-            .and_then(|a| a.dir())
-            .and_then(|dir| dir.parent())
-            .map_or_else(
-                || std::env::temp_dir().join("lumen-cache"),
-                |dir| dir.join("Cache"),
-            )
-    }
-
     /// Per-frame: follows the switch, sends the disk thread a new scene when
     /// what it is built from changed, and reads the thread's stats.
     pub(crate) fn update_streaming(&mut self) {
@@ -48,6 +34,7 @@ impl App {
             let streaming = wanted.then(|| {
                 Streaming::start(
                     self.cache_dir(),
+                    self.settings.cache.limit(),
                     self.transport.audio.engine.transport_reader(),
                     self.slow_disk,
                 )

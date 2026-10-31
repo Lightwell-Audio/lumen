@@ -216,7 +216,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Item | Tier | Status |
 |---|---|---|
 | Transport: play, stop, record, loop, return to start, go to start/end, previous/next marker. **Owner request:** transport controls use vector icons, not text (M2). | M | 🟡 Engine transport done (slice 3, ADR-0017). Transport bar with vector icons, Space / Shift+Space / Home, go to start, stop, play/pause and loop in the app (slice 4, ADR-0018). Recording MIDI (F9, the Record button, Overdub) in M5 slice 6 (ADR-0055); audio recording in M9 R2 (ADR-0102); markers and go to end in M3 |
-| Tempo 20–999 BPM and time signature with change maps; tap tempo | M | 🟡 Tempo and time-signature maps with changes (`lumen-core`), swapped into the engine live (slice 3); the tempo and meter lanes (M7 A6, ADR-0089). Tap tempo is not built |
+| Tempo 20–999 BPM and time signature with change maps; tap tempo | M | 🟡 Tempo and time-signature maps with changes (`lumen-core`), swapped into the engine live (slice 3); the tempo and meter lanes (M7 A6, ADR-0089). Tap tempo: the Tap piece after the tempo and the Tap tempo command (M9 R7, ADR-0112) |
 | Metronome: accent, volume, sound, count-in, pre-roll, record-only, output routing | M | 🟡 On/off, accented downbeat, volume and two synthesized sounds, sample-accurate (M2 slice 7, ADR-0020). Output routing: Main or Cue from its menu, never through the master (M4 slice 4, ADR-0038). Count-in (Off, 1, 2 or 4 bars) and record-only for MIDI recording built in M5 slice 6 (ADR-0055); pre-roll is not built |
 | Loop region, punch in/out, auto-punch | M | 🟡 Sample-accurate loop wrap and punch-region reporting in the engine (M2 slice 3). M3 slice 5c: the loop brace is edited on the strip (draw, move, resize, snapped; click toggles), undoable; punch in and out at the loop's edges, from the loop menus. Recording punches: MIDI since M5 slice 6, audio since M9 R2 |
 | Markers with names and navigation | M | ✅ 2026-10-08 M3 slice 5d: named locators on the strip, set or removed at the playhead (M, Set), jumped between (Ctrl+Left/Right, ◂ ▸, click a flag), dragged (snapped), renamed (double-click, F2), deleted; undoable, saved (format v4) |
@@ -264,7 +264,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Project notes and metadata | S | 🟡 Notes in Project settings (M9 R4, ADR-0105); metadata is not built |
 | Export: master and stems; WAV/FLAC; bit depth; dither; offline and real-time; scope; tails; normalize | M | 🟡 Built in M9 R5 (ADR-0107, PR #72): background snapshot render, actual device-callback real-time mode, master/track/group/return files, project/loop/time selection, 16/24-bit WAV and FLAC plus float WAV, output-rate conversion, TPDF dither, −1 dBFS peak normalization, tails, cancellation, gated LUFS and true-peak report. Reads in blocks, RF64 past 4 GiB (M9 R6, ADR-0109). MT-EXPORT-1 pending. |
 | MP3/AAC | L | 🔲 |
-| Preferences: audio, MIDI, plugin paths, file/cache locations, theme, scale, autosave interval, undo depth, track defaults, record settings | M | 🟡 Audio settings window (M2); theme, interface size, Reduce motion and copy-imported-audio in the app menu (M3). The Preferences window is M9 R7 |
+| Preferences: audio, MIDI, plugin paths, file/cache locations, theme, scale, autosave interval, undo depth, track defaults, record settings | M | ✅ One Preferences window with eight pages and a search (M9 R7, ADR-0112): audio and MIDI devices, recording, editing (undo steps, autosave interval, new-track monitoring and instrument), mixing, plugin folders with Remove and the blocked plugins with Retry, files (projects folder, copy imported audio, the cache's folder, limit and Clear), appearance. MT-PREF-1 pending |
 | Shortcut editor with conflict detection; default keymap | M | 🟡 Built in M3 7c (ADR-0033): the Keyboard shortcuts window (keyboard map by area with modifier layers over the list), clashes with Reassign or Cancel, reset one or all, rebinding from the palette, saved in the settings. MT-APP-15 passed |
 | alternative keymap preset | L | 🔲 |
 | First-run wizard (audio device, plugin paths) | M | 🔲 |
@@ -774,7 +774,7 @@ state.*
   order of the panes, the cramped shortcuts window at 200% in the
   smallest window, a hint under the pinned card, and the pipeline cache
   read on the UI thread (M10).
-- Undo depth is fixed at 10,000 steps until Preferences (M9).
+- Undo depth is fixed at 10,000 steps until Preferences (M9; a setting since R7).
 
 **Risks:**
 - egui: Tab order follows panel declaration, file drags give no pointer

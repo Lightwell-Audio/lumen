@@ -396,6 +396,21 @@ impl App {
             .rescan(Mode::Changed, &self.settings.plugins, ctx);
     }
 
+    /// Stops looking in `folder`; a scan then forgets what was found only
+    /// there.
+    pub(crate) fn remove_plugin_folder(&mut self, ctx: &egui::Context, folder: &str) {
+        if !self.settings.plugins.remove_folder(folder) {
+            return;
+        }
+        self.settings_changed = Some(Instant::now());
+        self.toast = Some((
+            format!("{folder} is no longer searched for plugins"),
+            Instant::now(),
+        ));
+        self.plugins
+            .rescan(Mode::Changed, &self.settings.plugins, ctx);
+    }
+
     /// Stars or unstars a device.
     pub(crate) fn toggle_favorite(&mut self, id: &str) {
         let now = self.settings.plugins.toggle_favorite(id);

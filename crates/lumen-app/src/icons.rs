@@ -754,6 +754,9 @@ pub fn button_look(
             });
         }
     }
+    if let Some(command) = tip.command {
+        crate::testing::coverage::drawn(ui.ctx(), label, command);
+    }
     let label = if enabled {
         label.to_owned()
     } else {

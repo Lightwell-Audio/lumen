@@ -8,9 +8,9 @@ use eframe::emath::GuiRounding as _;
 use lumen_midi::{Direction, PortId, Use};
 
 use super::Transport;
-use crate::audio_settings::warning;
 use crate::icons::{self, Icon};
 use crate::midi::{Action, Midi};
+use crate::widgets::warning;
 use crate::{light, motion, settings, theme, widgets};
 
 /// The chip's width; its height is a dense control's.
@@ -314,11 +314,10 @@ impl Transport {
             ui.separator();
         }
         if widgets::raised::button(ui, "MIDI settings\u{2026}")
-            .on_hover_text("Open the audio and MIDI settings on the MIDI page")
+            .on_hover_text("Open Preferences on the MIDI page")
             .clicked()
         {
-            self.settings_window.open = true;
-            self.settings_window.page = 1;
+            self.open_preferences = Some(crate::preferences::Page::Midi);
             ui.close();
         }
     }

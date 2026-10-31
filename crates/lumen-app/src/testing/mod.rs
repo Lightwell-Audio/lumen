@@ -18,10 +18,12 @@ use crate::{App, files, settings};
 
 mod audio_record;
 mod automation;
+pub(crate) mod coverage;
 mod devices;
 mod editor;
 mod media_pool;
 mod midi;
+mod preferences;
 mod streaming;
 mod tools;
 
@@ -689,6 +691,12 @@ impl App {
     /// What Undo would undo.
     pub fn undo_label(&self) -> Option<&str> {
         self.document.history().undo_label()
+    }
+
+    /// Times the next tap tempo at `seconds` instead of frame time, so a
+    /// test's taps are exact.
+    pub fn next_tap_at(&mut self, seconds: f64) {
+        self.tap.next_time = Some(seconds);
     }
 
     /// Answers the next file dialog with `paths`, as if the user chose

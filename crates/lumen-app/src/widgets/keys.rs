@@ -484,11 +484,13 @@ fn menu_row(
 }
 
 /// What a button's tooltip adds to its name: its shortcut as keycaps and a
-/// hint ("Right-click for punch in and out").
+/// hint ("Right-click for punch in and out"). `command` is the command the
+/// keys belong to, which the coverage test reads (`testing::coverage`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Tip<'a> {
     pub keys: Option<&'a Keys>,
     pub hint: Option<&'a str>,
+    pub command: Option<crate::commands::Command>,
 }
 
 /// A tooltip naming what `response` does, with its shortcut as keycaps and

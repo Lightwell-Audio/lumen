@@ -689,8 +689,7 @@ fn plugins_are_promised_the_devices_block_and_follow_a_new_buffer_size() {
     lumen.wait_for("the plugin promised 256 frames", |app| {
         app.device_promised_frames(PLUGIN) == Some(256)
     });
-    lumen.click("Lumen");
-    lumen.click("Audio and MIDI settings\u{2026}");
+    lumen.open_audio_settings();
     lumen.frames(5);
     lumen.harness.get_by_label_contains("Buffer size: ").click();
     lumen.frames(3);
