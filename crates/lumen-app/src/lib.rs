@@ -110,6 +110,7 @@ mod settings;
 mod song_lanes;
 mod strays;
 mod take_worker;
+mod tap_tempo;
 mod templates;
 pub mod testing;
 mod theme;
@@ -143,6 +144,8 @@ pub struct App {
     synced: Option<u64>,
     /// The undo history window is open.
     show_history: bool,
+    /// The tap tempo run (M9 R7).
+    tap: app::tap_tempo::TapRun,
     /// Track headers, heights, folding and selection (M3 slice 4).
     arrangement: arrangement::Arrangement,
     /// MIDI learn and the controllers that move controls (M7 slice A5).

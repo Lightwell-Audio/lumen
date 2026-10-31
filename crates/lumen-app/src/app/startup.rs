@@ -172,6 +172,7 @@ impl App {
             document,
             synced: None,
             show_history: false,
+            tap: Default::default(),
             arrangement,
             recorder: Default::default(),
             lane_commits: Default::default(),

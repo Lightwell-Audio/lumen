@@ -607,7 +607,8 @@ impl App {
             | Command::PreferencesAudio
             | Command::PreferencesMidi
             | Command::PreferencesPlugins
-            | Command::History => Ok(()),
+            | Command::History
+            | Command::TapTempo => Ok(()),
             Command::GoToEnd => need(
                 crate::app::navigate::end_of_song(self.document.project()).is_some(),
                 "The song has no clips yet",

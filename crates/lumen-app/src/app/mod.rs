@@ -58,6 +58,7 @@ pub(crate) mod shortcuts;
 mod song_lanes;
 mod startup;
 pub(crate) mod streaming;
+pub(crate) mod tap_tempo;
 pub(crate) mod templates;
 pub(crate) mod test_modes;
 pub(crate) mod tools;

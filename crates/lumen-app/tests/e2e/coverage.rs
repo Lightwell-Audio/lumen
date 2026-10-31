@@ -43,6 +43,7 @@ const BAR: &[(&str, Has)] = &[
         "Tempo",
         Without("a field typed into; the palette takes a typed tempo too"),
     ),
+    ("Tap tempo", Command("Tap tempo")),
     ("Time signature:", Without("a field typed into")),
     (
         "Position …",

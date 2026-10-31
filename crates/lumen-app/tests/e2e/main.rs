@@ -103,6 +103,7 @@ mod solo;
 mod song_lanes;
 mod stepped;
 mod streaming;
+mod tap_tempo;
 mod templates;
 mod tools;
 mod track_resize;

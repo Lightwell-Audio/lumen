@@ -36,6 +36,13 @@ fn unit_font() -> egui::FontId {
     egui::FontId::monospace(theme::size::MONO_SMALL)
 }
 
+/// The Tap piece's width: room for "Tap" or a count of up to three digits.
+fn tap_width(ui: &Ui) -> f32 {
+    let text =
+        fit::text_width(ui, "Tap", unit_font()).max(fit::text_width(ui, "999", value_font()));
+    text + 2.0 * theme::space::S
+}
+
 /// The room beside a readout's values inside its well (`.lm-display`:
 /// `space_m`; the compact bar tightens it to `space_s`, so Record and
 /// Overdub fit beside the position at 960 and the values keep clear of the
@@ -243,6 +250,7 @@ impl Transport {
         fit::Wants {
             dropout,
             compensation,
+            tap: tap_width(ui) + widgets::well::PIECE_GAP,
             cpu,
             keyboard,
         }
@@ -401,7 +409,7 @@ impl Transport {
             .keeping_open()
             .show(|ui| self.metronome_menu(ui, record));
         fit::divider(ui);
-        self.numbers(ui, doc, state, plan.compact);
+        self.numbers(ui, doc, keymap, state, plan);
         // Compact, the dot follows the position without a divider.
         if !plan.compact {
             fit::divider(ui);
@@ -504,9 +512,11 @@ impl Transport {
         &mut self,
         ui: &mut Ui,
         doc: &mut crate::document::Document,
+        keymap: &Keymap,
         state: TransportSnapshot,
-        compact: bool,
+        plan: fit::Plan,
     ) {
+        let compact = plan.compact;
         // The tempo and the time signature in force at the playhead: with
         // changes along the song, the fields show and edit the segment the
         // playhead is in (M7 slice A6, the owner's choice).
@@ -518,11 +528,13 @@ impl Transport {
             theme::space::S + fit::text_width(ui, unit, unit_font())
         });
         let position = self.position_text(ui, state, compact);
-        let widths = [
-            2.0 * pad + value_w + unit_w,
-            widgets::signature::WIDTH,
-            position.width,
-        ];
+        // The Tap piece, when it fits, follows the tempo (the owner's TT A).
+        let tap = plan.tap.then(|| tap_width(ui));
+        let widths: Vec<f32> = [Some(2.0 * pad + value_w + unit_w), tap]
+            .into_iter()
+            .flatten()
+            .chain([widgets::signature::WIDTH, position.width])
+            .collect();
         let (well, _) = ui.allocate_exact_size(
             egui::vec2(widgets::well::width(&widths), theme::size::CONTROL_LARGE),
             egui::Sense::hover(),
@@ -592,12 +604,19 @@ impl Transport {
             doc.set_tempo_at(state.ticks, bpm, Some("tempo"));
         }
 
+        let mut next = 1;
+        if let Some(width) = tap {
+            self.tap_piece(ui, pieces[next], keymap);
+            self.fit.spent(width + widgets::well::PIECE_GAP);
+            next += 1;
+        }
+
         // Time signature: one field (the interface audit's S7).
         let here = self.timeline.meter.meter_at(state.ticks);
         let current = (here.numerator, here.denominator);
         if let Some((beats, unit)) = widgets::time_signature(
             ui,
-            pieces[1],
+            pieces[next],
             ui.id().with("time signature"),
             current,
             crate::document::MAX_BEATS_PER_BAR,
@@ -605,13 +624,53 @@ impl Transport {
             doc.set_time_signature_at(state.ticks, beats, unit, Some("meter"));
         }
 
-        self.position_piece(ui, pieces[2], position);
+        self.position_piece(ui, pieces[next + 1], position);
         if let Some(error) = &self.error {
             let warn = ui
                 .label(RichText::new("⚠").color(theme::p().warning))
                 .on_hover_text(error.as_str());
             let name = format!("Position error: {error}");
             warn.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &name));
+        }
+    }
+
+    /// The Tap piece (M9 R7, the owner's TT A): "Tap" until a run starts,
+    /// then the run's taps counted, so its state is read, not only seen.
+    /// A click is the Tap tempo command, timed by the app.
+    fn tap_piece(&mut self, ui: &mut Ui, piece: egui::Rect, keymap: &Keymap) {
+        let id = ui.id().with("tap tempo");
+        let response = ui.interact(piece, id, egui::Sense::click());
+        let keys = keymap.keys(Run::TapTempo);
+        crate::testing::coverage::drawn(ui.ctx(), "Tap tempo", Run::TapTempo);
+        let response = widgets::tip(
+            response,
+            "Tap tempo",
+            keys.as_ref(),
+            Some("Tap in time: the tempo follows from the third tap"),
+        );
+        // The count is the button's value, so a screen reader hears it too.
+        let taps = self.taps;
+        response.widget_info(|| {
+            let mut info = egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Tap tempo");
+            info.value = (taps > 0).then_some(taps as f64);
+            info
+        });
+        widgets::well::wash_when(ui, piece, id, response.hovered());
+        let c = theme::p();
+        let (text, font, colour) = if self.taps == 0 {
+            ("Tap".to_owned(), unit_font(), c.text_secondary)
+        } else {
+            (self.taps.to_string(), value_font(), c.accent)
+        };
+        let galley = ui.painter().layout_no_wrap(text, font, colour);
+        let at = (piece.center() - galley.size() / 2.0).round();
+        ui.painter().galley(at, galley, colour);
+        if response.has_focus() {
+            let radius = widgets::well::piece_radius(piece.height());
+            widgets::raised::paint_focus(ui.painter(), piece, radius);
+        }
+        if response.clicked() {
+            self.requests.push(Run::TapTempo);
         }
     }
 

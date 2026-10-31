@@ -115,7 +115,7 @@ fn safe_mode_loads_no_plugin_scans_nothing_and_saves_the_project_as_it_was() {
 
 #[test]
 fn in_safe_mode_the_plugins_page_says_why_it_cannot_scan() {
-    // M9 R7 (§8.4 item 4), round 2 of its review: Rescan looked ready in
+    // M9 R7 (ADR-0112), round 2 of its review: Rescan looked ready in
     // safe mode and did nothing.
     let project = song(vec![instrument_device(PLUGIN)]);
     let mut lumen = after_a_normal_run("prefs", &project, lumen_app::Launch::in_safe_mode);

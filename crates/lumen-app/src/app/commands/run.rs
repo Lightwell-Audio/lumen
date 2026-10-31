@@ -520,6 +520,7 @@ impl App {
             Command::PreferencesMidi => self.preferences.show_page(Page::Midi),
             Command::PreferencesPlugins => self.preferences.show_page(Page::Plugins),
             Command::History => self.show_history = true,
+            Command::TapTempo => self.tap_tempo(ctx),
             Command::ToggleLoop => {
                 let on = self.document.project().transport.loop_enabled;
                 self.document.set_loop_enabled(!on);

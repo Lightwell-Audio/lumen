@@ -5,6 +5,7 @@
 use std::sync::atomic::AtomicBool;
 
 use eframe::egui::{Key, Modifiers};
+use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_core::time::Ticks;
 use lumen_project::model::{ClipContent, Id, Note, TrackKind};
 use lumen_project::testing::{TempDir, midi_track, project_of};
@@ -242,4 +243,32 @@ fn a_frozen_plugin_track_runs_no_plugin_and_unfreezing_starts_it_again() {
     command(&mut lumen, "Unfreeze track");
     wait_for_state(&mut lumen, PLUGIN, "ready");
     assert!(lumen.app().project().tracks[0].frozen.is_none());
+}
+
+/// Tap tempo is refused at its first tap while a track is frozen, with the
+/// frozen notice, and no run starts (M9 R7).
+#[test]
+fn a_tap_with_a_frozen_track_says_why_and_starts_no_run() {
+    let (mut lumen, _path) = keys_project("freeze-tap");
+    let track = lumen.app().project().tracks[0].id;
+    freeze_selected(&mut lumen, track);
+    for time in [1.0, 1.5, 2.0] {
+        lumen.app_mut().next_tap_at(time);
+        lumen.click("Tap tempo");
+        lumen.frames(2);
+    }
+    assert_eq!(lumen.app().project().tempo[0].bpm, 120.0);
+    assert!(
+        lumen
+            .harness
+            .query_by_label_contains("can't change while a track is frozen")
+            .is_some()
+    );
+    let value = lumen
+        .harness
+        .get_by_label("Tap tempo")
+        .accesskit_node()
+        .numeric_value();
+    assert_eq!(value, None, "no run started");
+    assert_eq!(lumen.app().undo_label(), Some("Freeze"));
 }

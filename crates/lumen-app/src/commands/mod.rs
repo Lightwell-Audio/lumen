@@ -254,6 +254,7 @@ pub(crate) enum Command {
     PreferencesMidi,
     PreferencesPlugins,
     History,
+    TapTempo,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -573,6 +574,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::PreferencesMidi, "file.preferences_midi", "MIDI settings…", Area::File, &[], "Opens Preferences on the MIDI page: every MIDI input and output with its switches."),
     info(Command::PreferencesPlugins, "file.preferences_plugins", "Plugin settings…", Area::File, &[], "Opens Preferences on the Plugins page: the folders searched for plugins, and scanning."),
     info(Command::History, "file.history", "History", Area::File, &[], "Shows every step that can be undone or redone; click one to go back or forward to it."),
+    info(Command::TapTempo, "transport.tap_tempo", "Tap tempo", Area::Transport, &[], "Tap in time: from the third tap the tempo where the run started follows, rounded to a whole BPM. A pause of 3 seconds ends the run, and each run undoes in one step."),
 ];
 
 const fn info(
@@ -636,7 +638,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::History as usize + 1,
+            Command::TapTempo as usize + 1,
             ALL.len(),
             "a command is missing"
         );

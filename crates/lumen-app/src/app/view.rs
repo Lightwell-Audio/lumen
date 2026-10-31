@@ -211,6 +211,7 @@ report: {}",
             crate::transport::divider(ui);
             self.transport.keyboard_readout =
                 self.keyboard.is_on().then(|| self.keyboard.readout());
+            self.transport.taps = self.tap.count();
             self.transport
                 .ui(ui, &mut self.document, &self.keymap, self.settings.record);
             // What the bar's controls asked for: Record, Overdub, the count-in.

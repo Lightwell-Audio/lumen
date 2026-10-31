@@ -9,9 +9,10 @@
 //! 1. the device text shortens, then goes (the dot's tooltip has it all);
 //! 2. the computer keyboard's readout goes (the info line carries it);
 //! 3. the CPU readout goes;
-//! 4. the delay compensation readout goes;
-//! 5. the dropout chip goes (the dot's tooltip and the audio panel say it);
-//! 6. only then the essentials themselves tighten (compact: tempo without
+//! 4. the Tap piece goes (the Tap tempo command and its key still tap);
+//! 5. the delay compensation readout goes;
+//! 6. the dropout chip goes (the dot's tooltip and the audio panel say it);
+//! 7. only then the essentials themselves tighten (compact: tempo without
 //!    " BPM", closer spacing). Record and Overdub never give way on their
 //!    own: they are the essentials that tighten with the rest, so they sit
 //!    in the bar at every width the bar fits (`barfit`).
@@ -37,6 +38,7 @@ pub struct Plan {
     pub compact: bool,
     pub dropout: bool,
     pub compensation: bool,
+    pub tap: bool,
     pub cpu: bool,
     pub keyboard: bool,
     /// The room the device text may take; 0 when it is not shown.
@@ -48,6 +50,7 @@ pub struct Plan {
 pub struct Wants {
     pub dropout: f32,
     pub compensation: f32,
+    pub tap: f32,
     pub cpu: f32,
     pub keyboard: f32,
 }
@@ -102,6 +105,7 @@ impl Fit {
             };
             plan.dropout = take(wants.dropout);
             plan.compensation = take(wants.compensation);
+            plan.tap = take(wants.tap);
             plan.cpu = take(wants.cpu);
             plan.keyboard = take(wants.keyboard);
             plan.device = if left >= MIN_DEVICE { left } else { 0.0 };

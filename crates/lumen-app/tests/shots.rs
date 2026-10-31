@@ -950,7 +950,14 @@ fn midi_files_and_clock() {
 fn preferences_midi_and_plugins() {
     use egui_kittest::kittest::Queryable;
     use lumen_midi::{Direction, fake::FakeControl};
-    for (appearance, scale) in [("dark", 1.0), ("light", 1.5), ("dark", 2.0)] {
+    for (appearance, scale) in [
+        ("dark", 1.0),
+        ("light", 1.0),
+        ("dark", 1.5),
+        ("light", 1.5),
+        ("dark", 2.0),
+        ("light", 2.0),
+    ] {
         let fake = FakeControl::new();
         fake.plug(Direction::Input, "Keys");
         fake.plug(
@@ -1012,6 +1019,21 @@ fn preferences_midi_and_plugins() {
         }
         h.run_steps(30);
         save(&mut h, &format!("prefs-plugins-{tag}"));
+        // The settings R7 added: Editing, then Files with a cache folder
+        // chosen (its "next start" hint).
+        h.get_by_label("Editing page").click();
+        h.run_steps(30);
+        save(&mut h, &format!("prefs-editing-{tag}"));
+        h.get_by_label("Files page").click();
+        h.run_steps(5);
+        h.state_mut().answer_next_dialog(vec![folders[1].clone()]);
+        h.get_by_label("Choose the cache folder").click();
+        for _ in 0..30 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            h.run_steps(1);
+        }
+        h.run_steps(30);
+        save(&mut h, &format!("prefs-files-{tag}"));
     }
 }
 

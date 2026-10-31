@@ -693,6 +693,12 @@ impl App {
         self.document.history().undo_label()
     }
 
+    /// Times the next tap tempo at `seconds` instead of frame time, so a
+    /// test's taps are exact.
+    pub fn next_tap_at(&mut self, seconds: f64) {
+        self.tap.next_time = Some(seconds);
+    }
+
     /// Answers the next file dialog with `paths`, as if the user chose
     /// them (a dialog with no answer given is cancelled).
     pub fn answer_next_dialog(&mut self, paths: Vec<PathBuf>) {

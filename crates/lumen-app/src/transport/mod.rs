@@ -115,6 +115,9 @@ pub struct Transport {
     pub(crate) keyboard_readout: Option<String>,
     /// Its button was clicked, for the app to take.
     pub(crate) keyboard_clicked: bool,
+    /// Taps in the tap tempo run, set by the app each frame; 0 with none
+    /// (M9 R7).
+    pub(crate) taps: usize,
     /// The readout fitted in the bar this frame; when it did not (the
     /// smallest window) the info line carries it.
     pub(crate) keyboard_readout_shown: bool,
@@ -173,6 +176,7 @@ impl Transport {
             info: None,
             keyboard_readout: None,
             keyboard_clicked: false,
+            taps: 0,
             keyboard_readout_shown: false,
             fit: Default::default(),
             requests: Vec::new(),

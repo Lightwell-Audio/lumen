@@ -21,6 +21,17 @@ impl Document {
         });
     }
 
+    /// Sets the tempo a tap run measured (M9 R7) on the segment `at` falls
+    /// in: on a ramp, its start. A run is one undo step, "Tap tempo": its
+    /// taps merge until the app seals the run. False when nothing changed,
+    /// or when a frozen track refused it (`take_refused` says so).
+    pub fn tap_tempo(&mut self, at: Ticks, bpm: f64) -> bool {
+        self.history
+            .apply("Tap tempo", Some("tap tempo"), |project| {
+                maps::set_tempo_in(&mut project.tempo, at, bpm);
+            })
+    }
+
     /// Puts a tempo at `at`: a new change there, or the value of the one
     /// already there. False when the song holds as many as it may.
     pub fn put_tempo_change(&mut self, at: Ticks, bpm: f64, merge: Option<&str>) -> bool {
@@ -162,6 +173,64 @@ mod tests {
         assert_eq!(doc.project().tempo[0].bpm, 140.0, "the drag was one step");
         doc.set_tempo_at(Ticks::ZERO, 1.0, None);
         assert_eq!(doc.project().tempo[0].bpm, 20.0);
+    }
+
+    #[test]
+    fn a_tap_run_is_one_step_on_the_segment_it_started_in() {
+        let mut doc = doc();
+        doc.put_tempo_change(Ticks::quarters(8), 90.0, None);
+        doc.seal();
+        // The run started in the first segment: it stays there, wherever
+        // the playhead has gone since.
+        for bpm in [100.0, 101.0, 102.0] {
+            assert!(doc.tap_tempo(Ticks::quarters(2), bpm));
+        }
+        let bpm: Vec<f64> = doc.project().tempo.iter().map(|p| p.bpm).collect();
+        assert_eq!(bpm, [102.0, 90.0]);
+        assert_eq!(doc.history().steps().0.last(), Some(&"Tap tempo"));
+        // The same tempo again changes nothing and records nothing.
+        assert!(!doc.tap_tempo(Ticks::quarters(2), 102.0));
+        // A sealed run is a step of its own.
+        doc.seal();
+        doc.tap_tempo(Ticks::quarters(9), 95.0);
+        doc.undo();
+        assert_eq!(doc.project().tempo[1].bpm, 90.0);
+        doc.undo();
+        let bpm: Vec<f64> = doc.project().tempo.iter().map(|p| p.bpm).collect();
+        assert_eq!(bpm, [120.0, 90.0], "the first run was one step");
+    }
+
+    #[test]
+    fn a_tap_on_a_ramp_sets_its_start() {
+        let mut doc = doc();
+        doc.put_tempo_change(Ticks::quarters(8), 90.0, None);
+        doc.set_tempo_ramp(0, true);
+        doc.tap_tempo(Ticks::quarters(4), 140.0);
+        let tempo = &doc.project().tempo;
+        assert_eq!((tempo[0].bpm, tempo[0].ramp), (140.0, true));
+        assert_eq!(tempo[1].bpm, 90.0, "the ramp's end is the next change");
+    }
+
+    #[test]
+    fn a_tap_is_refused_while_a_track_is_frozen() {
+        use lumen_project::edit::freeze::Violation;
+        let mut doc = doc();
+        doc.apply("Freeze", None, |project| {
+            use lumen_project::model::{Color, Frozen, Id, Track, TrackKind};
+            let mut track = Track::new(Id(70), "Frozen", TrackKind::Audio, Color(0));
+            track.frozen = Some(Frozen {
+                id: Id(71),
+                media: Id(72),
+                start: Ticks::ZERO,
+                length: Ticks::ZERO,
+                mono: false,
+            });
+            project.tracks.push(std::sync::Arc::new(track));
+        });
+        doc.seal();
+        assert!(!doc.tap_tempo(Ticks::ZERO, 90.0));
+        assert_eq!(doc.project().tempo[0].bpm, 120.0);
+        assert_eq!(doc.take_refused(), [Violation::Timing]);
     }
 
     #[test]
