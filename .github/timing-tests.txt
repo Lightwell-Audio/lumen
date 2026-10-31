@@ -1,0 +1,33 @@
+# The tests whose result depends on the machine keeping real-time deadlines
+# (a plugin host answering a block in time, a sender keeping its spacing).
+# On a runner with three cores they can miss a deadline for no fault of the
+# code, so CI runs them apart from the others (.github/scripts/ci-test.sh):
+#
+#   - alone, one test at a time, after the parallel tests have finished, and
+#   - with up to two retries (profile `timing` in .config/nextest.toml). A
+#     test that passes on a retry is reported as flaky, not as a failure; a
+#     test that fails all three times fails the job.
+#
+# One entry per line. Locally these tests are ordinary tests: `cargo test`
+# runs them with everything else.
+#
+#   <package>::<test target>   a whole integration test (crates/<package>/tests)
+#   lumen-app <test name>      the unit tests of lumen-app whose path contains
+#                              the name (only lumen-app's are supported)
+#
+# A test file that reads the wall clock and is neither listed here nor known
+# to be harmless fails crates/lumen-app/tests/timing_tests.rs: add it here
+# when its result depends on timing. The E2E suite is not listed. Its
+# scenarios share in-process locks (`timing_sensitive`) and so stay in one
+# process per shard; they are not retried.
+
+lumen-audio::supervisor
+lumen-engine::hosted
+lumen-engine::hosted_effects
+lumen-hosting::editor
+lumen-hosting::hosting
+lumen-hosting::offline
+lumen-hosting::parameters
+lumen-hosting::rt
+lumen-hosting::soak
+lumen-app midi_out::sender_tests

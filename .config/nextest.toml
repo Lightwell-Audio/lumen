@@ -1,0 +1,14 @@
+# cargo-nextest, used by CI only and only for the timing tests listed in
+# .github/timing-tests.txt (see .github/scripts/ci-test.sh). Every other test
+# runs under `cargo test`.
+
+[profile.timing]
+# A real-time test can miss a deadline on a loaded runner. A pass on a retry
+# is reported as flaky; three failures in a row fail the run.
+retries = 2
+fail-fast = false
+# Output of the attempts that failed is printed once, at the end, and only
+# for tests that never passed, so a flaky pass adds no panic text to the log.
+failure-output = "final"
+status-level = "retry"
+final-status-level = "flaky"

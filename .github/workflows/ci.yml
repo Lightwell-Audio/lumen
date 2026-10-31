@@ -100,6 +100,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ startsWith(matrix.part, 'e2e') && 'e2e' || matrix.part }}
+      # cargo-nextest runs the real-time tests of the `rest` part, alone and
+      # with retries (.github/timing-tests.txt). Nothing else uses it.
+      - name: Install cargo-nextest
+        if: matrix.part == 'rest'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
       # The output is kept so that a failure names its tests below.
       - name: Tests
         shell: bash
@@ -117,6 +124,17 @@ jobs:
           awk '/panicked at/ { n = 3; msg = $0; next }
                n > 0 { msg = msg " | " $0; if (--n == 0) print "::error title=Failed test::" msg }' test-output.txt | head -10
           grep -E "^test .* FAILED$" test-output.txt | head -20
+          # The timing tests run under nextest, which prints its own lines.
+          grep -E "^ +(FAIL|TIMEOUT|SIG[A-Z]+) \[" test-output.txt | head -20 || true
+      # A timing test that failed and then passed on a retry does not fail
+      # the job; it is named here so that it is not forgotten.
+      - name: Name the flaky tests
+        if: always()
+        shell: bash
+        run: |
+          grep -E "^ +FLAKY " test-output.txt | head -10 | while read -r line; do
+            echo "::warning title=Flaky timing test (passed on a retry)::$line"
+          done || true
       # Scanner isolation: crashing, hanging and broken VST3 modules must be
       # contained and classified (P-VST3). Windows-only until the macOS and
       # Linux port (PROGRESS.md, Stretch goals).
