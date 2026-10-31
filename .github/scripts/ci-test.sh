@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # The CI test runner, one part per job (see the `test` job in ci.yml).
 #
-#   ci-test.sh rest      every test target but the E2E suite, plus doc tests
+#   ci-test.sh rest      every test target but the E2E suite, plus doc tests;
+#                        the real-time tests listed in .github/timing-tests.txt
+#                        run last, alone and with retries (cargo-nextest)
 #   ci-test.sh e2e-<i>   shard <i> (1-based) of the E2E suite's modules
 #
 # The E2E suite is one test binary of about 760 scenarios that takes most of
@@ -17,10 +19,21 @@ set -euo pipefail
 part=${1:?usage: ci-test.sh rest | e2e-<shard>}
 shards=${E2E_SHARDS:-2}
 
+# The real-time tests, one entry per line (comments and blank lines dropped).
+timing_file=.github/timing-tests.txt
+timing_entries() {
+  sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$timing_file"
+}
+# Whole test targets (`package::target`, no space) and unit tests (`package name`).
+timing_targets() { timing_entries | { grep -v ' ' || true; }; }
+timing_units() { timing_entries | { grep ' ' || true; }; }
+
 case "$part" in
 rest)
   # Cargo has no "all test targets but one", so name lumen-app's others: the
   # files in tests/ and the directories with a main.rs, as cargo finds them.
+  # The timing tests (.github/timing-tests.txt) are left out of these runs
+  # and run last, apart from everything else.
   targets=()
   for entry in crates/lumen-app/tests/*.rs crates/lumen-app/tests/*/main.rs; do
     [ -e "$entry" ] || continue
@@ -30,15 +43,55 @@ rest)
     esac
     [ "$name" = e2e ] || targets+=(--test "$name")
   done
+  # Packages with a whole timing test target, and lumen-app's timing unit tests.
+  timed_packages=$(timing_targets | sed 's/::.*//' | sort -u)
+  excludes=()
+  for package in $timed_packages; do excludes+=(--exclude "$package"); done
+  skips=()
+  while read -r package name; do
+    [ -n "$name" ] || continue
+    [ "$package" = lumen-app ] || { echo "$timing_file: unit tests of $package are not supported"; exit 1; }
+    skips+=(--skip "$name")
+  done < <(timing_units)
   status=0
   # --all-targets also runs every divan benchmark once as a smoke test.
   # --no-fail-fast runs every test binary, so one run shows all failures.
-  cargo test --workspace --exclude lumen-app --all-targets --locked --no-fail-fast || status=$?
-  cargo test -p lumen-app --lib --bins --benches --examples "${targets[@]}" --locked --no-fail-fast || status=$?
+  cargo test --workspace --exclude lumen-app ${excludes[@]+"${excludes[@]}"} --all-targets --locked --no-fail-fast || status=$?
+  # A package with a timing test target gets all its other targets, named.
+  for package in $timed_packages; do
+    flags=(--bins --benches --examples)
+    [ -f "crates/$package/src/lib.rs" ] && flags+=(--lib)
+    others=()
+    for entry in crates/"$package"/tests/*.rs crates/"$package"/tests/*/main.rs; do
+      [ -e "$entry" ] || continue
+      case "$entry" in
+      */main.rs) name=$(basename "$(dirname "$entry")") ;;
+      *) name=$(basename "$entry" .rs) ;;
+      esac
+      timing_targets | grep -qx "$package::$name" || others+=(--test "$name")
+    done
+    cargo test -p "$package" "${flags[@]}" ${others[@]+"${others[@]}"} --locked --no-fail-fast || status=$?
+  done
+  cargo test -p lumen-app --lib --bins --benches --examples "${targets[@]}" --locked --no-fail-fast -- ${skips[@]+"${skips[@]}"} || status=$?
   # The same packages as the first run: cargo unifies features over the
   # packages it is given, so a different set rebuilds crates that are already
   # built (23 s for lumen-app alone on Windows). lumen-app has no doc tests.
   cargo test --workspace --exclude lumen-app --doc --locked || status=$?
+  # The timing tests, last and alone: one at a time, with no other test
+  # running beside them, and two retries each (profile `timing` in
+  # .config/nextest.toml). A pass on a retry is printed as FLAKY and the
+  # workflow turns it into a warning; three failures fail the job.
+  # nextest builds the same targets as above, so nothing is rebuilt.
+  whole=$(timing_targets | sed 's/.*/binary_id(=&)/' | paste -sd'|' -)
+  units=$(timing_units | sed 's/^\([^ ]*\) \(.*\)$/binary_id(=\1) \& test(~\2)/' | paste -sd'|' -)
+  if [ -n "$whole" ]; then
+    cargo nextest run --profile timing --workspace --exclude lumen-app --all-targets --locked \
+      --test-threads 1 --color never -E "$whole" || status=$?
+  fi
+  if [ -n "$units" ]; then
+    cargo nextest run --profile timing -p lumen-app --lib --locked \
+      --test-threads 1 --color never -E "$units" || status=$?
+  fi
   exit $status
   ;;
 e2e-*)
