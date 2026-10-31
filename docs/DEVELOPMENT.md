@@ -358,9 +358,9 @@ cargo test -p lumen-app --test smoke -- --ignored             # the real binary,
 
 ## How CI splits the tests (ADR-0111)
 
-Each OS runs three `test` jobs side by side: `rest` (clippy, every test target
-but the E2E suite, doc tests and, on Windows, the scanner self-test) and
-`e2e-1`, `e2e-2` (half of the E2E suite each). The runner is
+Each OS runs a `clippy` job and three `test` jobs side by side: `rest` (every
+test target but the E2E suite, doc tests and, on Windows, the scanner
+self-test) and `e2e-1`, `e2e-2` (half of the E2E suite each). The runner is
 `.github/scripts/ci-test.sh`; run `bash .github/scripts/ci-test.sh e2e-1`
 to reproduce one shard. The E2E suite is dealt out by module, never one
 process per scenario, because its scenarios share in-process locks. A new

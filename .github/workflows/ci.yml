@@ -35,7 +35,33 @@ jobs:
         run: rustup toolchain install
       - run: cargo fmt --all -- --check
 
-  # Three jobs per OS: `rest` (clippy, every test but the E2E suite, doc tests)
+  # Clippy is its own job so that it runs beside the tests: in `rest` it added
+  # a minute to the slowest job (Windows).
+  clippy:
+    name: clippy (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [blacksmith-4vcpu-windows-2025, blacksmith-6vcpu-macos-15, blacksmith-4vcpu-ubuntu-2404]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev \
+            libfontconfig1-dev mesa-vulkan-drivers
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  # Three test jobs per OS: `rest` (every test but the E2E suite, doc tests)
   # and the E2E suite in E2E_SHARDS shards. The E2E suite is one test binary
   # that took 6.5 of the 10 minutes of the single job (measured on Linux,
   # 2026-10-30), and it is split by module because its scenarios share
@@ -74,9 +100,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ startsWith(matrix.part, 'e2e') && 'e2e' || matrix.part }}
-      - name: Clippy
-        if: matrix.part == 'rest'
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # The output is kept so that a failure names its tests below.
       - name: Tests
         shell: bash

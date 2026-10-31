@@ -9863,7 +9863,7 @@ was warm). Windows, the slowest, took 10 min 16 s on that step.
    of shard 1.
 
 **Options not taken.**
-- Splitting clippy from the tests: clippy took 12 to 25 s, so nothing to gain.
+- Splitting clippy from the tests, at first: it took 12 to 25 s on a warm cache. See the addendum.
 - Splitting the suite at the workspace level: the other targets take under
   three minutes.
 - More threads per runner: the suite is timing sensitive under load.
@@ -9878,3 +9878,23 @@ unsharded E2E part in the matrix. The check names change from
 names must be updated. The first run on the new cache keys is cold. Timing
 here: shards 225 s and 250 s on four cores, 381 and 380 scenarios; together
 they run the same 759 passing, 2 ignored scenarios as one process did.
+
+**Addendum (2026-10-31), the first run of the PR.** The run took 9 minutes
+and Windows `rest` was the longest job. Its log (Windows, cold cache: the new
+cache keys had nothing to restore) split into clippy 63 s, then three cargo
+runs that each compiled and then ran: the other crates (102 s compile, 144 s
+run), `lumen-app` without E2E (92 s compile, 16 s run) and the doc tests
+(68 s compile, no tests: the workspace has no doc tests). The warm run on
+`main` showed the same duplication: the plugin walkthrough step recompiled
+`lumen-app` for 34 s and the doc tests for 23 s, because cargo unifies
+features over the packages a command names, and a different set rebuilds
+crates that are already built. Changes: clippy is its own job per OS, and the
+doc tests name the same packages as the first run (`--workspace --exclude
+lumen-app`; `lumen-app` has none). Not done, and why: building every test
+binary once and handing it to the shards (an archive) would not shorten a run,
+since the build would come first and the shards after it; it would only save
+billed minutes, at the price of moving gigabytes of debug binaries between
+jobs. A per-test-process runner for `rest` would break the shared plugin
+build and scan locks in `lumen-plugin-catalog` and `lumen-plugin-host`.
+Cache note: dependencies are cached, the workspace's own crates are rebuilt
+every run, and the new keys (`rest`, `e2e`, `clippy`) are cold once.

@@ -35,7 +35,10 @@ rest)
   # --no-fail-fast runs every test binary, so one run shows all failures.
   cargo test --workspace --exclude lumen-app --all-targets --locked --no-fail-fast || status=$?
   cargo test -p lumen-app --lib --bins --benches --examples "${targets[@]}" --locked --no-fail-fast || status=$?
-  cargo test --workspace --doc --locked || status=$?
+  # The same packages as the first run: cargo unifies features over the
+  # packages it is given, so a different set rebuilds crates that are already
+  # built (23 s for lumen-app alone on Windows). lumen-app has no doc tests.
+  cargo test --workspace --exclude lumen-app --doc --locked || status=$?
   exit $status
   ;;
 e2e-*)
