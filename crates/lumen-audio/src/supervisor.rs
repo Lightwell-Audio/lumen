@@ -234,6 +234,32 @@ impl Default for Timing {
     }
 }
 
+/// How long [`AudioSystem::switch`] waits for the old control thread to give
+/// the callback back.
+pub const HANDOVER_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Why [`AudioSystem::switch`] did not switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwitchError {
+    /// The old control thread has ended (it panicked), and the callback
+    /// with it.
+    Stopped,
+    /// The old control thread did not give the callback back within
+    /// [`HANDOVER_TIMEOUT`]: its driver did not close. It still holds it.
+    NoHandover,
+}
+
+impl std::fmt::Display for SwitchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            SwitchError::Stopped => "the audio thread has stopped",
+            SwitchError::NoHandover => "the audio thread did not hand over in time",
+        })
+    }
+}
+
+impl std::error::Error for SwitchError {}
+
 /// Handle to the audio supervisor. Dropping it stops audio and joins the thread.
 pub struct AudioSystem {
     commands: Sender<Command>,
@@ -318,8 +344,23 @@ impl AudioSystem {
     /// opens `config` on it. The running callback, with all its state, moves
     /// to a fresh control thread: driver models need differently set-up
     /// threads (COM apartments), which cannot change once set. Results
-    /// arrive as events. Fails only if the old control thread is gone.
-    pub fn switch<B, F>(&mut self, make_backend: F, config: StreamConfig) -> Result<(), String>
+    /// arrive as events.
+    ///
+    /// Waits up to [`HANDOVER_TIMEOUT`] for the old control thread to close
+    /// its stream and give the callback back, calls `handed` once it has,
+    /// then waits, with no deadline, for that thread to end (its driver is
+    /// released then). Events the old driver sent and nobody read are
+    /// dropped: the first event after a switch is the new driver's. A driver
+    /// can keep it waiting forever, so call this
+    /// where waiting is harmless, never on the interface thread. After
+    /// [`SwitchError::NoHandover`] the old thread still holds the callback,
+    /// and dropping `self` waits for that thread too.
+    pub fn switch<B, F>(
+        &mut self,
+        make_backend: F,
+        config: StreamConfig,
+        handed: impl FnOnce(),
+    ) -> Result<(), SwitchError>
     where
         B: Backend + 'static,
         F: FnOnce() -> B + Send + 'static,
@@ -327,13 +368,18 @@ impl AudioSystem {
         let (tx, rx) = mpsc::channel();
         self.commands
             .send(Command::Handover(tx))
-            .map_err(|_| "the audio thread has stopped".to_owned())?;
-        let callback = rx
-            .recv_timeout(Duration::from_secs(10))
-            .map_err(|_| "the audio thread did not hand over in time".to_owned())?;
+            .map_err(|_| SwitchError::Stopped)?;
+        let callback = rx.recv_timeout(HANDOVER_TIMEOUT).map_err(|e| match e {
+            RecvTimeoutError::Timeout => SwitchError::NoHandover,
+            RecvTimeoutError::Disconnected => SwitchError::Stopped,
+        })?;
+        handed();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+        // What the old driver said and nobody read yet is about a device
+        // that is closed now: read later, it would pass for the new one's.
+        while self.events.try_recv().is_ok() {}
         let (commands, thread) = Self::start_thread(
             make_backend,
             callback,

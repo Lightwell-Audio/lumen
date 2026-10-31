@@ -35,6 +35,7 @@ mod coverage;
 mod crossfades;
 mod cue;
 mod detail_tabs;
+mod device_change;
 mod devices;
 mod dropdown;
 mod editing;

@@ -391,7 +391,11 @@ fn switching_drivers_moves_the_running_callback_to_the_new_one() {
 
     let second_control = second.clone();
     audio
-        .switch(move || FakeBackend(second_control), config(Some(512)))
+        .switch(
+            move || FakeBackend(second_control),
+            config(Some(512)),
+            || {},
+        )
         .unwrap();
     match audio.wait_event(WAIT) {
         Some(DeviceEvent::Started(info)) => assert_eq!(info.buffer_frames, 512),
@@ -403,4 +407,61 @@ fn switching_drivers_moves_the_running_callback_to_the_new_one() {
     wait_for_blocks(&blocks, before + 5);
     assert_eq!(second.opens(), 1);
     assert_eq!(audio.status().state(), State::Running);
+}
+
+#[test]
+fn after_a_switch_the_first_event_is_the_new_drivers() {
+    let (first, second) = (FakeControl::new(), FakeControl::new());
+    let (mut audio, _) = system(&first);
+    // The old driver starts and says so; nobody reads it before the switch.
+    audio.configure(config(Some(128)));
+    let next = second.clone();
+    audio
+        .switch(move || FakeBackend(next), config(Some(512)), || {})
+        .unwrap();
+    match audio.wait_event(WAIT) {
+        Some(DeviceEvent::Started(info)) => assert_eq!(info.buffer_frames, 512),
+        other => panic!("expected Started on the new driver, got {other:?}"),
+    }
+    let left = audio.try_event();
+    assert!(
+        left.is_none(),
+        "nothing of the old driver's is left: {left:?}"
+    );
+}
+
+#[test]
+fn a_switch_says_when_the_audio_is_handed_over_and_gives_up_on_a_driver_that_holds_on() {
+    // A driver that lets go: `handed` is told before the new one opens.
+    let (first, second) = (FakeControl::new(), FakeControl::new());
+    let (mut audio, _) = system(&first);
+    audio.configure(config(None));
+    assert!(matches!(
+        audio.wait_event(WAIT),
+        Some(DeviceEvent::Started(_))
+    ));
+    let handed = std::cell::Cell::new(false);
+    let next = second.clone();
+    audio
+        .switch(move || FakeBackend(next), config(None), || handed.set(true))
+        .unwrap();
+    assert!(handed.get());
+
+    // One that does not: the switch gives up after the handover's deadline.
+    assert!(matches!(
+        audio.wait_event(WAIT),
+        Some(DeviceEvent::Started(_))
+    ));
+    second.set(|d| d.close_delay = lumen_audio::HANDOVER_TIMEOUT + Duration::from_secs(1));
+    let started = Instant::now();
+    let third = FakeControl::new();
+    let error = audio
+        .switch(
+            move || FakeBackend(third),
+            config(None),
+            || panic!("nothing was handed over"),
+        )
+        .unwrap_err();
+    assert_eq!(error, lumen_audio::SwitchError::NoHandover);
+    assert!(started.elapsed() >= lumen_audio::HANDOVER_TIMEOUT);
 }

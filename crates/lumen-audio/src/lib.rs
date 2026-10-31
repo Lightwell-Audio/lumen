@@ -27,7 +27,9 @@ pub mod wasapi;
 mod wasapi_input;
 
 pub use backend::{Backend, OpenError, Stream, StreamEvent, Unavailable};
-pub use supervisor::{AudioSystem, BlockTime, DeviceEvent, State, Status, Timing};
+pub use supervisor::{
+    AudioSystem, BlockTime, DeviceEvent, HANDOVER_TIMEOUT, State, Status, SwitchError, Timing,
+};
 pub use types::{
     ALL_INPUTS, AudioCallback, AudioError, Block, BufferSizes, DeviceId, DeviceInfo, DriverKind,
     MOST_INPUTS, StreamConfig, StreamInfo,

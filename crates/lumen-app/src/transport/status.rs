@@ -211,8 +211,11 @@ impl Transport {
         match action {
             Action::Apply(settings) => {
                 crate::trace::log(|| format!("audio: apply {settings:?}"));
-                self.audio.apply(settings);
-                self.settle();
+                if self.audio.apply(settings) {
+                    self.settle();
+                } else {
+                    crate::trace::log(|| "audio: refused, a change is under way".to_owned());
+                }
             }
             Action::ControlPanel => self.audio.open_control_panel(),
             Action::DismissNotice => self.audio.dismiss_notice(),
@@ -254,9 +257,14 @@ impl Transport {
                 ui.label(RichText::new(device).strong());
                 self.latency(ui, project);
             }
-            Status::Starting => {
-                ui.label("Starting audio…");
-            }
+            Status::Starting => match self.audio.not_answering() {
+                Some(why) => {
+                    ui.add(egui::Label::new(RichText::new(why).color(theme::p().warning)).wrap());
+                }
+                None => {
+                    ui.label("Starting audio…");
+                }
+            },
             Status::Lost(why) => {
                 ui.label(RichText::new("Device lost: reconnecting…").color(theme::p().warning));
                 ui.label(RichText::new(why).small());

@@ -1,5 +1,6 @@
 //! A scriptable backend for tests: unplug, replug, reset, stall or reject
-//! settings on demand. Each `poll` runs one callback block, standing in for
+//! settings on demand, and refuse, delay or hold on to a stream as a driver
+//! that does not answer would. Each `poll` runs one callback block, standing in for
 //! the driver's thread.
 
 use std::sync::{Arc, Mutex};
@@ -58,6 +59,14 @@ pub struct FakeDevice {
     /// in place of `input_levels`. Delays shorter than a block read as
     /// silence, as no real device is that quick.
     pub cable: Option<Cable>,
+    /// Every open is refused, as a driver that will not start.
+    pub refuse_open: bool,
+    /// Each open takes this long before it answers, as a driver that is
+    /// slow to start (or, for long enough, one that does not answer).
+    pub open_delay: Duration,
+    /// Closing a stream takes this long, so a driver switch's handover
+    /// does not come in time: a driver that holds on to the audio.
+    pub close_delay: Duration,
 }
 
 /// A loopback cable on the fake device, by device channel.
@@ -115,6 +124,9 @@ impl FakeDevice {
             input_ramp: false,
             pace: None,
             cable: None,
+            refuse_open: false,
+            open_delay: Duration::ZERO,
+            close_delay: Duration::ZERO,
             buffer_sizes: BufferSizes {
                 min: 32,
                 max: 2048,
@@ -179,11 +191,18 @@ impl Backend for FakeBackend {
         config: &StreamConfig,
         callback: Box<dyn AudioCallback>,
     ) -> Result<Box<dyn Stream>, OpenError> {
+        // Waits as a slow driver would, with the device free meanwhile.
+        let delay = self.0.0.lock().expect("fake device lock").open_delay;
+        std::thread::sleep(delay);
         let mut device = self.0.0.lock().expect("fake device lock");
         let frames = config
             .buffer_frames
             .unwrap_or(device.buffer_sizes.preferred);
-        let error = if config.device != fake_device_id() {
+        let error = if device.refuse_open {
+            Some(AudioError::Driver(
+                "the test device refused to start".into(),
+            ))
+        } else if config.device != fake_device_id() {
             Some(AudioError::DeviceNotFound(config.device.id.clone()))
         } else if !device.present && !device.phantom {
             Some(AudioError::DeviceNotPresent("fake device unplugged".into()))
@@ -375,6 +394,8 @@ impl Stream for FakeStream {
     }
 
     fn close(mut self: Box<Self>) -> Box<dyn AudioCallback> {
+        let delay = self.control.0.lock().expect("fake device lock").close_delay;
+        std::thread::sleep(delay);
         self.callback.take().expect("callback present until close")
     }
 }

@@ -1,14 +1,24 @@
 //! Audio for the app: the device (through `lumen-audio`'s supervisor) with
 //! the engine running in its callback. The device comes from the audio
 //! settings (saved), from `--audio`, or is the system default output; the
-//! audio settings window changes it while Lumen runs (M2 slice 8).
+//! audio settings window changes it while Lumen runs (M2 slice 8). A
+//! change runs on a worker (`change`), so a driver that is slow to let go
+//! never stops the interface (ADR-0113).
+
+mod change;
+mod test_devices;
+
+pub use test_devices::{
+    InputDeviceTurn, TEST_DRIVER, TEST_HOLDS_DRIVER, TEST_INPUT_DRIVER, TEST_LATE_DRIVER,
+    TEST_PACED_DRIVER, TEST_REFUSES_DRIVER, TEST_SLOW_DRIVER, input_device, input_device_turn,
+};
+use test_devices::{TEST_DRIVERS, is_test};
 
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc::Receiver;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use lumen_audio::fake::Pace;
 use lumen_audio::{
     AudioCallback, AudioError, AudioSystem, Backend, Block, DeviceEvent, DeviceId,
     Status as Meters, StreamConfig, StreamInfo, Timing,
@@ -104,12 +114,36 @@ pub const DRIVERS: &[(&str, &str)] = if cfg!(windows) {
     &[("cpal", "System audio")]
 };
 
+/// The driver models to offer while `driver` is in use.
+pub fn drivers_for(driver: &str) -> &'static [(&'static str, &'static str)] {
+    if is_test(driver) {
+        TEST_DRIVERS
+    } else {
+        DRIVERS
+    }
+}
+
 pub fn driver_label(driver: &str) -> &str {
     DRIVERS
         .iter()
+        .chain(TEST_DRIVERS)
         .find(|(key, _)| *key == driver)
         .map_or(driver, |(_, label)| label)
 }
+
+/// What a message calls the driver behind `device`: an ASIO driver by its
+/// own name ("Focusrite USB ASIO"), the others by their driver model.
+fn driver_name(driver: &str, device: &str) -> String {
+    if driver == "asio" {
+        device.to_owned()
+    } else {
+        driver_label(driver).to_owned()
+    }
+}
+
+/// How long a driver may take to answer before the row says it is not
+/// answering: as long as a driver switch waits for its handover.
+const NOT_ANSWERING: Duration = lumen_audio::HANDOVER_TIMEOUT;
 
 pub fn backend(driver: &str) -> Option<MakeBackend> {
     match driver {
@@ -128,94 +162,11 @@ pub fn backend(driver: &str) -> Option<MakeBackend> {
         "exclusive" => Some(|| Box::new(lumen_audio::wasapi::WasapiBackend::new(true))),
         #[cfg(not(windows))]
         "cpal" => Some(|| Box::new(lumen_audio::cpal_host::CpalBackend::new())),
-        // A silent device for automated tests (`--audio test:fake`, the E2E
-        // suite): it runs the engine a block every few milliseconds without
-        // sound hardware. Not in `DRIVERS`, so users never see it.
-        TEST_DRIVER => Some(|| test_backend(Pace::Every(TEST_BLOCK_EVERY))),
-        // The same, in real time (see `FakeDevice::pace`): for scenarios that
-        // map wall-clock stamps to frames (recording).
-        TEST_PACED_DRIVER => Some(|| test_backend(Pace::RealTime)),
-        // The silent test device whose inputs a scenario plays (one per
-        // process: the scenarios that use it take turns).
-        TEST_INPUT_DRIVER => Some(|| Box::new(lumen_audio::fake::FakeBackend(input_device()))),
-        _ => None,
+        _ => test_devices::backend(driver),
     }
-}
-
-/// How often the silent test device runs a block (the supervisor polls every
-/// 10 ms): a busy machine that polls late gets the blocks it missed.
-const TEST_BLOCK_EVERY: Duration = Duration::from_millis(10);
-
-fn test_backend(pace: Pace) -> Box<dyn Backend> {
-    let control = lumen_audio::fake::FakeControl::new();
-    control.set(|device| device.pace = Some(pace));
-    Box::new(lumen_audio::fake::FakeBackend(control))
-}
-
-/// The one device behind [`TEST_INPUT_DRIVER`]: a scenario sets its
-/// `input_levels` while the stream runs. Scenarios that script it take
-/// [`input_device_turn`], which hands it over clean.
-pub fn input_device() -> lumen_audio::fake::FakeControl {
-    static DEVICE: std::sync::OnceLock<lumen_audio::fake::FakeControl> = std::sync::OnceLock::new();
-    DEVICE
-        .get_or_init(|| {
-            let control = lumen_audio::fake::FakeControl::new();
-            as_a_test_device(&control);
-            control
-        })
-        .clone()
-}
-
-/// What makes a fake device the test input device: its slow, steady pace.
-fn as_a_test_device(control: &lumen_audio::fake::FakeControl) {
-    control.set(|device| device.pace = Some(Pace::Every(TEST_BLOCK_EVERY)));
-}
-
-/// A scenario's turn on the input test device, which every scenario that
-/// plays it shares (it is one device per process). Held for the scenario's
-/// life: the next one waits for it to be dropped.
-pub struct InputDeviceTurn {
-    device: lumen_audio::fake::FakeControl,
-    _turn: std::sync::MutexGuard<'static, ()>,
-}
-
-impl InputDeviceTurn {
-    /// Scripts the device (`FakeDevice::input_levels`, `input_ramp`, ...).
-    pub fn set(&self, f: impl FnOnce(&mut lumen_audio::fake::FakeDevice)) {
-        self.device.set(f);
-    }
-}
-
-/// Waits for the input test device and takes it, put back as it first was:
-/// nothing a scenario before this one scripted (a ramp, levels, a missing
-/// device) is left on it, whichever scenario ran before and whatever it set.
-pub fn input_device_turn() -> InputDeviceTurn {
-    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    // A scenario that failed holds the turn while it unwinds; the device is
-    // reset below, so a poisoned turn is as good as a free one.
-    let turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
-    let device = input_device();
-    device.reset();
-    as_a_test_device(&device);
-    InputDeviceTurn {
-        device,
-        _turn: turn,
-    }
-}
-
-/// Whether `driver` is one of the silent test devices.
-fn is_test(driver: &str) -> bool {
-    driver == TEST_DRIVER || driver == TEST_PACED_DRIVER || driver == TEST_INPUT_DRIVER
 }
 
 pub const DEFAULT_DRIVER: &str = if cfg!(windows) { "wasapi" } else { "cpal" };
-/// The silent test device's driver key.
-pub const TEST_DRIVER: &str = "test";
-/// The silent test device that keeps to real time.
-pub const TEST_PACED_DRIVER: &str = "test-paced";
-/// The silent test device with inputs a scenario plays ([`input_device`]).
-pub const TEST_INPUT_DRIVER: &str = "test-input";
-
 /// A device found for a choice.
 struct Resolved {
     driver: String,
@@ -388,10 +339,17 @@ fn listen(tap: &mut rtrb::Producer<f32>, outputs: &[f32], channels: usize, frame
 
 pub struct Audio {
     /// `None` until a device has been found; the engine then waits in
-    /// `parked`.
+    /// `parked`. Held by the change's worker while it switches drivers.
     system: Option<AudioSystem>,
     /// The engine's callback while no audio system runs it.
     parked: Option<Box<dyn AudioCallback>>,
+    /// The audio system's meters, kept while a worker holds the system.
+    meters: Option<Arc<Meters>>,
+    /// A device change running on its worker (ADR-0113).
+    change: Option<change::Change>,
+    /// When the device was last asked to open, and what messages call its
+    /// driver: until it answers, no other change starts.
+    asked: Option<(Instant, String)>,
     pub engine: EngineHandle,
     /// Replaces the clips the engine plays.
     pub clips: ClipsHandle,
@@ -521,6 +479,9 @@ impl Audio {
         let mut audio = Self {
             system: None,
             parked: Some(callback),
+            meters: None,
+            change: None,
+            asked: None,
             engine: engine_handle,
             clips,
             midi,
@@ -552,66 +513,56 @@ impl Audio {
         match resolve(choice) {
             Ok(found) => {
                 audio.notice = found.notice.clone();
-                audio.open(found);
+                audio.open(found, String::new());
             }
             Err(message) => audio.status = Status::Off(message),
         }
         audio
     }
 
-    /// Opens `found`: reconfigures the running driver model, switches to
-    /// another, or starts the first audio system.
-    fn open(&mut self, found: Resolved) {
+    /// Opens `found`: reconfigures the running driver model, or starts the
+    /// first audio system, neither of which waits. Another driver model is
+    /// switched to on a worker; `from` names the driver left.
+    fn open(&mut self, found: Resolved, from: String) {
+        if self.system.is_some() && found.driver != self.driver {
+            let names = change::Names {
+                device: found.name.clone(),
+                from,
+                to: driver_name(&found.driver, &found.name),
+            };
+            let system = self.system.take();
+            self.change = Some(change::Change::start(
+                change::Target::Found(found),
+                system,
+                None,
+                None,
+                names,
+            ));
+            return;
+        }
         let config = found.config();
-        if let Some(system) = &mut self.system {
-            if found.driver == self.driver {
-                system.configure(config.clone());
-            } else if let Err(e) = system.switch(found.make, config.clone()) {
-                self.status = Status::Off(format!("Could not switch the audio driver: {e}"));
-                return;
-            }
+        if let Some(system) = &self.system {
+            system.configure(config.clone());
         } else if let Some(callback) = self.parked.take() {
             let system = AudioSystem::spawn(found.make, callback, Timing::default());
             system.configure(config.clone());
+            self.meters = Some(Arc::clone(system.status()));
             self.system = Some(system);
         }
+        self.opened(found);
+    }
+
+    /// Records `found` as the setup in use, asked to open.
+    fn opened(&mut self, found: Resolved) {
+        self.asked = Some((Instant::now(), driver_name(&found.driver, &found.name)));
+        self.config = Some(found.config());
         self.driver = found.driver;
         self.device = found.name;
         self.cue_channels = found.cue_channels;
         self.extra_channels = Vec::new();
-        self.config = Some(config);
         self.info = None;
         self.last_error = None;
         self.status = Status::Starting;
-    }
-
-    /// Uses `settings` (from the audio settings window). Saved once the
-    /// device starts; on failure the reason shows and nothing is saved.
-    pub fn apply(&mut self, settings: AudioSettings) {
-        let lookup = settings.clone();
-        let found = std::thread::spawn(move || find_saved(&lookup))
-            .join()
-            .ok()
-            .flatten();
-        match found {
-            Some(found) => {
-                self.dismiss_notice();
-                self.previous = self.config.clone().map(|config| Previous {
-                    driver: self.driver.clone(),
-                    device: self.device.clone(),
-                    config,
-                    cue_channels: self.cue_channels.clone(),
-                    extra_channels: self.extra_channels.clone(),
-                    info: self.info.clone(),
-                    status: self.status.clone(),
-                });
-                self.pending = Some(settings);
-                self.open(found);
-            }
-            None => {
-                self.notice = Some(format!("{} is not available", settings.device_name));
-            }
-        }
     }
 
     /// The setup in use, as settings.
@@ -767,7 +718,7 @@ impl Audio {
 
     /// CPU load, overloads and dropouts, when a device was found.
     pub fn meters(&self) -> Option<&Arc<Meters>> {
-        self.system.as_ref().map(AudioSystem::status)
+        self.meters.as_ref()
     }
 
     /// Asks the running ASIO driver to open its own settings window. The
@@ -788,6 +739,14 @@ impl Audio {
     /// What is being changed right now, while the device restarts: shown so
     /// a slow change (an interface re-locking its clock) reads as progress.
     pub fn changing(&self) -> Option<String> {
+        if let Some(change) = &self.change {
+            return Some(match change.step {
+                change::Step::Looking => format!("Starting {}…", change.device),
+                change::Step::HandingOver | change::Step::Closing => {
+                    format!("Closing {}…", change.from)
+                }
+            });
+        }
         if !matches!(self.status, Status::Starting) {
             return None;
         }
@@ -819,6 +778,7 @@ impl Audio {
             return;
         };
         let tried = std::mem::replace(&mut self.device, previous.device.clone());
+        let from = driver_name(&self.driver, &tried);
         self.notice = Some(format!(
             "{tried} could not start. Still using {}.",
             previous.device
@@ -850,15 +810,18 @@ impl Audio {
             };
             let notice = self.notice.take();
             let detail = self.notice_detail.take();
-            self.open(resolved);
+            self.open(resolved, from);
             self.notice = notice;
             self.notice_detail = detail;
         }
     }
 
-    /// Whether the user can turn audio on or off (a device was found).
+    /// Whether the user can turn audio on or off: a device was found, no
+    /// worker holds the audio system, and no device is still to answer. A
+    /// stop sent to a driver that has not answered would wait behind it,
+    /// and would free the change lock while the driver still works.
     pub fn can_switch(&self) -> bool {
-        self.config.is_some()
+        self.config.is_some() && self.system.is_some() && !self.waiting()
     }
 
     pub fn is_on(&self) -> bool {
@@ -873,11 +836,16 @@ impl Audio {
 
     /// The Audio On/Off switch: closes the device, or opens it again.
     pub fn set_on(&mut self, on: bool) {
+        if !self.can_switch() {
+            return;
+        }
+        let asked = (Instant::now(), driver_name(&self.driver, &self.device));
         let (Some(system), Some(config)) = (&self.system, &self.config) else {
             return;
         };
         if on {
             system.configure(config.clone());
+            self.asked = Some(asked);
             self.status = Status::Starting;
         } else {
             system.stop();
@@ -891,13 +859,17 @@ impl Audio {
         let measured = self
             .measurement
             .poll(matches!(self.status, Status::Running { .. }));
-        let Some(system) = &self.system else {
-            return measured;
-        };
         // Taken first: handling a failure may reopen the previous setup.
-        let events: Vec<DeviceEvent> = std::iter::from_fn(|| system.try_event()).collect();
-        let mut changed = false;
+        // And applied before the change's answer: they are about the setup
+        // the change replaces, and read after it they would pass for the
+        // new device's answer.
+        let events: Vec<DeviceEvent> = self.system.as_ref().map_or_else(Vec::new, |system| {
+            std::iter::from_fn(|| system.try_event()).collect()
+        });
+        let mut changed = !events.is_empty();
         for event in events {
+            // The device answered.
+            self.asked = None;
             match event {
                 DeviceEvent::Started(info)
                 | DeviceEvent::Reset(info)
@@ -940,8 +912,8 @@ impl Audio {
                 }
                 DeviceEvent::Stopped => self.status = Status::Off("Audio is off".into()),
             }
-            changed = true;
         }
+        changed |= self.poll_change();
         if let Some(rx) = &self.control_panel
             && let Ok(result) = rx.try_recv()
         {
@@ -957,32 +929,26 @@ impl Audio {
     }
 }
 
+impl Drop for Audio {
+    /// Quitting never waits on a driver that has not answered: an audio
+    /// system still opening is dropped on a thread of its own, which the
+    /// process does not wait for. So is the change under way: an answer it
+    /// sent and nobody read can hold a system still opening its device. A
+    /// worker still holding one is left as it is.
+    fn drop(&mut self) {
+        if !self.waiting() {
+            return;
+        }
+        let system = self.system.take();
+        let change = self.change.take();
+        let _ = std::thread::Builder::new()
+            .name("lumen-audio-close".into())
+            .spawn(move || drop((change, system)));
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn a_turn_on_the_input_device_starts_from_a_clean_one() {
-        // A scenario scripts everything it can and ends, as one that fails does.
-        {
-            let turn = input_device_turn();
-            turn.set(|d| {
-                d.input_ramp = true;
-                d.input_levels = vec![0.5, 0.25];
-                d.present = false;
-                d.inputs = 8;
-                d.pace = None;
-            });
-        }
-        // The next one finds none of it.
-        let turn = input_device_turn();
-        let device = input_device();
-        let mut seen = None;
-        device.set(|d| seen = Some((d.input_ramp, d.input_levels.clone(), d.present, d.inputs)));
-        assert_eq!(seen, Some((false, Vec::new(), true, 2)));
-        // And it is still the slow, steady test device.
-        device.set(|d| assert_eq!(d.pace, Some(Pace::Every(TEST_BLOCK_EVERY))));
-        drop(turn);
-    }
-
     use super::*;
 
     #[test]

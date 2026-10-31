@@ -2,7 +2,9 @@
 //! M9 R7): driver, device, sample rate, buffer size, channels, latencies,
 //! the ASIO control panel and the test tone. Every change applies at once;
 //! a change the device refuses reverts to the setup that worked, with the
-//! reason shown.
+//! reason shown. One change runs at a time: the device controls are
+//! disabled until the device answers (ADR-0113), and the control used gets
+//! the keyboard back afterwards.
 //!
 //! Device lists and details load in the background and never block the
 //! window. ASIO drivers are queried in a helper process (`probe.rs`).
@@ -14,7 +16,7 @@ use eframe::egui::{self, RichText, Ui};
 use lumen_audio::{DeviceId, DeviceInfo};
 
 use super::Marks;
-use crate::audio::{self, Audio, DRIVERS, Status, driver_label};
+use crate::audio::{self, Audio, Status, driver_label};
 use crate::measure_latency::{Asked, Cable, Card, Shown};
 use crate::settings::{AudioSettings, MeasuredWith};
 use crate::widgets::{hint, khz, row, section, warning};
@@ -154,6 +156,10 @@ pub struct State {
     last_notice: Option<String>,
     /// The loopback helper's card in the Latency section.
     measure: Card,
+    /// The control that had the keyboard when it asked for a change: it
+    /// gets it back once the change is done (disabled meanwhile, it lost
+    /// it).
+    refocus: Option<egui::Id>,
 }
 
 impl State {
@@ -281,6 +287,18 @@ fn dot(ui: &mut Ui, color: egui::Color32) {
     ui.painter().circle_filled(rect.center(), 3.5, color);
 }
 
+/// Why the device controls are disabled while a change runs.
+const WAIT_FOR_CHANGE: &str = "Available once the device has answered the change under way";
+
+/// Device controls: disabled while a change runs, saying why on hover.
+fn device_controls<R>(ui: &mut Ui, locked: bool, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let shown = ui.add_enabled_ui(!locked, add);
+    if locked {
+        shown.response.on_hover_text(WAIT_FOR_CHANGE);
+    }
+    shown.inner
+}
+
 /// How wide a device or driver menu is drawn in the room the row has.
 fn device_menu_width(ui: &Ui) -> f32 {
     (ui.available_width() - BESIDE_DEVICE_MENU).clamp(120.0, DEVICE_MENU)
@@ -338,6 +356,33 @@ impl State {
         marks: &Marks,
         actions: &mut Vec<Action>,
     ) {
+        let locked = !audio.can_change();
+        if !locked && let Some(id) = self.refocus.take() {
+            ui.ctx().memory_mut(|m| m.request_focus(id));
+        }
+        let applied = |actions: &[Action]| {
+            actions
+                .iter()
+                .filter(|a| matches!(a, Action::Apply(_)))
+                .count()
+        };
+        let before = applied(actions);
+        self.rows(ui, audio, lent, marks, locked, actions);
+        if applied(actions) > before {
+            self.refocus = ui.ctx().memory(|m| m.focused());
+        }
+    }
+
+    /// The page's rows; the device controls are disabled while `locked`.
+    fn rows(
+        &mut self,
+        ui: &mut Ui,
+        audio: &Audio,
+        lent: Lent<'_>,
+        marks: &Marks,
+        locked: bool,
+        actions: &mut Vec<Action>,
+    ) {
         self.catalog.poll();
         let Lent {
             test_tone,
@@ -357,80 +402,88 @@ impl State {
         // ── Device ──────────────────────────────────────────────────────
         section(ui, "Device");
         let mut chosen = driver.clone();
+        let drivers = audio::drivers_for(&audio.driver);
         marks.row(ui, "audio.driver", |ui| {
-            row(ui, "Driver", |ui| {
-                let labels: Vec<&str> = DRIVERS.iter().map(|(_, label)| *label).collect();
-                let index = DRIVERS.iter().position(|(key, _)| *key == driver);
-                let shown = driver_label(&driver);
-                if let Some(i) = Dropdown::new("Driver", shown, device_menu_width(ui)).show(
-                    ui,
-                    egui::Id::new("driver"),
-                    &labels,
-                    index,
-                ) {
-                    chosen = DRIVERS[i].0.to_owned();
-                }
+            device_controls(ui, locked, |ui| {
+                row(ui, "Driver", |ui| {
+                    let labels: Vec<&str> = drivers.iter().map(|(_, label)| *label).collect();
+                    let index = drivers.iter().position(|(key, _)| *key == driver);
+                    let shown = driver_label(&driver);
+                    if let Some(i) = Dropdown::new("Driver", shown, device_menu_width(ui)).show(
+                        ui,
+                        egui::Id::new("driver"),
+                        &labels,
+                        index,
+                    ) {
+                        chosen = drivers[i].0.to_owned();
+                    }
+                })
             })
         });
         if chosen != driver {
             self.driver = Some(chosen.clone());
         }
         marks.row(ui, "audio.device", |ui| {
-            row(ui, "Device", |ui| {
-                match self.catalog.list(&chosen, &ctx) {
-                    None => {
-                        ui.spinner();
-                        ui.label("Looking for devices…");
-                    }
-                    Some(Err(e)) => {
-                        warning(ui, e, 0.0);
-                    }
-                    Some(Ok(devices)) if devices.is_empty() => {
-                        ui.label("No devices found");
-                    }
-                    Some(Ok(devices)) => {
-                        let using = current
-                            .as_ref()
-                            .filter(|s| s.driver == chosen)
-                            .map(|s| s.device_id.clone());
-                        let selected = devices
-                            .iter()
-                            .find(|(id, _)| Some(&id.id) == using.as_ref())
-                            .map_or("Choose a device", |(_, name)| name.as_str());
-                        let names: Vec<&str> = devices.iter().map(|(_, n)| n.as_str()).collect();
-                        let index = devices
-                            .iter()
-                            .position(|(id, _)| Some(&id.id) == using.as_ref());
-                        let pick = Dropdown::new("Device", selected, device_menu_width(ui))
-                            .show(ui, egui::Id::new("device"), &names, index)
-                            .map(|i| devices[i].clone());
-                        if let Some((id, name)) = pick {
-                            actions.push(Action::Apply(AudioSettings {
-                                driver: chosen.clone(),
-                                device_id: id.id,
-                                device_name: name,
-                                sample_rate: None,
-                                buffer_frames: None,
-                                input_channels: Vec::new(),
-                                all_inputs: true,
-                                output_channels: vec![0, 1],
-                                cue_channels: Vec::new(),
-                            }));
-                            self.driver = None;
+            device_controls(ui, locked, |ui| {
+                row(ui, "Device", |ui| {
+                    match self.catalog.list(&chosen, &ctx) {
+                        None => {
+                            ui.spinner();
+                            ui.label("Looking for devices…");
+                        }
+                        Some(Err(e)) => {
+                            warning(ui, e, 0.0);
+                        }
+                        Some(Ok(devices)) if devices.is_empty() => {
+                            ui.label("No devices found");
+                        }
+                        Some(Ok(devices)) => {
+                            let using = current
+                                .as_ref()
+                                .filter(|s| s.driver == chosen)
+                                .map(|s| s.device_id.clone());
+                            let selected = devices
+                                .iter()
+                                .find(|(id, _)| Some(&id.id) == using.as_ref())
+                                .map_or("Choose a device", |(_, name)| name.as_str());
+                            let names: Vec<&str> =
+                                devices.iter().map(|(_, n)| n.as_str()).collect();
+                            let index = devices
+                                .iter()
+                                .position(|(id, _)| Some(&id.id) == using.as_ref());
+                            let pick = Dropdown::new("Device", selected, device_menu_width(ui))
+                                .show(ui, egui::Id::new("device"), &names, index)
+                                .map(|i| devices[i].clone());
+                            if let Some((id, name)) = pick {
+                                actions.push(Action::Apply(AudioSettings {
+                                    driver: chosen.clone(),
+                                    device_id: id.id,
+                                    device_name: name,
+                                    sample_rate: None,
+                                    buffer_frames: None,
+                                    input_channels: Vec::new(),
+                                    all_inputs: true,
+                                    output_channels: vec![0, 1],
+                                    cue_channels: Vec::new(),
+                                }));
+                                self.driver = None;
+                            }
                         }
                     }
-                }
-                if crate::widgets::raised::button(ui, "⟳")
-                    .on_hover_text("Look for devices again (after plugging one in or out)")
-                    .clicked()
-                {
-                    self.catalog.refresh();
-                }
+                    if crate::widgets::raised::button(ui, "⟳")
+                        .on_hover_text("Look for devices again (after plugging one in or out)")
+                        .clicked()
+                    {
+                        self.catalog.refresh();
+                    }
+                })
             })
         });
         // What is happening right now, in one place.
         row(ui, "", |ui| {
-            if let Some(changing) = audio.changing() {
+            if let Some(why) = audio.not_answering() {
+                warning(ui, &why, 0.0);
+            } else if let Some(changing) = audio.changing() {
                 ui.spinner();
                 let width = ui.available_width().max(120.0);
                 ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
@@ -520,46 +573,49 @@ impl State {
         // ── Format ──────────────────────────────────────────────────────
         section(ui, "Format");
         marks.row(ui, "audio.rate", |ui| {
-            row(ui, "Sample rate", |ui| {
-                if chosen == "wasapi" {
-                    ui.label(running.map_or("—".into(), |i| khz(i.sample_rate)));
-                    hint(ui, "set in the Windows sound settings");
-                    return;
-                }
-                let rates: Vec<u32> = if chosen == "asio" {
-                    COMMON_RATES.to_vec()
-                } else {
-                    info.sample_rates.clone()
-                };
-                let now = running.map(|i| i.sample_rate);
-                let shown = current.sample_rate.or(now);
-                let mut rate = shown;
-                let labels: Vec<String> = rates.iter().map(|r| khz(*r)).collect();
-                let index = shown.and_then(|s| rates.iter().position(|r| *r == s));
-                let text = shown.map_or("Device default".to_owned(), khz);
-                if let Some(i) = Dropdown::new("Sample rate", &text, 120.0).show(
-                    ui,
-                    egui::Id::new("rate"),
-                    &labels,
-                    index,
-                ) {
-                    rate = Some(rates[i]);
-                }
-                if rate != shown {
-                    actions.push(Action::Apply(AudioSettings {
-                        sample_rate: rate,
-                        ..current.clone()
-                    }));
-                }
+            device_controls(ui, locked, |ui| {
+                row(ui, "Sample rate", |ui| {
+                    if chosen == "wasapi" {
+                        ui.label(running.map_or("—".into(), |i| khz(i.sample_rate)));
+                        hint(ui, "set in the Windows sound settings");
+                        return;
+                    }
+                    let rates: Vec<u32> = if chosen == "asio" {
+                        COMMON_RATES.to_vec()
+                    } else {
+                        info.sample_rates.clone()
+                    };
+                    let now = running.map(|i| i.sample_rate);
+                    let shown = current.sample_rate.or(now);
+                    let mut rate = shown;
+                    let labels: Vec<String> = rates.iter().map(|r| khz(*r)).collect();
+                    let index = shown.and_then(|s| rates.iter().position(|r| *r == s));
+                    let text = shown.map_or("Device default".to_owned(), khz);
+                    if let Some(i) = Dropdown::new("Sample rate", &text, 120.0).show(
+                        ui,
+                        egui::Id::new("rate"),
+                        &labels,
+                        index,
+                    ) {
+                        rate = Some(rates[i]);
+                    }
+                    if rate != shown {
+                        actions.push(Action::Apply(AudioSettings {
+                            sample_rate: rate,
+                            ..current.clone()
+                        }));
+                    }
+                })
             })
         });
         let frames = running.map(|i| i.buffer_frames);
         marks.row(ui, "audio.buffer", |ui| {
-            row(ui, "Buffer size", |ui| match chosen.as_str() {
-                "asio" => {
-                    ui.label(frames.map_or("—".into(), |f| format!("{f} samples")));
-                    let opening = audio.control_panel_opening();
-                    let button = ui
+            device_controls(ui, locked, |ui| {
+                row(ui, "Buffer size", |ui| match chosen.as_str() {
+                    "asio" => {
+                        ui.label(frames.map_or("—".into(), |f| format!("{f} samples")));
+                        let opening = audio.control_panel_opening();
+                        let button = ui
                         .add_enabled(
                             matches!(audio.status, Status::Running { .. }) && !opening,
                             |ui: &mut egui::Ui| {
@@ -570,56 +626,57 @@ impl State {
                             "Set the buffer size (and clock source) in the driver's own settings",
                         )
                         .on_disabled_hover_text("Available while the driver is running");
-                    if button.clicked() {
-                        actions.push(Action::ControlPanel);
-                    }
-                    if opening {
-                        ui.spinner();
-                        hint(ui, "opening…");
-                    }
-                }
-                "wasapi" => {
-                    ui.label(frames.map_or("—".into(), |f| format!("{f} samples")));
-                    hint(ui, "set by Windows");
-                }
-                _ => match info.buffer_sizes {
-                    Some(sizes) => {
-                        let mut choices: Vec<u32> = [
-                            32, 48, 64, 96, 128, 144, 192, 256, 384, 441, 448, 480, 512, 768, 1024,
-                            2048, 4096,
-                        ]
-                        .into_iter()
-                        .filter(|&f| sizes.allows(f))
-                        .collect();
-                        if choices.is_empty() {
-                            choices.push(sizes.preferred);
+                        if button.clicked() {
+                            actions.push(Action::ControlPanel);
                         }
-                        let shown = current.buffer_frames.or(frames);
-                        let mut chosen_frames = shown;
-                        let labels: Vec<String> =
-                            choices.iter().map(|f| format!("{f} samples")).collect();
-                        let index = shown.and_then(|s| choices.iter().position(|f| *f == s));
-                        let text =
-                            shown.map_or("Device default".to_owned(), |f| format!("{f} samples"));
-                        if let Some(i) = Dropdown::new("Buffer size", &text, 120.0).show(
-                            ui,
-                            egui::Id::new("buffer"),
-                            &labels,
-                            index,
-                        ) {
-                            chosen_frames = Some(choices[i]);
-                        }
-                        if chosen_frames != shown {
-                            actions.push(Action::Apply(AudioSettings {
-                                buffer_frames: chosen_frames,
-                                ..current.clone()
-                            }));
+                        if opening {
+                            ui.spinner();
+                            hint(ui, "opening…");
                         }
                     }
-                    None => {
+                    "wasapi" => {
                         ui.label(frames.map_or("—".into(), |f| format!("{f} samples")));
+                        hint(ui, "set by Windows");
                     }
-                },
+                    _ => match info.buffer_sizes {
+                        Some(sizes) => {
+                            let mut choices: Vec<u32> = [
+                                32, 48, 64, 96, 128, 144, 192, 256, 384, 441, 448, 480, 512, 768,
+                                1024, 2048, 4096,
+                            ]
+                            .into_iter()
+                            .filter(|&f| sizes.allows(f))
+                            .collect();
+                            if choices.is_empty() {
+                                choices.push(sizes.preferred);
+                            }
+                            let shown = current.buffer_frames.or(frames);
+                            let mut chosen_frames = shown;
+                            let labels: Vec<String> =
+                                choices.iter().map(|f| format!("{f} samples")).collect();
+                            let index = shown.and_then(|s| choices.iter().position(|f| *f == s));
+                            let text = shown
+                                .map_or("Device default".to_owned(), |f| format!("{f} samples"));
+                            if let Some(i) = Dropdown::new("Buffer size", &text, 120.0).show(
+                                ui,
+                                egui::Id::new("buffer"),
+                                &labels,
+                                index,
+                            ) {
+                                chosen_frames = Some(choices[i]);
+                            }
+                            if chosen_frames != shown {
+                                actions.push(Action::Apply(AudioSettings {
+                                    buffer_frames: chosen_frames,
+                                    ..current.clone()
+                                }));
+                            }
+                        }
+                        None => {
+                            ui.label(frames.map_or("—".into(), |f| format!("{f} samples")));
+                        }
+                    },
+                })
             })
         });
         if let Some(e) = &audio.control_panel_error {
@@ -634,27 +691,29 @@ impl State {
         section(ui, "Channels");
         let output_names = &info.output_channels;
         marks.row(ui, "audio.output", |ui| {
-            row(ui, "Output", |ui| {
-                ui.vertical(|ui| {
-                    for (pair, label) in pairs(output_names, "Out") {
-                        let channels = channels_of(pair, output_names);
-                        let on = current.output_channels == channels;
-                        if widgets::choice_row(ui, &label, on).clicked() && !on {
-                            // A cue on the new main pair would be the same
-                            // outputs: it goes.
-                            let cue = if current.cue_channels == channels {
-                                Vec::new()
-                            } else {
-                                current.cue_channels.clone()
-                            };
-                            actions.push(Action::Apply(AudioSettings {
-                                output_channels: channels,
-                                cue_channels: cue,
-                                ..current.clone()
-                            }));
+            device_controls(ui, locked, |ui| {
+                row(ui, "Output", |ui| {
+                    ui.vertical(|ui| {
+                        for (pair, label) in pairs(output_names, "Out") {
+                            let channels = channels_of(pair, output_names);
+                            let on = current.output_channels == channels;
+                            if widgets::choice_row(ui, &label, on).clicked() && !on {
+                                // A cue on the new main pair would be the same
+                                // outputs: it goes.
+                                let cue = if current.cue_channels == channels {
+                                    Vec::new()
+                                } else {
+                                    current.cue_channels.clone()
+                                };
+                                actions.push(Action::Apply(AudioSettings {
+                                    output_channels: channels,
+                                    cue_channels: cue,
+                                    ..current.clone()
+                                }));
+                            }
                         }
-                    }
-                });
+                    });
+                })
             })
         });
         // The cue pair (M4 slice 4, the owner's O1): headphones, for cued
@@ -668,7 +727,7 @@ impl State {
             })
             .collect();
         ui.add_space(theme::space::S);
-        marks.row(ui, "audio.cue", |ui| row(ui, "Cue", |ui| {
+        marks.row(ui, "audio.cue", |ui| device_controls(ui, locked, |ui| row(ui, "Cue", |ui| {
             ui.vertical(|ui| {
                 let none = current.cue_channels.is_empty();
                 if widgets::choice_row(ui, "None", none).clicked() && !none {
@@ -696,11 +755,11 @@ impl State {
                     },
                 );
             });
-        }));
+        })));
         if !info.input_channels.is_empty() {
             let input_names = &info.input_channels;
             ui.add_space(theme::space::S);
-            marks.row(ui, "audio.input", |ui| row(ui, "Input", |ui| {
+            marks.row(ui, "audio.input", |ui| device_controls(ui, locked, |ui| row(ui, "Input", |ui| {
                 ui.vertical(|ui| {
                     // All inputs (the default) lets every track pick any
                     // input; a pair or None narrows what the device opens.
@@ -737,7 +796,7 @@ impl State {
                         "The inputs tracks can record from and monitor; choose one in a track's In menu",
                     );
                 });
-            }));
+            })));
         }
         ui.add_space(theme::space::XS);
         ui.separator();
