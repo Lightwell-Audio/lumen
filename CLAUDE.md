@@ -437,8 +437,14 @@ per slice and move what is no longer current out of it.
   coverage test (`testing::coverage`). A new searchable setting gets a
   `ROWS` entry and a `marks.row` on its page (E2E checks every row is
   drawn); a new bar control or menu row goes in `tests/e2e/coverage.rs`.
-  MT-PREF-1 waits for the owner. R7b (first-run wizard) and R7c (browser
-  tabs) are next, each pitched with specimens.
+  MT-PREF-1 waits for the owner. R7c (browser tabs) is pitched with
+  specimens when it starts.
+- **Branch `m9-s7b-first-run`: M9 R7b, the first-run wizard, is planned**
+  (`docs/milestones/M9.md` §4; owner: all A, 2026-10-31). Two faults in
+  `docs/KNOWN_ISSUES.md` are fixed first, each on its own branch from
+  `main` (X A): `fix/async-device-change` (a driver-model switch blocks the
+  interface) and `fix/rescan-queued-folder` (a folder added during a scan is
+  never scanned). Then the wizard is built in four parts.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
