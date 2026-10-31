@@ -9898,3 +9898,14 @@ jobs. A per-test-process runner for `rest` would break the shared plugin
 build and scan locks in `lumen-plugin-catalog` and `lumen-plugin-host`.
 Cache note: dependencies are cached, the workspace's own crates are rebuilt
 every run, and the new keys (`rest`, `e2e`, `clippy`) are cold once.
+
+**Measured (2026-10-31).** Wall time of a whole run: 12 min 50 s before
+(`main`, one job per OS), about 9 min on the first run of the PR (every
+cache cold), 4 min 37 s on the second (the `rest` and `e2e` caches restored,
+the new `clippy` cache cold; clippy took 25 to 42 s in its own job). Longest
+job: Windows `e2e-2`, 4 min 19 s. Windows `rest` took 4 min 6 s, `e2e-1`
+3 min 32 s. `e2e-2` runs about 45 s longer than `e2e-1` on Windows, although
+`e2e-1` also runs the plugin walkthrough: the modules are dealt out by
+scenario count, not by time. Dealing them out by measured time is the next
+step if the last minute matters.
+
