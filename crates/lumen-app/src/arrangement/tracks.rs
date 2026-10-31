@@ -162,10 +162,28 @@ impl Arrangement {
         Some((ids, Place { index, group }))
     }
 
-    /// Adds a track of `kind` after the selection and selects it. A
-    /// return goes after the last return (they are drawn pinned at the
-    /// bottom) and shows the returns if they were folded away.
+    /// Adds a track of `kind` after the selection and selects it (the
+    /// Add … track commands).
     pub(crate) fn add_track(&mut self, doc: &mut Document, kind: TrackKind) {
+        let after = self.selected.last().copied().filter(|id| {
+            doc.project()
+                .tracks
+                .iter()
+                .any(|t| t.id == *id && t.kind != TrackKind::Return)
+        });
+        self.add_track_after(doc, kind, after);
+    }
+
+    /// Adds a track of `kind` after `after` (or at the end) and selects it:
+    /// the one way the commands and the Add track menus add one. A return
+    /// goes after the last return (they are drawn pinned at the bottom) and
+    /// shows the returns if they were folded away.
+    pub(super) fn add_track_after(
+        &mut self,
+        doc: &mut Document,
+        kind: TrackKind,
+        after: Option<Id>,
+    ) {
         if kind == TrackKind::Return && doc.returns_full() {
             self.note = Some(crate::document::Refused::TooManyReturns.reason());
             return;
@@ -179,12 +197,7 @@ impl Arrangement {
                 .or(tracks.last())
                 .map(|t| t.id)
         } else {
-            self.selected.last().copied().filter(|id| {
-                doc.project()
-                    .tracks
-                    .iter()
-                    .any(|t| t.id == *id && t.kind != TrackKind::Return)
-            })
+            after
         };
         if kind == TrackKind::Return {
             self.returns_folded = false;

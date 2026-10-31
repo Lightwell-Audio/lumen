@@ -142,3 +142,27 @@ fn the_metronome_plays_on_the_cue_pair_when_set_to() {
     assert_eq!(lumen.app().saved_metronome_output(), "cue");
     lumen.key(Modifiers::NONE, Key::Space);
 }
+
+#[test]
+fn solo_or_cue_runs_from_the_palette_once_a_cue_pair_is_chosen() {
+    let mut lumen = Lumen::start("cue-command");
+    let ctx = lumen.harness.ctx.clone();
+    lumen.key(Modifiers::COMMAND, Key::K);
+    lumen
+        .harness
+        .event(eframe::egui::Event::Text("Solo or Cue".into()));
+    lumen.frames(2);
+    let shown = lumen.app().palette_shows(&ctx);
+    assert!(
+        shown.iter().any(|(name, on)| name == "Solo or Cue" && !on),
+        "greyed without a cue pair: {shown:?}"
+    );
+    lumen.key(Modifiers::NONE, Key::Escape);
+
+    choose_cue_pair(&mut lumen);
+    assert!(!lumen.is_on("Solo/Cue switch: Cue"));
+    super::lane_view::run_command(&mut lumen, "Solo or Cue");
+    assert!(lumen.is_on("Solo/Cue switch: Cue"));
+    super::lane_view::run_command(&mut lumen, "Solo or Cue");
+    assert!(!lumen.is_on("Solo/Cue switch: Cue"));
+}

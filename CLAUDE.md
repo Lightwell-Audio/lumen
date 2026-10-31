@@ -438,7 +438,8 @@ per slice and move what is no longer current out of it.
   - TT A: a Tap piece on the bar.
   - KS: only End gets a new default key.
 
-  Part 1, the commands, is next.
+  Part 1, the commands, is built (the coverage test reads what each
+  control is drawn for, `testing::coverage`); Part 2, the window, is next.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

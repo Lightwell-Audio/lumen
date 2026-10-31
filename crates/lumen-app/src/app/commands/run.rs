@@ -380,6 +380,8 @@ impl App {
             }
             Command::AddAudioTrack => self.arrangement.add_track(doc, TrackKind::Audio),
             Command::AddMidiTrack => self.arrangement.add_track(doc, TrackKind::Midi),
+            Command::AddReturnTrack => self.arrangement.add_track(doc, TrackKind::Return),
+            Command::AddGroupTrack => self.arrangement.add_track(doc, TrackKind::Group),
             Command::GroupTracks => self.arrangement.group_selected(doc),
             Command::Ungroup => self.arrangement.ungroup_selected(doc),
             Command::FoldAllGroups => self.arrangement.collapse_all(doc.project(), true),
@@ -512,6 +514,38 @@ impl App {
             Command::ShowClip => self.show_detail_tab(crate::app::detail::DetailTab::Clip),
             Command::ShowMixer => self.show_detail_tab(crate::app::detail::DetailTab::Mixer),
             Command::MeasureLatency => self.transport.settings_window.open_measure(),
+            Command::ToggleLoop => {
+                let on = self.document.project().transport.loop_enabled;
+                self.document.set_loop_enabled(!on);
+            }
+            Command::ToggleMetronome => self.transport.toggle_metronome(),
+            Command::PunchIn | Command::PunchOut => {
+                let t = self.document.project().transport;
+                let (punch_in, punch_out) = if command == Command::PunchIn {
+                    (!t.punch_in, t.punch_out)
+                } else {
+                    (t.punch_in, !t.punch_out)
+                };
+                self.document.set_punch(punch_in, punch_out);
+            }
+            Command::GoToEnd => {
+                if let Some(end) = crate::app::navigate::end_of_song(self.document.project()) {
+                    self.transport.locate(end);
+                }
+            }
+            Command::AudioOnOff => {
+                let on = self.transport.audio.is_on();
+                self.transport.audio.set_on(!on);
+            }
+            Command::NextTimeFormat => {
+                self.transport.time_format = self.transport.time_format.next();
+            }
+            Command::ToggleBrowser => self.show_browser = !self.show_browser,
+            Command::CueMode => {
+                let mixing = &mut self.settings.mixing;
+                mixing.cue_mode = !mixing.cue_mode;
+                self.settings_changed = Some(std::time::Instant::now());
+            }
             Command::MediaPool => self.show_media_pool(),
             Command::LocateMedia => {
                 if let Some(id) = self.selected_missing_media() {

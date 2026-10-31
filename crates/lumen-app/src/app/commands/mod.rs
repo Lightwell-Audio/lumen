@@ -100,6 +100,7 @@ impl App {
         let ctx = ui.ctx().clone();
         let ready = self.availability(&ctx, command).is_ok();
         let keys = self.keymap.keys(command);
+        crate::testing::coverage::drawn(&ctx, label, command);
         let clicked = widgets::menu_item(ui, label, keys.as_ref(), ready).clicked();
         if clicked {
             self.run(&ctx, command);
@@ -125,6 +126,7 @@ impl App {
             ContextRow::Left => return false,
         };
         let keys = self.keymap.keys(command);
+        crate::testing::coverage::drawn(&ctx, label, command);
         let row = widgets::menu_item(ui, label, keys.as_ref(), why.is_none());
         if let Some(why) = why {
             row.on_disabled_hover_text(why);

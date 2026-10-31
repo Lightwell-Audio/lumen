@@ -435,6 +435,12 @@ impl Transport {
         }
     }
 
+    /// The metronome on or off (the button and `transport.metronome`).
+    pub fn toggle_metronome(&mut self) {
+        self.metronome.enabled = !self.metronome.enabled;
+        self.send(Command::SetMetronome(self.metronome));
+    }
+
     /// Follow on, off, or back on after a pause (the button and Ctrl+Shift+F).
     pub fn toggle_follow(&mut self) {
         use crate::settings::Follow;

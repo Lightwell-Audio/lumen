@@ -238,6 +238,7 @@ report: {}",
                 widgets::Tip {
                     keys: keys.as_ref(),
                     hint: None,
+                    command: Some(Command::OpenPalette),
                 },
                 self.palette.is_open(),
             )
@@ -248,22 +249,25 @@ report: {}",
             // The two panel toggles are quiet like the palette's: an accent
             // icon over a short underline while their panel is open (the
             // interface audit's TB1).
-            let panel = |ui: &mut egui::Ui, icon, shown: &mut bool, label, hint, keys| {
-                let tip = widgets::Tip {
-                    keys,
-                    hint: Some(hint),
+            let panel =
+                |ui: &mut egui::Ui, icon, shown: &mut bool, label, hint, (command, keys)| {
+                    let tip = widgets::Tip {
+                        keys,
+                        hint: Some(hint),
+                        command: Some(command),
+                    };
+                    if icons::toggle(ui, icon, label, tip, *shown).clicked() {
+                        *shown = !*shown;
+                    }
                 };
-                if icons::toggle(ui, icon, label, tip, *shown).clicked() {
-                    *shown = !*shown;
-                }
-            };
+            let keys = self.keymap.keys(Command::ToggleBrowser);
             panel(
                 ui,
                 Icon::PanelLeft,
                 &mut self.show_browser,
                 "Browser",
                 "Show or hide the browser",
-                None,
+                (Command::ToggleBrowser, keys.as_ref()),
             );
             let keys = self.keymap.keys(Command::ToggleDetail);
             panel(
@@ -272,7 +276,7 @@ report: {}",
                 &mut self.show_detail,
                 "Detail",
                 "Show or hide the detail panel",
-                keys.as_ref(),
+                (Command::ToggleDetail, keys.as_ref()),
             );
         });
         let used = toggles.response.rect.width();

@@ -28,6 +28,12 @@ impl TimeFormat {
         TimeFormat::Timecode30,
     ];
 
+    /// The format after this one in [`Self::ALL`], the first after the last.
+    pub fn next(self) -> TimeFormat {
+        let at = Self::ALL.iter().position(|f| *f == self).unwrap_or(0);
+        Self::ALL[(at + 1) % Self::ALL.len()]
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             TimeFormat::MinSec => "Minutes and seconds",
@@ -222,6 +228,15 @@ fn timecode(n: u64, format: TimeFormat, drop: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn next_steps_through_every_format_and_wraps() {
+        let mut format = TimeFormat::MinSec;
+        for expected in TimeFormat::ALL.iter().skip(1).chain(&TimeFormat::ALL[..1]) {
+            format = format.next();
+            assert_eq!(format, *expected);
+        }
+    }
 
     #[test]
     fn the_position_reads_in_every_format() {

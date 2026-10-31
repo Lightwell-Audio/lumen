@@ -238,6 +238,17 @@ pub(crate) enum Command {
     ShowClip,
     ShowMixer,
     MeasureLatency,
+    ToggleLoop,
+    ToggleMetronome,
+    PunchIn,
+    PunchOut,
+    GoToEnd,
+    AudioOnOff,
+    NextTimeFormat,
+    ToggleBrowser,
+    CueMode,
+    AddReturnTrack,
+    AddGroupTrack,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -541,6 +552,17 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::ShowClip, "view.show_clip", "Show clip", Area::View, &[], "Shows the Clip tab of the detail panel: the opened clip's properties and wave, or its notes."),
     info(Command::ShowMixer, "view.show_mixer", "Show mixer", Area::View, &[], "Shows the Mixer tab of the detail panel: every track's channel strip."),
     info(Command::MeasureLatency, "transport.measure_latency", "Measure recording latency…", Area::Transport, &[], "Opens the audio settings at the loopback helper: with a cable from an output to an input, five clicks measure how long sound takes to go out and come back, and the difference from what the driver reports can become the recording offset, so takes land where they were played."),
+    info(Command::ToggleLoop, "transport.loop", "Loop on or off", Area::Transport, &[], "Turns looping between the loop brace's edges on or off."),
+    info(Command::ToggleMetronome, "transport.metronome", "Metronome on or off", Area::Transport, &[], "Turns the metronome's click on or off."),
+    info(Command::PunchIn, "transport.punch_in", "Punch in at the loop start", Area::Transport, &[], "While on, a take leaves out what is recorded before the loop's start."),
+    info(Command::PunchOut, "transport.punch_out", "Punch out at the loop end", Area::Transport, &[], "While on, a take leaves out what is recorded after the loop's end."),
+    info(Command::GoToEnd, "transport.go_to_end", "Go to end", Area::Transport, &[plain(Key::End)], "Moves the playhead to the end of the last clip, or to the loop's end when the loop is on and ends later."),
+    info(Command::AudioOnOff, "transport.audio_on", "Audio on or off", Area::Transport, &[], "Closes the audio device so other applications can use it, or opens it again."),
+    info(Command::NextTimeFormat, "view.time_format", "Next time format", Area::View, &[], "Shows the time ruler in the next format: minutes and seconds, samples or timecode."),
+    info(Command::ToggleBrowser, "view.browser", "Show or hide the browser", Area::View, &[], "Shows or hides the browser at the left: devices and the project's media."),
+    info(Command::CueMode, "mixer.cue_mode", "Solo or Cue", Area::Mixer, &[], "Switches the tracks' S buttons between solo and cue: on Cue they send the track to the headphones, before its fader."),
+    info(Command::AddReturnTrack, "track.add_return", "Add return track", Area::Track, &[], "Adds a return track after the last one, for sends to share an effect."),
+    info(Command::AddGroupTrack, "track.add_group", "Add group track", Area::Track, &[], "Adds an empty group track after the selected track. To put tracks into a new group, select them and use Group tracks."),
 ];
 
 const fn info(
@@ -604,7 +626,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::MeasureLatency as usize + 1,
+            Command::AddGroupTrack as usize + 1,
             ALL.len(),
             "a command is missing"
         );

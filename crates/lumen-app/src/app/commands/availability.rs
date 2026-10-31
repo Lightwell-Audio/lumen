@@ -590,6 +590,29 @@ impl App {
             | Command::ShowMixer
             | Command::MediaPool => Ok(()),
             Command::MeasureLatency => self.transport.audio.measure_unavailable(),
+            Command::ToggleLoop
+            | Command::ToggleMetronome
+            | Command::PunchIn
+            | Command::PunchOut
+            | Command::NextTimeFormat
+            | Command::ToggleBrowser
+            | Command::AddGroupTrack => Ok(()),
+            Command::GoToEnd => need(
+                crate::app::navigate::end_of_song(self.document.project()).is_some(),
+                "The song has no clips yet",
+            ),
+            Command::AudioOnOff => need(
+                self.transport.audio.can_switch(),
+                "No audio device has been chosen yet",
+            ),
+            Command::CueMode => need(
+                self.transport.audio.cue_ready(),
+                "Choose a cue pair in the audio settings first",
+            ),
+            Command::AddReturnTrack => need(
+                !self.document.returns_full(),
+                "A project holds 12 return tracks at most",
+            ),
         }
     }
 }
