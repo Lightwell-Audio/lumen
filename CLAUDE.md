@@ -445,6 +445,10 @@ per slice and move what is no longer current out of it.
   `main` (X A): `fix/async-device-change` (a driver-model switch blocks the
   interface) and `fix/rescan-queued-folder` (a folder added during a scan is
   never scanned). Then the wizard is built in four parts.
+- **Branch `fix/rescan-queued-folder`: the rescan fault R7b needs is fixed**
+  (ADR-0114). A rescan, Retry or leaving safe mode asked for during a scan
+  waits, and runs once the scan ends or is cancelled, with the folders as
+  they are then; `Plugins::waiting()` says what waits, for the wizard.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

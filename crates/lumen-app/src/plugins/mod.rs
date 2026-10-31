@@ -5,6 +5,7 @@
 //! frame: the loop calls [`Plugins::poll`] and the thread's messages arrive
 //! as they are sent.
 
+mod follow_up;
 mod settings;
 mod worker;
 
@@ -20,6 +21,7 @@ use lumen_plugin_catalog::catalog::{Catalog, builtin_devices};
 use lumen_plugin_catalog::discover::standard_roots;
 use lumen_plugin_catalog::scan::Mode;
 
+pub(crate) use follow_up::FollowUp;
 pub(crate) use settings::{EditorPlace, PluginSettings};
 pub(crate) use worker::Faults;
 use worker::{Job, Message};
@@ -145,10 +147,19 @@ pub(crate) struct Plugins {
     /// Safe mode: the cache is read, and nothing is scanned (a scan loads every
     /// plugin binary).
     safe: bool,
+    /// The folders the running scan reads.
+    roots: Vec<PathBuf>,
+    /// A scan asked for while one runs; it runs when that one is over.
+    follow_up: Option<FollowUp>,
 }
 
 /// The most often the browser's list is rebuilt while a scan runs.
 const REBUILD_EVERY: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// The folders the person added, searched besides the standard ones.
+fn user_folders(settings: &PluginSettings) -> impl Iterator<Item = PathBuf> + '_ {
+    settings.folders.iter().map(PathBuf::from)
+}
 
 /// Said when the scan program is not where it should be.
 pub(crate) fn host_missing(host: &std::path::Path) -> String {
@@ -174,6 +185,8 @@ impl Plugins {
             note: None,
             finished_at: None,
             safe: false,
+            roots: Vec::new(),
+            follow_up: None,
         }
     }
 
@@ -206,15 +219,15 @@ impl Plugins {
         plugins
     }
 
-    /// Ends safe mode: the scan the start left out runs now, if the settings
-    /// ask for one at start.
+    /// Ends safe mode: the scan the start left out runs now (or after the
+    /// first read of the cache), if the settings ask for one at start.
     pub(crate) fn leave_safe(&mut self, settings: &PluginSettings, ctx: &egui::Context) {
         if !self.safe {
             return;
         }
         self.safe = false;
-        if settings.scan_at_startup && !self.is_off() && !self.busy() {
-            self.run(Some(self.cache.clone()), Some(Mode::Changed), settings, ctx);
+        if settings.scan_at_startup {
+            self.ask(Mode::Changed, None, settings, ctx);
         }
     }
 
@@ -257,23 +270,65 @@ impl Plugins {
     }
 
     /// Looks for new and changed plugins; with [`Mode::All`], loads every
-    /// one again. Does nothing while a scan runs.
+    /// one again. Asked for while a scan runs, it runs when that one is over.
     pub(crate) fn rescan(&mut self, mode: Mode, settings: &PluginSettings, ctx: &egui::Context) {
-        if self.is_off() || self.busy() || self.safe {
+        self.ask(mode, None, settings, ctx);
+    }
+
+    /// Forgets what is known about one module and loads it again: Retry on
+    /// a blocked plugin, or "rescan this plugin". Asked for while a scan
+    /// runs, it runs when that one is over.
+    pub(crate) fn retry(&mut self, module: &str, settings: &PluginSettings, ctx: &egui::Context) {
+        self.ask(Mode::Changed, Some(module), settings, ctx);
+    }
+
+    /// The scan waiting for the running one to end, if one is.
+    pub(crate) fn waiting(&self) -> Option<&FollowUp> {
+        self.follow_up.as_ref()
+    }
+
+    /// Scans now, or once the running scan is over (ADR-0114). Nothing is
+    /// scanned in safe mode or with plugins off.
+    fn ask(
+        &mut self,
+        mode: Mode,
+        module: Option<&str>,
+        settings: &PluginSettings,
+        ctx: &egui::Context,
+    ) {
+        if self.is_off() || self.safe {
             return;
+        }
+        if self.busy() {
+            let unread = user_folders(settings)
+                .filter(|folder| !self.roots.contains(folder))
+                .collect();
+            self.follow_up = Some(FollowUp::ask(self.follow_up.take(), mode, module, unread));
+            return;
+        }
+        if let Some(module) = module {
+            self.cache.forget(module);
+            self.stale = true;
         }
         self.run(Some(self.cache.clone()), Some(mode), settings, ctx);
     }
 
-    /// Forgets what is known about one module and loads it again: Retry on
-    /// a blocked plugin, or "rescan this plugin".
-    pub(crate) fn retry(&mut self, module: &str, settings: &PluginSettings, ctx: &egui::Context) {
-        if self.is_off() || self.busy() || self.safe {
+    /// Starts the scan that waited, once nothing runs.
+    fn run_follow_up(&mut self, settings: &PluginSettings, ctx: &egui::Context) {
+        if self.busy() {
             return;
         }
-        self.cache.forget(module);
-        self.stale = true;
-        self.run(Some(self.cache.clone()), Some(Mode::Changed), settings, ctx);
+        let Some(next) = self.follow_up.take() else {
+            return;
+        };
+        if self.is_off() || self.safe {
+            return;
+        }
+        for module in next.modules() {
+            self.cache.forget(module);
+            self.stale = true;
+        }
+        self.run(Some(self.cache.clone()), Some(next.mode()), settings, ctx);
     }
 
     /// Stops a scan: the children are killed and what finished is kept.
@@ -294,13 +349,19 @@ impl Plugins {
             Source::Fixed(f) => (f.roots.clone(), f.host.clone(), f.deadline, f.faults),
         };
         let mut roots = roots;
-        roots.extend(settings.folders.iter().map(PathBuf::from));
+        roots.extend(user_folders(settings));
         // A scan needs its program; whether it is there is found out on the
         // scan thread (a stat can be slow), which says what is missing.
         let host = scan.map(|_| host);
         self.cancel.store(false, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel();
         self.rx = Some(rx);
+        // Only a scan reads folders; a read of the cache alone checks none.
+        self.roots = if scan.is_some() {
+            roots.clone()
+        } else {
+            Vec::new()
+        };
         if host.is_some() {
             self.status = Status::Scanning { done: 0, total: 0 };
         }
@@ -324,9 +385,9 @@ impl Plugins {
         }
     }
 
-    /// Takes what the thread has sent; true if anything the browser shows
-    /// changed.
-    pub(crate) fn poll(&mut self) -> bool {
+    /// Takes what the thread has sent, and starts a scan that waited for it
+    /// to end; true if anything the browser shows changed.
+    pub(crate) fn poll(&mut self, settings: &PluginSettings, ctx: &egui::Context) -> bool {
         let mut changed = false;
         while let Some(rx) = &self.rx {
             match rx.try_recv() {
@@ -344,6 +405,7 @@ impl Plugins {
                 }
             }
         }
+        self.run_follow_up(settings, ctx);
         if self.stale && self.rebuild_wait().is_none() {
             self.catalog = Catalog::build(&self.cache, builtin_devices());
             self.stale = false;
@@ -435,6 +497,242 @@ mod tests {
         }
     }
 
+    /// A poll with no folders of the person's own.
+    fn poll(p: &mut Plugins) -> bool {
+        p.poll(&PluginSettings::default(), &egui::Context::default())
+    }
+
+    /// Settings naming `folders` as the person's own.
+    fn with_folders(folders: &[&str]) -> PluginSettings {
+        PluginSettings {
+            folders: folders.iter().map(|f| (*f).to_owned()).collect(),
+            ..PluginSettings::default()
+        }
+    }
+
+    /// Plugins in the middle of a scan of `/std` and `folders`, driven by
+    /// the sender returned. A scan that follows runs for real, with a scan
+    /// program that is not there, so it ends at once.
+    fn scanning(folders: &[&str]) -> (Plugins, mpsc::Sender<Message>) {
+        let mut p = Plugins::off();
+        p.source = Source::Fixed(Fixed {
+            roots: vec![PathBuf::from("/std")],
+            host: PathBuf::from("/no/such/host"),
+            cache: None,
+            deadline: None,
+            faults: None,
+        });
+        let (tx, rx) = mpsc::channel();
+        p.rx = Some(rx);
+        p.status = Status::Scanning { done: 0, total: 1 };
+        p.roots = std::iter::once("/std")
+            .chain(folders.iter().copied())
+            .map(PathBuf::from)
+            .collect();
+        (p, tx)
+    }
+
+    /// The running scan ends with `cache`.
+    fn finish(tx: &mpsc::Sender<Message>, cache: Cache, cancelled: bool) {
+        tx.send(Message::Finished {
+            summary: Summary {
+                cancelled,
+                ..Summary::default()
+            },
+            cache,
+            saved: Ok(()),
+        })
+        .unwrap();
+    }
+
+    /// Polls until the scan that followed is over.
+    fn drain(p: &mut Plugins, settings: &PluginSettings, ctx: &egui::Context) {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while p.busy() && std::time::Instant::now() < end {
+            p.poll(settings, ctx);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!p.busy(), "the scan that followed never ended");
+    }
+
+    #[test]
+    fn a_folder_added_during_a_scan_is_scanned_once_it_ends() {
+        let ctx = egui::Context::default();
+        let (mut p, tx) = scanning(&[]);
+        let settings = with_folders(&["/a"]);
+        p.rescan(Mode::Changed, &settings, &ctx);
+        let waiting = p.waiting().expect("remembered");
+        assert_eq!(waiting.folders(), [PathBuf::from("/a")]);
+        assert_eq!(p.roots, [PathBuf::from("/std")], "the running scan goes on");
+
+        finish(&tx, Cache::new(), false);
+        p.poll(&settings, &ctx);
+        assert!(
+            p.busy(),
+            "the follow-up started in the poll that ended the scan"
+        );
+        assert!(p.waiting().is_none());
+        assert_eq!(p.roots, [PathBuf::from("/std"), PathBuf::from("/a")]);
+        drain(&mut p, &settings, &ctx);
+        assert!(p.waiting().is_none(), "and runs once");
+    }
+
+    #[test]
+    fn several_requests_during_one_scan_are_one_follow_up() {
+        let ctx = egui::Context::default();
+        let (mut p, tx) = scanning(&[]);
+        let settings = with_folders(&["/a", "/b"]);
+        p.rescan(Mode::Changed, &with_folders(&["/a"]), &ctx);
+        p.retry("/std/Bad.vst3", &settings, &ctx);
+        p.rescan(Mode::All, &settings, &ctx);
+        p.rescan(Mode::Changed, &settings, &ctx);
+        let waiting = p.waiting().expect("remembered").clone();
+        assert_eq!(waiting.mode(), Mode::All);
+        assert_eq!(waiting.modules(), ["/std/Bad.vst3"]);
+        assert_eq!(
+            waiting.folders(),
+            [PathBuf::from("/a"), PathBuf::from("/b")]
+        );
+
+        // The scan's own result still holds the module Retry asked for.
+        let mut cache = Cache::new();
+        cache.set(blocked("/std/Bad.vst3"));
+        finish(&tx, cache, false);
+        p.poll(&settings, &ctx);
+        assert!(p.busy() && p.waiting().is_none());
+        assert!(
+            p.cache.entry("/std/Bad.vst3").is_none(),
+            "forgotten before the follow-up, so it is loaded again"
+        );
+        drain(&mut p, &settings, &ctx);
+    }
+
+    #[test]
+    fn a_folder_removed_during_a_scan_is_not_scanned_after_it() {
+        let ctx = egui::Context::default();
+        let (mut p, tx) = scanning(&["/a"]);
+        // "/a" is removed from the settings, then the removal rescans.
+        let settings = with_folders(&[]);
+        p.rescan(Mode::Changed, &settings, &ctx);
+        assert!(p.waiting().expect("remembered").folders().is_empty());
+        finish(&tx, Cache::new(), false);
+        p.poll(&settings, &ctx);
+        assert!(p.busy());
+        assert_eq!(
+            p.roots,
+            [PathBuf::from("/std")],
+            "without the removed folder"
+        );
+        drain(&mut p, &settings, &ctx);
+    }
+
+    #[test]
+    fn a_request_made_during_cancel_runs_once_the_scan_has_stopped() {
+        let ctx = egui::Context::default();
+        let settings = with_folders(&["/a"]);
+        // Asked for after Cancel, before the scan has stopped.
+        let (mut p, tx) = scanning(&[]);
+        p.cancel();
+        p.rescan(Mode::Changed, &settings, &ctx);
+        assert!(p.waiting().is_some());
+        finish(&tx, Cache::new(), true);
+        p.poll(&settings, &ctx);
+        assert!(p.busy(), "the follow-up runs");
+        assert!(
+            !p.cancel.load(Ordering::Relaxed),
+            "and is not cancelled by the earlier Cancel"
+        );
+        assert_eq!(p.roots, [PathBuf::from("/std"), PathBuf::from("/a")]);
+        drain(&mut p, &settings, &ctx);
+
+        // Asked for before Cancel: it still runs once the scan has stopped.
+        let (mut p, tx) = scanning(&[]);
+        p.rescan(Mode::Changed, &settings, &ctx);
+        p.cancel();
+        finish(&tx, Cache::new(), true);
+        p.poll(&settings, &ctx);
+        assert!(p.busy() && p.waiting().is_none());
+        drain(&mut p, &settings, &ctx);
+    }
+
+    #[test]
+    fn a_scan_that_stops_without_a_word_still_runs_the_follow_up() {
+        let ctx = egui::Context::default();
+        let settings = with_folders(&["/a"]);
+        let (mut p, tx) = scanning(&[]);
+        p.rescan(Mode::Changed, &settings, &ctx);
+        drop(tx);
+        p.poll(&settings, &ctx);
+        assert!(p.busy() && p.waiting().is_none());
+        drain(&mut p, &settings, &ctx);
+    }
+
+    #[test]
+    fn safe_mode_scans_nothing_and_remembers_nothing() {
+        let ctx = egui::Context::default();
+        let settings = with_folders(&["/a"]);
+        // During the first read of the cache.
+        let (mut p, tx) = scanning(&[]);
+        p.safe = true;
+        p.status = Status::Loading;
+        p.rescan(Mode::Changed, &settings, &ctx);
+        p.retry("/std/Bad.vst3", &settings, &ctx);
+        assert!(p.waiting().is_none());
+        drop(tx);
+        p.poll(&settings, &ctx);
+        assert!(!p.busy(), "nothing followed");
+        // And with nothing running.
+        p.rescan(Mode::All, &settings, &ctx);
+        assert!(!p.busy() && p.waiting().is_none());
+    }
+
+    #[test]
+    fn a_rescan_during_the_first_read_of_the_cache_waits_to_check_every_folder() {
+        let ctx = egui::Context::default();
+        // Scan at startup off: the start reads the cache and checks nothing.
+        let settings = PluginSettings {
+            scan_at_startup: false,
+            ..with_folders(&["/a"])
+        };
+        let source = Source::Fixed(Fixed {
+            roots: vec![PathBuf::from("/std")],
+            host: PathBuf::from("/no/such/host"),
+            cache: None,
+            deadline: None,
+            faults: None,
+        });
+        let mut p = Plugins::start(source, None, &settings, false, &ctx);
+        assert!(p.roots.is_empty(), "no folder is being checked");
+        // Held in that read, driven by the test.
+        let (tx, rx) = mpsc::channel::<Message>();
+        p.rx = Some(rx);
+        p.rescan(Mode::Changed, &settings, &ctx);
+        assert_eq!(
+            p.waiting().expect("remembered").folders(),
+            [PathBuf::from("/a")],
+            "the folder the person added waits too"
+        );
+        drop(tx);
+        p.poll(&settings, &ctx);
+        assert!(p.busy() && p.waiting().is_none());
+        drain(&mut p, &settings, &ctx);
+    }
+
+    #[test]
+    fn leaving_safe_mode_while_the_cache_is_read_scans_once_it_is() {
+        let ctx = egui::Context::default();
+        let settings = PluginSettings::default();
+        let (mut p, tx) = scanning(&[]);
+        p.safe = true;
+        p.status = Status::Loading;
+        p.leave_safe(&settings, &ctx);
+        assert!(p.waiting().is_some(), "remembered while the cache is read");
+        drop(tx);
+        p.poll(&settings, &ctx);
+        assert!(p.busy(), "the scan safe mode left out runs");
+        drain(&mut p, &settings, &ctx);
+    }
+
     #[test]
     fn the_list_is_rebuilt_a_few_times_a_second_during_a_scan_not_once_a_module() {
         let mut p = Plugins::off();
@@ -453,7 +751,7 @@ mod tests {
             })
             .unwrap();
             // A frame after every module.
-            p.poll();
+            poll(&mut p);
         }
         let built = p.builds - before;
         assert!(built <= 3, "{built} rebuilds for 300 modules in an instant");
@@ -468,7 +766,7 @@ mod tests {
             saved: Ok(()),
         })
         .unwrap();
-        p.poll();
+        poll(&mut p);
         assert_eq!(p.catalog().blocked().len(), 300);
         assert!(p.rebuild_wait().is_none());
     }
@@ -488,7 +786,7 @@ mod tests {
             saved: Ok(()),
         })
         .unwrap();
-        p.poll();
+        poll(&mut p);
         assert!(p.note().is_some_and(|n| n.contains("Only the first")));
     }
 
@@ -541,7 +839,7 @@ mod tests {
         })
         .unwrap();
         tx.send(Message::Planned { total: 2 }).unwrap();
-        assert!(p.poll());
+        assert!(poll(&mut p));
         assert_eq!(*p.status(), Status::Scanning { done: 0, total: 2 });
         assert_eq!(p.note(), Some("discarded"));
 
@@ -551,7 +849,7 @@ mod tests {
             entry: blocked("/m/Bad.vst3"),
         })
         .unwrap();
-        assert!(p.poll());
+        assert!(poll(&mut p));
         assert_eq!(*p.status(), Status::Scanning { done: 1, total: 2 });
 
         let mut cache = Cache::new();
@@ -562,7 +860,7 @@ mod tests {
             saved: Err("disk full".into()),
         })
         .unwrap();
-        assert!(p.poll());
+        assert!(poll(&mut p));
         assert_eq!(
             p.catalog().blocked().len(),
             1,
@@ -594,7 +892,7 @@ mod tests {
         while matches!(p.status(), Status::Scanning { .. } | Status::Loading)
             && std::time::Instant::now() < end
         {
-            p.poll();
+            poll(&mut p);
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
         let Status::Failed(why) = p.status() else {
@@ -613,7 +911,7 @@ mod tests {
         p.rx = Some(rx);
         p.status = Status::Scanning { done: 0, total: 1 };
         drop(tx);
-        assert!(p.poll());
+        assert!(poll(&mut p));
         assert_eq!(*p.status(), Status::Idle);
         assert!(!p.busy());
     }
