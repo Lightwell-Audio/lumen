@@ -757,6 +757,28 @@ fn a_cache_made_before_the_mark_is_claimed() {
     assert_eq!(cache.clear(&[]), 3000);
 }
 
+/// A hit while a trim runs, after the trim listed the entries and before it
+/// removes the one hit, keeps that entry: the trim reads its last use again
+/// (review of M9 R7, round 2).
+#[test]
+fn a_hit_during_a_trim_keeps_its_entry() {
+    let dir = folder("hit-during-trim");
+    let cache = Cache::new(dir.join("cache"));
+    let cancel = AtomicBool::new(false);
+    let source = dir.join("0.wav");
+    write_wav(&source, 44_100, Sample::F32, &[signal(20_000, 0.01)]);
+    let prepared = cache
+        .prepare(&source, 48_000, &cancel, &mut |_| {})
+        .unwrap();
+    age(&prepared.path, 600);
+    age(&prepared.path.with_extension("key"), 600);
+    let listed = cache.entries();
+    assert_eq!(listed.len(), 1, "listed as old");
+    let hit = cache.find(&source, 48_000).unwrap().expect("a hit");
+    assert_eq!(cache.trim_entries(listed, 0, &[]), 0);
+    assert!(hit.path.exists(), "the copy the hit returned is kept");
+}
+
 /// An entry used in the last two minutes is not cleared: a load prepares
 /// its file before the app lists it as playing (review of M9 R7).
 #[test]

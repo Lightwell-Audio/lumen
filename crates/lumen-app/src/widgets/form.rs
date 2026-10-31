@@ -47,9 +47,14 @@ pub fn warning(ui: &mut Ui, text: &str, reserve: f32) -> egui::Response {
     .inner
 }
 
-/// A quiet line of help.
+/// A quiet line of help, wrapping within the space left so it never widens
+/// the window.
 pub fn hint(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).small().weak());
+    let width = ui.available_width().max(120.0);
+    ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
+        ui.set_max_width(width);
+        ui.add(egui::Label::new(RichText::new(text).small().weak()).wrap());
+    });
 }
 
 /// A sample rate as it reads in settings: "48.0 kHz".

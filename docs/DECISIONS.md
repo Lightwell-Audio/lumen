@@ -9992,7 +9992,10 @@ audit (2026-10-24, M4) found controls with no palette entry.
      run on a worker; a lower limit chosen while it is busy is trimmed to
      when it is done. What plays now is kept, and so is an entry used in the
      last two minutes (`cache::FRESH`): a load prepares its file before the
-     app lists it as playing, and Clear must not fall in between.
+     app lists it as playing, and Clear must not fall in between. A hit
+     and a removal never overlap (a shared lock), and an entry's last use
+     is read again just before it goes, so a load that hits while Clear
+     runs keeps its copy (review round 2).
      Temporary `.writing` files are not cleared.
    - **Plugins**: added folders can be removed, and the blocked plugins are
      listed with Retry (disabled in safe mode).

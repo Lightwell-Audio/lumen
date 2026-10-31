@@ -32,9 +32,12 @@
 //!
 //! An entry used in the last [`FRESH`] is not cleared: a file being loaded is
 //! prepared before the app lists it as playing, and must not go in between.
+//! A hit and a removal never overlap ([`HITS`]), and an entry's last use is
+//! read again just before it is removed, so a hit during a trim keeps it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -53,6 +56,12 @@ pub const MARKER: &str = "lumen-cache.json";
 /// [`Cache::clear`]: the time a load takes from preparing a file to the app
 /// listing it as playing, with room to spare.
 pub const FRESH: Duration = Duration::from_secs(120);
+
+/// Held (shared) by a hit while it checks a copy and marks it used, and
+/// (alone) by a trim while it removes an entry: so a hit either comes first
+/// and makes the entry fresh, which the trim then sees, or comes after and
+/// misses, and the file is converted again.
+static HITS: RwLock<()> = RwLock::new(());
 
 /// Whether `name` is one the cache gives its files: `<16 hex digits>-<rate>`
 /// and `.wav`, `.key` or `.peaks`.
@@ -233,6 +242,7 @@ impl Cache {
         }
         let key = Key::of(source, rate)?;
         let (audio, key_file) = self.paths(&key);
+        let _hit = HITS.read().unwrap_or_else(|e| e.into_inner());
         let matches = fs::read_to_string(&key_file).is_ok_and(|text| text == key.text);
         if !matches {
             return Ok(None);
@@ -393,7 +403,7 @@ impl Cache {
     /// The cache's entries by name: their files (with their bytes), bytes
     /// and time of last use. Only the cache's own names in a folder that is
     /// the cache's ([`Cache::claim`]); files being written are left out.
-    fn entries(&self) -> std::collections::HashMap<String, Entry> {
+    pub(super) fn entries(&self) -> std::collections::HashMap<String, Entry> {
         let mut entries: std::collections::HashMap<String, Entry> = Default::default();
         if !self.claim() {
             return entries;
@@ -429,7 +439,17 @@ impl Cache {
     /// neither counted nor cleared, and nor is any file the cache did not
     /// make. Returns the bytes cleared.
     pub fn trim(&self, limit: u64, keep: &[PathBuf]) -> u64 {
-        let entries = self.entries();
+        self.trim_entries(self.entries(), limit, keep)
+    }
+
+    /// [`Cache::trim`] over `entries`, as listed a moment before: an entry
+    /// used since then (a hit while the trim runs) is kept.
+    pub(super) fn trim_entries(
+        &self,
+        entries: std::collections::HashMap<String, Entry>,
+        limit: u64,
+        keep: &[PathBuf],
+    ) -> u64 {
         let mut total: u64 = entries.values().map(|e| e.1).sum();
         if total <= limit {
             return 0;
@@ -450,6 +470,16 @@ impl Cache {
         for (_, (mut files, _, _)) in oldest {
             if total <= limit {
                 break;
+            }
+            // No hit while this entry goes; one since the listing kept it.
+            let _removing = HITS.write().unwrap_or_else(|e| e.into_inner());
+            let used_now = files
+                .iter()
+                .filter_map(|(file, _)| fs::metadata(file).and_then(|m| m.modified()).ok())
+                .max()
+                .unwrap_or(UNIX_EPOCH);
+            if fresh(used_now) {
+                continue;
             }
             // The key last, and only once the rest is gone: an entry whose
             // audio cannot be removed (open in another instance) stays
@@ -508,7 +538,7 @@ fn is_writing(name: &str) -> bool {
 
 /// An entry of the cache: its files (with their bytes), its bytes and its
 /// time of last use.
-type Entry = (Vec<(PathBuf, u64)>, u64, SystemTime);
+pub(super) type Entry = (Vec<(PathBuf, u64)>, u64, SystemTime);
 
 /// Marks a cache file as used now (its modified time), so [`Cache::trim`]
 /// clears it last. A file that cannot be touched only ages sooner.

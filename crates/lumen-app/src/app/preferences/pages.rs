@@ -259,7 +259,7 @@ impl App {
 
         section(ui, "New tracks");
         marks.row(ui, "edit.new_audio_monitor", |ui| {
-            row(ui, "Audio monitoring", |ui| {
+            row(ui, "Audio monitor", |ui| {
                 let modes = [
                     widgets::Choice::new(Monitor::In, "In")
                         .named("New audio tracks: monitor In")
@@ -280,7 +280,7 @@ impl App {
             });
         });
         marks.row(ui, "edit.new_midi_instrument", |ui| {
-            row(ui, "MIDI instrument", |ui| {
+            row(ui, "Instrument", |ui| {
                 let options: Vec<String> = std::iter::once("None".to_owned())
                     .chain(Preset::ALL.iter().map(|p| format!("Synth: {}", p.name())))
                     .collect();

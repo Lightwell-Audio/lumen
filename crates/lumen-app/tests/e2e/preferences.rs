@@ -453,3 +453,20 @@ fn the_cache_is_counted_cleared_limited_and_moved_from_the_files_page() {
     assert!(foreign.exists());
     assert_eq!(again.app().cache_limit_gb(), 5, "the limit was kept");
 }
+
+/// The window keeps its width from page to page: no row reaches past the
+/// page (a long label spilling out of its column once widened the window
+/// on the Editing page), so the close button stays where it was (review of
+/// M9 R7, round 2).
+#[test]
+fn every_page_keeps_the_window_width_and_its_close_button_in_place() {
+    let mut lumen = Lumen::start("preferences-width");
+    lumen.open_preferences("Audio");
+    let first = lumen.harness.get_by_label("Close").rect();
+    for page in App::preference_pages() {
+        lumen.harness.get_by_label(&format!("{page} page")).click();
+        lumen.frames(3);
+        let close = lumen.harness.get_by_label("Close").rect();
+        assert_eq!(close, first, "the {page} page moved the close button");
+    }
+}
