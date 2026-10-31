@@ -183,6 +183,25 @@ fn the_light_theme_at_200_percent_draws() {
     assert!(colours(&shot) > 20, "the window looks blank");
 }
 
+/// The first-run window draws on the real binary when asked (M9 R7b); a
+/// screenshot alone never opens it.
+#[test]
+#[ignore = "needs a desktop and a GPU: run at the end of every slice"]
+fn the_first_run_window_draws() {
+    let dir = TempDir::new("smoke-first-run");
+    let shot = dir.path().join("first-run.png");
+    let out = lumen(
+        dir.path(),
+        &[
+            "--first-run",
+            "--screenshot",
+            shot.to_str().expect("a UTF-8 path"),
+        ],
+    );
+    assert!(out.contains("screenshot saved"), "{out}");
+    assert!(colours(&shot) > 20, "the window looks blank");
+}
+
 /// A panic leaves a crash report naming what failed and where, and the
 /// next start offers it (owner, M3 slice 6c).
 #[test]

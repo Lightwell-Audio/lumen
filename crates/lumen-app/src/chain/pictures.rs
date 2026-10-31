@@ -39,7 +39,7 @@ pub(super) fn snapshot_path(module: &Path, class: &str) -> Option<PathBuf> {
 
 /// Decodes a PNG into pixels, or says nothing: anything unexpected (too
 /// large, damaged, not a PNG) is "no picture". Never panics on bad input.
-pub(super) fn decode(bytes: &[u8]) -> Option<ColorImage> {
+pub(crate) fn decode(bytes: &[u8]) -> Option<ColorImage> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = decoder.read_info().ok()?;

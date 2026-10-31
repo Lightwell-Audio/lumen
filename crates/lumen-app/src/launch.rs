@@ -81,6 +81,12 @@ pub struct Launch {
     pub(crate) save_as: Option<PathBuf>,
     /// Tests: file dialogs are answered by the test, never shown.
     pub(crate) scripted_dialogs: bool,
+    /// `--first-run`: the first-run window opens even in a run that never
+    /// shows it otherwise (a screenshot, a test), whatever the settings say.
+    pub(crate) first_run: bool,
+    /// Tests: the first-run window follows the settings as on a real start
+    /// (it opens while setup is not done), though the run drives itself.
+    pub(crate) first_start_rule: bool,
 }
 
 impl Launch {
@@ -196,6 +202,8 @@ impl Launch {
             plugin_marker,
             save_as: value("--save-as").map(PathBuf::from),
             scripted_dialogs: false,
+            first_run: has("--first-run"),
+            first_start_rule: false,
         }
     }
 }

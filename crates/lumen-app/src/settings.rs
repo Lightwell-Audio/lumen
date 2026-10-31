@@ -352,6 +352,12 @@ pub struct Settings {
     /// The cache's folder and limit (M9 R7): an added section with
     /// defaults, so older files read as before (no version change).
     pub cache: Cache,
+    /// The first-run window was finished or closed (M9 R7b). An added
+    /// field: a file without it was written before the window existed, by
+    /// someone already set up, so it reads as done; only a start with no
+    /// settings at all (the defaults) has it false.
+    #[serde(default = "yes")]
+    pub setup_done: bool,
 }
 
 /// The device setup a loopback measurement was taken on.
@@ -538,7 +544,18 @@ impl Default for Settings {
             playback: Playback::default(),
             offset_measured: None,
             cache: Cache::default(),
+            setup_done: false,
         }
+    }
+}
+
+/// Defaults for someone whose settings file could not be used: not a new
+/// user, so the first-run window stays closed (the warning says what
+/// happened).
+fn defaults_after_a_bad_file() -> Settings {
+    Settings {
+        setup_done: true,
+        ..Settings::default()
     }
 }
 
@@ -569,7 +586,7 @@ pub fn load(path: &Path) -> (Settings, Option<String>) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Settings::default(), None),
         Err(e) => {
             return (
-                Settings::default(),
+                defaults_after_a_bad_file(),
                 Some(format!("Could not read settings: {e}")),
             );
         }
@@ -589,7 +606,7 @@ pub fn load(path: &Path) -> (Settings, Option<String>) {
                 Err(e) => format!("it could not be kept aside ({e}) and may be overwritten"),
             };
             (
-                Settings::default(),
+                defaults_after_a_bad_file(),
                 Some(format!(
                     "The settings were saved by a newer version of {PRODUCT_NAME} (format {}); \
                      starting with defaults, and {kept}",
@@ -601,7 +618,7 @@ pub fn load(path: &Path) -> (Settings, Option<String>) {
             let aside = path.with_extension("json.bad");
             let _ = std::fs::rename(path, &aside);
             (
-                Settings::default(),
+                defaults_after_a_bad_file(),
                 Some(format!(
                     "The settings file was damaged ({e}); it was kept as {} and defaults are in use",
                     aside.display()
@@ -818,6 +835,7 @@ mod tests {
                 limit_gb: 50,
                 previous: Some("C:/Users/me/AppData/Local/Lumen/Cache".into()),
             },
+            setup_done: true,
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings.clone(), None));
@@ -834,6 +852,26 @@ mod tests {
     fn missing_settings_are_defaults_without_a_warning() {
         let path = temp_dir("missing").join("settings.json");
         assert_eq!(load(&path), (Settings::default(), None));
+    }
+
+    /// M9 R7b: only a start with no settings file is a first start.
+    #[test]
+    fn only_a_start_without_settings_is_a_first_start() {
+        let dir = temp_dir("first-start");
+        let path = dir.join("settings.json");
+        assert!(!load(&path).0.setup_done, "no file: a new user");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, r#"{"version": 1}"#).unwrap();
+        assert!(load(&path).0.setup_done, "a file from before R7b");
+        std::fs::write(&path, r#"{"version": 1, "setup_done": false}"#).unwrap();
+        assert!(!load(&path).0.setup_done, "quit before finishing");
+        std::fs::write(&path, "{ not json").unwrap();
+        let (settings, warning) = load(&path);
+        assert!(settings.setup_done && warning.is_some(), "a damaged file");
+        std::fs::write(&path, r#"{"version": 999}"#).unwrap();
+        let (settings, warning) = load(&path);
+        assert!(settings.setup_done && warning.is_some(), "a newer file");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A file from before R7's Preferences reads the new settings as
@@ -904,7 +942,7 @@ mod tests {
         let path = dir.join("settings.json");
         std::fs::write(&path, "{ this is not json").unwrap();
         let (settings, warning) = load(&path);
-        assert_eq!(settings, Settings::default());
+        assert_eq!(settings, defaults_after_a_bad_file());
         assert!(warning.unwrap().contains("damaged"));
         assert!(dir.join("settings.json.bad").exists());
         assert!(!path.exists());
@@ -918,7 +956,7 @@ mod tests {
         let newer = r#"{"version": 99, "later": true}"#;
         std::fs::write(&path, newer).unwrap();
         let (settings, warning) = load(&path);
-        assert_eq!(settings, Settings::default());
+        assert_eq!(settings, defaults_after_a_bad_file());
         let warning = warning.unwrap();
         assert!(warning.contains("newer version"), "{warning}");
         assert!(warning.contains("settings.json.newer"), "{warning}");
@@ -929,7 +967,7 @@ mod tests {
             newer,
             "the newer file's words are still there"
         );
-        assert_eq!(load(&path).0, Settings::default());
+        assert_eq!(load(&path).0, defaults_after_a_bad_file());
     }
 
     #[test]

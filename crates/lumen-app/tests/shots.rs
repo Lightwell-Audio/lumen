@@ -4528,3 +4528,104 @@ fn measure_latency_card() {
         }
     }
 }
+
+/// M9 R7b: the first-run window's three steps, with plugins scanned (the
+/// plugin host is missing, so the scan fails and the steps show it).
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn first_run() {
+    use egui_kittest::kittest::Queryable;
+    for (appearance, scale) in [
+        ("dark", 1.0),
+        ("light", 1.0),
+        ("dark", 1.5),
+        ("light", 1.5),
+        ("dark", 2.0),
+        ("light", 2.0),
+    ] {
+        let dir = TempDir::new("shots-first-run");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .first_run()
+            .with_plugins(
+                Vec::new(),
+                &dir.path().join("no-host"),
+                dir.path().join("cache.json"),
+            );
+        let mut h = Harness::builder()
+            .with_size(vec2(1280.0, 760.0))
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(20);
+        let tag = format!("{appearance}-{scale}");
+        h.get_by_label("Play test sound").click();
+        h.run_steps(30);
+        save(&mut h, &format!("first-run-sound-{tag}"));
+        h.get_by_label("Next").click();
+        h.run_steps(20);
+        save(&mut h, &format!("first-run-plugins-{tag}"));
+        h.get_by_label("Next").click();
+        h.run_steps(20);
+        save(&mut h, &format!("first-run-ready-{tag}"));
+    }
+}
+
+/// M9 R7b: the first-run window in a 960 × 540 window, with six plugin
+/// folders and the scan's three-line error: the pills and Next stay in
+/// reach and nothing overlaps.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn first_run_small() {
+    use egui_kittest::kittest::Queryable;
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.5), ("dark", 2.0)] {
+        let dir = TempDir::new("shots-first-run-small");
+        let mut launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .first_run()
+            .with_plugins(
+                Vec::new(),
+                &dir.path().join("no-host"),
+                dir.path().join("cache.json"),
+            );
+        for i in 1..=6 {
+            let folder = dir
+                .path()
+                .join(format!("A plugin folder with a long name, number {i}"));
+            std::fs::create_dir_all(&folder).unwrap();
+            launch = launch.with_plugin_folder(&folder);
+        }
+        let mut h = Harness::builder()
+            .with_size(vec2(960.0, 540.0))
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(20);
+        let tag = format!("{appearance}-{scale}");
+        save(&mut h, &format!("first-run-small-sound-{tag}"));
+        h.get_by_label("Next").click();
+        h.run_steps(20);
+        save(&mut h, &format!("first-run-small-plugins-{tag}"));
+        h.get_by_label("Next").click();
+        h.run_steps(20);
+        save(&mut h, &format!("first-run-small-ready-{tag}"));
+    }
+}

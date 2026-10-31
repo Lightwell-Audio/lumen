@@ -11,12 +11,14 @@
 //!   clips.
 //! - [`TransportSnapshot`]: the transport as the UI sees it.
 //! - [`loopback`]: measuring the round trip through a cable (M9 slice R2b).
+//! - [`chime`]: the sound check, left, right, then both (M9 slice R7b).
 //!
 //! The engine runs inside the device callback and never allocates, locks or
 //! blocks there; `tests/realtime.rs` checks that, and RealtimeSanitizer
 //! checks it again in Linux CI.
 
 mod capture;
+pub mod chime;
 mod clips;
 mod declick;
 mod engine;

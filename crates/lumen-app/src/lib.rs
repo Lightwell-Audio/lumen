@@ -118,6 +118,7 @@ mod timefmt;
 mod timeview;
 mod trace;
 mod transport;
+mod welcome;
 mod widgets;
 
 pub use launch::Launch;
@@ -312,6 +313,8 @@ pub struct App {
     shortcuts: app::shortcuts::Shortcuts,
     /// The Preferences window (M9 R7).
     preferences: preferences::Window,
+    /// The first-run window (M9 R7b).
+    welcome: welcome::Welcome,
     /// A chord being recorded for a command (the window or the palette).
     rebind: Option<app::shortcuts::Rebind>,
     /// Where the keyboard is among the panes (F6).
@@ -676,6 +679,7 @@ impl eframe::App for App {
         self.recovery_banner(ui);
         self.safe_banner(ui);
         self.preferences_window(&ctx);
+        self.welcome_window(&ctx);
         if self.midi.poll() {
             self.midi_ports_seen += 1;
             ctx.request_repaint();

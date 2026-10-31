@@ -11,7 +11,7 @@ pub(crate) mod editor;
 mod geometry;
 pub(crate) mod outputs;
 mod params;
-mod pictures;
+pub(crate) mod pictures;
 pub(crate) mod place;
 pub(crate) mod presets;
 mod sidechain;
