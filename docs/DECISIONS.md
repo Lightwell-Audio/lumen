@@ -114,6 +114,7 @@ irreversible or external) · *Superseded*.
 | [0108](#adr-0108--the-ux-round-three-detail-tabs-compact-cards-the-cpu-slot-the-chip-clip) | UX round three: detail tabs, compact cards, the CPU slot, the chip clip | Accepted 2026-10-28 | No |
 | [0110](#adr-0110--the-loopback-helper-measuring-the-round-trip-m9-r2b) | The loopback helper: measuring the round trip (M9 R2b) | Accepted 2026-10-29 (MT-REC-5 pending) | No |
 | [0112](#adr-0112--preferences-tap-tempo-and-command-coverage-m9-r7) | Preferences, tap tempo and command coverage (M9 R7) | Accepted 2026-10-31 (MT-PREF-1 pending) | No |
+| [0113](#adr-0113--device-changes-run-on-a-worker-fix-before-m9-r7b) | Device changes run on a worker (fix before M9 R7b) | Accepted 2026-10-31 (MT-AUDIO-7 pending) | No |
 | [0114](#adr-0114--a-scan-asked-for-during-a-scan-runs-after-it) | A scan asked for during a scan runs after it | Accepted 2026-10-31 | No |
 
 ---
@@ -10026,6 +10027,94 @@ in every project; Project settings hold the song's own values. A log file
 with Reveal logs (M10), saving quantize options (KNOWN_ISSUES), preferences
 import and export, the first-run wizard (R7b) and the browser's tabs (R7c)
 are not in R7.
+
+## ADR-0113 — Device changes run on a worker (fix before M9 R7b)
+
+**Date:** 2026-10-31. **Branch:** `fix/async-device-change`, cut from
+`main`. **Status:** Accepted (built; MT-AUDIO-7 waits for the owner). Plan:
+`milestones/M9.md` §4, R7b, "Device changes stop blocking the interface"
+(owner: X A, 2026-10-31), on the R7b branch.
+
+**Context.** Choosing a device of another driver model froze the window.
+`Audio::apply` joined its lookup thread on the interface thread, and
+`AudioSystem::switch` waited up to 10 s for the old control thread to hand
+the engine's callback over, then joined that thread with no deadline while
+its driver closed. A failed switch went back the same way. Choosing ASIO in
+Preferences did this today, and the first-run wizard (R7b) offers ASIO on
+its first step. The review of the R7b plan found it; it was recorded in
+`KNOWN_ISSUES.md` on the R7b branch (that row is not on `main`, so the R7b
+branch removes it when it merges `main`).
+
+**Choice.**
+
+1. **A worker per change** (`audio/change.rs`). `Audio::apply` starts it
+   and returns at once. The worker looks the device up and, between driver
+   models, owns the `AudioSystem` while it calls `switch`. It sends its step
+   (looking, handing over, closing) and then one answer, which
+   `Audio::poll` reads each frame: missing (the system back untouched),
+   found (the interface thread configures, which does not wait), switched
+   (the system back on the new driver, asked to open), or failed. Going back
+   after a refused open is a change of its own, on the worker too.
+2. **`AudioSystem::switch`** returns a `SwitchError` (`Stopped`,
+   `NoHandover`) and calls a `handed` hook between the handover and the
+   join, so the worker can say which driver keeps it waiting. Its 10 s
+   deadline is `HANDOVER_TIMEOUT`.
+3. **One change at a time.** `Audio::can_change` is false while a worker
+   runs and until the device answers the open it was asked for; `apply`
+   refuses then, and the Audio page disables the driver, device, format and
+   channel controls, saying why on hover. *Interpretation:* the lock lasts
+   until the device answers, not only while the worker runs, so a second
+   choice never queues behind a driver that is still opening. Disabled
+   controls lose the keyboard in egui, so the control that asked for the
+   change gets it back afterwards.
+4. **What each failure leaves**, as the plan lists:
+   - a refused open goes back to the setup before, as before;
+   - no handover in 10 s: audio stays off, and the row says "<driver> did
+     not let go of the audio. Save your work and restart Lumen." The worker
+     drops the system on its own thread (that waits for the old driver);
+   - a lookup, a close or an open that takes 10 s: the row says "<driver>
+     is not answering. Save your work and restart Lumen." and the change
+     carries on if the driver answers later. *Interpretation:* this applies
+     to any open the device was asked for (a buffer change, Audio on), not
+     only a switch; the handover step has its own message instead;
+   - quitting never waits: a worker is never joined, and `Audio`'s drop
+     hands an audio system that has not answered to a thread of its own.
+   - "<driver>" is an ASIO driver's own name (Focusrite USB ASIO) and the
+     driver model for the others (Windows audio (shared)).
+   During the handover the row says "Closing <driver>…". The messages wrap.
+6. **Found in review** (one round, 2026-10-31):
+   - an answer the worker sent and nobody read can hold an audio system
+     still opening its device, so quitting hands the change, answers and
+     all, to the close thread too, with the system;
+   - Audio On/Off is locked with the device controls while a device has
+     not answered: a stop would queue behind the open, and would free the
+     lock while the driver still works;
+   - `switch` drops the events the old driver sent and nobody read, and
+     `Audio::poll` applies queued events before the change's answer:
+     either way, an old driver's start passed for the new device's answer
+     (it confirmed the settings, freed the lock and dropped the setup to
+     go back to).
+5. **Test devices with faults.** The fake backend gains `refuse_open`,
+   `open_delay` and `close_delay`. The app adds test drivers that refuse,
+   start after 3 s, hold on to the audio for 60 s, and start after 20 s. The
+   plan's three faults give no open that misses the 10 s, so the 20 s one is
+   a fourth (only test code). While a test device runs, the Driver menu lists
+   the test devices instead of the machine's drivers, so scenarios choose
+   them as a user would and never reach hardware.
+
+**Consequences.** The window keeps drawing through every switch; a driver
+that never answers costs the audio for that run, said in full, and nothing
+else. The audio callback and the engine are unchanged; nothing new runs on
+the real-time path. The start-up lookup (`Audio::start`) still waits on its
+thread, before the first frame, as before. E2E `device_change.rs` covers the
+four faults, the refusal of a second choice, Audio On/Off locked while a
+device has not answered, and quitting during a handover and with a finished
+switch unread; with the worker run inline, the two hang scenarios fail (a
+click took 60 s), and with the old drop, quitting after an unread switch
+took 20 s. `lumen-audio`'s supervisor tests cover `handed`, `NoHandover`
+and the old driver's events dropped (without the drop, the old driver's
+start was read as the new one's). **Not verified:** real ASIO and WASAPI
+switches (MT-AUDIO-7, the owner's Focusrite).
 
 ## ADR-0114 — A scan asked for during a scan runs after it
 

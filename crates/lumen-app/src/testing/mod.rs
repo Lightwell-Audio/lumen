@@ -27,7 +27,10 @@ mod preferences;
 mod streaming;
 mod tools;
 
-pub use crate::audio::{InputDeviceTurn, input_device, input_device_turn};
+pub use crate::audio::{
+    InputDeviceTurn, TEST_DRIVER, TEST_HOLDS_DRIVER, TEST_LATE_DRIVER, TEST_REFUSES_DRIVER,
+    TEST_SLOW_DRIVER, input_device, input_device_turn,
+};
 pub use editor::PianoRollDemo;
 
 /// A note edit for tests (`App::edit_notes`).
@@ -127,6 +130,16 @@ impl Launch {
             output_channels: vec![0, 1],
             cue_channels: Vec::new(),
         });
+        self
+    }
+
+    /// Starts on the silent test device of `driver` (one of the test
+    /// drivers, such as [`TEST_HOLDS_DRIVER`]).
+    pub fn on_audio_driver(mut self, driver: &str) -> Self {
+        self.audio = audio::Choice::Named {
+            driver: driver.into(),
+            name: "fake".into(),
+        };
         self
     }
 
@@ -301,6 +314,57 @@ impl App {
     /// The audio device is running.
     pub fn audio_running(&self) -> bool {
         matches!(self.transport.audio.status, Status::Running { .. })
+    }
+
+    /// The driver model in use (`test`, `test-slow`, ...).
+    pub fn audio_driver(&self) -> &str {
+        &self.transport.audio.driver
+    }
+
+    /// Why audio is off, when it is.
+    pub fn audio_off_reason(&self) -> Option<&str> {
+        match &self.transport.audio.status {
+            Status::Off(why) => Some(why),
+            _ => None,
+        }
+    }
+
+    /// What the audio page's notice says, if anything.
+    pub fn audio_notice(&self) -> Option<&str> {
+        self.transport.audio.notice.as_deref()
+    }
+
+    /// Whether the device can be changed now (no change is under way).
+    pub fn audio_can_change(&self) -> bool {
+        self.transport.audio.can_change()
+    }
+
+    /// Whether Audio On/Off can act now.
+    pub fn audio_can_switch(&self) -> bool {
+        self.transport.audio.can_switch()
+    }
+
+    /// Whether a switch of driver model has finished and its answer waits,
+    /// unread: no frame has run since. Waiting on it draws no frame.
+    pub fn audio_switched_unread(&mut self) -> bool {
+        self.transport.audio.switched_unread()
+    }
+
+    /// Chooses the test device on `driver`, as the Audio page's device
+    /// menu does, below the page: whether the change was taken (one under
+    /// way refuses it).
+    pub fn choose_audio_driver(&mut self, driver: &str) -> bool {
+        self.transport.audio.apply(settings::AudioSettings {
+            driver: driver.into(),
+            device_id: "fake".into(),
+            device_name: "Fake device".into(),
+            sample_rate: None,
+            buffer_frames: None,
+            input_channels: Vec::new(),
+            all_inputs: true,
+            output_channels: vec![0, 1],
+            cue_channels: Vec::new(),
+        })
     }
 
     pub fn is_playing(&self) -> bool {

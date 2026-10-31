@@ -445,6 +445,15 @@ per slice and move what is no longer current out of it.
   `main` (X A): `fix/async-device-change` (a driver-model switch blocks the
   interface) and `fix/rescan-queued-folder` (a folder added during a scan is
   never scanned). Then the wizard is built in four parts.
+- **Branch `fix/async-device-change`: the first fix before R7b is built**
+  (ADR-0113). A device change (the lookup, and a switch of driver model
+  with its handover) runs on a worker that owns the `AudioSystem`; the Audio
+  page's device controls are disabled until the device answers, and a
+  driver that holds on or does not answer is named after 10 s. Scenarios
+  choose faulty test devices from the Driver menu, which lists only test
+  devices while one runs (`tests/e2e/device_change.rs`). MT-AUDIO-7 waits
+  for the owner's Focusrite. The R7b branch removes its KNOWN_ISSUES row
+  when it merges `main`. With both fixes in, R7b is next.
 - **Branch `fix/rescan-queued-folder`: the rescan fault R7b needs is fixed**
   (ADR-0114). A rescan, Retry or leaving safe mode asked for during a scan
   waits, and runs once the scan ends or is cancelled, with the folders as
@@ -463,7 +472,7 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status and the milestone reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0112 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0114 and the table of owner decisions.
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
 - `docs/KNOWN_ISSUES.md`, `docs/ARCHITECTURE.md` (crates, threads, module

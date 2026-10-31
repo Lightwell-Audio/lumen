@@ -49,8 +49,9 @@ impl<'a> Dropdown<'a> {
             ui.allocate_exact_size(vec2(self.width, theme::size::CONTROL), Sense::hover());
         let response = ui.interact(rect, id, Sense::click());
         let name = accessible_name(self.name, self.shown);
+        let enabled = ui.is_enabled();
         response
-            .widget_info(|| egui::WidgetInfo::labeled(WidgetType::ComboBox, true, name.clone()));
+            .widget_info(|| egui::WidgetInfo::labeled(WidgetType::ComboBox, enabled, name.clone()));
         let was_open = ctx
             .data(|d| d.get_temp::<bool>(id.with("was open")))
             .unwrap_or(false);
@@ -162,7 +163,6 @@ impl<'a> Dropdown<'a> {
 
         if ui.is_rect_visible(rect) {
             let hover = motion::hover(&ctx, response.id.with("hover"), response.hovered() || open);
-            let enabled = ui.is_enabled();
             let face = raised::Face::new(theme::controls(false))
                 .hover(hover)
                 .pressed(response.is_pointer_button_down_on())
