@@ -2,9 +2,9 @@
 
 use eframe::egui::{self, Align2, Id, RichText, pos2};
 
-use crate::audio_settings::{hint, khz, row, section};
 use crate::export::{Buses, Format, Options, Scope};
 use crate::widgets::{self, Dialog, Dropdown, raised};
+use crate::widgets::{hint, khz, row, section};
 use crate::{App, theme};
 
 const WIDTH: f32 = 420.0;

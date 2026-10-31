@@ -1,6 +1,10 @@
 //! The app menu (click "Lumen"): files, undo, appearance (theme, interface
-//! size, Reduce motion) and audio settings; and saving settings in the
-//! background (audit H1).
+//! size, Reduce motion) and Preferences; and saving settings in the
+//! background (audit H1). The Preferences window is `window.rs`, its pages
+//! `pages.rs`.
+
+mod pages;
+mod window;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -13,9 +17,8 @@ use crate::commands::Command;
 use crate::{App, fonts, motion, settings, theme, widgets};
 
 impl App {
-    /// The product name opens the app menu: appearance (theme, motion, UI
-    /// scale), additive solo and audio settings. Preferences proper arrive
-    /// in M9.
+    /// The product name opens the app menu: files, undo, a quick change of
+    /// appearance (theme, interface size, Reduce motion) and Preferences.
     pub(crate) fn app_menu(&mut self, ui: &mut egui::Ui) {
         let before = self.settings.appearance.clone();
         // Lit while its menu shows, as egui's menu buttons are.
@@ -27,7 +30,7 @@ impl App {
                 )
                 .selected(open),
             )
-            .on_hover_text("Files, undo, appearance, mixing and audio settings");
+            .on_hover_text("Files, undo, appearance and preferences");
         widgets::Menu::below(&button).show(|ui| {
             let ctx = ui.ctx().clone();
             self.menu_command(ui, Command::NewProject, "New");
@@ -57,18 +60,6 @@ impl App {
                 self.menu_command(ui, Command::CollectAndSave, "Collect and save");
                 self.menu_command(ui, Command::SaveTemplate, "Save as template\u{2026}");
                 self.menu_command(ui, Command::Revert, "Revert to saved\u{2026}");
-                ui.separator();
-                if widgets::switch(
-                    ui,
-                    &mut self.settings.projects.copy_imported,
-                    "Copy imported audio into the project",
-                    true,
-                )
-                .on_hover_text("Saving copies outside audio into Samples/Imported")
-                .changed()
-                {
-                    self.settings_changed = Some(Instant::now());
-                }
             });
             ui.separator();
             self.menu_command(ui, Command::ProjectSettings, "Project settings\u{2026}");
@@ -79,10 +70,7 @@ impl App {
             ui.separator();
             self.menu_command(ui, Command::Undo, "Undo");
             self.menu_command(ui, Command::Redo, "Redo");
-            if widgets::menu_item(ui, "History\u{2026}", None, true).clicked() {
-                self.show_history = true;
-                ui.close();
-            }
+            self.menu_command(ui, Command::History, "History\u{2026}");
             ui.separator();
             widgets::submenu(ui, "Appearance", |ui| {
                 widgets::menu_caption(ui, "Theme");
@@ -113,42 +101,19 @@ impl App {
                 )
                 .on_hover_text("Things change in place instead of sliding or fading");
             });
-            widgets::submenu(ui, "Mixing", |ui| {
-                if widgets::switch(
-                    ui,
-                    &mut self.settings.mixing.additive_solo,
-                    "Additive solo",
-                    true,
-                )
-                .on_hover_text("A click on Solo adds the track; Ctrl+click solos it alone")
-                .changed()
-                {
-                    self.settings_changed = Some(Instant::now());
-                }
-                if widgets::switch(
-                    ui,
-                    &mut self.settings.mixing.track_colour_meters,
-                    "Meters in track colors",
-                    true,
-                )
-                .on_hover_text("Meters take their track's color instead of the accent")
-                .changed()
-                {
-                    self.settings_changed = Some(Instant::now());
-                }
-            });
-            if crate::widgets::menu_item(ui, "Audio and MIDI settings\u{2026}", None, true)
-                .clicked()
-            {
-                self.transport.settings_window.open = true;
-                ui.close();
-            }
+            self.menu_command(ui, Command::Preferences, "Preferences\u{2026}");
             self.menu_command(ui, Command::OpenShortcuts, "Keyboard shortcuts\u{2026}");
         });
-        if self.settings.appearance != before {
+        self.appearance_chosen(&before, ui.ctx());
+    }
+
+    /// After the menu or the Appearance page changed the appearance from
+    /// `before`: it becomes the saved one, applies and is written.
+    fn appearance_chosen(&mut self, before: &settings::Appearance, ctx: &egui::Context) {
+        if self.settings.appearance != *before {
             self.appearance_override = false;
             self.saved_appearance = self.settings.appearance.clone();
-            self.apply_appearance(ui.ctx());
+            self.apply_appearance(ctx);
             self.settings_changed = Some(Instant::now());
         }
     }

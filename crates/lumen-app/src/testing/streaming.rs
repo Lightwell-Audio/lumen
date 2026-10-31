@@ -27,7 +27,8 @@ impl App {
     /// Turns "Play audio from disk" on or off, as the audio window's switch
     /// does.
     pub fn set_playing_from_disk(&mut self, on: bool) {
-        self.transport.from_disk_asked = Some(on);
+        self.settings.playback.from_disk = on;
+        self.settings_changed = Some(std::time::Instant::now());
     }
 
     /// The loaded files by name, and whether each plays from disk.

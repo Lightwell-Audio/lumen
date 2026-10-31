@@ -596,7 +596,12 @@ impl App {
             | Command::PunchOut
             | Command::NextTimeFormat
             | Command::ToggleBrowser
-            | Command::AddGroupTrack => Ok(()),
+            | Command::AddGroupTrack
+            | Command::Preferences
+            | Command::PreferencesAudio
+            | Command::PreferencesMidi
+            | Command::PreferencesPlugins
+            | Command::History => Ok(()),
             Command::GoToEnd => need(
                 crate::app::navigate::end_of_song(self.document.project()).is_some(),
                 "The song has no clips yet",

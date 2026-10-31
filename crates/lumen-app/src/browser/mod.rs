@@ -6,7 +6,7 @@
 //! `panel` puts them in the pane and applies what was done. The Project media
 //! tab (M9 R4b) is `media_tab`.
 
-mod controls;
+pub(crate) mod controls;
 mod list;
 mod media_tab;
 mod panel;

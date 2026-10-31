@@ -12,7 +12,7 @@ mod dropouts;
 mod fit;
 pub mod hold;
 mod midi_chip;
-mod record;
+pub(crate) mod record;
 mod status;
 #[cfg(test)]
 mod tests;
@@ -68,20 +68,11 @@ pub struct Transport {
     /// How the time ruler and the position's time read (saved in settings).
     pub time_format: crate::timefmt::TimeFormat,
     test_tone: bool,
-    pub settings_window: crate::audio_settings::Window,
-    /// What the MIDI chip's popover asked for, taken by `windows`.
+    /// What the MIDI chip's popover asked for, taken by the app.
     midi_asked: Vec<crate::midi::Action>,
-    /// The recording offset the audio window shows, lent by the app, and
-    /// the one it asked for, taken by the app (M9 slice R2).
-    pub record_offset_ms: f32,
-    pub offset_asked: Option<f32>,
-    /// A measured recording offset the loopback helper's card asked to use,
-    /// with what it was measured on (M9 slice R2b).
-    pub measured_asked: Option<(f32, crate::settings::MeasuredWith)>,
-    /// "Play audio from disk" as the app has it, and a change the audio
-    /// window asked for, taken by the app (M9 slice R6).
-    pub from_disk: bool,
-    pub from_disk_asked: Option<bool>,
+    /// A Preferences page the audio panel or the MIDI chip asked to open,
+    /// taken by the app (M9 R7).
+    pub open_preferences: Option<crate::preferences::Page>,
     /// The disk thread's reading while audio plays from disk, set by the app
     /// each frame (M9 slice R6, the owner's D A).
     pub disk: Option<DiskReading>,
@@ -161,13 +152,8 @@ impl Transport {
             follow_last: crate::settings::Follow::Page,
             time_format: crate::timefmt::TimeFormat::MinSec,
             test_tone: false,
-            settings_window: Default::default(),
             midi_asked: Vec::new(),
-            record_offset_ms: 0.0,
-            offset_asked: None,
-            measured_asked: None,
-            from_disk: false,
-            from_disk_asked: None,
+            open_preferences: None,
             disk: None,
             gate: None,
             held: None,

@@ -23,6 +23,7 @@ mod devices;
 mod editor;
 mod media_pool;
 mod midi;
+mod preferences;
 mod streaming;
 mod tools;
 

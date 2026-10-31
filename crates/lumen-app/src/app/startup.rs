@@ -37,7 +37,6 @@ impl App {
         transport.restore_metronome((&saved.metronome).into());
         transport.restore_follow(saved.follow);
         transport.time_format = saved.time_format;
-        transport.settings_window.open = launch.audio_settings;
         if let Some(warning) = settings_warning {
             transport.audio.notice = Some(match transport.audio.notice.take() {
                 Some(notice) => format!("{warning}\n{notice}"),
@@ -195,6 +194,7 @@ impl App {
             leftover: None,
             crash_report: launch.crash_dir.as_deref().and_then(crash::unseen),
             crash_test: launch.crash_test,
+            crash_dir: launch.crash_dir.clone(),
             recovering: None,
             show_browser: true,
             show_detail: true,
@@ -207,6 +207,13 @@ impl App {
             keymap,
             palette,
             shortcuts: Default::default(),
+            preferences: {
+                let mut window = crate::preferences::Window::default();
+                if launch.audio_settings {
+                    window.show_page(crate::preferences::Page::Audio);
+                }
+                window
+            },
             rebind: None,
             panes: Default::default(),
             nav: app::navigate::Nav::default(),

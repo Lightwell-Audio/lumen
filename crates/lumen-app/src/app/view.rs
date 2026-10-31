@@ -860,12 +860,12 @@ report: {}",
                             self.transport.audio.set_on(true);
                         }
                         let settings = if can_retry {
-                            raised::button(ui, "Audio and MIDI settings…")
+                            raised::button(ui, "Audio settings…")
                         } else {
-                            raised::primary_button(ui, "Audio and MIDI settings…")
+                            raised::primary_button(ui, "Audio settings…")
                         };
                         if settings.clicked() {
-                            self.transport.settings_window.open = true;
+                            self.preferences.show_page(crate::preferences::Page::Audio);
                         }
                     });
                 });

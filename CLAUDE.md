@@ -439,7 +439,11 @@ per slice and move what is no longer current out of it.
   - KS: only End gets a new default key.
 
   Part 1, the commands, is built (the coverage test reads what each
-  control is drawn for, `testing::coverage`); Part 2, the window, is next.
+  control is drawn for, `testing::coverage`). Part 2, the window, is built:
+  `preferences/` (pages, `ROWS` for search, the fit) and
+  `app/preferences/{window,pages}.rs`; a new searchable setting gets a
+  `ROWS` entry and a `marks.row` on its page (E2E checks every row is
+  drawn). Part 3, the settings, is next.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

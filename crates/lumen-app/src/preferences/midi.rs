@@ -1,13 +1,14 @@
-//! The MIDI page of the settings window (M5 slice 0): every input and
-//! output with its switches, and what to do when there are none. Outputs
-//! have Sync (MIDI clock, M5 slice 7) and, while it is on, its delay.
+//! The MIDI page of Preferences (M5 slice 0; a page of Preferences since M9
+//! R7): every input and output with its switches, and what to do when there
+//! are none. Outputs have Sync (MIDI clock, M5 slice 7) and, while it is
+//! on, its delay.
 
 use eframe::egui::{self, RichText, Ui};
 use lumen_midi::{Direction, PortState, Use};
 
-use crate::audio_settings::{hint, section, warning};
+use super::Marks;
 use crate::midi::{Action, Midi, SYNC_DELAY_MS};
-use crate::widgets::SliderKind;
+use crate::widgets::{SliderKind, hint, section, warning};
 use crate::{settings, theme, widgets};
 
 /// What the page shows: the ports, and what is saved for them (the clock
@@ -25,7 +26,8 @@ const DELAY_WIDTH: f32 = 64.0;
 /// the switches out of the window.
 const NAME_WIDTH: f32 = 196.0;
 
-pub fn page(ui: &mut Ui, shown: Shown<'_>, actions: &mut Vec<Action>) {
+/// The ports. `marks` outlines the row a search led to.
+pub fn page(ui: &mut Ui, shown: Shown<'_>, marks: &Marks, actions: &mut Vec<Action>) {
     let midi = shown.midi;
     if let Some(why) = midi.unavailable() {
         ui.add_space(theme::space::M);
@@ -36,9 +38,9 @@ pub fn page(ui: &mut Ui, shown: Shown<'_>, actions: &mut Vec<Action>) {
     let (inputs, outputs): (Vec<_>, Vec<_>) = ports
         .iter()
         .partition(|p| p.info.id.direction == Direction::Input);
-    section(ui, "Inputs");
+    marks.row(ui, "midi.inputs", |ui| section(ui, "Inputs"));
     list(ui, &inputs, "No MIDI inputs found", shown.saved, actions);
-    section(ui, "Outputs");
+    marks.row(ui, "midi.outputs", |ui| section(ui, "Outputs"));
     list(ui, &outputs, "No MIDI outputs found", shown.saved, actions);
     ui.add_space(theme::space::S);
     hint(
@@ -48,12 +50,17 @@ pub fn page(ui: &mut Ui, shown: Shown<'_>, actions: &mut Vec<Action>) {
          Devices appear when plugged in.",
     );
     ui.add_space(theme::space::XS);
-    if crate::widgets::raised::button(ui, "Look for devices")
-        .on_hover_text("Check for new ports now rather than at the next poll")
-        .clicked()
-    {
-        actions.push(Action::Rescan);
-    }
+    marks.row(ui, "midi.rescan", |ui| {
+        if crate::widgets::raised::button(ui, "Look for devices")
+            .on_hover_text("Check for new ports now rather than at the next poll")
+            .clicked()
+        {
+            actions.push(Action::Rescan);
+        }
+    });
+    // New devices appear while the page is open.
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_millis(300));
 }
 
 fn list(

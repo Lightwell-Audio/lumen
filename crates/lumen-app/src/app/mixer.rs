@@ -67,9 +67,7 @@ impl App {
             .device_key()
             .map(|(driver, id)| (driver.to_owned(), id.to_owned()));
         let names = match (&key, wanted) {
-            (Some((driver, id)), true) => {
-                self.transport.settings_window.output_names(driver, id, ctx)
-            }
+            (Some((driver, id)), true) => self.preferences.audio.output_names(driver, id, ctx),
             _ => None,
         };
         let layout = self.transport.audio.outputs();

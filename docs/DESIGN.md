@@ -456,7 +456,7 @@ strokes are 4 wide and the third reflection goes.
 | Button (`raised::button`; 24 pt, radius 6) | raised (§5a), `body` letters in `text_secondary` | Ember, `border_strong` edge, letters `text` | sunk, letters 1 pt down | — | flat `control`, `text_disabled` letters |
 | Primary (`raised::primary_button`, one per view) | filled accent, `on_accent` letters | Ember | sunk | — | as Button |
 | Toggle (Browser, Detail; `widgets::toggle_button`) | as Button, never bare text (M4.5) | as Button | as Button | on: `accent_muted`, `accent` letters, the 38% hairline, no glow (cross-fades, `FAST`) | — |
-| Tabs (the detail panel; `widgets::tabs`) | words in `text_secondary`, `space::M` padding each side, `space::XS` apart | `text` | — | `text`, over a 2 pt `accent` underline inset by `space::M`, with Lit's soft layer, sliding to it (`GLIDE`) | `text_disabled`, with why on hover |
+| Tabs (the detail panel; `widgets::tabs_with`) | words in `text_secondary`, `space::M` padding each side, `space::XS` apart | `text` | — | `text`, over a 2 pt `accent` underline inset by `space::M`, with Lit's soft layer, sliding to it (`GLIDE`) | `text_disabled`, with why on hover |
 | Time signature (`widgets::time_signature`) | one field, "4 / 4" in the monospace, sunk with a border | Ember on the half under the pointer: the beats left, the unit right | — | drag or wheel changes the half under the pointer; click and type "7/8"; double-click 4/4 | — |
 | Empty state (`widgets::empty_state`) | centred: a 16 pt icon in `text_hint`, the title in medium `text_secondary`, a caption hint, the action as a button with its keys in the tooltip | | | | |
 | Field (tempo, value fields) | sunk: `well`, the lip, a 1 pt `border`; numbers in the monospace | `border_strong` outline | — | `accent` outline while editing | — |
@@ -1425,6 +1425,29 @@ wash, the accent line, hollow points, the chip at the top-left naming it ("Clip 
 The track's clips do not step back, so the waveform shows through for placing points. A looping clip shows the
 envelope again on each repeat as a dashed line at 55% accent, which the pointer ignores. The E key and the clip's
 menu show and hide it; the chip's menu switches between gain and pan and goes back to the track's lanes.
+
+## 7j. Preferences (M9 R7, the owner's PW A)
+
+One `Dialog`, `size::PREFERENCES` (640 pt) wide, opening top-centre at most 72 pt below the
+window's top (12% of a short window's height). At the left, `size::PAGE_LIST` (172 pt) wide: the
+search field (the browser's sunk well with its magnifier), then one choice row per page (Audio,
+MIDI, Recording, Editing, Mixing, Plugins, Files, Appearance; each named "<Page> page"), and
+"Keyboard shortcuts…" at the foot. A hairline, then the page, which scrolls in a short window and is
+never shorter than 80 pt. Pages use the form of `widgets::form`: section headings in medium 13 pt,
+a 96 pt label column (`size::LABEL_COLUMN`) for chosen values, and on/off settings as
+`widgets::switch` rows without a label column.
+
+- **Search** takes the keyboard when the window opens. While it has words, the results stand in for
+  the page: a choice row per setting, its name then its page. Enter or a click opens the page and
+  outlines the row with the 2 pt accent focus ring (`stroke::FOCUS`, `radius::MEDIUM`), scrolled into
+  view, for `motion::NOTE`, fading over `BASE` (at once with Reduce motion). Nothing found says so
+  and suggests a word. The first Esc clears the words; the next closes.
+- **Folding:** when the room left is under `size::PREFERENCES_FOLD` (560 pt; 960 × 540 at 200%
+  leaves 480), the window takes the room (never under `size::PREFERENCES_LEAST`, 280 pt) and the list
+  folds into a "Page" dropdown under the search, the shortcuts link beside it.
+- A setting that is also a command (Overdub, Additive solo, Scan plugins at startup...) is that
+  command: the switch is named as the palette names it, its hover gives the command's keys and
+  what it does, and a command that cannot run now is greyed with why.
 
 ## 8. Key flows
 

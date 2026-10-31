@@ -17,6 +17,7 @@ mod dropdown;
 mod empty;
 mod fade_out;
 pub mod fader;
+mod form;
 mod format;
 mod keys;
 pub mod knob;
@@ -38,6 +39,7 @@ pub use dialog::{Dialog, title_row, window_lip};
 pub use dropdown::Dropdown;
 pub use empty::{Action as EmptyAction, EmptyState, empty_state};
 pub use fade_out::paint_gone;
+pub use form::{hint, khz, row, section, warning};
 pub use format::{db_text, ms_text, pan_text, readout_db};
 pub use keys::{
     KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
@@ -51,8 +53,7 @@ pub use signature::{parse as parse_signature, time_signature};
 pub use slider::*;
 pub use toggle::{
     Choice, Tab, TabsLayout, choice_row, menu_caption, menu_header, segmented, segmented_full,
-    segmented_styled, switch, switch_noted, tab_divider, tabs, tabs_flush, tabs_with,
-    toggle_button,
+    segmented_styled, switch, switch_noted, tab_divider, tabs_flush, tabs_with, toggle_button,
 };
 
 /// `text` as it is when it fits `width`, else cut to fit.

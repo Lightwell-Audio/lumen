@@ -446,7 +446,7 @@ fn windows() {
         s.snap("history");
         s.esc();
         s.click("Lumen");
-        s.click("Audio and MIDI settings");
+        s.click("Preferences");
         s.steps(20);
         s.snap("audio-settings");
         s.esc();

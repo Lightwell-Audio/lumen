@@ -6,10 +6,10 @@ use eframe::egui::{self, RichText, Sense, Shape, Ui, pos2, vec2};
 use lumen_engine::loopback::{CLICKS, Failure, RETURN_BEFORE};
 
 use super::{Cable, Measurement, Outcome, Problem};
-use crate::audio_settings::{hint, warning};
 use crate::settings::MeasuredWith;
 use crate::theme;
 use crate::widgets::{Dropdown, raised};
+use crate::widgets::{hint, warning};
 
 /// The returned clicks' strip.
 const TRACE_HEIGHT: f32 = theme::size::CONTROL_LARGE * 1.5;

@@ -80,16 +80,9 @@ const MENU: &[(&str, Has)] = &[
     ("Export audio…", Command("Export audio…")),
     ("Undo", Command("Undo")),
     ("Redo", Command("Redo")),
-    (
-        "History…",
-        Without("gains a command with Preferences, R7 part 2"),
-    ),
+    ("History…", Command("History")),
     ("Appearance", Without("a submenu")),
-    ("Mixing", Without("a submenu")),
-    (
-        "Audio and MIDI settings…",
-        Without("gains a command with Preferences, R7 part 2"),
-    ),
+    ("Preferences…", Command("Preferences…")),
     ("Keyboard shortcuts…", Command("Keyboard shortcuts")),
     // New from template, with the template the test saves.
     (
@@ -104,11 +97,8 @@ const MENU: &[(&str, Has)] = &[
     ("Collect and save", Command("Collect and save")),
     ("Save as template…", Command("Save as template…")),
     ("Revert to saved…", Command("Revert to saved…")),
-    (
-        "Copy imported audio into the project",
-        Without("a preference: it moves to Preferences, R7 part 2"),
-    ),
-    // Appearance: preferences, which move to Preferences in R7 part 2.
+    // Appearance: a quick change of preferences the Appearance page of
+    // Preferences holds too.
     ("Dark", Without("a preference")),
     ("Light", Without("a preference")),
     ("Match system", Without("a preference")),
@@ -118,22 +108,17 @@ const MENU: &[(&str, Has)] = &[
     ("175%", Without("a preference")),
     ("200%", Without("a preference")),
     ("Reduce motion", Without("a preference")),
-    // Mixing: switches for preferences, which the palette's commands of
-    // the same names flip too; they move to Preferences in R7 part 2.
-    ("Additive solo", Without("a preference switch")),
-    ("Meters in track colors", Without("a preference switch")),
 ];
 
 /// How tall the transport bar is: the controls above this line are its.
 const BAR_HEIGHT: f32 = 44.0;
 
 /// The submenus whose rows the menu list holds.
-const SUBMENUS: [&str; 5] = [
+const SUBMENUS: [&str; 4] = [
     "New from template",
     "Open recent",
     "More ways to save",
     "Appearance",
-    "Mixing",
 ];
 
 /// A control a user can act on, greyed or not: its node's id, so a control is

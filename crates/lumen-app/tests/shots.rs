@@ -930,9 +930,9 @@ fn midi_files_and_clock() {
         save(&mut h, &format!("smf-tempo-offer-{tag}"));
         h.get_by_label("Lumen").click();
         h.run_steps(5);
-        h.get_by_label("Audio and MIDI settings\u{2026}").click();
+        h.get_by_label("Preferences\u{2026}").click();
         h.run_steps(5);
-        h.get_by_label("MIDI tab").click();
+        h.get_by_label("MIDI page").click();
         for _ in 0..60 {
             std::thread::sleep(std::time::Duration::from_millis(5));
             h.run_steps(1);
@@ -1352,7 +1352,7 @@ fn polish_sweep() {
             let lumen = h.get_by_label("Lumen").rect();
             click(&mut h, lumen.center());
             h.run_steps(30);
-            h.get_by_label("Audio and MIDI settings\u{2026}").click();
+            h.get_by_label("Preferences\u{2026}").click();
             h.run_steps(30);
             save(&mut h, &name("audio"));
         }

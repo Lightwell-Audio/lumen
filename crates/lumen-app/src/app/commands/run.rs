@@ -19,6 +19,7 @@ use crate::commands::Command;
 use crate::note_editor::lane::geometry::LaneKind;
 use crate::note_editor::lane::gesture::LaneTool;
 use crate::note_editor::{EditorZoom, NoteOp, Tool, VELOCITY_STEP};
+use crate::preferences::Page;
 use crate::record_settings::CountIn;
 
 impl App {
@@ -513,7 +514,12 @@ impl App {
             Command::ShowDevices => self.show_detail_tab(crate::app::detail::DetailTab::Devices),
             Command::ShowClip => self.show_detail_tab(crate::app::detail::DetailTab::Clip),
             Command::ShowMixer => self.show_detail_tab(crate::app::detail::DetailTab::Mixer),
-            Command::MeasureLatency => self.transport.settings_window.open_measure(),
+            Command::MeasureLatency => self.preferences.show_measure(),
+            Command::Preferences => self.preferences.show(),
+            Command::PreferencesAudio => self.preferences.show_page(Page::Audio),
+            Command::PreferencesMidi => self.preferences.show_page(Page::Midi),
+            Command::PreferencesPlugins => self.preferences.show_page(Page::Plugins),
+            Command::History => self.show_history = true,
             Command::ToggleLoop => {
                 let on = self.document.project().transport.loop_enabled;
                 self.document.set_loop_enabled(!on);

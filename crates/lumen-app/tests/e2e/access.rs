@@ -126,10 +126,9 @@ fn every_control_in_every_m3_view_has_a_name() {
     check(&lumen, "clip menu", &mut problems);
     lumen.key(Modifiers::NONE, Key::Escape);
 
-    lumen.click("Lumen");
-    lumen.click("Audio and MIDI settings\u{2026}");
+    lumen.open_audio_settings();
     check(&lumen, "audio settings", &mut problems);
-    lumen.click("MIDI tab");
+    lumen.click("MIDI page");
     check(&lumen, "MIDI settings", &mut problems);
     lumen.key(Modifiers::NONE, Key::Escape);
 
@@ -356,23 +355,21 @@ fn tab_walks_the_window_in_reading_order() {
 
 #[test]
 fn switches_and_segmented_choices_work_by_name() {
-    // M4.5 slice 2: the app menu's on/off settings are switches (named as
-    // checkboxes) and its small choices segmented controls (radio buttons).
-    // The owner's C: the menu stays open through changes, fades once the
+    // M4.5 slice 2: on/off settings are switches (named as checkboxes) and
+    // small choices segmented controls (radio buttons); Preferences holds
+    // most of them since M9 R7 (`preferences.rs` clicks its switches). The
+    // owner's C: the menu stays open through changes, fades once the
     // pointer leaves it, and a command closes it at once.
     let mut lumen = Lumen::start("switches");
-    lumen.click("Lumen");
-    lumen.click("Mixing");
+    lumen.open_preferences("Mixing");
     assert!(!lumen.is_on("Meters in track colors"));
     lumen.click("Meters in track colors");
     assert!(
         lumen.is_on("Meters in track colors"),
         "a click switches it on"
     );
-    assert!(
-        lumen.shows("Project settings\u{2026}"),
-        "and the menu stays open"
-    );
+    lumen.key(egui::Modifiers::NONE, egui::Key::Escape);
+    lumen.click("Lumen");
     lumen.click("Appearance");
     // Not the theme or Reduce motion: they are process-wide, and would reach
     // the tests running beside this one.

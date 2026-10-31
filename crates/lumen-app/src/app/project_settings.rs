@@ -10,10 +10,10 @@ use lumen_core::pan::PanLaw;
 use lumen_project::model::{Color, Project};
 
 use crate::app::clip_card::{self, Swatches};
-use crate::audio_settings::{hint, khz, row, section};
 use crate::commands::Command;
 use crate::document::RATES;
 use crate::widgets::{self, Dialog, Dropdown};
+use crate::widgets::{hint, khz, row, section};
 use crate::{App, theme};
 
 /// The window is a quiet one: its width is fixed and its content wraps.

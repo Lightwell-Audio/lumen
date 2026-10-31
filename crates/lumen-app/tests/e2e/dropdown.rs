@@ -35,8 +35,7 @@ fn open_by_click(lumen: &mut Lumen, button: &str, option: &str) {
 #[test]
 fn a_buffer_size_is_picked_by_click_and_by_keyboard() {
     let mut lumen = Lumen::start("dropdown");
-    lumen.click("Lumen");
-    lumen.click("Audio and MIDI settings\u{2026}");
+    lumen.open_audio_settings();
     // The window opens over a few frames; wait for the combo, not for a count.
     for _ in 0..400 {
         lumen.frames(1);

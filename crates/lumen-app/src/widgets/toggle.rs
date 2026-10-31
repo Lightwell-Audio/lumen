@@ -649,7 +649,7 @@ pub fn toggle_button(ui: &mut Ui, on: &mut bool, label: &str) -> egui::Response 
     response
 }
 
-/// One tab of [`tabs`].
+/// One tab of [`tabs_with`].
 #[derive(Debug, Clone, Copy)]
 pub struct Tab<'a> {
     pub label: &'a str,
@@ -661,7 +661,7 @@ pub struct Tab<'a> {
     pub tip: &'a str,
 }
 
-/// How a row of [`tabs_with`] is laid out, beyond [`tabs`].
+/// How a row of [`tabs_with`] is laid out.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TabsLayout {
     /// The first tab has no room to its left ([`tabs_flush`]).
@@ -678,12 +678,9 @@ pub struct TabsLayout {
 /// inset by the same 12 pt and lit with Lit's soft layer, that slides to
 /// it (`GLIDE`). Tabs that cannot open yet are in `text_disabled` with why
 /// on hover (the interface audit's T4, the owner's A). Returns the index
-/// clicked, if another.
-pub fn tabs(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>]) -> Option<usize> {
-    tabs_with(ui, id, chosen, tabs, TabsLayout::default())
-}
-
-/// [`tabs`] for a pane whose title sits at its content edge: the first tab
+/// clicked, if another. [`tabs_with`] takes the layout.
+///
+/// For a pane whose title sits at its content edge: the first tab
 /// has no room to its left, so its word lines up with the title above it
 /// instead of standing 12 pt in from it.
 pub fn tabs_flush(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>]) -> Option<usize> {
@@ -705,7 +702,7 @@ pub fn tab_divider(ui: &Ui, x: f32, middle: f32) {
         .rect_filled(line, 0.0, theme::p().border_strong);
 }
 
-/// [`tabs`], laid out by `layout`: with notes, a group at the right end and
+/// A row of tabs, laid out by `layout`: with notes, a group at the right end and
 /// a tab to focus. The underline slides across both groups.
 pub fn tabs_with(
     ui: &mut Ui,
@@ -984,7 +981,7 @@ mod tests {
         };
         let list = [tab("Clip"), tab("Mixer")];
         let mut draw = |ui: &mut Ui| {
-            tabs(ui, EguiId::new("tabs"), 1, &list);
+            tabs_with(ui, EguiId::new("tabs"), 1, &list, TabsLayout::default());
         };
         let first = underline_left(&frame(&ctx, 0.0, 0.0, &mut draw));
         let still = underline_left(&frame(&ctx, 0.016, 0.0, &mut draw));

@@ -81,6 +81,7 @@ mod playback;
 mod plugin_lanes;
 mod plugins;
 mod pops;
+mod preferences;
 mod preset_menu;
 mod presets;
 mod project_settings;
@@ -258,29 +259,44 @@ impl Lumen {
         }
     }
 
-    /// Opens the settings window on its MIDI page. The tab is clicked until
-    /// it is the chosen one, never a fixed number of frames after the window
-    /// opens: a click that lands while the window is still being laid out
-    /// does nothing (as it would for a user), and on a loaded machine that
-    /// was enough to leave the page unopened.
+    /// Opens Preferences from the app menu on the page named `page`
+    /// ("Audio", "MIDI"). The page's row is clicked until it is the chosen
+    /// one, never a fixed number of frames after the window opens: a click
+    /// that lands while the window is still being laid out does nothing (as
+    /// it would for a user), and on a loaded machine that was enough to
+    /// leave the page unopened.
     #[track_caller]
-    pub fn open_midi_settings(&mut self) {
+    pub fn open_preferences(&mut self, page: &str) {
         self.click("Lumen");
-        self.click("Audio and MIDI settings\u{2026}");
+        self.click("Preferences\u{2026}");
+        let row = format!("{page} page");
+        self.run_until("the page list", |l| l.shows(&row));
         let started = Instant::now();
         loop {
-            self.harness.get_by_label("MIDI tab").click();
+            self.harness.get_by_label(&row).click();
             self.frames(3);
-            // A chosen tab reports as on.
-            if self.is_on("MIDI tab") {
+            // The chosen page's row reports as on.
+            if self.is_on(&row) {
                 return;
             }
             assert!(
                 started.elapsed() < PATIENCE,
-                "timed out waiting for the MIDI page"
+                "timed out waiting for the {page} page"
             );
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    /// Opens Preferences on its MIDI page.
+    #[track_caller]
+    pub fn open_midi_settings(&mut self) {
+        self.open_preferences("MIDI");
+    }
+
+    /// Opens Preferences on its Audio page.
+    #[track_caller]
+    pub fn open_audio_settings(&mut self) {
+        self.open_preferences("Audio");
     }
 
     /// Clicks the control named `label`, then lets the app react.

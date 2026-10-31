@@ -41,12 +41,12 @@ impl App {
         })
     }
 
-    /// A window is open (the shortcuts, audio settings, history, or the
+    /// A window is open (the shortcuts, Preferences, history, or the
     /// unsaved-changes question): it takes Esc, and Shift+Tab moves focus in
     /// it.
     pub(crate) fn window_open(&self) -> bool {
         self.shortcuts.open
-            || self.transport.settings_window.open
+            || self.preferences.open
             || self.show_history
             || self.show_bounce
             || self.export.open
