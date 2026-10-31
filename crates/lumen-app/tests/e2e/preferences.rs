@@ -447,6 +447,9 @@ fn the_cache_is_counted_cleared_limited_and_moved_from_the_files_page() {
     again.open_preferences("Files");
     // The folder left behind is offered for Clear once.
     again.run_until("the old folder offered", |l| l.shows("Clear old cache"));
+    // The button is greyed while the page's count runs, and a click on it
+    // then does nothing (as for a user): wait for the count first.
+    again.run_until("the count", |l| l.app().cache_size_counted().is_some());
     again.click("Clear old cache");
     again.run_until("the offer gone", |l| !l.shows("Clear old cache"));
     assert!(!standard.join("0123456789abcdef-48000.wav").exists());

@@ -63,6 +63,11 @@ pub(super) fn built() -> &'static (PathBuf, PathBuf) {
 /// Set once the module named "Mended" is fixed: its fault goes away.
 static MENDED: AtomicBool = AtomicBool::new(false);
 
+/// Held for the whole of a test that sets [`MENDED`]: the flag is shared by
+/// the process, and two such tests side by side would mend each other's
+/// module mid-scan.
+static MENDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// The fault each test module is given, by its name.
 fn faults(stem: &str) -> Option<&'static str> {
     match stem {
@@ -253,6 +258,7 @@ fn a_crashing_and_a_hanging_plugin_are_blocked_with_their_reasons_and_the_rest_s
 
 #[test]
 fn retry_loads_a_blocked_module_again_and_it_joins_the_list_once_it_works() {
+    let _turn = MENDING.lock().unwrap_or_else(|e| e.into_inner());
     MENDED.store(false, Ordering::Relaxed);
     let mut lumen = start("retry", &["Mended"]);
     assert_eq!(lumen.app().blocked_plugins(), ["Mended"]);
@@ -276,6 +282,7 @@ fn retry_loads_a_blocked_module_again_and_it_joins_the_list_once_it_works() {
 
 #[test]
 fn the_plugins_page_lists_a_blocked_module_and_retries_it() {
+    let _turn = MENDING.lock().unwrap_or_else(|e| e.into_inner());
     MENDED.store(false, Ordering::Relaxed);
     let mut lumen = start("preferences-blocked", &["Mended"]);
     assert_eq!(lumen.app().blocked_plugins(), ["Mended"]);
