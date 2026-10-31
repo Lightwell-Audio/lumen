@@ -9831,3 +9831,92 @@ Lumen to show by how much.
 depends on the cable and the interface. A digital loopback input (one that
 does not pass through the converters) measures short, which the card warns
 about. MT-REC-5 checks it on the Focusrite with ASIO and WASAPI.
+
+## ADR-0111 — Splitting the CI tests across jobs
+
+**Date:** 2026-10-31. **Slice:** one-off CI change (`chore/` branch).
+**Status:** Accepted (verified by running both shards here; the CI timings
+below are the owner's runs to confirm).
+
+**Context.** One `test` job per OS ran clippy, every test and the doc tests
+in sequence, 10 to 13 minutes of wall time per run. The step log of the last
+green run on `main` showed where it went (Linux, `Tests` step, 9 min 36 s):
+the E2E suite, one test binary of 762 scenarios, took 384 s of it; the rest
+of the workspace took about 2.5 minutes, and compiling about 40 s (the cache
+was warm). Windows, the slowest, took 10 min 16 s on that step.
+
+**Choice.**
+
+1. **Split the E2E suite in two shards, by module**, and run each in its own
+   job next to a `rest` job, on every OS. `.github/scripts/ci-test.sh` lists
+   the suite, deals the modules out largest first to the lighter shard and
+   runs the shard's modules. Shards cover every scenario exactly once by
+   construction. A module and the modules whose names end with it
+   (`record`, `audio_record`) are dealt out together, because a test filter
+   is a substring match; the first version ran 66 scenarios twice.
+2. **Not one process per scenario** (the usual way to shard, through a test
+   runner that partitions a list). The suite relies on in-process locks
+   (`timing_sensitive`, the plugin scan queue) that keep real-time scenarios
+   from starving one another's plugin hosts, and builds the test plugin once
+   per process. Separate processes would drop those guarantees.
+3. **The plugin routing walkthrough** still runs alone, after the scenarios
+   of shard 1.
+
+**Options not taken.**
+- Splitting clippy from the tests, at first: it took 12 to 25 s on a warm cache. See the addendum.
+- Splitting the suite at the workspace level: the other targets take under
+  three minutes.
+- More threads per runner: the suite is timing sensitive under load.
+- Three or more shards: two bring the E2E share (about 3.2 minutes) level
+  with `rest` (about 3.5); a third would only add setup minutes.
+
+**Consequences.** Wall time of a run should fall from about 13 to about 6
+minutes. Billed minutes rise by an estimated 20 to 25% (each job pays its own
+setup). That does not matter while the repository is public, since
+GitHub-hosted runners are free for public repositories (owner, 2026-10-31);
+if it goes private, macOS minutes cost ten times as much, and leaving macOS
+unsplit (only `rest` and an unsharded E2E part in the matrix) is the first
+saving.  The check names change from
+`test (<os>)` to `test (<os>, <part>)`: a branch rule that requires the old
+names must be updated. The first run on the new cache keys is cold. Timing
+here: shards 225 s and 250 s on four cores, 381 and 380 scenarios; together
+they run the same 759 passing, 2 ignored scenarios as one process did.
+
+**Addendum (2026-10-31), the first run of the PR.** The run took 9 minutes
+and Windows `rest` was the longest job. Its log (Windows, cold cache: the new
+cache keys had nothing to restore) split into clippy 63 s, then three cargo
+runs that each compiled and then ran: the other crates (102 s compile, 144 s
+run), `lumen-app` without E2E (92 s compile, 16 s run) and the doc tests
+(68 s compile, no tests: the workspace has no doc tests). The warm run on
+`main` showed the same duplication: the plugin walkthrough step recompiled
+`lumen-app` for 34 s and the doc tests for 23 s, because cargo unifies
+features over the packages a command names, and a different set rebuilds
+crates that are already built. Changes: clippy is its own job per OS, and the
+doc tests name the same packages as the first run (`--workspace --exclude
+lumen-app`; `lumen-app` has none). Not done, and why: building every test
+binary once and handing it to the shards (an archive) would not shorten a run,
+since the build would come first and the shards after it; it would only save
+billed minutes, at the price of moving gigabytes of debug binaries between
+jobs. A per-test-process runner for `rest` would break the shared plugin
+build and scan locks in `lumen-plugin-catalog` and `lumen-plugin-host`.
+Cache note: dependencies are cached, the workspace's own crates are rebuilt
+every run, and the new keys (`rest`, `e2e`, `clippy`) are cold once.
+
+**Measured (2026-10-31).** Wall time of a whole run: 12 min 50 s before
+(`main`, one job per OS), about 9 min on the first run of the PR (every
+cache cold), 4 min 37 s on the second (the `rest` and `e2e` caches restored,
+the new `clippy` cache cold; clippy took 25 to 42 s in its own job). Longest
+job: Windows `e2e-2`, 4 min 19 s. Windows `rest` took 4 min 6 s, `e2e-1`
+3 min 32 s. `e2e-2` runs about 45 s longer than `e2e-1` on Windows, although
+`e2e-1` also runs the plugin walkthrough: the modules are dealt out by
+scenario count, not by time. Dealing them out by measured time is the next
+step if the last minute matters.
+
+**Runners (2026-10-31).** The workflows run on GitHub-hosted runners again
+(`ubuntu-latest`, `windows-latest`, `macos-latest`; the Blacksmith move of
+2026-10-29 was reverted by the owner to stay off its metered usage). For a
+public repository the Linux and Windows runners have four vCPUs, as the
+Blacksmith ones did; macOS has three where Blacksmith had six, so the macOS
+jobs may run longer than the times above. Caches are limited to 10 GB for the
+repository on GitHub; evictions would show as cold runs.
+
