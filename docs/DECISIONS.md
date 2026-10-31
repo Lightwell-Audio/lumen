@@ -114,6 +114,7 @@ irreversible or external) · *Superseded*.
 | [0108](#adr-0108--the-ux-round-three-detail-tabs-compact-cards-the-cpu-slot-the-chip-clip) | UX round three: detail tabs, compact cards, the CPU slot, the chip clip | Accepted 2026-10-28 | No |
 | [0110](#adr-0110--the-loopback-helper-measuring-the-round-trip-m9-r2b) | The loopback helper: measuring the round trip (M9 R2b) | Accepted 2026-10-29 (MT-REC-5 pending) | No |
 | [0112](#adr-0112--preferences-tap-tempo-and-command-coverage-m9-r7) | Preferences, tap tempo and command coverage (M9 R7) | Accepted 2026-10-31 (MT-PREF-1 pending) | No |
+| [0114](#adr-0114--a-scan-asked-for-during-a-scan-runs-after-it) | A scan asked for during a scan runs after it | Accepted 2026-10-31 | No |
 
 ---
 
@@ -10024,3 +10025,62 @@ in every project; Project settings hold the song's own values. A log file
 with Reveal logs (M10), saving quantize options (KNOWN_ISSUES), preferences
 import and export, the first-run wizard (R7b) and the browser's tabs (R7c)
 are not in R7.
+
+## ADR-0114 — A scan asked for during a scan runs after it
+
+**Date:** 2026-10-31. **Branch:** `fix/rescan-queued-folder`, before M9 R7b.
+**Status:** Accepted. Design: `milestones/M9.md` §4, R7b, "A folder added
+during a scan is scanned" (owner: X A, 2026-10-31).
+
+**Context.** `Plugins::rescan` returned at once while a scan was busy, and
+the running scan had already read its folders in `Plugins::run`. A folder
+added from the browser or the Plugins page during a scan was therefore not
+scanned until the next rescan or start, and a removed one was pruned only
+then. On a first start a scan is always running, so the first-run wizard's
+Plugins step would meet this every time. Retry on a blocked plugin
+(`Plugins::retry`) was dropped the same way while a scan ran, and so was
+leaving safe mode while the cache was still being read.
+
+**Choice.**
+
+1. **One follow-up scan** (`plugins/follow_up.rs`). A rescan, a Retry or
+   leaving safe mode asked for while a scan (or the first read of the
+   cache) runs is remembered as a `FollowUp`. Every request made during one
+   scan folds into it: it loads every module again if any request asked
+   for that (`Mode::All` wins), and keeps each Retry's module once.
+2. **It runs when the scan is over**, ended or cancelled: `Plugins::poll`
+   starts it in the same poll that takes the scan's last message (or sees
+   the thread gone), so `busy()` stays true between the two. It reads the
+   folders from the settings as they are then. A module Retry asked for is
+   forgotten from the cache just before it runs, because the scan that
+   ended has just replaced the cache. The earlier Cancel does not carry
+   over: `run` clears the flag.
+3. **A removed folder is not scanned afterwards**: the follow-up's folders
+   are the settings' at that moment, and the scanner already drops cache
+   entries outside the folders it is given, so the folder's plugins leave
+   the list as after any removal.
+4. **Safe mode and plugins off** scan nothing and remember nothing, as
+   before.
+5. **What waits is exposed** for the wizard's "Waiting to check
+   <folder>": `Plugins::waiting()` gives the follow-up, whose `folders()`
+   are the settings' folders the running scan does not read, from the
+   latest request (a folder added and removed during one scan no longer
+   waits). No interface shows it yet; R7b will.
+6. **Retry in Preferences** is enabled during a scan now, since it waits
+   for the scan rather than doing nothing; it stays disabled in safe mode.
+   The Rescan commands are unchanged: they are still unavailable while a
+   scan runs, with Cancel offered instead.
+
+**Consequences.** No format or settings change. `Plugins::poll` takes the
+plugin settings and the context, to start the follow-up. **Cancel with a
+follow-up waiting starts the follow-up**, as the design says; being a
+`Mode::Changed` scan of every folder, it also tries again the modules the
+cancelled scan had not reached (a hung one included), so stopping
+everything takes a second Cancel. Tests: unit tests in `plugins/` (one
+request, several, a removal, a request after Cancel and one before it, a
+thread that ends without a word, safe mode, leaving safe mode while the
+cache is read), and E2E (`plugins.rs`) for a folder added during a scan, one
+removed during a scan, and one added during a scan that is then cancelled.
+A folder added in the instant between Cancel and the scan's end is covered
+by the unit test only: in E2E that window is too short to hit reliably.
+Not verified: real plugin folders on the owner's machine.

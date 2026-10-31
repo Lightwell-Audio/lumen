@@ -564,3 +564,131 @@ fn cancel_stops_a_scan_that_is_stuck_in_a_hung_plugin_and_keeps_what_finished() 
     );
     assert!(lumen.shows("Rescan"));
 }
+
+/// Lumen whose start scan of `root` is held up by a module that hangs, so a
+/// folder can be added or removed while it runs (ADR-0114).
+fn start_held_up(
+    dir: TempDir,
+    root: PathBuf,
+    deadline: Duration,
+    adjust: impl FnOnce(lumen_app::Launch) -> lumen_app::Launch,
+) -> Lumen {
+    let cache = dir.path().join("plugin-cache.json");
+    Lumen::start_with(dir, |launch| {
+        adjust(
+            launch
+                .with_plugins(vec![root], &built().1, cache)
+                .with_plugin_deadline(deadline)
+                .with_plugin_faults(faults),
+        )
+    })
+}
+
+impl Lumen {
+    /// Adds `folder` from the Plugins page while a scan runs, and checks it
+    /// waits for that scan.
+    #[track_caller]
+    fn add_folder_during_the_scan(&mut self, folder: &Path) {
+        self.open_preferences("Plugins");
+        self.app_mut()
+            .answer_next_dialog(vec![folder.to_path_buf()]);
+        self.click("Add plugin folder\u{2026}");
+        self.wait_for("the folder to be added", |app| {
+            app.plugin_scan_waiting().is_some() || !app.plugins_busy()
+        });
+        assert_eq!(
+            self.app().plugin_scan_waiting(),
+            Some(vec![folder.to_path_buf()]),
+            "added while the scan ran, and waiting for it"
+        );
+        self.key(Modifiers::NONE, Key::Escape);
+        self.frames(3);
+    }
+}
+
+#[test]
+fn a_folder_added_during_a_scan_is_scanned_once_it_ends() {
+    let dir = TempDir::new("e2e-plugins-added-during");
+    let root = plugin_root(dir.path(), &["Hang"]);
+    let extra = plugin_root(&dir.path().join("extra"), &["Good"]);
+    // The scan ends by itself here, at the hung module's deadline: long
+    // enough for the folder to be added first on a loaded machine.
+    let mut lumen = start_held_up(dir, root, Duration::from_secs(15), |l| l);
+    lumen.wait_for("the scan to wait on the hung module", |app| {
+        app.plugin_status() == "Scanning { done: 0, total: 1 }"
+    });
+
+    lumen.add_folder_during_the_scan(&extra);
+    assert!(lumen.app().plugin_names().is_empty(), "not scanned yet");
+
+    // The hung module is blocked at its deadline; then the folder is scanned.
+    lumen.settled();
+    assert_eq!(lumen.app().blocked_plugins(), ["Hang"]);
+    assert_eq!(lumen.app().plugin_names(), [EFFECT, INSTRUMENT]);
+    assert!(lumen.shows_row(&format!("{INSTRUMENT}, Test Vendor, instrument")));
+    assert_eq!(lumen.app().plugin_scan_waiting(), None);
+}
+
+#[test]
+fn a_folder_removed_during_a_scan_is_not_scanned_after_it_and_its_plugins_leave() {
+    let dir = TempDir::new("e2e-plugins-removed-during");
+    let root = plugin_root(dir.path(), &[]);
+    let extra = plugin_root(&dir.path().join("extra"), &["Good", "Hang"]);
+    // A long deadline: the scan is ended by Cancel once the folder is gone.
+    let mut lumen = start_held_up(dir, root, Duration::from_secs(60), |l| {
+        l.with_plugin_folder(&extra)
+    });
+    lumen.wait_for("the good module to be listed", |app| {
+        !app.plugin_names().is_empty()
+    });
+    assert!(lumen.app().plugins_busy(), "held up by the hung module");
+
+    lumen.open_preferences("Plugins");
+    lumen.click(&format!("Remove {}", extra.display()));
+    lumen.wait_for("the removal to be asked for", |app| {
+        app.plugin_scan_waiting().is_some() || !app.plugins_busy()
+    });
+    assert_eq!(
+        lumen.app().plugin_scan_waiting(),
+        Some(Vec::new()),
+        "removed while the scan ran; nothing new waits to be checked"
+    );
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(3);
+
+    // The follow-up has no folder with modules left: it ends at once. Had it
+    // read the removed folder, the hung module would hold it past the wait.
+    lumen.click("Cancel");
+    lumen.settled();
+    assert!(lumen.app().plugin_names().is_empty(), "its plugins left");
+    assert!(
+        lumen.app().blocked_plugins().is_empty(),
+        "the hung module was not scanned again, and left with its folder"
+    );
+    assert!(!lumen.shows_row(&format!("{INSTRUMENT}, ")));
+}
+
+#[test]
+fn a_folder_added_during_a_scan_that_is_cancelled_is_scanned_after_it() {
+    let dir = TempDir::new("e2e-plugins-added-cancel");
+    let root = plugin_root(dir.path(), &["Good", "Hang"]);
+    let extra = plugin_root(&dir.path().join("extra"), &["Crash"]);
+    // A long deadline: only Cancel ends these scans soon.
+    let mut lumen = start_held_up(dir, root, Duration::from_secs(60), |l| l);
+    lumen.wait_for("the good module to be scanned", |app| {
+        app.plugin_status().contains("done: 1")
+    });
+
+    lumen.add_folder_during_the_scan(&extra);
+    lumen.click("Cancel");
+    // The follow-up checks what the cancelled scan left, the new folder too.
+    lumen.wait_for("the new folder's module to be scanned", |app| {
+        app.blocked_plugins() == ["Crash"]
+    });
+    assert!(lumen.app().plugins_busy(), "the hung module is tried again");
+    lumen.click("Cancel");
+    lumen.settled();
+    assert_eq!(lumen.app().blocked_plugins(), ["Crash"]);
+    assert_eq!(lumen.app().plugin_names(), [EFFECT, INSTRUMENT]);
+    assert!(lumen.shows("Rescan"));
+}

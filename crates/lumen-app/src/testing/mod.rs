@@ -167,6 +167,13 @@ impl Launch {
         self
     }
 
+    /// Starts with `folder` among the plugin folders the person added, as a
+    /// settings file with it would.
+    pub fn with_plugin_folder(mut self, folder: &Path) -> Self {
+        self.settings.plugins.add_folder(folder);
+        self
+    }
+
     /// Starts with preset files kept in `user` (and read from `system`).
     pub fn with_preset_folders(mut self, user: PathBuf, system: Vec<PathBuf>) -> Self {
         self.preset_places = Some(crate::preset_files::Places::fixed(user, system));
