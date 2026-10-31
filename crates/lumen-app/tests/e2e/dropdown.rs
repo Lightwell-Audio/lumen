@@ -53,10 +53,13 @@ fn a_buffer_size_is_picked_by_click_and_by_keyboard() {
     open_by_click(&mut lumen, "Buffer size: 128 samples", "64 samples");
     assert!(lumen.shows("64 samples"), "the list offers 64 samples");
     lumen.click("64 samples");
+    // The menu is disabled until the device answers, then has the keyboard
+    // back (ADR-0113).
     lumen.run_until("the 64-sample choice to apply", |l| {
-        l.shows("Buffer size: 64 samples")
+        l.harness
+            .query_by_label("Buffer size: 64 samples")
+            .is_some_and(|b| !b.accesskit_node().is_disabled() && b.accesskit_node().is_focused())
     });
-    assert!(lumen.shows("Buffer size: 64 samples"), "the pick applies");
     // By keyboard: Enter opens the list with the current row focused; the
     // arrow goes down one row and Enter picks it.
     lumen.key(Modifiers::NONE, Key::Enter);
@@ -71,7 +74,9 @@ fn a_buffer_size_is_picked_by_click_and_by_keyboard() {
     });
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.run_until("the key-selected buffer size to apply", |l| {
-        l.shows("Buffer size: 128 samples")
+        l.harness
+            .query_by_label("Buffer size: 128 samples")
+            .is_some_and(|b| !b.accesskit_node().is_disabled() && b.accesskit_node().is_focused())
     });
     assert!(
         lumen.shows("Buffer size: 128 samples"),

@@ -244,8 +244,10 @@ pub fn choice_row(ui: &mut Ui, label: &str, on: bool) -> egui::Response {
     if response.clicked() && !on {
         super::note_change(ui);
     }
-    response
-        .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, label));
+    let enabled = ui.is_enabled();
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::RadioButton, enabled, on, label)
+    });
     if !ui.is_rect_visible(rect) {
         return response;
     }
@@ -257,7 +259,11 @@ pub fn choice_row(ui: &mut Ui, label: &str, on: bool) -> egui::Response {
     } else if hover > 0.0 {
         painter.rect_filled(rect, f32::from(radius), palette.ember.gamma_multiply(hover));
     }
-    let colour = if on { palette.accent } else { palette.text };
+    let colour = match (enabled, on) {
+        (false, _) => palette.text_disabled,
+        (true, true) => palette.accent,
+        (true, false) => palette.text,
+    };
     painter.galley_with_override_text_color(
         pos2(rect.left() + pad, rect.center().y - galley.size().y / 2.0),
         galley,
