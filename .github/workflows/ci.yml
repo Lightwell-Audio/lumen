@@ -28,15 +28,47 @@ env:
 jobs:
   fmt:
     name: rustfmt
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install
       - run: cargo fmt --all -- --check
 
+  # Clippy is its own job so that it runs beside the tests: in `rest` it added
+  # a minute to the slowest job (Windows).
+  clippy:
+    name: clippy (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev \
+            libfontconfig1-dev mesa-vulkan-drivers
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  # Three test jobs per OS: `rest` (every test but the E2E suite, doc tests)
+  # and the E2E suite in E2E_SHARDS shards. The E2E suite is one test binary
+  # that took 6.5 of the 10 minutes of the single job (measured on Linux,
+  # 2026-10-30), and it is split by module because its scenarios share
+  # in-process locks. See .github/scripts/ci-test.sh. To change the number of
+  # shards, change E2E_SHARDS and the `part` list together.
   test:
-    name: test (${{ matrix.os }})
+    name: test (${{ matrix.os }}, ${{ matrix.part }})
     strategy:
       fail-fast: false
       matrix:
@@ -44,9 +76,12 @@ jobs:
         # macos-latest is Apple silicon (aarch64-apple-darwin, Metal). macOS
         # was paused from 2026-10-07 (Actions minutes ran out) and is back
         # since 2026-10-10 (owner).
-        os: [blacksmith-4vcpu-windows-2025, blacksmith-6vcpu-macos-15, blacksmith-4vcpu-ubuntu-2404]
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        part: [rest, e2e-1, e2e-2]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
+    env:
+      E2E_SHARDS: 2
     steps:
       - uses: actions/checkout@v5
       # mesa-vulkan-drivers is lavapipe, a software Vulkan device, so GPU
@@ -61,17 +96,16 @@ jobs:
             libfontconfig1-dev mesa-vulkan-drivers
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install
+      # The parts build different targets, so each keeps its own cache.
       - uses: Swatinem/rust-cache@v2
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      # --all-targets also runs every divan benchmark once as a smoke test.
-      # --no-fail-fast runs every test binary, so one run shows all failures.
+        with:
+          key: ${{ startsWith(matrix.part, 'e2e') && 'e2e' || matrix.part }}
       # The output is kept so that a failure names its tests below.
       - name: Tests
         shell: bash
         run: |
           set -o pipefail
-          cargo test --workspace --all-targets --locked --no-fail-fast -- --skip walkthrough_plugins:: 2>&1 | tee test-output.txt
+          bash .github/scripts/ci-test.sh ${{ matrix.part }} 2>&1 | tee test-output.txt
       # Each failed test and where it panicked, as annotations on the run:
       # readable on the run's page and through the API without the full log.
       - name: Name the failed tests
@@ -83,21 +117,11 @@ jobs:
           awk '/panicked at/ { n = 3; msg = $0; next }
                n > 0 { msg = msg " | " $0; if (--n == 0) print "::error title=Failed test::" msg }' test-output.txt | head -10
           grep -E "^test .* FAILED$" test-output.txt | head -20
-      # Five live plugin hosts share the callback deadline in this flow.
-      # Run it without competing E2E scenarios: peer tests can starve a
-      # host and trigger the intended dry fallback, resetting peak meters.
-      # Keep its audio deadlines and sound assertions unchanged.
-      - name: Plugin routing walkthrough
-        if: ${{ !cancelled() }}
-        run: |
-          cargo test -p lumen-app --test e2e --locked walkthrough_plugins:: -- --nocapture
-      - name: Doc tests
-        run: cargo test --workspace --doc --locked
       # Scanner isolation: crashing, hanging and broken VST3 modules must be
       # contained and classified (P-VST3). Windows-only until the macOS and
       # Linux port (PROGRESS.md, Stretch goals).
       - name: VST3 scanner isolation self-test
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.part == 'rest'
         run: |
           cargo build --release --locked -p vst3-scan -p vst3-test-module
           target/release/vst3-scan selftest
@@ -107,12 +131,12 @@ jobs:
   # allocate. The crate downloads a prebuilt runtime when RTSAN_ENABLE is set.
   rtsan:
     name: realtime sanitizer
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       RTSAN_ENABLE: "1"
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
       - name: Install Linux system libraries
         run: |
           sudo apt-get update
@@ -166,7 +190,7 @@ jobs:
   # its runner images.
   perf:
     name: performance gate
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     container: ubuntu:26.04
     timeout-minutes: 30
     steps:
@@ -174,7 +198,7 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends             ca-certificates curl git build-essential pkg-config valgrind
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
       - name: Install rustup
         run: |
           curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
@@ -191,7 +215,7 @@ jobs:
 
   deny:
     name: licenses and advisories
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
