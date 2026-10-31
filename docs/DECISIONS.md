@@ -9872,8 +9872,11 @@ was warm). Windows, the slowest, took 10 min 16 s on that step.
 
 **Consequences.** Wall time of a run should fall from about 13 to about 6
 minutes. Billed minutes rise by an estimated 20 to 25% (each job pays its own
-setup), and macOS minutes cost ten times as much; to leave macOS unsplit, give it only the `rest` and an
-unsharded E2E part in the matrix. The check names change from
+setup). That does not matter while the repository is public, since
+GitHub-hosted runners are free for public repositories (owner, 2026-10-31);
+if it goes private, macOS minutes cost ten times as much, and leaving macOS
+unsplit (only `rest` and an unsharded E2E part in the matrix) is the first
+saving.  The check names change from
 `test (<os>)` to `test (<os>, <part>)`: a branch rule that requires the old
 names must be updated. The first run on the new cache keys is cold. Timing
 here: shards 225 s and 250 s on four cores, 381 and 380 scenarios; together
@@ -9908,4 +9911,12 @@ job: Windows `e2e-2`, 4 min 19 s. Windows `rest` took 4 min 6 s, `e2e-1`
 `e2e-1` also runs the plugin walkthrough: the modules are dealt out by
 scenario count, not by time. Dealing them out by measured time is the next
 step if the last minute matters.
+
+**Runners (2026-10-31).** The workflows run on GitHub-hosted runners again
+(`ubuntu-latest`, `windows-latest`, `macos-latest`; the Blacksmith move of
+2026-10-29 was reverted by the owner to stay off its metered usage). For a
+public repository the Linux and Windows runners have four vCPUs, as the
+Blacksmith ones did; macOS has three where Blacksmith had six, so the macOS
+jobs may run longer than the times above. Caches are limited to 10 GB for the
+repository on GitHub; evictions would show as cold runs.
 
