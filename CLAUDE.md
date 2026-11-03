@@ -478,7 +478,7 @@ per slice and move what is no longer current out of it.
 - **Branch `m9-s9-closeout`: M9 R9, the close.** E2E `walkthrough_song`
   records, splits, saves, crashes mid-take, recovers, saves, reopens and
   exports one song; MT-M9-1 is its hardware twin. The review is
-  `docs/audits/2026-11-03-m9.md` (H1 to H6, M1, L1 to L4; H2, a save that
+  `docs/audits/2026-11-03-m9.md` (H1 to H6, M1 to M4, L1 to L4; H2, a save that
   can point two takes at one file, comes first; fixes wait for the owner's
   go-ahead). The M9 report is in `docs/PROGRESS.md`; it recommends a short
   recovery slice for H1 to H6 before 9.5, and pitches 9.5's choices. `docs/PROGRESS.md` was brought up

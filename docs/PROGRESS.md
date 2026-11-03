@@ -339,7 +339,7 @@ recorded but not fixed yet, because code fixes wait for the owner's go-ahead (be
 
 The walkthrough was reviewed in two rounds by a second model. Its final version passes repeatedly in about 8 s.
 
-**Review.** `lumen-review` ran on 2026-11-03 (`docs/audits/2026-11-03-m9.md`): 6 High, 1 Medium, 4 Low. The
+**Review.** `lumen-review` ran on 2026-11-03 (`docs/audits/2026-11-03-m9.md`): 6 High, 4 Medium, 4 Low. The
 iterate rounds found H2 to H6:
 - **H2:** a save can point two different takes at one file (same name and length).
 - **H3:** a take's recovery note is deleted before any save holds the take.
@@ -348,7 +348,11 @@ iterate rounds found H2 to H6:
 - **H6:** a take that finishes after the 20 s wait can be credited to the next take.
 - **H1:** take recovery and the record start touch the disk on the UI thread.
 
-These all bear on the first rule, never lose work. None is fixed yet, and none was seen in use; each is in
+The owner's question on architecture added M2 to M4: the crate graph is acyclic and points down as rule 7 says,
+but no test keeps it so; the edit layer and settings name interface modules; and the app's modules are flat, with
+`App` extended from inside components.
+
+H1 to H6 all bear on the first rule, never lose work. None is fixed yet, and none was seen in use; each is in
 `docs/KNOWN_ISSUES.md`.
 
 **Not verified.**
