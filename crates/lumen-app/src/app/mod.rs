@@ -2,6 +2,7 @@
 //! start-up stay in `main.rs`; these modules hold its `impl` blocks (audit
 //! M1).
 
+pub(crate) mod association;
 pub(crate) mod audio_export;
 pub(crate) mod audio_inputs;
 pub(crate) mod audio_record;
@@ -30,6 +31,7 @@ mod draw_clip;
 pub(crate) mod editing;
 pub(crate) mod grid;
 mod handles;
+pub(crate) mod handover;
 pub(crate) mod hardware;
 pub(crate) mod history;
 pub(crate) mod info;

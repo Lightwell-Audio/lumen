@@ -266,6 +266,7 @@ pub(crate) enum Command {
     AddSampleFolder,
     AddPlace,
     RefreshFiles,
+    AssociateFiles,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -597,6 +598,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AddSampleFolder, "view.add_sample_folder", "Add a sample folder…", Area::View, &[], "Chooses a folder whose audio and MIDI files the Samples tab lists, with every folder inside it."),
     info(Command::AddPlace, "view.add_place", "Add a place…", Area::View, &[], "Chooses a folder to keep in the Places tab, to browse it without looking for it again."),
     info(Command::RefreshFiles, "view.refresh_files", "Refresh the browser's files", Area::View, &[], "Reads the sample folders, the projects folder and the open place again, for files added or removed outside the app."),
+    info(Command::AssociateFiles, "file.associate_files", concat!("Open .lumen files with ", lumen_core::product_name!()), Area::File, &[], "Turns on or off opening projects from File Explorer with this copy, each with the project icon."),
 ];
 
 const fn info(
@@ -660,7 +662,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::RefreshFiles as usize + 1,
+            Command::AssociateFiles as usize + 1,
             ALL.len(),
             "a command is missing"
         );

@@ -626,6 +626,10 @@ impl App {
                 "Choose a sound in the browser's Samples or Places tab first",
             ),
             Command::StopPreview => need(self.previewing(), "No preview is playing"),
+            Command::AssociateFiles => need(
+                crate::association::Association::supported(),
+                "On this system, project files are set up when the app is installed",
+            ),
             Command::GoToEnd => need(
                 crate::app::navigate::end_of_song(self.document.project()).is_some(),
                 "The song has no clips yet",

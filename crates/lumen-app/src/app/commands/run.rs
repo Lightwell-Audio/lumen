@@ -533,6 +533,7 @@ impl App {
                 }
             }
             Command::StopPreview => self.stop_preview(),
+            Command::AssociateFiles => self.toggle_association(),
             Command::AddSampleFolder => {
                 self.show_browser_tab(crate::browser::Tab::Samples);
                 self.pick_sample_folder(ctx);

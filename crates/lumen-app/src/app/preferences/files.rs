@@ -31,6 +31,7 @@ impl App {
             ui,
             "New, Open and Save as start here. Projects already saved stay where they are.",
         );
+        marks.row(ui, "files.associate", |ui| self.association_row(ui));
     }
 
     /// The cache: its folder, its limit, how full it is, and Clear.

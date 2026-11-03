@@ -465,6 +465,16 @@ per slice and move what is no longer current out of it.
   version change). E2E: `tests/e2e/browser_files.rs`, which names its
   sample folder (`Launch::with_sample_folder`) so no test reads the
   machine's Music folder. MT-BROWSE-1 waits for the owner. Next: R8, R9.
+- **Branch `m9-s8-icons-instance`: M9 R8 is built** (ADR-0117; owner: App
+  A, File B with a rim, SI A, FA A). Icons drawn by `lumen-brand` and
+  embedded by `build.rs`; one Lumen per settings file (`instance/`: a lock
+  first, then a pipe or socket; a later start hands its project over);
+  handed-over and dropped projects open as File › Open does and wait for a
+  recording or export (`app/handover.rs`); the per-user association on
+  Preferences › Files (`association/`, a `Hive`; only a normal start uses
+  the registry, and registers this copy at start when none is and the
+  setting is on). E2E `tests/e2e/instance.rs`, six smoke tests. MT-SYS-1
+  waits for the owner. Next: R9.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

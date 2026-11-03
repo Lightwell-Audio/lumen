@@ -87,9 +87,36 @@ pub struct Launch {
     /// Tests: the first-run window follows the settings as on a real start
     /// (it opens while setup is not done), though the run drives itself.
     pub(crate) first_start_rule: bool,
+    /// The single instance this start took (M9 R8); `None` runs alone.
+    pub(crate) instance: Option<crate::instance::Instance>,
+    /// Where the file association is written: the registry only on a
+    /// normal start, never in a run kept away from the user's files.
+    pub(crate) association: crate::association::Source,
+    /// `--quit-after-ms` (smoke tests): close after this long, saying the
+    /// project that is open.
+    pub(crate) quit_after: Option<Duration>,
 }
 
 impl Launch {
+    /// Where this run's settings are: `--settings` (tests) keeps a run away
+    /// from the user's settings.
+    pub(crate) fn settings_path(args: &[String]) -> Option<PathBuf> {
+        args.iter()
+            .position(|a| a == "--settings")
+            .and_then(|i| args.get(i + 1))
+            .map(PathBuf::from)
+            .or_else(settings::default_path)
+    }
+
+    /// The project named on the command line: the first argument ending
+    /// in `.lumen` (opening a project from the file manager).
+    pub(crate) fn project_arg(args: &[String]) -> Option<PathBuf> {
+        args.iter()
+            .skip(1)
+            .find(|a| a.to_ascii_lowercase().ends_with(".lumen"))
+            .map(PathBuf::from)
+    }
+
     /// From the command line (see the list at the top of `main.rs`).
     pub fn from_args() -> Self {
         let args: Vec<String> = std::env::args().collect();
@@ -99,10 +126,7 @@ impl Launch {
                 .and_then(|i| args.get(i + 1).cloned())
         };
         let has = |flag: &str| args.iter().any(|a| a == flag);
-        // `--settings` (tests) keeps a run away from the user's settings.
-        let settings_path = value("--settings")
-            .map(PathBuf::from)
-            .or_else(settings::default_path);
+        let settings_path = Self::settings_path(&args);
         let (settings, settings_warning) = settings_path
             .as_deref()
             .map(settings::load)
@@ -161,11 +185,7 @@ impl Launch {
             autosave_after: value("--autosave-after-ms")
                 .and_then(|v| v.parse().ok())
                 .map(Duration::from_millis),
-            open: args
-                .iter()
-                .skip(1)
-                .find(|a| a.to_ascii_lowercase().ends_with(".lumen"))
-                .map(PathBuf::from),
+            open: Self::project_arg(&args),
             open_audio: value("--open-audio").map(PathBuf::from),
             stress: has("--stress"),
             bench_lanes: has("--bench-lanes"),
@@ -204,6 +224,15 @@ impl Launch {
             scripted_dialogs: false,
             first_run: has("--first-run"),
             first_start_rule: false,
+            instance: None,
+            quit_after: value("--quit-after-ms")
+                .and_then(|ms| ms.parse().ok())
+                .map(Duration::from_millis),
+            association: if has("--settings") || has("--autosave-dir") || has("--crash-dir") {
+                crate::association::Source::Isolated
+            } else {
+                crate::association::Source::System
+            },
         }
     }
 }

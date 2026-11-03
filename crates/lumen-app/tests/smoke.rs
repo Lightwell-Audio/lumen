@@ -267,3 +267,166 @@ fn crash_report(flag: &str) -> String {
     assert_eq!(reports.len(), 1, "{reports:?}");
     std::fs::read_to_string(&reports[0]).unwrap()
 }
+
+// ── One Lumen per settings file (M9 R8, ADR-0117) ────────────────────────
+
+/// Starts `lumen` isolated in `dir` (the same settings file for each run in
+/// one `dir`), without waiting.
+fn spawn(dir: &Path, args: &[&str]) -> std::process::Child {
+    Command::new(env!("CARGO_BIN_EXE_lumen"))
+        .args(["--audio", "test:fake"])
+        .arg("--settings")
+        .arg(dir.join("settings.json"))
+        .arg("--autosave-dir")
+        .arg(dir.join("autosave"))
+        .arg("--crash-dir")
+        .arg(dir.join("crashes"))
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start lumen")
+}
+
+/// Waits for `child` (at most `limit`, then kills it) and returns whether it
+/// exited 0 by itself, with its stdout and stderr.
+fn finish(mut child: std::process::Child, limit: Duration) -> (bool, String, String) {
+    let started = Instant::now();
+    let mut killed = false;
+    while child.try_wait().expect("poll lumen").is_none() {
+        if started.elapsed() > limit {
+            let _ = child.kill();
+            killed = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let Output {
+        status,
+        stdout,
+        stderr,
+    } = child.wait_with_output().expect("lumen output");
+    (
+        status.success() && !killed,
+        String::from_utf8_lossy(&stdout).into_owned(),
+        String::from_utf8_lossy(&stderr).into_owned(),
+    )
+}
+
+fn song(dir: &Path, name: &str) -> PathBuf {
+    let project = lumen_project::testing::project_of(name, Vec::new());
+    let path = dir.join(format!("{name}.lumen"));
+    lumen_project::save(&project, &path, &Default::default()).expect("save");
+    path
+}
+
+#[test]
+#[ignore = "needs a desktop and a GPU: run at the end of every slice"]
+fn a_second_start_hands_its_project_to_the_first() {
+    let dir = TempDir::new("smoke-instance-hand");
+    let first = spawn(dir.path(), &["--quit-after-ms", "12000"]);
+    let night = song(dir.path(), "Night Drive");
+    let second = spawn(dir.path(), &[night.to_str().unwrap()]);
+    let (handed, out, err) = finish(second, LIMIT);
+    assert!(
+        handed,
+        "the second start exits 0 once handed over:\n{out}\n{err}"
+    );
+    let (_, out, err) = finish(first, LIMIT);
+    assert!(
+        out.contains("instance: closing with Night Drive"),
+        "{out}\n{err}"
+    );
+}
+
+#[test]
+#[ignore = "needs a desktop and a GPU: run at the end of every slice"]
+fn two_starts_at_once_make_one_window() {
+    let dir = TempDir::new("smoke-instance-race");
+    let a = spawn(dir.path(), &["--quit-after-ms", "8000"]);
+    let b = spawn(dir.path(), &["--quit-after-ms", "8000"]);
+    let (a_ok, a_out, a_err) = finish(a, LIMIT);
+    let (b_ok, b_out, b_err) = finish(b, LIMIT);
+    assert!(a_ok && b_ok, "{a_out}\n{a_err}\n{b_out}\n{b_err}");
+    let windows = [&a_out, &b_out]
+        .iter()
+        .filter(|o| o.contains("instance: closing with"))
+        .count();
+    assert_eq!(windows, 1, "exactly one ran its window:\n{a_out}\n{b_out}");
+}
+
+#[test]
+#[ignore = "needs a desktop and a GPU: run at the end of every slice"]
+fn a_holder_that_does_not_answer_is_not_replaced() {
+    let dir = TempDir::new("smoke-instance-deaf");
+    let first = spawn(dir.path(), &["--instance-deaf", "--quit-after-ms", "40000"]);
+    std::thread::sleep(Duration::from_secs(3));
+    let second = spawn(dir.path(), &["--smoke-test"]);
+    let (exited, out, err) = finish(second, Duration::from_secs(25));
+    assert!(
+        !exited,
+        "the second start waits in its own window:\n{out}\n{err}"
+    );
+    assert!(
+        err.contains("is already running but is not answering"),
+        "{err}"
+    );
+    assert!(
+        !out.contains("smoke test:"),
+        "it started no window of its own: {out}"
+    );
+    let mut first = first;
+    let _ = first.kill();
+    let _ = first.wait();
+}
+
+#[test]
+#[ignore = "needs a desktop and a GPU: run at the end of every slice"]
+fn a_refusal_shows_its_reason_and_does_not_exit_0() {
+    let dir = TempDir::new("smoke-instance-busy");
+    let first = spawn(dir.path(), &["--instance-busy", "--quit-after-ms", "30000"]);
+    std::thread::sleep(Duration::from_secs(3));
+    let second = spawn(dir.path(), &[]);
+    let (exited, _, err) = finish(second, Duration::from_secs(8));
+    assert!(!exited, "{err}");
+    assert!(
+        err.contains("did not open the file") && err.contains("busy"),
+        "{err}"
+    );
+    let mut first = first;
+    let _ = first.kill();
+    let _ = first.wait();
+}
+
+#[test]
+#[ignore = "needs a desktop and a GPU: run at the end of every slice"]
+fn a_holder_that_closes_during_the_retry_lets_the_next_start_run() {
+    let dir = TempDir::new("smoke-instance-closes");
+    let first = spawn(dir.path(), &["--instance-deaf", "--quit-after-ms", "4000"]);
+    std::thread::sleep(Duration::from_secs(2));
+    let night = song(dir.path(), "Night Drive");
+    let second = spawn(
+        dir.path(),
+        &[night.to_str().unwrap(), "--quit-after-ms", "6000"],
+    );
+    let (ok, out, err) = finish(second, LIMIT);
+    assert!(ok, "{out}\n{err}");
+    assert!(
+        out.contains("instance: closing with Night Drive"),
+        "it ran as the instance: {out}"
+    );
+    let _ = finish(first, LIMIT);
+}
+
+#[test]
+#[ignore = "needs a desktop and a GPU: run at the end of every slice"]
+fn two_settings_files_give_two_windows() {
+    let a = TempDir::new("smoke-instance-two-a");
+    let b = TempDir::new("smoke-instance-two-b");
+    let first = spawn(a.path(), &["--smoke-test"]);
+    let second = spawn(b.path(), &["--smoke-test"]);
+    for child in [first, second] {
+        let (ok, out, err) = finish(child, LIMIT);
+        assert!(ok && out.contains("smoke test:"), "{out}\n{err}");
+    }
+}

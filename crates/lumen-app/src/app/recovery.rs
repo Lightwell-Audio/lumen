@@ -67,7 +67,27 @@ impl App {
                     leftover.note.name,
                     autosave::ago(leftover.note.written)
                 ));
-                if raised::primary_button(ui, "Recover").clicked() {
+                // Recovering replaces the open project: never over unsaved
+                // changes, a recording or an export (M9 R8, ADR-0117).
+                let wait = match self.busy_for_open() {
+                    Some(busy) => Some(format!(
+                        "Recovering replaces the open project, so it waits{}.",
+                        super::handover::when_done(Some(busy))
+                    )),
+                    None if self.document.is_dirty() => Some(format!(
+                        "Recovering replaces the open project: save your changes to {} first.",
+                        self.document.name()
+                    )),
+                    None => None,
+                };
+                if let Some(wait) = &wait {
+                    ui.label(wait.as_str());
+                }
+                if ui
+                    .add_enabled_ui(wait.is_none(), |ui| raised::primary_button(ui, "Recover"))
+                    .inner
+                    .clicked()
+                {
                     choice = Some(true);
                 }
                 if raised::button(ui, "Discard")
@@ -81,7 +101,7 @@ impl App {
         match choice {
             Some(true) if self.opening.is_none() => {
                 trace::log(|| format!("autosave: recovering {}", leftover.file.display()));
-                self.opening = Some(files::open(leftover.file.clone()));
+                self.begin_opening(leftover.file.clone());
                 self.recovering = Some(leftover);
                 self.leftover = None;
             }

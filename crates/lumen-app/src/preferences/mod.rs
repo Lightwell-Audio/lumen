@@ -302,6 +302,12 @@ pub const ROWS: &[Row] = &[
         "songs save open new location directory documents",
     ),
     row(
+        "files.associate",
+        Page::Files,
+        "Open .lumen files",
+        "file association explorer double-click icon default program open with",
+    ),
+    row(
         "files.copy_imported",
         Page::Files,
         "Copy imported audio into the project",

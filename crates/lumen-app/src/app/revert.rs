@@ -55,6 +55,8 @@ impl App {
             Err("There are no unsaved changes")
         } else if self.opening.is_some() {
             Err(crate::app::commands::wait::OPENING)
+        } else if self.busy_for_open().is_some() {
+            Err("A recording or an export is under way")
         } else {
             self.copy_unavailable()
         }
@@ -64,6 +66,9 @@ impl App {
     pub(crate) fn begin_revert(&mut self) {
         match self.revert_unavailable() {
             Ok(()) => self.revert.asking = true,
+            Err(why) if self.busy_for_open().is_some() => {
+                self.say(format!("{why}, so nothing was reverted"));
+            }
             Err(why) => self.say(format!("{why}, so there is nothing to revert")),
         }
     }
@@ -151,7 +156,7 @@ impl App {
             return;
         }
         self.revert.reloading = Some(kept);
-        self.opening = Some(files::open(file));
+        self.begin_opening(file);
     }
 
     /// The message after a revert, with the way to the changes it dropped.

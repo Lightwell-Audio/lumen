@@ -4,23 +4,18 @@
 //!
 //! The mark is a meter where it can be: its sun rises with a level and its
 //! light grows with it, and it turns red while recording. At rest the sun
-//! only peeks over the horizon. The window icon is drawn from the same
-//! geometry in `brand.rs`.
+//! only peeks over the horizon. The geometry is `lumen_brand`'s, which also
+//! draws the window icon and the executable's icons from it.
 
 use eframe::egui::{Color32, Painter, Rect, pos2, vec2};
+use lumen_brand::{
+    COMPACT, COMPACT_HALF_WIDTH, COMPACT_REFLECTIONS, GRID, HALF_WIDTH, HORIZON, REFLECTIONS, SUN,
+};
 
 use crate::theme;
 
-/// The grid the mark is drawn on.
-pub const GRID: f32 = 64.0;
-/// Where the horizon sits on the grid.
-pub const HORIZON: f32 = 32.0;
-/// The sun's radius on the grid.
-pub const SUN: f32 = 16.0;
 /// How far below its risen place the sun sits at rest.
 pub const SUNK: f32 = 10.0;
-/// At this size and under, strokes thicken and the third reflection goes.
-pub const COMPACT: f32 = 40.0;
 
 /// How the mark is lit.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -107,7 +102,12 @@ pub fn paint(painter: &Painter, rect: Rect, look: Look) {
     }
 
     // The horizon: white at the middle, the water's colour at its ends.
-    let width = if compact { 4.0 } else { 2.6 } * unit;
+    let width =
+        2.0 * if compact {
+            COMPACT_HALF_WIDTH
+        } else {
+            HALF_WIDTH
+        } * unit;
     let half = |x0: f32, x1: f32, left: Color32, right: Color32| {
         let band = Rect::from_min_max(
             pos2(at(x0, 0.0).x, at(0.0, HORIZON).y - width / 2.0),
@@ -121,13 +121,9 @@ pub fn paint(painter: &Painter, rect: Rect, look: Look) {
 
     // The water: reflections settling like a waveform.
     let lines: &[(f32, f32, f32, f32)] = if compact {
-        &[(19.0, 45.0, 40.0, 0.85), (25.5, 38.5, 48.0, 0.6)]
+        &COMPACT_REFLECTIONS
     } else {
-        &[
-            (21.0, 43.0, 38.0, 0.85),
-            (25.0, 39.0, 43.5, 0.6),
-            (28.5, 35.5, 49.0, 0.3),
-        ]
+        &REFLECTIONS
     };
     for &(x0, x1, y, a) in lines {
         let pill = Rect::from_min_max(

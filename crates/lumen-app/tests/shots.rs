@@ -4766,3 +4766,115 @@ fn browser_files() {
         }
     }
 }
+
+/// M9 R8: the Files page's "Open .lumen files" row (this copy, another
+/// copy and the person's own choice), the notice of a project waiting for a
+/// recording, and the small window of a later start that was not taken.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn instance_and_association() {
+    use eframe::egui::{Key, Modifiers};
+    use egui_kittest::kittest::Queryable;
+    for (appearance, scale) in [
+        ("dark", 1.0),
+        ("light", 1.0),
+        ("dark", 1.5),
+        ("light", 1.5),
+        ("dark", 2.0),
+        ("light", 2.0),
+    ] {
+        let tag = format!("{appearance}-{scale}");
+        let theme = if appearance == "light" {
+            eframe::egui::Theme::Light
+        } else {
+            eframe::egui::Theme::Dark
+        };
+        let dir = TempDir::new("shots-association");
+        let mut h = bare_scaled(&dir, appearance, scale, vec2(1280.0, 760.0));
+        h.state_mut().fake_association(None, None, None);
+        h.get_by_label("Lumen").click();
+        h.run_steps(5);
+        h.get_by_label("Preferences\u{2026}").click();
+        h.run_steps(10);
+        h.get_by_label("Files page").click();
+        h.run_steps(10);
+        h.get_by_label("Open .lumen files with Lumen").click();
+        h.run_steps(10);
+        save(&mut h, &format!("association-this-{tag}"));
+        let other = dir.path().join("Old Lumen").join("lumen.exe");
+        h.state_mut()
+            .fake_association(Some(&other), Some("Other.Thing"), None);
+        h.run_steps(10);
+        save(&mut h, &format!("association-other-{tag}"));
+
+        // A project handed over while recording waits in a notice.
+        let dir = TempDir::new("shots-holding");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .with_input_device();
+        let mut h = Harness::builder()
+            .with_size(vec2(1280.0, 760.0))
+            .with_pixels_per_point(scale)
+            .with_theme(theme)
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(10);
+        drop_files(&mut h, &dir, 1.5);
+        for _ in 0..600 {
+            if h.state().open_inputs() == 2 {
+                break;
+            }
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        h.get_by_label("Arm kick").click();
+        h.run_steps(5);
+        h.key_press(Key::F9);
+        for _ in 0..600 {
+            if h.state().recording() {
+                break;
+            }
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        h.run_steps(30);
+        let night = dir.path().join("Night Drive.lumen");
+        let song = lumen_project::testing::project_of("Night Drive", Vec::new());
+        lumen_project::save(&song, &night, &Default::default()).expect("save");
+        let _sent = h.state_mut().hand_over(Some(night));
+        h.run_steps(20);
+        save(&mut h, &format!("holding-recording-{tag}"));
+        h.key_press_modifiers(Modifiers::NONE, Key::Space);
+        h.run_steps(10);
+
+        for (name, why) in [
+            ("not-answering", None),
+            (
+                "refused",
+                Some("Lumen is busy with other requests. Try again."),
+            ),
+            (
+                "refused-long",
+                Some(
+                    r"D:\Music\Projects\2026\Autumn sessions\Late night drafts\Second pass with the strings and the new bass line\Night Drive (alternate mix, longer intro).lumen was not found.",
+                ),
+            ),
+        ] {
+            let mut h = Harness::builder()
+                .with_size(vec2(460.0, 220.0))
+                .with_pixels_per_point(scale)
+                .with_theme(theme)
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::not_answering_window(&cc.egui_ctx, why, appearance)
+                });
+            h.run_steps(5);
+            save(&mut h, &format!("instance-{name}-{tag}"));
+        }
+    }
+}
