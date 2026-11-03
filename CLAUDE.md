@@ -456,6 +456,12 @@ per slice and move what is no longer current out of it.
   and from "Set up Lumen…". A command name that must say the product uses
   `lumen_core::product_name!()`. MT-FIRSTRUN-1 waits for the owner. Next:
   R7c to R9.
+- **Branch `m9-s7c-browser-tabs`: M9 R7c is planned and chosen, not built**
+  (`docs/milestones/M9.md` §3, "R7c"; owner 2026-11-02: L B, R B, P A,
+  O A, M A, S A): five icon tabs (Devices, Samples, Projects, Places,
+  Project media), search, and file preview through the cue pair when there
+  is one. Ctrl+1 to Ctrl+5 belong to the grid, so the tabs have palette
+  commands and no keys.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
