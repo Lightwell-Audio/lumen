@@ -463,6 +463,25 @@ mod tests {
         assert!(second.join().unwrap(), "the new socket answers");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_long_settings_path_still_gets_a_socket_that_fits_an_address() {
+        let dir = TempDir::new("instance-long");
+        let deep = dir.path().join("a".repeat(60)).join("b".repeat(60));
+        let place = Place::for_settings(&deep.join("settings.json")).unwrap();
+        let socket = transport::socket(&place);
+        assert!(socket.as_os_str().len() < 104, "{}", socket.display());
+        let Claim::Owner(first) = claim(&attempt(&place, &Request::Show)) else {
+            panic!("owner");
+        };
+        let second = std::thread::spawn({
+            let place = place.clone();
+            move || matches!(claim(&attempt(&place, &Request::Show)), Claim::Handed)
+        });
+        assert!(wait_for(&first).answer(Reply::Accepted));
+        assert!(second.join().unwrap(), "the long path still hands over");
+    }
+
     #[test]
     fn a_full_queue_is_turned_away_as_busy() {
         let (tx, _rx) = mpsc::sync_channel(QUEUE);

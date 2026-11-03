@@ -12,17 +12,39 @@ use std::time::{Duration, Instant};
 use super::protocol::{self, Reply, Request};
 use super::{Deliver, IO_TIMEOUT, Place};
 
-/// The socket's folder: the runtime folder where there is one (Linux),
-/// else the settings folder; a private `instance` folder inside it.
+/// The longest socket path used. A socket address holds 104 bytes on macOS
+/// and 108 on Linux, the closing zero included; this stays under both.
+const MAX_SOCKET_PATH: usize = 100;
+
+/// The socket's folder: a private `instance` folder inside the first of the
+/// runtime folder (Linux), this user's temporary folder (a private name
+/// per user) and the settings folder where the whole socket path fits an
+/// address. A long settings path (a macOS test or portable folder) must not
+/// leave the lock held with no socket to reach. The folders are tried in a
+/// fixed order, so the holder and a later start agree.
 fn folder(place: &Place) -> PathBuf {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir())
-        .unwrap_or_else(|| place.folder.clone());
-    base.join(format!(
+    let name = format!(
         "{}-instance",
         lumen_core::product::PRODUCT_NAME.to_lowercase()
-    ))
+    );
+    let file = format!("{}.sock", place.key);
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .map(|p| p.join(&name));
+    let temporary = std::env::temp_dir().join(format!("{name}-{uid}"));
+    let settings = place.folder.join(&name);
+    let candidates: Vec<PathBuf> = runtime.into_iter().chain([temporary, settings]).collect();
+    let fits = |dir: &&PathBuf| dir.join(&file).as_os_str().len() <= MAX_SOCKET_PATH;
+    // None fits: the settings folder, whose bind then fails and is reported.
+    let last = candidates.len() - 1;
+    candidates
+        .iter()
+        .find(fits)
+        .unwrap_or(&candidates[last])
+        .clone()
 }
 
 pub(super) fn socket(place: &Place) -> PathBuf {
