@@ -176,6 +176,10 @@ impl App {
             bouncing: None,
             show_bounce: false,
             export: Default::default(),
+            instance: launch.instance,
+            holding: None,
+            association: crate::association::Association::new(launch.association),
+            left_out: None,
             freeze_waiting: None,
             freezing: None,
             tempo_offer: None,
@@ -204,10 +208,13 @@ impl App {
             dialog_answers: launch.scripted_dialogs.then(Default::default),
             saving: None,
             opening: None,
+            opening_mark: 0,
+            checks: None,
             prompt: None,
             prompt_enter: false,
             after_save: None,
             save_waiting: None,
+            save_dialog: false,
             collecting: None,
             templates,
             revert: Default::default(),
@@ -258,6 +265,7 @@ impl App {
             menu_for: app::editing::MenuFor::default(),
             clip_props: app::clip_card::ClipProps::default(),
             smoke_test_frames: launch.smoke_test.then_some(app::test_modes::SMOKE_FRAMES),
+            quit_at: launch.quit_after.map(|after| launch.started + after),
             screenshot: launch.screenshot,
             started,
             autoplay: launch.autoplay,
@@ -285,6 +293,10 @@ impl App {
         }
         fonts::install(&cc.egui_ctx);
         app.apply_appearance(&cc.egui_ctx);
+        // Requests from later starts wake the window from now on.
+        if let Some(instance) = &app.instance {
+            instance.attach(&cc.egui_ctx);
+        }
         let mut autosave = autosave::Autosave::new(launch.autosave_dir);
         autosave.set_interval(app.settings.editing.autosave());
         if let Some(delay) = launch.autosave_after {
@@ -299,12 +311,16 @@ impl App {
         if launch.recover_latest
             && let Some(leftover) = app.leftover.take()
         {
-            app.opening = Some(files::open(leftover.file.clone()));
+            app.begin_opening(leftover.file.clone());
             app.recovering = Some(leftover);
+        }
+        // Projects open from File Explorer by default (M9 R8, ADR-0117).
+        if app.association.is_system() {
+            app.associate_at_start();
         }
         // `lumen <file>.lumen` (and opening a project from Explorer).
         if let Some(path) = launch.open {
-            app.opening = Some(files::open(path));
+            app.begin_opening(path);
         }
         app
     }

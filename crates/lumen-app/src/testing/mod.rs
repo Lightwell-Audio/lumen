@@ -22,6 +22,8 @@ mod browser_files;
 pub(crate) mod coverage;
 mod devices;
 mod editor;
+mod instance;
+pub use instance::{HandOver, not_answering_window};
 mod media_pool;
 mod midi;
 mod preferences;
@@ -93,6 +95,9 @@ impl Launch {
             scripted_dialogs: true,
             first_run: false,
             first_start_rule: false,
+            instance: None,
+            association: crate::association::Source::Isolated,
+            quit_after: None,
         }
     }
 
@@ -303,7 +308,7 @@ pub const PROJECT_EXTENSION: &str = files::EXTENSION;
 impl App {
     /// Opens a project file as the Open command does after its dialog.
     pub fn open_project_file(&mut self, path: PathBuf) {
-        self.opening = Some(files::open(path));
+        self.begin_opening(path);
     }
 
     /// The open project.

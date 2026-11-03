@@ -208,6 +208,10 @@ pub struct Projects {
     /// Where New, Open and Save as start (M9 R7; an added field). `None` is
     /// `Documents/Lumen/Projects`.
     pub folder: Option<String>,
+    /// The person wants `.lumen` files to open with Lumen (M9 R8; an added
+    /// field). The first-run Ready step's default; the registry, not this,
+    /// decides what the Preferences row shows.
+    pub associate_files: bool,
 }
 
 impl Default for Projects {
@@ -216,6 +220,7 @@ impl Default for Projects {
             recent: Vec::new(),
             copy_imported: true,
             folder: None,
+            associate_files: true,
         }
     }
 }
@@ -582,6 +587,21 @@ pub fn default_path() -> Option<PathBuf> {
     Some(dir.join("settings.json"))
 }
 
+/// Reads the settings without changing anything on disk: defaults when
+/// they cannot be read. For a start that is not the instance (M9 R8),
+/// which only needs the theme and the interface size.
+pub fn peek(path: &Path) -> Settings {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Settings>(&text).ok())
+        .filter(|s| s.version <= VERSION)
+        .map(|mut s| {
+            s.bound();
+            s
+        })
+        .unwrap_or_default()
+}
+
 /// Reads the settings, or defaults when there are none. A file that cannot
 /// be read is moved aside and the reason returned, to show the user.
 pub fn load(path: &Path) -> (Settings, Option<String>) {
@@ -753,6 +773,7 @@ mod tests {
                 recent: vec!["C:/Music/Song/Song.lumen".into()],
                 copy_imported: false,
                 folder: Some("D:/Songs".into()),
+                associate_files: false,
             },
             follow: Follow::Continuous,
             time_format: crate::timefmt::TimeFormat::Timecode25,

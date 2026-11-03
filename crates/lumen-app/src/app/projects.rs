@@ -12,6 +12,7 @@ use lumen_core::time::Ticks;
 use lumen_project::model::{Project, TrackKind};
 
 use crate::app::copies::{Purpose, Waiting};
+use crate::app::handover::{interrupted, when_done};
 use crate::document::Places;
 use crate::widgets::Dialog;
 use crate::widgets::raised;
@@ -204,6 +205,7 @@ impl App {
                     }
                     FileDialog::SaveAs(dialog.save_file())
                 };
+                self.save_dialog = true;
                 self.file_dialog(ctx, show, |paths| {
                     FileDialog::SaveAs(paths.into_iter().next())
                 });
@@ -345,9 +347,17 @@ impl App {
         }));
     }
 
+    /// Starts reading `file` on a worker, noting the project's change mark:
+    /// an edit made while it is read is not covered by the choice that
+    /// asked for it (checked when the file arrives).
+    pub(crate) fn begin_opening(&mut self, file: PathBuf) {
+        self.opening_mark = self.document.change_mark();
+        self.opening = Some(files::open(file));
+    }
+
     /// New, Open or Quit: first offer to save unsaved changes.
     pub(crate) fn request(&mut self, ctx: &egui::Context, next: Next) {
-        if self.copy_blocks(&next) {
+        if self.holds(&next, false) || self.copy_blocks(&next) {
             return;
         }
         if self.document.is_dirty() {
@@ -369,7 +379,7 @@ impl App {
     }
 
     pub(crate) fn proceed(&mut self, ctx: &egui::Context, next: Next) {
-        if self.copy_blocks(&next) {
+        if self.holds(&next, true) || self.copy_blocks(&next) {
             return;
         }
         match next {
@@ -381,14 +391,14 @@ impl App {
             Next::Open(Some(path)) => {
                 if self.opening.is_none() {
                     trace::log(|| format!("files: opening {}", path.display()));
-                    self.opening = Some(files::open(path));
+                    self.begin_opening(path);
                 }
             }
             Next::Template(file) => {
                 if self.opening.is_none() {
                     trace::log(|| format!("files: opening the template {}", file.display()));
                     self.templates.opening = true;
-                    self.opening = Some(files::open(file));
+                    self.begin_opening(file);
                 }
             }
             Next::Open(None) => {
@@ -469,6 +479,7 @@ impl App {
         }
         if let Some(result) = self.dialog.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.dialog = None;
+            self.save_dialog = false;
             match result {
                 FileDialog::SaveAs(Some(chosen)) => {
                     self.start_save_as(chosen);
@@ -557,7 +568,44 @@ impl App {
             self.opening = None;
             let template = std::mem::take(&mut self.templates.opening);
             let reverting = self.revert.reloading.take();
+            // A recording or an export that began, or an edit made, while
+            // the file was read: nothing is replaced (M9 R8, ADR-0117).
+            let busy = self.busy_for_open();
+            let changed = self.document.change_mark() != self.opening_mark;
             match result {
+                Ok(_) if (busy.is_some() || changed) && reverting.is_some() => {
+                    let kept = reverting.unwrap_or_default();
+                    self.file_notice = Some(format!(
+                        "{}, so it was not reverted. The earlier changes are in {}. Choose \
+                         Revert to saved again{}.",
+                        interrupted(busy, "the saved file"),
+                        kept.display(),
+                        when_done(busy),
+                    ));
+                }
+                Ok(_) if (busy.is_some() || changed) && self.recovering.is_some() => {
+                    self.leftover = self.recovering.take();
+                    self.file_notice = Some(format!(
+                        "{}, so nothing was recovered. Choose Recover again{}.",
+                        interrupted(busy, "the autosave"),
+                        when_done(busy),
+                    ));
+                }
+                // An open or a template waits again while the work goes on,
+                // and asks again if the project changed.
+                Ok(opened) if busy.is_some() || changed => {
+                    let next = if template {
+                        Next::Template(opened.path)
+                    } else {
+                        Next::Open(Some(opened.path))
+                    };
+                    if busy.is_some() {
+                        let mark = self.opening_mark;
+                        self.hold(&next, true, mark);
+                    } else {
+                        self.request(ctx, next);
+                    }
+                }
                 Ok(opened) => {
                     let view = opened.project.view.clone();
                     let file = opened.path.clone();
@@ -616,8 +664,13 @@ impl App {
                         } else {
                             "Opened"
                         };
-                        self.toast =
-                            Some((format!("{what} {}", self.document.name()), Instant::now()));
+                        let mut words = format!("{what} {}", self.document.name());
+                        if let Some((_, left)) =
+                            self.left_out.take().filter(|(dropped, _)| *dropped == file)
+                        {
+                            words = format!("{words}. {}", super::handover::left_out_words(left));
+                        }
+                        self.toast = Some((words, Instant::now()));
                     }
                 }
                 Err(e) => {

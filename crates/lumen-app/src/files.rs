@@ -31,6 +31,12 @@ pub const RECORDED: &str = "Samples/Recorded";
 /// The file extension of projects.
 pub const EXTENSION: &str = "lumen";
 
+/// Whether `path` names a project file (by its extension, in any case).
+pub fn is_project(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case(EXTENSION))
+}
+
 /// Where a project chosen in Save As is written. A file picked inside an
 /// existing project folder (one holding another project file or a `Samples`
 /// folder) or a folder already named after the project is used as it is;

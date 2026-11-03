@@ -86,6 +86,7 @@ impl App {
             }
             FileDialog::SaveCopy(dialog.save_file())
         };
+        self.save_dialog = true;
         self.file_dialog(ctx, show, |paths| {
             FileDialog::SaveCopy(paths.into_iter().next())
         });

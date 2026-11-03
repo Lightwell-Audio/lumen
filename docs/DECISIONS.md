@@ -118,6 +118,7 @@ irreversible or external) · *Superseded*.
 | [0114](#adr-0114--a-scan-asked-for-during-a-scan-runs-after-it) | A scan asked for during a scan runs after it | Accepted 2026-10-31 | No |
 | [0115](#adr-0115--the-first-run-window-m9-r7b) | The first-run window (M9 R7b) | Accepted 2026-10-31 (MT-FIRSTRUN-1 pending) | No |
 | [0116](#adr-0116--the-browsers-files-and-preview-m9-r7c) | The browser's files and preview (M9 R7c) | Accepted 2026-11-02 (MT-BROWSE-1 pending) | No |
+| [0117](#adr-0117--icons-single-instance-and-file-association-m9-r8) | Icons, single instance and file association (M9 R8) | Accepted 2026-11-03 (MT-SYS-1 pending) | No |
 
 ---
 
@@ -10466,3 +10467,144 @@ saying why); shots of the tabs in both themes at 100, 150 and 200%. **Not
 verified here:** the preview through the owner's interface and its start
 time, a network or slow drive, and a folder of tens of thousands of files
 (MT-BROWSE-1).
+
+## ADR-0117 — Icons, single instance and file association (M9 R8)
+
+**Date:** 2026-11-03. **Branch:** `m9-s8-icons-instance`. **Status:**
+Accepted (MT-SYS-1 pending). Design: `milestones/M9.md` §3, R8 (owner: App
+A, File B with a light rim at 16 to 32 px, SI A, FA A, 2026-11-03).
+
+**Context.** CLAUDE.md §7 asks for a single instance, file association and
+opening by double-click or drop [M]. Before R8, `lumen <file>.lumen` opened
+a project, but a second start ran a second engine on the same settings and
+autosaves, Explorer showed a generic icon, and a `.lumen` dropped on the
+lanes went to the importer.
+
+**Choice.** As the plan.
+
+1. **Icons** (`lumen-brand`, a new crate with no dependency but `png`).
+   The mark's geometry and rasteriser moved out of the app so the build
+   script can use them. `build.rs` writes `lumen.ico` and
+   `lumen-project.ico` (16 to 256 px, 256 as PNG) into `OUT_DIR` and embeds
+   them with `embed-resource` 3 (MIT/Apache-2.0) as resources 1 and 2. No
+   icon binary is checked in. The compact mark is used at 40 px and under;
+   the light rim (RGB 112, 120, 134) at 32 px and under.
+2. **Single instance** (`instance/`). The lock file
+   `Lumen-<key>.instance` in the settings folder, taken with
+   `File::try_lock` before settings are read (reading may move a broken
+   file aside), audio opens or autosave starts. The key is FNV-1a over the
+   canonical settings folder and file name (lowercased on Windows). The
+   holder listens on `\\.\pipe\Lumen-<key>` (first instance only, remote
+   clients rejected, a DACL for the current user) or a Unix socket in a
+   0700 folder with the peer's uid checked. A later start sends one line,
+   `LUMEN-INSTANCE 1 open <absolute path>` or `… show`, after
+   `AllowSetForegroundWindow` for the pipe's server process; it exits 0 only
+   on `accepted`. It alternates between the lock and the endpoint for 10 s.
+   A refusal, or no answer, opens a small window with no audio and no
+   settings written ("… is already running but is not answering. Your work
+   in it is safe.") with Try again and Close.
+3. **Opening a handed-over or dropped project** goes through `request`, as
+   File › Open does. `App::holds` guards `request`, `proceed` and the
+   file's arrival from its worker: while a recording or its takes' files or
+   an export are not done, New, Open with a file and templates wait in a
+   notice ("Night Drive.lumen opens when recording stops. Nothing is
+   replaced before then.") with Stop and open (recording only) and Cancel.
+   A later request replaces the waiting one. Released, a continuation whose
+   save question was answered goes straight on if the project did not
+   change since (`change_mark`); otherwise it starts again, and a take
+   recorded meanwhile is asked about. The same project only comes to the
+   front. A drop holding a `.lumen` opens the first one and adds nothing
+   else, and says how many files were left out.
+4. **Association** (`association/`, Windows). Under
+   `HKCU\Software\Classes`: `.lumen` → `Lumen.Project` with
+   `OpenWithProgids`; `Lumen.Project` with "Lumen project",
+   `DefaultIcon` = `"<exe>",-2` and the open command;
+   `Applications\lumen.exe` with `SupportedTypes` and its command; then
+   `SHChangeNotify(SHCNE_ASSOCCHANGED)`. The copy named in the ProgID's
+   command owns it; turning it off removes only what names this copy, and
+   clears `.lumen`'s default only while it is `Lumen.Project`. The person's
+   `UserChoice` is read, never written: the row says when it names another
+   program (with Open Default apps) and when Windows will ask. Every access
+   goes through `Hive`; only a normal start (no `--settings`,
+   `--autosave-dir` or `--crash-dir`) uses the registry, and tests and
+   isolated runs use a map that logs.
+5. **Settings:** `projects.associate_files` (an added field, default on):
+   the wish, shown as the Ready step's switch; the registry decides the
+   row.
+6. **On by default** (owner, 2026-11-03, after the build): a normal start
+   registers this copy when no copy is registered and the setting is on.
+   It never takes the association from another copy (the row offers Use
+   this copy), never turns it on again once the person turned it off, and
+   never writes the person's "Open with" choice. Isolated runs never do
+   it. Before this, only the Ready step and the switch registered, so an
+   already set-up Lumen never offered it.
+
+**Departures from the plan.**
+- The row is on Preferences › Files (Projects section): there is no
+  General page.
+- The palette command "Open .lumen files with Lumen" (`file.associate_files`)
+  flips the association and says the result in a note; the palette shows no
+  on/off state for any command.
+- The Rejected smoke test uses `--instance-busy` (every request turned away
+  as busy) rather than filling the queue; `--instance-deaf` and
+  `--quit-after-ms` are the other test flags.
+- Try again, when the old instance has gone, starts the program again with
+  the same arguments rather than turning the small window into the app (on
+  macOS closing eframe's window ends the process).
+- The Ready step applies its switch when the window closes from that step,
+  and only when nothing is registered or this copy is; another copy is left
+  to the Preferences row's "Use this copy".
+- The E2E take is the input device's real take rather than one held slow:
+  the guard waits for `audio_takes_finishing()` either way.
+- No smoke test reclaims a stale Unix socket after a killed holder: the
+  smoke tests are not run in CI. The holder removes a stale socket after it
+  takes the lock (`unix.rs`); the unit test
+  `a_stale_socket_left_by_a_killed_holder_is_replaced` runs that path on
+  Linux and macOS CI.
+
+**After two reviews (2026-11-03).**
+- Every load starts through `begin_opening`, which notes the project's
+  change mark. When the file arrives with a recording, an export or a save
+  under way, or after an edit, an open or template waits again with that
+  mark, or asks again. A revert or a recovery is dropped with a notice
+  that says where the earlier changes are.
+- Revert to saved is refused while recording or exporting. Recover waits,
+  and the banner says why, while the open project has unsaved changes or
+  work is under way.
+- The guard's work under way also counts a save from its dialog to its
+  write, a copy or collect, and another project being read. A later open
+  goes after these rather than being dropped.
+- Handed-over and dropped files are checked on a worker.
+- Registration writes the extension last and puts back what it wrote if
+  a write fails. Removal takes the ProgID's command last, so a removal
+  that failed is finished by turning it off again.
+- Ownership compares the executable paths as written, never on disk.
+- The small window keeps its buttons at its foot and scrolls a long
+  reason.
+- Kept: the row reads the status from the per-user hive while it is
+  drawn, and writes on the click. These are local registry calls, and the
+  shell notice is posted without waiting for delivery.
+
+**Consequences.** No project format change; the settings gain an added
+field. New dependencies: `embed-resource` (build only); `libc` on Unix
+(already in the workspace); windows-sys features for security, pipes, the
+registry and the shell. Tests: unit tests for the ICO writer and the
+compact rule, the protocol (framing, limit, refusals, an early end), the key,
+the lock election, hand-over, refusal, a deaf holder, a holder that closes,
+the queue's limit, a late answer, the hive (writes, removal of only this
+copy's values, another copy and another program kept, the person's choice,
+a failed write, a write or a removal failing part way, the stale socket)
+and the notice's words; E2E `instance.rs` (17 scenarios: open, the save
+question, the same project, a refused file, a drop, Cancel and Stop and
+open while recording, a recording started behind the save question, an
+export, an edit made while a file is read, a second open behind a first,
+Revert refused while recording, Recover over unsaved changes, and the
+Files row's states, search and command);
+smoke tests on the real binary (a hand-over, two starts at once, a deaf
+holder, a refusal, a holder that closes during the retry, two settings
+files); shots of the row, the notice and the small window (with a long
+reason) in both themes at
+100, 150 and 200%. **Not verified here:** Explorer's icons at each scale
+and theme, the double-click, the foreground hand-over on the owner's
+desktop, an "Open with" choice made before Lumen registered, and a take or
+an export on the Focusrite while a project is handed over (MT-SYS-1).

@@ -4,7 +4,7 @@
 //! from the frame loop in `lib.rs` (M4 review M1).
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eframe::egui;
 
@@ -63,6 +63,18 @@ impl App {
 
     /// After the frame is drawn: the screenshot and the smoke test.
     pub(crate) fn test_modes_after(&mut self, ctx: &egui::Context) {
+        if let Some(at) = self.quit_at {
+            let left = at.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                self.quit_at = None;
+                println!("instance: closing with {}", self.document.name());
+                // A deliberate close by a test mode: no unsaved-changes prompt.
+                self.quitting = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            } else {
+                ctx.request_repaint_after(left);
+            }
+        }
         if let Some(path) = &self.screenshot {
             let image = ctx.input(|i| {
                 i.events.iter().find_map(|e| match e {

@@ -106,6 +106,17 @@ impl App {
         }
         self.welcome.open = false;
         self.transport.audio.stop_sound_check();
+        // The Ready step's switch (M9 R8): a copy registered elsewhere is
+        // left for the Preferences row's "Use this copy".
+        if self.welcome.step == Step::Ready && crate::association::Association::supported() {
+            use crate::association::State;
+            let wish = self.settings.projects.associate_files;
+            match self.association.status().state {
+                State::Off if wish => self.set_association(true),
+                State::This if !wish => self.set_association(false),
+                _ => {}
+            }
+        }
         self.settings.setup_done = true;
         self.write_settings();
         ctx.memory_mut(|m| {
@@ -620,6 +631,30 @@ impl App {
             }
         });
         self.appearance_chosen(&before, &ctx);
+        if crate::association::Association::supported() {
+            section(ui, "Projects");
+            let mut wish = self.settings.projects.associate_files;
+            let label = format!(
+                "Open .lumen files with {}",
+                lumen_core::product::PRODUCT_NAME
+            );
+            if widgets::switch(ui, &mut wish, &label, true)
+                .on_hover_text("Projects open here from File Explorer, each with the project icon")
+                .changed()
+            {
+                self.settings.projects.associate_files = wish;
+                self.settings_changed = Some(std::time::Instant::now());
+            }
+            if let crate::association::State::Other(path) = self.association.status().state {
+                widgets::hint(
+                    ui,
+                    &format!(
+                        "Another copy opens them now ({}). Preferences › Files can switch them to this one.",
+                        path.display()
+                    ),
+                );
+            }
+        }
         ui.add_space(theme::space::XL);
         let open = Command::OpenProject;
         let ready = self.availability(&ctx, open);

@@ -41,6 +41,7 @@
 
 mod app;
 mod arrangement;
+mod association;
 mod audio;
 mod audio_input;
 mod audition;
@@ -69,6 +70,7 @@ mod files;
 mod fonts;
 mod hosting;
 mod icons;
+mod instance;
 mod lane_bake;
 mod lanes;
 mod launch;
@@ -168,6 +170,14 @@ pub struct App {
     dialog_answers: Option<std::collections::VecDeque<Vec<PathBuf>>>,
     saving: Option<std::sync::mpsc::Receiver<Result<files::Saved, String>>>,
     opening: Option<std::sync::mpsc::Receiver<Result<files::Opened, String>>>,
+    /// The project's change mark when the file being read was asked for:
+    /// what changed since is not covered by the choice that asked for it.
+    opening_mark: u64,
+    /// Handed-over and dropped files checked on workers (M9 R8).
+    checks: Option<(
+        std::sync::mpsc::Sender<app::handover::Checked>,
+        std::sync::mpsc::Receiver<app::handover::Checked>,
+    )>,
     /// What to do once unsaved changes are dealt with.
     prompt: Option<Next>,
     /// Enter answered the save question this frame: taken before the keymap
@@ -179,6 +189,9 @@ pub struct App {
     /// A save, copy or collect waiting for the running plugins' states to be
     /// read: what for, where to, whether to normalize the path, since when.
     save_waiting: Option<app::copies::Waiting>,
+    /// A Save As or Save a copy dialog is open: the save that follows
+    /// writes this project (M9 R8).
+    save_dialog: bool,
     /// A copy of the project or a collect under way (M9 slice R4).
     collecting: Option<app::copies::Running>,
     /// The templates folder's listing and the naming window (M9 slice R4).
@@ -189,6 +202,16 @@ pub struct App {
     /// The Project settings window (M9 slice R4).
     project_settings: app::project_settings::ProjectSettings,
     export: app::audio_export::Export,
+    /// The single instance: requests from later starts (M9 R8). `None`
+    /// when the start could not take it (it then runs alone).
+    instance: Option<instance::Instance>,
+    /// New, Open or a template waiting for a recording or an export.
+    holding: Option<app::handover::Holding>,
+    /// Opening `.lumen` files with this copy (M9 R8).
+    association: association::Association,
+    /// The project a drop opened and how many files of the drop were left
+    /// out, said again when that project opens.
+    left_out: Option<(PathBuf, usize)>,
     /// A problem with saving or opening, shown until dismissed.
     file_notice: Option<String>,
     /// Closing for real, after the unsaved-changes prompt.
@@ -357,6 +380,8 @@ pub struct App {
     /// The clip being renamed and the pinned properties card (slice 6e).
     clip_props: app::clip_card::ClipProps,
     smoke_test_frames: Option<u32>,
+    /// `--quit-after-ms`: when a test run closes by itself.
+    quit_at: Option<Instant>,
     /// Where `--screenshot` saves, once the frames have rendered.
     screenshot: Option<PathBuf>,
     started: Instant,
@@ -555,8 +580,22 @@ impl eframe::App for App {
                     self.drop_into
                 )
             });
-            self.add_files(dropped, self.drop_target, self.drop_into, &ctx);
+            // A drop holding a project opens the first one and adds
+            // nothing else: a project is never imported as media (M9 R8).
+            if let Some(project) = dropped.iter().position(|p| files::is_project(p)) {
+                let left = dropped.len() - 1;
+                let project = dropped.swap_remove(project);
+                self.left_out = (left > 0).then(|| (project.clone(), left));
+                if left > 0 {
+                    self.say(app::handover::left_out_words(left));
+                }
+                self.open_handed(&ctx, project);
+            } else {
+                self.add_files(dropped, self.drop_target, self.drop_into, &ctx);
+            }
         }
+        self.poll_instance(&ctx);
+        self.release_holding(&ctx);
         self.poll_midi_files(&ctx);
         self.poll_normalize(&ctx);
         self.poll_consolidate(&ctx);
@@ -680,6 +719,7 @@ impl eframe::App for App {
         self.file_banner(ui);
         self.missing_media_banner(ui);
         self.revert_banner(ui);
+        self.holding_banner(ui);
         self.tempo_banner(ui);
         self.recovery_banner(ui);
         self.safe_banner(ui);
@@ -843,7 +883,12 @@ pub fn run() -> eframe::Result {
     {
         std::process::exit(probe::run_helper(clsid));
     }
-    let launch = Launch::from_args();
+    // One Lumen per settings file (M9 R8): taken before settings are read
+    // or written, audio opens or autosave starts. A later start hands its
+    // request over and ends here.
+    let instance = instance::start(&args);
+    let mut launch = Launch::from_args();
+    launch.instance = instance;
     if let Some(dir) = &launch.crash_dir {
         crash::install(dir.clone());
     }
