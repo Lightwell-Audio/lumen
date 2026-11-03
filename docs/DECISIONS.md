@@ -117,6 +117,7 @@ irreversible or external) · *Superseded*.
 | [0113](#adr-0113--device-changes-run-on-a-worker-fix-before-m9-r7b) | Device changes run on a worker (fix before M9 R7b) | Accepted 2026-10-31 (MT-AUDIO-7 pending) | No |
 | [0114](#adr-0114--a-scan-asked-for-during-a-scan-runs-after-it) | A scan asked for during a scan runs after it | Accepted 2026-10-31 | No |
 | [0115](#adr-0115--the-first-run-window-m9-r7b) | The first-run window (M9 R7b) | Accepted 2026-10-31 (MT-FIRSTRUN-1 pending) | No |
+| [0116](#adr-0116--the-browsers-files-and-preview-m9-r7c) | The browser's files and preview (M9 R7c) | Accepted 2026-11-02 (MT-BROWSE-1 pending) | No |
 
 ---
 
@@ -128,6 +129,7 @@ irreversible or external) · *Superseded*.
 | Take lanes deferred (M9 R3, 2026-10-26) | Pitched after the owner's runs of R3 (each pass a clip on its own lane under the track, a comp lane that plays, comping by dragging across a lane): the owner likes individual take lanes and **deferred them, with comping, until after M9's must-have slices**, as recommended. Until then a take is a whole pass inside one clip (ADR-0104), reached from the Takes menu; the passes are windows on one file, so dragging a clip's edge past its pass shows the pass beside it (intended, as in common workstations). When lanes are built, the takes inside a clip become lanes by migration. Open for then: whether a comp segment is a copied clip or a reference to its take, whether recording over any material (not only loop passes) makes a lane, and MIDI lanes. |
 | M9 R4 choices (2026-10-26) | P1 A (renders follow the project rate), P2 A (Revert reloads the saved file after a quiet prompt, keeping the unsaved version in `Backups/Reverted`), S A (R4 is the save family and project settings; the media pool, relink and purge are R4b): every recommendation (`docs/milestones/M9.md` §2). After MT-PROJ-1 run 1 (2026-10-26): projects and templates get their own folders in `Documents/Lumen` (option A of four pitched), and the app menu is grouped (layout A of three pitched as specimens): ADR-0105. |
 | M9 R4b choices (2026-10-26) | M1 A (a "Project media" tab in the browser), M2 A (Locate one file, and search a folder with a report to look at before anything changes), M3 A (remove unused takes entries out as one undo step; Clear moves leftover files to the system trash after a second press), M4 A (a banner with Relink… on open): every recommendation (`docs/milestones/M9.md` §2; ADR-0106). |
+| M9 R7c choices (2026-11-02) | Chosen from rendered specimens: **L B** (five icon tabs, Devices, Samples, Projects, Places, Project media, over the recommended three tabs with place chips; the owner prefers one click to each kind, with tooltips and the open tab named under the strip), R B (a waveform on every audio row), P A (choosing a file previews it; an Auto switch), O A (the cue pair when there is one, else the main pair; the song's Play does not stop a preview), M A (MIDI files listed and dragged, not previewed), S A (search under what the tab shows, with an index in the cache folder). Ctrl+1 to Ctrl+5 belong to the grid, so the tabs get palette commands and no keys. Plan: `milestones/M9.md` (R7c). |
 | M9 R7 choices (2026-10-30) | SP A (R7 is Preferences, tap tempo and command coverage; the first-run wizard is R7b and the browser's tabs R7c), PW A (a page list with search, on and off rows as switches), TT A (a Tap piece after the tempo), and KS: only End (Go to end) gets a new default key. The defaults of the plan's §8.4 were taken (ADR-0112). |
 | M9 R7b choices (2026-10-31) | Every recommendation, chosen from rendered specimens: F A (a welcome window over the empty song), S A (Sound, Plugins, Ready), T A (a chime left, right, then both), D A (Windows audio, with an installed ASIO driver offered), P A (scan at launch; a folder added meanwhile is checked after), M A (Lumi, in this window only), W A (the first start and "Set up Lumen…"), X A (the device-switch and rescan faults fixed first on their own branches). Plan: `milestones/M9.md` §4, R7b. |
 | M9 R2b choices (2026-10-29) | Placement A (a card that unfolds under the recording offset in the Latency section, with the returned clicks drawn; chosen from three rendered mocks), five short clicks at −12 dBFS, the measured offset offered with one click rather than applied, and remembering the driver, device, rate and buffer it was measured on, with a hint to measure again when they differ (the offset itself stays global, as chosen for R4): every recommendation (ADR-0110). |
@@ -10270,3 +10272,197 @@ scan's error. **Not verified here:** the ASIO offer and a switch on a
 real ASIO driver, and how the chime sounds on real speakers
 (MT-FIRSTRUN-1). The Look row is not driven in E2E, because the theme is
 process-wide there; the shots show it.
+
+## ADR-0116 — The browser's files and preview (M9 R7c)
+
+**Date:** 2026-11-02. **Branch:** `m9-s7c-browser-tabs`. **Status:**
+Accepted (MT-BROWSE-1 pending). Design: `milestones/M9.md` §4, R7c (owner:
+L B, R B, P A, O A, M A, S A, 2026-11-02).
+
+**Context.** CLAUDE.md §7 asks for a browser with devices, samples,
+projects and user places, with search, audition and drag and drop [M].
+Before R7c the browser had Devices and Project media only, and nothing could
+be heard before it was added (the KNOWN_ISSUES row "Browser audition does
+not play through the cue yet", M4 slice 4d).
+
+**Choice.** As the plan, with the departures listed below.
+
+1. **Five icon tabs** (L B): Devices, Samples, Projects, Places, Project
+   media, in the segmented control's look (`widgets::segmented_full`, an
+   icon-only choice drops the gap beside the icon). Each has a tooltip and
+   an accessible name ("Samples tab"); the line under the strip names the
+   open tab and what it holds. Left and Right move between tabs while one
+   has the focus. Four palette commands open them: Browse devices, Browse
+   samples, Browse projects, Browse places ("Show devices" and "Project
+   media" were taken). The open tab is kept in the settings.
+2. **Samples** walks the sample folders (the system's Music folder until
+   one is chosen; the first visit asks, Choose a folder… or Keep Music) into
+   one list of audio and MIDI files by name. A folder menu narrows it to a
+   folder one level in, adds a sample folder and removes one.
+3. **Projects** lists Recent, then the projects folder's `.lumen` files
+   (R7's `settings.projects.folder`), each with its folder. Choosing one
+   reads its tempo, metre and track count on a worker; Enter, a
+   double-click or Open opens it, through the unsaved-changes question.
+4. **Places** lists the person's places and Computer (Desktop, Downloads,
+   Music and the drives). A place opens as a folder with a crumb ("My
+   Samples › Drums") and Up; Left or Backspace goes up and lands on the
+   folder it came from. Add a place… picks a folder; a folder row's menu
+   has Add as a place; a place's menu has its name (renamed in place),
+   Reveal and Remove. A place that is not there (checked on a worker) shows
+   the warning shape, "Not there", and Find it… and Remove.
+5. **Rows** (R B): 28 pt, or 42 pt with the folder on a second line while
+   searching and in Projects. A sound has a play button, its name (the
+   extension hidden), a 46 × 16 pt picture (a waveform, or a MIDI file's
+   notes) and its length; from 200 pt wide down the pictures give way to
+   the names. A file that cannot be read says so and is neither played nor
+   dragged. Only the rows near the view are drawn and asked for pictures.
+6. **The preview** (`lumen_engine::preview`, `browser/files/preview.rs`):
+   a decode thread reads the file in 4,096-frame blocks
+   (`lumen_media::read_blocks_from`, which starts mid-file without reading
+   what is before an uncompressed file's start), converts it to the device
+   rate and fills a ring of 32 preallocated 2,048-frame blocks. Every start,
+   seek and stop is a new generation; the player skips blocks of an older
+   one (at most 8 a call), fades a change over 3 ms, and on an underrun
+   holds the last frame and fades it out. It is mixed in the device
+   callback after the export tap, as the R7b chime is, so it is never
+   exported, recorded or metered. It plays on the cue pair when one is
+   open, else the main pair (O A), at its own level (−6 dB to start). The
+   song's Play does not stop it; leaving the file tabs, the device stopping
+   or a rate change do. Choosing a sound plays it while Auto is on (P A);
+   a click on the strip's picture plays from there, and with the picture
+   focused Left and Right move by a tenth and Home goes to the start. MIDI
+   files are not previewed (M A).
+7. **Search** (S A) filters what was walked, in memory: Samples under the
+   sample folders, Projects under the projects folder, Places under the
+   open folder (or every place at the top). Every word must be in the name.
+8. **Disk work** (`browser/files/disk.rs`): two detached worker threads
+   apart from R6's read-ahead, taking the open folder and Computer first,
+   then walks, then project details, then row pictures (newest asked
+   first, at most 128 waiting). Answers come in batches of at most 256
+   rows through a bounded channel, tagged with their request's ticket so a
+   stale one is dropped. A walk does not follow links or junctions, stops
+   at 32 levels, 200,000 files and 200,000 folder names a request (across
+   its folders, counted inside each folder as it is read, so one huge
+   folder is cut too), keeps only the files its tab lists, sends each file
+   as it is met, and says "partial" when it stops early. A cancel is seen
+   between entries, not only between folders.
+9. **The cache.** A walk's index keeps every folder's own modified time,
+   and the next walk reads again only the folders whose time changed
+   (`<hash>-1.index`). Row pictures are kept as `<hash>-92.thumb`. Both are
+   cache kinds (`cache::Small`) that the cache's size, limit, trim and
+   Clear count, written to a temporary file and renamed.
+10. **Adding.** A sound dragged onto the lanes goes through the system
+    drop's path (`add_files` with the drop's target and places); Enter,
+    a double-click and the row's menu put it where Import does. Each is one
+    undo step.
+11. **Commands** at the end of `Command`: the four Browse commands, Preview
+    file, Stop preview, Add a sample folder…, Add a place…, Refresh the
+    browser's files. None has a default key; in the list Shift+Enter
+    previews and Esc stops.
+
+**Departures from the plan.**
+
+- **Projects is a flat list**, Recent then the folder's files with their
+  folder line, rather than a tree: a project folder holds a project each,
+  so the tree was one level of folders with one file in each.
+- **No system drop of a folder onto Places**: dropped folders go to the
+  arrangement's drop handling, which skips them. Add a place… and a
+  folder row's menu add places. (A later slice can route drops over the
+  browser.)
+- **The Menu key**: egui has no key for it, so a row's menu opens with
+  Shift+F10 and a right-click.
+- **Audio off** does not show "previews are silent" with Turn on: the
+  strip shows nothing playing, and the status chip already says the audio
+  is off.
+- **Search freshness**: a search shows what was walked; Refresh walks
+  again, reading only the folders that changed.
+- **Two waits** in the workers (a full answer channel, a full preview ring)
+  are written in microseconds with a note, since the design-token test
+  forbids millisecond literals in the browser's sources and these are a
+  worker's polls, not design timings.
+- **The rows' picture threshold** is 200 pt, not 240: at the browser's
+  default width the pictures would never show.
+- **Start time** is recorded (`Preview::started_in`) but was not measured
+  on hardware; the fake device's figure says nothing about a disk or a
+  driver (MT-BROWSE-1).
+
+**After the first review round (2026-11-02).**
+
+- **Bounded work in a big library.** A folder cut short (cancelled, or at
+  the file limit) and a folder that cannot be read are left out of the
+  index, so the next walk reads them, and the index is partial. A walk's
+  answer names the folders it could not read; when it found files anyway,
+  the browser says so above the list, in full, as well as in the empty
+  state.
+- **The UI's frame work.** Rows are shared (`Arc<Entry>`) with the list
+  drawn from them, each with its lower-case name made once; a batch is
+  sorted alone and the rows once a frame (a stable sort of two runs); the
+  list of items is made again only when the rows, the words, the narrowed
+  folder or Recent change. Row heights are not collected for lists without
+  headings, the chosen row is looked for only when it is to be brought
+  into view, the list's keys do nothing on a frame without one, and
+  Samples' folder menu reads its folders only while it is open.
+- **The preview lets go.** Each preview has a cancel flag the decoder
+  checks at every packet, set when it is replaced, stopped, failed or
+  over, so a far seek in a compressed file stops at once. A preview ended
+  by a change of the device rate reports itself ended (the player's
+  `ENDED`), so the browser stops showing it and the feed is released.
+- **Pictures that gave way** to newer requests are handed back
+  (`Disk::dropped_pictures`), so a row back in view asks again.
+- **Messages in the strip** are measured: the picture's well and the
+  strip grow to show a file's or project's error in full.
+- **Places counts folders apart from files** ("2 folders, 3 files").
+- Declined: moving the rows' and strip's dimensions into `theme`. The
+  browser's tabs keep component geometry local (`DEVICE_H`, `ROW_H`,
+  `STRAYS_H`), and the design-token test covers colours, strokes and
+  timings; a shared browser row token would change the Devices and Media
+  tabs too, so it is left for a change of its own.
+
+**After the second review round (2026-11-03).**
+
+- **What a walk holds is bounded by what it lists.** The index keeps only
+  the files the tab lists (a Projects walk of a folder of a million
+  samples holds none of them), folder names count against a limit of
+  their own, and files go out in batches while a folder is read rather
+  than after it.
+- **What is heard is read whole.** The player publishes the generation
+  and whether it sounds or ended as one atomic word, so the browser never
+  reads one generation's end with another's number and clears a preview
+  that just started.
+- **A preview that fails stops what it sent.** Blocks decoded before a
+  damaged part are faded out with the generation, not left to play after
+  the failure shows.
+- **Answers from before a Refresh are dropped.** Pictures and project
+  details carry their ticket; one asked before the last Refresh is not
+  kept, so a slow old answer cannot overwrite a new one.
+- **An empty list keeps its keys:** Left and Backspace go up from an
+  empty folder, and Esc stops a preview.
+- **A search that meets a folder it cannot read says why** rather than
+  "No files match".
+
+**Consequences.** No project format change; the settings gain a `browser`
+section (an added section with defaults; the version stays 1). The engine
+gains `preview`, mixed by the app's callback, so the performance gate runs.
+Tests: unit tests for the preview (stale generations never heard, a full
+ring, an underrun's fade, a rate change, stop), the allocation guard
+(`a_preview_never_touches_the_heap`), what is heard read whole while the
+player runs on another thread, the walk (order, kinds, cancel, links
+and junctions, limits, one folder past the limit, a cancel inside a folder,
+an unreadable folder, a warm index, two files of one name, only the
+listed files kept and a folder of too many folders cut), a far seek
+abandoned in a FLAC file, a failed preview stopping the engine, pictures
+that give way, the pictures'
+encoding, the cache's small files, the saved settings; E2E
+`browser_files.rs` (listing and counts, a click heard on the main pair,
+Play not stopping it, leaving the tabs stopping it, Stop preview and the
+end of the file, Auto off and Shift+Enter, search and Esc, Enter and a
+drag adding as one undo step, Places in and out of folders, Add a place
+and a sample folder through the dialog, a missing place and an unreadable
+file, the keyboard alone, the cue pair heard while the main pair stays
+silent, Projects listing, searching, its details and opening after the
+unsaved-changes question, a missing sample folder named above the
+files found, and an empty folder going up and a search of a missing place
+saying why); shots of the tabs in both themes at 100, 150 and 200%. **Not
+verified here:** the preview through the owner's interface and its start
+time, a network or slow drive, and a folder of tens of thousands of files
+(MT-BROWSE-1).

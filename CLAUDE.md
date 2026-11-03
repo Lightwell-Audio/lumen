@@ -456,6 +456,15 @@ per slice and move what is no longer current out of it.
   and from "Set up Lumen…". A command name that must say the product uses
   `lumen_core::product_name!()`. MT-FIRSTRUN-1 waits for the owner. Next:
   R7c to R9.
+- **Branch `m9-s7c-browser-tabs`: M9 R7c is built** (ADR-0116; owner: L B,
+  R B, P A, O A, M A, S A). Five icon tabs; Samples, Projects and Places
+  (`browser/files/`) with search, row waveforms, and a preview through
+  `lumen_engine::preview` after the export tap, on the cue pair when there
+  is one. Disk work runs on two workers (`files/disk.rs`); indexes and row
+  pictures are cache kinds. The settings gain a `browser` section (no
+  version change). E2E: `tests/e2e/browser_files.rs`, which names its
+  sample folder (`Launch::with_sample_folder`) so no test reads the
+  machine's Music folder. MT-BROWSE-1 waits for the owner. Next: R8, R9.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

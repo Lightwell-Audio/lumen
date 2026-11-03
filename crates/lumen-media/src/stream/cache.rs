@@ -64,7 +64,8 @@ pub const FRESH: Duration = Duration::from_secs(120);
 static HITS: RwLock<()> = RwLock::new(());
 
 /// Whether `name` is one the cache gives its files: `<16 hex digits>-<rate>`
-/// and `.wav`, `.key` or `.peaks`.
+/// and `.wav`, `.key` or `.peaks`, or `<16 hex digits>-<n>` and one of the
+/// browser's [`Small`] kinds (M9 R7c).
 pub fn is_cache_file(name: &str) -> bool {
     let Some((stem, extension)) = name.split_once('.') else {
         return false;
@@ -78,7 +79,40 @@ pub fn is_cache_file(name: &str) -> bool {
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
         && !rate.is_empty()
         && rate.bytes().all(|b| b.is_ascii_digit())
-        && matches!(extension, "wav" | "key" | "peaks")
+        && (matches!(extension, "wav" | "key" | "peaks")
+            || Small::ALL.iter().any(|k| k.extension() == extension))
+}
+
+/// The cache's small files that are not audio (M9 R7c): kept, counted,
+/// trimmed and cleared like the rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Small {
+    /// A folder tree's search index.
+    Index,
+    /// A file's row picture.
+    Thumb,
+}
+
+impl Small {
+    const ALL: [Small; 2] = [Small::Index, Small::Thumb];
+
+    fn extension(self) -> &'static str {
+        match self {
+            Small::Index => "index",
+            Small::Thumb => "thumb",
+        }
+    }
+}
+
+/// A stable 16-digit hash of `text` (FNV-1a, the same on every run and
+/// platform), for naming a [`Small`] file.
+pub fn hash(text: &str) -> String {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in text.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{hash:016x}")
 }
 
 /// Frames a reversal reads and writes at a time.
@@ -130,12 +164,7 @@ impl Key {
     /// The copy's file name, without its extension.
     fn stem(&self) -> String {
         // FNV-1a: stable across runs and platforms, unlike the std hasher.
-        let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-        for byte in self.text.bytes() {
-            hash ^= u64::from(byte);
-            hash = hash.wrapping_mul(0x0100_0000_01b3);
-        }
-        format!("{hash:016x}-{}", self.rate)
+        format!("{}-{}", hash(&self.text), self.rate)
     }
 }
 
@@ -219,6 +248,45 @@ impl Cache {
         }
         let text = "{\"what\": \"converted audio and waveform peaks\", \"version\": 1}\n";
         crate::write_new(&marker, text.as_bytes()).is_ok()
+    }
+
+    /// Writes a small file of `kind` named by `hash` (from [`hash`]) and
+    /// `variant`, whole or not at all (written aside, then renamed).
+    pub fn store(
+        &self,
+        kind: Small,
+        hash: &str,
+        variant: u32,
+        bytes: &[u8],
+    ) -> Result<(), MediaError> {
+        self.ready()?;
+        let path = self.small_path(kind, hash, variant);
+        // The name a file being written has, so a count or a claim passes
+        // it by.
+        let mut part = path.clone().into_os_string();
+        part.push(format!(".{}.writing", std::process::id()));
+        let part = PathBuf::from(part);
+        fs::write(&part, bytes).map_err(io)?;
+        fs::rename(&part, &path).map_err(|e| {
+            let _ = fs::remove_file(&part);
+            io(e)
+        })
+    }
+
+    /// Reads a small file written by [`Cache::store`], when there is one,
+    /// and marks it used (so a trim clears the ones used longest ago).
+    pub fn load(&self, kind: Small, hash: &str, variant: u32) -> Option<Vec<u8>> {
+        let path = self.small_path(kind, hash, variant);
+        let bytes = fs::read(&path).ok()?;
+        if let Ok(file) = fs::File::options().write(true).open(&path) {
+            let _ = file.set_modified(SystemTime::now());
+        }
+        Some(bytes)
+    }
+
+    fn small_path(&self, kind: Small, hash: &str, variant: u32) -> PathBuf {
+        self.dir
+            .join(format!("{hash}-{variant}.{}", kind.extension()))
     }
 
     fn paths(&self, key: &Key) -> (PathBuf, PathBuf) {

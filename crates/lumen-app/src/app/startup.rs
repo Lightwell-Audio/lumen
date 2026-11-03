@@ -151,7 +151,10 @@ impl App {
                 presets: chain::presets::Presets::new(places),
                 ..Default::default()
             },
-            browser: Default::default(),
+            browser: browser::Browser {
+                tab: saved.browser.tab,
+                ..Default::default()
+            },
             media_pool: Default::default(),
             midi_out: None,
             live_keys: None,
@@ -163,6 +166,7 @@ impl App {
             lanes,
             drop_target: Ticks::ZERO,
             drop_into: document::Places::END,
+            file_drop: None,
             midi_reader: Default::default(),
             midi_exporting: None,
             midi_writing: None,
@@ -291,6 +295,7 @@ impl App {
         // start.
         app.cache.dir = app.chosen_cache_dir();
         app.leftover = app.next_leftover();
+        app.restore_place_folder();
         if launch.recover_latest
             && let Some(leftover) = app.leftover.take()
         {

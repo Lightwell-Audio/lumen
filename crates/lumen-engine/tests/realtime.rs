@@ -923,3 +923,41 @@ fn the_sound_check_never_touches_the_heap() {
     assert!(heard > 0);
     assert_eq!(handle.sounding(), Sounding::Silent);
 }
+
+#[test]
+fn a_preview_never_touches_the_heap() {
+    use lumen_engine::preview::{BLOCK_FRAMES, preview};
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let (handle, mut feed, mut player) = preview();
+    let (block, channels) = (64, 4);
+    let mut outputs = vec![0.0_f32; channels * block];
+    let tone: Vec<f32> = (0..BLOCK_FRAMES)
+        .map(|i| (i as f32 * 0.05).sin() * 0.3)
+        .collect();
+    let mut generation = 0;
+    for n in 0..6_000 {
+        // The UI and the decode thread work outside the real-time section:
+        // starts, seeks (a new start), a stop, the cue pair and a rate
+        // change, with the feed keeping the ring full.
+        match n {
+            50 | 400 | 410 | 420 | 3_000 => generation = handle.start(),
+            1_500 => handle.stop(),
+            2_000 => handle.set_first_channel(2),
+            2_500 => handle.set_level(0.5),
+            _ => {}
+        }
+        if !(1_500..3_000).contains(&n) {
+            while let Some(mut b) = feed.take() {
+                b.fill(generation, &tone, Some(&tone), false);
+                feed.send(b);
+            }
+        }
+        let rate = if n < 4_500 { 48_000 } else { 44_100 };
+        outputs.fill(0.0);
+        let ((), heap) =
+            count_rt_violations(|| player.process(rate, &mut outputs, channels, block));
+        assert_eq!(heap, 0, "heap operation in the preview at block {n}");
+    }
+    assert!(handle.counts().0 > 0, "stale blocks were skipped");
+}

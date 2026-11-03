@@ -257,6 +257,15 @@ pub(crate) enum Command {
     TapTempo,
     SoundCheck,
     Welcome,
+    BrowseDevices,
+    BrowseSamples,
+    BrowseProjects,
+    BrowsePlaces,
+    PreviewFile,
+    StopPreview,
+    AddSampleFolder,
+    AddPlace,
+    RefreshFiles,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -579,6 +588,15 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::TapTempo, "transport.tap_tempo", "Tap tempo", Area::Transport, &[], "Tap in time: from the third tap the tempo where the run started follows, rounded to a whole BPM. A pause of 3 seconds ends the run, and each run undoes in one step."),
     info(Command::SoundCheck, "transport.sound_check", "Play test sound", Area::Transport, &[], "Plays a short chime on the main outputs: a note on the left, one on the right, then one on both, so you can tell that both speakers work and are the right way round. Stop silences it."),
     info(Command::Welcome, "file.welcome", concat!("Set up ", lumen_core::product_name!(), "…"), Area::File, &[], "Opens the setup window shown on the first start: choose and test the sound, add plugin folders and pick the look. What it sets can also be changed in Preferences."),
+    info(Command::BrowseDevices, "view.browse_devices", "Browse devices", Area::View, &[], "Shows the browser's Devices tab: the instruments and effects to add to a track."),
+    info(Command::BrowseSamples, "view.browse_samples", "Browse samples", Area::View, &[], "Shows the browser's Samples tab: every audio and MIDI file in your sample folders, to find, hear and drag onto a track."),
+    info(Command::BrowseProjects, "view.browse_projects", "Browse projects", Area::View, &[], "Shows the browser's Projects tab: recent projects and the projects folder."),
+    info(Command::BrowsePlaces, "view.browse_places", "Browse places", Area::View, &[], "Shows the browser's Places tab: the folders you added and this computer's drives, to browse for files."),
+    info(Command::PreviewFile, "view.preview_file", "Preview file", Area::View, &[], "Plays the sound chosen in the browser's Samples or Places tab from its start, on the cue pair when there is one. In the list, Shift+Enter does the same."),
+    info(Command::StopPreview, "view.stop_preview", "Stop preview", Area::View, &[], "Stops the browser's preview. Leaving the file tabs stops it too; the song's Play does not."),
+    info(Command::AddSampleFolder, "view.add_sample_folder", "Add a sample folder…", Area::View, &[], "Chooses a folder whose audio and MIDI files the Samples tab lists, with every folder inside it."),
+    info(Command::AddPlace, "view.add_place", "Add a place…", Area::View, &[], "Chooses a folder to keep in the Places tab, to browse it without looking for it again."),
+    info(Command::RefreshFiles, "view.refresh_files", "Refresh the browser's files", Area::View, &[], "Reads the sample folders, the projects folder and the open place again, for files added or removed outside the app."),
 ];
 
 const fn info(
@@ -642,7 +660,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::Welcome as usize + 1,
+            Command::RefreshFiles as usize + 1,
             ALL.len(),
             "a command is missing"
         );

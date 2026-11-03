@@ -64,6 +64,11 @@ pub(crate) enum FileDialog {
     CacheFolder(Option<PathBuf>),
     /// The projects folder (none when cancelled; M9 R7).
     ProjectsFolder(Option<PathBuf>),
+    /// A folder to add to Samples (none when cancelled; M9 R7c).
+    SampleFolder(Option<PathBuf>),
+    /// A folder to add as a place, or where a missing one went (none when
+    /// cancelled; M9 R7c).
+    Place(Option<PathBuf>),
 }
 
 /// The folder the person's own projects and templates are kept in:
@@ -210,10 +215,10 @@ impl App {
     /// dialog, then the chosen files load as dropped files do, at the
     /// playhead, onto the selected track (or the track of the selected
     /// clip) when it takes them, else onto new tracks after the selection.
-    pub(crate) fn import_files(&mut self, ctx: &egui::Context) {
-        if self.dialog.is_some() {
-            return;
-        }
+    /// Where imported files land: at the playhead, on the selected track
+    /// (or the track of the first selected clip) when it is of their kind,
+    /// else on new tracks.
+    pub(crate) fn import_places(&self) -> (Ticks, Places) {
         let at = self.transport.state().ticks;
         let project = self.document.project();
         let chosen = self.arrangement.selected.last().copied().or_else(|| {
@@ -228,6 +233,14 @@ impl App {
             audio: document::import_place(project, chosen, TrackKind::Audio),
             midi: document::import_place(project, chosen, TrackKind::Midi),
         };
+        (at, into)
+    }
+
+    pub(crate) fn import_files(&mut self, ctx: &egui::Context) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let (at, into) = self.import_places();
         let owner = self.owner;
         let show = move || {
             let both: Vec<&str> = media::EXTENSIONS
@@ -485,6 +498,9 @@ impl App {
                 FileDialog::ProjectsFolder(Some(folder)) => {
                     self.projects_folder_chosen(Some(folder))
                 }
+                FileDialog::SampleFolder(Some(folder)) => self.add_sample_folder(&folder),
+                FileDialog::Place(Some(folder)) => self.place_chosen(folder),
+                FileDialog::Place(None) => self.browser.files.finding = None,
                 // Cancelled: whatever was waiting on it is off too.
                 FileDialog::SaveAs(None) | FileDialog::Open(None) => self.after_save = None,
                 FileDialog::PluginFolder(None)
@@ -492,7 +508,8 @@ impl App {
                 | FileDialog::Collect(None)
                 | FileDialog::RelinkFolder(None)
                 | FileDialog::CacheFolder(None)
-                | FileDialog::ProjectsFolder(None) => {}
+                | FileDialog::ProjectsFolder(None)
+                | FileDialog::SampleFolder(None) => {}
             }
         }
         if let Some(result) = self.saving.as_ref().and_then(|rx| rx.try_recv().ok()) {

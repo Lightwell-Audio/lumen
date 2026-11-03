@@ -523,6 +523,25 @@ impl App {
             Command::TapTempo => self.tap_tempo(ctx),
             Command::SoundCheck => self.transport.audio.sound_check(),
             Command::Welcome => self.welcome.show(),
+            Command::BrowseDevices => self.show_browser_tab(crate::browser::Tab::Devices),
+            Command::BrowseSamples => self.show_browser_tab(crate::browser::Tab::Samples),
+            Command::BrowseProjects => self.show_browser_tab(crate::browser::Tab::Projects),
+            Command::BrowsePlaces => self.show_browser_tab(crate::browser::Tab::Places),
+            Command::PreviewFile => {
+                if let Some(path) = self.selected_file() {
+                    self.preview_file(&path, 0.0);
+                }
+            }
+            Command::StopPreview => self.stop_preview(),
+            Command::AddSampleFolder => {
+                self.show_browser_tab(crate::browser::Tab::Samples);
+                self.pick_sample_folder(ctx);
+            }
+            Command::AddPlace => {
+                self.show_browser_tab(crate::browser::Tab::Places);
+                self.pick_place(ctx);
+            }
+            Command::RefreshFiles => self.browser.files.ask_refresh(),
             Command::ToggleLoop => {
                 let on = self.document.project().transport.loop_enabled;
                 self.document.set_loop_enabled(!on);
@@ -569,7 +588,7 @@ impl App {
             }
             Command::Import => self.import_files(ctx),
             Command::DevicesSearch => {
-                self.show_browser = true;
+                self.show_device_browser();
                 self.browser.focus_search = true;
             }
             Command::DevicesRescan => self.rescan_plugins(ctx, Mode::Changed),

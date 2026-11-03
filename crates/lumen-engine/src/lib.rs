@@ -12,6 +12,7 @@
 //! - [`TransportSnapshot`]: the transport as the UI sees it.
 //! - [`loopback`]: measuring the round trip through a cable (M9 slice R2b).
 //! - [`chime`]: the sound check, left, right, then both (M9 slice R7b).
+//! - [`preview`]: a file previewed from the browser (M9 R7c).
 //!
 //! The engine runs inside the device callback and never allocates, locks or
 //! blocks there; `tests/realtime.rs` checks that, and RealtimeSanitizer
@@ -29,6 +30,7 @@ mod metronome;
 mod midi;
 mod mixer;
 mod playhead;
+pub mod preview;
 mod render;
 mod scrub;
 mod snapshot;

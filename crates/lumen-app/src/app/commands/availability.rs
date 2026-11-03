@@ -610,7 +610,22 @@ impl App {
             | Command::PreferencesPlugins
             | Command::History
             | Command::TapTempo
-            | Command::Welcome => Ok(()),
+            | Command::Welcome
+            | Command::BrowseDevices
+            | Command::BrowseSamples
+            | Command::BrowseProjects
+            | Command::BrowsePlaces
+            | Command::AddSampleFolder
+            | Command::AddPlace
+            | Command::RefreshFiles => Ok(()),
+            Command::PreviewFile => need(
+                self.selected_file().is_some_and(|p| {
+                    crate::browser::files::walk::Kind::of_file(&p)
+                        == Some(crate::browser::files::walk::Kind::Audio)
+                }),
+                "Choose a sound in the browser's Samples or Places tab first",
+            ),
+            Command::StopPreview => need(self.previewing(), "No preview is playing"),
             Command::GoToEnd => need(
                 crate::app::navigate::end_of_song(self.document.project()).is_some(),
                 "The song has no clips yet",

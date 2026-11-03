@@ -178,10 +178,35 @@ pub fn read_blocks(
     cancel: &AtomicBool,
     sink: &mut Blocks<'_>,
 ) -> Result<(), MediaError> {
-    const BLOCK: usize = 65_536;
+    read_blocks_from(path, 0, BLOCK_FRAMES, cancel, sink)
+}
+
+/// Frames per block [`read_blocks`] reads from an uncompressed file.
+const BLOCK_FRAMES: usize = 65_536;
+
+/// [`read_blocks`] from frame `start` of the file (at its own rate), in
+/// blocks of at most `block` frames from an uncompressed file (the
+/// browser's preview reads small ones, to start soon; M9 R7c). An
+/// uncompressed file is read from there; any other is decoded from its
+/// start and the frames before `start` are dropped. A `start` past the end
+/// hands nothing and succeeds.
+pub fn read_blocks_from(
+    path: &Path,
+    start: u64,
+    block: usize,
+    cancel: &AtomicBool,
+    sink: &mut Blocks<'_>,
+) -> Result<(), MediaError> {
+    let block = block.max(1);
     if crate::stream::layout(path).ok().flatten().is_none() {
+        let mut skip = start;
         return decode_blocks(path, cancel, &mut |_| {}, &mut |rate, planes, frames| {
-            let parts: Vec<&[f32]> = planes.iter().take(2).map(|p| &p[..frames]).collect();
+            let from = usize::try_from(skip).unwrap_or(usize::MAX).min(frames);
+            skip -= from as u64;
+            if from == frames {
+                return Ok(());
+            }
+            let parts: Vec<&[f32]> = planes.iter().take(2).map(|p| &p[from..frames]).collect();
             sink(rate, &parts)
         });
     }
@@ -190,11 +215,11 @@ pub fn read_blocks(
     if layout.frames == 0 {
         return Err(MediaError::Empty);
     }
-    let mut planes = vec![vec![0.0; BLOCK]; layout.played()];
-    let mut at = 0;
+    let mut planes = vec![vec![0.0; block]; layout.played()];
+    let mut at = start.min(layout.frames);
     while at < layout.frames {
         cancelled(cancel)?;
-        let n = ((layout.frames - at) as usize).min(BLOCK);
+        let n = ((layout.frames - at) as usize).min(block);
         let mut parts: Vec<&mut [f32]> = planes.iter_mut().map(|p| &mut p[..n]).collect();
         reader.read(at, &mut parts)?;
         let parts: Vec<&[f32]> = planes.iter().map(|p| &p[..n]).collect();

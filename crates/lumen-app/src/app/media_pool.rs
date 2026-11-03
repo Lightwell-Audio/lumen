@@ -148,8 +148,7 @@ impl MediaPool {
 impl App {
     /// Shows the browser on the Project media tab.
     pub(crate) fn show_media_pool(&mut self) {
-        self.show_browser = true;
-        self.browser.tab = crate::browser::Tab::Media;
+        self.show_browser_tab(crate::browser::Tab::Media);
     }
 
     /// The project's media that are not on this machine, as the project knows

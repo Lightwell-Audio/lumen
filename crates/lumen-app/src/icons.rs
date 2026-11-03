@@ -86,11 +86,21 @@ pub enum Icon {
     /// The tempo and meter lanes (H1): a stepped tempo line under a faint
     /// meter line.
     TempoLanes,
+    /// The browser's Devices tab (M9 R7c): a rack with three slots.
+    Rack,
+    /// The Samples tab: a waveform line.
+    Wave,
+    /// The Projects tab: a page with its corner folded.
+    Document,
+    /// The Places tab and a folder row: a folder.
+    Folder,
+    /// The Project media tab: a disc.
+    Disc,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 38] = [
+    pub const ALL: [Icon; 43] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -129,6 +139,11 @@ impl Icon {
         Icon::MuteCircle,
         Icon::ZoomIn,
         Icon::TempoLanes,
+        Icon::Rack,
+        Icon::Wave,
+        Icon::Document,
+        Icon::Folder,
+        Icon::Disc,
     ];
 }
 
@@ -552,6 +567,57 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                 Shape::line_segment([g.p(from[0], from[1]), g.p(to[0], to[1])], stroke),
             ]
         }
+        Icon::Rack => vec![
+            Shape::rect_stroke(
+                g.rect(2.0, 3.0, 14.0, 13.0),
+                2.0 * g.unit,
+                stroke,
+                egui::StrokeKind::Middle,
+            ),
+            Shape::line_segment([g.p(5.5, 6.0), g.p(5.5, 10.0)], stroke),
+            Shape::line_segment([g.p(8.0, 6.0), g.p(8.0, 10.0)], stroke),
+            Shape::line_segment([g.p(10.5, 6.0), g.p(10.5, 10.0)], stroke),
+        ],
+        Icon::Wave => vec![Shape::line(
+            vec![
+                g.p(1.0, 8.0),
+                g.p(3.0, 8.0),
+                g.p(4.5, 3.0),
+                g.p(7.5, 13.0),
+                g.p(10.0, 6.0),
+                g.p(11.5, 10.0),
+                g.p(15.0, 10.0),
+            ],
+            stroke,
+        )],
+        Icon::Document => vec![
+            Shape::closed_line(
+                vec![
+                    g.p(4.0, 2.0),
+                    g.p(10.0, 2.0),
+                    g.p(13.0, 5.0),
+                    g.p(13.0, 14.0),
+                    g.p(4.0, 14.0),
+                ],
+                stroke,
+            ),
+            Shape::line(vec![g.p(10.0, 2.0), g.p(10.0, 5.0), g.p(13.0, 5.0)], stroke),
+        ],
+        Icon::Folder => vec![Shape::closed_line(
+            vec![
+                g.p(2.0, 4.0),
+                g.p(6.0, 4.0),
+                g.p(7.5, 5.5),
+                g.p(14.0, 5.5),
+                g.p(14.0, 13.0),
+                g.p(2.0, 13.0),
+            ],
+            stroke,
+        )],
+        Icon::Disc => vec![
+            Shape::circle_stroke(g.p(8.0, 8.0), 5.5 * g.unit, stroke),
+            Shape::circle_filled(g.p(8.0, 8.0), 1.5 * g.unit, color),
+        ],
         Icon::Window => vec![
             Shape::rect_stroke(
                 g.rect(1.5, 2.5, 14.5, 13.5),
