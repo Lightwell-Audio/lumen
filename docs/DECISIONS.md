@@ -10561,6 +10561,15 @@ lanes went to the importer.
   takes the lock (`unix.rs`); the unit test
   `a_stale_socket_left_by_a_killed_holder_is_replaced` runs that path on
   Linux and macOS CI.
+- **The socket's folder is chosen by length (found by macOS CI,
+  2026-11-03).** A socket address holds 104 bytes on macOS (108 on Linux),
+  and a settings folder deep in a runner's temporary folder overran it: the
+  first start held the lock with no socket, so a later start could not
+  hand its project over. `unix.rs` now takes the first of the runtime
+  folder, a per-user folder in the temporary folder and the settings
+  folder whose whole socket path is at most 100 bytes, always in that
+  order so the holder and a later start agree. Test:
+  `a_long_settings_path_still_gets_a_socket_that_fits_an_address`.
 
 **After two reviews (2026-11-03).**
 - Every load starts through `begin_opening`, which notes the project's
