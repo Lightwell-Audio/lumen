@@ -808,6 +808,9 @@ fn the_cache_knows_its_own_names() {
     assert!(is_cache_file("0123456789abcdef-48000.wav"));
     assert!(is_cache_file("0123456789abcdef-44100.key"));
     assert!(is_cache_file("0123456789abcdef-96000.peaks"));
+    assert!(is_cache_file("0123456789abcdef-1.index"));
+    assert!(is_cache_file("0123456789abcdef-128.thumb"));
+    assert!(!is_cache_file("0123456789abcdef-1.index.1234.writing"));
     assert!(!is_cache_file("0123456789abcdef-48000.wav.1234.writing"));
     assert!(!is_cache_file(".0123456789abcdef-48000.wav.1234.writing"));
     assert!(!is_cache_file("0123456789abcdef-48000.txt"));
@@ -868,4 +871,26 @@ fn trimming_counts_only_what_it_removed_and_keeps_an_entry_it_cannot_remove_whol
 
     drop(open);
     assert_eq!(cache.trim(1, &[]), stuck, "removed once it can be");
+}
+
+#[test]
+fn small_files_are_stored_whole_counted_and_cleared() {
+    use super::cache::{Small, hash};
+    let dir = folder("small-files");
+    let cache = Cache::new(&dir).fresh_for(Duration::ZERO);
+    let key = hash("a folder");
+    assert_eq!(key.len(), 16);
+    assert_eq!(cache.load(Small::Index, &key, 1), None);
+    cache.store(Small::Index, &key, 1, b"index").unwrap();
+    cache.store(Small::Thumb, &key, 128, &[7; 300]).unwrap();
+    assert_eq!(
+        cache.load(Small::Index, &key, 1).as_deref(),
+        Some(&b"index"[..])
+    );
+    assert_eq!(cache.size(), 305);
+    // Something the cache did not make stays.
+    std::fs::write(dir.join("notes.txt"), b"mine").unwrap();
+    assert_eq!(cache.clear(&[]), 305);
+    assert_eq!(cache.load(Small::Thumb, &key, 128), None);
+    assert!(dir.join("notes.txt").exists());
 }

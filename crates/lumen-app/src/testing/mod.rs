@@ -18,6 +18,7 @@ use crate::{App, files, settings};
 
 mod audio_record;
 mod automation;
+mod browser_files;
 pub(crate) mod coverage;
 mod devices;
 mod editor;

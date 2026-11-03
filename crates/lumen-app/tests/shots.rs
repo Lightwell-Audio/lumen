@@ -4629,3 +4629,140 @@ fn first_run_small() {
         save(&mut h, &format!("first-run-small-ready-{tag}"));
     }
 }
+
+/// M9 R7c (ADR-0116): the browser's Samples tab with its rows, pictures
+/// and the preview strip while a sound plays; the search with folder lines;
+/// Places at its top (with a place that is not there), in a folder, and its
+/// search across places, which names the missing one above what it found;
+/// Projects with a project's details, and one that cannot be read, its
+/// message in full; in both themes at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn browser_files() {
+    use egui_kittest::kittest::Queryable;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new("shots-browser-files");
+            let root = dir.path().join("My Samples");
+            for (folder, name, seconds) in [
+                ("Drums/Kicks", "Kick Deep", 0.8),
+                ("Drums/Kicks", "Kick Tight", 0.4),
+                ("Drums/Snares", "Snare Crack", 0.6),
+                ("Loops", "Groove 92 bpm", 4.0),
+                ("Loops", "Pad Swell", 9.0),
+                ("", "Vocal chop", 1.2),
+            ] {
+                let at = root.join(folder);
+                std::fs::create_dir_all(&at).unwrap();
+                wav(&at.join(format!("{name}.wav")), seconds);
+            }
+            let projects = dir.path().join("Projects");
+            std::fs::create_dir_all(projects.join("2025")).unwrap();
+            for (folder, name, bpm, tracks) in [
+                ("", "Night Drive", 92.0, 3),
+                ("", "Ballad in A", 72.0, 1),
+                ("2025", "Beat Sketch", 140.0, 2),
+            ] {
+                use lumen_project::model::{Color, Id, Track, TrackKind};
+                let tracks = (0..tracks)
+                    .map(|n| Track::new(Id(n + 1), format!("{n}"), TrackKind::Audio, Color(0)))
+                    .collect();
+                let mut project = lumen_project::testing::project_of(name, tracks);
+                project.tempo[0].bpm = bpm;
+                let path = projects.join(folder).join(format!("{name}.lumen"));
+                lumen_project::save(&project, &path, &Default::default()).unwrap();
+            }
+            std::fs::write(
+                projects.join("Damaged Mix.lumen"),
+                "{ \"version\": 32, \"name\": \"cut off half way",
+            )
+            .unwrap();
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .with_sample_folder(&root)
+                .with_projects_folder(&projects)
+                .with_place(&root)
+                .with_place(&dir.path().join("Unplugged drive"));
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 760.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(10);
+            let palette = |h: &mut Harness<'static, App>, words: &str| {
+                // Leave a search field first: the palette's keys are not
+                // a typed word's.
+                h.key_press(Key::Escape);
+                h.key_press(Key::Escape);
+                h.run_steps(3);
+                h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+                h.run_steps(3);
+                h.event(Event::Text(words.into()));
+                h.run_steps(3);
+                h.key_press(Key::Enter);
+                h.run_steps(10);
+            };
+            palette(&mut h, "Browse samples");
+            for _ in 0..200 {
+                h.run_steps(2);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                if !h.state().browser_files_reading() {
+                    break;
+                }
+            }
+            h.run_steps(60);
+            h.get_by_label_contains("Groove 92 bpm, audio file").click();
+            h.run_steps(40);
+            save(&mut h, &format!("browser-samples-{appearance}-{scale}"));
+            h.get_by_label("Search samples").focus();
+            h.run_steps(2);
+            h.event(Event::Text("kick".into()));
+            h.run_steps(20);
+            save(&mut h, &format!("browser-search-{appearance}-{scale}"));
+            palette(&mut h, "Browse places");
+            h.run_steps(20);
+            save(&mut h, &format!("browser-places-{appearance}-{scale}"));
+            h.get_by_label("Search places").focus();
+            h.run_steps(2);
+            h.event(Event::Text("kick".into()));
+            h.run_steps(40);
+            save(
+                &mut h,
+                &format!("browser-places-search-{appearance}-{scale}"),
+            );
+            palette(&mut h, "Browse places");
+            h.get_by_label_contains("My Samples, folder").click();
+            h.run_steps(3);
+            h.key_press(Key::Enter);
+            h.run_steps(20);
+            h.get_by_label_contains("Drums, folder").click();
+            h.run_steps(3);
+            h.key_press(Key::Enter);
+            h.run_steps(30);
+            save(
+                &mut h,
+                &format!("browser-places-folder-{appearance}-{scale}"),
+            );
+            palette(&mut h, "Browse projects");
+            h.run_steps(30);
+            h.get_by_label_contains("Night Drive, project").click();
+            h.run_steps(40);
+            save(&mut h, &format!("browser-projects-{appearance}-{scale}"));
+            h.get_by_label_contains("Damaged Mix, project").click();
+            h.run_steps(40);
+            save(
+                &mut h,
+                &format!("browser-projects-damaged-{appearance}-{scale}"),
+            );
+        }
+    }
+}

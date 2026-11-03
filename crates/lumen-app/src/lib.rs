@@ -233,6 +233,9 @@ pub struct App {
     /// Where dropped files go: new tracks, or the track under the pointer
     /// (slice 6e), for audio files and for MIDI files (M5 slice 7).
     drop_into: document::Places,
+    /// Files from the browser's file tabs let go over the arrangement (M9
+    /// R7c), added like files dropped from the system.
+    file_drop: Option<Vec<PathBuf>>,
     /// MIDI files being read in the background (M5 slice 7).
     midi_reader: midi_files::Reader,
     /// The browser's own state (M6 slice 1).
@@ -534,7 +537,7 @@ impl eframe::App for App {
         self.poll_templates(&ctx);
         self.autosave(&ctx);
         let rate = self.transport.state().sample_rate;
-        let dropped: Vec<PathBuf> = ctx.input(|i| {
+        let mut dropped: Vec<PathBuf> = ctx.input(|i| {
             i.raw
                 .dropped_files
                 .iter()
@@ -542,6 +545,7 @@ impl eframe::App for App {
                 .filter(|p| !p.as_os_str().is_empty())
                 .collect()
         });
+        dropped.extend(self.file_drop.take().unwrap_or_default());
         if !dropped.is_empty() {
             trace::log(|| {
                 format!(
@@ -560,6 +564,7 @@ impl eframe::App for App {
         self.poll_audio_export(&ctx);
         self.poll_freeze(&ctx);
         self.poll_media_pool(&ctx);
+        self.poll_browser_files(&ctx);
         self.say_frozen_refusals();
         self.plugins.poll(&self.settings.plugins, &ctx);
         if let Some(wait) = self.plugins.rebuild_wait() {

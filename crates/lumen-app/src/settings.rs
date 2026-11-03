@@ -358,6 +358,9 @@ pub struct Settings {
     /// settings at all (the defaults) has it false.
     #[serde(default = "yes")]
     pub setup_done: bool,
+    /// The browser's open tab (M9 R7c): an added section with defaults, so
+    /// older files read as before (no version change).
+    pub browser: crate::browser::Saved,
 }
 
 /// The device setup a loopback measurement was taken on.
@@ -545,6 +548,7 @@ impl Default for Settings {
             offset_measured: None,
             cache: Cache::default(),
             setup_done: false,
+            browser: Default::default(),
         }
     }
 }
@@ -823,6 +827,18 @@ mod tests {
                 tail: false,
             },
             playback: Playback { from_disk: true },
+            browser: crate::browser::Saved {
+                tab: crate::browser::Tab::Places,
+                sample_folders: vec!["D:/Samples".into()],
+                music_answered: true,
+                places: vec![crate::browser::files::Place {
+                    name: "Drums".into(),
+                    path: "D:/Drums".into(),
+                }],
+                place_folder: Some("D:/Drums/Kicks".into()),
+                auto_preview: false,
+                preview_db: -12.0,
+            },
             offset_measured: Some(MeasuredWith {
                 driver: "asio".into(),
                 device_id: "{1234}".into(),

@@ -505,7 +505,11 @@ report: {}",
         // two tracks they make new tracks there (slice 6e). The lane or the
         // line, and a snap guide, show where while files are dragged over:
         // where MIDI files go when every file dragged is one.
-        let (pointer, free, dragging, all_midi) = ui.input(|i| {
+        let carried: Vec<PathBuf> =
+            egui::DragAndDrop::payload::<crate::browser::files::Dragged>(ui.ctx())
+                .map(|d| d.0.clone())
+                .unwrap_or_default();
+        let (pointer, free, mut dragging, mut all_midi) = ui.input(|i| {
             (
                 self.drag_pointer
                     .or_else(|| i.pointer.hover_pos())
@@ -529,6 +533,16 @@ report: {}",
                     }),
             )
         });
+        if !carried.is_empty() {
+            dragging = carried
+                .iter()
+                .map(|p| {
+                    p.file_name()
+                        .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+                })
+                .collect();
+            all_midi = carried.iter().all(|p| crate::midi_files::is_midi_file(p));
+        }
         self.drop_target = match pointer {
             Some(p) => self.snapped(ruler::ticks_at(view.beat_at(canvas.left(), p.x)), free),
             None => self.transport.state().ticks,
@@ -553,6 +567,11 @@ report: {}",
         } else {
             (audio, audio_line)
         };
+        // A file from the browser let go over the lanes is added there.
+        if !carried.is_empty() && pointer.is_some() && ui.input(|i| i.pointer.any_released()) {
+            self.file_drop = Some(carried.clone());
+            egui::DragAndDrop::clear_payload(ui.ctx());
+        }
         if !dragging.is_empty() && pointer.is_some() {
             let x = x_of(self.drop_target.as_quarters());
             draw_snap_guide(&painter, x, at.guides());

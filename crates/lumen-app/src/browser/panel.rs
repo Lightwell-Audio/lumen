@@ -16,14 +16,14 @@ use super::view::{Chip, Selection};
 use crate::app::info::{Held, Info, Mouse};
 use crate::app::panes::{self, Pane};
 use crate::app::projects::FileDialog;
+use crate::icons::{self, Icon};
 use crate::{App, fonts, theme, widgets};
 
 impl App {
     /// Shows the browser on its Devices tab (the empty device chain's
     /// Browse devices).
     pub(crate) fn show_device_browser(&mut self) {
-        self.show_browser = true;
-        self.browser.tab = Tab::Devices;
+        self.show_browser_tab(Tab::Devices);
     }
 
     /// Draws the browser pane in `ui` (the panel's whole area).
@@ -66,9 +66,12 @@ impl App {
         egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(side, 0))
             .show(ui, |ui| self.browser_tabs(ui));
-        if self.browser.tab == Tab::Media {
-            self.media_tab(ui, body);
-            return;
+        match self.browser.tab {
+            Tab::Devices => {}
+            Tab::Media => return self.media_tab(ui, body),
+            Tab::Samples | Tab::Projects | Tab::Places => {
+                return self.files_tab(ui, body);
+            }
         }
         let rows = egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(side, 0))
@@ -116,31 +119,52 @@ impl App {
         }
     }
 
-    /// The tabs. Samples and projects get theirs when they are built (R7).
-    /// A tab's word lines up with the title above it.
+    /// The strip of icon tabs (the owner's L B, M9 R7c), and under it a
+    /// line naming the open tab and what it holds. Each icon has its name as
+    /// its tooltip and accessible name; with the strip focused, the arrows
+    /// move between tabs.
     fn browser_tabs(&mut self, ui: &mut egui::Ui) {
-        let tabs = [
-            widgets::Tab {
-                label: "Devices",
-                note: None,
-                disabled_because: None,
-                tip: "Instruments and effects",
-            },
-            widgets::Tab {
-                label: "Project media",
-                note: None,
-                disabled_because: None,
-                tip: "The audio files this project holds: relink the ones that moved, clear the ones nothing plays",
-            },
-        ];
-        let chosen = match self.browser.tab {
-            Tab::Devices => 0,
-            Tab::Media => 1,
-        };
-        if let Some(i) = widgets::tabs_flush(ui, egui::Id::new("browser tabs"), chosen, &tabs) {
-            self.browser.tab = if i == 0 { Tab::Devices } else { Tab::Media };
+        let choices = Tab::ALL.map(|tab| {
+            widgets::Choice::new(tab, "")
+                .icon(tab_icon(tab))
+                .named(tab.access())
+                .tip(tab.tip())
+        });
+        let id = egui::Id::new("browser tabs");
+        if let Some(tab) = widgets::segmented_full(ui, id, self.browser.tab, &choices) {
+            self.browser.tab = tab;
+        }
+        if let Some(tab) = tab_arrows(ui, id, self.browser.tab) {
+            self.browser.tab = tab;
         }
         ui.add_space(theme::space::XS);
+        let tab = self.browser.tab;
+        let palette = theme::p();
+        let mut line = egui::text::LayoutJob::default();
+        line.append(
+            tab.name(),
+            0.0,
+            egui::TextFormat::simple(fonts::medium(theme::size::CAPTION), palette.text),
+        );
+        line.append(
+            &format!(" \u{b7} {}", tab.holds()),
+            0.0,
+            egui::TextFormat::simple(
+                egui::FontId::proportional(theme::size::CAPTION),
+                palette.text_secondary,
+            ),
+        );
+        // A label: it may be cut at the pane's edge (DESIGN.md §9).
+        line.wrap.max_width = ui.available_width();
+        line.wrap.max_rows = 1;
+        ui.add(egui::Label::new(line).selectable(false));
+        ui.add_space(theme::space::XS);
+    }
+
+    /// Shows the browser on `tab`.
+    pub(crate) fn show_browser_tab(&mut self, tab: Tab) {
+        self.show_browser = true;
+        self.browser.tab = tab;
     }
 
     /// The search, type switch, chips and scan line. Returns the rows the
@@ -502,4 +526,49 @@ fn vendor_listed(rows: &Rows, selection: &Selection) -> bool {
     rows.list.iter().any(|r| {
         matches!((r, selection), (Row::Vendor { name, .. }, Selection::Vendor(s)) if &name.to_lowercase() == s)
     })
+}
+
+/// The icon of `tab` in the strip.
+fn tab_icon(tab: Tab) -> fn(&egui::Painter, egui::Pos2, egui::Color32) {
+    fn draw(icon: Icon, painter: &egui::Painter, at: egui::Pos2, colour: egui::Color32) {
+        let rect = Rect::from_center_size(at, vec2(TAB_ICON, TAB_ICON));
+        painter.extend(icons::shapes(icon, rect, colour));
+    }
+    match tab {
+        Tab::Devices => |p, at, c| draw(Icon::Rack, p, at, c),
+        Tab::Samples => |p, at, c| draw(Icon::Wave, p, at, c),
+        Tab::Projects => |p, at, c| draw(Icon::Document, p, at, c),
+        Tab::Places => |p, at, c| draw(Icon::Folder, p, at, c),
+        Tab::Media => |p, at, c| draw(Icon::Disc, p, at, c),
+    }
+}
+
+/// The size of a tab's icon: the segmented control's 14 pt.
+const TAB_ICON: f32 = 14.0;
+
+/// With one of the strip's tabs focused, Left and Right go to the tab
+/// beside the open one (no wrap), and the focus goes with it.
+fn tab_arrows(ui: &egui::Ui, id: egui::Id, open: Tab) -> Option<Tab> {
+    let focused = (0..Tab::ALL.len()).any(|i| ui.memory(|m| m.has_focus(id.with(i))));
+    if !focused {
+        return None;
+    }
+    let at = Tab::ALL.iter().position(|t| *t == open)?;
+    let step = ui.input_mut(|i| {
+        if i.consume_key(Modifiers::NONE, Key::ArrowLeft) {
+            -1
+        } else if i.consume_key(Modifiers::NONE, Key::ArrowRight) {
+            1
+        } else {
+            0
+        }
+    });
+    let to = at
+        .checked_add_signed(step)
+        .filter(|i| *i < Tab::ALL.len())?;
+    if to == at {
+        return None;
+    }
+    ui.memory_mut(|m| m.request_focus(id.with(to)));
+    Some(Tab::ALL[to])
 }

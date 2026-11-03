@@ -257,8 +257,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Built-in essentials | M | 🔲 |
 | Spectrum analyzer, tuner | S | 🔲 |
 | CLAP, racks with macros | L | 🔲 |
-| Browser: devices, samples, projects, user places; search; audition; drag and drop | M | 🟡 Devices tab with search, type, category and favorites (M6 slice 1), added by double-click or drag (slice 2); the Project media tab (M9 R4b). Samples, projects, places and audition are not built |
-| Tags and favourites; tempo-synced audition | S | 🟡 Favorites on devices (M6 slice 1); tags and audition are later |
+| Browser: devices, samples, projects, user places; search; audition; drag and drop | M | 🟡 Devices tab with search, type, category and favorites (M6 slice 1), added by double-click or drag (slice 2); the Project media tab (M9 R4b); Samples, Projects and Places with search, row waveforms, a preview on the cue pair or the main pair, and drag or Enter to add (M9 R7c, ADR-0116). MT-BROWSE-1 pending |
+| Tags and favourites; tempo-synced audition | S | 🟡 Favorites on devices (M6 slice 1); audition is built (M9 R7c), not in time with the song (it waits for E8's stretching); tags are later |
 | Media pool with relink and purge | M | 🟡 Built in M9 R4b (ADR-0106): the browser's Project media tab lists every audio file with its state; Locate and Search a folder relink missing files (checked first; not an undo step); Remove unused is one undo step; Clear moves leftover files to the system trash after two presses; a banner offers Relink on open. E2E scenarios pass; MT-PROJ-2 passed (owner, 2026-10-26) |
 | Project management: new/open/save/as/copy/template/revert/recent; autosave and recovery; backups; collect; relink; migrations; settings | M | 🟡 Copy, template, revert, collect and settings built in M9 R4 (ADR-0105); relink, the media pool and purge in R4b (ADR-0106); MT-PROJ-1 and 2 passed |
 | Project notes and metadata | S | 🟡 Notes in Project settings (M9 R4, ADR-0105); metadata is not built |

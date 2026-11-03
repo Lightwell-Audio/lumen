@@ -364,6 +364,15 @@ pub fn segmented_full<T: PartialEq + Copy>(
 const ICON: f32 = 14.0;
 /// Gap between a choice's icon and its label.
 const ICON_GAP: f32 = 6.0;
+/// The room a choice's icon takes before its label: the icon alone when
+/// there is no label (the browser's icon tabs, M9 R7c).
+fn icon_room<T>(choice: &Choice<'_, T>) -> f32 {
+    match (choice.icon.is_some(), choice.label.is_empty()) {
+        (false, _) => 0.0,
+        (true, true) => ICON,
+        (true, false) => ICON + ICON_GAP,
+    }
+}
 /// Room either side of the letters in the 30 pt tool switch (the
 /// Segmented card's `padding: 0 10px`).
 const TOOL_PAD: f32 = 10.0;
@@ -428,14 +437,7 @@ fn segmented_with<T: PartialEq + Copy>(
         .iter()
         .zip(choices)
         .zip(&caps)
-        .map(|((g, c), cap)| {
-            let icon = if c.icon.is_some() {
-                ICON + ICON_GAP
-            } else {
-                0.0
-            };
-            g.size().x + icon + cap_width(cap.as_deref()) + 2.0 * pad
-        })
+        .map(|((g, c), cap)| g.size().x + icon_room(c) + cap_width(cap.as_deref()) + 2.0 * pad)
         .collect();
     let side = menu_inset(ui);
     // Full width: equal pieces when the widest's content fits that way with
@@ -559,11 +561,7 @@ fn segmented_with<T: PartialEq + Copy>(
         };
         // The label is centred in the piece; its icon and keycap are centred
         // on the label's optical middle, snapped to whole pixels.
-        let icon = if choice.icon.is_some() {
-            ICON + ICON_GAP
-        } else {
-            0.0
-        };
+        let icon = icon_room(choice);
         let content = galley.size().x + icon + cap_width(cap.as_deref());
         let left = (segment.center().x - content / 2.0).round();
         let top = segment.center().y.round() - (galley.size().y / 2.0).round();
@@ -673,31 +671,14 @@ pub struct Tab<'a> {
 /// How a row of [`tabs_with`] is laid out.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TabsLayout {
-    /// The first tab has no room to its left ([`tabs_flush`]).
+    /// The first tab has no room to its left: its word lines up with a
+    /// pane title above it.
     pub flush: bool,
     /// The tabs from this index on stand at the right end of the row,
     /// after a 1 × 14 pt hairline (the detail panel's Mixer, DP1).
     pub right_from: Option<usize>,
     /// Give this tab the keyboard focus this frame.
     pub focus: Option<usize>,
-}
-
-/// A row of tabs as words, 12 pt of room either side of each and 4 pt
-/// between tabs; the chosen one is in `text` over a 2 pt accent underline,
-/// inset by the same 12 pt and lit with Lit's soft layer, that slides to
-/// it (`GLIDE`). Tabs that cannot open yet are in `text_disabled` with why
-/// on hover (the interface audit's T4, the owner's A). Returns the index
-/// clicked, if another. [`tabs_with`] takes the layout.
-///
-/// For a pane whose title sits at its content edge: the first tab
-/// has no room to its left, so its word lines up with the title above it
-/// instead of standing 12 pt in from it.
-pub fn tabs_flush(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>]) -> Option<usize> {
-    let layout = TabsLayout {
-        flush: true,
-        ..TabsLayout::default()
-    };
-    tabs_with(ui, id, chosen, tabs, layout)
 }
 
 /// A hairline between groups of a tab row: 1 × 14 pt in `border_strong`,

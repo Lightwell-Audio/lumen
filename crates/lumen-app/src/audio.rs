@@ -25,6 +25,7 @@ use lumen_audio::{
 };
 use lumen_core::product::PRODUCT_NAME;
 use lumen_engine::chime::{self, ChimeHandle, Sounding};
+use lumen_engine::preview::{self, PreviewFeed, PreviewHandle};
 use lumen_engine::{
     ClipsHandle, EngineHandle, InputHandle, Layered, MidiHandle, MixerHandle, Timeline,
     clip_player, engine, input_player, loopback, midi_player, mixer,
@@ -374,6 +375,10 @@ pub struct Audio {
     pub(crate) measurement: Measurement,
     /// The sound check's chime (M9 slice R7b).
     chime: ChimeHandle,
+    /// The browser's file preview (M9 R7c): the UI's end, and the decode
+    /// thread's until the browser takes it.
+    pub(crate) preview: PreviewHandle,
+    preview_feed: Option<PreviewFeed>,
     /// What the test device played, left and right frame by frame, for the
     /// end-to-end tests to listen to (`testing`). Real devices have none.
     pub(crate) heard: Option<rtrb::Consumer<f32>>,
@@ -453,6 +458,7 @@ impl Audio {
         let (export, mut export_tap) = export_live::channel();
         let (measure, mut clicks) = loopback::loopback();
         let (chime, mut chime_player) = chime::chime();
+        let (preview, preview_feed, mut preview_player) = preview::preview();
         let export = Arc::new(Mutex::new(export));
         let stream = Arc::clone(&clock);
         let mut processed = 0_u64;
@@ -472,6 +478,7 @@ impl Audio {
             export_tap.process(block);
             // Heard, not exported.
             chime_player.process(rate, block.outputs, channels, frames);
+            preview_player.process(rate, block.outputs, channels, frames);
             // While measuring, only the clicks are heard.
             clicks.process(loopback::Block {
                 rate,
@@ -501,6 +508,8 @@ impl Audio {
             export,
             measurement: Measurement::new(measure),
             chime,
+            preview,
+            preview_feed: Some(preview_feed),
             heard,
             status: Status::Off(String::new()),
             driver: String::new(),
@@ -891,6 +900,28 @@ impl Audio {
             return (Sounding::Silent, [0.0; 2]);
         }
         (self.chime.sounding(), self.chime.peaks())
+    }
+
+    /// The decode thread's end of the browser's preview: taken once.
+    pub(crate) fn take_preview_feed(&mut self) -> Option<PreviewFeed> {
+        self.preview_feed.take()
+    }
+
+    /// The first channel previews are heard on: the cue pair's when one is
+    /// open, the main pair's otherwise (the owner's O A).
+    pub(crate) fn preview_channel(&self) -> usize {
+        if self.cue_ready() {
+            self.main_channels_len()
+        } else {
+            0
+        }
+    }
+
+    /// How many of the opened outputs are the main pair's.
+    fn main_channels_len(&self) -> usize {
+        self.config
+            .as_ref()
+            .map_or(0, |config| self.main_channels(config).len())
     }
 
     /// The Audio On/Off switch: closes the device, or opens it again.
