@@ -43,9 +43,14 @@ fn prog_key() -> String {
 }
 
 fn app_key(exe: &Path) -> String {
-    let name = exe
-        .file_name()
-        .map_or_else(|| "lumen.exe".into(), |n| n.to_string_lossy().into_owned());
+    // The registry's paths are Windows paths: split on either slash, the
+    // same on every system the tests run on.
+    let path = exe.to_string_lossy();
+    let name = path
+        .rsplit(['\\', '/'])
+        .next()
+        .filter(|n| !n.is_empty())
+        .unwrap_or("lumen.exe");
     format!(r"Software\Classes\Applications\{name}")
 }
 
