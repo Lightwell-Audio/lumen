@@ -475,6 +475,20 @@ per slice and move what is no longer current out of it.
   the registry, and registers this copy at start when none is and the
   setting is on). E2E `tests/e2e/instance.rs`, six smoke tests. MT-SYS-1
   waits for the owner. Next: R9.
+- **Branch `m9-s9-closeout`: M9 R9, the close.** E2E `walkthrough_song`
+  records, splits, saves, crashes mid-take, recovers, saves, reopens and
+  exports one song; MT-M9-1 is its hardware twin. The review is
+  `docs/audits/2026-11-03-m9.md` (H1 to H6, M1, L1 to L4; H2, a save that
+  can point two takes at one file, comes first; fixes wait for the owner's
+  go-ahead). The M9 report is in `docs/PROGRESS.md`; it recommends a short
+  recovery slice for H1 to H6 before 9.5, and pitches 9.5's choices. `docs/PROGRESS.md` was brought up
+  to date (owner, 2026-11-03). The owner asked for M9's pending manual tests to
+  be run by a GPT 6.1 Sol agent; both attempts stopped at the safety check
+  (a Lumen was open) with nothing run (`docs/manual-tests/M9.md`, top). A
+  third attempt needs every Lumen closed.
+  **Next (owner, 2026-11-03):** a mini milestone, 9.5, before M8: audio clip
+  warping and a fleshed-out audio clip detail panel (M7's planned E7 and E8).
+  It is planned and pitched first.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
