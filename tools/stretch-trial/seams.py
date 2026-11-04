@@ -13,9 +13,13 @@ for src in sorted(os.listdir(f'{OUT}/pack')):
         n=min(len(c),len(w)); c,w=c[:n],w[:n]
         snr=10*np.log10((w**2).sum()/(((c-w)**2).sum()+1e-12))
         hf=np.abs(np.diff(c.mean(1)))
-        seams=np.arange(4096,n-64,4096)
+        # Where the pieces meet: every 3,686 input frames (4,096 output
+        # frames at 0.9), placed as render_chunked places them, with the
+        # 144-frame crossfade after each seam and 48 frames either side.
+        step_in=round(4096*0.9)
+        seams=[round(j*step_in/0.9) for j in range(1, n//step_in + 2) if round(j*step_in/0.9) < n-200]
         near=np.zeros(len(hf),bool)
-        for s in seams: near[max(0,s-48):s+48]=True
+        for s in seams: near[max(0,s-48):s+144+48]=True
         # a click shows as a seam window whose HF peak stands out from the same signal elsewhere
         ratio=np.percentile(hf[near],99.5)/np.percentile(hf[~near],99.5)
         hw=np.abs(np.diff(w.mean(1)))

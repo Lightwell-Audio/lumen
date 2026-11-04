@@ -33,10 +33,14 @@ python3 -I tools/stretch-trial/check.py <out>
 python3 -I tools/stretch-trial/seams.py <out>
 ```
 
-`check.py` confirms every render lines up with its original in time (within
-10 ms) and level. `seams.py` compares the prepared-ahead renders (plan E A:
+`check.py` fails if a render is more than 10 ms or 0.5 dB off its original
+(the pack is loudness-matched). `seams.py` compares the prepared-ahead renders (plan E A:
 85 ms pieces, each from a 340 ms lead-in, joined with 3 ms crossfades) with
 the straight ones.
+
+`summarise.py <out>` writes `<out>/summary.json` by letter, and
+`page/make_page.py <out>`, run in a folder holding the pack as FLAC in MP4
+(`media/`), writes the listening page.
 
 ## What it measures
 
@@ -46,8 +50,8 @@ For each source, transform and candidate:
 - the work to prepare one 85 ms piece from a 340 ms lead-in (the click-to-sound
   cost under E A);
 - the candidate's own latency;
-- allocations during steady processing (a counting allocator; the `rubberband`
-  wrapper's own one Vec per call is taken off);
+- allocations during steady processing (a counting allocator over `process`
+  and `retrieve`; the `rubberband` wrapper's own one Vec per call is taken off);
 - whether a render repeats bit for bit;
 - whether 64-frame and 4,096-frame blocks give the same bits.
 
