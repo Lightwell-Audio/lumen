@@ -1,0 +1,17 @@
+[
+{"source":"1-drums","candidate":"signalsmith-stretch (default preset)","letter":"C","ms_per_second_85ms_pieces":259.37,"ms_per_second_2s_pieces":36.62},
+{"source":"1-drums","candidate":"rubberband (R3, finer, real-time mode)","letter":"E","ms_per_second_85ms_pieces":1830.09,"ms_per_second_2s_pieces":246.16},
+{"source":"1-drums","candidate":"rubberband (R2, faster, real-time mode)","letter":"B","ms_per_second_85ms_pieces":743.99,"ms_per_second_2s_pieces":115.14},
+{"source":"1-drums","candidate":"bungee-rs (stream)","letter":"A","ms_per_second_85ms_pieces":258.35,"ms_per_second_2s_pieces":37.24},
+{"source":"1-drums","candidate":"timestretch (pure Rust, whole-buffer render)","letter":"D","ms_per_second_85ms_pieces":492.58,"ms_per_second_2s_pieces":78.14},
+{"source":"2-voice","candidate":"signalsmith-stretch (default preset)","letter":"C","ms_per_second_85ms_pieces":184.21,"ms_per_second_2s_pieces":28.72},
+{"source":"2-voice","candidate":"rubberband (R3, finer, real-time mode)","letter":"E","ms_per_second_85ms_pieces":1778.87,"ms_per_second_2s_pieces":258.37},
+{"source":"2-voice","candidate":"rubberband (R2, faster, real-time mode)","letter":"B","ms_per_second_85ms_pieces":771.40,"ms_per_second_2s_pieces":104.96},
+{"source":"2-voice","candidate":"bungee-rs (stream)","letter":"A","ms_per_second_85ms_pieces":313.98,"ms_per_second_2s_pieces":45.56},
+{"source":"2-voice","candidate":"timestretch (pure Rust, whole-buffer render)","letter":"D","ms_per_second_85ms_pieces":437.59,"ms_per_second_2s_pieces":67.79},
+{"source":"3-full-mix","candidate":"signalsmith-stretch (default preset)","letter":"C","ms_per_second_85ms_pieces":182.46,"ms_per_second_2s_pieces":24.22},
+{"source":"3-full-mix","candidate":"rubberband (R3, finer, real-time mode)","letter":"E","ms_per_second_85ms_pieces":1641.57,"ms_per_second_2s_pieces":300.52},
+{"source":"3-full-mix","candidate":"rubberband (R2, faster, real-time mode)","letter":"B","ms_per_second_85ms_pieces":765.63,"ms_per_second_2s_pieces":124.40},
+{"source":"3-full-mix","candidate":"bungee-rs (stream)","letter":"A","ms_per_second_85ms_pieces":272.60,"ms_per_second_2s_pieces":35.66},
+{"source":"3-full-mix","candidate":"timestretch (pure Rust, whole-buffer render)","letter":"D","ms_per_second_85ms_pieces":427.55,"ms_per_second_2s_pieces":61.00}
+]

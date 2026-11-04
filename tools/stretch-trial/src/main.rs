@@ -596,15 +596,18 @@ fn main() {
         .collect();
     sources.sort();
     let mut results = Vec::new();
+    let mut sustained = Vec::new();
     for src in &sources {
         let name = src.file_stem().unwrap().to_string_lossy().to_string();
         let input = read_wav(src);
         let seconds = input.len() as f64 / RATE as f64;
         eprintln!("{name}: {seconds:.2} s");
-        write_wav(
-            &out_dir.join("pack").join(&name).join("original.wav"),
-            &input,
-        );
+        // The pack's files, written at the end with one gain for the whole
+        // source so the loudest peaks at -1 dBFS at most and none clips.
+        let mut pack: Vec<(PathBuf, Stereo)> = vec![(
+            out_dir.join("pack").join(&name).join("original.wav"),
+            input.clone(),
+        )];
         for t in TRANSFORMS {
             for &c in CANDIDATES {
                 // CPU: the best of three renders at a 512-frame block.
@@ -660,14 +663,14 @@ fn main() {
                 // measurements above are of the render as it came out.
                 let gain = level_match(&out, &input);
                 if t.listen {
-                    write_wav(
-                        &out_dir
+                    pack.push((
+                        out_dir
                             .join("pack")
                             .join(&name)
                             .join(t.name)
                             .join(format!("{}.wav", letter(c))),
-                        &scaled(&out, gain),
-                    );
+                        scaled(&out, gain),
+                    ));
                 }
                 results.push(format!(
                     "{{\"source\":\"{name}\",\"transform\":\"{}\",\"candidate\":\"{}\",\"letter\":\"{}\",\"ms_per_second\":{:.2},\"first_chunk_ms\":{:.2},\"latency_ms\":{:.1},\"steady_allocs\":{},\"repeats_bit_for_bit\":{repeats},\"block_size_independent\":{block_same},\"max_diff_block_64_vs_4096\":\"{block_info}\",\"pack_gain_db\":{:.2}}}",
@@ -675,32 +678,64 @@ fn main() {
                 ));
             }
         }
-        // The prepared-ahead chunks (E A), for listening: 0.9 speed, 4,096-frame chunks, 16,384-frame pre-roll.
+        // The prepared-ahead chunks (E A), for listening: 0.9 speed, 4,096-frame
+        // pieces, 16,384-frame pre-roll. Their sustained cost is timed too, at
+        // that piece size and at 2 s pieces (96,000 frames), as a share of
+        // one core while the clip plays.
         let t = TRANSFORMS[1];
+        let out_seconds = seconds / t.speed;
         for &c in CANDIDATES {
+            let t0 = Instant::now();
             let chunked = render_chunked(c, &input, t, 4096, 16_384);
+            let short_ms = t0.elapsed().as_secs_f64() * 1000.0 / out_seconds;
+            let t0 = Instant::now();
+            let _ = render_chunked(c, &input, t, 96_000, 16_384);
+            let long_ms = t0.elapsed().as_secs_f64() * 1000.0 / out_seconds;
+            eprintln!(
+                "  E A sustained   {:44} 85 ms pieces {short_ms:6.1} ms/s  2 s pieces {long_ms:6.1} ms/s",
+                c.name()
+            );
+            sustained.push(format!(
+                "{{\"source\":\"{name}\",\"candidate\":\"{}\",\"letter\":\"{}\",\"ms_per_second_85ms_pieces\":{short_ms:.2},\"ms_per_second_2s_pieces\":{long_ms:.2}}}",
+                c.name(),
+                letter(c)
+            ));
             let (whole, _) = render(c, &input, t.speed, t.semitones, 1024);
             // Both at the straight render's matching gain, so they compare.
             let gain = level_match(&whole, &input);
-            let (chunked, whole) = (scaled(&chunked, gain), scaled(&whole, gain));
-            write_wav(
-                &out_dir
+            pack.push((
+                out_dir
                     .join("pack")
                     .join(&name)
                     .join("chunked-tempo-0.9")
                     .join(format!("{}.wav", letter(c))),
-                &chunked,
-            );
-            write_wav(
-                &out_dir
+                scaled(&chunked, gain),
+            ));
+            pack.push((
+                out_dir
                     .join("pack")
                     .join(&name)
                     .join("whole-tempo-0.9")
                     .join(format!("{}.wav", letter(c))),
-                &whole,
-            );
+                scaled(&whole, gain),
+            ));
+        }
+        let peak = pack
+            .iter()
+            .flat_map(|(_, s)| s.l.iter().chain(&s.r))
+            .fold(0.0f32, |m, v| m.max(v.abs()));
+        let headroom = (10f32.powf(-1.0 / 20.0) / peak.max(f32::EPSILON)).min(1.0);
+        eprintln!("  pack gain for {name}: {:.2} dB", 20.0 * headroom.log10());
+        for (path, audio) in &pack {
+            write_wav(path, &scaled(audio, headroom));
         }
     }
+    std::fs::create_dir_all(&out_dir).unwrap();
+    std::fs::write(
+        out_dir.join("sustained.json"),
+        format!("[\n{}\n]\n", sustained.join(",\n")),
+    )
+    .unwrap();
     std::fs::create_dir_all(&out_dir).unwrap();
     std::fs::write(
         out_dir.join("results.json"),

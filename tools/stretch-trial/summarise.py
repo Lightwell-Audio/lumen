@@ -10,6 +10,7 @@ import sys
 
 OUT = sys.argv[1]
 results = json.load(open(f"{OUT}/results.json"))
+sustained = json.load(open(f"{OUT}/sustained.json"))
 by_letter = {}
 for row in results:
     by_letter.setdefault(row["letter"], []).append(row)
@@ -30,6 +31,8 @@ for letter, rows in sorted(by_letter.items()):
         "repeats": all(r["repeats_bit_for_bit"] for r in rows),
         "block_indep": sum(r["block_size_independent"] for r in rows) if streams else None,
         "n": len(rows),
+        "ea_85ms": round(st.median(r["ms_per_second_85ms_pieces"] for r in sustained if r["letter"] == letter), 1),
+        "ea_2s": round(st.median(r["ms_per_second_2s_pieces"] for r in sustained if r["letter"] == letter), 1),
     }
 json.dump(summary, open(f"{OUT}/summary.json", "w"), indent=1)
 for s in summary.values():
