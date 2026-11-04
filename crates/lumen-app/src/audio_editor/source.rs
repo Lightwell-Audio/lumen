@@ -57,9 +57,11 @@ pub(crate) fn whole_file(
         Some(period) if period > Ticks::ZERO => clip.start - clip.loop_phase,
         _ => clip.start,
     };
-    let window_end = match clip.loop_length {
-        Some(period) if period > Ticks::ZERO => origin + period,
-        _ => clip.start + clip.length,
+    // The bright window is what the clip plays: a loop's one repeat, or
+    // the clip itself when it is shorter than its loop.
+    let (window_start, window_end) = match clip.loop_length {
+        Some(period) if period > Ticks::ZERO && clip.length >= period => (origin, origin + period),
+        _ => (clip.start, clip.start + clip.length),
     };
     // The frame the clip plays at its origin: the first wave of a copy that
     // starts there and does not loop.
@@ -91,7 +93,7 @@ pub(crate) fn whole_file(
         from: spans.first()?.start,
         to: spans.last()?.end,
         spans,
-        window: (origin.as_quarters(), window_end.as_quarters()),
+        window: (window_start.as_quarters(), window_end.as_quarters()),
     })
 }
 
@@ -221,6 +223,41 @@ mod tests {
         let file = whole_file(&clip, &tempo(120.0), RATE, 480_000, source).expect("the file");
         assert_eq!(file.window, (7.0, 11.0));
         assert!((file.frame_at(7.0).expect("origin") - 0.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn a_clip_with_a_phase_keeps_its_frames_at_their_times() {
+        // A phase of a quarter second: the clip at beat 8 plays frame 12,000,
+        // so the file starts half a beat earlier than with no phase.
+        let mut clip = clip(8, 4, 0);
+        clip.audio_phase_seconds = 0.25;
+        let file = whole_file(&clip, &tempo(120.0), RATE, 480_000, source).expect("the file");
+        let at_start = file.frame_at(8.0).expect("in the file");
+        assert!((at_start - 12_000.0).abs() < 1.0, "{at_start}");
+        assert!((file.from - 7.5).abs() < 1e-6, "{}", file.from);
+    }
+
+    #[test]
+    fn a_reversed_clip_reads_its_reversed_twin() {
+        let mut clip = clip(0, 4, 0);
+        clip.reversed = true;
+        let twin = crate::media::reversed_key(9);
+        let asked = std::cell::Cell::new(None);
+        let file = whole_file(&clip, &tempo(120.0), RATE, 48_000, |key| {
+            asked.set(Some(key));
+            source(key)
+        })
+        .expect("the file");
+        assert_eq!(asked.get(), Some(twin));
+        assert!(file.spans.iter().all(|s| s.media == twin));
+    }
+
+    #[test]
+    fn a_looping_clip_shorter_than_its_loop_shows_only_what_it_plays() {
+        let mut clip = clip(8, 2, 0);
+        clip.loop_length = Some(Ticks::quarters(4));
+        let file = whole_file(&clip, &tempo(120.0), RATE, 480_000, source).expect("the file");
+        assert_eq!(file.window, (8.0, 10.0));
     }
 
     #[test]

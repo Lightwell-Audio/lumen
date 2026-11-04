@@ -5,7 +5,7 @@
 //! and file time. Only the columns in view are drawn, so a one-hour file
 //! costs what a one-second one does.
 
-use eframe::egui::{self, Align2, Color32, FontId, Painter, Rect, Stroke, pos2, vec2};
+use eframe::egui::{self, Color32, FontId, Painter, Rect, Stroke, pos2, vec2};
 use lumen_core::grid::{Level, Line};
 use lumen_core::meter::MeterMap;
 use lumen_media::Peaks;
@@ -16,8 +16,10 @@ use crate::theme;
 use crate::timeview::TimeView;
 
 /// Below this many frames per physical pixel the wave is drawn sample by
-/// sample (when the samples are there).
-pub(crate) const SAMPLES_BELOW: f64 = 1.0;
+/// sample (when the samples are there). The finest peaks are 16 frames a
+/// bucket, so between this and 16 they show as small steps; 4 keeps a
+/// 4,096-pixel view within the samples read for one frame.
+pub(crate) const SAMPLES_BELOW: f64 = 4.0;
 /// From this many physical pixels per frame, each sample is a dot too.
 const DOTS_FROM: f64 = 6.0;
 /// The wave splits into left over right from this height (points).
@@ -112,7 +114,11 @@ pub(crate) fn wave(painter: &Painter, lane: Rect, input: &WaveInput<'_>) {
         lane.y_range(),
     );
     if file_rect.width() > 0.0 {
-        painter.rect_filled(file_rect, 0.0, palette.well.gamma_multiply(0.7));
+        painter.rect_filled(
+            file_rect,
+            0.0,
+            palette.well.gamma_multiply(theme::OUTSIDE_WASH),
+        );
         let window = Rect::from_x_y_ranges(
             x(w0).max(file_rect.left())..=x(w1).min(file_rect.right()),
             lane.y_range(),
@@ -239,14 +245,10 @@ fn sample_lines(
     let mut colours = Vec::with_capacity(samples.frames.len());
     for (i, s) in samples.frames.iter().enumerate() {
         let frame = (samples.first + i as i64) as f64;
-        let Some(span) = file.spans.iter().find(|sp| {
-            frame >= sp.first_frame
-                && frame < sp.first_frame + (sp.end - sp.start) * sp.frames_per_beat
-        }) else {
+        let Some((q, gain)) = beat_and_gain(file, frame) else {
             continue;
         };
-        let q = span.start + (frame - span.first_frame) / span.frames_per_beat;
-        let level = level_at(input, q, span.gain);
+        let level = level_at(input, q, gain);
         let x = input.time.x(lane.left(), q);
         points.push(pos2(x, middle - value(*s) * level * half));
         let inside = q >= file.window.0 && q < file.window.1;
@@ -257,7 +259,10 @@ fn sample_lines(
         });
     }
     for pair in points.windows(2).zip(&colours) {
-        painter.line_segment([pair.0[0], pair.0[1]], Stroke::new(1.0, *pair.1));
+        painter.line_segment(
+            [pair.0[0], pair.0[1]],
+            Stroke::new(theme::stroke::HAIRLINE, *pair.1),
+        );
     }
     let spacing = points
         .windows(2)
@@ -265,7 +270,7 @@ fn sample_lines(
         .map_or(0.0, |p| f64::from((p[1].x - p[0].x) * ppp));
     if spacing >= DOTS_FROM {
         for (p, c) in points.iter().zip(&colours) {
-            painter.circle_filled(*p, 2.0, *c);
+            painter.circle_filled(*p, theme::size::SAMPLE_DOT, *c);
         }
     }
 }
@@ -290,36 +295,50 @@ pub(crate) fn ruler(
     let (w0, w1) = file.window;
     painter.rect_filled(
         Rect::from_min_max(
-            pos2(x(w0).max(strip.left()), strip.bottom() - 3.0),
+            pos2(
+                x(w0).max(strip.left()),
+                strip.bottom() - theme::size::RULER_BAND,
+            ),
             pos2(x(w1).min(strip.right()).max(x(w0)), strip.bottom()),
         ),
         0.0,
         palette.accent_muted,
     );
     let mid = strip.top() + strip.height() / 2.0;
-    let mut last_label = f32::NEG_INFINITY;
+    // Bar numbers every 1, 2, 4… bars, by bar number, so the same bars keep
+    // their labels while the view scrolls.
+    let label_font = FontId::monospace(theme::size::SCALE);
+    let every = bar_label_step(lines, time);
     for line in lines {
         let lx = x(line.at.as_quarters());
         match line.level {
             Level::Bar => {
                 painter.vline(
                     lx,
-                    strip.top() + 4.0..=mid,
-                    Stroke::new(1.0, palette.grid_bar),
+                    strip.top() + theme::space::XS..=mid,
+                    Stroke::new(theme::stroke::HAIRLINE, palette.grid_bar),
                 );
-                if lx - last_label > theme::size::BAR_NUMBER_ROOM {
-                    last_label = lx;
-                    painter.text(
-                        pos2(lx + 3.0, strip.top() + 2.0),
-                        Align2::LEFT_TOP,
-                        format!("{}", meter.bbt_at(line.at).bar + 1),
-                        FontId::monospace(theme::size::SCALE),
-                        palette.text_secondary,
+                let bar = meter.bbt_at(line.at).bar;
+                if bar.rem_euclid(every) == 0 {
+                    let text = format!("{}", bar + 1);
+                    let galley =
+                        painter.layout_no_wrap(text, label_font.clone(), palette.text_secondary);
+                    // A label that would be cut at the right edge is left out.
+                    let at = pos2(
+                        lx + theme::space::XXS + 1.0,
+                        strip.top() + theme::space::XXS,
                     );
+                    if at.x + galley.size().x <= strip.right() {
+                        painter.galley(at, galley, palette.text_secondary);
+                    }
                 }
             }
             Level::Beat => {
-                painter.vline(lx, mid - 5.0..=mid, Stroke::new(1.0, palette.grid_beat));
+                painter.vline(
+                    lx,
+                    mid - theme::size::BEAT_TICK..=mid,
+                    Stroke::new(theme::stroke::HAIRLINE, palette.grid_beat),
+                );
             }
             Level::Sub => {}
         }
@@ -339,16 +358,21 @@ pub(crate) fn ruler(
                     let lx = x(q);
                     painter.vline(
                         lx,
-                        strip.bottom() - 6.0..=strip.bottom(),
-                        Stroke::new(1.0, palette.border_strong),
+                        strip.bottom() - theme::size::TIME_TICK..=strip.bottom(),
+                        Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
                     );
-                    painter.text(
-                        pos2(lx + 3.0, strip.bottom() - 3.0),
-                        Align2::LEFT_BOTTOM,
+                    let galley = painter.layout_no_wrap(
                         seconds_text(t, step),
-                        FontId::monospace(theme::size::SCALE),
+                        label_font.clone(),
                         palette.text_hint,
                     );
+                    let at = pos2(
+                        lx + theme::space::XXS + 1.0,
+                        strip.bottom() - theme::size::RULER_BAND - galley.size().y,
+                    );
+                    if at.x + galley.size().x <= strip.right() {
+                        painter.galley(at, galley, palette.text_hint);
+                    }
                 }
                 k += 1;
             }
@@ -357,18 +381,42 @@ pub(crate) fn ruler(
     painter.hline(
         strip.x_range(),
         strip.bottom(),
-        Stroke::new(1.0, palette.border),
+        Stroke::new(theme::stroke::HAIRLINE, palette.border),
     );
+}
+
+/// How many bars a bar number stands for at this zoom: 1, 2, 4… so labels
+/// keep `BAR_NUMBER_ROOM` apart.
+fn bar_label_step(lines: &[Line], time: TimeView) -> i64 {
+    let mut bars = lines.iter().filter(|l| l.level == Level::Bar);
+    let (Some(a), Some(b)) = (bars.next(), bars.next()) else {
+        return 1;
+    };
+    let per_bar = ((b.at - a.at).as_quarters() * time.zoom) as f32;
+    let mut every = 1;
+    while per_bar * (every as f32) < theme::size::BAR_NUMBER_ROOM && every < 1 << 20 {
+        every *= 2;
+    }
+    every
+}
+
+/// The beat where device-rate `frame` of the file plays, and the gain of the
+/// span it is in. The spans follow each other in frames as in time (the
+/// file is mapped without a loop), so this is a binary search.
+fn beat_and_gain(file: &WholeFile, frame: f64) -> Option<(f64, f32)> {
+    let end =
+        |s: &crate::arrangement::waves::Span| s.first_frame + (s.end - s.start) * s.frames_per_beat;
+    let i = file.spans.partition_point(|s| end(s) <= frame);
+    let s = file.spans.get(i).filter(|s| frame >= s.first_frame)?;
+    Some((
+        s.start + (frame - s.first_frame) / s.frames_per_beat,
+        s.gain,
+    ))
 }
 
 /// The beat where device-rate `frame` of the file plays.
 fn beat_of_frame(file: &WholeFile, frame: f64) -> Option<f64> {
-    file.spans
-        .iter()
-        .find(|s| {
-            frame >= s.first_frame && frame < s.first_frame + (s.end - s.start) * s.frames_per_beat
-        })
-        .map(|s| s.start + (frame - s.first_frame) / s.frames_per_beat)
+    beat_and_gain(file, frame).map(|(q, _)| q)
 }
 
 /// A step in seconds that keeps time labels `TIME_LABEL_ROOM` apart.

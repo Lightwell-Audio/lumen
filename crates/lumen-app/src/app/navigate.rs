@@ -437,7 +437,12 @@ pub(crate) fn end_of_song(project: &lumen_project::model::Project) -> Option<Tic
 
 /// Where `follow` puts a view showing `width` points so the playhead at
 /// `head` stays in sight; `None` when it need not move.
-fn follow_view(view: TimeView, follow: Follow, head: f64, width: f64) -> Option<TimeView> {
+pub(crate) fn follow_view(
+    view: TimeView,
+    follow: Follow,
+    head: f64,
+    width: f64,
+) -> Option<TimeView> {
     let span = width / view.zoom;
     let left = match follow {
         Follow::Off => return None,

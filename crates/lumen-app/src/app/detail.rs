@@ -95,6 +95,8 @@ impl App {
         };
         self.close_note_editor();
         self.detail.opened_audio = Some(clip);
+        // Opening a clip frames the editor on it, even the same one again.
+        self.audio_editor.framed_for = None;
         self.detail.anchor = Some(track);
         self.detail_tab = DetailTab::Clip;
         self.show_detail = true;

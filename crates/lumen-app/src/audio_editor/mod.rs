@@ -48,8 +48,29 @@ pub(crate) struct AudioEditor {
     pub hovered_before: bool,
     /// Reads samples of files played from disk for the deepest zoom.
     pub reader: StripReader,
-    /// What was drawn last (tests, and the commands' availability).
+    /// What was drawn last (tests).
     pub last: Option<Drawn>,
+    /// The opened clip's file on the timeline, and what it was worked out
+    /// from: kept until one of those changes.
+    pub file: Option<FileCache>,
+    /// Samples around the view at the deepest zoom.
+    pub samples: Option<SampleCache>,
+}
+
+/// [`source::WholeFile`] and what it was worked out from.
+pub(crate) struct FileCache {
+    pub clip: std::sync::Arc<lumen_project::model::Clip>,
+    pub tempo: Vec<lumen_core::time::TempoPoint>,
+    pub rate: u32,
+    pub frames: u64,
+    pub file: source::WholeFile,
+}
+
+/// Samples of one file (by its media key) from device-rate frame `first`.
+pub(crate) struct SampleCache {
+    pub key: u64,
+    pub first: i64,
+    pub frames: Vec<[i16; 2]>,
 }
 
 /// Where the editor drew, last frame.

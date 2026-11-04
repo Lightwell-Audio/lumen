@@ -882,19 +882,24 @@ onto an empty page.
     on top, at least 32 pt apart (`BAR_NUMBER_ROOM`), with the grid's bar and
     beat ticks; the file's own time under them in `text_hint`, as m:ss with
     as many decimals as the step needs, at least 64 pt apart
-    (`TIME_LABEL_ROOM`); the clip's window as a 3 pt `accent_muted` band on
-    its bottom edge;
+    (`TIME_LABEL_ROOM`), a label that would be cut at the right edge left
+    out; bar numbers every 1, 2, 4… bars by number, so they hold still while
+    scrolling; the clip's window as a 3 pt `accent_muted` band on its bottom
+    edge (`size::RULER_BAND`);
   - the clip's whole file on `canvas` with the grid's lines: the part the
     clip plays on `clip_body`, in the track colour (`theme::wave`), at its
     gain and through its fades; the rest of the file on a `well` wash at
-    70%, in `text_hint` at 55%, as the file is. One column per physical
-    pixel from the peaks; below one frame a pixel, a line through the
-    samples, with a dot on each from 6 pixels apart. A stereo file is left
+    70% (`OUTSIDE_WASH`), in `text_hint` at 55% (`WAVE_OUTSIDE`), as the
+    file is. One column per physical pixel from the peaks; below 4 frames a
+    pixel, a line through the samples, with a 2 pt dot (`size::SAMPLE_DOT`)
+    on each from 6 pixels apart. A stereo file is left
     over right from 96 pt tall (`size::WAVE_SPLIT`);
   - the playhead as in the note editor (the arrangement's beam while
     playing);
-  - designed states: "Reading the file" while it loads, and "This clip's
-    file cannot be read" with the way to Locate media.
+  - designed states: "Reading the file" while it loads; "This clip's file
+    cannot be read" with **Open the media pool** (where Locate finds it);
+    "This clip's wave cannot be shown" when the file does not reach the part
+    the clip plays.
 - **Commands:** Show devices, Show clip and Show mixer (no default keys);
   Show clip needs an open clip.
 

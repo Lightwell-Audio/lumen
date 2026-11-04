@@ -39,7 +39,14 @@ use crate::{App, document::NewClip};
 
 pub(crate) use ops::{NoteOp, VELOCITY_STEP};
 
-pub(crate) use crate::app::clip_header::Tool;
+/// What a click or drag in a clip editor does (both editors' tool switch,
+/// `app::clip_header`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Tool {
+    #[default]
+    Pointer,
+    Draw,
+}
 
 /// What the right-click menu is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

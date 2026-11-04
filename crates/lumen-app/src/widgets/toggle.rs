@@ -1014,6 +1014,49 @@ mod tests {
         }
     }
 
+    /// The colour each label is drawn in, by its text.
+    fn label_colours(shapes: &[egui::Shape]) -> Vec<(String, Option<egui::Color32>)> {
+        shapes
+            .iter()
+            .filter_map(|shape| match shape {
+                egui::Shape::Text(text) => {
+                    Some((text.galley.text().to_owned(), text.override_text_color))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_tool_switch_is_grey_for_pointer_and_lit_for_draw() {
+        // The owner's TL C: the resting tool is the neutral thumb, a drawing
+        // tool is filled in the accent.
+        let ctx = context();
+        let list = [Choice::new(0, "Pointer"), Choice::new(1, "Draw")];
+        let resting = frame(&ctx, 0.0, 0.0, &mut |ui| {
+            segmented_tool(ui, EguiId::new("tool"), 0, &list, None);
+        });
+        let palette = theme::p();
+        let on_accent = theme::lit(Tone::Accent).text;
+        let colours = label_colours(&resting);
+        assert!(
+            colours.contains(&("Pointer".into(), Some(palette.text))),
+            "{colours:?}"
+        );
+        assert!(
+            !colours.iter().any(|(_, c)| *c == Some(on_accent)),
+            "{colours:?}"
+        );
+        let drawing = frame(&ctx, 0.0, 0.0, &mut |ui| {
+            segmented_tool(ui, EguiId::new("tool"), 1, &list, Some(Tone::Accent));
+        });
+        let colours = label_colours(&drawing);
+        assert!(
+            colours.contains(&("Draw".into(), Some(on_accent))),
+            "{colours:?}"
+        );
+    }
+
     #[test]
     fn one_span_and_none() {
         assert_eq!(slide_between(&[(5.0, 9.0)], 0.0), (5.0, 9.0));

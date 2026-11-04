@@ -10831,34 +10831,58 @@ control (KC C).
    (`audio_editor/paint.rs`), as the Clip tab already was, rather than on the
    GPU: the arrangement's waves live in a box layer with a peak atlas of up to
    128 MB, which a second canvas would duplicate; the columns are only those
-   in view (a few thousand), each a few buckets of the right level. Below one
-   frame a pixel, the samples come from memory, or for a file played from
-   disk from the arrangement's strip reader on its worker
-   (`arrangement::samples::StripReader`, now shared), at most 16,384 a frame;
-   until they arrive the peaks are drawn.
+   in view (a few thousand), each a few buckets of the right level. Below 4
+   frames a pixel the samples are drawn: from memory, or for a file played
+   from disk from the arrangement's strip reader on its worker
+   (`arrangement::samples::StripReader`, now shared). They are asked for with
+   a screen's width to spare either side and kept while the view stays
+   inside them (`audio_editor::SampleCache`), so a streamed file is read once,
+   not every frame; until they arrive the peaks are drawn. The file's place
+   on the timeline is cached too (`FileCache`, until the clip, the tempo, the
+   rate or the file changes).
 4. **The view is the editor's own** (ADR-0048): fitted to the clip when it
-   opens, Ctrl+wheel and the zoom keys zoom around the pointer (or the
-   playhead), the wheel scrolls; it pages with the playhead while playing
-   under Follow, as the arrangement does. Its limits reach the whole file
-   with room, and the arrangement's deepest zoom (8 points a sample).
+   opens (each time it is opened), Ctrl+wheel and the zoom keys zoom around
+   the pointer (or the playhead), the wheel scrolls; while playing it follows
+   the playhead by the arrangement's own rule (`navigate::follow_view`: Page
+   or Continuous), and looking around (wheel, zoom, a fit, a ruler click)
+   pauses Follow, as it does in the arrangement. Its limits reach the whole
+   file with room, and the arrangement's deepest zoom (8 points a sample).
 5. **Two commands**, at the end of the table: "Zoom the audio editor to the
    clip" and "Show the whole file in the audio editor", also the header's
    Zoom to clip and Whole file. No default keys.
 6. **Layout, for now.** The clip card's rows stay in the left column; S3
    replaces them with the strip (L B). This keeps every property reachable
    meanwhile.
+7. **The audio header has no tool switch in S1.** Pointer and Draw arrive in
+   S2 with the handles, when Draw has something to draw (the envelope); a
+   switch with nothing behind Draw would be a stub. Its other parts (title,
+   grid chip, right-hand group) are the shared ones in the shared places.
 
 **Consequences.** The playhead drawing is one function both editors call
 (`App::paint_editor_playhead`). `theme::size::CLIP_RULER` is 30 pt (two
 rows); `TIME_LABEL_ROOM` and `WAVE_SPLIT` are new size tokens. No format
 change.
 
+**Review round 1** (an independent read of S0 and S1) found, and this ADR's
+slice fixed: streamed samples read again every frame; Follow without
+Continuous and fighting a scroll; a KC test that could not fail; a short
+looping clip's window; per-frame work and literals; the samples threshold
+under the peaks' bucket size; thin error states; `Tool` defined in `app/`
+and re-exported by the component. Declined, with reasons, in the report: the
+note editor's older `impl App` blocks (a move of their own), and the
+header's few literals carried over unchanged from the note editor.
+
 **Verified.** Unit tests of the mapping (offset, a file cut at the song
-start, a tempo change frame for frame, a loop, lookup, a MIDI clip) and of
-the time labels; E2E `audio_editor` (the file and window, Whole file and the
-palette command, the zoom keys down to samples with the arrangement still,
-the ruler moving the playhead, and both editors' headers: same parts, order
-and heights, no key in the Draw piece); the shots `detail_tabs` and
-`audio_clip_editor` in both themes at 100, 150 and 200%. **Not verified:**
-the frame time on a one-hour file at every zoom (no Windows machine here; a
-bench is S2's), and how it looks on the owner's display.
+start, a tempo change frame for frame, a loop and a loop longer than its
+clip, a phase, a reversed clip's twin, lookup, a MIDI clip), of the time
+labels, and of the tool switch (Pointer chosen is not lit, Draw chosen is;
+no key is painted in a piece); E2E `audio_editor` (9 scenarios: the file and
+window, Whole file by button and palette, the zoom keys down to samples with
+the arrangement still and to the arrangement when the pointer is there, the
+wheel and Ctrl+wheel, Follow paging and pausing on a scroll, samples of a
+file played from disk staying drawn, the ruler moving the playhead, and the
+two headers' title and grid chip in the same order and heights, with Draw's
+key in its tooltip); the shots `detail_tabs` and `audio_clip_editor` in both
+themes at 100, 150 and 200%. **Not verified:** the frame time on a one-hour
+file at every zoom (no Windows machine here; the bench is S2's), and how it
+looks on the owner's display.

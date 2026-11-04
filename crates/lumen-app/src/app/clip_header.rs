@@ -22,7 +22,7 @@ use eframe::emath::GuiRounding as _;
 
 use crate::commands::Command;
 use crate::icons::{self, Icon};
-use crate::note_editor::glyphs;
+use crate::note_editor::{Tool, glyphs};
 use crate::theme::Tone;
 use crate::timeview::TimeView;
 use crate::widgets::{self, Choice, raised};
@@ -36,14 +36,6 @@ const BAR: egui::Vec2 = vec2(8.0, 22.0);
 const CHIP_ICON: f32 = 13.0;
 /// The widest the name and caption get before they are cut.
 const TITLE_WIDTH: f32 = 220.0;
-
-/// What a click or drag in a clip editor does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum Tool {
-    #[default]
-    Pointer,
-    Draw,
-}
 
 /// A header being drawn: its left-to-right row.
 pub(crate) struct HeaderStrip {

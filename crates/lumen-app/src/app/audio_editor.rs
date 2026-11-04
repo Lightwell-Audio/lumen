@@ -26,7 +26,6 @@ use crate::audio_editor::{AudioEditor, Drawn, Fit};
 use crate::commands::Command;
 use crate::media::State;
 use crate::note_editor::EditorZoom;
-use crate::settings::Follow;
 use crate::timeview::{Limits, TimeView};
 use crate::widgets::{self, raised};
 use crate::{App, theme};
@@ -130,16 +129,31 @@ impl App {
         };
         let colour = arrangement::clip_color(&track, &clip);
         let rate = self.lanes.rate();
-        let loaded = Self::file_key(&clip).and_then(|key| self.loaded(key));
+        let key = Self::file_key(&clip);
+        let loaded = key.and_then(|key| self.loaded(key));
+        // The file's place on the timeline, worked out again only when the
+        // clip, the tempo, the rate or the file changes.
         let file = loaded.as_ref().and_then(|l| {
-            let source = l.source;
-            source::whole_file(
-                &clip,
-                &self.transport.timeline.tempo,
-                rate,
-                l.audio.frames() as u64,
-                move |_| Some(source),
-            )
+            let tempo = &self.transport.timeline.tempo;
+            let frames = l.audio.frames() as u64;
+            let fresh = ed.file.as_ref().is_some_and(|c| {
+                Arc::ptr_eq(&c.clip, &clip)
+                    && c.rate == rate
+                    && c.frames == frames
+                    && c.tempo.as_slice() == tempo.points()
+            });
+            if !fresh {
+                let source = l.source;
+                ed.file = source::whole_file(&clip, tempo, rate, frames, move |_| Some(source))
+                    .map(|file| crate::audio_editor::FileCache {
+                        clip: Arc::clone(&clip),
+                        tempo: tempo.points().to_vec(),
+                        rate,
+                        frames,
+                        file,
+                    });
+            }
+            ed.file.as_ref().map(|c| c.file.clone())
         });
 
         let header = Rect::from_min_size(area.min, vec2(area.width(), HEADER));
@@ -160,40 +174,20 @@ impl App {
                     body.width(),
                     self.file_limits(file, body.width()),
                 );
+                self.transport.follow_paused = true;
             }
         }
         self.audio_header(ui, header, &clip, colour, file.as_ref(), ed);
-        let Some(file) = file else {
+        let (Some(file), Some(loaded)) = (file, loaded) else {
+            // Nothing to zoom: keys pressed now do not wait for a file.
+            ed.zooms.clear();
             ed.hovered = false;
             ed.last = None;
-            let missing = Self::file_key(&clip).is_some_and(|key| {
-                self.lanes
-                    .library
-                    .with_twins()
-                    .find(|i| i.id == key)
-                    .is_some_and(|i| matches!(i.state, State::Failed(_)))
-            });
-            let state = if missing {
-                widgets::EmptyState {
-                    icon: None,
-                    icon_size: theme::space::L,
-                    title: "This clip's file cannot be read",
-                    hint: "If it moved, find it with Locate media in the media pool, and its wave comes back",
-                    action: None,
-                }
-            } else {
-                widgets::EmptyState {
-                    icon: None,
-                    icon_size: theme::space::L,
-                    title: "Reading the file",
-                    hint: "Its wave appears here as soon as it is read",
-                    action: None,
-                }
-            };
-            widgets::empty_state(ui, Rect::from_min_max(ruler.min, area.max), &state);
+            self.audio_empty_state(ui, Rect::from_min_max(ruler.min, area.max), key);
             return;
         };
         if body.height() < MIN_BODY || body.width() < MIN_BODY {
+            ed.zooms.clear();
             return;
         }
 
@@ -203,20 +197,25 @@ impl App {
         let on_top = |p: Pos2| ctx.layer_id_at(p) == Some(layer);
         let over =
             pointer.filter(|p| Rect::from_min_max(ruler.min, area.max).contains(*p) && on_top(*p));
-        audio_zoom_keys(
+        let zoomed = audio_zoom_keys(
             ed,
             body,
             pointer,
             self.transport.playhead().as_quarters(),
             limits,
         );
-        audio_wheel(&ctx, over, body, &mut ed.time, limits);
-        self.audio_follow(ed, body, limits);
+        let wheeled = audio_wheel(&ctx, over, body, &mut ed.time, limits);
+        if zoomed || wheeled {
+            // Looking around pauses Follow, as in the arrangement.
+            self.transport.follow_paused = true;
+        }
+        self.audio_follow(ed, body);
         ed.hovered = over.is_some();
 
-        // The areas that take the pointer.
+        // The areas that take the pointer. The wave has no click of its own
+        // yet (its handles are S2), so it only names itself.
         let base = ui.id().with(("audio editor", clip.id.0));
-        let wave_response = ui.interact(body, base.with("wave"), Sense::click());
+        let wave_response = ui.interact(body, base.with("wave"), Sense::hover());
         wave_response.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Other,
@@ -243,10 +242,10 @@ impl App {
 
         // What to draw.
         let painter = ui.painter().clone();
-        let meter = self.transport.timeline.meter.clone();
+        let meter = &self.transport.timeline.meter;
         let from = ticks_at(ed.time, body.left(), body.left()).max(Ticks::ZERO);
         let to = ticks_at(ed.time, body.left(), body.right()).max(from);
-        let lines = self.grid.lines(&meter, from, to, ed.time.zoom);
+        let lines = self.grid.lines(meter, from, to, ed.time.zoom);
         let palette = theme::p();
         painter.rect_filled(body, 0.0, palette.canvas);
         for line in &lines {
@@ -256,27 +255,38 @@ impl App {
                 lumen_core::grid::Level::Beat => palette.grid_beat,
                 lumen_core::grid::Level::Sub => palette.grid_sub,
             };
-            painter.vline(x, body.y_range(), egui::Stroke::new(1.0, ink));
+            painter.vline(
+                x,
+                body.y_range(),
+                egui::Stroke::new(theme::stroke::HAIRLINE, ink),
+            );
         }
-        let loaded = loaded.expect("a file implies its loaded audio");
         let ppp = ctx.pixels_per_point();
         let middle_q = ed.time.beat_at(body.left(), body.center().x);
         let deep = paint::frames_per_pixel(&file, ed.time, middle_q, ppp)
             .or_else(|| paint::frames_per_pixel(&file, ed.time, file.window.0, ppp))
             .is_some_and(|f| f < SAMPLES_BELOW);
-        let samples = if deep {
-            paint::visible_frames(&file, ed.time, body).and_then(|(a, b)| {
-                let count = (b - a + 1).clamp(0, MOST_SAMPLES) as u32;
-                ed.reader
-                    .samples(&loaded.audio, a, count, &ctx)
-                    .map(|s| (a, s))
-            })
+        let wanted = if deep {
+            paint::visible_frames(&file, ed.time, body)
         } else {
             None
         };
+        if let (Some((a, b)), Some(key)) = (wanted, key) {
+            self.audio_samples(ed, &loaded, key, (a, b), &ctx);
+        }
+        let samples = wanted.and_then(|(a, b)| {
+            let cache = ed.samples.as_ref()?;
+            let len = cache.frames.len() as i64;
+            let covers = key == Some(cache.key) && cache.first <= a && b < cache.first + len;
+            covers.then(|| Samples {
+                first: a,
+                frames: &cache.frames[(a - cache.first) as usize..=(b - cache.first) as usize],
+            })
+        });
+        let drew_samples = samples.is_some();
         let look = WaveLook {
             bright: theme::wave(colour),
-            dim: palette.text_hint.gamma_multiply(0.55),
+            dim: palette.text_hint.gamma_multiply(theme::WAVE_OUTSIDE),
         };
         let input = WaveInput {
             file: &file,
@@ -285,13 +295,10 @@ impl App {
             time: ed.time,
             look,
             split: loaded.source.channels > 1 && body.height() >= SPLIT_FROM,
-            samples: samples.as_ref().map(|(first, frames)| Samples {
-                first: *first,
-                frames,
-            }),
+            samples,
         };
         paint::wave(&painter, body, &input);
-        paint::ruler(&painter, ruler, ed.time, &lines, &meter, &file, rate);
+        paint::ruler(&painter, ruler, ed.time, &lines, meter, &file, rate);
         self.paint_editor_playhead(&painter, ed.time, body, ruler.top());
         ed.last = Some(Drawn {
             clip: clip.id,
@@ -299,12 +306,76 @@ impl App {
             time: ed.time,
             window: file.window,
             file: (file.from, file.to),
-            samples: samples.is_some(),
+            samples: drew_samples,
         });
         if let Some(p) = pointer.filter(|p| body.contains(*p) && on_top(*p))
             && !egui::Popup::is_any_open(&ctx)
         {
             self.audio_info(&file, ed.time, body, p, rate);
+        }
+    }
+
+    /// Keeps the samples for `want` (the frames in view) at hand: they are
+    /// asked for with a screen's width to spare on either side, and kept
+    /// while the view stays inside them, so a file played from disk is not
+    /// read again every frame.
+    fn audio_samples(
+        &self,
+        ed: &mut AudioEditor,
+        loaded: &Loaded,
+        key: u64,
+        (a, b): (i64, i64),
+        ctx: &egui::Context,
+    ) {
+        let covered = ed
+            .samples
+            .as_ref()
+            .is_some_and(|c| c.key == key && c.first <= a && b < c.first + c.frames.len() as i64);
+        if covered {
+            return;
+        }
+        let width = (b - a + 1).clamp(1, MOST_SAMPLES);
+        let first = (a - width).max(0);
+        let count = (3 * width) as u32;
+        if let Some(frames) = ed.reader.samples(&loaded.audio, first, count, ctx) {
+            ed.samples = Some(crate::audio_editor::SampleCache { key, first, frames });
+        }
+    }
+
+    /// What the editor says when it cannot draw the clip's file.
+    fn audio_empty_state(&mut self, ui: &mut Ui, rect: Rect, key: Option<u64>) {
+        let item = key.and_then(|key| self.lanes.library.with_twins().find(|i| i.id == key));
+        let (title, hint, pool) = match item.map(|i| &i.state) {
+            Some(State::Failed(_)) => (
+                "This clip's file cannot be read",
+                "It may have moved, or it is not a kind of audio file that can be read. The media pool can find it again.",
+                true,
+            ),
+            Some(State::Ready(_)) => (
+                "This clip's wave cannot be shown",
+                "Its file is loaded but does not reach the part the clip plays. The clip still plays as it is.",
+                false,
+            ),
+            _ => (
+                "Reading the file",
+                "Its wave appears here as soon as it is read",
+                false,
+            ),
+        };
+        let keys = self.keymap.keys(Command::MediaPool);
+        let state = widgets::EmptyState {
+            icon: None,
+            icon_size: theme::space::L,
+            title,
+            hint,
+            action: pool.then_some(widgets::EmptyAction {
+                label: "Open the media pool",
+                keys: keys.as_ref(),
+                tip: "Lists every file the project uses, with Locate for the missing ones",
+            }),
+        };
+        if widgets::empty_state(ui, rect, &state) {
+            self.show_media_pool();
         }
     }
 
@@ -382,23 +453,22 @@ impl App {
         }
     }
 
-    /// The view pages with the playhead while playing, as the arrangement
-    /// does (Follow: Page or Continuous), unless the user moved the view.
-    fn audio_follow(&self, ed: &mut AudioEditor, body: Rect, limits: Limits) {
-        let state = self.transport.state();
-        if !state.playing || self.transport.follow == Follow::Off || self.transport.follow_paused {
+    /// The view follows the playhead while playing, as the arrangement's
+    /// does (`navigate::follow_view`: Page turns a page at the right edge,
+    /// Continuous scrolls under a playhead that stays in place), unless
+    /// looking around paused it.
+    fn audio_follow(&self, ed: &mut AudioEditor, body: Rect) {
+        if !self.transport.state().playing || self.transport.follow_paused {
             return;
         }
-        let at = self.transport.playhead().as_quarters();
-        let x = ed.time.x(body.left(), at);
-        let margin = body.width() * 0.05;
-        if x < body.left() || x > body.right() - margin {
-            let width = f64::from(body.width()) / ed.time.zoom;
-            ed.time = TimeView {
-                left: at - width * 0.05,
-                ..ed.time
-            }
-            .showing(at, at, limits);
+        let head = self.transport.playhead().as_quarters();
+        if let Some(view) = super::navigate::follow_view(
+            ed.time,
+            self.transport.follow,
+            head,
+            f64::from(body.width()),
+        ) {
+            ed.time = view;
         }
     }
 
@@ -521,9 +591,9 @@ fn audio_zoom_keys(
     pointer: Option<Pos2>,
     playhead: f64,
     limits: Limits,
-) {
+) -> bool {
     if ed.zooms.is_empty() {
-        return;
+        return false;
     }
     let anchor = pointer.filter(|p| body.contains(*p)).map_or_else(
         || {
@@ -543,6 +613,7 @@ fn audio_zoom_keys(
         };
         ed.time = ed.time.zoomed(anchor - body.left(), factor, limits);
     }
+    true
 }
 
 /// The wheel over the editor: Ctrl+wheel (or a pinch) zooms around the
@@ -554,19 +625,21 @@ fn audio_wheel(
     body: Rect,
     time: &mut TimeView,
     limits: Limits,
-) {
+) -> bool {
     let Some(pointer) = over else {
-        return;
+        return false;
     };
     let (delta, zoom) = ctx.input(|i| (i.smooth_scroll_delta, i.zoom_delta()));
     if zoom != 1.0 {
         *time = time.zoomed(pointer.x - body.left(), f64::from(zoom), limits);
-    } else {
-        let scroll = if delta.x != 0.0 { delta.x } else { delta.y };
-        if scroll != 0.0 {
-            *time = time.scrolled(scroll, limits);
-        }
+        return true;
     }
+    let scroll = if delta.x != 0.0 { delta.x } else { delta.y };
+    if scroll != 0.0 {
+        *time = time.scrolled(scroll, limits);
+        return true;
+    }
+    false
 }
 
 #[cfg(test)]

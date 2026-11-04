@@ -4,18 +4,24 @@
 //! samples; a click on its ruler moves the playhead; and the note editor and
 //! the audio editor draw the same header (the owner's TL C and KC C).
 
-use eframe::egui::{Event, Key, Modifiers, PointerButton, Pos2};
+use eframe::egui::{Event, Key, Modifiers, MouseWheelUnit, PointerButton, Pos2, TouchPhase, vec2};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::{PPQ, Ticks};
 use lumen_project::model::Id;
 
-use super::{Lumen, midi_play, wav};
+use super::{Lumen, TempDir, midi_play, wav};
 
 /// Lumen with a two-second file dropped in (four beats at 120 BPM), its
 /// clip trimmed to beats 1 to 3 and opened in the Clip tab.
 fn with_trimmed_clip(name: &str) -> (Lumen, Id) {
-    let mut lumen = Lumen::start(name);
-    let kick = wav(&lumen.dir().join("kick.wav"), 2.0);
+    let lumen = Lumen::start(name);
+    open_trimmed(lumen, 2.0)
+}
+
+/// Drops in a file `seconds` long, trims its clip to beats 1 to 3 and opens
+/// it in the Clip tab.
+fn open_trimmed(mut lumen: Lumen, seconds: f32) -> (Lumen, Id) {
+    let kick = wav(&lumen.dir().join("kick.wav"), seconds);
     lumen.drop_files(&[kick]);
     lumen.frames(40);
     let clip = lumen.app().project().tracks[0].clips[0].id;
@@ -152,12 +158,127 @@ fn both_clip_editors_draw_the_same_header() {
     let pointer = lumen.harness.get_by_label("Pointer tool").rect();
     let draw = lumen.harness.get_by_label("Draw tool").rect();
     assert!(midi_title.right() < pointer.left() && draw.right() < midi_grid.left());
-    // KC C: the Draw key is not written in the control.
+    // KC C: the Draw key is in Draw's tooltip (widgets::toggle's unit tests
+    // check that no key is painted inside the piece, and that Pointer is
+    // grey while Draw is lit).
+    lumen.harness.hover_at(draw.center());
+    lumen.frames(40);
     assert!(
-        !lumen
-            .harness
-            .query_all_by_label("B")
-            .any(|n| draw.contains(n.rect().center())),
-        "no key inside the Draw piece"
+        lumen.shows("Click to add a note, drag to set its length, click a note to remove it"),
+        "hovering Draw shows its tooltip"
     );
+}
+
+fn wheel(lumen: &mut Lumen, at: Pos2, delta: f32, modifiers: Modifiers) {
+    lumen.harness.hover_at(at);
+    lumen.frames(1);
+    lumen.harness.event(Event::MouseWheel {
+        unit: MouseWheelUnit::Point,
+        delta: vec2(0.0, delta),
+        modifiers,
+        phase: TouchPhase::Move,
+    });
+    // egui spreads a wheel step over the frames after it: let it settle.
+    lumen.frames(90);
+}
+
+#[test]
+fn the_wheel_scrolls_the_editor_and_ctrl_wheel_zooms_it() {
+    let (mut lumen, _) = with_trimmed_clip("audio-editor-wheel");
+    let before = lumen.app().audio_editor_shown().expect("drawn");
+    let arrangement = lumen.app().view();
+    wheel(&mut lumen, before.body.center(), 120.0, Modifiers::COMMAND);
+    let zoomed = lumen.app().audio_editor_shown().expect("drawn");
+    assert!(zoomed.view.zoom > before.view.zoom, "Ctrl+wheel zooms in");
+    wheel(&mut lumen, zoomed.body.center(), -200.0, Modifiers::NONE);
+    let scrolled = lumen.app().audio_editor_shown().expect("drawn");
+    assert!(
+        scrolled.view.left > zoomed.view.left,
+        "the wheel scrolls later"
+    );
+    assert_eq!(scrolled.view.zoom, zoomed.view.zoom);
+    assert_eq!(lumen.app().view(), arrangement, "the arrangement stays put");
+}
+
+#[test]
+fn the_zoom_keys_zoom_the_arrangement_when_the_pointer_is_there() {
+    let (mut lumen, clip) = with_trimmed_clip("audio-editor-keys-away");
+    let before = lumen.app().audio_editor_shown().expect("drawn");
+    let ctx = lumen.harness.ctx.clone();
+    let lane = lumen
+        .app()
+        .clip_rect(&ctx, clip)
+        .expect("the clip is in view");
+    lumen.harness.hover_at(lane.center());
+    lumen.frames(2);
+    // A click in the arrangement gives it the keyboard.
+    let arrangement = lumen.app().view();
+    click_at(&mut lumen, lane.center());
+    lumen.key(Modifiers::NONE, Key::Plus);
+    lumen.frames(3);
+    assert_ne!(lumen.app().view(), arrangement, "the arrangement zoomed");
+    let after = lumen.app().audio_editor_shown().expect("drawn");
+    assert_eq!(after.view, before.view, "the editor did not");
+}
+
+#[test]
+fn the_palette_shows_the_whole_file() {
+    let (mut lumen, _) = with_trimmed_clip("audio-editor-palette");
+    let before = lumen.app().audio_editor_shown().expect("drawn");
+    midi_play::palette(&mut lumen, "Show the whole file in the audio editor");
+    lumen.frames(3);
+    let whole = lumen.app().audio_editor_shown().expect("drawn");
+    assert!(whole.view.zoom < before.view.zoom);
+    let x = |q: f64| whole.view.x(whole.body.left(), q);
+    assert!(x(0.0) >= whole.body.left() - 1.0 && x(4.0) <= whole.body.right() + 1.0);
+}
+
+#[test]
+fn the_editor_follows_the_playhead_until_the_view_is_moved() {
+    // Ten seconds (twenty beats); framed on beats 1 to 3, playing runs off
+    // the right edge, and Follow (Page) turns the page.
+    let lumen = Lumen::start("audio-editor-follow");
+    let (mut lumen, clip) = open_trimmed(lumen, 10.0);
+    lumen
+        .app_mut()
+        .trim_clip_end_to(clip, Ticks::quarters(20), false);
+    lumen.frames(5);
+    let framed = lumen.app().audio_editor_shown().expect("drawn");
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("the editor to turn a page", |app| {
+        app.audio_editor_shown()
+            .is_some_and(|s| s.view.left > framed.view.left + 1.0)
+    });
+    // Scrolling back pauses Follow: the view stays where it was put.
+    let paged = lumen.app().audio_editor_shown().expect("drawn");
+    wheel(&mut lumen, paged.body.center(), 400.0, Modifiers::NONE);
+    let put = lumen.app().audio_editor_shown().expect("drawn");
+    lumen.frames(60);
+    let later = lumen.app().audio_editor_shown().expect("drawn");
+    assert_eq!(later.view, put.view, "the view stays where it was scrolled");
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback to stop", |app| !app.is_playing());
+}
+
+#[test]
+fn a_file_played_from_disk_shows_its_samples_at_depth() {
+    let lumen = Lumen::start_with(TempDir::new("e2e-audio-editor-disk"), |launch| {
+        launch.playing_from_disk()
+    });
+    let (mut lumen, _) = open_trimmed(lumen, 40.0);
+    assert_eq!(lumen.app().media_from_disk(), [("kick".into(), true)]);
+    let before = lumen.app().audio_editor_shown().expect("drawn");
+    lumen.harness.hover_at(before.body.center());
+    lumen.frames(2);
+    for _ in 0..60 {
+        lumen.key(Modifiers::NONE, Key::Plus);
+    }
+    lumen.wait_for("samples read from disk", |app| {
+        app.audio_editor_shown().is_some_and(|s| s.samples)
+    });
+    // They stay drawn from frame to frame while the view holds still.
+    for _ in 0..20 {
+        lumen.frames(1);
+        assert!(lumen.app().audio_editor_shown().expect("drawn").samples);
+    }
 }
