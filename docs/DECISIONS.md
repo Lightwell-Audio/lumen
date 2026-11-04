@@ -120,7 +120,7 @@ irreversible or external) · *Superseded*.
 | [0116](#adr-0116--the-browsers-files-and-preview-m9-r7c) | The browser's files and preview (M9 R7c) | Accepted 2026-11-02 (MT-BROWSE-1 pending) | No |
 | [0117](#adr-0117--icons-single-instance-and-file-association-m9-r8) | Icons, single instance and file association (M9 R8) | Accepted 2026-11-03 (MT-SYS-1 pending) | No |
 | [0118](#adr-0118--take-recovery-that-survives-every-crash-window-m9-review-h1-to-h6) | Take recovery that survives every crash window (M9 review H1 to H6) | Accepted 2026-11-03 | No |
-| [0119](#adr-0119--the-time-stretch-trial-m95-s0) | The time-stretch trial (M9.5 S0) | Proposed 2026-11-04; the library waits for the owner's ear | Yes (T) |
+| [0119](#adr-0119--the-time-stretch-trial-m95-s0) | The time-stretch trial (M9.5 S0) | Proposed 2026-11-04; the library waits for the owner's ear, and E A's piece length for the owner | Yes (T, E) |
 | [0120](#adr-0120--the-audio-editors-canvas-and-the-shared-clip-header-m95-s1) | The audio editor's canvas and the shared clip header (M9.5 S1) | Accepted 2026-11-04 (MT-CLIP-1 pending) | No |
 
 ---
@@ -10687,7 +10687,7 @@ sold, GPL-3.0-or-later Lumen.
 workspace (so no candidate enters Lumen's `Cargo.lock` or `cargo-deny`). It
 drives every candidate as Lumen would: streaming, a block of input at a time,
 latency removed so the output lines up with the input (checked by
-`check.py`: every render within 10 ms of its original, level within 2 dB). It
+`check.py`: every render within 10 ms and 0.5 dB of its original). It
 writes a blind listening pack and the measurements
 (`tools/stretch-trial/results/`). The pack is published as a private page,
 "Lumen Stretch Trial" (https://claude.ai/artifact/NkH3UNWUD57otsLPFWDbHc).
@@ -10713,15 +10713,27 @@ before reading this table):
 
 **Measurements** (one core of a 2.8 GHz Xeon, one stereo 48 kHz clip, 6
 transforms × 3 sources; medians, with the worst case in brackets;
-`results/summary.json`, re-run on 2026-11-04 after review round 1):
+`results/summary.json` and `results/sustained.json`, the third run, on
+2026-11-04 after review round 2). Two costs are given, because they differ
+by up to ten times: **streaming** is one stretcher run straight through a
+clip (plan E B, or E A with one stretcher per clip); **prepared ahead** is
+plan E A as first specified, every 85 ms piece rendered by a fresh stretcher
+from a 340 ms lead-in, at 0.9 speed, and in brackets the same with 2 s
+pieces.
 
-| Letter | Share of one core per clip | One 85 ms piece after a jump | Own latency | Same bits at any block size | Allocations while playing | Repeats bit for bit |
-|---|---|---|---|---|---|---|
-| A | 2.3% (3.2%) | 17 ms (34) | 203 ms | 12 of 18 (not at 0.9 and 1.1) | None | Yes |
-| B | 7.9% (10.8%) | 45 ms (59) | 21 ms | Yes | None | Yes |
-| C | 2.0% (3.0%) | 11 ms (19) | 120 ms | Yes | None | Yes |
-| D | 4.8% (5.7%) | 27 ms (41) | Not measured | Not measured | Not measured | Yes |
-| E | 16.6% (22.1%) | 112 ms (131) | 43 ms | 6 of 18 | None | Yes |
+| Letter | Share of one core per clip, streaming | Prepared ahead, 85 ms pieces (2 s pieces) | One 85 ms piece after a jump | Own latency | Same bits at any block size | Allocations while playing | Repeats bit for bit |
+|---|---|---|---|---|---|---|---|
+| A | 2.5% (3.3%) | 27% (3.7%) | 18 ms (38) | 203 ms | 12 of 18 (not at 0.9 and 1.1) | None | Yes |
+| B | 8.9% (12.6%) | 77% (11.5%) | 51 ms (69) | 21 ms | Yes | None | Yes |
+| C | 2.0% (3.9%) | 18% (2.9%) | 13 ms (26) | 120 ms | Yes | None | Yes |
+| D | 5.1% (6.4%) | 44% (6.8%) | 34 ms (47) | Not measured | Not measured | Not measured | Yes |
+| E | 19.0% (27.2%) | 178% (26%) | 119 ms (168) | 43 ms | 6 of 18 | None | Yes |
+
+The machine was busier during this run than the first two (the streaming
+medians moved by up to 2 points); the order of the letters did not change.
+E's real-time mode also gives a different output at different block sizes
+in 12 of 18 cases, which is not explained here; E is ruled out on cost
+anyway.
 
 D's API used here renders a whole buffer, so the streaming columns do not
 apply to it; its streaming session API exists and was not tried. A's stream
@@ -10735,9 +10747,13 @@ three faults in the first run: an unfair padding and latency read for A,
 pack levels up to 3.5 dB apart, and allocations counted on `process` only):
 
 - Every render is aligned with its original and the pack is loudness-matched
-  to it (`check.py` fails a render more than 10 ms or 0.5 dB off; all pass),
-  so no letter sounds better by being louder. The measurements are of the
-  renders as they came out.
+  to it, then each source's whole pack (original included) is scaled by one
+  gain so its loudest file peaks at -1 dBFS (drums -5.3 dB, mix -2.4 dB,
+  voice 0 dB). `check.py` fails a render more than 10 ms or 0.5 dB off, or
+  any file at full scale; all pass. The second pack clipped (loudness
+  matching pushed drums for B and D over full scale, found by review round
+  2); this third one does not. The measurements are of the renders as they
+  came out.
 - "Own latency" is each library's own figure, in different units: input plus
   output frames for C, input frames for A, output frames for B and E.
 - Allocations are counted during `process` and `retrieve` after the first
@@ -10751,14 +10767,24 @@ pack levels up to 3.5 dB apart, and allocations counted on `process` only):
 
 **What the numbers mean for Lumen.**
 
-1. **64 stretched tracks** (CLAUDE.md §4) cost about 1.3 cores with C, 1.5
-   with A, 3.1 with D, 5.1 with B and 10.6 with E, on this machine. E cannot
-   play a large stretched session in real time; it could serve an offline
-   "best quality" render only.
-2. **The click-to-sound delay under E A** is the piece time plus the
-   worker's wake-up: about 11 ms with C, 17 with A, 45 with B and 112 with E.
-   The plan's E A bound (about 150 ms, risk 4) holds for every candidate but
-   E, which is near it. E C (the hybrid) is not needed.
+1. **E A as first specified is too costly.** Rendering every 85 ms piece from
+   its own 340 ms lead-in processes about six times the audio: 18% of a core
+   per clip with C, so 64 stretched tracks would need about 12 cores (review
+   round 2 found this; the trial now measures it). With **2 s pieces** the
+   lead-in is amortised: 2.9% per clip with C, about 1.8 cores for 64 tracks,
+   which a worker pool on a mid-range machine carries. Streaming costs about
+   1.3 cores for 64 with C (E B, or one stretcher per clip under E A).
+2. **The click-to-sound delay under E A grows with the piece.** A jump into a
+   stretched clip waits for the piece that holds it. With 2 s pieces that is
+   about 2.3 s of audio to render: about 60 ms with C, 85 ms with A, 270 ms
+   with B and over half a second with E. The plan's bound (about 150 ms, risk
+   4) holds for C and A only. Two ways keep it short, to be chosen in S4b with
+   the owner: a first, short piece after a jump (fast, but its bits differ
+   from the grid piece, so offline and live would differ there), or the
+   hybrid E C (live stretching until the prepared audio catches up).
+   **E A is therefore confirmed only with this change, and goes back to the
+   owner** (the plan's §2 E: "if S0 contradicts the recommendation, the plan
+   comes back to the owner").
 3. **Same bits offline and live.** Every candidate repeats bit for bit. Under
    E A the chunk grid makes offline and live use the same pieces, so this is
    all E A needs; block-size independence is not required. It would matter
@@ -10779,9 +10805,10 @@ pack levels up to 3.5 dB apart, and allocations counted on `process` only):
    C++ through cc; all three need a C++ compiler in CI, A also CMake 3.30 or
    newer.
 
-**Preliminary recommendation, pending the ear:** C. It is the cheapest, the
-fastest to start, the same at any block size and MIT-licensed (no ADR-0013
-exception). If the owner's ear prefers another letter by a clear margin, the
+**Preliminary recommendation, pending the ear:** C. It is the cheapest in
+every column (streaming, prepared ahead, the piece after a jump), the same at
+any block size and MIT-licensed (no ADR-0013 exception). E A with C needs 2 s
+pieces (above). If the owner's ear prefers another letter by a clear margin, the
 cost table above says what that choice costs. E is ruled out for real-time
 playback by its cost.
 

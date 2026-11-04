@@ -6,7 +6,8 @@ Usage: python3 -I check.py <the trial's out dir>
 Time: the envelope (RMS over 5 ms hops) of each render against the
 original's, stretched to the render's speed; the best lag over +-100 ms must
 be within 10 ms. Level: the pack is loudness-matched, so each render's RMS
-must be within 0.5 dB of the original's.
+must be within 0.5 dB of the original's. Peak: no file in the pack may
+reach full scale (the pack has one gain per source that leaves 1 dB).
 """
 import os
 import struct
@@ -62,8 +63,14 @@ for source in sorted(os.listdir(f"{OUT}/pack")):
             print(line)
             if abs(lag_ms) > LAG_LIMIT_MS or abs(level) > LEVEL_LIMIT_DB:
                 failures.append(line)
+for root, _, files in os.walk(f"{OUT}/pack"):
+    for name in files:
+        if name.endswith(".wav"):
+            peak = np.abs(read(os.path.join(root, name))).max()
+            if peak >= 1.0:
+                failures.append(f"{root}/{name}: peak {peak:.2f} reaches full scale")
 if failures:
     print("\nOut of bounds:")
     print("\n".join(failures))
     sys.exit(1)
-print("\nEvery render is within 10 ms and 0.5 dB of its original.")
+print("\nEvery render is within 10 ms and 0.5 dB of its original, and none clips.")

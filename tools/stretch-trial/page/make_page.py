@@ -26,6 +26,7 @@ def row(x):
     return (
         f"<tr><th scope='row'>{x['letter']}</th>"
         f"<td>{x['cpu_median'] / 10:.1f}% <span class='dim'>(max {x['cpu_max'] / 10:.1f}%)</span></td>"
+        f"<td>{x['ea_85ms'] / 10:.0f}% <span class='dim'>({x['ea_2s'] / 10:.1f}% in 2 s pieces)</span></td>"
         f"<td>{x['chunk_median']:.0f} ms <span class='dim'>(max {x['chunk_max']:.0f})</span></td>"
         f"<td>{latency}</td>"
         f"<td>{independent}</td>"
@@ -118,13 +119,13 @@ audio {{ width: 100%; height: 32px; display: block; }}
 </style>
 <div class="page">
 <h1>Lumen Stretch Trial</h1>
-<p class="lede">Milestone 9.5, slice S0 (choice T). Four time-stretch libraries, one of them in two engine settings, are lettered A to E. The letters stay the same on every row, so you can follow one you like. The names are hidden until you choose. Every file is lossless, 48 kHz, 16-bit, and loudness-matched to its original, so no letter wins by being louder.</p>
+<p class="lede">Milestone 9.5, slice S0 (choice T). Four time-stretch libraries, one of them in two engine settings, are lettered A to E. The letters stay the same on every row, so you can follow one you like. The names are hidden until you choose. Every file is lossless, 48 kHz, 16-bit, and loudness-matched to its original, so no letter wins by being louder, with 1 dB of headroom so nothing clips.</p>
 <p class="ask"><b>What to send back:</b> your favourite letter overall, any letter you would rule out, and whether the bottom "prepared" rows sound different from the top ones. Headphones help.</p>
 
 <h2 style="margin-top:28px">Measurements</h2>
-<p class="lede">One core of a 2.8 GHz server, one stereo clip at 48 kHz, 6 transforms × 3 sources. CPU is the share of one core for one clip playing. "First piece" is the work to prepare 85 ms of audio from a 340 ms lead-in after a jump: how long a click waits before the stretched clip can sound, before any other delay.</p>
+<p class="lede">One core of a 2.8 GHz server, one stereo clip at 48 kHz, 6 transforms × 3 sources. CPU is the share of one core for one clip playing: streamed through one stretcher, or prepared ahead in 85 ms pieces each from its own lead-in (plan E A as specified; in brackets with 2 s pieces). "First piece" is the work to prepare 85 ms of audio from a 340 ms lead-in after a jump: how long a click waits before the stretched clip can sound, before any other delay.</p>
 <div class="tablewrap"><table>
-<thead><tr><th scope="col">Letter</th><th scope="col">CPU per clip</th><th scope="col">First piece</th><th scope="col">Own latency</th><th scope="col">Same output at any block size</th><th scope="col">Allocations while playing</th><th scope="col">Repeats bit for bit</th></tr></thead>
+<thead><tr><th scope="col">Letter</th><th scope="col">CPU per clip, streaming</th><th scope="col">CPU per clip, prepared ahead</th><th scope="col">First piece</th><th scope="col">Own latency</th><th scope="col">Same output at any block size</th><th scope="col">Allocations while playing</th><th scope="col">Repeats bit for bit</th></tr></thead>
 <tbody>
 {rows}
 </tbody></table></div>

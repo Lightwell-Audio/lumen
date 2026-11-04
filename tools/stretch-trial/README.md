@@ -38,6 +38,8 @@ python3 -I tools/stretch-trial/seams.py <out>
 85 ms pieces, each from a 340 ms lead-in, joined with 3 ms crossfades) with
 the straight ones.
 
+The trial also writes `<out>/sustained.json`: the cost of plan E A, every
+piece rendered from its own lead-in, at 85 ms and at 2 s pieces.
 `summarise.py <out>` writes `<out>/summary.json` by letter, and
 `page/make_page.py <out>`, run in a folder holding the pack as FLAC in MP4
 (`media/`), writes the listening page.
