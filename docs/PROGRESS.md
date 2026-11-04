@@ -32,7 +32,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 9 | Recording, Media, Export & Production Workflow | 🟡 R0 to R8, R1b, R2b, R4b, R7b and R7c merged (PR #60 to #89; ADR-0099 to 0117; formats v30 to v32). R9 (close) on `m9-s9-closeout`. Manual tests waiting: MT-EXPORT-1, MT-REC-5, MT-AUDIO-7, MT-PREF-1, MT-FIRSTRUN-1, MT-BROWSE-1, MT-SYS-1, MT-M9-1 | Before M8 (owner, 2026-10-23). [M9](milestones/M9.md); review `docs/audits/2026-11-03-m9.md` |
 | 9.5 | Audio clip editing and warp (mini milestone) | 🔲 Proposed in the M9 report; waits for the owner's approval | Owner, 2026-11-03: before M8. M7's planned E7 (the audio clip editor in the detail panel) and E8 (warp and time-stretch, with the clip's static pitch and the audio pitch envelope), `docs/milestones/M7.md` §5 |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | After M9 (owner, 2026-10-23) |
-| 10 | Hardening, Performance & Release | 🔲 | |
+| 10 | Hardening, Performance & Release | 🔲 | Holds the §7 [M] item "logging with a Reveal logs menu item": a rolling log file beside the crash reports and a Reveal logs command (M9 review L4) |
 | S | Stretch goals (only with the owner's approval) | 🟡 | VST3 hosting: macOS approved 2026-10-19 and in progress ([plan](milestones/macOS-VST3.md), ADR-0085); Linux not scheduled |
 
 ---
@@ -54,7 +54,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | UI 60 fps minimum, 120 fps target at 200 tracks / 20,000 clips / 100,000 notes | M | 🟡 | 3, 10 | Clips: met. With clips on the GPU (M3 slice 4b, ADR-0026), the stress project scrolls and zooms at p99 ≤ 2.3 ms at 3440 × 1380 (Ryzen 7 7700X, RTX 4070), measured by `--bench-frames`. With waveforms on every audio clip (4c, ADR-0027): p99 ≤ 2.3 ms at 3440 × 1380, unchanged. At the M3 close (rulers, handles, the grid through clips): p99 ≤ 2.3 ms at 1600 × 900 and 3.3–4.2 ms at 3440 × 1380, inside the 8.3 ms of 120 fps. Notes: with the 100,000-note track, p99 ≤ 4.5 ms at 3440 × 1380 (M5 slice 3). Mid-range hardware in M10 |
 | Near-zero idle CPU | M | 🟡 | 3, 10 | 0.0–0.2% measured with audio running (M2 MT-APP-4; M3 slice 2 with the motion system). Animations repaint only while moving. Re-measured at scale in M3 slice 4b: 3 repaints in 3 s idle with the stress project (the once-a-second device check); M10 |
 | Cold start under 2 s; scanning and loading never block the UI | M | 🟡 | 3, 6, 10 | First frame 394 ms warm / 1,110 ms cold (M1 shell). Audio files, project open and save, file dialogs and ASIO driver checks all run in the background (M2, M3). Plugin scanning runs in child processes (M6, ADR-0068) |
-| Autosave, crash recovery, atomic saves, backups | M | 🟡 | 3, 9 | Atomic save and rolling backups (`lumen-project`). Autosave after unsaved changes (the interval is a preference since M9 R7), to the local app data folder; a recovery banner after a crash; tested by killing the process (M3 slice 3d). Takes interrupted by a crash are repaired and put back on recovery (M9 R2); the whole chain of record, save, crash mid-take, recover, save, reopen and export is E2E `walkthrough_song` (M9 R9). Gaps from the M9 review (`docs/audits/2026-11-03-m9.md` H3 to H6): a take recorded in a project with no unsaved changes gets no recovery banner, and a crash just after Stop or just after Recover can leave a take on disk with nothing pointing to it |
+| Autosave, crash recovery, atomic saves, backups | M | 🟡 | 3, 9 | Atomic save and rolling backups (`lumen-project`). Autosave after unsaved changes (the interval is a preference since M9 R7), to the local app data folder; a recovery banner after a crash; tested by killing the process (M3 slice 3d). Takes interrupted by a crash are repaired and put back on recovery (M9 R2); the whole chain of record, save, crash mid-take, recover, save, reopen and export is E2E `walkthrough_song` (M9 R9). The M9 review's gaps (`docs/audits/2026-11-03-m9.md` H1 to H6) are fixed (ADR-0118): a take's sidecar is kept until a save holds its clip, written atomically, and a recording autosaves even a clean project, with E2E crashes after Stop and in a clean project |
 | Crashing plugins isolated, flagged, recoverable; scanning never crashes the app | M | 🟡 | 6, 10 | Built in M6: one host process per plugin (ADR-0066, 0067), scanning in child processes (ADR-0068), a failed card with Reload (slice 2e), kill-on-close job object, the fault soak (slice 7b: crashes, hangs, slow and non-finite blocks, hosts ended from outside; the others never fail). Verified with the test plugin; real plugins are the owner's MT-VST-* runs |
 | Device removal, rate and buffer changes, sleep and resume handled | M | 🟡 | 2, 10 | Recovered on Windows (MT-AUDIO-1, 2, 4 and 6; §6.9). macOS and Linux untested on hardware |
 | Safe mode without plugins | M | 🟡 | 6 | Built in M6 slice 5e (ADR-0077): `--safe-mode`, Shift at start on Windows, the offer after a start that did not finish; MT-VST-5 is the owner's |
@@ -282,7 +282,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Keyboard-only core flows; accessible control names. Shift+Tab settled by the owner (ADR-0015): it moves focus back in a text field or an open window, and toggles the detail panel elsewhere. | M | 🟡 M3 7d: F6 and Shift+F6 move the keyboard between named panes; shortcuts keep working with a control focused (only its own keys stay with it). M3 slice 8 and its review: the exit flow works from the keyboard alone (Import audio…, clips chosen with the arrows); Tab order is transport, browser, detail, arrangement (egui's panel order, recorded in ADR-0033), and F6 goes in reading order. The accessibility pass and the Narrator check in M10 |
 | Detachable mixer and editor windows; hover help; welcome screen | S | 🔲 |
 | CPU, disk and dropout indicators; Audio On/Off; panic | M | 🟡 CPU (peak per second), dropouts, Audio On/Off and panic done (M2 slice 7). Disk: a Disk row in the audio panel (read load, late reads, unreadable pages) and a "Disk late" chip after an underrun, while audio plays from disk (M9 R6, ADR-0109). MIDI all-notes-off joined panic in M5 slice 1: the engine cuts every instrument and sends CC 123 and 120 on every channel of every MIDI output in use, and the app sends them directly too (a palette command and the audio panel button) |
-| Crash report file; logging with "reveal logs" | M | 🟡 Crash reports (owner request, M3 6c): a panic on any thread writes what failed, where, the backtrace, the version, the system and the thread to `%LOCALAPPDATA%\Lumen\Crashes`; the next start offers it (Show report, Dismiss). A log file and a "Reveal logs" command are not built (the trace is a debug aid only): planned for M10 |
+| Crash report file; logging with "reveal logs" | M | 🟡 Crash reports (owner request, M3 6c): a panic on any thread writes what failed, where, the backtrace, the version, the system and the thread to `%LOCALAPPDATA%\Lumen\Crashes`; the next start offers it (Show report, Dismiss). A log file and a "Reveal logs" command are not built (the trace is a debug aid only): planned for M10 (the Milestones table; M9 review L4) |
 | Device hot-unplug, sleep/resume, rate-change handling | M | 🟡 Unplug and replug recover on ASIO and WASAPI (MT-AUDIO-1, -4); driver resets on ASIO (MT-AUDIO-2). Sleep/resume and Windows format and rate changes recover too (MT-AUDIO-6). Banners for these states (slice 8). macOS and Linux untested on hardware |
 | Single instance; file association; open by double-click or drop | M | 🟡 M9 R8 (ADR-0117): one Lumen per settings file, a later start hands its project over; projects open from Explorer with their own icon (per user, on by default, Preferences › Files); a dropped `.lumen` opens; opening waits for a recording or an export. MT-SYS-1 pending. System-wide association and Start menu entries come with the M10 installer; macOS and Linux file types with their packages |
 | App icon and `.lumen` file icon (owner request, 2026-10-07) | S | 🟡 Built in M9 R8 (ADR-0117; owner: App A, File B with a rim): drawn by `lumen-brand`, embedded at build; the file icon on Windows through the per-user association. MT-SYS-1 pending |
@@ -298,8 +298,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 ### Milestone 9 — report (2026-11-03)
 **Status:** Built, not signed off. R0 to R8 are merged (PR #60 to #89; ADR-0099 to 0117; formats v30 to v32). R9,
-the close, is on `m9-s9-closeout`. The review found six High defects in recording recovery and saving. They are
-recorded but not fixed yet, because code fixes wait for the owner's go-ahead (below). The slice list is in
+the close, is on `m9-s9-closeout`. The review found six High defects in recording recovery and saving. At the owner's go-ahead
+they are fixed on the same branch (ADR-0118), with M1 to M4, L1, L2 and L4. The slice list is in
 `docs/milestones/M9.md` §3.
 
 **Shipped.**
@@ -352,8 +352,10 @@ The owner's question on architecture added M2 to M4: the crate graph is acyclic 
 but no test keeps it so; the edit layer and settings name interface modules; and the app's modules are flat, with
 `App` extended from inside components.
 
-H1 to H6 all bear on the first rule, never lose work. None is fixed yet, and none was seen in use; each is in
-`docs/KNOWN_ISSUES.md`.
+H1 to H6 all bear on the first rule, never lose work. None was seen in use. All fourteen findings are fixed on
+this branch (owner, 2026-11-03; the audit's Status lists how): the recovery fixes are ADR-0118, each with a test
+that fails without it; M2 is `tests/layering.rs`; M1 split `audio.rs`, `app/welcome.rs` and
+`preferences/audio.rs` by concern; M4 moved the recording, export and MIDI modules into folders.
 
 **Not verified.**
 - **Every M9 manual test that waits:** MT-EXPORT-1, MT-REC-5, MT-AUDIO-7, MT-PREF-1, MT-FIRSTRUN-1,
@@ -365,17 +367,14 @@ H1 to H6 all bear on the first rule, never lose work. None is fixed yet, and non
   checked either (the Narrator check is deferred by the owner).
 
 **Risks.**
-1. Recording recovery has the gaps above until H2 to H6 are fixed. The walkthrough covers only a crash after an
-   autosave has run with the take open.
+1. The recovery fixes are verified by E2E crashes, not on the owner's interface. A disk that stalls for over
+   20 s (H6) and a slow drive (H1) are not tried by hand.
 2. Export offline equals real-time for Lumen's own devices. Plugins that behave differently offline are covered
    only by the real-time fallback.
 3. Every hardware result in M9 after R6 is pending.
 
 **Proposed next.**
-1. **A short recovery slice before 9.5** (recommended): H2 first, then H3 to H6 and H1 together, each with an E2E
-   that crashes in the window it closes. It also covers L1 and L2, and the split of `audio.rs`, which 9.5 works
-   in. The other choice is to run 9.5 first and fix these after. I do not recommend that, because priority 1 is
-   never losing work and these are all about takes.
+1. **The review's fixes** are done on this branch (owner, 2026-11-03), so 9.5 can start from them.
 2. **Mini milestone 9.5: audio clip editing and warp** (owner, 2026-11-03), M7's planned E7 and E8
    (`docs/milestones/M7.md` §5). What the audio clip's detail panel lacks today:
    - The wave is the clip alone, painted on the CPU. You cannot zoom or scroll it, nothing of the source outside
@@ -402,8 +401,7 @@ H1 to H6 all bear on the first rule, never lose work. None is fixed yet, and non
 
    9.5's plan (`docs/milestones/M9.5.md`) is written once these are chosen.
 
-**Waiting for the owner.** The go-ahead on the review's fixes (and on the recovery slice's place), the manual
-tests above (a third agent attempt needs every Lumen closed), and the approval of M9.
+**Waiting for the owner.** The manual tests above (a third agent attempt needs every Lumen closed), and the approval of M9.
 
 ### Milestone 7 — report (2026-10-22)
 **Status:** Built, not signed off. This report covers the automation part (A0 to A8, merged). The owner's

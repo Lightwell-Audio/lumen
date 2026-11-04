@@ -31,8 +31,13 @@
 //! - A write that fails ends that track's take with a message, keeping what
 //!   was written.
 //!
-//! Each file has a sidecar (`<file>.take`) from its first frame until it is
-//! finished. A file found with its sidecar is a take a crash interrupted.
+//! Each file has a sidecar (`<file>.take`) from its first frame until a save
+//! or an autosave that holds the take has been written (`take_notes.rs`): a
+//! file found with its sidecar is a take a crash may have cost, finished or
+//! not. The sidecar is replaced whole, through a temporary file, never
+//! rewritten in place (M9 review H3, H5). The worker also chooses each file's
+//! name and does recovery's disk work, so the interface never waits on the
+//! disk for a take (H1).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -61,6 +66,8 @@ const SIDECAR: &str = "take";
 pub(crate) struct Job {
     /// The track, by its id in the project.
     pub track: u64,
+    /// The file's preferred path: the worker takes the first free
+    /// `<name> <n>.wav` from it (`free_file`).
     pub path: PathBuf,
     /// One for a mono input, two for a pair.
     pub channels: u16,
@@ -74,6 +81,8 @@ pub(crate) struct Job {
 /// What to record.
 #[derive(Debug, Clone)]
 pub(crate) struct Plan {
+    /// Which recording this is: the answer carries it back (H6).
+    pub id: u64,
     pub jobs: Vec<Job>,
     pub rate: u32,
     /// Samples a take moves earlier: input plus output latency plus the
@@ -148,6 +157,8 @@ pub(crate) struct TrackResult {
     pub start: Option<i64>,
     /// Frames in the file.
     pub frames: u64,
+    /// The file's size in bytes, read on the worker.
+    pub size_bytes: u64,
     /// Frames the ring dropped, filled with silence.
     pub dropped: u64,
     /// Why the take ended early, if it did.
@@ -182,6 +193,28 @@ pub(crate) struct Sidecar {
 
 fn is_zero(n: &u64) -> bool {
     *n == 0
+}
+
+/// The first `<base> <n>.wav` beside `preferred` that no file, sidecar or
+/// name in `taken` uses, where `<base>` is `preferred`'s name without a
+/// trailing number. `preferred` itself when it is free.
+pub(crate) fn free_file(preferred: &Path, taken: &[PathBuf]) -> PathBuf {
+    let free = |p: &Path| !p.exists() && !sidecar_path(p).exists() && !taken.iter().any(|t| t == p);
+    if free(preferred) {
+        return preferred.to_owned();
+    }
+    let dir = preferred.parent().unwrap_or(Path::new("."));
+    let stem = preferred
+        .file_stem()
+        .map_or_else(|| "Audio".to_owned(), |s| s.to_string_lossy().into_owned());
+    let base = match stem.rsplit_once(' ') {
+        Some((base, n)) if !base.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => base,
+        _ => stem.as_str(),
+    };
+    (1..)
+        .map(|n| dir.join(format!("{base} {n}.wav")))
+        .find(|p| free(p))
+        .expect("an unused take name exists")
 }
 
 pub(crate) fn sidecar_path(file: &Path) -> PathBuf {
@@ -230,6 +263,8 @@ enum State {
 
 struct Lane {
     job: Job,
+    /// The file, chosen on the worker (`free_file`).
+    path: PathBuf,
     state: State,
     writer: Option<TakeWriter>,
     /// The device frame the next chunk should begin on.
@@ -260,12 +295,20 @@ pub(crate) struct Takes {
 }
 
 impl Takes {
+    /// Runs on the worker: choosing the files looks at the disk.
     pub(crate) fn new(plan: Plan) -> Self {
+        let mut taken: Vec<PathBuf> = Vec::new();
         let lanes = plan
             .jobs
             .iter()
-            .map(|job| Lane {
+            .map(|job| {
+                let path = free_file(&job.path, &taken);
+                taken.push(path.clone());
+                (job, path)
+            })
+            .map(|(job, path)| Lane {
                 job: job.clone(),
+                path,
                 state: State::Waiting,
                 writer: None,
                 next: None,
@@ -425,11 +468,12 @@ impl Takes {
                 let frames = lane.close();
                 TrackResult {
                     track: lane.job.track,
-                    path: lane.job.path.clone(),
+                    path: lane.path.clone(),
                     rate,
                     channels: lane.job.channels,
                     start: lane.start.filter(|_| frames > 0),
                     frames,
+                    size_bytes: fs::metadata(&lane.path).map_or(0, |m| m.len()),
                     dropped: lane.dropped,
                     error: lane.error.take(),
                     wraps: std::mem::take(&mut lane.wraps),
@@ -446,14 +490,14 @@ impl Lane {
     /// is at `start`, after `silence` frames of silence.
     fn open(&mut self, rate: u32, start: i64, silence: u64) -> Result<(), ()> {
         let made = (|| -> Result<TakeWriter, String> {
-            if let Some(dir) = self.job.path.parent() {
+            if let Some(dir) = self.path.parent() {
                 fs::create_dir_all(dir).map_err(|e| e.to_string())?;
             }
             self.start = Some(start - silence as i64);
             self.silence = silence;
             self.rate = rate;
             self.write_sidecar_now().map_err(|e| e.to_string())?;
-            let mut writer = TakeWriter::create(&self.job.path, rate, self.job.channels)
+            let mut writer = TakeWriter::create(&self.path, rate, self.job.channels)
                 .map_err(|e| e.to_string())?;
             writer
                 .write_silence(silence as usize)
@@ -497,7 +541,7 @@ impl Lane {
             return Ok(());
         };
         let json = serde_json::to_vec(&side).map_err(std::io::Error::other)?;
-        fs::write(sidecar_path(&self.job.path), json)?;
+        write_whole(&sidecar_path(&self.path), &json)?;
         self.sidecar_current = true;
         Ok(())
     }
@@ -519,23 +563,87 @@ impl Lane {
         self.state = State::Done;
     }
 
-    /// Finishes the file; returns the frames it holds. The sidecar goes with
-    /// the clean end.
+    /// Finishes the file; returns the frames it holds. The sidecar stays
+    /// until a save holds the take (`take_notes.rs`).
     fn close(&mut self) -> u64 {
         let Some(writer) = self.writer.take() else {
             return 0;
         };
         match writer.finish() {
-            Ok(frames) => {
-                let _ = fs::remove_file(sidecar_path(&self.job.path));
-                frames
-            }
+            Ok(frames) => frames,
             Err(error) => {
                 self.error.get_or_insert(error.to_string());
-                lumen_media::take::repair(&self.job.path).map_or(0, |r| r.frames)
+                lumen_media::take::repair(&self.path).map_or(0, |r| r.frames)
             }
         }
     }
+}
+
+/// Writes `bytes` to `path` whole: to a temporary file beside it, flushed,
+/// then renamed over it, so a crash leaves the old content or the new, never
+/// half of either (H5).
+pub(crate) fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut temporary = path.as_os_str().to_owned();
+    temporary.push(".tmp");
+    let temporary = PathBuf::from(temporary);
+    let written = (|| {
+        let mut file = fs::File::create(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(&temporary, path)
+    })();
+    if written.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    written
+}
+
+/// The takes of one recording, finished, with the recording's number.
+#[derive(Debug)]
+pub(crate) struct Finished {
+    pub id: u64,
+    pub results: Vec<TrackResult>,
+}
+
+/// What recovery found of a session's takes, read on a worker (H1).
+#[derive(Debug, Default)]
+pub(crate) struct Found {
+    /// Takes with audio, repaired, as results ready to place.
+    pub takes: Vec<TrackResult>,
+    /// Takes that could not be read; they stay where they are.
+    pub unreadable: usize,
+}
+
+/// Recovery's disk work for the takes `session` left in `dir`: lists them,
+/// repairs each file, and removes takes that hold nothing. Sidecars of
+/// takes with audio stay until a save holds them.
+pub(crate) fn recover(dir: &Path, session: &str) -> Found {
+    let mut found = Found::default();
+    for lost in unfinished(dir, session) {
+        match lumen_media::take::repair(&lost.file) {
+            Ok(r) if r.frames > 0 => found.takes.push(TrackResult {
+                track: lost.sidecar.track,
+                path: lost.file.clone(),
+                rate: r.sample_rate,
+                channels: r.channels,
+                start: Some(lost.sidecar.start),
+                frames: r.frames,
+                size_bytes: fs::metadata(&lost.file).map_or(0, |m| m.len()),
+                dropped: 0,
+                error: None,
+                wraps: lost.sidecar.wraps.clone(),
+                silence: lost.sidecar.silence,
+                looped: lost.sidecar.looped,
+            }),
+            Ok(_) => {
+                let _ = fs::remove_file(&lost.file);
+                let _ = fs::remove_file(sidecar_path(&lost.file));
+            }
+            Err(_) => found.unreadable += 1,
+        }
+    }
+    found
 }
 
 enum Message {
@@ -554,7 +662,7 @@ pub(crate) struct Gauge {
 /// The worker thread. Dropping it stops the thread.
 pub(crate) struct TakeWorker {
     tx: mpsc::Sender<Message>,
-    done: mpsc::Receiver<Vec<TrackResult>>,
+    done: mpsc::Receiver<Finished>,
     gauge: Arc<Gauge>,
 }
 
@@ -584,8 +692,9 @@ impl TakeWorker {
         let _ = self.tx.send(Message::Finish);
     }
 
-    /// The finished takes, once, after [`Self::finish`].
-    pub(crate) fn poll(&self) -> Option<Vec<TrackResult>> {
+    /// A recording's finished takes, once each, after [`Self::finish`]: a
+    /// late one too, which says which recording it was.
+    pub(crate) fn poll(&self) -> Option<Finished> {
         self.done.try_recv().ok()
     }
 
@@ -598,7 +707,7 @@ impl TakeWorker {
 fn run(
     mut reader: CaptureReader,
     rx: &mpsc::Receiver<Message>,
-    done: &mpsc::Sender<Vec<TrackResult>>,
+    done: &mpsc::Sender<Finished>,
     gauge: &Gauge,
 ) {
     let mut takes: Option<Takes> = None;
@@ -634,7 +743,11 @@ fn run(
         if let Ok(Message::Finish) = message
             && let Some(takes) = takes.take()
         {
-            let _ = done.send(takes.finish());
+            let id = takes.plan.id;
+            let _ = done.send(Finished {
+                id,
+                results: takes.finish(),
+            });
         }
     }
 }
@@ -701,6 +814,7 @@ mod tests {
 
     fn plan(jobs: Vec<Job>, shift: i64, window: Option<(i64, i64)>) -> Plan {
         Plan {
+            id: 1,
             jobs,
             rate: 48_000,
             shift,
@@ -748,7 +862,11 @@ mod tests {
         }
         assert!(sidecar_path(&j.path).exists(), "unfinished while it runs");
         let results = takes.finish();
-        assert!(!sidecar_path(&j.path).exists(), "finished: no sidecar");
+        assert!(
+            sidecar_path(&j.path).exists(),
+            "finished: the sidecar stays until a save holds the take"
+        );
+        assert_eq!(results[0].size_bytes, fs::metadata(&j.path).unwrap().len());
         assert_eq!(results.len(), 1);
         // Heard at 500, shifted 100 earlier: placed at 400.
         assert_eq!(results[0].start, Some(400));
@@ -1102,13 +1220,96 @@ mod tests {
         worker.finish();
         let results = loop {
             if let Some(r) = worker.poll() {
-                break r;
+                assert_eq!(r.id, 1, "the answer names its recording");
+                break r.results;
             }
             std::thread::sleep(Duration::from_millis(5));
         };
         assert_eq!((results[0].frames, results[0].start), (1_000, Some(0)));
         assert_eq!(read(&j.path)[999], 999.0);
         drop(worker);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_take_name_in_use_moves_on_to_the_next_number() {
+        let dir = folder("names");
+        assert_eq!(
+            free_file(&dir.join("Vox 1.wav"), &[]),
+            dir.join("Vox 1.wav")
+        );
+        fs::write(dir.join("Vox 1.wav"), b"x").unwrap();
+        fs::write(sidecar_path(&dir.join("Vox 2.wav")), b"x").unwrap();
+        let now = [dir.join("Vox 3.wav")];
+        assert_eq!(
+            free_file(&dir.join("Vox 1.wav"), &now),
+            dir.join("Vox 4.wav")
+        );
+        // Two lanes of one recording, both wanting the same name.
+        let a = Job {
+            path: dir.join("Vox 1.wav"),
+            ..job(&dir, 1, 1)
+        };
+        let b = Job {
+            track: 2,
+            ..a.clone()
+        };
+        let takes = Takes::new(plan(vec![a, b], 0, None));
+        assert_eq!(takes.lanes[0].path, dir.join("Vox 3.wav"));
+        assert_eq!(takes.lanes[1].path, dir.join("Vox 4.wav"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_sidecar_is_replaced_whole_and_a_temporary_one_is_not_a_take() {
+        let dir = folder("whole");
+        let file = dir.join("Vox 1.wav");
+        fs::write(&file, b"x").unwrap();
+        let side = sidecar_path(&file);
+        write_whole(
+            &side,
+            br#"{"session":"s","track":1,"start":0,"rate":48000,"channels":1}"#,
+        )
+        .unwrap();
+        // A crash in the middle of the next update leaves its temporary file
+        // half written: the take is still found from the sidecar before it.
+        let mut temporary = side.as_os_str().to_owned();
+        temporary.push(".tmp");
+        fs::write(PathBuf::from(temporary), br#"{"session":"s","tr"#).unwrap();
+        let found = unfinished(&dir, "s");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].file, file);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn recovery_repairs_takes_and_removes_the_empty_ones() {
+        let dir = folder("recover");
+        let j = job(&dir, 1, 1);
+        let mut takes = Takes::new(plan(vec![j.clone()], 0, None));
+        let (chunk, data) = mono(1, 1_000, 0, 480);
+        takes.feed(chunk, &data);
+        // Finished, and then a crash before any save held it: the sidecar is
+        // still there (H3).
+        takes.finish();
+        // And a take that holds nothing, with its sidecar.
+        let empty = dir.join("empty.wav");
+        lumen_media::take::TakeWriter::create(&empty, 48_000, 1)
+            .unwrap()
+            .finish()
+            .unwrap();
+        write_whole(
+            &sidecar_path(&empty),
+            br#"{"session":"","track":2,"start":0,"rate":48000,"channels":1}"#,
+        )
+        .unwrap();
+        let found = recover(&dir, "");
+        assert_eq!(found.unreadable, 0);
+        assert_eq!(found.takes.len(), 1);
+        assert_eq!(found.takes[0].track, 1);
+        assert_eq!(found.takes[0].frames, 480);
+        assert!(sidecar_path(&j.path).exists(), "kept until a save holds it");
+        assert!(!empty.exists() && !sidecar_path(&empty).exists());
         fs::remove_dir_all(dir).unwrap();
     }
 }

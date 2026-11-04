@@ -15,7 +15,7 @@ use lumen_project::model::Id;
 
 use super::TITLE;
 use super::clips::{INSET, SPLIT_BELOW, WAVE_GAP, draw_recording_take, span_of};
-use crate::take_worker::Live;
+use crate::recording::take_worker::Live;
 use crate::theme;
 use crate::timeview::TimeView;
 

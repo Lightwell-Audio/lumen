@@ -251,7 +251,9 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
         "recovered into the song"
     );
     assert!(lumen.app().is_dirty(), "recovered work is unsaved");
-    assert_eq!(unfinished(lumen.dir()), 0, "no take is left unfinished");
+    // The take's note stays until a save holds it: a second crash now would
+    // find it again (M9 review H3).
+    assert_eq!(unfinished(lumen.dir()), 1, "the note waits for a save");
     // Every frame written before the crash is kept:
     // the take's header is rewritten as it grows, and recovery repairs the
     // rest from the file's length.
@@ -298,6 +300,7 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
     // Save puts the recovered take in the project folder too.
     lumen.key(Modifiers::COMMAND, Key::S);
     lumen.wait_for("the save", |app| !app.is_dirty() && !app.is_busy());
+    lumen.run_until("the take's note to go", |l| unfinished(l.dir()) == 0);
     assert!(
         folder.join("Samples/Recorded/Gtr 1.wav").is_file(),
         "the recovered take was copied into the project: {:?}",

@@ -312,7 +312,7 @@ fn save_inner(request: SaveRequest, control: Option<&Control>) -> Result<Saved, 
         {
             let folder = dir.join(owned.unwrap_or(IMPORTED));
             let target = copy_target(&folder, &source, &planned)?;
-            planned.insert(target.clone(), size_of(&source));
+            planned.insert(target.clone(), source.clone());
             Some(Copy {
                 folder,
                 target,
@@ -333,7 +333,7 @@ fn save_inner(request: SaveRequest, control: Option<&Control>) -> Result<Saved, 
     let total: u64 = planned
         .iter()
         .filter(|(target, _)| !target.is_file())
-        .map(|(_, size)| size)
+        .map(|(_, source)| size_of(source))
         .sum();
 
     // Then copy, whole files only.
@@ -488,41 +488,70 @@ fn canonical(path: &Path) -> PathBuf {
 }
 
 /// Where `source` goes in `folder`: its own name, or "name 2", "name 3"…
-/// when another file of that name (and a different size) is already there.
-/// The same name and size is taken to be the same file, already copied.
-/// `planned` holds the targets this save has given out but not yet written,
-/// with the size of the file each will hold, so two files of one name get
-/// two targets before either is copied.
+/// when that name is taken. A name is reused only for the same audio: a
+/// target this save already gave to the same source file, or a file in the
+/// folder with exactly the same bytes (a copy made by an earlier save). Two
+/// different files never share a target, however alike their names and
+/// sizes (M9 review H2). `planned` maps the targets this save has given out
+/// but not yet written to the file each will hold.
 fn copy_target(
     folder: &Path,
     source: &Path,
-    planned: &HashMap<PathBuf, u64>,
+    planned: &HashMap<PathBuf, PathBuf>,
 ) -> Result<PathBuf, String> {
     let name = source.file_stem().ok_or("a media file has no name")?;
     let extension = source
         .extension()
         .map(|e| format!(".{}", e.to_string_lossy()))
         .unwrap_or_default();
-    let size = std::fs::metadata(source).map(|m| m.len()).ok();
     for n in 1.. {
         let candidate = if n == 1 {
             folder.join(format!("{}{extension}", name.to_string_lossy()))
         } else {
             folder.join(format!("{} {n}{extension}", name.to_string_lossy()))
         };
-        if let Some(&held) = planned.get(&candidate) {
-            if Some(held) == size {
+        if let Some(held) = planned.get(&candidate) {
+            if held == source {
                 return Ok(candidate);
             }
             continue;
         }
-        match std::fs::metadata(&candidate) {
-            Err(_) => return Ok(candidate),
-            Ok(meta) if Some(meta.len()) == size => return Ok(candidate),
-            Ok(_) => {}
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+        if same_contents(source, &candidate) {
+            return Ok(candidate);
         }
     }
     unreachable!()
+}
+
+/// Whether `a` and `b` hold the same bytes. Read in pieces, and only when
+/// their sizes agree; any error reads as different, so a file that cannot
+/// be compared gets a name of its own.
+fn same_contents(a: &Path, b: &Path) -> bool {
+    use std::io::Read;
+    let (Ok(meta_a), Ok(meta_b)) = (std::fs::metadata(a), std::fs::metadata(b)) else {
+        return false;
+    };
+    if !meta_b.is_file() || meta_a.len() != meta_b.len() {
+        return false;
+    }
+    let (Ok(mut file_a), Ok(mut file_b)) = (std::fs::File::open(a), std::fs::File::open(b)) else {
+        return false;
+    };
+    let (mut piece_a, mut piece_b) = (vec![0u8; PIECE], vec![0u8; PIECE]);
+    loop {
+        let Ok(read) = file_a.read(&mut piece_a) else {
+            return false;
+        };
+        if read == 0 {
+            return true;
+        }
+        if file_b.read_exact(&mut piece_b[..read]).is_err() || piece_a[..read] != piece_b[..read] {
+            return false;
+        }
+    }
 }
 
 /// A project read from disk, with where its media files are.
@@ -843,6 +872,61 @@ mod tests {
         // Saving again copies nothing new.
         let again = save_now(request(&doc, path, true)).unwrap();
         assert_eq!(again.copied, 0);
+    }
+
+    /// Two different recordings with the same name and length (M9 review H2):
+    /// each keeps its own audio, in one save and against a file already in
+    /// the folder.
+    #[test]
+    fn different_files_of_one_name_and_size_never_share_a_copy() {
+        let tmp = TempDir::new("files-same-size");
+        let a = tmp.path().join("a").join("Vox 1.wav");
+        let b = tmp.path().join("b").join("Vox 1.wav");
+        wav(&a, 4_800);
+        wav(&b, 4_800);
+        // Same length, different audio.
+        let mut bytes = std::fs::read(&b).unwrap();
+        *bytes.last_mut().unwrap() = 7;
+        std::fs::write(&b, &bytes).unwrap();
+        let doc = document_with(&[a.clone(), b.clone()]);
+        let path = tmp.path().join("Song").join("Song.lumen");
+        let saved = save_now(request(&doc, path.clone(), true)).unwrap();
+        assert_eq!(saved.copied, 2, "both are copied");
+        let ids: Vec<_> = doc.project().media.iter().map(|m| m.id).collect();
+        assert_ne!(saved.moved[&ids[0]], saved.moved[&ids[1]]);
+        assert_eq!(
+            std::fs::read(&saved.moved[&ids[0]]).unwrap(),
+            std::fs::read(&a).unwrap()
+        );
+        assert_eq!(std::fs::read(&saved.moved[&ids[1]]).unwrap(), bytes);
+
+        // A third file of that name and size, saved into the same folder later,
+        // does not take the first one's copy either.
+        let c = tmp.path().join("c").join("Vox 1.wav");
+        wav(&c, 4_800);
+        let mut third = std::fs::read(&c).unwrap();
+        *third.last_mut().unwrap() = 9;
+        std::fs::write(&c, &third).unwrap();
+        let later = document_with(std::slice::from_ref(&c));
+        let saved = save_now(request(&later, path, true)).unwrap();
+        assert_eq!(saved.copied, 1);
+        let id = later.project().media[0].id;
+        assert_eq!(saved.moved[&id].file_name().unwrap(), "Vox 1 3.wav");
+        assert_eq!(std::fs::read(&saved.moved[&id]).unwrap(), third);
+    }
+
+    /// The same file used twice is copied once.
+    #[test]
+    fn one_file_used_twice_is_copied_once() {
+        let tmp = TempDir::new("files-twice");
+        let kick = tmp.path().join("Library").join("kick.wav");
+        wav(&kick, 4_800);
+        let doc = document_with(&[kick.clone(), kick]);
+        let path = tmp.path().join("Song").join("Song.lumen");
+        let saved = save_now(request(&doc, path, true)).unwrap();
+        assert_eq!(saved.copied, 1);
+        let ids: Vec<_> = doc.project().media.iter().map(|m| m.id).collect();
+        assert_eq!(saved.moved[&ids[0]], saved.moved[&ids[1]]);
     }
 
     /// What is left in `folder` that is not a finished file: temporary copies.

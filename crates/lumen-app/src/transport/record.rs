@@ -6,7 +6,7 @@ use lumen_core::time::{PPQ, Ticks};
 use lumen_engine::{Timeline, TransportSnapshot};
 
 use crate::commands::Command as Run;
-use crate::record_settings::CountIn;
+use crate::recording::record_settings::CountIn;
 use crate::timefmt::{self, TimeFormat};
 
 const SIXTEENTH: i64 = PPQ / 4;

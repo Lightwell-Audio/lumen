@@ -97,7 +97,6 @@ impl Stats {
 /// The disk thread. Dropping it stops the thread.
 pub struct Disk {
     messages: Option<Sender<Message>>,
-    pool: Arc<PagePool>,
     stats: Arc<Stats>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -130,14 +129,9 @@ impl Disk {
             .expect("spawn the disk thread");
         Self {
             messages: Some(messages),
-            pool: Arc::clone(pool),
             stats,
             thread: Some(thread),
         }
-    }
-
-    pub fn pool(&self) -> &Arc<PagePool> {
-        &self.pool
     }
 
     pub fn stats(&self) -> &Stats {
@@ -147,11 +141,6 @@ impl Disk {
     /// The clip list the engine now plays.
     pub fn set_scene(&self, scene: impl Into<Arc<Scene>>) {
         self.send(Message::Scene(scene.into()));
-    }
-
-    /// Reads the audio after `sample` first, until the next cue.
-    pub fn cue(&self, sample: Option<i64>) {
-        self.send(Message::Cue(sample));
     }
 
     /// A handle that cues this thread from elsewhere (the transport, L A).
@@ -167,7 +156,7 @@ impl Disk {
     }
 }
 
-/// Cues a disk thread: [`Disk::cue`] from another owner. Does nothing once
+/// Cues a disk thread from its owner or elsewhere. Does nothing once
 /// the thread has stopped.
 #[derive(Clone)]
 pub struct Cuer(Option<Sender<Message>>);

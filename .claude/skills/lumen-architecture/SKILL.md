@@ -42,8 +42,10 @@ short form: the rules, and the checks that keep them.
    crash cannot take Lumen down**: a child process.
 7. **Layering:** `lumen-core` at the bottom; `lumen-engine` depends only on
    core, rt and `lumen-devices` (real-time DSP on core alone, ADR-0045); `lumen-project` only on core; `lumen-audio`, `lumen-media`
-   and `lumen-render` stand alone; only `lumen-app` joins them. No cycles,
-   and no UI types below the app.
+   and `lumen-render` stand alone; plugins go `lumen-plugin-host` ← `lumen-plugin-catalog`
+   and `lumen-hosting`; only `lumen-app` joins them. No cycles,
+   and no UI types below the app. `tests/layering.rs` in `lumen-app` holds the
+   allowed table: a new crate or dependency gets its row there.
 8. **The product name lives in `lumen_core::product`.** User-visible text
    that names it uses `PRODUCT_NAME`. Library crates use neutral wording.
 
@@ -54,6 +56,15 @@ short form: the rules, and the checks that keep them.
   `main.rs` only calls `lumen_app::run()`; `lib.rs` holds `App`, the frame
   loop and start-up; its behaviour lives in `app/` by concern (projects, recovery, history, preferences,
   view). The arrangement is `arrangement/{mod, headers, clips}`.
+- **One folder per concern in the app** (M9 review M4): recording lives in
+  `recording/`, export and render in `export/`, MIDI in `midi/`. A new
+  module of an existing concern goes in its folder, not at the top of
+  `src/`; a new concern with more than one module gets a folder.
+- **`impl App` lives in `app/`.** A component (`note_editor/`, `chain/`,
+  `browser/`) takes what it needs as arguments and returns what it did; it
+  does not add `impl App` blocks, which can read and change all of `App`'s
+  state. The existing blocks in components move to `app/` when their
+  component is next changed.
 - **Shared controls live in the design system**, not in the feature that
   first needed them (`widgets.rs`, `icons.rs`); see the `lumen-design`
   skill.

@@ -19,7 +19,7 @@ use eframe::egui::{Id, Rect, Ui, pos2};
 use lumen_engine::{INPUT_SLOTS, KEYBOARD};
 use lumen_project::model::{Track, TrackKind};
 
-use crate::midi_play::{Inputs, from_sources, listening};
+use crate::midi::play::{Inputs, from_sources, listening};
 use crate::{light, theme};
 
 /// The light's radius (the chip's lights use the same).

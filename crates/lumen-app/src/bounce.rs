@@ -31,11 +31,11 @@ use lumen_hosting::{Happened, Manager};
 use lumen_media::wav::{Sample, Spec, Writer};
 use lumen_project::model::{Id, Media, Project, TrackKind};
 
+use crate::export::render_audio::Again;
 use crate::hosting::{HOSTED_KIND, OfflinePlugin, stand_in};
 use crate::media::streams::Unread;
-use crate::midi_play::{self, Hosts, Inputs, PortTable};
-use crate::midi_runs::Cache;
-use crate::render_audio::Again;
+use crate::midi::play::{self as midi_play, Hosts, Inputs, PortTable};
+use crate::midi::runs::Cache;
 use crate::routing::{self, Devices};
 
 /// How long a plugin's host may take to load before the bounce gives up.

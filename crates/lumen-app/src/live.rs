@@ -24,7 +24,7 @@ use lumen_engine::{AUDITION, INPUT_SLOTS, KEYBOARD, LIVE_SOURCES, LiveIn, LiveIn
 use lumen_midi::Timed;
 
 use crate::live_tap::{Heard, Shared, TAP_QUEUE, Tap};
-use crate::midi_out::{StreamClock, frame_ns};
+use crate::midi::out::{StreamClock, frame_ns};
 
 /// How many recent blocks frame 0's time is taken over.
 const WINDOW: usize = 256;

@@ -119,7 +119,7 @@ impl Document {
             return false;
         }
         let value = target.clamp(value);
-        let now = crate::arrangement::auto_scale::own_value(held, target);
+        let now = lumen_project::automation::own_value(held, target);
         if now == value || (now.is_infinite() && value <= FLOOR_DB) {
             return false;
         }
@@ -171,7 +171,7 @@ mod tests {
     }
 
     fn own(doc: &Document, track: Id, target: Target) -> f32 {
-        crate::arrangement::auto_scale::own_value(find(doc.project(), track).unwrap(), target)
+        lumen_project::automation::own_value(find(doc.project(), track).unwrap(), target)
     }
 
     #[test]

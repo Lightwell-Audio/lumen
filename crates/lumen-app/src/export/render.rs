@@ -22,8 +22,8 @@ use lumen_media::wav::{Sample, Spec, Writer};
 use lumen_project::model::{Id, Project};
 
 use crate::hosting::{HOSTED_KIND, OfflinePlugin, stand_in};
-use crate::midi_play::{self, Hosts, Inputs, PortTable};
-use crate::midi_runs::Cache;
+use crate::midi::play::{self as midi_play, Hosts, Inputs, PortTable};
+use crate::midi::runs::Cache;
 use crate::routing::{self, Cue, Devices};
 
 const LOAD_WAIT: Duration = Duration::from_secs(60);

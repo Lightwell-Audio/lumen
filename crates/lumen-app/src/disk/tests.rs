@@ -295,7 +295,7 @@ fn a_cue_is_read_before_the_playhead() {
     // Slow enough that the order shows.
     let (pages, _) = fake(Duration::from_millis(2));
     let disk = Disk::start(&pool, pages, handle.transport_reader());
-    disk.cue(Some(500 * P));
+    disk.cuer().cue(Some(500 * P));
     disk.set_scene(scene(&clips, None, vec![]));
     eventually("the cue is read", || a.resident(500));
     assert!(!a.resident(20), "the far read-ahead at the playhead waits");

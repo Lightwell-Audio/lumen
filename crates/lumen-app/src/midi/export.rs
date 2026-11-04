@@ -12,7 +12,7 @@ use lumen_project::edit::in_window;
 use lumen_project::model::{Clip, ClipContent, ClipEvent, Id, Note, Project, TrackKind};
 use lumen_project::smf::{FileTrack, MidiFile};
 
-use crate::midi_runs::{Member, loop_fragment, loop_period, run_notes, runs};
+use crate::midi::runs::{Member, loop_fragment, loop_period, run_notes, runs};
 
 /// The notes and events `clips` (one track's, in start order) play, in
 /// arrangement time.

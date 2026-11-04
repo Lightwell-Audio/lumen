@@ -11,7 +11,7 @@ use lumen_engine::{ClickSound, Command, TransportSnapshot};
 
 use crate::audio::Status;
 use crate::icons::{self, Icon, Look};
-use crate::record_settings::{CountIn, RecordSettings};
+use crate::recording::record_settings::{CountIn, RecordSettings};
 use crate::{motion, position, theme, widgets};
 
 use super::record::{self, Phase};

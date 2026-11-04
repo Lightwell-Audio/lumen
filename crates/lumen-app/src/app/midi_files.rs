@@ -15,7 +15,7 @@ use lumen_project::smf::MidiFile;
 use super::projects::{FileDialog, documents_folder};
 use crate::App;
 use crate::document::{DropInto, Places};
-use crate::midi_files;
+use crate::midi::files as midi_files;
 use crate::widgets::raised;
 
 /// A file's tempo and meter, offered after it came in (F2).

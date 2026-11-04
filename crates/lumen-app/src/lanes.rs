@@ -63,19 +63,19 @@ pub struct Lanes {
     streamed: (u64, Vec<Clip>),
     /// The audio tracks being recorded over that the clip list was built
     /// with, so it is built again when a take begins or ends.
-    masked: Vec<crate::midi_play::Replacing>,
+    masked: Vec<crate::midi::play::Replacing>,
     /// The project state the engine's MIDI tracks were built from, and
     /// whether they need sending again (M5 slice 1).
     midi_built: Option<(
         u64,
-        crate::midi_play::Inputs,
+        crate::midi::play::Inputs,
         u32,
         crate::document::Overrides,
     )>,
     midi_dirty: bool,
-    midi_cache: crate::midi_play::Cache,
+    midi_cache: crate::midi::play::Cache,
     /// The MIDI outputs tracks name, by the numbers the engine uses.
-    pub(crate) midi_ports: crate::midi_play::PortTable,
+    pub(crate) midi_ports: crate::midi::play::PortTable,
     /// The project state, cue and devices the engine's routing was built
     /// from.
     routed: Option<(u64, crate::routing::Cue, crate::routing::Devices, u32)>,
@@ -317,8 +317,8 @@ fn envelope_of(
 /// MIDI tracks are in.
 fn audio_replacing(
     project: &Project,
-    inputs: &crate::midi_play::Inputs,
-) -> Vec<crate::midi_play::Replacing> {
+    inputs: &crate::midi::play::Inputs,
+) -> Vec<crate::midi::play::Replacing> {
     inputs
         .replacing
         .iter()
@@ -337,7 +337,7 @@ fn audio_replacing(
 /// so the old clip is not heard under the new one.
 fn without_replaced<'a>(
     project: std::borrow::Cow<'a, Project>,
-    replacing: &[crate::midi_play::Replacing],
+    replacing: &[crate::midi::play::Replacing],
 ) -> std::borrow::Cow<'a, Project> {
     if replacing.is_empty() {
         return project;
@@ -482,7 +482,7 @@ impl Lanes {
         doc: &Document,
         clips: &mut ClipsHandle,
         rate: u32,
-        inputs: &crate::midi_play::Inputs,
+        inputs: &crate::midi::play::Inputs,
     ) {
         let masked = audio_replacing(doc.project(), inputs);
         if self.dirty || self.built != Some(doc.state()) || self.masked != masked {
@@ -514,7 +514,7 @@ impl Lanes {
         doc: &mut Document,
         engine: Handles<'_>,
         cue: &crate::routing::Cue,
-        inputs: &crate::midi_play::Inputs,
+        inputs: &crate::midi::play::Inputs,
     ) {
         let Handles {
             clips,
@@ -561,14 +561,14 @@ impl Lanes {
                 .is_none_or(|(s, i, r, o)| (*s, i, *r, o) != midi_wanted)
         {
             let sounding = lumen_project::edit::freeze::played(doc.project());
-            let mut tracks = crate::midi_play::engine_midi_with(
+            let mut tracks = crate::midi::play::engine_midi_with(
                 &sounding,
                 inputs,
                 &mut self.midi_ports,
                 &mut self.midi_cache,
                 hosting,
             );
-            crate::midi_play::with_lanes(&mut tracks, &sounding, &self.devices.overridden, rate);
+            crate::midi::play::with_lanes(&mut tracks, &sounding, &self.devices.overridden, rate);
             self.midi_dirty = match midi.set(tracks) {
                 Ok(()) => false,
                 // Full: a plugin instrument in the list is kept for the
@@ -981,7 +981,7 @@ mod tests {
 
     #[test]
     fn a_take_recorded_over_a_clip_silences_it_from_where_the_take_begins() {
-        use crate::midi_play::Replacing;
+        use crate::midi::play::Replacing;
         let (doc, audio) = setup(2);
         let (first, second) = (doc.project().tracks[0].id, doc.project().tracks[1].id);
         let whole = played(&doc, &audio, 48_000);
@@ -1018,7 +1018,7 @@ mod tests {
 
     #[test]
     fn only_audio_tracks_are_masked_for_audio() {
-        use crate::midi_play::{Inputs, Replacing};
+        use crate::midi::play::{Inputs, Replacing};
         let (doc, _) = setup(1);
         let track = doc.project().tracks[0].id;
         let mut inputs = Inputs::default();

@@ -12,7 +12,7 @@ use lumen_project::model::{Id, Project};
 use lumen_project::smf::{self, Layout, MidiFile};
 
 use crate::document::DropInto;
-use crate::midi_export;
+use crate::midi::export as midi_export;
 
 /// The extensions read as Standard MIDI Files.
 pub const EXTENSIONS: &[&str] = &["mid", "midi", "smf"];

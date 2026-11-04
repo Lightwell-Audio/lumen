@@ -5,7 +5,7 @@
 use lumen_project::model::{Id, Monitor, TrackKind};
 
 use crate::App;
-use crate::audio_input::next_input;
+use crate::recording::audio_input::next_input;
 
 impl App {
     /// The selected audio tracks.

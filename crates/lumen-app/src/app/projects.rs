@@ -14,11 +14,10 @@ use lumen_project::model::{Project, TrackKind};
 use crate::app::copies::{Purpose, Waiting};
 use crate::app::handover::{interrupted, when_done};
 use crate::document::Places;
+use crate::midi::files as midi_files;
 use crate::widgets::Dialog;
 use crate::widgets::raised;
-use crate::{
-    App, arrangement, document, empty_project_at, files, lanes, media, midi_files, theme, trace,
-};
+use crate::{App, arrangement, document, empty_project_at, files, lanes, media, theme, trace};
 
 /// What happens after unsaved changes are saved or discarded.
 #[derive(Debug, Clone, PartialEq)]
@@ -332,6 +331,7 @@ impl App {
     fn write_save(&mut self, path: PathBuf, normalize_project_path: bool) {
         trace::log(|| format!("files: saving {}", path.display()));
         self.document.begin_save();
+        self.record.audio.notes.save_started();
         self.saving = Some(files::save(files::SaveRequest {
             project: self.stamped(),
             path,
@@ -525,6 +525,9 @@ impl App {
         }
         if let Some(result) = self.saving.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.saving = None;
+            crate::recording::take_notes::delete_later(
+                self.record.audio.notes.save_done(result.is_ok()),
+            );
             match result {
                 Ok(saved) => {
                     self.document.mark_saved_at(saved.state);

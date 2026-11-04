@@ -152,7 +152,7 @@ impl App {
                 ..Default::default()
             },
             browser: browser::Browser {
-                tab: saved.browser.tab,
+                tab: saved.browser.tab.into(),
                 ..Default::default()
             },
             media_pool: Default::default(),

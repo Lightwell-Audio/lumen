@@ -478,10 +478,13 @@ per slice and move what is no longer current out of it.
 - **Branch `m9-s9-closeout`: M9 R9, the close.** E2E `walkthrough_song`
   records, splits, saves, crashes mid-take, recovers, saves, reopens and
   exports one song; MT-M9-1 is its hardware twin. The review is
-  `docs/audits/2026-11-03-m9.md` (H1 to H6, M1 to M4, L1 to L4; H2, a save that
-  can point two takes at one file, comes first; fixes wait for the owner's
-  go-ahead). The M9 report is in `docs/PROGRESS.md`; it recommends a short
-  recovery slice for H1 to H6 before 9.5, and pitches 9.5's choices. `docs/PROGRESS.md` was brought up
+  `docs/audits/2026-11-03-m9.md` (H1 to H6, M1 to M4, L1 to L4), and every
+  finding is fixed on this branch (owner's go-ahead; the audit's Status).
+  Recovery is ADR-0118: a take's sidecar stays until a save holds its clip
+  (`recording/take_notes.rs`), and a recording autosaves a clean project.
+  The recording, export and MIDI modules are in folders; `tests/layering.rs`
+  keeps the crate graph. The M9 report is in `docs/PROGRESS.md` and pitches
+  9.5's choices. `docs/PROGRESS.md` was brought up
   to date (owner, 2026-11-03). The owner asked for M9's pending manual tests to
   be run by a GPT 6.1 Sol agent; both attempts stopped at the safety check
   (a Lumen was open) with nothing run (`docs/manual-tests/M9.md`, top). A
@@ -503,7 +506,7 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status and the milestone reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0115 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0118 and the table of owner decisions.
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
 - `docs/KNOWN_ISSUES.md`, `docs/ARCHITECTURE.md` (crates, threads, module

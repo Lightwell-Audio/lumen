@@ -2,6 +2,12 @@
 //! switches, saved in the settings. Listing and opening ports happens on
 //! the layer's own thread; the UI reads a snapshot (M5 slice 0, ADR-0044).
 
+pub(crate) mod export;
+pub(crate) mod files;
+pub(crate) mod out;
+pub(crate) mod play;
+pub(crate) mod runs;
+
 use std::collections::HashMap;
 use std::time::Duration;
 

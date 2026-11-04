@@ -786,6 +786,36 @@ fn smallest_window_at_200() {
     let _ = h.query_by_label("Lumen");
 }
 
+/// The app menu in the smallest window (M9 review L2): its last rows are
+/// reached by scrolling the menu.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn app_menu_in_the_smallest_window() {
+    use egui_kittest::kittest::Queryable;
+    for scale in [1.0, 2.0] {
+        let dir = TempDir::new("shots-small-menu");
+        let mut h = lumen_looking_sized(&dir, "dark", scale, vec2(960.0, 540.0));
+        let name = |part: &str| format!("small-menu-{part}-{}", (scale * 100.0) as u32);
+        let lumen = h.get_by_label("Lumen").rect();
+        click(&mut h, lumen.center());
+        h.run_steps(30);
+        save(&mut h, &name("open"));
+        let inside = pos2(lumen.center().x + 140.0, 300.0);
+        h.hover_at(inside);
+        for _ in 0..20 {
+            h.event(Event::MouseWheel {
+                unit: eframe::egui::MouseWheelUnit::Point,
+                delta: vec2(0.0, -120.0),
+                modifiers: Modifiers::NONE,
+                phase: eframe::egui::TouchPhase::Move,
+            });
+            h.run_steps(1);
+        }
+        h.run_steps(10);
+        save(&mut h, &name("scrolled"));
+    }
+}
+
 /// The empty arrangement's prompt in short windows, with the detail panel
 /// open under the lanes (the owner's report: the button ran over the time
 /// ruler and the hint was cut). The prompt gives up its icon, then its hint.

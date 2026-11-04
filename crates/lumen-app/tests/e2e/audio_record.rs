@@ -510,7 +510,10 @@ fn a_crash_while_recording_leaves_a_take_the_next_start_puts_back() {
                 .count()
         })
         .unwrap_or(0);
-    assert_eq!(left, 0, "it is no longer unfinished");
+    assert_eq!(
+        left, 1,
+        "its note stays until a save holds the take (M9 review H3)"
+    );
     // One undo takes it away again.
     assert_eq!(again.app().undo_label(), Some("Record"));
 }
@@ -689,4 +692,111 @@ fn clips_of_app(app: &App, id: Id) -> Vec<std::sync::Arc<Clip>> {
         .iter()
         .find(|t| t.id == id)
         .map_or_else(Vec::new, |t| t.clips.clone())
+}
+
+/// M9 review H3: a take that was stopped and placed, then a crash before any
+/// autosave held it, comes back from the autosave written before it; and a
+/// second crash right after Recover finds it again.
+#[test]
+fn a_take_placed_and_not_yet_autosaved_survives_a_crash_and_a_second_one() {
+    let (mut lumen, _turn) = launch("crash-after-stop", &project(), |l| {
+        l.autosaving_after(Duration::from_secs(1))
+    });
+    // Arming is an edit: an autosave from before the take is written.
+    lumen.click("Arm Vox");
+    lumen.wait_for("an autosave", |app| app.autosave_finished());
+    // A short take, stopped and placed well inside the autosave's second.
+    lumen.key(Modifiers::NONE, Key::F9);
+    lumen.wait_for("frames to be written", |app| {
+        app.audio_take_frames(VOX).is_some_and(|f| f >= 4_800)
+    });
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("the take to be placed", |app| {
+        !app.recording() && !app.audio_takes_placing()
+    });
+    assert_eq!(clips_of(&lumen, VOX).len(), 1);
+    assert!(
+        !lumen.app().autosave_finished(),
+        "the crash comes before an autosave holds the take"
+    );
+    let dir = lumen.crash();
+
+    let recover = |dir| {
+        let mut again = Lumen::start_with(dir, |l| {
+            l.with_input_device()
+                .autosaving_after(Duration::from_secs(1))
+        });
+        again.click("Recover");
+        again.wait_for("the recovered take", |app| {
+            !app.is_busy() && !app.audio_takes_placing() && app.project().tracks.len() == 2
+        });
+        again.frames(10);
+        again
+    };
+    let mut again = recover(dir);
+    assert_eq!(clips_of(&again, VOX).len(), 1, "the take is back");
+    let frames = again.app().project().media[0].frames;
+    assert!(frames >= 4_800, "{frames}");
+
+    // Lumen stops again before anything is saved: the same take is offered
+    // and placed again, once.
+    again.frames(5);
+    let dir = again.crash();
+    let again = recover(dir);
+    assert_eq!(clips_of(&again, VOX).len(), 1, "back again, and only once");
+    assert_eq!(again.app().project().media[0].frames, frames);
+}
+
+/// M9 review H4: a take recorded in a project with no unsaved changes is
+/// offered back after a crash.
+#[test]
+fn a_take_in_a_project_with_no_unsaved_changes_is_offered_back_after_a_crash() {
+    let (mut lumen, _turn) = launch("crash-clean", &project(), |l| {
+        l.autosaving_after(Duration::from_millis(50))
+    });
+    // Armed and saved: the project has no unsaved changes, and the autosave
+    // written for the arming is gone with the save.
+    lumen.click("Arm Vox");
+    lumen.key(Modifiers::COMMAND, Key::S);
+    lumen.wait_for("the save", |app| !app.is_dirty() && !app.is_busy());
+    lumen.frames(10);
+    assert!(!lumen.app().autosave_writing());
+    lumen.key(Modifiers::NONE, Key::F9);
+    lumen.wait_for("frames to be written", |app| {
+        app.audio_take_frames(VOX).is_some_and(|f| f >= 12_000)
+    });
+    lumen.wait_for("an autosave of the clean project", |app| {
+        app.autosave_finished()
+    });
+    let dir = lumen.crash();
+
+    let mut again = Lumen::start_with(dir, |l| l.with_input_device());
+    again.click("Recover");
+    again.wait_for("the recovered take", |app| {
+        !app.is_busy() && !app.audio_takes_placing() && app.project().tracks.len() == 2
+    });
+    again.frames(10);
+    assert_eq!(clips_of(&again, VOX).len(), 1, "the take is back");
+    assert!(again.app().project().media[0].frames >= 12_000);
+}
+
+/// A saved take lets its note go, and a project closed normally leaves none.
+#[test]
+fn a_saved_take_lets_its_note_go() {
+    let (mut lumen, _turn) = launch("note-saved", &project(), |l| l);
+    record(&mut lumen, 4_800);
+    let recordings = lumen.dir().join("Recordings");
+    let notes = move || {
+        std::fs::read_dir(&recordings)
+            .map(|d| {
+                d.flatten()
+                    .filter(|e| e.path().extension().is_some_and(|x| x == "take"))
+                    .count()
+            })
+            .unwrap_or(0)
+    };
+    assert_eq!(notes(), 1, "placed, not yet saved");
+    lumen.key(Modifiers::COMMAND, Key::S);
+    lumen.wait_for("the save", |app| !app.is_dirty() && !app.is_busy());
+    lumen.run_until("the note to go", |_| notes() == 0);
 }

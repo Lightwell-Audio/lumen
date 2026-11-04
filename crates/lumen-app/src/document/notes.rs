@@ -675,11 +675,11 @@ mod tests {
         assert_eq!(reopened, *doc.project());
         let (notes, _) = content(&doc);
         assert!(!notes[0].muted() && notes[1].muted());
-        let tracks = crate::midi_play::engine_midi(
+        let tracks = crate::midi::play::engine_midi(
             &reopened,
-            &crate::midi_play::Inputs::default(),
-            &mut crate::midi_play::PortTable::default(),
-            &mut crate::midi_play::Cache::default(),
+            &crate::midi::play::Inputs::default(),
+            &mut crate::midi::play::PortTable::default(),
+            &mut crate::midi::play::Cache::default(),
         );
         let pitches: Vec<_> = tracks[0].clips[0].notes.iter().map(|n| n.pitch).collect();
         assert_eq!(pitches, [60]);

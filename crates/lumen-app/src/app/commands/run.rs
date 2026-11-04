@@ -20,7 +20,7 @@ use crate::note_editor::lane::geometry::LaneKind;
 use crate::note_editor::lane::gesture::LaneTool;
 use crate::note_editor::{EditorZoom, NoteOp, Tool, VELOCITY_STEP};
 use crate::preferences::Page;
-use crate::record_settings::CountIn;
+use crate::recording::record_settings::CountIn;
 
 impl App {
     /// Runs `command`, whether it came from a key, the palette or a menu.
@@ -191,10 +191,18 @@ impl App {
             Command::AutomationReenableAll => {
                 self.document.reenable_all();
             }
-            Command::AutomationModeRead => self.auto_set_mode(crate::auto_record::Mode::Read),
-            Command::AutomationModeTouch => self.auto_set_mode(crate::auto_record::Mode::Touch),
-            Command::AutomationModeLatch => self.auto_set_mode(crate::auto_record::Mode::Latch),
-            Command::AutomationModeWrite => self.auto_set_mode(crate::auto_record::Mode::Write),
+            Command::AutomationModeRead => {
+                self.auto_set_mode(crate::recording::auto_record::Mode::Read)
+            }
+            Command::AutomationModeTouch => {
+                self.auto_set_mode(crate::recording::auto_record::Mode::Touch)
+            }
+            Command::AutomationModeLatch => {
+                self.auto_set_mode(crate::recording::auto_record::Mode::Latch)
+            }
+            Command::AutomationModeWrite => {
+                self.auto_set_mode(crate::recording::auto_record::Mode::Write)
+            }
             Command::ControllerLearn => {
                 if let Some((track, target)) = self.auto_chosen() {
                     if self.controllers.learning == Some((track, target)) {

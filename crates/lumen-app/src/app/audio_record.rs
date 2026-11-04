@@ -10,8 +10,8 @@
 //! leaves them where recovery finds them, and Save copies them into the
 //! project (`Samples/Recorded`).
 
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -22,9 +22,10 @@ use lumen_project::model::{Id, Media, TrackKind};
 
 use crate::App;
 use crate::arrangement::audio_take_look::AudioTakeLook;
-use crate::audio_input;
-use crate::loop_passes;
-use crate::take_worker::{Job, Live, Plan, TrackResult, sidecar_path, unfinished};
+use crate::recording::audio_input;
+use crate::recording::loop_passes;
+use crate::recording::take_notes::{TakeNotes, delete_later};
+use crate::recording::take_worker::{Finished, Found, Job, Live, Plan, TrackResult, sidecar_path};
 
 /// How long the worker has to hand the files over after recording ends
 /// before the take is given up on.
@@ -39,6 +40,8 @@ pub(crate) struct Lane {
 
 /// The files of a recording that has ended, waited for.
 struct Finishing {
+    /// Which recording (`Plan::id`).
+    id: u64,
     document: u64,
     /// The recording was cut off (another project opened): the files are not
     /// wanted.
@@ -48,7 +51,22 @@ struct Finishing {
     lanes: Vec<Lane>,
     /// What they recorded over, kept silent until the clips are placed, so
     /// the old audio is not heard there in between.
-    replaced: Vec<crate::midi_play::Replacing>,
+    replaced: Vec<crate::midi::play::Replacing>,
+}
+
+/// A recording given up on after [`FINISH_WAIT`]: its answer may still come
+/// (M9 review H6).
+struct Late {
+    id: u64,
+    document: u64,
+    discard: bool,
+}
+
+/// Recovery's disk work, on a thread (H1).
+struct Recovering {
+    document: u64,
+    dir: PathBuf,
+    found: Receiver<(Found, Vec<PathBuf>)>,
 }
 
 /// What the app keeps for audio recording.
@@ -57,6 +75,12 @@ pub(crate) struct AudioRecord {
     finishing: Option<Finishing>,
     /// The loss of input has been told for the recording under way.
     warned: bool,
+    /// The number of the last recording begun.
+    recording: u64,
+    late: Vec<Late>,
+    recovering: Option<Recovering>,
+    /// Sidecars of placed takes, kept until a save holds them (H3).
+    pub(crate) notes: TakeNotes,
 }
 
 /// A track's name as part of a file name.
@@ -79,19 +103,14 @@ fn file_stem(name: &str) -> String {
     }
 }
 
-/// The first `<name> <n>.wav` in `dir` that no earlier take uses.
-fn free_file(dir: &Path, name: &str, taken: &[PathBuf]) -> PathBuf {
-    let stem = file_stem(name);
-    (1..)
-        .map(|n| dir.join(format!("{stem} {n}.wav")))
-        .find(|p| !p.exists() && !sidecar_path(p).exists() && !taken.contains(p))
-        .expect("an unused take name exists")
-}
-
-/// Removes a take's file and its sidecar.
-fn remove(path: &Path) {
-    let _ = fs::remove_file(path);
-    let _ = fs::remove_file(sidecar_path(path));
+/// Removes takes' files and their sidecars, on a thread of their own.
+fn remove(paths: impl IntoIterator<Item = PathBuf>) {
+    delete_later(
+        paths
+            .into_iter()
+            .flat_map(|p| [sidecar_path(&p), p])
+            .collect(),
+    );
 }
 
 impl App {
@@ -148,10 +167,10 @@ impl App {
                 });
                 continue;
             };
-            let taken: Vec<PathBuf> = jobs.iter().map(|j| j.path.clone()).collect();
+            // The worker takes the next free number from this (H1).
             jobs.push(Job {
                 track: track.id.0,
-                path: free_file(&dir, &track.name, &taken),
+                path: dir.join(format!("{} 1.wav", file_stem(&track.name))),
                 channels: if route.stereo { 2 } else { 1 },
                 live: Arc::default(),
                 session: session.clone(),
@@ -182,7 +201,9 @@ impl App {
             })
             .collect();
         self.record.audio.warned = false;
+        self.record.audio.recording += 1;
         self.transport.audio.takes.begin(Plan {
+            id: self.record.audio.recording,
             jobs,
             rate,
             shift: i64::from(info.input_latency) + i64::from(info.output_latency) + offset as i64,
@@ -192,48 +213,62 @@ impl App {
         lanes
     }
 
-    /// After a recovered autosave opens: the takes that session left
-    /// unfinished are repaired and put on their tracks, as one step. A take
-    /// whose track the recovered project no longer has stays in the
+    /// After a recovered autosave opens: the takes that session left are
+    /// repaired on a thread and put on their tracks, as one step, when they
+    /// arrive (`poll_audio_takes`). A take the recovered project already
+    /// holds (an autosave was written after it was placed) is not placed
+    /// again; a take whose track the project no longer has stays in the
     /// recordings folder.
     pub(crate) fn recover_takes(&mut self, session: &str) {
         let dir = self.recordings_dir();
-        let mut results = Vec::new();
-        let mut kept = 0;
-        for lost in unfinished(&dir, session) {
-            let track = lost.sidecar.track;
-            let has_track = self
-                .document
+        let used: Vec<PathBuf> = self.document.media_files.values().cloned().collect();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (folder, session) = (dir.clone(), session.to_owned());
+        let spawned = std::thread::Builder::new()
+            .name("lumen-take-recovery".into())
+            .spawn(move || {
+                let mut found = crate::recording::take_worker::recover(&folder, &session);
+                let canonical = |p: &PathBuf| std::fs::canonicalize(p).ok();
+                let used: Vec<PathBuf> = used.iter().filter_map(canonical).collect();
+                let (already, takes): (Vec<_>, Vec<_>) = found
+                    .takes
+                    .into_iter()
+                    .partition(|t| canonical(&t.path).is_some_and(|c| used.contains(&c)));
+                found.takes = takes;
+                let _ = tx.send((found, already.into_iter().map(|t| t.path).collect()));
+            });
+        if spawned.is_ok() {
+            self.record.audio.recovering = Some(Recovering {
+                document: self.document.session(),
+                dir,
+                found: rx,
+            });
+        }
+    }
+
+    /// A normal close: deletes every take's sidecar, waiting for the disk,
+    /// as Lumen is exiting.
+    pub(crate) fn close_take_notes(&mut self) {
+        for sidecar in self.record.audio.notes.close() {
+            let _ = std::fs::remove_file(sidecar);
+        }
+    }
+
+    /// Recovery's takes have been read: places them and says so.
+    fn takes_recovered(&mut self, found: Found, already: Vec<PathBuf>, dir: &std::path::Path) {
+        let session = self.document.session();
+        self.record.audio.notes.hold(session, already);
+        let (takes, kept): (Vec<_>, Vec<_>) = found.takes.into_iter().partition(|t| {
+            self.document
                 .project()
                 .tracks
                 .iter()
-                .any(|t| t.id.0 == track && t.kind == TrackKind::Audio);
-            let repaired = lumen_media::take::repair(&lost.file).ok();
-            match repaired {
-                Some(r) if r.frames > 0 && has_track => results.push(TrackResult {
-                    track,
-                    path: lost.file.clone(),
-                    rate: r.sample_rate,
-                    channels: r.channels,
-                    start: Some(lost.sidecar.start),
-                    frames: r.frames,
-                    dropped: 0,
-                    error: None,
-                    wraps: lost.sidecar.wraps.clone(),
-                    silence: lost.sidecar.silence,
-                    looped: lost.sidecar.looped,
-                }),
-                Some(r) if r.frames == 0 => remove(&lost.file),
-                _ => {
-                    kept += 1;
-                    continue;
-                }
-            }
-            let _ = fs::remove_file(sidecar_path(&lost.file));
-        }
-        let count = results.len();
+                .any(|track| track.id.0 == t.track && track.kind == TrackKind::Audio)
+        });
+        let kept = kept.len() + found.unreadable;
+        let count = takes.len();
         if count > 0 {
-            self.place_audio_takes(&results);
+            self.place_audio_takes(&takes);
         }
         let mut words = Vec::new();
         if count > 0 {
@@ -311,13 +346,14 @@ impl App {
         &mut self,
         lanes: Vec<Lane>,
         discard: bool,
-        replaced: Vec<crate::midi_play::Replacing>,
+        replaced: Vec<crate::midi::play::Replacing>,
     ) {
         if lanes.is_empty() {
             return;
         }
         self.transport.audio.takes.finish();
         self.record.audio.finishing = Some(Finishing {
+            id: self.record.audio.recording,
             document: self.document.session(),
             discard,
             since: Instant::now(),
@@ -327,7 +363,7 @@ impl App {
     }
 
     /// What the takes being finished recorded over (see [`Finishing`]).
-    pub(super) fn finishing_replaced(&self) -> Vec<crate::midi_play::Replacing> {
+    pub(super) fn finishing_replaced(&self) -> Vec<crate::midi::play::Replacing> {
         self.record
             .audio
             .finishing
@@ -335,9 +371,10 @@ impl App {
             .map_or_else(Vec::new, |f| f.replaced.clone())
     }
 
-    /// Recording has stopped and its takes are not placed yet.
+    /// Recording has stopped and its takes are not placed yet, or a
+    /// recovery's takes are being read.
     pub(crate) fn audio_takes_finishing(&self) -> bool {
-        self.record.audio.finishing.is_some()
+        self.record.audio.finishing.is_some() || self.record.audio.recovering.is_some()
     }
 
     /// The takes to draw while their files are closed: what the arrangement
@@ -356,29 +393,87 @@ impl App {
     /// keep looking while the worker closes the files, and one more after the
     /// clips are placed, which starts loading their audio and waveforms.
     pub(crate) fn poll_audio_takes(&mut self, ctx: &eframe::egui::Context) {
+        self.poll_recovered_takes(ctx);
+        while let Some(finished) = self.transport.audio.takes.poll() {
+            self.takes_finished(finished);
+            ctx.request_repaint();
+        }
         let Some(finishing) = self.record.audio.finishing.as_ref() else {
             return;
         };
-        let Some(results) = self.transport.audio.takes.poll() else {
-            ctx.request_repaint_after(Duration::from_millis(16));
-            if finishing.since.elapsed() > FINISH_WAIT {
-                self.record.audio.finishing = None;
-                self.file_notice = Some(
-                    "The recording could not be finished, so the audio was not placed.".into(),
-                );
+        ctx.request_repaint_after(Duration::from_millis(16));
+        if finishing.since.elapsed() > FINISH_WAIT {
+            let Some(given_up) = self.record.audio.finishing.take() else {
+                return;
+            };
+            // Its answer may still come; it is placed then (H6).
+            self.record.audio.late.push(Late {
+                id: given_up.id,
+                document: given_up.document,
+                discard: given_up.discard,
+            });
+            self.file_notice = Some(
+                "The recording is taking long to finish. Its audio is placed when the disk is done with it."
+                    .into(),
+            );
+        }
+    }
+
+    /// A recording's files have been handed over: placed, if the recording
+    /// and its document are still the ones waited for; a late one is placed
+    /// when nothing else is recording, and its files are otherwise kept for
+    /// recovery.
+    fn takes_finished(&mut self, finished: Finished) {
+        let Finished { id, results } = finished;
+        let (document, discard) = match self.record.audio.finishing.as_ref() {
+            Some(f) if f.id == id => {
+                let f = self.record.audio.finishing.take().expect("checked above");
+                (f.document, f.discard)
             }
-            return;
+            _ => match self.record.audio.late.iter().position(|l| l.id == id) {
+                Some(at) => {
+                    let late = self.record.audio.late.remove(at);
+                    (late.document, late.discard)
+                }
+                // Not a recording this app waits for: its files stay, with
+                // their sidecars, for recovery.
+                None => return,
+            },
         };
-        let Some(finishing) = self.record.audio.finishing.take() else {
+        if discard {
+            remove(results.into_iter().map(|r| r.path));
             return;
-        };
-        if finishing.discard || finishing.document != self.document.session() {
-            for result in &results {
-                remove(&result.path);
-            }
+        }
+        if document != self.document.session() {
+            // Its project was closed: the files stay in the recordings folder.
+            return;
+        }
+        if self.recording() {
+            // A late take while another records: the files stay, with their
+            // sidecars, and recovery would find them.
+            self.file_notice = Some(format!(
+                "A recording that took long to finish could not be placed while recording. Its audio stays in {}.",
+                self.recordings_dir().display()
+            ));
             return;
         }
         self.place_audio_takes(&results);
+    }
+
+    fn poll_recovered_takes(&mut self, ctx: &eframe::egui::Context) {
+        let Some(recovering) = self.record.audio.recovering.as_ref() else {
+            return;
+        };
+        let Ok((found, already)) = recovering.found.try_recv() else {
+            ctx.request_repaint_after(Duration::from_millis(16));
+            return;
+        };
+        let Some(recovering) = self.record.audio.recovering.take() else {
+            return;
+        };
+        if recovering.document == self.document.session() {
+            self.takes_recovered(found, already, &recovering.dir);
+        }
         ctx.request_repaint();
     }
 
@@ -406,7 +501,7 @@ impl App {
                 ));
             }
             let Some(start) = result.start else {
-                remove(&result.path);
+                remove([result.path.clone()]);
                 continue;
             };
             // One rule makes the clip, with Loop on or off (`loop_passes`), in
@@ -441,7 +536,7 @@ impl App {
             let timeline = &self.transport.timeline;
             let from = timeline.ticks_at(start, rate);
             let to = timeline.ticks_at(start + frames as i64, rate);
-            let size = fs::metadata(&result.path).map_or(0, |m| m.len());
+            let size = result.size_bytes;
             let media = Media {
                 id: self.document.fresh_id(),
                 path: result.path.to_string_lossy().into_owned(),
@@ -483,14 +578,19 @@ impl App {
         if !takes.is_empty() {
             let placed = self.document.record_audio_takes(&takes);
             if placed.clips.is_empty() {
-                for take in &takes {
-                    remove(Path::new(&take.media.path));
-                }
+                remove(takes.iter().map(|t| PathBuf::from(&t.media.path)));
                 notes.push(
                     "The track was removed while recording, so the audio was not placed.".into(),
                 );
-            } else if !placed.new_tracks.is_empty() {
-                notes.push("A locked clip was in the way, so the take went on a new track.".into());
+            } else {
+                let session = self.document.session();
+                let files = takes.iter().map(|t| PathBuf::from(&t.media.path));
+                self.record.audio.notes.hold(session, files);
+                if !placed.new_tracks.is_empty() {
+                    notes.push(
+                        "A locked clip was in the way, so the take went on a new track.".into(),
+                    );
+                }
             }
         }
         if !notes.is_empty() {
@@ -510,18 +610,5 @@ mod tests {
         assert_eq!(file_stem("  .. "), "Audio");
         assert_eq!(file_stem(""), "Audio");
         assert_eq!(file_stem(&"x".repeat(200)).len(), 60);
-    }
-
-    #[test]
-    fn the_next_free_take_name_skips_files_sidecars_and_names_taken_now() {
-        let dir = std::env::temp_dir().join(format!("lumen-names-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        assert_eq!(free_file(&dir, "Vox", &[]), dir.join("Vox 1.wav"));
-        fs::write(dir.join("Vox 1.wav"), b"x").unwrap();
-        fs::write(sidecar_path(&dir.join("Vox 2.wav")), b"x").unwrap();
-        let now = [dir.join("Vox 3.wav")];
-        assert_eq!(free_file(&dir, "Vox", &now), dir.join("Vox 4.wav"));
-        fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -529,7 +529,7 @@ report: {}",
                     && i.raw.hovered_files.iter().all(|f| {
                         f.path
                             .as_deref()
-                            .is_some_and(crate::midi_files::is_midi_file)
+                            .is_some_and(crate::midi::files::is_midi_file)
                     }),
             )
         });
@@ -541,7 +541,7 @@ report: {}",
                         .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
                 })
                 .collect();
-            all_midi = carried.iter().all(|p| crate::midi_files::is_midi_file(p));
+            all_midi = carried.iter().all(|p| crate::midi::files::is_midi_file(p));
         }
         self.drop_target = match pointer {
             Some(p) => self.snapped(ruler::ticks_at(view.beat_at(canvas.left(), p.x)), free),
@@ -666,7 +666,7 @@ report: {}",
                 .collect()
         });
         if !hovered.is_empty() {
-            let midi = |p: &PathBuf| crate::midi_files::is_midi_file(p);
+            let midi = |p: &PathBuf| crate::midi::files::is_midi_file(p);
             let supported = hovered
                 .iter()
                 .filter(|p| media::is_audio_file(p) || midi(p))
