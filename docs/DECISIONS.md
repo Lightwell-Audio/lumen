@@ -10617,3 +10617,52 @@ reason) in both themes at
 and theme, the double-click, the foreground hand-over on the owner's
 desktop, an "Open with" choice made before Lumen registered, and a take or
 an export on the Focusrite while a project is handed over (MT-SYS-1).
+
+## ADR-0118 — Take recovery that survives every crash window (M9 review H1 to H6)
+
+**Date:** 2026-11-03. **Branch:** `m9-s9-closeout`. **Status:** Accepted
+(owner: "fix the findings", 2026-11-03). Review:
+`docs/audits/2026-11-03-m9.md`.
+
+**Context.** The M9 review found that a take's file survives a crash but
+Lumen could lose track of it: the sidecar went as soon as the file closed
+(H3), a take in a project with no unsaved changes left no autosave (H4), the
+sidecar was rewritten in place (H5), a take that finished after the 20 s
+wait could be placed as the next one (H6), and recovery and Record touched
+the disk on the interface's thread (H1). Separately, a save treated two
+files with one name and size as one (H2).
+
+**Choice.**
+
+1. **Sidecars are held until a save holds the clip** (`recording/take_notes.rs`).
+   A placed or recovered take's sidecar is held for its document; the next
+   save or autosave that starts claims it, and deletes it on a thread of its
+   own once that write succeeds; a failed write holds it again. Replacing the
+   document (Open, New) lets its sidecars go, since the user has saved or
+   chosen not to.
+2. **Recovery always has an autosave to start from.** While a take records,
+   finishes, or any sidecar is held, the autosave writes even a clean project
+   (`app/recovery.rs`).
+3. **Sidecars are written atomically**: a `.tmp` beside it, then a rename,
+   as project saves do. A sidecar that cannot be parsed is still skipped.
+4. **Recordings are numbered.** The worker's answer (`Finished`) carries the
+   recording's number. A recording given up after `FINISH_WAIT` is kept as
+   late and placed when its answer comes, if its document is still open and
+   nothing records; otherwise its files and sidecars stay for recovery, with
+   a notice naming the folder.
+5. **The disk work moves to the take worker.** It chooses free file names
+   when it opens the takes, reports each file's size, and runs recovery
+   (`take_worker::recover`: list, repair, remove empty takes); the interface
+   only places what comes back.
+6. **A save reuses a target only when the contents are proven equal**: the
+   same source file in this save, or a file already there with the same
+   bytes (`files::same_contents`). Otherwise it picks a free name.
+
+**Consequences.** A crash just after Stop, or just after Recover, offers the
+take again. A clean project autosaves while recording, a small write once per interval.
+Tests: unit tests for `TakeNotes`, the atomic sidecar, two equal-size files
+in one save and against a file already there; E2E crashes after Stop before
+the autosave (H3) and in a clean project (H4), each checked to fail with its
+fix taken out; the recording, recovery and walkthrough scenarios.
+**Not verified here:** a slow or network drive by hand, and a real stall of
+more than 20 s.

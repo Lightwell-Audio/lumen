@@ -34,6 +34,31 @@ pub(crate) enum Tab {
     Media,
 }
 
+impl From<crate::settings::browser::Tab> for Tab {
+    fn from(kept: crate::settings::browser::Tab) -> Self {
+        use crate::settings::browser::Tab as Kept;
+        match kept {
+            Kept::Devices => Tab::Devices,
+            Kept::Samples => Tab::Samples,
+            Kept::Projects => Tab::Projects,
+            Kept::Places => Tab::Places,
+            Kept::Media => Tab::Media,
+        }
+    }
+}
+
+impl From<Tab> for crate::settings::browser::Tab {
+    fn from(tab: Tab) -> Self {
+        match tab {
+            Tab::Devices => Self::Devices,
+            Tab::Samples => Self::Samples,
+            Tab::Projects => Self::Projects,
+            Tab::Places => Self::Places,
+            Tab::Media => Self::Media,
+        }
+    }
+}
+
 impl Tab {
     /// Every tab, in the strip's order.
     pub(crate) const ALL: [Tab; 5] = [
@@ -91,8 +116,6 @@ impl Tab {
     }
 }
 
-pub(crate) use files::Saved;
-
 /// The browser's own state: what it shows, and one-frame requests from
 /// commands.
 #[derive(Default)]
@@ -103,4 +126,17 @@ pub(crate) struct Browser {
     pub focus_search: bool,
     /// Samples, Projects and Places (M9 R7c).
     pub files: files::Files,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Tab;
+
+    #[test]
+    fn every_tab_is_kept_in_the_settings_and_read_back() {
+        for tab in Tab::ALL {
+            let kept: crate::settings::browser::Tab = tab.into();
+            assert_eq!(Tab::from(kept), tab);
+        }
+    }
 }

@@ -389,7 +389,7 @@ impl Arrangement {
         // Where the control rests, to read the curve against.
         painter.hline(
             canvas_x,
-            frame.y(target, scale::default_value(target)),
+            frame.y(target, target.default_value()),
             Stroke::new(
                 theme::stroke::HAIRLINE,
                 palette.border_strong.gamma_multiply(0.6),
@@ -403,7 +403,7 @@ impl Arrangement {
         // dotted line across it marks the value the control holds instead
         // (M7 slice A4a, the owner's look A).
         if taken {
-            let own = frame.y(target, scale::own_value(track, target));
+            let own = frame.y(target, lumen_project::automation::own_value(track, target));
             painter.extend(egui::Shape::dashed_line(
                 &[pos2(canvas_x.min, own), pos2(canvas_x.max, own)],
                 Stroke::new(theme::stroke::LIT, palette.warning),
@@ -467,7 +467,7 @@ impl Arrangement {
         // What a track does while the song plays is about its controls, not
         // about a clip's envelope.
         let mode = if target.clip().is_some() {
-            crate::auto_record::Mode::Read
+            crate::recording::auto_record::Mode::Read
         } else {
             self.auto.mode_of(track.id)
         };
@@ -579,7 +579,7 @@ impl Arrangement {
         // What the track does with the controls that move while it plays.
         ui.separator();
         crate::widgets::menu_caption(ui, "While the song plays");
-        for mode in crate::auto_record::Mode::ALL {
+        for mode in crate::recording::auto_record::Mode::ALL {
             let chosen = self.auto.mode_of(track) == mode;
             let row = crate::widgets::menu_toggle(ui, mode.name(), None, chosen)
                 .on_hover_text(mode.about());

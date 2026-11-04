@@ -13,7 +13,7 @@ use lumen_project::model::Monitor;
 use crate::commands::Command;
 use crate::icons::{self, Icon};
 use crate::preferences::{self, Marks, Page, audio};
-use crate::record_settings::CountIn;
+use crate::recording::record_settings::CountIn;
 use crate::transport::record;
 use crate::widgets::{hint, row, section};
 use crate::{App, midi, settings, theme, widgets};

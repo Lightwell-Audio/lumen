@@ -26,11 +26,11 @@ use lumen_project::model::{Id, TrackKind};
 
 use crate::App;
 use crate::arrangement::recording_look::RecordingLook;
-use crate::auto_record::Mode as AutoMode;
 use crate::document::Recording;
 use crate::played::Played;
-use crate::record_span::{self, Kind, Span};
-use crate::recorder::Capture;
+use crate::recording::auto_record::Mode as AutoMode;
+use crate::recording::record_span::{self, Kind, Span};
+use crate::recording::recorder::Capture;
 
 use super::audio_record::{AudioRecord, Lane};
 
@@ -175,7 +175,7 @@ impl Session {
 
     /// What its audio tracks recorded over, now that it has ended with the
     /// playhead at `head`: silent until the takes are placed.
-    fn recorded_over(&self, head: Ticks) -> Vec<crate::midi_play::Replacing> {
+    fn recorded_over(&self, head: Ticks) -> Vec<crate::midi::play::Replacing> {
         // A wrap in the frame recording ended in is not yet noted.
         let wrapped = self.wrapped || (self.looped.is_some() && head < self.last);
         let Some(span) = self.span(Kind::Audio).recorded(self.start, head, wrapped) else {
@@ -188,8 +188,8 @@ impl Session {
     }
 }
 
-fn replacing(track: Id, span: Span) -> crate::midi_play::Replacing {
-    crate::midi_play::Replacing {
+fn replacing(track: Id, span: Span) -> crate::midi::play::Replacing {
+    crate::midi::play::Replacing {
         track,
         from: span.from,
         until: span.until,
@@ -202,7 +202,7 @@ impl App {
     /// the new ones.
     /// After it ends, until its files are placed, an audio take keeps silent
     /// what it recorded over.
-    pub(crate) fn replacing(&self) -> Vec<crate::midi_play::Replacing> {
+    pub(crate) fn replacing(&self) -> Vec<crate::midi::play::Replacing> {
         let Some(session) = self.record.session.as_ref() else {
             return self.finishing_replaced();
         };

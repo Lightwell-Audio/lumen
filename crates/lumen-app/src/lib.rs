@@ -43,9 +43,7 @@ mod app;
 mod arrangement;
 mod association;
 mod audio;
-mod audio_input;
 mod audition;
-mod auto_record;
 mod autosave;
 mod bench;
 mod bounce;
@@ -60,12 +58,9 @@ mod commands;
 mod consolidate;
 mod crash;
 mod crossfades;
-#[allow(dead_code, reason = "the app starts the disk thread in R6 step 4")]
 mod disk;
 mod document;
 mod export;
-mod export_live;
-mod export_render;
 mod files;
 mod fonts;
 mod hosting;
@@ -77,16 +72,10 @@ mod launch;
 mod light;
 mod live;
 mod live_tap;
-mod loop_passes;
 mod measure_latency;
 mod media;
 mod meters;
 mod midi;
-mod midi_export;
-mod midi_files;
-mod midi_out;
-mod midi_play;
-mod midi_runs;
 mod motion;
 mod normalize;
 mod note_editor;
@@ -101,17 +90,13 @@ mod position;
 mod preferences;
 mod preset_files;
 mod probe;
-mod record_settings;
-mod record_span;
-mod recorder;
+mod recording;
 mod relink;
-mod render_audio;
 mod routing;
 mod ruler;
 mod settings;
 mod song_lanes;
 mod strays;
-mod take_worker;
 mod tap_tempo;
 mod templates;
 pub mod testing;
@@ -154,7 +139,7 @@ pub struct App {
     /// MIDI learn and the controllers that move controls (M7 slice A5).
     controllers: app::controllers::Controllers,
     /// The lane passes being recorded (M7 slice A4b).
-    recorder: auto_record::Recorder,
+    recorder: recording::auto_record::Recorder,
     /// The passes written into the project in parts as they go (M7 review M1).
     lane_commits: app::auto_recording::Commits,
     /// The plugin gestures that are open: a control held in a plugin's own
@@ -235,7 +220,7 @@ pub struct App {
     /// MIDI ports and the user's switches for them (M5 slice 0).
     midi: midi::Midi,
     /// Times MIDI to hardware outputs; starts with the first one a track names.
-    midi_out: Option<midi_out::Output>,
+    midi_out: Option<midi::out::Output>,
     /// Sends the computer keyboard's notes into the engine, once the live
     /// feed is handed over (slice 2).
     live_keys: Option<live::LiveKeys>,
@@ -260,7 +245,7 @@ pub struct App {
     /// R7c), added like files dropped from the system.
     file_drop: Option<Vec<PathBuf>>,
     /// MIDI files being read in the background (M5 slice 7).
-    midi_reader: midi_files::Reader,
+    midi_reader: midi::files::Reader,
     /// The browser's own state (M6 slice 1).
     browser: browser::Browser,
     /// The Project media tab and the relink and purge under way (M9 slice
@@ -277,7 +262,7 @@ pub struct App {
     chain: chain::Chain,
     /// An exported MIDI file being made, before the dialog asks where it
     /// goes (M5 slice 7).
-    midi_exporting: Option<std::sync::mpsc::Receiver<Result<midi_files::Exported, String>>>,
+    midi_exporting: Option<std::sync::mpsc::Receiver<Result<midi::files::Exported, String>>>,
     /// The peak scan behind Normalize, while it runs (M7b slice E1).
     normalizing: Option<app::clip_normalize::Running>,
     consolidating: Option<app::clip_consolidate::Running>,
@@ -463,6 +448,9 @@ impl eframe::App for App {
         if let Some(autosave) = &mut self.autosave {
             autosave.clear();
         }
+        // Nothing is left to recover, so no take's sidecar either; Lumen is
+        // exiting, so this waits for the disk.
+        self.close_take_notes();
         self.safe.closing();
         self.hosting.shutdown();
     }

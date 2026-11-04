@@ -31,7 +31,7 @@ use lumen_core::time::Ticks;
 use lumen_engine::{Captured, Heard, WRAP};
 use lumen_project::edit::record::Take;
 
-use crate::recorder::Capture;
+use crate::recording::recorder::Capture;
 
 /// How long a message is kept.
 pub const KEPT_FOR: Duration = Duration::from_secs(10 * 60);

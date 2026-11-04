@@ -21,30 +21,6 @@ const SILENCE_BAND: f32 = 0.04;
 const LEVEL_LOW: f32 = -60.0;
 const LEVEL_HIGH: f32 = 6.0;
 
-/// The value `track` holds for `target` itself: what the control is set to
-/// when no lane plays, and what a lane taken over leaves to be heard.
-pub(crate) fn own_value(track: &Track, target: Target) -> f32 {
-    match target {
-        Target::Volume => track.gain_db,
-        Target::Pan => track.pan,
-        Target::Trim => track.trim_db,
-        Target::Mute => f32::from(u8::from(track.mute)),
-        Target::Send { to } => track
-            .sends
-            .iter()
-            .find(|s| s.to == to)
-            .map_or(f32::NEG_INFINITY, |s| s.level.0),
-        Target::Device { device, param } => track
-            .devices
-            .iter()
-            .find(|d| d.id == device)
-            .and_then(|d| d.params.get(&param))
-            .map_or_else(|| default_value(target), |&v| v as f32),
-        // An envelope has no control of its own: it rests at nothing.
-        Target::ClipGain { .. } | Target::ClipPan { .. } => 0.0,
-    }
-}
-
 /// The slider that shows `target`'s values, if one fits.
 fn slider(target: Target) -> Option<SliderKind> {
     match target.scale() {
@@ -103,15 +79,6 @@ pub(crate) fn value(target: Target, fraction: f32) -> f32 {
             let (low, high) = target.range();
             low + (high - low) * f
         }
-    }
-}
-
-/// What a click on empty lane takes for a value when the lane has none to
-/// continue: the control's own rest value.
-pub(crate) fn default_value(target: Target) -> f32 {
-    match target {
-        Target::Device { .. } => 0.5,
-        _ => 0.0,
     }
 }
 

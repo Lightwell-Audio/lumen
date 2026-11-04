@@ -40,7 +40,7 @@ impl Kind {
         let is = |list: &[&str]| list.iter().any(|e| extension.eq_ignore_ascii_case(e));
         if is(crate::media::EXTENSIONS) {
             Some(Kind::Audio)
-        } else if is(crate::midi_files::EXTENSIONS) {
+        } else if is(crate::midi::files::EXTENSIONS) {
             Some(Kind::Midi)
         } else if extension.eq_ignore_ascii_case("lumen") {
             Some(Kind::Project)

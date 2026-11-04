@@ -153,7 +153,7 @@ pub(crate) fn thumb(
 
 /// Makes the picture of `path`.
 pub(crate) fn make(path: &Path, cancel: &AtomicBool) -> Result<Thumb, String> {
-    if crate::midi_files::is_midi_file(path) {
+    if crate::midi::files::is_midi_file(path) {
         return notes(path);
     }
     if let Some(layout) = lumen_media::stream::layout(path).map_err(|e| e.to_string())? {
@@ -256,7 +256,7 @@ fn decoded(path: &Path, cancel: &AtomicBool) -> Result<(Picture, u64, u32), Stri
 
 /// A MIDI file's notes, across its length and its range of pitches.
 fn notes(path: &Path) -> Result<Thumb, String> {
-    let file = crate::midi_files::read_file(path)?;
+    let file = crate::midi::files::read_file(path)?;
     let end = file.end().as_quarters().max(1.0) as f32;
     let all: Vec<_> = file
         .tracks

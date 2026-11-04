@@ -55,6 +55,32 @@ impl<'de> Deserialize<'de> for Id {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Color(pub u32);
 
+impl Color {
+    /// The palette tracks and clips take their colours from, in the order
+    /// new tracks take them: muted, medium lightness, so white names read on
+    /// them in both themes. The interface draws them as they are
+    /// (`theme::CLIP_COLORS`).
+    pub const PALETTE: [Color; 12] = [
+        Color(0x4C7A9E),
+        Color(0x7A6A9E),
+        Color(0x5E8C6A),
+        Color(0x9E7A4C),
+        Color(0x9E5A6A),
+        Color(0x5A8E8E),
+        Color(0x6A7EB0),
+        Color(0x8E6A8E),
+        Color(0x7E8E56),
+        Color(0xA06E5A),
+        Color(0x5686A0),
+        Color(0x887660),
+    ];
+
+    /// The palette's colour for the track at `index`, in turn.
+    pub fn in_turn(index: usize) -> Color {
+        Self::PALETTE[index % Self::PALETTE.len()]
+    }
+}
+
 impl Serialize for Color {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_str(&format!("#{:06X}", self.0 & 0xFF_FFFF))

@@ -180,7 +180,7 @@ fn cancellation_without_a_device_callback_returns_and_frees_off_the_callback() {
 fn a_prepared_project_mixer_installs_and_renders_under_the_allocation_guard() {
     let dir = TempDir::new("export-live-mixer-rt");
     let file = dir.path().join("mix.wav");
-    let job = crate::export_render::Job {
+    let job = crate::export::render::Job {
         project: lumen_project::testing::project_of("Export", vec![]),
         clips: vec![],
         plugins: vec![],
@@ -191,7 +191,7 @@ fn a_prepared_project_mixer_installs_and_renders_under_the_allocation_guard() {
         file: file.clone(),
         stem: None,
     };
-    let prepared = crate::export_render::prepare(&job, &AtomicBool::new(false))
+    let prepared = crate::export::render::prepare(&job, &AtomicBool::new(false))
         .unwrap()
         .unwrap();
     let made = drive(

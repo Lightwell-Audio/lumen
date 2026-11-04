@@ -11,10 +11,10 @@ use lumen_midi::{Direction, Use};
 
 use crate::App;
 use crate::audition::Tone;
+use crate::midi::out::Output;
+use crate::midi::play as midi_play;
+use crate::midi::play::used_ports;
 use crate::midi::{Action, Midi};
-use crate::midi_out::Output;
-use crate::midi_play;
-use crate::midi_play::used_ports;
 use lumen_project::model::Id;
 
 /// An output the track menu offers, put in the egui context each frame
@@ -131,7 +131,7 @@ impl App {
 
     /// What decides which tracks listen: the selection and the inputs
     /// switched on for tracks.
-    pub(crate) fn listen_inputs(&self) -> crate::midi_play::Inputs {
+    pub(crate) fn listen_inputs(&self) -> crate::midi::play::Inputs {
         let mut selected = self.arrangement.selected.clone();
         selected.sort();
         let ports = self
@@ -141,7 +141,7 @@ impl App {
             .filter(|p| p.info.id.direction == Direction::Input && p.using.track)
             .filter_map(|p| Some((p.info.id.name.clone(), p.slot?)))
             .collect();
-        crate::midi_play::Inputs {
+        crate::midi::play::Inputs {
             selected,
             ports,
             replacing: self.replacing(),

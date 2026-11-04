@@ -60,12 +60,9 @@ pub use settings::RATES;
 
 /// The colour of a new track: the one the project's settings choose
 /// (`Project::new_track_color`), else the palette in turn
-/// (`theme::CLIP_COLORS`, as `#RRGGBB`) by how many tracks there are.
+/// (`Color::PALETTE`) by how many tracks there are.
 fn track_color(chosen: Option<Color>, index: usize) -> Color {
-    chosen.unwrap_or_else(|| {
-        let c = crate::theme::CLIP_COLORS[index % crate::theme::CLIP_COLORS.len()];
-        Color(u32::from(c.r()) << 16 | u32::from(c.g()) << 8 | u32::from(c.b()))
-    })
+    chosen.unwrap_or_else(|| Color::in_turn(index))
 }
 
 pub struct Document {

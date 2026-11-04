@@ -14,7 +14,6 @@ mod head;
 mod list;
 pub(crate) mod preview;
 mod row;
-mod saved;
 mod strip;
 pub(crate) mod thumbs;
 pub(crate) mod walk;
@@ -31,8 +30,10 @@ use self::thumbs::Thumb;
 use self::walk::{Entry, Kind, Outcome, Wanted};
 use super::Tab;
 
+/// What the browser keeps in the settings, by its old name here.
+pub(crate) use crate::settings::browser as saved;
 pub(crate) use list::Dragged;
-pub(crate) use saved::{Place, Saved};
+pub(crate) use saved::Place;
 
 /// Where Places is.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

@@ -16,10 +16,9 @@ use lumen_project::edit::automation::{Release, recorded};
 use lumen_project::model::Id;
 
 use crate::App;
-use crate::arrangement::auto_scale as scale;
 use crate::arrangement::auto_state::AutoView;
-use crate::auto_record::{Action, End, Frame, Mode, World};
 use crate::document::Document;
+use crate::recording::auto_record::{Action, End, Frame, Mode, World};
 
 /// How long a Touch takes to return to the lane when a control is let go of.
 const GLIDE_MS: i64 = 100;
@@ -134,7 +133,8 @@ impl World for Looking<'_> {
     }
 
     fn value(&self, track: Id, target: Target) -> Option<f32> {
-        self.track(track).map(|t| scale::own_value(t, target))
+        self.track(track)
+            .map(|t| lumen_project::automation::own_value(t, target))
     }
 }
 

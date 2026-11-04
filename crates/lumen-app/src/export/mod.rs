@@ -2,7 +2,10 @@
 //! project snapshot. Files are staged together; cancellation never publishes
 //! part of a set of stems. Project media and undo history are untouched.
 
+pub(crate) mod live;
 mod publish;
+pub(crate) mod render;
+pub(crate) mod render_audio;
 mod worker;
 
 use std::path::PathBuf;

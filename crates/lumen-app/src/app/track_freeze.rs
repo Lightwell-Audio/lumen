@@ -16,7 +16,7 @@ use lumen_project::model::{ClipContent, Device, Id, TrackKind};
 
 use crate::App;
 use crate::bounce::{Bake, Job, Poll, Render, remove_files};
-use crate::render_audio::RenderAudio;
+use crate::export::render_audio::RenderAudio;
 
 /// Why the tempo and the time signature do not change while a track is frozen
 /// (the history refuses it; tap tempo says so before its run starts).

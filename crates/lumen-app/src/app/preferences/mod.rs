@@ -150,8 +150,9 @@ impl App {
             self.settings.follow = self.transport.follow;
             self.settings_changed = Some(Instant::now());
         }
-        if self.browser.tab != self.settings.browser.tab {
-            self.settings.browser.tab = self.browser.tab;
+        let tab = self.browser.tab.into();
+        if tab != self.settings.browser.tab {
+            self.settings.browser.tab = tab;
             self.settings_changed = Some(Instant::now());
         }
         if self.transport.time_format != self.settings.time_format {

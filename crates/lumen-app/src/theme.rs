@@ -228,23 +228,20 @@ pub const LIGHT: Palette = Palette {
     ],
 };
 
-/// Track and clip colours: muted, medium lightness, so white names read on
-/// them in both themes. The same in both themes (content keeps its
-/// identity).
-pub const CLIP_COLORS: [Color32; 12] = [
-    Color32::from_rgb(0x4C, 0x7A, 0x9E),
-    Color32::from_rgb(0x7A, 0x6A, 0x9E),
-    Color32::from_rgb(0x5E, 0x8C, 0x6A),
-    Color32::from_rgb(0x9E, 0x7A, 0x4C),
-    Color32::from_rgb(0x9E, 0x5A, 0x6A),
-    Color32::from_rgb(0x5A, 0x8E, 0x8E),
-    Color32::from_rgb(0x6A, 0x7E, 0xB0),
-    Color32::from_rgb(0x8E, 0x6A, 0x8E),
-    Color32::from_rgb(0x7E, 0x8E, 0x56),
-    Color32::from_rgb(0xA0, 0x6E, 0x5A),
-    Color32::from_rgb(0x56, 0x86, 0xA0),
-    Color32::from_rgb(0x88, 0x76, 0x60),
-];
+/// Track and clip colours: the model's palette (`Color::PALETTE`, which
+/// new tracks take in turn), drawn as it is. The same in both themes
+/// (content keeps its identity).
+pub const CLIP_COLORS: [Color32; 12] = {
+    let palette = lumen_project::model::Color::PALETTE;
+    let mut colors = [Color32::BLACK; 12];
+    let mut i = 0;
+    while i < colors.len() {
+        let c = palette[i].0;
+        colors[i] = Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8);
+        i += 1;
+    }
+    colors
+};
 /// The colours of a control, for the surface under it: plain on most
 /// surfaces, stepped up on a selected row so it keeps its edge.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -888,6 +885,24 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_settings_file_starts_with_the_default_theme() {
+        assert_eq!(Appearance::default().key(), crate::settings::DEFAULT_THEME);
+        assert_eq!(
+            Appearance::from_key(crate::settings::DEFAULT_THEME),
+            Appearance::default()
+        );
+    }
+
+    #[test]
+    fn the_clip_colours_are_the_models_palette() {
+        for (drawn, kept) in CLIP_COLORS.iter().zip(lumen_project::model::Color::PALETTE) {
+            let rgb = u32::from(drawn.r()) << 16 | u32::from(drawn.g()) << 8 | u32::from(drawn.b());
+            assert_eq!(rgb, kept.0);
+        }
+        assert_eq!(CLIP_COLORS[0], Color32::from_rgb(0x4C, 0x7A, 0x9E));
+    }
 
     /// WCAG relative luminance contrast.
     fn contrast(a: Color32, b: Color32) -> f32 {

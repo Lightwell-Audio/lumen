@@ -315,9 +315,12 @@ fn save_as_writes_a_file_in_the_users_folder_that_loads_back_and_never_writes_ov
         ["My lead 2.vstpreset", "My lead.vstpreset"]
     );
 
-    // Both are in the menu now.
+    // Both are in the menu once the folder is listed again (off the
+    // interface's thread, so it can lag the file on a loaded machine).
     lumen.open_preset_menu();
-    assert!(lumen.shows("My lead") && lumen.shows("My lead 2"));
+    lumen.run_until("both presets in the menu", |l| {
+        l.shows("My lead") && l.shows("My lead 2")
+    });
 }
 
 #[test]

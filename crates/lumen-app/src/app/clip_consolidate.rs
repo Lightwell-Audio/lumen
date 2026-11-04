@@ -16,7 +16,7 @@ use lumen_project::model::Id;
 
 use crate::App;
 use crate::consolidate::{Job, Poll, Render, remove_files};
-use crate::render_audio::RenderAudio;
+use crate::export::render_audio::RenderAudio;
 
 /// A render under way.
 pub(crate) struct Running {

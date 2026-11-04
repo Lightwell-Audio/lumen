@@ -128,7 +128,11 @@ fn the_in_chip_chooses_a_stereo_pair_or_a_mono_input_and_none() {
     };
     let none = chip(&lumen, "None");
     lumen.click("Vox input: None");
-    assert!(lumen.shows("1+2  In 1 + In 2"));
+    // The menu asks for the device's channel names, looked up off the
+    // interface's thread: the rows carry them once they arrive.
+    lumen.run_until("the input rows with their names", |l| {
+        l.shows("1+2  In 1 + In 2")
+    });
     lumen.click("1+2  In 1 + In 2");
     assert_eq!(input_of(&lumen, VOX), Some(AudioInput::pair(0)));
     assert_eq!(lumen.app().undo_label(), Some("Input: 1+2"));

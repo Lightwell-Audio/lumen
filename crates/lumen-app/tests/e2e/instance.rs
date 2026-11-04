@@ -133,6 +133,12 @@ fn recording_ready(name: &str) -> Lumen {
     lumen.click("Arm Vox");
     lumen.key(Modifiers::NONE, Key::F9);
     lumen.wait_for("the recording", |app| app.recording() && app.is_playing());
+    // A take stopped before its first input block has nothing to place, so
+    // wait for frames on disk: a slow runner can take longer than a frame.
+    let vox = lumen.app().project().tracks[0].id;
+    lumen.wait_for("the take's first frames", move |app| {
+        app.audio_take_frames(vox).is_some_and(|f| f > 0)
+    });
     lumen
 }
 

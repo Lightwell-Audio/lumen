@@ -117,6 +117,7 @@ mod walkthrough_automation;
 mod walkthrough_editing;
 mod walkthrough_mix;
 mod walkthrough_plugins;
+mod walkthrough_song;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

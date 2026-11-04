@@ -51,7 +51,7 @@ impl Document {
         if !self.rests.contains_key(&(track, target)) {
             let rest = lumen_project::routing::all_tracks(self.project())
                 .find(|t| t.id == track)
-                .map(|t| crate::arrangement::auto_scale::own_value(t, target));
+                .map(|t| lumen_project::automation::own_value(t, target));
             if let Some(rest) = rest.filter(|r| r.is_finite()) {
                 self.rests.insert((track, target), rest);
             }

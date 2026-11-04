@@ -55,7 +55,7 @@ impl App {
     /// Sets what a track does with the controls that move while the song plays:
     /// "read", "touch", "latch" or "write".
     pub fn set_automation_mode(&mut self, track: Id, mode: &str) {
-        use crate::auto_record::Mode;
+        use crate::recording::auto_record::Mode;
         let mode = Mode::ALL
             .into_iter()
             .find(|m| m.name().eq_ignore_ascii_case(mode))

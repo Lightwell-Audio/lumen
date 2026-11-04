@@ -9,7 +9,7 @@ use eframe::egui;
 
 use crate::App;
 use crate::arrangement::audio_in::InputChoices;
-use crate::audio_input;
+use crate::recording::audio_input;
 
 /// How often the input meters are redrawn while an input is being watched
 /// and nothing else is moving.

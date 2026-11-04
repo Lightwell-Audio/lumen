@@ -16,7 +16,7 @@ use lumen_project::edit::bounce::{Baked, Mode, Moved, Options, Part, Scope, plan
 use lumen_project::model::{ClipContent, Id};
 
 use crate::bounce::{Bake, Job, Poll, Render, Rendered, remove_files};
-use crate::render_audio::RenderAudio;
+use crate::export::render_audio::RenderAudio;
 use crate::widgets::{self, Choice, Dialog, raised};
 use crate::{App, theme};
 

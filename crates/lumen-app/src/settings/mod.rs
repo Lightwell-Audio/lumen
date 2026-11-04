@@ -20,7 +20,9 @@ use lumen_project::model::Monitor;
 use crate::document::instrument::DEFAULT_PRESET;
 use serde::{Deserialize, Serialize};
 
-use crate::record_settings::RecordSettings;
+use crate::recording::record_settings::RecordSettings;
+
+pub(crate) mod browser;
 
 /// The file's version. A section added with defaults does not change it (an
 /// older file reads as before; ADR-0079); a field removed or given another
@@ -135,6 +137,10 @@ pub struct Mixing {
     pub track_colour_meters: bool,
 }
 
+/// The theme a new settings file starts with (`theme::Appearance`'s
+/// default, by its key; a theme test keeps the two together).
+pub const DEFAULT_THEME: &str = "dark";
+
 /// Theme, motion and UI scale (`docs/DESIGN.md`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -152,7 +158,7 @@ pub struct Appearance {
 impl Default for Appearance {
     fn default() -> Self {
         Self {
-            theme: crate::theme::Appearance::default().key().to_owned(),
+            theme: DEFAULT_THEME.to_owned(),
             reduce_motion: false,
             ui_scale: 1.0,
             info_line: true,
@@ -365,7 +371,7 @@ pub struct Settings {
     pub setup_done: bool,
     /// The browser's open tab (M9 R7c): an added section with defaults, so
     /// older files read as before (no version change).
-    pub browser: crate::browser::Saved,
+    pub browser: browser::Browser,
 }
 
 /// The device setup a loopback measurement was taken on.
@@ -717,7 +723,7 @@ impl Drop for Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::record_settings::CountIn;
+    use crate::recording::record_settings::CountIn;
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir =
@@ -848,11 +854,11 @@ mod tests {
                 tail: false,
             },
             playback: Playback { from_disk: true },
-            browser: crate::browser::Saved {
-                tab: crate::browser::Tab::Places,
+            browser: browser::Browser {
+                tab: browser::Tab::Places,
                 sample_folders: vec!["D:/Samples".into()],
                 music_answered: true,
-                places: vec![crate::browser::files::Place {
+                places: vec![browser::Place {
                     name: "Drums".into(),
                     path: "D:/Drums".into(),
                 }],

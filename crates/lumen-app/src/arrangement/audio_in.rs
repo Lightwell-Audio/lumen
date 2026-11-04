@@ -13,9 +13,9 @@ use lumen_project::model::{AudioInput, Id, Monitor, Track, TrackKind};
 
 use super::Arrangement;
 use super::strip_output::row_button;
-use crate::audio_input;
 use crate::document::Document;
 use crate::meters::{FLOOR_DB, Reading};
+use crate::recording::audio_input;
 use crate::theme::Tone;
 use crate::widgets::raised;
 use crate::{light, motion, theme, widgets};

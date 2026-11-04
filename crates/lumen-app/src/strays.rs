@@ -16,7 +16,7 @@ use lumen_project::model::{Id, Media};
 
 use crate::files::{IMPORTED, RECORDED, RENDERED};
 use crate::media::is_audio_file;
-use crate::take_worker::{Sidecar, sidecar_path};
+use crate::recording::take_worker::{Sidecar, sidecar_path};
 
 /// Which folder a stray file is in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

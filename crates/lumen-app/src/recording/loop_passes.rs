@@ -25,7 +25,7 @@
 //! timeline from where it began. The loop is the one recording began with,
 //! carried by the recording, so moving it afterwards changes nothing.
 
-use crate::take_worker::Wrap;
+use crate::recording::take_worker::Wrap;
 
 /// How far from the loop's start the file may begin and still begin there,
 /// as a fraction of a second.

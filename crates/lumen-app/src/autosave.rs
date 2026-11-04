@@ -96,6 +96,8 @@ pub struct Autosave {
     /// A shorter wait while a take or an automation pass is under way, so a
     /// crash costs seconds.
     hurried: Option<Duration>,
+    /// How the last write ended (`true`: written), until taken.
+    finished: Option<bool>,
 }
 
 /// What the autosave thread sends back: the save's result, and the
@@ -120,6 +122,7 @@ impl Autosave {
             interval: DELAY,
             fixed: false,
             hurried: None,
+            finished: None,
         }
     }
 
@@ -217,6 +220,7 @@ impl Autosave {
             if result.lock.is_some() {
                 self.lock = result.lock;
             }
+            self.finished = Some(result.saved.is_ok());
             match result.saved {
                 Ok(saved) => self.written = Some(saved.state),
                 Err(e) => crate::trace::log(|| format!("autosave failed: {e}")),
@@ -278,6 +282,11 @@ impl Autosave {
             })
             .expect("spawn autosave thread");
         self.writing = Some(rx);
+    }
+
+    /// How the last write ended, once: `Some(true)` when it was written.
+    pub fn take_finished(&mut self) -> Option<bool> {
+        self.finished.take()
     }
 
     /// Deletes this session's autosave now, waiting for the disk: for a

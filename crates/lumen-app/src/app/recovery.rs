@@ -6,35 +6,46 @@ use std::time::Instant;
 use eframe::egui;
 use lumen_core::product::PRODUCT_NAME;
 
+use crate::recording::take_notes::delete_later;
 use crate::widgets::raised;
 use crate::{App, autosave, files, trace};
 
 impl App {
     /// Writes an autosave a minute after unsaved changes, and removes it
-    /// once they are saved.
+    /// once they are saved. While a take is recorded, or a placed take is in
+    /// no finished save yet, it autosaves a project with no unsaved changes
+    /// too, so a crash always leaves recovery something to start from (M9
+    /// review H3, H4).
     pub(crate) fn autosave(&mut self, ctx: &egui::Context) {
         let Some(mut autosave) = self.autosave.take() else {
             return;
         };
+        let notes = &mut self.record.audio.notes;
+        delete_later(notes.keep_only(self.document.session()));
+        let keep = notes.any() || self.is_recording() || self.audio_takes_finishing();
         let now = Instant::now();
+        let mut started = false;
         autosave.tick(
-            self.document.is_dirty(),
+            self.document.is_dirty() || keep,
             self.document.change_mark(),
             now,
-            |file| files::SaveRequest {
-                project: self.stamped(),
-                path: file,
-                normalize_project_path: false,
-                media_files: self.document.media_files.clone(),
-                copy_imported: false,
-                renders: Some(self.renders_dir()),
-                recordings: Some(self.recordings_dir()),
-                // An autosave refers to a template's audio where it is, as it
-                // does to imported audio.
-                templates: None,
-                keep_backups: 0,
-                state: self.document.change_mark(),
-                not_over: None,
+            |file| {
+                started = true;
+                files::SaveRequest {
+                    project: self.stamped(),
+                    path: file,
+                    normalize_project_path: false,
+                    media_files: self.document.media_files.clone(),
+                    copy_imported: false,
+                    renders: Some(self.renders_dir()),
+                    recordings: Some(self.recordings_dir()),
+                    // An autosave refers to a template's audio where it is, as it
+                    // does to imported audio.
+                    templates: None,
+                    keep_backups: 0,
+                    state: self.document.change_mark(),
+                    not_over: None,
+                }
             },
             || autosave::Note {
                 project: self
@@ -46,6 +57,14 @@ impl App {
                 written: autosave::now_seconds(),
             },
         );
+        // The write that ended first, then the one that began: in this order,
+        // a take placed after the earlier write began is not let go with it.
+        if let Some(written) = autosave.take_finished() {
+            delete_later(self.record.audio.notes.autosave_done(written));
+        }
+        if started {
+            self.record.audio.notes.autosave_started();
+        }
         if let Some(due) = autosave.due_in(now) {
             ctx.request_repaint_after(due);
         }

@@ -14,7 +14,7 @@ use lumen_devices::{Preset, Synth, synth};
 use lumen_engine::{INPUT_SLOTS, InstrumentSpec, KEYBOARD, Listen, MidiTrack, Target};
 use lumen_project::model::{self, ClipContent, FromSource, Id, Monitor, Project, TrackKind};
 
-pub use crate::midi_runs::Cache;
+pub use crate::midi::runs::Cache;
 
 /// The MIDI outputs the engine's port numbers stand for, by name. Names are
 /// only ever added, so a number keeps its port for the whole run; the
@@ -153,12 +153,12 @@ impl Inputs {
 
     /// A bounded Replace window masks notes inside the recording interval,
     /// while retaining the clip on both sides. The take remains audible.
-    fn suppression(&self, track: Id) -> Option<crate::midi_runs::Suppression> {
+    fn suppression(&self, track: Id) -> Option<crate::midi::runs::Suppression> {
         self.replacing
             .iter()
             .find(|r| r.track == track)
             .and_then(|r| {
-                r.until.map(|until| crate::midi_runs::Suppression {
+                r.until.map(|until| crate::midi::runs::Suppression {
                     from: r.from,
                     until,
                 })
@@ -237,7 +237,7 @@ pub fn from_sources(track: &model::Track, inputs: &Inputs) -> u64 {
 /// The keys the track's own clips hold at arrangement time `at`, as the
 /// engine plays them: see `midi_runs::sounding_keys`.
 pub fn sounding_keys(track: &model::Track, at: Ticks) -> Vec<u8> {
-    crate::midi_runs::sounding_keys(track, at)
+    crate::midi::runs::sounding_keys(track, at)
 }
 
 /// The keys a track's own clips sound on its MIDI output now, while the
@@ -358,14 +358,14 @@ pub fn engine_midi_with(
             .iter()
             .filter(|c| !silent && !c.muted && matches!(c.content, ClipContent::Midi { .. }))
             .filter_map(|clip| {
-                Some(crate::midi_runs::Member {
+                Some(crate::midi::runs::Member {
                     clip,
                     length: inputs.playing_length(track.id, clip)?,
                 })
             });
         let suppression = inputs.suppression(track.id);
         let mut clips = Vec::new();
-        for run in crate::midi_runs::runs(members).iter() {
+        for run in crate::midi::runs::runs(members).iter() {
             clips.extend(
                 cache
                     .clip_with_suppression(run, suppression)
@@ -779,7 +779,7 @@ mod tests {
         assert_eq!(inputs.playing_length(Id(5), &clip), Some(clip.length));
         assert_eq!(
             inputs.suppression(Id(5)),
-            Some(crate::midi_runs::Suppression {
+            Some(crate::midi::runs::Suppression {
                 from: Ticks::quarters(4),
                 until: Ticks::quarters(8),
             })
