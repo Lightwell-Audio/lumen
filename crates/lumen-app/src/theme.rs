@@ -644,6 +644,8 @@ pub mod size {
     pub const BEAT_TICK: f32 = 5.0;
     pub const TIME_TICK: f32 = 6.0;
     pub const SAMPLE_DOT: f32 = 2.0;
+    /// Below this width the audio editor's header buttons take short words.
+    pub const CLIP_HEADER_NARROW: f32 = 600.0;
     /// How far a card's shadow reaches past it: what its painter's clip
     /// keeps around the card.
     pub const SHADOW_ROOM: f32 = 24.0;

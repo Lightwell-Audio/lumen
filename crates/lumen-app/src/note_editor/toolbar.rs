@@ -27,20 +27,7 @@ impl App {
         colour: Color32,
         editable: bool,
     ) {
-        let mut strip = HeaderStrip::new(ui, toolbar);
-        strip.title(&clip.name, &self.clip_counts(clip, editable), colour);
-        let tips = [
-            "Select, move and resize notes",
-            "Click to add a note, drag to set its length, click a note to remove it",
-        ];
-        if let Some(tool) = strip.tools(self, ed.tool, tips) {
-            ed.tool = tool;
-        }
-        self.header_grid_chip(&mut strip.row, ed.time);
-        if editable {
-            self.quantize_button(&mut strip.row, ed, clip);
-        }
-        strip.right(|ui| {
+        let right = |ui: &mut Ui| {
             let keys = self.keymap.keys(Command::PopOutEditor);
             let (name, tip, glyph): (&str, &str, fn(&Painter, Pos2, Color32)) = if ed.popped {
                 (
@@ -72,7 +59,20 @@ impl App {
                 shown = !shown;
             }
             ed.lane.hidden = !shown;
-        });
+        };
+        let mut strip = HeaderStrip::new(ui, toolbar, right);
+        strip.title(&clip.name, &self.clip_counts(clip, editable), colour);
+        let tips = [
+            "Select, move and resize notes",
+            "Click to add a note, drag to set its length, click a note to remove it",
+        ];
+        if let Some(tool) = strip.tools(self, ed.tool, tips) {
+            ed.tool = tool;
+        }
+        self.header_grid_chip(&mut strip.row, ed.time);
+        if editable {
+            self.quantize_button(&mut strip.row, ed, clip);
+        }
     }
 
     /// "8 bars · 17 notes", with "· locked" when the clip cannot be edited.

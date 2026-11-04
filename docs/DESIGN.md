@@ -896,7 +896,17 @@ onto an empty page.
     over right from 96 pt tall (`size::WAVE_SPLIT`);
   - the playhead as in the note editor (the arrangement's beam while
     playing);
-  - designed states: "Reading the file" while it loads; "This clip's file
+  - the file's two ends as `border_strong` hairlines, so where it stops reads
+    in both themes;
+  - in a narrow panel (under 600 pt, `size::CLIP_HEADER_NARROW`) the header's
+    buttons read "Clip" and "File" (names and tooltips keep the whole); the
+    header draws its right-hand group first and clips the left parts to the
+    room left, so they are cut, never drawn over the buttons;
+  - Z zooms the editor to the clip and X goes back while its keys are live
+    (the pointer is over it, or the panel has the keyboard);
+  - designed states: "Reading the file" while it loads; "Preparing the wave"
+    while its peaks or rate catch up; "This clip's file is not in the
+    project"; "This clip's file
     cannot be read" with **Open the media pool** (where Locate finds it);
     "This clip's wave cannot be shown" when the file does not reach the part
     the clip plays.

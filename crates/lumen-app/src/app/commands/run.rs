@@ -422,6 +422,12 @@ impl App {
             Command::ZoomOut if audio_keys => self.audio_editor.zooms.push(EditorZoom::Out),
             Command::ZoomIn => self.nav.steps.push(ViewStep::ZoomIn),
             Command::ZoomOut => self.nav.steps.push(ViewStep::ZoomOut),
+            Command::ZoomBack if audio_keys => {
+                self.audio_editor.fit = Some(crate::audio_editor::Fit::Back);
+            }
+            Command::ZoomToSelection if audio_keys => {
+                self.audio_editor.fit = Some(crate::audio_editor::Fit::Clip);
+            }
             Command::ZoomBack => self.nav.steps.push(ViewStep::Back),
             Command::FitWidth => self.nav.steps.push(ViewStep::FitWidth),
             Command::FitHeight => self.nav.steps.push(ViewStep::FitHeight),

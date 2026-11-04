@@ -10812,6 +10812,11 @@ pieces (above). If the owner's ear prefers another letter by a clear margin, the
 cost table above says what that choice costs. E is ruled out for real-time
 playback by its cost.
 
+**Review rounds.** Round 1 found the unfair Bungee harness, unmatched levels
+and the narrow allocation count; round 2 the clipping pack and the sustained
+cost of E A. All were fixed and the trial re-run; **round 2's fixes were not
+reviewed again.**
+
 **Consequences.** T is chosen when the owner has listened; the ADR is then
 accepted with the answer, the dependency is added to `lumen-media` (with an
 ADR-0013 exception if it is not MIT) and its notice to
@@ -10899,17 +10904,33 @@ and re-exported by the component. Declined, with reasons, in the report: the
 note editor's older `impl App` blocks (a move of their own), and the
 header's few literals carried over unchanged from the note editor.
 
+**Review round 2** found, and this slice fixed: a header with no narrow form
+(at the 960 pt minimum with the browser open its buttons would have been
+drawn over the grid chip; the header now draws its right-hand group first and
+clips the left parts, and its buttons take short words under 600 pt); Z and X
+not reaching the editor (they now zoom it to the clip and back); one line
+shape per sample pair at depth (now one per run of one colour); empty states
+that confused causes (now: reading, preparing, not in the project, cannot be
+read, cannot be shown); a ruler drag seeking every frame while playing (now
+on release); the file's end hard to see in the light theme (its ends are
+drawn); the info line naming the ruler over the wave (the ruler has its own);
+and the sample cache keyed by file alone (now by file and length). The
+records say the audio header's tool switch and Pop out come with S2 and that
+the headers share their parts' order; the hearing items of the plan's §1 are
+given to S2. **These round-2 fixes were not reviewed again.**
+
 **Verified.** Unit tests of the mapping (offset, a file cut at the song
 start, a tempo change frame for frame, a loop and a loop longer than its
 clip, a phase, a reversed clip's twin, lookup, a MIDI clip), of the time
 labels, and of the tool switch (Pointer chosen is not lit, Draw chosen is;
-no key is painted in a piece); E2E `audio_editor` (9 scenarios: the file and
+no key is painted in a piece); E2E `audio_editor` (10 scenarios: Z and X; the file and
 window, Whole file by button and palette, the zoom keys down to samples with
 the arrangement still and to the arrangement when the pointer is there, the
 wheel and Ctrl+wheel, Follow paging and pausing on a scroll, samples of a
 file played from disk staying drawn, the ruler moving the playhead, and the
 two headers' title and grid chip in the same order and heights, with Draw's
 key in its tooltip); the shots `detail_tabs` and `audio_clip_editor` in both
-themes at 100, 150 and 200%. **Not verified:** the frame time on a one-hour
+themes at 100, 150 and 200%, and at the 960 × 540 minimum with the browser
+open at 100% and 200%. **Not verified:** the frame time on a one-hour
 file at every zoom (no Windows machine here; the bench is S2's), and how it
 looks on the owner's display.

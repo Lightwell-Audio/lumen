@@ -168,22 +168,29 @@ impl App {
                 ed.fit = Some(Fit::Clip);
             }
             if let Some(fit) = ed.fit.take() {
-                ed.time = fitted(
-                    file,
-                    fit,
-                    body.width(),
-                    self.file_limits(file, body.width()),
-                );
+                let before = ed.time;
+                ed.time = match (fit, ed.back) {
+                    (Fit::Back, Some(back)) => back,
+                    (Fit::Back, None) => before,
+                    _ => fitted(
+                        file,
+                        fit,
+                        body.width(),
+                        self.file_limits(file, body.width()),
+                    ),
+                };
+                ed.back = Some(before);
                 self.transport.follow_paused = true;
             }
         }
         self.audio_header(ui, header, &clip, colour, file.as_ref(), ed);
+        let is_loaded = loaded.is_some();
         let (Some(file), Some(loaded)) = (file, loaded) else {
             // Nothing to zoom: keys pressed now do not wait for a file.
             ed.zooms.clear();
             ed.hovered = false;
             ed.last = None;
-            self.audio_empty_state(ui, Rect::from_min_max(ruler.min, area.max), key);
+            self.audio_empty_state(ui, Rect::from_min_max(ruler.min, area.max), key, is_loaded);
             return;
         };
         if body.height() < MIN_BODY || body.width() < MIN_BODY {
@@ -231,9 +238,14 @@ impl App {
                 "Editor ruler: click to move the playhead",
             )
         });
-        if (ruler_response.clicked() || ruler_response.dragged() || ruler_response.drag_started())
-            && let Some(p) = ruler_response.interact_pointer_pos()
-        {
+        // Stopped, a drag moves the playhead with the pointer; playing, it
+        // moves it where the drag ends, so playback is not sent to a new
+        // place every frame.
+        let playing = self.transport.state().playing;
+        let moved = ruler_response.clicked()
+            || ruler_response.drag_stopped()
+            || (!playing && (ruler_response.dragged() || ruler_response.drag_started()));
+        if moved && let Some(p) = ruler_response.interact_pointer_pos() {
             let free = ctx.input(|i| i.modifiers.alt);
             let at = self.snapped_at_zoom(ticks_at(ed.time, body.left(), p.x), free, ed.time.zoom);
             self.transport.locate(at.max(Ticks::ZERO));
@@ -277,7 +289,10 @@ impl App {
         let samples = wanted.and_then(|(a, b)| {
             let cache = ed.samples.as_ref()?;
             let len = cache.frames.len() as i64;
-            let covers = key == Some(cache.key) && cache.first <= a && b < cache.first + len;
+            let covers = key == Some(cache.key)
+                && cache.length == loaded.audio.frames() as u64
+                && cache.first <= a
+                && b < cache.first + len;
             covers.then(|| Samples {
                 first: a,
                 frames: &cache.frames[(a - cache.first) as usize..=(b - cache.first) as usize],
@@ -308,10 +323,10 @@ impl App {
             file: (file.from, file.to),
             samples: drew_samples,
         });
-        if let Some(p) = pointer.filter(|p| body.contains(*p) && on_top(*p))
+        if let Some(p) = pointer.filter(|p| (body.contains(*p) || ruler.contains(*p)) && on_top(*p))
             && !egui::Popup::is_any_open(&ctx)
         {
-            self.audio_info(&file, ed.time, body, p, rate);
+            self.audio_info(&file, ed.time, body, p, ruler.contains(p), rate);
         }
     }
 
@@ -327,10 +342,13 @@ impl App {
         (a, b): (i64, i64),
         ctx: &egui::Context,
     ) {
-        let covered = ed
-            .samples
-            .as_ref()
-            .is_some_and(|c| c.key == key && c.first <= a && b < c.first + c.frames.len() as i64);
+        let length = loaded.audio.frames() as u64;
+        let covered = ed.samples.as_ref().is_some_and(|c| {
+            c.key == key
+                && c.length == length
+                && c.first <= a
+                && b < c.first + c.frames.len() as i64
+        });
         if covered {
             return;
         }
@@ -338,27 +356,43 @@ impl App {
         let first = (a - width).max(0);
         let count = (3 * width) as u32;
         if let Some(frames) = ed.reader.samples(&loaded.audio, first, count, ctx) {
-            ed.samples = Some(crate::audio_editor::SampleCache { key, first, frames });
+            ed.samples = Some(crate::audio_editor::SampleCache {
+                key,
+                length,
+                first,
+                frames,
+            });
         }
     }
 
     /// What the editor says when it cannot draw the clip's file.
-    fn audio_empty_state(&mut self, ui: &mut Ui, rect: Rect, key: Option<u64>) {
+    /// `loaded`: the file is ready at the device rate with its peaks.
+    fn audio_empty_state(&mut self, ui: &mut Ui, rect: Rect, key: Option<u64>, loaded: bool) {
         let item = key.and_then(|key| self.lanes.library.with_twins().find(|i| i.id == key));
         let (title, hint, pool) = match item.map(|i| &i.state) {
+            None => (
+                "This clip's file is not in the project",
+                "The media pool lists the project's files and can find a missing one.",
+                true,
+            ),
             Some(State::Failed(_)) => (
                 "This clip's file cannot be read",
                 "It may have moved, or it is not a kind of audio file that can be read. The media pool can find it again.",
                 true,
             ),
-            Some(State::Ready(_)) => (
+            Some(State::Ready(_)) if loaded => (
                 "This clip's wave cannot be shown",
                 "Its file is loaded but does not reach the part the clip plays. The clip still plays as it is.",
                 false,
             ),
-            _ => (
+            Some(State::Ready(_)) => (
+                "Preparing the wave",
+                "The file is ready; its wave appears here in a moment.",
+                false,
+            ),
+            Some(State::Loading) => (
                 "Reading the file",
-                "Its wave appears here as soon as it is read",
+                "Its wave appears here as soon as it is read.",
                 false,
             ),
         };
@@ -390,34 +424,43 @@ impl App {
         file: Option<&WholeFile>,
         ed: &mut AudioEditor,
     ) {
-        let mut strip = HeaderStrip::new(ui, rect);
-        strip.title(&clip.name, &self.audio_caption(clip, file), colour);
-        self.header_grid_chip(&mut strip.row, ed.time);
         let ready = file.is_some();
-        strip.right(|ui| {
-            for (label, command, fit, tip) in [
+        // In a narrow panel the two buttons take short words; their tooltips
+        // and accessible names keep the whole.
+        let narrow = rect.width() < theme::size::CLIP_HEADER_NARROW;
+        let right = |ui: &mut Ui| {
+            for (label, short, command, fit, tip) in [
                 (
                     "Whole file",
+                    "File",
                     Command::AudioEditorWholeFile,
                     Fit::File,
                     "Show the clip's whole file",
                 ),
                 (
                     "Zoom to clip",
+                    "Clip",
                     Command::AudioEditorZoomToClip,
                     Fit::Clip,
                     "Show the part of the file the clip plays",
                 ),
             ] {
+                let shown = if narrow { short } else { label };
                 let response = ui
-                    .add_enabled_ui(ready, |ui| raised::button(ui, label))
+                    .add_enabled_ui(ready, |ui| raised::button(ui, shown))
                     .inner;
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, ready, label)
+                });
                 let keys = self.keymap.keys(command);
                 if widgets::tip(response, tip, keys.as_ref(), None).clicked() {
                     ed.fit = Some(fit);
                 }
             }
-        });
+        };
+        let mut strip = HeaderStrip::new(ui, rect, right);
+        strip.title(&clip.name, &self.audio_caption(clip, file), colour);
+        self.header_grid_chip(&mut strip.row, ed.time);
     }
 
     /// "4 bars · 0:08.9 file": the bars the clip spans and its file's length.
@@ -474,7 +517,15 @@ impl App {
 
     /// What the info line says over the wave: the file time under the
     /// pointer and the gestures.
-    fn audio_info(&mut self, file: &WholeFile, time: TimeView, body: Rect, p: Pos2, rate: u32) {
+    fn audio_info(
+        &mut self,
+        file: &WholeFile,
+        time: TimeView,
+        body: Rect,
+        p: Pos2,
+        on_ruler: bool,
+        rate: u32,
+    ) {
         let q = time.beat_at(body.left(), p.x);
         let place = file.frame_at(q).map_or_else(
             || "Outside the file".to_owned(),
@@ -485,10 +536,16 @@ impl App {
                 )
             },
         );
-        let info = Info::new(place)
-            .on(Held::NONE, Mouse::Click, "the ruler moves the playhead")
-            .key(Command::ZoomIn, "zoom in")
-            .key(Command::AudioEditorWholeFile, "whole file");
+        let info = if on_ruler {
+            Info::new(format!("Editor ruler \u{00B7} {place}"))
+                .on(Held::NONE, Mouse::Click, "move the playhead here")
+                .on(Held::ALT, Mouse::Click, "ignore the grid")
+        } else {
+            Info::new(place)
+                .key(Command::ZoomIn, "zoom in")
+                .key(Command::ZoomToSelection, "zoom to the clip")
+                .key(Command::AudioEditorWholeFile, "whole file")
+        };
         self.set_info(info);
     }
 
@@ -571,7 +628,7 @@ fn ticks_at(time: TimeView, origin: f32, x: f32) -> Ticks {
 /// The view for `fit` across `width` points.
 fn fitted(file: &WholeFile, fit: Fit, width: f32, limits: Limits) -> TimeView {
     let (from, to) = match fit {
-        Fit::Clip => file.window,
+        Fit::Clip | Fit::Back => file.window,
         Fit::File => (file.from, file.to),
     };
     let room = (to - from) * FIT_ROOM;

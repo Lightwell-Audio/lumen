@@ -9,7 +9,8 @@
 //!   with the Draw key only in its tooltip;
 //! - the grid chip ([`App::header_grid_chip`]);
 //! - the editor's own action (Quantize for notes);
-//! - at the right, the editor's view toggles and Pop out.
+//! - at the right, the editor's view toggles and Pop out, drawn first so
+//!   the left parts take only the room left over.
 //!
 //! Every control is a raised control (the design system, ADR-0052). Icons and
 //! letters share one pixel-snapped centre line.
@@ -37,28 +38,53 @@ const CHIP_ICON: f32 = 13.0;
 /// The widest the name and caption get before they are cut.
 const TITLE_WIDTH: f32 = 220.0;
 
-/// A header being drawn: its left-to-right row.
+/// A header being drawn: its left-to-right row, which ends where the
+/// right-hand group begins.
 pub(crate) struct HeaderStrip {
     pub row: Ui,
 }
 
 impl HeaderStrip {
-    /// Paints the strip's ground in `rect` of `ui` and opens its row.
-    pub fn new(ui: &mut Ui, rect: Rect) -> Self {
+    /// Paints the strip's ground in `rect` of `ui`, draws the right-hand
+    /// group with `right` (laid out right to left: the first control drawn is
+    /// at the right edge), then opens the left-to-right row in the room that
+    /// is left. The row is clipped to that room, so in a narrow panel the
+    /// left parts are cut rather than drawn over the right ones.
+    pub fn new(ui: &mut Ui, rect: Rect, right: impl FnOnce(&mut Ui)) -> Self {
         let palette = theme::p();
         let painter = ui.painter();
         painter.rect_filled(rect, 0.0, palette.raised);
         painter.hline(
             rect.x_range(),
             rect.bottom() - 0.5,
-            egui::Stroke::new(1.0, palette.border),
+            egui::Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
+        let inner = rect.shrink2(vec2(theme::space::M, 0.0));
+        let clip = rect.intersect(ui.clip_rect());
+        let mut group = ui.new_child(
+            UiBuilder::new()
+                .max_rect(inner)
+                .layout(Layout::right_to_left(Align::Center)),
+        );
+        group.set_clip_rect(clip);
+        group.spacing_mut().item_spacing.x = theme::space::S;
+        right(&mut group);
+        let used = group.min_rect();
+        let end = if used.width() > 0.0 {
+            used.left() - theme::space::M
+        } else {
+            inner.right()
+        };
+        let room = Rect::from_x_y_ranges(inner.left()..=end.max(inner.left()), inner.y_range());
         let mut row = ui.new_child(
             UiBuilder::new()
-                .max_rect(rect.shrink2(vec2(theme::space::M, 0.0)))
+                .max_rect(room)
                 .layout(Layout::left_to_right(Align::Center)),
         );
-        row.set_clip_rect(rect.intersect(ui.clip_rect()));
+        row.set_clip_rect(Rect::from_x_y_ranges(
+            clip.left()..=end.max(clip.left()),
+            clip.y_range(),
+        ));
         row.spacing_mut().item_spacing.x = theme::space::M;
         Self { row }
     }
@@ -131,16 +157,6 @@ impl HeaderStrip {
         let lit = (tool == Tool::Draw).then_some(Tone::Accent);
         let id = self.row.id().with("editor tool");
         widgets::segmented_tool(&mut self.row, id, tool, &choices, lit)
-    }
-
-    /// The right-hand group, laid out right to left: the first control
-    /// drawn is at the right edge.
-    pub fn right(&mut self, add: impl FnOnce(&mut Ui)) {
-        self.row
-            .with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = theme::space::S;
-                add(ui);
-            });
     }
 }
 

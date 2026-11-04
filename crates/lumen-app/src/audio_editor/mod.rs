@@ -28,6 +28,8 @@ pub(crate) enum Fit {
     Clip,
     /// The whole file.
     File,
+    /// The view before the last fit (X).
+    Back,
 }
 
 /// The editor's state between frames (not saved).
@@ -42,6 +44,8 @@ pub(crate) struct AudioEditor {
     pub zooms: Vec<EditorZoom>,
     /// A fit waiting for the next frame.
     pub fit: Option<Fit>,
+    /// The view before the last fit, for Back.
+    pub back: Option<TimeView>,
     /// Written while drawing: the pointer is over the editor.
     pub hovered: bool,
     /// What `hovered` was when the frame began.
@@ -66,9 +70,11 @@ pub(crate) struct FileCache {
     pub file: source::WholeFile,
 }
 
-/// Samples of one file (by its media key) from device-rate frame `first`.
+/// Samples of one file (by its media key and length, so a file relinked
+/// under the same key is read again) from device-rate frame `first`.
 pub(crate) struct SampleCache {
     pub key: u64,
+    pub length: u64,
     pub first: i64,
     pub frames: Vec<[i16; 2]>,
 }

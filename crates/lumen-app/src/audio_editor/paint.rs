@@ -126,6 +126,19 @@ pub(crate) fn wave(painter: &Painter, lane: Rect, input: &WaveInput<'_>) {
         if window.width() > 0.0 {
             painter.rect_filled(window, 0.0, palette.clip_body);
         }
+        // The file's two ends, so where it stops reads in both themes (in
+        // the light one the window and the ground past the file are both
+        // near white).
+        for end in [input.file.from, input.file.to] {
+            let ex = x(end);
+            if lane.x_range().contains(ex) {
+                painter.vline(
+                    ex,
+                    lane.y_range(),
+                    Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
+                );
+            }
+        }
     }
     let lanes: Vec<(Rect, Option<usize>)> = if input.split {
         let half = lane.height() / 2.0;
@@ -258,11 +271,20 @@ fn sample_lines(
             input.look.dim
         });
     }
-    for pair in points.windows(2).zip(&colours) {
-        painter.line_segment(
-            [pair.0[0], pair.0[1]],
-            Stroke::new(theme::stroke::HAIRLINE, *pair.1),
-        );
+    // One line per run of one colour (the window's edges are the only
+    // changes), not one shape per pair of samples.
+    let mut start = 0;
+    while start + 1 < points.len() {
+        let colour = colours[start];
+        let mut end = start + 1;
+        while end + 1 < points.len() && colours[end] == colour {
+            end += 1;
+        }
+        painter.add(egui::Shape::line(
+            points[start..=end].to_vec(),
+            Stroke::new(theme::stroke::HAIRLINE, colour),
+        ));
+        start = end;
     }
     let spacing = points
         .windows(2)

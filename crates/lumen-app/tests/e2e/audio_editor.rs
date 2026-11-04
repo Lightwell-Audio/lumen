@@ -282,3 +282,23 @@ fn a_file_played_from_disk_shows_its_samples_at_depth() {
         assert!(lumen.app().audio_editor_shown().expect("drawn").samples);
     }
 }
+
+#[test]
+fn z_zooms_the_editor_to_the_clip_and_x_goes_back() {
+    let (mut lumen, _) = with_trimmed_clip("audio-editor-z-x");
+    lumen.harness.get_by_label("Whole file").click();
+    lumen.frames(3);
+    let whole = lumen.app().audio_editor_shown().expect("drawn");
+    let arrangement = lumen.app().view();
+    lumen.harness.hover_at(whole.body.center());
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Z);
+    lumen.frames(3);
+    let clip = lumen.app().audio_editor_shown().expect("drawn");
+    assert!(clip.view.zoom > whole.view.zoom, "Z zooms to the clip");
+    lumen.key(Modifiers::NONE, Key::X);
+    lumen.frames(3);
+    let back = lumen.app().audio_editor_shown().expect("drawn");
+    assert_eq!(back.view, whole.view, "X goes back to the whole file");
+    assert_eq!(lumen.app().view(), arrangement, "the arrangement stays put");
+}

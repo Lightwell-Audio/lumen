@@ -2795,11 +2795,15 @@ fn audio_clip_editor() {
         ("light", 1.5, vec2(1300.0, 800.0)),
         ("dark", 2.0, vec2(1100.0, 800.0)),
         ("light", 2.0, vec2(1100.0, 800.0)),
+        // The smallest window, with the browser open: the header's narrow
+        // form.
+        ("dark", 1.0, vec2(960.0, 540.0)),
+        ("light", 2.0, vec2(960.0, 540.0)),
     ] {
         let dir = TempDir::new("shots-audio-editor");
         let mut h = bare_scaled(&dir, appearance, scale, size);
         drop_files(&mut h, &dir, 8.0);
-        let tag = format!("{appearance}-{}", (scale * 100.0) as u32);
+        let tag = format!("{appearance}-{}-{}", (scale * 100.0) as u32, size.x as u32);
         let clip = h.state().project().tracks[0].clips[0].id;
         h.state_mut().trim_clip_start_to(clip, Ticks::quarters(4));
         h.state_mut()
