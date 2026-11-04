@@ -71,6 +71,23 @@ fn rust_files(dir: &Path, into: &mut Vec<PathBuf>) {
 }
 
 /// The text of a source, lossily: one support file has a stray byte.
+/// The module path of a source file under `src` (`midi/out.rs` and
+/// `midi/out/mod.rs` are `midi::out`; `lib.rs` is the empty path).
+fn module_path(src: &Path, file: &Path) -> String {
+    let relative = file.strip_prefix(src).unwrap_or(file).with_extension("");
+    let mut parts: Vec<String> = relative
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    if parts
+        .last()
+        .is_some_and(|p| p == "mod" || p == "lib" || p == "main")
+    {
+        parts.pop();
+    }
+    parts.join("::")
+}
+
 fn text(path: &Path) -> String {
     String::from_utf8_lossy(&fs::read(path).expect("a source reads")).into_owned()
 }
@@ -211,17 +228,22 @@ fn every_entry_of_the_timing_list_names_a_test_that_exists() {
     for (package, name) in &listed.units {
         // ci-test.sh supports unit tests of lumen-app only.
         assert_eq!(package, "lumen-app", "unit tests of {package}");
-        let (module, _test) = name.split_once("::").unwrap_or((name, ""));
+        let src = root.join("crates").join(package).join("src");
         let sources = {
             let mut files = Vec::new();
-            rust_files(&root.join("crates").join(package).join("src"), &mut files);
+            rust_files(&src, &mut files);
             files
         };
+        // The entry names a module path (`midi::out::sender_tests`): some
+        // file with tests is the module the path begins with.
         assert!(
-            sources
-                .iter()
-                .any(|f| f.file_stem().is_some_and(|s| s == module) && text(f).contains("#[test]")),
-            "{package} {name} is on the timing list but no module `{module}` has tests"
+            sources.iter().any(|f| {
+                let module = module_path(&src, f);
+                !module.is_empty()
+                    && name.starts_with(&format!("{module}::"))
+                    && text(f).contains("#[test]")
+            }),
+            "{package} {name} is on the timing list but no module it names has tests"
         );
     }
 }
@@ -238,14 +260,15 @@ fn the_scan_tells_a_test_target_from_a_support_file() {
         Some("e2e")
     );
     assert_eq!(target("crates/lumen-hosting/tests/support/mod.rs"), None);
-    let list = timing_list("# note\nlumen-hosting::soak\nlumen-app midi_out::sender_tests # why\n");
+    let list =
+        timing_list("# note\nlumen-hosting::soak\nlumen-app midi::out::sender_tests # why\n");
     assert!(
         list.targets
             .contains(&("lumen-hosting".into(), "soak".into()))
     );
     assert_eq!(
         list.units,
-        [("lumen-app".to_owned(), "midi_out::sender_tests".to_owned())]
+        [("lumen-app".to_owned(), "midi::out::sender_tests".to_owned())]
     );
     assert!(reads_the_clock("let t = Instant::now();"));
     assert!(!reads_the_clock("let t = Duration::from_secs(1);"));

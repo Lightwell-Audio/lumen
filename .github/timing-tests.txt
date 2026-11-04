@@ -30,4 +30,4 @@ lumen-hosting::offline
 lumen-hosting::parameters
 lumen-hosting::rt
 lumen-hosting::soak
-lumen-app midi_out::sender_tests
+lumen-app midi::out::sender_tests
