@@ -121,6 +121,7 @@ irreversible or external) · *Superseded*.
 | [0117](#adr-0117--icons-single-instance-and-file-association-m9-r8) | Icons, single instance and file association (M9 R8) | Accepted 2026-11-03 (MT-SYS-1 pending) | No |
 | [0118](#adr-0118--take-recovery-that-survives-every-crash-window-m9-review-h1-to-h6) | Take recovery that survives every crash window (M9 review H1 to H6) | Accepted 2026-11-03 | No |
 | [0119](#adr-0119--the-time-stretch-trial-m95-s0) | The time-stretch trial (M9.5 S0) | Proposed 2026-11-04; the library waits for the owner's ear | Yes (T) |
+| [0120](#adr-0120--the-audio-editors-canvas-and-the-shared-clip-header-m95-s1) | The audio editor's canvas and the shared clip header (M9.5 S1) | Accepted 2026-11-04 (MT-CLIP-1 pending) | No |
 
 ---
 
@@ -10764,3 +10765,72 @@ ADR-0013 exception if it is not MIT) and its notice to
 **Not verified here:** the measurements on Windows or on the owner's machine;
 D's streaming API; behaviour of any candidate with a changing ratio
 (tempo ramps), which S4b tests with the chosen one.
+
+## ADR-0120 — The audio editor's canvas and the shared clip header (M9.5 S1)
+
+**Date:** 2026-11-04. **Branch:** `m9.5-s1-editor-canvas`, cut from
+`m9.5-s0-stretch-trial` (neither is merged yet). **Status:** Accepted;
+MT-CLIP-1 waits for the owner. Plan: `docs/milestones/M9.5.md` S1 (owner
+choices: L B, TL C, KC C, all 2026-11-04).
+
+**Context.** The audio Clip tab drew the clip alone, painted once at a fixed
+size, beside the clip card's rows (ADR-0108 DP1). M9.5 asks for an editor
+like the piano roll: the whole file, zoom and scroll, samples at depth, the
+ruler and the playhead. The owner also asked that the two clip editors stay
+consistent in design (2026-11-04): one header, the tool switch grey while
+Pointer is chosen and lit only for Draw (TL C), with no key inside the
+control (KC C).
+
+**Choice.**
+
+1. **One header** (`app/clip_header.rs`): `HeaderStrip` draws the title and
+   caption, the tool switch and the right-hand group; `App::header_grid_chip`
+   the grid chip. The note editor's toolbar is now its own parts on that
+   strip. `Tool` moved there. `widgets::segmented_styled` became
+   `segmented_tool`, whose chosen piece is lit only when given a tone (the
+   neutral thumb otherwise); `Choice::hint` (a key drawn in the piece) became
+   `Choice::keys`, shown as K5 keycaps in the choice's tooltip. Nothing else
+   used either.
+2. **The whole file on the timeline** (`audio_editor/source.rs`). The file is
+   the waves of a copy of the clip with no loop or fades, stretched from the
+   file's first frame to its last, its phase moved by the seconds its start
+   moved, so the same frame plays at the same time. This reuses the
+   arrangement's mapping (`waves::spans_of`, which takes a clip directly),
+   tempo changes and ramps included, so the editor and the arrangement can
+   never disagree. A looping clip shows its first repeat (the loop) as the
+   window. A file that would start before the song is cut at the song start.
+3. **Drawn on the CPU from the peaks, one column per physical pixel**
+   (`audio_editor/paint.rs`), as the Clip tab already was, rather than on the
+   GPU: the arrangement's waves live in a box layer with a peak atlas of up to
+   128 MB, which a second canvas would duplicate; the columns are only those
+   in view (a few thousand), each a few buckets of the right level. Below one
+   frame a pixel, the samples come from memory, or for a file played from
+   disk from the arrangement's strip reader on its worker
+   (`arrangement::samples::StripReader`, now shared), at most 16,384 a frame;
+   until they arrive the peaks are drawn.
+4. **The view is the editor's own** (ADR-0048): fitted to the clip when it
+   opens, Ctrl+wheel and the zoom keys zoom around the pointer (or the
+   playhead), the wheel scrolls; it pages with the playhead while playing
+   under Follow, as the arrangement does. Its limits reach the whole file
+   with room, and the arrangement's deepest zoom (8 points a sample).
+5. **Two commands**, at the end of the table: "Zoom the audio editor to the
+   clip" and "Show the whole file in the audio editor", also the header's
+   Zoom to clip and Whole file. No default keys.
+6. **Layout, for now.** The clip card's rows stay in the left column; S3
+   replaces them with the strip (L B). This keeps every property reachable
+   meanwhile.
+
+**Consequences.** The playhead drawing is one function both editors call
+(`App::paint_editor_playhead`). `theme::size::CLIP_RULER` is 30 pt (two
+rows); `TIME_LABEL_ROOM` and `WAVE_SPLIT` are new size tokens. No format
+change.
+
+**Verified.** Unit tests of the mapping (offset, a file cut at the song
+start, a tempo change frame for frame, a loop, lookup, a MIDI clip) and of
+the time labels; E2E `audio_editor` (the file and window, Whole file and the
+palette command, the zoom keys down to samples with the arrangement still,
+the ruler moving the playhead, and both editors' headers: same parts, order
+and heights, no key in the Draw piece); the shots `detail_tabs` and
+`audio_clip_editor` in both themes at 100, 150 and 200%. **Not verified:**
+the frame time on a one-hour file at every zoom (no Windows machine here; a
+bench is S2's), and how it looks on the owner's display.

@@ -626,6 +626,10 @@ impl App {
                 "Choose a sound in the browser's Samples or Places tab first",
             ),
             Command::StopPreview => need(self.previewing(), "No preview is playing"),
+            Command::AudioEditorZoomToClip | Command::AudioEditorWholeFile => need(
+                self.detail_audio_clip().is_some(),
+                "Open an audio clip first (double-click it)",
+            ),
             Command::AssociateFiles => need(
                 crate::association::Association::supported(),
                 "On this system, project files are set up when the app is installed",

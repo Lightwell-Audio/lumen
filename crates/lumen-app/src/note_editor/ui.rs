@@ -23,7 +23,7 @@ use crate::widgets;
 use crate::{App, theme};
 
 /// The toolbar's height above the ruler.
-const TOOLBAR: f32 = super::toolbar::HEADER;
+const TOOLBAR: f32 = crate::app::clip_header::HEADER;
 /// The editor needs at least this much body to be drawn.
 const MIN_BODY: f32 = 24.0;
 
@@ -226,7 +226,7 @@ impl App {
         }
         paint::paint_ruler(&painter, &view, ruler, &lines, &meter, clip.length);
         self.editor_edge_fade(&painter, body);
-        self.editor_playhead(&painter, &view, ruler);
+        self.paint_editor_playhead(&painter, view.time, view.body, ruler.top());
         if let (Some(chip), Some(p)) = (&preview.chip, ctx.input(|i| i.pointer.latest_pos())) {
             widgets::draw_hint(&painter, p + vec2(14.0, -16.0), chip, body);
         }
@@ -354,45 +354,6 @@ impl App {
             let at = self.snapped_at_zoom(view.absolute_at(p.x), free, view.time.zoom);
             self.transport.locate(at.max(Ticks::ZERO));
             self.transport.follow_paused = true;
-        }
-    }
-
-    /// The playhead through the ruler and the roll: a beam while playing
-    /// (the arrangement's: a white core in the accent, its halo, light cast
-    /// on the notes and a cap on the ruler), a plain line when stopped.
-    fn editor_playhead(&self, painter: &egui::Painter, view: &EditorView, ruler: Rect) {
-        let at = self.transport.playhead().as_quarters();
-        let x = view.time.x(view.body.left(), at);
-        if x < view.body.left() || x > view.body.right() {
-            return;
-        }
-        let y = egui::Rangef::new(ruler.top(), view.body.bottom());
-        let colour = theme::p().accent;
-        let painter = painter.with_clip_rect(
-            Rect::from_x_y_ranges(view.body.x_range(), ruler.top()..=view.body.bottom())
-                .intersect(painter.clip_rect()),
-        );
-        if self.transport.state().playing {
-            crate::light::cast(
-                &painter,
-                crate::light::BEAM,
-                x,
-                egui::Rangef::new(view.body.top(), view.body.bottom()),
-                colour,
-            );
-            crate::light::vline(&painter, crate::light::BEAM, x, y, colour, 1.0);
-            crate::light::cap(&painter, x, ruler.top(), colour);
-        } else {
-            painter.vline(x, y, egui::Stroke::new(1.0, colour));
-            painter.add(egui::Shape::convex_polygon(
-                vec![
-                    pos2(x - 5.0, ruler.top()),
-                    pos2(x + 5.0, ruler.top()),
-                    pos2(x, ruler.top() + 7.0),
-                ],
-                colour,
-                egui::Stroke::NONE,
-            ));
         }
     }
 

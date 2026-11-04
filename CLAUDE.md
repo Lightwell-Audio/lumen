@@ -492,6 +492,16 @@ per slice and move what is no longer current out of it.
   **Next (owner, 2026-11-03):** a mini milestone, 9.5, before M8: audio clip
   warping and a fleshed-out audio clip detail panel (M7's planned E7 and E8).
   It is planned and pitched first.
+- **M9.5 (audio clip editing and warp)**, planned on `m9.5-plan`
+  (`docs/milestones/M9.5.md`; the owner chose every recommendation, BS B,
+  TL C, KC C on 2026-11-04). **S0** (`m9.5-s0-stretch-trial`, ADR-0119): the
+  owner works on a VM, so the test audio was fetched (CC0/public domain);
+  `tools/stretch-trial` is its own workspace; the blind pack is the page
+  "Lumen Stretch Trial". T waits for the owner's ear (recommendation C).
+  **S1** (`m9.5-s1-editor-canvas`, cut from S0, ADR-0120): the clip editors'
+  shared header (`app/clip_header.rs`: a new header part goes there, for
+  both editors) and the audio editor's canvas (`audio_editor/`,
+  `app/audio_editor.rs`). MT-CLIP-1 waits. Next: S2 (handles).
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

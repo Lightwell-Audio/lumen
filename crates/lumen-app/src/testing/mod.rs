@@ -35,7 +35,7 @@ pub use crate::audio::{
     InputDeviceTurn, TEST_DRIVER, TEST_HOLDS_DRIVER, TEST_LATE_DRIVER, TEST_REFUSES_DRIVER,
     TEST_SLOW_DRIVER, input_device, input_device_turn,
 };
-pub use editor::PianoRollDemo;
+pub use editor::{AudioEditorShown, PianoRollDemo};
 
 /// A note edit for tests (`App::edit_notes`).
 #[derive(Debug, Clone, Copy)]
@@ -910,6 +910,19 @@ impl App {
             lumen_project::edit::Edge::End,
             to,
             looping,
+            None,
+        );
+    }
+
+    /// Trims the start of a clip to `to`, as dragging its left edge would.
+    pub fn trim_clip_start_to(&mut self, clip: Id, to: lumen_core::time::Ticks) {
+        let base = self.document.project().clone();
+        self.document.trim_clip(
+            &base,
+            clip,
+            lumen_project::edit::Edge::Start,
+            to,
+            false,
             None,
         );
     }

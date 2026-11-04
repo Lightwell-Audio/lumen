@@ -624,10 +624,16 @@ pub mod size {
     pub const SUBJECT_BAR: f32 = 3.0;
     /// The widest a tab's note (a clip's name after "Clip") is drawn.
     pub const TAB_NOTE: f32 = 140.0;
-    /// The Clip tab's ruler of bar numbers over the wave, and the least
-    /// room between two numbers before only every second, fourth… shows.
-    pub const CLIP_RULER: f32 = 18.0;
+    /// The audio editor's ruler (bar numbers over the file's time), and the
+    /// least room between two bar numbers before only every second, fourth…
+    /// shows.
+    pub const CLIP_RULER: f32 = 30.0;
     pub const BAR_NUMBER_ROOM: f32 = 32.0;
+    /// The least room between two of the audio editor's time labels.
+    pub const TIME_LABEL_ROOM: f32 = 64.0;
+    /// From this height the audio editor draws a stereo file's left over its
+    /// right.
+    pub const WAVE_SPLIT: f32 = 96.0;
     /// How far a card's shadow reaches past it: what its painter's clip
     /// keeps around the card.
     pub const SHADOW_ROOM: f32 = 24.0;

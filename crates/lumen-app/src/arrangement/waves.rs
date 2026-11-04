@@ -80,15 +80,25 @@ pub(crate) struct Span {
     pub gain: f32,
 }
 
-/// The waves of clip `id` alone, as it is modelled (a crossfade does not
-/// cut it): the Clip tab's wave (DP1).
-pub(crate) fn one_clip(
-    project: &Project,
-    id: lumen_project::model::Id,
+/// The waves of `clip`, which need not be in a project (the audio editor's
+/// whole-file view maps a copy of the clip stretched to its file's ends),
+/// as [`Span`]s.
+pub(crate) fn spans_of(
+    clip: &Clip,
+    tempo: &TempoMap,
     rate: u32,
     source: impl Fn(u64) -> Option<Source>,
 ) -> Vec<Span> {
-    clip_spans(project, id, rate, source)
+    let mut waves = Vec::new();
+    let shown = Shown {
+        model: clip,
+        clip,
+        blend: false,
+        row: 0,
+        color: Color32::WHITE,
+    };
+    clip_waves(&mut waves, tempo, rate, &shown, &source);
+    waves
         .into_iter()
         .map(|w| Span {
             media: w.geometry.media,
@@ -99,33 +109,6 @@ pub(crate) fn one_clip(
             gain: w.instance.gain,
         })
         .collect()
-}
-
-fn clip_spans(
-    project: &Project,
-    id: lumen_project::model::Id,
-    rate: u32,
-    source: impl Fn(u64) -> Option<Source>,
-) -> Vec<Wave> {
-    let mut waves = Vec::new();
-    let Ok(tempo) = TempoMap::new(project.tempo.clone()) else {
-        return waves;
-    };
-    let found = project
-        .tracks
-        .iter()
-        .find_map(|t| t.clips.iter().find(|c| c.id == id));
-    if let Some(model) = found {
-        let shown = Shown {
-            model,
-            clip: model,
-            blend: false,
-            row: 0,
-            color: Color32::WHITE,
-        };
-        clip_waves(&mut waves, &tempo, rate, &shown, &source);
-    }
-    waves
 }
 
 /// One clip for [`clip_waves`]: as modelled, as played (cut by a

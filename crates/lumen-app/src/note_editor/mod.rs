@@ -39,13 +39,7 @@ use crate::{App, document::NewClip};
 
 pub(crate) use ops::{NoteOp, VELOCITY_STEP};
 
-/// What a click or drag in the notes does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum Tool {
-    #[default]
-    Pointer,
-    Draw,
-}
+pub(crate) use crate::app::clip_header::Tool;
 
 /// What the right-click menu is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

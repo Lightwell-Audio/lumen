@@ -55,7 +55,7 @@ pub(crate) mod recording_look;
 mod reorder;
 mod row_glide;
 mod rows;
-mod samples;
+pub(crate) mod samples;
 pub mod select;
 mod selection_look;
 mod sends;

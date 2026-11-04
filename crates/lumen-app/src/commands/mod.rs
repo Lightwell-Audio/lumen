@@ -267,6 +267,8 @@ pub(crate) enum Command {
     AddPlace,
     RefreshFiles,
     AssociateFiles,
+    AudioEditorZoomToClip,
+    AudioEditorWholeFile,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -599,6 +601,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AddPlace, "view.add_place", "Add a place…", Area::View, &[], "Chooses a folder to keep in the Places tab, to browse it without looking for it again."),
     info(Command::RefreshFiles, "view.refresh_files", "Refresh the browser's files", Area::View, &[], "Reads the sample folders, the projects folder and the open place again, for files added or removed outside the app."),
     info(Command::AssociateFiles, "file.associate_files", concat!("Open .lumen files with ", lumen_core::product_name!()), Area::File, &[], "Turns on or off opening projects from File Explorer with this copy, each with the project icon."),
+    info(Command::AudioEditorZoomToClip, "view.audio_editor_zoom_to_clip", "Zoom the audio editor to the clip", Area::View, &[], "Shows the part of the file the opened audio clip plays across the Clip tab's editor. A looping clip shows its loop."),
+    info(Command::AudioEditorWholeFile, "view.audio_editor_whole_file", "Show the whole file in the audio editor", Area::View, &[], "Shows the opened audio clip's whole file in the Clip tab's editor, with the part the clip plays bright."),
 ];
 
 const fn info(
@@ -662,7 +666,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::AssociateFiles as usize + 1,
+            Command::AudioEditorWholeFile as usize + 1,
             ALL.len(),
             "a command is missing"
         );

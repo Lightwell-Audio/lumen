@@ -2780,6 +2780,43 @@ fn detail_tabs() {
     }
 }
 
+/// The audio clip editor (M9.5 S1): a clip trimmed to the middle of its
+/// file, framed on the clip, then on the whole file with the rest dimmed.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn audio_clip_editor() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_core::time::Ticks;
+
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1400.0, 800.0)),
+        ("light", 1.0, vec2(1400.0, 800.0)),
+        ("dark", 1.5, vec2(1300.0, 800.0)),
+        ("light", 1.5, vec2(1300.0, 800.0)),
+        ("dark", 2.0, vec2(1100.0, 800.0)),
+        ("light", 2.0, vec2(1100.0, 800.0)),
+    ] {
+        let dir = TempDir::new("shots-audio-editor");
+        let mut h = bare_scaled(&dir, appearance, scale, size);
+        drop_files(&mut h, &dir, 8.0);
+        let tag = format!("{appearance}-{}", (scale * 100.0) as u32);
+        let clip = h.state().project().tracks[0].clips[0].id;
+        h.state_mut().trim_clip_start_to(clip, Ticks::quarters(4));
+        h.state_mut()
+            .trim_clip_end_to(clip, Ticks::quarters(10), false);
+        h.state_mut().select_clip(clip);
+        h.run_steps(4);
+        h.key_press(Key::Enter);
+        h.run_steps(10);
+        h.state_mut().set_detail_size(308.0);
+        h.run_steps(30);
+        save(&mut h, &format!("audio-editor-clip-{tag}"));
+        h.get_by_label("Whole file").click();
+        h.run_steps(30);
+        save(&mut h, &format!("audio-editor-file-{tag}"));
+    }
+}
+
 /// The preset field on a card, its menu, and the failed faces (M6 slice 5f).
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]

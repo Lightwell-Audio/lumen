@@ -36,6 +36,7 @@ impl App {
         let auto_paste = self.auto_can_paste();
         let auto_draw = self.auto_chosen().is_some();
         let note_keys = self.note_keys();
+        let audio_keys = !note_keys && self.audio_editor_live(ctx);
         if command == Command::Deselect && self.note_editor.cancel_gesture() {
             self.end_audition();
             ctx.request_repaint();
@@ -417,6 +418,8 @@ impl App {
             // (its view is its own, ADR-0048); otherwise the arrangement.
             Command::ZoomIn if note_keys => self.note_editor.zooms.push(EditorZoom::In),
             Command::ZoomOut if note_keys => self.note_editor.zooms.push(EditorZoom::Out),
+            Command::ZoomIn if audio_keys => self.audio_editor.zooms.push(EditorZoom::In),
+            Command::ZoomOut if audio_keys => self.audio_editor.zooms.push(EditorZoom::Out),
             Command::ZoomIn => self.nav.steps.push(ViewStep::ZoomIn),
             Command::ZoomOut => self.nav.steps.push(ViewStep::ZoomOut),
             Command::ZoomBack => self.nav.steps.push(ViewStep::Back),
@@ -542,6 +545,12 @@ impl App {
             }
             Command::StopPreview => self.stop_preview(),
             Command::AssociateFiles => self.toggle_association(),
+            Command::AudioEditorZoomToClip => {
+                self.audio_editor_fit(crate::audio_editor::Fit::Clip);
+            }
+            Command::AudioEditorWholeFile => {
+                self.audio_editor_fit(crate::audio_editor::Fit::File);
+            }
             Command::AddSampleFolder => {
                 self.show_browser_tab(crate::browser::Tab::Samples);
                 self.pick_sample_folder(ctx);
