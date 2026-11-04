@@ -485,8 +485,9 @@ fn a_crash_while_recording_leaves_a_take_the_next_start_puts_back() {
     let dir = lumen.crash();
     let mut again = Lumen::start_with(dir, |l| l.with_input_device());
     again.click("Recover");
-    again.wait_for("the recovered project", |app| {
-        !app.is_busy() && app.project().tracks.len() == 2
+    again.wait_for("the recovered project and its takes", |app| {
+        // The takes are read on a worker after the project opens.
+        !app.is_busy() && !app.audio_takes_placing() && app.project().tracks.len() == 2
     });
     again.frames(10);
     let clips = clips_of(&again, VOX);
