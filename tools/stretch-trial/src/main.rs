@@ -293,36 +293,49 @@ fn rubberband(
     let mut pos = 0;
     let mut blocks = 0usize;
     ALLOCS.store(0, Ordering::Relaxed);
-    let mut drain = |s: &mut Stretcher, l: &mut Vec<f32>, r: &mut Vec<f32>| {
-        while let Some(av) = s.available() {
-            if av == 0 {
-                break;
+    // Counted wrapper calls: the `rubberband` wrapper collects the channel
+    // pointers into a Vec on every `process` and every `retrieve` call (its
+    // src/lib.rs), so one allocation per counted call is the wrapper's, not
+    // the library's, and is taken off. Lumen would call `rubberband-sys`
+    // directly. A library that allocated once per call itself would be
+    // hidden by this; that is the method's limit, stated in ADR-0119.
+    let mut wrapper_calls = 0u64;
+    let mut drain =
+        |s: &mut Stretcher, l: &mut Vec<f32>, r: &mut Vec<f32>, counting: bool, calls: &mut u64| {
+            while let Some(av) = s.available() {
+                if av == 0 {
+                    break;
+                }
+                let k = (av as usize).min(ol.len());
+                COUNTING.store(counting, Ordering::Relaxed);
+                let got = s.retrieve(&mut [&mut ol[..k], &mut or[..k]]) as usize;
+                COUNTING.store(false, Ordering::Relaxed);
+                if counting {
+                    *calls += 1;
+                }
+                l.extend_from_slice(&ol[..got]);
+                r.extend_from_slice(&or[..got]);
             }
-            let k = (av as usize).min(ol.len());
-            let got = s.retrieve(&mut [&mut ol[..k], &mut or[..k]]) as usize;
-            l.extend_from_slice(&ol[..got]);
-            r.extend_from_slice(&or[..got]);
-        }
-    };
+        };
     while pos < n {
         let take = block.min(n - pos);
         let last = pos + take >= n;
-        COUNTING.store(blocks >= 8, Ordering::Relaxed);
+        let counting = blocks >= 8 && !last;
+        COUNTING.store(counting, Ordering::Relaxed);
         s.process(
             &[&input.l[pos..pos + take], &input.r[pos..pos + take]],
             last,
         );
         COUNTING.store(false, Ordering::Relaxed);
-        drain(&mut s, &mut l, &mut r);
+        if counting {
+            wrapper_calls += 1;
+        }
+        drain(&mut s, &mut l, &mut r, counting, &mut wrapper_calls);
         pos += take;
         blocks += 1;
     }
-    // The `rubberband` wrapper collects the channel pointers into a Vec on
-    // every `process` call: one allocation per counted call is the wrapper's,
-    // not the library's, so it is taken off.
-    let counted_calls = blocks.saturating_sub(8) as u64;
-    let steady = ALLOCS.load(Ordering::Relaxed).saturating_sub(counted_calls);
-    drain(&mut s, &mut l, &mut r);
+    let steady = ALLOCS.load(Ordering::Relaxed).saturating_sub(wrapper_calls);
+    drain(&mut s, &mut l, &mut r, false, &mut wrapper_calls);
     let skip = delay.min(l.len());
     let out = Stereo {
         l: l[skip..].to_vec(),
@@ -347,24 +360,28 @@ fn bungee(
     use bungee_rs::Stream;
     let n = input.len();
     let mut s = Stream::new(RATE as usize, 2, block).expect("bungee stream");
-    // The stream's `latency()` reads its last output grain, so it is asked
-    // for once a few blocks have been processed (it is undefined before).
-    // Until then a generous bound feeds enough silence at the end.
-    let mut latency_in = 0.0f64;
-    let bound = RATE as usize / 2;
+    // The stream's `latency()` reads its last output grain, which exists
+    // only once grains have been made. It is read at one input position for
+    // every block size (`LATENCY_AT`, a multiple of every block tried), so
+    // renders at different block sizes are aligned alike.
+    const LATENCY_AT: usize = 16_384;
+    let mut latency_in: Option<f64> = None;
     let cap = (block as f64 / speed).ceil() as usize + 8;
     let mut ob = vec![vec![0.0f32; cap]; 2];
     let mut ib = vec![vec![0.0f32; block]; 2];
-    let mut l = Vec::with_capacity(want + bound + cap);
-    let mut r = Vec::with_capacity(want + bound + cap);
+    let mut l = Vec::with_capacity(want * 2 + cap);
+    let mut r = Vec::with_capacity(want * 2 + cap);
     let mut pos = 0;
     let mut blocks = 0usize;
     let mut made = 0.0f64;
     ALLOCS.store(0, Ordering::Relaxed);
-    // Feed the input, then enough silence to push the latency out.
-    let total = n + bound + block;
-    while pos < total {
-        let take = block.min(total - pos);
+    // Feed the input, then silence only until the latency has come out.
+    loop {
+        let latency_out = latency_in.map_or(usize::MAX, |li| (li / speed).round() as usize);
+        if pos >= n && l.len() >= want.saturating_add(latency_out) {
+            break;
+        }
+        let take = block;
         for (c, src) in [&input.l, &input.r].into_iter().enumerate() {
             for i in 0..take {
                 ib[c][i] = if pos + i < n { src[pos + i] } else { 0.0 };
@@ -379,10 +396,13 @@ fn bungee(
         r.extend_from_slice(&ob[1][..got]);
         pos += take;
         blocks += 1;
-        if blocks == 8 {
-            latency_in = s.latency().max(0.0);
+        if latency_in.is_none()
+            && (pos == LATENCY_AT.min(n.next_multiple_of(block)) || pos >= n.max(LATENCY_AT))
+        {
+            latency_in = Some(s.latency().max(0.0));
         }
     }
+    let latency_in = latency_in.unwrap_or(0.0);
     let steady = ALLOCS.load(Ordering::Relaxed);
     let latency_out = (latency_in / speed).round() as usize;
     let skip = latency_out.min(l.len());
@@ -492,6 +512,31 @@ fn read_wav(path: &Path) -> Stereo {
         }
     };
     Stereo::from_interleaved(&v)
+}
+
+/// The RMS of both channels together.
+fn rms(s: &Stereo) -> f64 {
+    let sum: f64 =
+        s.l.iter()
+            .chain(&s.r)
+            .map(|v| f64::from(*v) * f64::from(*v))
+            .sum();
+    (sum / (2 * s.len().max(1)) as f64).sqrt()
+}
+
+/// The gain that brings `s` to `reference`'s RMS, so the pack is
+/// loudness-matched (a louder render tends to sound better).
+fn level_match(s: &Stereo, reference: &Stereo) -> f32 {
+    let (a, b) = (rms(s), rms(reference));
+    if a > 0.0 { (b / a) as f32 } else { 1.0 }
+}
+
+/// `s` scaled by `gain`.
+fn scaled(s: &Stereo, gain: f32) -> Stereo {
+    Stereo {
+        l: s.l.iter().map(|v| v * gain).collect(),
+        r: s.r.iter().map(|v| v * gain).collect(),
+    }
 }
 
 fn write_wav(path: &Path, s: &Stereo) {
@@ -611,6 +656,9 @@ fn main() {
                     chunk_ms,
                     stats.steady_allocs
                 );
+                // The pack is loudness-matched to the original; the
+                // measurements above are of the render as it came out.
+                let gain = level_match(&out, &input);
                 if t.listen {
                     write_wav(
                         &out_dir
@@ -618,12 +666,12 @@ fn main() {
                             .join(&name)
                             .join(t.name)
                             .join(format!("{}.wav", letter(c))),
-                        &out,
+                        &scaled(&out, gain),
                     );
                 }
                 results.push(format!(
-                    "{{\"source\":\"{name}\",\"transform\":\"{}\",\"candidate\":\"{}\",\"letter\":\"{}\",\"ms_per_second\":{:.2},\"first_chunk_ms\":{:.2},\"latency_ms\":{:.1},\"steady_allocs\":{},\"repeats_bit_for_bit\":{repeats},\"block_size_independent\":{block_same},\"max_diff_block_64_vs_4096\":\"{block_info}\"}}",
-                    t.name, c.name(), letter(c), best / seconds * 1000.0, chunk_ms, stats.latency_frames as f64 * 1000.0 / RATE as f64, stats.steady_allocs
+                    "{{\"source\":\"{name}\",\"transform\":\"{}\",\"candidate\":\"{}\",\"letter\":\"{}\",\"ms_per_second\":{:.2},\"first_chunk_ms\":{:.2},\"latency_ms\":{:.1},\"steady_allocs\":{},\"repeats_bit_for_bit\":{repeats},\"block_size_independent\":{block_same},\"max_diff_block_64_vs_4096\":\"{block_info}\",\"pack_gain_db\":{:.2}}}",
+                    t.name, c.name(), letter(c), best / seconds * 1000.0, chunk_ms, stats.latency_frames as f64 * 1000.0 / RATE as f64, stats.steady_allocs, 20.0 * gain.log10()
                 ));
             }
         }
@@ -631,6 +679,10 @@ fn main() {
         let t = TRANSFORMS[1];
         for &c in CANDIDATES {
             let chunked = render_chunked(c, &input, t, 4096, 16_384);
+            let (whole, _) = render(c, &input, t.speed, t.semitones, 1024);
+            // Both at the straight render's matching gain, so they compare.
+            let gain = level_match(&whole, &input);
+            let (chunked, whole) = (scaled(&chunked, gain), scaled(&whole, gain));
             write_wav(
                 &out_dir
                     .join("pack")
@@ -639,7 +691,6 @@ fn main() {
                     .join(format!("{}.wav", letter(c))),
                 &chunked,
             );
-            let (whole, _) = render(c, &input, t.speed, t.semitones, 1024);
             write_wav(
                 &out_dir
                     .join("pack")

@@ -10692,9 +10692,11 @@ writes a blind listening pack and the measurements
 (`tools/stretch-trial/results/`). The pack is published as a private page,
 "Lumen Stretch Trial" (https://claude.ai/artifact/NkH3UNWUD57otsLPFWDbHc).
 
-**Sources** (fetched, not committed; the owner works on a VM, 2026-11-04): a
-CC0 breakbeat, a public-domain sung hymn (LibriVox) and a public-domain
-military-band march, 8 to 9 s each (`tools/stretch-trial/README.md`).
+**Sources** (fetched, not committed). The plan had the owner supply three
+files; the owner works on a VM and asked for this to be done here ("this is a
+VM so you need to do all that", 2026-11-04). The sources are a CC0 breakbeat,
+a public-domain sung hymn (LibriVox) and a public-domain military-band march,
+8 to 9 s each (`tools/stretch-trial/README.md`).
 Wikimedia Commons refused this machine's downloads (HTTP 429), so the Internet
 Archive was used.
 
@@ -10710,27 +10712,51 @@ before reading this table):
 | E | `rubberband` 0.1.5, R3 "finer" engine, real-time mode | GPL-2.0-or-later (commercial licence also sold) |
 
 **Measurements** (one core of a 2.8 GHz Xeon, one stereo 48 kHz clip, 6
-transforms × 3 sources; medians, with the worst case in brackets):
+transforms × 3 sources; medians, with the worst case in brackets;
+`results/summary.json`, re-run on 2026-11-04 after review round 1):
 
 | Letter | Share of one core per clip | One 85 ms piece after a jump | Own latency | Same bits at any block size | Allocations while playing | Repeats bit for bit |
 |---|---|---|---|---|---|---|
-| A | 2.4% (3.2%) | 23 ms (56) | 203 ms | No | None | Yes |
-| B | 7.4% (10.0%) | 42 ms (56) | 21 ms | Yes | None | Yes |
-| C | 1.9% (2.7%) | 11 ms (18) | 120 ms | Yes | None | Yes |
-| D | 4.6% (5.0%) | 27 ms (52) | Not measured | Not measured | Not measured | Yes |
-| E | 16.7% (21.5%) | 107 ms (119) | 43 ms | No (6 of 18) | None | Yes |
+| A | 2.3% (3.2%) | 17 ms (34) | 203 ms | 12 of 18 (not at 0.9 and 1.1) | None | Yes |
+| B | 7.9% (10.8%) | 45 ms (59) | 21 ms | Yes | None | Yes |
+| C | 2.0% (3.0%) | 11 ms (19) | 120 ms | Yes | None | Yes |
+| D | 4.8% (5.7%) | 27 ms (41) | Not measured | Not measured | Not measured | Yes |
+| E | 16.6% (22.1%) | 112 ms (131) | 43 ms | 6 of 18 | None | Yes |
 
 D's API used here renders a whole buffer, so the streaming columns do not
-apply to it; its streaming session API exists and was not tried.
+apply to it; its streaming session API exists and was not tried. A's stream
+API rounds each call's output to whole frames, so where a block does not map
+to a whole number of output frames (0.9 and 1.1) its output depends on the
+block size; that is a real property of the API, and does not matter under E
+A, whose chunk grid is fixed.
+
+**Method, and its limits** (from review round 1, which found and had fixed
+three faults in the first run: an unfair padding and latency read for A,
+pack levels up to 3.5 dB apart, and allocations counted on `process` only):
+
+- Every render is aligned with its original and the pack is loudness-matched
+  to it (`check.py` fails a render more than 10 ms or 0.5 dB off; all pass),
+  so no letter sounds better by being louder. The measurements are of the
+  renders as they came out.
+- "Own latency" is each library's own figure, in different units: input plus
+  output frames for C, input frames for A, output frames for B and E.
+- Allocations are counted during `process` and `retrieve` after the first
+  eight blocks, the last call excluded. The `rubberband` wrapper allocates
+  one Vec per call, and one allocation per counted call is taken off for B
+  and E; a library that allocated exactly once per call itself would be
+  hidden by that. Lumen would call `rubberband-sys` directly.
+- A's latency is read at one input position (16,384 frames) for every block
+  size, once its first grains exist, and only that much silence is fed
+  after the input.
 
 **What the numbers mean for Lumen.**
 
-1. **64 stretched tracks** (CLAUDE.md §4) cost about 1.2 cores with C, 1.5
-   with A, 2.9 with D, 4.7 with B and 10.7 with E, on this machine. E cannot
+1. **64 stretched tracks** (CLAUDE.md §4) cost about 1.3 cores with C, 1.5
+   with A, 3.1 with D, 5.1 with B and 10.6 with E, on this machine. E cannot
    play a large stretched session in real time; it could serve an offline
    "best quality" render only.
 2. **The click-to-sound delay under E A** is the piece time plus the
-   worker's wake-up: about 11 ms with C, 23 with A, 42 with B and 107 with E.
+   worker's wake-up: about 11 ms with C, 17 with A, 45 with B and 112 with E.
    The plan's E A bound (about 150 ms, risk 4) holds for every candidate but
    E, which is near it. E C (the hybrid) is not needed.
 3. **Same bits offline and live.** Every candidate repeats bit for bit. Under
@@ -10738,14 +10764,16 @@ apply to it; its streaming session API exists and was not tried.
    all E A needs; block-size independence is not required. It would matter
    only for E B.
 4. **Seams.** Pieces rendered from their own lead-in differ in waveform from a
-   straight render (phases differ: −3 to +7 dB SNR), and their seams are a
-   little brighter than the rest (the 99.5th percentile of the sample-to-sample
-   change is 1.06 to 1.33 times the rest of the clip, against 0.88 to 1.26 at
-   the same places in the straight render). Whether that is heard is in the
-   pack's "Prepared ahead" rows. If it is, S4b lengthens the pieces (fewer
-   seams) or overlaps them more; the measurement repeats with the chosen
-   length.
-5. **Real-time safety.** No candidate allocated while processing. The
+   straight render (phases differ: −3 to +7 dB SNR). At the seams (each
+   crossfade and 48 frames either side) the 99.5th percentile of the
+   sample-to-sample change is 0.79 to 1.31 times the rest of the clip, against
+   0.87 to 1.27 at the same places in the straight render (`seams.py`). The
+   metric cannot tell a seam from the music around it, so it shows no clear
+   click and proves none absent: whether a seam is heard is decided by ear in
+   the pack's "Prepared ahead" rows. If it is, S4b lengthens the pieces
+   (fewer seams) or overlaps them more, and the measurement repeats.
+5. **Real-time safety.** No candidate allocated while processing, as far
+   as the method above can see. The
    `rubberband` wrapper allocates one small Vec per call; Lumen would call
    `rubberband-sys` directly. A and C are C++ through bindgen or cc, E and B
    C++ through cc; all three need a C++ compiler in CI, A also CMake 3.30 or
