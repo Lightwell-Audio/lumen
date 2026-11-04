@@ -119,6 +119,8 @@ irreversible or external) · *Superseded*.
 | [0115](#adr-0115--the-first-run-window-m9-r7b) | The first-run window (M9 R7b) | Accepted 2026-10-31 (MT-FIRSTRUN-1 pending) | No |
 | [0116](#adr-0116--the-browsers-files-and-preview-m9-r7c) | The browser's files and preview (M9 R7c) | Accepted 2026-11-02 (MT-BROWSE-1 pending) | No |
 | [0117](#adr-0117--icons-single-instance-and-file-association-m9-r8) | Icons, single instance and file association (M9 R8) | Accepted 2026-11-03 (MT-SYS-1 pending) | No |
+| [0118](#adr-0118--take-recovery-that-survives-every-crash-window-m9-review-h1-to-h6) | Take recovery that survives every crash window (M9 review H1 to H6) | Accepted 2026-11-03 | No |
+| [0119](#adr-0119--the-time-stretch-trial-m95-s0) | The time-stretch trial (M9.5 S0) | Proposed 2026-11-04; the library waits for the owner's ear | Yes (T) |
 
 ---
 
@@ -10666,3 +10668,99 @@ the autosave (H3) and in a clean project (H4), each checked to fail with its
 fix taken out; the recording, recovery and walkthrough scenarios.
 **Not verified here:** a slow or network drive by hand, and a real stall of
 more than 20 s.
+
+## ADR-0119 — The time-stretch trial (M9.5 S0)
+
+**Date:** 2026-11-04. **Branch:** `m9.5-s0-stretch-trial`, cut from
+`m9.5-plan` (the plan is not merged yet). **Status:** Proposed. The library
+(choice T) waits for the owner's ear; E A is confirmed by these measurements,
+subject to the seam listening below.
+
+**Context.** `docs/milestones/M9.5.md` (§2, T and E) asks for the time-stretch
+library to be chosen by ear and by measurement, and for E (stretching prepared
+ahead on a worker) to be confirmed or sent back by the same trial. The
+candidates are every library with Rust bindings whose licence can ship in the
+sold, GPL-3.0-or-later Lumen.
+
+**What was built.** `tools/stretch-trial`, a bench program in its own Cargo
+workspace (so no candidate enters Lumen's `Cargo.lock` or `cargo-deny`). It
+drives every candidate as Lumen would: streaming, a block of input at a time,
+latency removed so the output lines up with the input (checked by
+`check.py`: every render within 10 ms of its original, level within 2 dB). It
+writes a blind listening pack and the measurements
+(`tools/stretch-trial/results/`). The pack is published as a private page,
+"Lumen Stretch Trial" (https://claude.ai/artifact/NkH3UNWUD57otsLPFWDbHc).
+
+**Sources** (fetched, not committed; the owner works on a VM, 2026-11-04): a
+CC0 breakbeat, a public-domain sung hymn (LibriVox) and a public-domain
+military-band march, 8 to 9 s each (`tools/stretch-trial/README.md`).
+Wikimedia Commons refused this machine's downloads (HTTP 429), so the Internet
+Archive was used.
+
+**The candidates and their letters** (fixed across the pack; the owner listens
+before reading this table):
+
+| Letter | Candidate | Licence |
+|---|---|---|
+| A | `bungee-rs` 0.1.1, stream API | MPL-2.0 (bundles MPL-2.0 Eigen, BSD kissfft) |
+| B | `rubberband` 0.1.5, R2 "faster" engine, real-time mode | GPL-2.0-or-later (commercial licence also sold) |
+| C | `signalsmith-stretch` 0.1.3, default preset | MIT |
+| D | `timestretch` 0.16.0, whole-buffer render | MIT, pure Rust |
+| E | `rubberband` 0.1.5, R3 "finer" engine, real-time mode | GPL-2.0-or-later (commercial licence also sold) |
+
+**Measurements** (one core of a 2.8 GHz Xeon, one stereo 48 kHz clip, 6
+transforms × 3 sources; medians, with the worst case in brackets):
+
+| Letter | Share of one core per clip | One 85 ms piece after a jump | Own latency | Same bits at any block size | Allocations while playing | Repeats bit for bit |
+|---|---|---|---|---|---|---|
+| A | 2.4% (3.2%) | 23 ms (56) | 203 ms | No | None | Yes |
+| B | 7.4% (10.0%) | 42 ms (56) | 21 ms | Yes | None | Yes |
+| C | 1.9% (2.7%) | 11 ms (18) | 120 ms | Yes | None | Yes |
+| D | 4.6% (5.0%) | 27 ms (52) | Not measured | Not measured | Not measured | Yes |
+| E | 16.7% (21.5%) | 107 ms (119) | 43 ms | No (6 of 18) | None | Yes |
+
+D's API used here renders a whole buffer, so the streaming columns do not
+apply to it; its streaming session API exists and was not tried.
+
+**What the numbers mean for Lumen.**
+
+1. **64 stretched tracks** (CLAUDE.md §4) cost about 1.2 cores with C, 1.5
+   with A, 2.9 with D, 4.7 with B and 10.7 with E, on this machine. E cannot
+   play a large stretched session in real time; it could serve an offline
+   "best quality" render only.
+2. **The click-to-sound delay under E A** is the piece time plus the
+   worker's wake-up: about 11 ms with C, 23 with A, 42 with B and 107 with E.
+   The plan's E A bound (about 150 ms, risk 4) holds for every candidate but
+   E, which is near it. E C (the hybrid) is not needed.
+3. **Same bits offline and live.** Every candidate repeats bit for bit. Under
+   E A the chunk grid makes offline and live use the same pieces, so this is
+   all E A needs; block-size independence is not required. It would matter
+   only for E B.
+4. **Seams.** Pieces rendered from their own lead-in differ in waveform from a
+   straight render (phases differ: −3 to +7 dB SNR), and their seams are a
+   little brighter than the rest (the 99.5th percentile of the sample-to-sample
+   change is 1.06 to 1.33 times the rest of the clip, against 0.88 to 1.26 at
+   the same places in the straight render). Whether that is heard is in the
+   pack's "Prepared ahead" rows. If it is, S4b lengthens the pieces (fewer
+   seams) or overlaps them more; the measurement repeats with the chosen
+   length.
+5. **Real-time safety.** No candidate allocated while processing. The
+   `rubberband` wrapper allocates one small Vec per call; Lumen would call
+   `rubberband-sys` directly. A and C are C++ through bindgen or cc, E and B
+   C++ through cc; all three need a C++ compiler in CI, A also CMake 3.30 or
+   newer.
+
+**Preliminary recommendation, pending the ear:** C. It is the cheapest, the
+fastest to start, the same at any block size and MIT-licensed (no ADR-0013
+exception). If the owner's ear prefers another letter by a clear margin, the
+cost table above says what that choice costs. E is ruled out for real-time
+playback by its cost.
+
+**Consequences.** T is chosen when the owner has listened; the ADR is then
+accepted with the answer, the dependency is added to `lumen-media` (with an
+ADR-0013 exception if it is not MIT) and its notice to
+`THIRD_PARTY_NOTICES.md`.
+
+**Not verified here:** the measurements on Windows or on the owner's machine;
+D's streaming API; behaviour of any candidate with a changing ratio
+(tempo ramps), which S4b tests with the chosen one.

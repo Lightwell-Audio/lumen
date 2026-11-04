@@ -1,0 +1,67 @@
+{
+ "A": {
+  "letter": "A",
+  "candidate": "bungee-rs (stream)",
+  "cpu_median": 23.6,
+  "cpu_max": 31.6,
+  "chunk_median": 22.6,
+  "chunk_max": 56.4,
+  "latency_ms": 202.7,
+  "allocs": 0,
+  "repeats": true,
+  "block_indep": 0,
+  "n": 18
+ },
+ "B": {
+  "letter": "B",
+  "candidate": "rubberband (R2, faster, real-time mode)",
+  "cpu_median": 74.3,
+  "cpu_max": 99.8,
+  "chunk_median": 42.5,
+  "chunk_max": 56.0,
+  "latency_ms": 21.3,
+  "allocs": 0,
+  "repeats": true,
+  "block_indep": 18,
+  "n": 18
+ },
+ "C": {
+  "letter": "C",
+  "candidate": "signalsmith-stretch (default preset)",
+  "cpu_median": 18.8,
+  "cpu_max": 27.0,
+  "chunk_median": 10.6,
+  "chunk_max": 18.3,
+  "latency_ms": 120.0,
+  "allocs": 0,
+  "repeats": true,
+  "block_indep": 18,
+  "n": 18
+ },
+ "D": {
+  "letter": "D",
+  "candidate": "timestretch (pure Rust, whole-buffer render)",
+  "cpu_median": 45.7,
+  "cpu_max": 49.7,
+  "chunk_median": 26.9,
+  "chunk_max": 51.5,
+  "latency_ms": 0.0,
+  "allocs": 0,
+  "repeats": true,
+  "block_indep": 0,
+  "n": 18
+ },
+ "E": {
+  "letter": "E",
+  "candidate": "rubberband (R3, finer, real-time mode)",
+  "cpu_median": 167.0,
+  "cpu_max": 214.9,
+  "chunk_median": 106.9,
+  "chunk_max": 119.3,
+  "latency_ms": 42.7,
+  "allocs": 0,
+  "repeats": true,
+  "block_indep": 6,
+  "n": 18
+ }
+}
