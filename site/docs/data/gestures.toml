@@ -9,3 +9,11 @@
 # does = "…"                    what it does, in one sentence
 # scenario = "<e2e test fn>"    the E2E scenario that covers it
 # clip = "<clip name>"          the gesture clip, made by a scene
+
+[[gesture]]
+id = "gesture.split_tool_click"
+place = "arrangement"
+input = "click with the Split tool"
+does = "Cuts the clip where you click, on the grid; hold Alt to cut anywhere."
+scenario = "split_tool_clicks_cut_on_the_grid_and_undo_restores_the_original"
+clip = "split-tool"

@@ -351,8 +351,9 @@ How they behave on the page:
 Videos and screenshots come from the same place: the real app, in the
 existing headless harness, driven by scripted **scenes**. So they are exact,
 identical in both themes, and redrawn whenever the interface changes. A new
-target, `crates/lumen-app/tests/docs_media.rs`, holds one function per
-scene, named after the clip or shot id the page uses.
+target, `crates/lumen-app/tests/docs_media/`, holds one function per
+scene; `tests/shared/scenes.rs` lists the clips, shots and walkthroughs
+each one makes, and the scene checks it made exactly those.
 
 - **A scene drives the app the way the page tells the reader to**: it opens
   the demo project, selects, presses the shortcut, drags. A scene that
@@ -364,9 +365,13 @@ scene, named after the clip or shot id the page uses.
   samples, plugins or plugin windows appear; plugin windows use the test
   plugin under an anonymous name.
 - **Fake devices only**, as the E2E rules require: `test:fake` audio,
-  virtual MIDI ports, never the machine's folders.
+  virtual MIDI ports, never the machine's folders. A walkthrough plays on
+  the test device with inputs, whose blocks the recorder lets through only
+  while it takes a frame's sound (§6.3).
 - **Cropped by accessible name.** A scene names the control or panel it is
-  about, and the harness crops to that node's bounds plus a margin. A layout
+  about, and the harness crops to that node's bounds plus a margin (D0's
+  scenes crop to the arrangement around the song's clips, found by the
+  clips' ids). A layout
   change moves the crop with the control. A clip can pan between two crops
   when the action crosses the window (a drag from the browser to a track).
 - **Screenshot callouts are drawn by the page, not into the image.** The
@@ -377,7 +382,8 @@ scene, named after the clip or shot id the page uses.
 ### 6.3 How a clip is recorded
 
 The harness already steps the app at a fixed 1/60 s. The recorder saves
-every frame and adds what a screen recording would have:
+every other step, 30 frames a second, and adds what a screen recording
+would have:
 
 - **A pointer.** The render has no system cursor, so the recorder draws
   one, in the shape Lumen asks for at that moment (egui reports it each
@@ -391,23 +397,38 @@ every frame and adds what a screen recording would have:
   change, and holds the result for at least a second before the loop
   starts again. These timings live in one place, like `motion.rs` in the
   app.
-- **Sound for walkthroughs.** The fake audio device runs the real engine;
-  the recorder takes its output from the export tap, frame by frame, and
-  lays it under the video in sync. To be proven in D0; the fallback renders
-  each played passage offline and places it at its time.
+- **The video's clock.** The fake audio device runs the real engine, and
+  during a take it runs a video frame's time for each frame and nothing in
+  between: the blocks that 1/30 s holds (12 or 13 of 128 samples), then the
+  app draws the frame. The engine answers a click or a key in the same
+  frame whichever machine renders it and however slowly, so a scene makes
+  the same frames on every run. The meters fall by egui's input clock for
+  the same reason (the wall clock in the app, the harness's steps here).
+- **Sound for walkthroughs.** The recorder takes what that device played
+  from the export tap and lays it under the video, so the song moves on
+  exactly as much as is heard. Each walkthrough checks that its first
+  sound comes with the first playing frame and that the playhead keeps to
+  the video's time, both within two frames, and that every caption shows
+  for at least 1.5 s.
 
 Frames are encoded with ffmpeg in CI (a build tool of the deploy, never
 shipped with Lumen) to H.264 MP4, which every browser plays, with a WebP
-poster. The scenes are deterministic, so equal frames give an equal file:
-each clip is cached by the hash of its frames and only changed clips are
-encoded again.
+poster. Equal frames give an equal file: each clip is cached by the hash of
+its frames, sound and keycaps, and only changed clips are encoded again (a
+second run of D0's scenes took every clip from the cache). Rendering the
+frames, not encoding them, is most of the time (§6.4), so the cache saves
+little time; it keeps the published files unchanged when nothing changed.
 
 ### 6.4 Formats and sizes
 
-- **Screenshots:** 2× from a 1280 × 800 point window, lossless WebP.
-- **Clips and walkthroughs:** at 1.5× scale and at most 1600 px wide, the
-  format of the landing page's videos (`site/assets/video/`: 1600 × 900
-  H.264, 200 to 470 KB for 14 s).
+- **Screenshots:** 2× from a 960 × 420 point window, cut to what the page
+  is about (D0's are the arrangement: 1920 × 302 px), lossless WebP.
+- **Clips and walkthroughs:** the same window and scale, 30 frames a
+  second, H.264 at CRF 24 (walkthroughs with AAC at 128 kb/s), with a WebP
+  poster of the last frame. D0 planned 1.5× and 1600 px, the landing
+  page's format (`site/assets/video/`), and built 2× instead: a cut of the
+  window is narrow and short, so the files stay small (below) and text in
+  the clip stays as sharp as in the screenshot beside it.
 - **Themes:** every screenshot, lead clip and gesture clip in both themes;
   the page shows the one matching the reader's theme (`<picture>` and
   `<source media="(prefers-color-scheme: …)">`) and lets the reader switch.
@@ -416,18 +437,32 @@ encoded again.
 - **Loading:** nothing is fetched until it is near the view
   (`preload="none"` and lazy images), so a long page stays light.
 
-Expected size at completion, to be measured in D0:
+Measured in D0 (a Linux container, 4 cores, lavapipe), for its three
+scenes:
+
+| What | Each | Size |
+|---|---|---|
+| Screenshot (arrangement cut) | 1920 × 302 px | 18 to 20 KB |
+| Lead or gesture clip, 5.2 s | 155 frames | 67 to 72 KB, poster 29 to 31 KB |
+| Walkthrough, 11 s with sound | 332 frames | 285 KB, poster 30 KB |
+| Rendering | | about 0.3 s a frame; 300 s for the three scenes (952 frames, five launches) |
+| Checking only (no `DOCS_MEDIA`) | | 56 s for the three scenes |
+
+Projected for the whole set, from those numbers (the counts are §6.4's
+earlier estimate; full-window screenshots are larger than D0's cuts):
 
 | What | Count | Size |
 |---|---|---|
-| Screenshots, two themes | 400 to 600 | 80 to 120 MB |
-| Lead and gesture clips, two themes | about 600 | 150 to 200 MB |
-| Walkthroughs, dark only | about 15 | 150 to 300 MB |
-| **Total** | | **about 400 to 600 MB** |
+| Screenshots, two themes | 400 to 600 | 10 to 40 MB |
+| Lead and gesture clips, two themes, with posters | about 600 | about 60 MB |
+| Walkthroughs of about a minute, dark only | about 15 | about 25 MB |
+| **Total** | | **about 100 to 130 MB** |
 
-GitHub Pages allows a 1 GB site and has a soft limit of 100 GB of traffic a
-month. That fits one set of docs, but not many versions of it: see §10.3
-for how versions share media, and §13 for when hosting needs a decision.
+That is a quarter of the earlier estimate (400 to 600 MB). GitHub Pages
+allows a 1 GB site and has a soft limit of 100 GB of traffic a month, so
+several versions fit before hosting needs a decision (§10.3, §13). The
+time is the problem: about 600 clips of 155 frames and 15 walkthroughs of
+1,800 frames come to about 10 hours of rendering on one runner (§13).
 
 ### 6.5 What cannot be generated
 
@@ -503,7 +538,8 @@ pull request.
 3. Index the HTML for search.
 4. Publish `site/` with the docs at `/docs/`, by the existing Pages
    workflow, which gains these steps and runs when `site/**` or the app's
-   sources change on `main`.
+   sources change on `main` (`.github/workflows/pages.yml`, D0; the
+   encoded clips are kept in the Actions cache between deploys).
 
 The docs share the landing page's stylesheet and fonts, and take their
 tokens from `docs/design-system/lumen-tokens.json` at build time (§9.1).
@@ -519,8 +555,12 @@ The look is pitched as rendered specimens before it is built (§9.5).
 | Links | an internal link or anchor is broken |
 | Product-neutral names | a page names another product (`tests/third_party_names.rs`, extended to `site/docs/`) |
 
-A pull request that changes the docs can attach the built site as a CI
-artifact, so the owner can look at the pages and shots before merging.
+These run in `.github/workflows/docs.yml` (D0) on every pull request that
+touches `site/` or the app, since CI skips changes to Markdown alone. The
+scenes check runs each scene once in the dark theme and writes nothing
+(no `DOCS_MEDIA`); Zola's build checks internal links and their anchors.
+The built pages, without media, are kept as the run's `docs-site`
+artifact for the owner to look at before merging.
 
 ## 9. Look and voice
 
@@ -725,6 +765,46 @@ Each slice closes the usual way: the checks pass, the owner looks at the
 built pages in both themes and at phone width, and the slice report says
 what is covered.
 
+**D0 report (2026-11-05, branch `docs/d0-foundations`).**
+
+- **Built:**
+  - the Playbook look, with Stage's rays and shimmering title on the
+    docs home only (§9.5), and one stylesheet shared with the landing page;
+  - the Zola project (`site/docs/`) with search;
+  - the generated reference: Commands, Preferences, and Bar and menus,
+    exported from the app;
+  - `docs_coverage` with the full baseline, and the name tests over the
+    docs;
+  - the `keys`, `shot`, `clip` and `video` shortcodes, and callouts;
+  - the scene target (`tests/docs_media/`) with the demo song;
+  - the recorder, which adds the pointer, the click ring, keycaps, pacing,
+    the video's clock, sound, captions and chapters, and the encode cache;
+  - three scenes for Split a clip: a lead clip, a gesture clip, before and
+    after shots, and a walkthrough with sound;
+  - the checks on pull requests (`docs.yml`) and the deploy
+    (`pages.yml`).
+- **Proven:**
+  - sound and picture stay in sync, and every caption shows long enough to
+    read;
+  - a second run makes the same frames and takes every clip from the
+    cache;
+  - a broken internal link or anchor stops the build.
+- **Changed from the plan:**
+  - clips are at 2× rather than 1.5×, at 30 frames a second (§6.4);
+  - the media is rendered at each deploy instead of being committed;
+  - the meters now fall by egui's input clock (§6.3). In the app this
+    behaves as before.
+- **Measured:** sizes and times are in §6.4. The whole set comes to about
+  100 to 130 MB, and about 10 hours to render on one runner.
+- **Open:**
+  - the render-time choice (§13; the recommendation is A);
+  - the side-by-side with a render made on Windows;
+  - the owner's look at the built pages, in both themes and at phone
+    width.
+- **Live:** `/docs/` goes live when the owner merges this branch to
+  `main`. The repository's Pages source must be set to "GitHub Actions"
+  once (§8.2).
+
 ## 12. Choices
 
 ### 12.1 Decided (owner, 2026-11-05)
@@ -797,9 +877,9 @@ weakest on 1 to 3.
   through coordinates.
 - **Rendering on CI.** The deploy renders on Linux with a software Vulkan
   driver. Text and colour are close to Windows but not identical, and some
-  Windows-only panels (the ASIO driver choice) show test devices. To be
-  measured in D0: the time for the full set, and a side-by-side with a
-  Windows render.
+  Windows-only panels (the ASIO driver choice) show test devices. The
+  time is measured (§6.4); the side-by-side with a Windows render waits
+  for the owner's machine (D0 was built in a Linux container).
 - **Gestures** are the one list kept by hand (§5.2). The milestone review
   is the check; a gesture added without an entry is caught there, not by
   CI.
@@ -807,16 +887,34 @@ weakest on 1 to 3.
   render and that its keys are right; they cannot prove the words are
   right. The owner's look at each docs slice and the milestone docs pass
   are the check.
-- **Hosting size and traffic.** About 400 to 600 MB for one set of docs
-  (§6.4), against GitHub Pages' 1 GB and its soft 100 GB a month of
-  traffic. Shared media keeps versions small (§10.3), but a popular site
+- **Hosting size and traffic.** About 100 to 130 MB for one set of docs
+  (measured in D0, §6.4), against GitHub Pages' 1 GB and its soft 100 GB
+  a month of traffic. Shared media keeps versions small (§10.3), but a popular site
   or many versions can outgrow it. When the site passes 700 MB, or traffic
   nears the limit, moving the media to another host is a decision for the
   owner (it may cost money). Lazy loading keeps traffic to what is watched.
-- **Render and encode time.** Hundreds of clips at 60 frames a second on a
-  software renderer is the slowest part of the deploy. The frame-hash cache
-  means a deploy encodes only what changed; the first full build is
-  measured in D0.
+- **Render time (decision for the owner).** Measured in D0: about 0.3 s
+  a frame on the software renderer, so the whole set would take about 10
+  hours on one runner, where today's three scenes take 5 minutes. The
+  cache saves encoding, not rendering: a frame has to be drawn before it
+  can be compared. Only 11% of a walkthrough's frames repeat the one
+  before (38 of 332), so skipping still frames would save little. The
+  choices, before D2 makes the set large:
+  - **A. Render when the docs change (recommended).** The deploy renders
+    only the scenes whose page or scene changed in the push, and reuses
+    the last published media for the rest; a full render runs by hand
+    (`workflow_dispatch`) at each milestone's docs pass (§10.2), split
+    into parallel jobs. Between passes, a page can show the interface as
+    it was at the last pass; the milestone pass is the check.
+  - **B. Render everything on each deploy, in parallel.** Ten or more jobs
+    of about an hour each. The media is always current, but each deploy
+    costs about 10 hours of Actions minutes, which have run out before.
+  - **C. Render at 1×.** A quarter of the pixels, likely faster (not measured), but
+    text in clips is blurred on high-density screens next to 2×
+    screenshots. This can be combined with A or B.
+
+  Until the owner chooses, the deploy renders everything; that is
+  5 minutes with D0's scenes.
 - **Size of the backlog.** About 250 commands, 45 settings and an unknown
   number of gestures. Eight slices (D0 to D7) is an estimate, revised after
   D2.

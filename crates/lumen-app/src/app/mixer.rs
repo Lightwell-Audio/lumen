@@ -15,12 +15,8 @@ impl App {
     /// Moves every meter on with what the engine measured since the last
     /// frame. Returns whether a meter is still moving, so the frame loop
     /// keeps drawing until they rest.
-    pub(crate) fn update_meters(&mut self) -> bool {
-        let now = Instant::now();
-        let dt = self
-            .meters_at
-            .map_or(0.0, |at| now.duration_since(at).as_secs_f32());
-        self.meters_at = Some(now);
+    pub(crate) fn update_meters(&mut self, ctx: &egui::Context) -> bool {
+        let dt = meter_step(&mut self.meters_at, ctx);
         let project = self.document.project();
         let ids: Vec<u64> = rules::all_tracks(project).map(|t| t.id.0).collect();
         if std::mem::take(&mut self.transport.played_from_stop) {
@@ -92,4 +88,15 @@ impl App {
         }
         self.arrangement.outputs = choices;
     }
+}
+
+/// Seconds since `at` by egui's input clock, which moves `at` on: how far
+/// the meters fall this frame. The input clock is the wall clock in the
+/// app, and the harness's own steps in tests, so the docs' recorder
+/// (`tests/docs_media/`) draws the same meters on every run.
+pub(crate) fn meter_step(at: &mut Option<f64>, ctx: &egui::Context) -> f32 {
+    let now = ctx.input(|i| i.time);
+    let dt = at.map_or(0.0, |at| (now - at) as f32);
+    *at = Some(now);
+    dt
 }

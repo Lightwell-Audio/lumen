@@ -500,15 +500,20 @@ per slice and move what is no longer current out of it.
   and per milestone, later per version. Owner: every choice A (Zola),
   "show, don't tell" (lead clips, gesture clips, walkthrough videos, §6),
   and inviting, fun docs matching the landing page and tokens (§9).
-- **Branch `docs/d0-foundations` (from the strategy branch): D0 is being
-  built.** The look is chosen (owner, 2026-11-05): Playbook, with Stage's
-  rays and shimmering title on the docs home only (USER_DOCS.md §9.5). The
-  Zola site is `site/docs/` (README there; `build.sh`); its media comes
-  from the real app through `tests/docs_media.rs` (ignored; GPU, ffmpeg,
-  `DOCS_MEDIA`), which draws the pointer and keycaps into clips. Headless
-  Chromium has no H.264, so screenshots of the site show a frame of each
-  clip. `data/commands.json` is a stand-in until D0's app export. Next: the
-  rest of D0 (USER_DOCS.md §11).
+- **Branch `docs/d0-foundations` (from the strategy branch): D0 is built**
+  (report: USER_DOCS.md §11). The Zola site is `site/docs/` (README
+  there; `build.sh`), in the Playbook look. Its media is rendered from the
+  real app by `tests/docs_media/` (ignored; with `DOCS_MEDIA` it renders
+  and encodes, needing a GPU and ffmpeg; without it each scene only
+  checks). `tests/shared/scenes.rs` lists what each scene writes. Media is
+  not committed: `pages.yml` renders it at each deploy, and `docs.yml`
+  checks pull requests. During a take the test device runs a video frame's
+  time per frame, so a second run makes the same frames: anything drawn
+  from the wall clock in the arrangement breaks that (the meters now use
+  egui's input time). Headless Chromium has no H.264, so screenshots of
+  the site show a frame of each clip. Waiting for the owner: the
+  render-time choice (USER_DOCS.md §13, recommended A) and the look at the
+  built pages.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

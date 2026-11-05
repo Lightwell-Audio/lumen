@@ -41,7 +41,9 @@ fn play(lumen: &mut Lumen) {
 fn listen(lumen: &mut Lumen, ms: u64) {
     for _ in 0..ms / 50 {
         std::thread::sleep(Duration::from_millis(50));
-        lumen.frames(1);
+        // The meters fall by egui's clock, 1/60 s a step: three steps are
+        // the 50 ms the engine played meanwhile.
+        lumen.frames(3);
     }
 }
 

@@ -6,6 +6,16 @@ and searched with Pagefind 1.6.0. The strategy is `docs/USER_DOCS.md`
 
 ## Build and look
 
+The screenshots and clips come from the app (needs a GPU, a software
+Vulkan one is enough, and ffmpeg; on a machine without a display, run it
+under `xvfb-run -a`). They are not committed: render them once, and again
+when a scene or what it shows changes. Unchanged clips come from
+`target/docs-media-cache` and are not encoded again.
+
+```bash
+DOCS_MEDIA=site/docs/static/media cargo test -p lumen-app --test docs_media -- --ignored --test-threads=1
+```
+
 ```bash
 site/docs/build.sh /tmp/lumen-site http://localhost:8123/docs
 ```
@@ -27,8 +37,24 @@ screenshots.
 | `content/` | The pages, in Markdown | hand |
 | `templates/` | Page layouts and shortcodes (`keys`, `shot` with its callouts, `callout`, `clip`, `video`, `tip`, `tryit`) | hand |
 | `static/docs.css`, `static/docs.js` | The look and behaviour; colours and sizes are design tokens only | hand |
-| `static/media/` | Screenshots and clips | `cargo test -p lumen-app --test docs_media -- --ignored` with `DOCS_MEDIA=site/docs/static/media` |
+| `static/media/` | Screenshots, clips and walkthroughs, with callout bounds and cues | the scenes in `crates/lumen-app/tests/docs_media/`, listed in `tests/shared/scenes.rs` (not committed) |
 | `static/img/` | Lumi, from `docs/brand/` | `cwebp -resize 256 0` |
 | `data/commands.json`, `preferences.json`, `controls.json` | Every command (keys on both systems, area, about), Preferences row and bar or menu control | `build.sh`, through `cargo test -p lumen-app --test docs_data -- --ignored` with `DOCS_DATA=site/docs/data` (not committed) |
 | `data/tokens.json` | The design tokens | `build.sh`, from `docs/design-system/lumen-tokens.json` (not committed) |
 | `data/nav.toml` | The sidebar | hand |
+
+Link between pages as `@/guides/editing/split-a-clip.md#with-the-keyboard`:
+the build stops when such a page or anchor does not exist. A plain
+`/docs/...` address is not checked.
+
+## Checks and deploy
+
+- `.github/workflows/docs.yml`, on pull requests that touch the site or the
+  app: `docs_coverage` and the name tests, every scene once in the dark
+  theme without writing anything (no `DOCS_MEDIA`), and the build, which
+  stops at a wrong shortcode, missing alt text, an unknown key or a broken
+  internal link. The built pages are kept as the run's `docs-site`
+  artifact.
+- `.github/workflows/pages.yml`, on `main`: renders every scene in both
+  themes, builds the docs into `docs/` beside the landing page and
+  publishes both.

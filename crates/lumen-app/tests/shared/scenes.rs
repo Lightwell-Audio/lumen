@@ -21,12 +21,26 @@ pub struct Scene {
     pub walks: &'static [&'static str],
 }
 
-pub const SCENES: &[Scene] = &[Scene {
-    test: "split_a_clip",
-    clips: &["split-lead"],
-    shots: &["split-before", "split-after"],
-    walks: &[],
-}];
+pub const SCENES: &[Scene] = &[
+    Scene {
+        test: "split_a_clip",
+        clips: &["split-lead"],
+        shots: &["split-before", "split-after"],
+        walks: &[],
+    },
+    Scene {
+        test: "split_tool",
+        clips: &["split-tool"],
+        shots: &[],
+        walks: &[],
+    },
+    Scene {
+        test: "split_while_playing",
+        clips: &[],
+        shots: &[],
+        walks: &["split-playing"],
+    },
+];
 
 /// Whether a scene writes the clip `name`.
 pub fn has_clip(name: &str) -> bool {

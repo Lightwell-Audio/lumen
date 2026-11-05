@@ -1,0 +1,66 @@
+name: Docs
+
+# The user documentation's checks (docs/USER_DOCS.md §8.3). CI skips changes
+# to Markdown alone, and the docs' pages are Markdown, so they are checked
+# here: on every pull request that touches the site or the app, whose
+# commands, settings and scenes the pages are made from.
+on:
+  pull_request:
+    paths:
+      - "site/**"
+      - "crates/**"
+      - "docs/design-system/**"
+      - "Cargo.lock"
+      - ".github/workflows/docs.yml"
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      # mesa-vulkan-drivers is lavapipe: the scenes run the app on a
+      # software Vulkan device, as the E2E suite does.
+      - name: Install Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev \
+            libfontconfig1-dev mesa-vulkan-drivers
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docs
+      - name: Install Zola
+        uses: taiki-e/install-action@v2
+        with:
+          tool: zola@0.22.1
+      # Every action has a page, every page names real actions and shots,
+      # and no page names another product.
+      - name: Coverage and names
+        run: cargo test --locked -p lumen-app --test docs_coverage --test third_party_names --test product_name
+      # Each scene drives the app as its page tells the reader to, once and
+      # in one theme, writing nothing: a page whose steps stopped working
+      # fails here. The deploy renders and encodes them.
+      - name: Scenes
+        run: cargo test --locked -p lumen-app --test docs_media -- --ignored --test-threads=1
+      # A wrong shortcode, a shot without alt text, an unknown key or a
+      # broken internal link stops the build. The pages are built without
+      # their media, which only the deploy renders.
+      - name: Build
+        run: site/docs/build.sh "$RUNNER_TEMP/site"
+      - name: Keep the built pages
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: ${{ runner.temp }}/site/docs
+          retention-days: 7

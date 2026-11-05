@@ -4,3 +4,6 @@
 /data/commands.json
 /data/preferences.json
 /data/controls.json
+# Rendered by the scenes (crates/lumen-app/tests/docs_media), never
+# committed (USER_DOCS.md §6, the owner's S A).
+/static/media/

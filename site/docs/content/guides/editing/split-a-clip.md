@@ -17,7 +17,7 @@ prev = "Clips and selection"
 next = "Join clips"
 
 [taxonomies]
-actions = ["midi.split_notes", "view.tool_split"]
+actions = ["midi.split_notes", "view.tool_split", "gesture.split_tool_click"]
 +++
 
 {{ clip(id="split-lead", lead=true, focus="62%", alt="A drum clip is clicked at bar 3, then Ctrl+E cuts it in two there. The two halves sit side by side.") }}
@@ -31,12 +31,18 @@ exactly as before, so nothing you hear changes until you move them.
    playhead jumps to that spot.
    {{ shot(id="split-before", focus="62%", alt="The Drums clip selected, with the playhead across it at bar 3") }}
 2. Press {{ keys(id="midi.split_notes") }}.
-   {{ shot(id="split-after", focus="62%", alt="Two Drums clips where there was one, meeting at bar 3") }}
+   {{ shot(id="split-after", focus="62%", alt="Two Drums clips where there was one, meeting at bar 3", callouts=["First half", "Second half"]) }}
+   The first half {{ callout(n=1) }} ends exactly where the second
+   {{ callout(n=2) }} begins.
 
 The cut lands on the playhead, so you can also split while the song plays:
 press {{ keys(id="midi.split_notes") }} at the moment you hear the spot.
 
+{{ video(id="split-playing", alt="The song plays from bar 1. On bar 3, Ctrl+E cuts the selected Drums clip, and the song plays on without a break.", caption="Turn the sound on: the cut lands on the beat and nothing you hear changes.") }}
+
 ## With the mouse
+
+{{ clip(id="split-tool", focus="40%", alt="C picks the Split tool. A line follows the pointer across the Bass clip, snapping to the grid, and a click cuts the clip there. Esc goes back to the pointer.") }}
 
 1. Press {{ keys(id="view.tool_split") }}, or choose **Split** from the tool
    switch above the track headers.

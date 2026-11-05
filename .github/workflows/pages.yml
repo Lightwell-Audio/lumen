@@ -1,12 +1,17 @@
 name: Site
 
-# Publishes site/ to GitHub Pages when it changes on main. The repository's
-# Pages source must be set to "GitHub Actions" (Settings > Pages) once.
+# Publishes the landing page and the user documentation (docs/USER_DOCS.md
+# §8.2) to GitHub Pages when either changes on main, or the app the docs
+# are made from. The repository's Pages source must be set to "GitHub
+# Actions" (Settings > Pages) once.
 on:
   push:
     branches: [main]
     paths:
       - "site/**"
+      - "crates/**"
+      - "docs/design-system/**"
+      - "Cargo.lock"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -21,18 +26,72 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   deploy:
     name: deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v5
+      # lavapipe (mesa-vulkan-drivers) renders the app; ffmpeg encodes its
+      # clips. Neither ships with Lumen.
+      - name: Install Linux system libraries and ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev \
+            libfontconfig1-dev mesa-vulkan-drivers ffmpeg
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docs
+      - name: Install Zola
+        uses: taiki-e/install-action@v2
+        with:
+          tool: zola@0.22.1
+      # Encoded clips by the hash of what went into them: a deploy encodes
+      # only the clips whose frames, sound or keycaps changed. Each run saves
+      # its own entry and starts from the latest one.
+      - name: Restore the encoded clips
+        uses: actions/cache@v4
+        with:
+          path: target/docs-media-cache
+          key: docs-media-${{ github.run_id }}
+          restore-keys: docs-media-
+      # Screenshots, clips and walkthroughs from the real app, in both
+      # themes (§6). Not committed: rendered here at every deploy.
+      - name: Render the media
+        run: |
+          touch "$RUNNER_TEMP/render-started"
+          DOCS_MEDIA=site/docs/static/media cargo test --locked -p lumen-app \
+            --test docs_media -- --ignored --test-threads=1 --nocapture
+      # Entries no scene used this run belong to clips that changed or are
+      # gone; dropping them keeps the cache to one set of clips.
+      - name: Drop unused encoded clips
+        run: |
+          for entry in target/docs-media-cache/*/; do
+            [ -e "$entry" ] || continue
+            if [ ! "${entry}used" -nt "$RUNNER_TEMP/render-started" ]; then
+              rm -rf "$entry"
+            fi
+          done
+          du -sh target/docs-media-cache site/docs/static/media
+      # The landing page as it is, and the docs built into docs/ beside it.
+      - name: Build the site
+        run: |
+          mkdir -p "$RUNNER_TEMP/site"
+          rsync -a --exclude /docs/ site/ "$RUNNER_TEMP/site/"
+          site/docs/build.sh "$RUNNER_TEMP/site"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: ${{ runner.temp }}/site
       - id: deployment
         uses: actions/deploy-pages@v4
