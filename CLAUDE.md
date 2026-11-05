@@ -497,8 +497,9 @@ per slice and move what is no longer current out of it.
   website at `/docs/`: Quick start, Guides, Recipes, a reference generated
   from `commands::ALL` and `preferences::ROWS`, screenshots rendered by the
   headless harness, a coverage test with a shrinking baseline, docs per slice
-  and per milestone, later per version. Waits for the owner's choices (§12:
-  G, S, L, C, H, T); then D0 to D7.
+  and per milestone, later per version. Owner: S A, L A, C A, H A, T A, and
+  "show, don't tell" (lead clips, gesture clips, walkthrough videos, §6).
+  G, the generator, is open (§12.2). Then D0, before 9.5.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

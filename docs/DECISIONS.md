@@ -120,7 +120,7 @@ irreversible or external) · *Superseded*.
 | [0116](#adr-0116--the-browsers-files-and-preview-m9-r7c) | The browser's files and preview (M9 R7c) | Accepted 2026-11-02 (MT-BROWSE-1 pending) | No |
 | [0117](#adr-0117--icons-single-instance-and-file-association-m9-r8) | Icons, single instance and file association (M9 R8) | Accepted 2026-11-03 (MT-SYS-1 pending) | No |
 | [0118](#adr-0118--take-recovery-that-survives-every-crash-window-m9-review-h1-to-h6) | Take recovery that survives every crash window (M9 review H1 to H6) | Accepted 2026-11-03 | No |
-| [0119](#adr-0119--user-documentation-on-the-website) | User documentation on the website | **Proposed** 2026-11-05 (owner choices in `USER_DOCS.md` §12) | Yes |
+| [0119](#adr-0119--user-documentation-on-the-website) | User documentation on the website | **Proposed** 2026-11-05 (S, L, C, H, T chosen; G open, `USER_DOCS.md` §12.2) | Yes |
 
 ---
 
@@ -129,6 +129,7 @@ irreversible or external) · *Superseded*.
 | Question | Decision |
 |---|---|
 | One plan per milestone (2026-10-29) | The owner asked for every sub-plan to be folded into its milestone's plan. M7b went back into M7: its slices keep the names E0 to E6, and older records and code comments still say M7b. M9's slice plans R2 to R5 went into `M9.md`. The M5 recording-window plan went into `M5.md`. M4.5 stays a milestone of its own. Also at the owner's request, the audio clip editor and warp were placed as **M7 E7 and E8**, which wait for the owner to choose when they run (`docs/milestones/M7.md` §5). |
+| User documentation (ADR-0119, 2026-11-05) | S A (screenshots rendered from scenes at deploy, not committed), L A (`site/docs/`), C A (coverage test with a shrinking baseline), H A (in-app help later, after D2), T A (D0 before 9.5, D1 to D7 alongside it). The owner added videos and animations throughout, "show, don't tell": lead clips, gesture clips and walkthroughs (`USER_DOCS.md` §6). G (the generator) open after the owner asked why Zola; compared in §12.2. |
 | Take lanes deferred (M9 R3, 2026-10-26) | Pitched after the owner's runs of R3 (each pass a clip on its own lane under the track, a comp lane that plays, comping by dragging across a lane): the owner likes individual take lanes and **deferred them, with comping, until after M9's must-have slices**, as recommended. Until then a take is a whole pass inside one clip (ADR-0104), reached from the Takes menu; the passes are windows on one file, so dragging a clip's edge past its pass shows the pass beside it (intended, as in common workstations). When lanes are built, the takes inside a clip become lanes by migration. Open for then: whether a comp segment is a copied clip or a reference to its take, whether recording over any material (not only loop passes) makes a lane, and MIDI lanes. |
 | M9 R4 choices (2026-10-26) | P1 A (renders follow the project rate), P2 A (Revert reloads the saved file after a quiet prompt, keeping the unsaved version in `Backups/Reverted`), S A (R4 is the save family and project settings; the media pool, relink and purge are R4b): every recommendation (`docs/milestones/M9.md` §2). After MT-PROJ-1 run 1 (2026-10-26): projects and templates get their own folders in `Documents/Lumen` (option A of four pitched), and the app menu is grouped (layout A of three pitched as specimens): ADR-0105. |
 | M9 R4b choices (2026-10-26) | M1 A (a "Project media" tab in the browser), M2 A (Locate one file, and search a folder with a report to look at before anything changes), M3 A (remove unused takes entries out as one undo step; Clear moves leftover files to the system trash after a second press), M4 A (a banner with Relink… on open): every recommendation (`docs/milestones/M9.md` §2; ADR-0106). |
@@ -10672,8 +10673,9 @@ more than 20 s.
 ## ADR-0119 — User documentation on the website
 
 **Date:** 2026-11-05. **Branch:** `docs/documentation-strategy`. **Status:**
-Proposed (the owner's choices G, S, L, C, H and T in `USER_DOCS.md` §12 are
-pending). Strategy: `docs/USER_DOCS.md`.
+Proposed. Owner, 2026-11-05: S A, L A, C A, H A, T A, and videos and
+animations throughout ("show, don't tell"); G, the site generator, is open
+(`USER_DOCS.md` §12.2). Strategy: `docs/USER_DOCS.md`.
 
 **Context.** CLAUDE.md §10 asks that every feature be "documented for
 users", and no user documentation exists: the website is one landing page.
@@ -10698,10 +10700,17 @@ with a shrinking baseline, or review only.
 3. **A coverage test with a baseline that only shrinks**: an action with no
    task page fails CI unless it is in the backlog file, so new work is
    documented from the first day.
-4. **Screenshots rendered by the real app** in the existing headless
-   harness, from scenes that follow the page's steps, in both themes, cropped
-   and annotated by accessible name; drags as short loops.
-5. **Zola and Pagefind under `site/docs/`**, published by the existing
+4. **Show, don't tell** (owner): every guide page opens with a lead clip
+   of the task, every gesture has a clip, the quick start and each recipe
+   have a walkthrough video with sound, captions and chapters, and every
+   state a step reaches has a screenshot. All are rendered by the real app
+   in the existing headless harness, from scenes that follow the page's
+   steps, in both themes, cropped and annotated by accessible name; the
+   recorder draws the pointer, clicks and keycaps, paces the motion, and
+   encodes with ffmpeg in CI (a deploy tool, not shipped), cached by frame
+   hash.
+5. **A static site generator (Zola recommended; G open) and Pagefind
+   under `site/docs/`**, published by the existing
    Pages workflow at `/docs/`; Ctrl/Cmd+K search, shortcuts and synonyms
    searchable, no analytics.
 6. **Per slice and per milestone now** (docs on the slice branch; a docs
@@ -10712,7 +10721,10 @@ with a shrinking baseline, or review only.
 
 **Consequences.** Slices gain a docs list in their plan and docs work on
 their branch. Interface changes can break scenes, which is how stale pages
-are caught. Two tools (Zola, Pagefind) join the deploy, not the app.
+are caught. The generator, Pagefind and ffmpeg join the deploy, not the
+app. One set of docs is about 400 to 600 MB with its videos; versions share
+media by content hash, and outgrowing GitHub Pages is an owner decision.
 Prose accuracy and the gesture list are checked by review, not by tests.
-**Not verified yet:** render time and fidelity of the full scene set on a
-Linux CI runner (measured in D0).
+**Not verified yet:** render and encode time, size and fidelity of the
+full scene set on a Linux CI runner, and the walkthroughs' sound from the
+fake device (all measured or proven in D0).

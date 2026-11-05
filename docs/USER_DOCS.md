@@ -1,7 +1,8 @@
 # Lumen user documentation: the strategy
 
-**Status:** Proposed, 2026-11-05 (ADR-0119). The choices in §12 wait for the
-owner. Nothing here is built yet.
+**Status:** Proposed, 2026-11-05 (ADR-0119). Owner, 2026-11-05: S A, L A,
+C A, H A, T A, and videos and animations throughout ("show, don't tell",
+§6). G, the site generator, is still open (§12). Nothing here is built yet.
 
 This is the plan for the user documentation published on the website: what
 it covers, how it is organised and searched, how every page gets its
@@ -21,8 +22,9 @@ The owner's requirements (2026-11-05), as testable rules:
    the transport bar and in the app menu, every preference, and every direct
    manipulation (drags, handles, double-clicks, modifiers). "Documented" means
    a page says how to do it, with the mouse and with the keyboard.
-2. **Every piece of functionality has a screenshot**, and every task page
-   has a worked example.
+2. **Show, don't tell.** Every action is shown in motion, and every state
+   it reaches is shown as a screenshot, before the page explains it in
+   words. Every task page has a worked example.
 3. **Easy to navigate and search.** Any action can be found from the
    sidebar in three clicks or fewer, and from the search box by its name, by
    its shortcut, or by a common synonym.
@@ -116,8 +118,10 @@ sidebar.
 ### 3.2 Quick start
 
 One page a new user follows start to finish, about 15 minutes, ending with
-an exported file. Each step names the command, shows the shortcut, and has a
-screenshot of what the screen looks like after it.
+an exported file. It opens with a walkthrough video of the whole path, with
+sound, chaptered by step (§6.1). Each step names the command, shows the
+shortcut, and has a clip of the step and a screenshot of what the screen
+looks like after it.
 
 1. Pass the first-run window: choose the device, Play test sound, find the
    plugins.
@@ -137,8 +141,9 @@ skip to step 4.
 ### 3.3 Recipes
 
 A recipe is a goal, not a feature: "Duck the bass under the kick". It lists
-what it needs, gives numbered steps across several features, shows the
-result (a screenshot, and where it helps a short before/after audio
+what it needs, opens with a walkthrough video of the whole recipe, gives
+numbered steps across several features (each a chapter of the video), shows
+the result (a screenshot, and where it helps a short before/after audio
 example), and links to the guide page for each step. Recipes cover only what
 `main` can do. The first set:
 
@@ -200,20 +205,24 @@ title = "Split a clip"
 section = "editing"
 also = ["cut a clip", "slice", "razor"]        # synonyms, shown and searched
 actions = ["edit.split", "gesture.split_tool_click"]   # what this page covers
-shots = ["split-before", "split-after", "split-range"]
+clips = ["split-lead", "split-tool-click", "split-range"]
+shots = ["split-before", "split-after"]
 +++
+
+{{ clip(id="split-lead", alt="The playhead stops in a drum clip; Ctrl+E cuts it in two and the halves play on") }}
 
 Split cuts a clip in two at the playhead, or at both edges of a time range.
 The two halves play exactly as the whole did.
 
-{{ shot(id="split-before", alt="An audio clip selected, the playhead across its middle") }}
-
 ## With the keyboard
 1. Select the clip.
+   {{ shot(id="split-before", alt="An audio clip selected, the playhead across its middle") }}
 2. Move the playhead to where the cut goes.
 3. Press {{ keys(id="edit.split") }}.
+   {{ shot(id="split-after", alt="Two clips where there was one, the second selected") }}
 
 ## With the mouse
+{{ clip(id="split-tool-click", alt="The Split tool cuts a clip where it is clicked, on the grid") }}
 ...
 
 ## On a time range
@@ -234,7 +243,10 @@ The rules for a task page:
 - **Keys are never written by hand.** `{{ keys(id=…) }}` reads the default
   keymap from the generated data, as menus and tooltips do in the app. A
   changed default changes every page.
-- **At least one screenshot**, and one of the result.
+- **It opens with a lead clip**: the task done once, start to finish, before
+  any words (§6.1). Each way of doing it (keyboard, mouse, on a range) can
+  have its own clip.
+- **A screenshot for every state a step reaches**, and one of the result.
 - **A worked example**: concrete values ("trim the clip to bar 9"), not
   placeholders.
 - **"Good to know"** for limits, undo behaviour and known issues.
@@ -281,7 +293,9 @@ names an E2E scenario that exists.
 - an id from the inventory is not listed in the `actions` of any guide,
   recipe or quick-start page;
 - a page lists an id that no longer exists;
-- a page has no screenshot, or names a shot that no scene produces.
+- a guide page has no lead clip, a gesture has no clip, or the quick start
+  or a recipe has no walkthrough;
+- a page has no screenshot, or names a clip or shot that no scene produces.
 
 On the first day almost nothing is documented, so the test starts with a
 **baseline file of known gaps** (`site/docs/data/undocumented.txt`). The
@@ -291,15 +305,48 @@ adds a command, a setting or a gesture without a page fails CI from the
 first day, while the backlog is cleared in the order of §11. The docs are
 complete when the file is empty.
 
-## 6. Screenshots and examples
+## 6. Show, don't tell: videos, screenshots and examples
 
-### 6.1 Generated, not captured
+### 6.1 The rule
 
-Screenshots are rendered by the real app in the existing headless harness,
-from scripted **scenes**, so they are exact, identical in both themes, and
-redrawn whenever the interface changes. A new target,
-`crates/lumen-app/tests/docs_shots.rs`, holds one function per scene, named
-after the shot id the page uses.
+Lumen is built for direct manipulation, so its documentation shows the
+action before it describes it (owner, 2026-11-05). A reader should be able
+to learn most tasks from the motion alone, and read the words for the
+details.
+
+| Medium | Where | What it shows | Length |
+|---|---|---|---|
+| **Lead clip** | Top of every guide page | The task done once, start to finish, at human speed | 3 to 10 s, loops |
+| **Gesture clip** | Every entry in the gesture list (§5.2), on its guide page and in the Mouse and gestures reference | One drag, handle or modifier and what it changes | 2 to 6 s, loops |
+| **Walkthrough video** | The quick start and every recipe | The whole workflow, with sound, chaptered by step | 1 to 4 min |
+| **Screenshot** | Each step's resulting state; the interface map | A state to compare against, with numbered callouts | still |
+| **Animated diagram** | Concept pages, where a mechanism moves (solo paths, delay compensation, autosave) | The idea, not the interface | short, loops |
+| **Before/after audio** | Where the difference is heard (fade shapes, pan laws, quantize strength, a ducked bass) | The result, rendered by Lumen | a few seconds |
+
+How they behave on the page:
+
+- **Loops are silent and play while in view**, stop when scrolled away, and
+  carry a pause button (anything that moves for more than five seconds can
+  be stopped). The poster is the clip's last frame, the result, so the page
+  reads correctly before it plays and when printed.
+- **Walkthroughs never play on their own.** They have sound, captions, and
+  chapters that match the page's step headings: clicking a step's heading
+  seeks the video to it, and the playing chapter is highlighted in the
+  steps.
+- **Reduced motion is respected**: with the reader's "reduce motion"
+  setting, nothing plays on its own; the poster and a play button show
+  instead.
+- **Every clip and video has a text equivalent**: alt text for loops (the
+  build fails without it), captions for walkthroughs, and the written steps
+  as the transcript.
+
+### 6.2 Rendered by the real app, not captured
+
+Videos and screenshots come from the same place: the real app, in the
+existing headless harness, driven by scripted **scenes**. So they are exact,
+identical in both themes, and redrawn whenever the interface changes. A new
+target, `crates/lumen-app/tests/docs_media.rs`, holds one function per
+scene, named after the clip or shot id the page uses.
 
 - **A scene drives the app the way the page tells the reader to**: it opens
   the demo project, selects, presses the shortcut, drags. A scene that
@@ -312,46 +359,82 @@ after the shot id the page uses.
   plugin under an anonymous name.
 - **Fake devices only**, as the E2E rules require: `test:fake` audio,
   virtual MIDI ports, never the machine's folders.
-- **Cropped by accessible name.** A scene names the control or panel the
-  shot is about, and the harness crops to that node's bounds plus a margin.
-  A layout change moves the crop with the control.
-- **Callouts are drawn by the page, not into the image.** The harness
-  writes a small JSON file beside each shot with the bounds of the named
-  controls; the page draws numbered markers over the image at those places.
-  The markers stay sharp, follow the control, and can be restyled without
-  rendering again.
+- **Cropped by accessible name.** A scene names the control or panel it is
+  about, and the harness crops to that node's bounds plus a margin. A layout
+  change moves the crop with the control. A clip can pan between two crops
+  when the action crosses the window (a drag from the browser to a track).
+- **Screenshot callouts are drawn by the page, not into the image.** The
+  harness writes a small JSON file beside each shot with the bounds of the
+  named controls; the page draws numbered markers over the image at those
+  places, so they stay sharp and follow the control.
 
-### 6.2 Format and sizes
+### 6.3 How a clip is recorded
 
-- Rendered at 2× from a 1280 × 800 point window, saved as lossless WebP.
-- **Both themes for every shot.** The page shows the one that matches the
-  reader's theme (`<picture>` with `prefers-color-scheme`) and lets the
-  reader switch.
-- **Short loops for gestures**: drags and handle moves are rendered as
-  frames by the same harness and encoded to a muted MP4 of six seconds or
-  less, with a still as the poster. They play when clicked, and the still
-  is all that shows when the reader asks for reduced motion.
-- **Alt text is required**: the `shot` shortcode will not build without
-  it.
+The harness already steps the app at a fixed 1/60 s. The recorder saves
+every frame and adds what a screen recording would have:
 
-Expected size at completion: about 200 pages, 400 to 600 shots in two
-themes, roughly 80 to 120 MB of images. GitHub Pages allows 1 GB.
+- **A pointer.** The render has no system cursor, so the recorder draws
+  one, in the shape Lumen asks for at that moment (egui reports it each
+  frame): the resize arrows on a clip's edge, the hand on a fade handle.
+- **A click mark and the keys pressed.** A small ring where the pointer
+  presses, and the keys of each shortcut shown as keycaps in the corner, in
+  the command palette's keycap style, so a reader sees that Ctrl+E was
+  pressed and not just that the clip split.
+- **Human pacing.** A scene gives the pointer's path and the recorder
+  eases it at a hand's speed, holds about 400 ms before and after each
+  change, and holds the result for at least a second before the loop
+  starts again. These timings live in one place, like `motion.rs` in the
+  app.
+- **Sound for walkthroughs.** The fake audio device runs the real engine;
+  the recorder takes its output from the export tap, frame by frame, and
+  lays it under the video in sync. To be proven in D0; the fallback renders
+  each played passage offline and places it at its time.
 
-### 6.3 What cannot be generated
+Frames are encoded with ffmpeg in CI (a build tool of the deploy, never
+shipped with Lumen) to H.264 MP4, which every browser plays, with a WebP
+poster. The scenes are deterministic, so equal frames give an equal file:
+each clip is cached by the hash of its frames and only changed clips are
+encoded again.
+
+### 6.4 Formats and sizes
+
+- **Screenshots:** 2× from a 1280 × 800 point window, lossless WebP.
+- **Clips and walkthroughs:** at 1.5× scale and at most 1600 px wide, the
+  format of the landing page's videos (`site/assets/video/`: 1600 × 900
+  H.264, 200 to 470 KB for 14 s).
+- **Themes:** every screenshot, lead clip and gesture clip in both themes;
+  the page shows the one matching the reader's theme (`<picture>` and
+  `<source media="(prefers-color-scheme: …)">`) and lets the reader switch.
+  Walkthroughs are in the dark theme only, Lumen's default, to keep their
+  size down.
+- **Loading:** nothing is fetched until it is near the view
+  (`preload="none"` and lazy images), so a long page stays light.
+
+Expected size at completion, to be measured in D0:
+
+| What | Count | Size |
+|---|---|---|
+| Screenshots, two themes | 400 to 600 | 80 to 120 MB |
+| Lead and gesture clips, two themes | about 600 | 150 to 200 MB |
+| Walkthroughs, dark only | about 15 | 150 to 300 MB |
+| **Total** | | **about 400 to 600 MB** |
+
+GitHub Pages allows a 1 GB site and has a soft limit of 100 GB of traffic a
+month. That fits one set of docs, but not many versions of it: see §10.3
+for how versions share media, and §13 for when hosting needs a decision.
+
+### 6.5 What cannot be generated
 
 Operating system dialogs (the installer, the file association prompt, a
 driver's own control panel) and real hardware are outside the harness.
 These few images are captured by hand into `site/docs/static/captured/`,
 each with the date, the build and the platform in a sidecar file. The
-milestone review lists any older than the last milestone.
+milestone review lists any older than the last milestone. There are no
+hand-recorded videos.
 
-### 6.4 Audio examples
-
-Where a picture cannot show the difference (fade shapes, pan laws, quantize
-strength, a ducked bass), a recipe or guide can carry a short before/after
-audio example rendered offline by Lumen's own export from a fixture
-project, so it is exact and repeatable. Used sparingly; about a dozen in
-total.
+Animated diagrams on concept pages are not the interface, so they are drawn
+by hand as SVG with CSS animation, in the site's tokens for both themes,
+and stand still under reduced motion.
 
 ## 7. Navigation and search
 
@@ -408,7 +491,8 @@ pull request.
 
 ### 8.2 The build
 
-1. Export the reference data (§5.1) and render the scenes (§6).
+1. Export the reference data (§5.1), render the scenes to screenshots and
+   frames, and encode the changed clips (§6).
 2. Build the Markdown into HTML with the static site generator (§12, G).
 3. Index the HTML for search.
 4. Publish `site/` with the docs at `/docs/`, by the existing Pages
@@ -427,7 +511,7 @@ choice.
 | Check | Fails when |
 |---|---|
 | `docs_coverage` | an action has no page, a page names a missing action or shot, or `undocumented.txt` grows (§5.3) |
-| Scenes, one theme at 1× | a scene cannot reach its state (fast; the full set renders at deploy) |
+| Scenes, one theme at 1×, without encoding | a scene cannot reach its state (fast; the full set renders and encodes at deploy) |
 | Build | a shortcode is wrong, a shot has no alt text, or a key id is unknown |
 | Links | an internal link or anchor is broken |
 | Product-neutral names | a page names another product (`tests/third_party_names.rs`, extended to `site/docs/`) |
@@ -464,7 +548,7 @@ Every slice's definition of done gains one line: **its user docs are on the
 branch**. In practice:
 
 1. **The slice plan names its docs**: the pages it adds or changes, the
-   recipes it makes possible, and the shots it needs. This is a short
+   recipes it makes possible, and the clips and shots it needs. This is a short
    "Docs" list in the slice's section of `docs/milestones/M<n>.md`.
 2. **The branch carries them**: pages, scenes, gesture entries, and one
    line in What's new under the milestone.
@@ -504,6 +588,10 @@ release work). Then:
   latest version.
 - **"Added in" and "Changed in" badges** come from a `since` field in the
   front matter.
+- **Versions share their media.** Clips and screenshots are stored once,
+  under names made from their content's hash, in one folder all versions
+  use. A video that did not change between 1.0 and 1.1 is one file, so the
+  site grows by what changed, not by a full copy per version.
 - **What's new becomes release notes**: the per-slice lines of an
   unreleased version are gathered into that version's notes when it is
   tagged.
@@ -515,85 +603,86 @@ and scenes are built once per tag instead of once for `main`.
 
 ## 11. Getting there: the documentation slices
 
-The backlog is everything built in M1 to M9. It is written in seven slices
+The backlog is everything built in M1 to M9. It is written in eight slices
 on `docs/…` branches. They can run alongside milestone 9.5 or before it
 (§12, T); once D0 is merged, 9.5's slices follow §10.1.
 
 | Slice | Delivers | Done when |
 |---|---|---|
-| **D0 Foundations** | Page specimens pitched first; the docs project, theme and search; the data exporter; `keys`, `shot` and callout shortcodes; the scene target with the demo song and three scenes; `docs_coverage` with the full baseline; the extended name tests; the Pages workflow; the generated Commands, Preferences and Controls reference | `/docs/` is live with the full generated reference; CI runs the checks |
-| **D1 Quick start** | Install and first launch, Your first song, The window at a glance (the interface map's first shots); the starter project | A new user can follow it to an exported WAV; every step has a shot |
+| **D0 Foundations** | Page specimens pitched first (with a clip playing in them); the docs project, theme and search; the data exporter; `keys`, `shot`, `clip`, `video` and callout shortcodes; the scene target with the demo song; the clip recorder (pointer, keycaps, pacing, encoding, cache) and the sound for walkthroughs proven; three scenes as a lead clip, a gesture clip and a screenshot; measured render time and size; `docs_coverage` with the full baseline; the extended name tests; the Pages workflow; the generated Commands, Preferences and Controls reference | `/docs/` is live with the full generated reference; CI runs the checks |
+| **D1 Quick start** | Install and first launch, Your first song with its walkthrough video, The window at a glance (the interface map's first shots); the starter project | A new user can follow it to an exported WAV; every step has a clip and a shot |
 | **D2 Arranging and editing** | Transport, Tracks, Clips and selection, Editing guides; gestures for the arrangement | The Transport, Edit, Clip, Track, View, Grid and Locators areas are out of the baseline |
 | **D3 Audio, recording and export** | Recording audio, Rendering and export, Projects and saving, Browser and media | File-area commands and Recording and Files preferences are out of the baseline |
 | **D4 MIDI** | MIDI and the piano roll, the computer keyboard, SMF, MIDI learn; piano-roll gestures | The MIDI area is out of the baseline |
 | **D5 Mixing and automation** | Mixer and routing, Automation and envelopes; the lane and fader gestures | The Mixer area and the Mixing preferences are out of the baseline |
 | **D6 Plugins, setup, troubleshooting** | Plugins and devices, Audio and MIDI setup, Preferences, every Troubleshooting page | The Devices area and the remaining preferences are out of the baseline |
-| **D7 Recipes and concepts** | The first recipes (§3.3), Concepts, Glossary; a full read-through | `undocumented.txt` is empty; the docs pass of §10.2 is done |
+| **D7 Recipes and concepts** | The first recipes (§3.3) with their walkthroughs, Concepts with their animated diagrams, Glossary; a full read-through | `undocumented.txt` is empty; the docs pass of §10.2 is done |
 
 Each slice closes the usual way: the checks pass, the owner looks at the
 built pages in both themes and at phone width, and the slice report says
 what is covered.
 
-## 12. Choices for the owner
+## 12. Choices
 
-Each has a recommendation, marked **(rec.)**. Reply with the letters, for
-example "G A, S A". (The slices of §11 are D0 to D7; these choices use
-other letters so the two do not mix.)
+### 12.1 Decided (owner, 2026-11-05)
 
-**G. Site generator**
+| Choice | Decision |
+|---|---|
+| **S. Screenshots** | **A**: rendered from scenes at deploy, not committed. Extended by the owner to videos and animations ("show, don't tell", §6); clips and walkthroughs are rendered the same way. |
+| **L. Where the pages live** | **A**: `site/docs/`, in this repository. |
+| **C. Coverage enforcement** | **A**: the test with a shrinking baseline, which also checks the clips and walkthroughs (§5.3). |
+| **H. Help inside Lumen** | **A**: later, as its own slice after D2: "Learn more" in the palette's detail strip and F1 "Help for this", by stable ids, pitched with specimens. |
+| **T. When the backlog is written** | **A**: D0 before milestone 9.5, D1 to D7 alongside it. |
 
-- **A (rec.) Zola, with Pagefind for search.** One binary each, no
-  JavaScript toolchain, full control of the templates (so the docs can
-  share the landing page's look), data files read by templates (the
-  generated reference), and search that scales to hundreds of pages with
-  section filters, and later version filters.
-- B. mdBook. Built for Rust projects and quickest to start; its built-in
-  search and its book layout are harder to make look like Lumen, and it has
-  no data files for generated pages without a preprocessor.
-- C. A documentation framework on Node (Astro Starlight). The richest
-  navigation and versioning out of the box, but it adds a Node toolchain
-  and dependency updates to a project that has none.
+### 12.2 Open: G, the site generator
 
-**S. Screenshots**
+The owner asked why Zola (2026-11-05). Search is Pagefind in every option:
+it indexes the built pages whatever made them, so G is only about turning
+Markdown into pages.
 
-- **A (rec.) Rendered from scenes at deploy, not committed.** Always
-  current; the repository does not grow; pull requests check the scenes
-  cheaply (§8.3).
-- B. Rendered from scenes but committed. Shots are visible in a pull
-  request's diff, but every interface change rewrites hundreds of binary
-  files.
-- C. Captured by hand. Simple to start; goes stale within a slice, and
-  "a screenshot for everything" becomes a chore no test can keep.
+What these docs need from the generator, in order of weight:
 
-**L. Where the pages live**
+1. **Our own components.** The heart of these docs is a handful of
+   components: `clip` (a themed, lazy, pausable loop with a poster), `video`
+   (chapters tied to the step headings), `shot` (a themed picture with
+   callouts), `keys` (keycaps from the keymap). They need full control of
+   the HTML each one writes.
+2. **Pages from data.** The reference is built from `commands.json`,
+   `preferences.json` and `controls.json` (§5.1).
+3. **The Lumen look.** The landing page's fonts and the app's tokens, not a
+   stock documentation theme.
+4. **Little to maintain.** Lumen has no JavaScript toolchain; the site has
+   no build step today.
+5. **Docs chrome**: sidebar, previous and next, "On this page", later a
+   version picker.
 
-- **A (rec.) `site/docs/`, in this repository.** Code and docs share a
-  branch and a review; the existing Pages workflow publishes both.
-- B. A separate documentation repository. Keeps this one smaller, but the
-  per-slice rule then needs two pull requests per slice.
+| | A. Zola | B. mdBook | C. Astro Starlight |
+|---|---|---|---|
+| 1. Own components | Shortcodes are templates we write, any HTML | Through a preprocessor written in Rust, or raw HTML in pages | Components in MDX, any HTML; the most capable |
+| 2. Pages from data | Built in (`load_data` reads JSON in a template) | Needs a preprocessor | Built in (content collections) |
+| 3. Lumen look | Templates are ours from the first line | A book theme to restyle; its layout shows through | A strong stock theme to restyle; it shows through less with work |
+| 4. Upkeep | One binary, pinned in CI | One binary, pinned in CI | Node and a tree of npm packages to keep updated |
+| 5. Docs chrome | **We write it**: a few hundred lines of templates and CSS | Built in (sidebar from `SUMMARY.md`) | **Built in and best**: sidebar, on-this-page, accessible defaults; versioning through a plugin |
+| If we move later | Pages are Markdown; the shortcodes are rewritten | Same | Pages are MDX; more to undo |
 
-**C. Coverage enforcement**
+**Why A.** It is the only option that is strong on 1 to 4 at once: our
+components are plain templates, the reference reads JSON with no plugin,
+the look is ours, and it adds one pinned binary rather than a toolchain.
+Its cost is item 5: we build the docs chrome ourselves, once, in D0. The
+pages stay Markdown, so the choice is cheap to undo.
 
-- **A (rec.) The test with a shrinking baseline (§5.3).** New work is
-  documented from the first day; the backlog is visible and only goes
-  down.
-- B. Review only. No test; the milestone review checks coverage by hand.
+**When C is the better choice.** If you would rather have the most
+polished navigation and accessibility on day one, and accept a Node
+toolchain in the deploy (not in the app), C is the strong alternative; it
+also handles the video components well. B is the quickest start but the
+weakest on 1 to 3.
 
-**H. Help inside Lumen**
-
-- **A (rec.) Later, as its own slice after D2.** A "Learn more" link in
-  the command palette's detail strip and an F1 "Help for this" that opens
-  the page for the command or panel at hand, using the stable ids. Pitched
-  with specimens when it starts.
-- B. Not planned.
-
-**T. When the backlog is written**
-
-- **A (rec.) D0 before milestone 9.5, D1 to D7 alongside it.** 9.5's
-  slices then document from their first day, and the backlog shrinks in
-  parallel.
-- B. All of D0 to D7 before 9.5 starts.
-- C. After M9.5, before M8.
+- **A (rec.) Zola**, with Pagefind.
+- B. mdBook, with Pagefind.
+- C. Astro Starlight, with Pagefind.
+- D. Decide from specimens: D0 renders the same guide page (a lead clip,
+  two shots, keys) in A and C, both themes and phone width, before either
+  is set up. Costs about a day.
 
 ## 13. Risks and what cannot be checked
 
@@ -614,6 +703,16 @@ other letters so the two do not mix.)
   render and that its keys are right; they cannot prove the words are
   right. The owner's look at each docs slice and the milestone docs pass
   are the check.
+- **Hosting size and traffic.** About 400 to 600 MB for one set of docs
+  (§6.4), against GitHub Pages' 1 GB and its soft 100 GB a month of
+  traffic. Shared media keeps versions small (§10.3), but a popular site
+  or many versions can outgrow it. When the site passes 700 MB, or traffic
+  nears the limit, moving the media to another host is a decision for the
+  owner (it may cost money). Lazy loading keeps traffic to what is watched.
+- **Render and encode time.** Hundreds of clips at 60 frames a second on a
+  software renderer is the slowest part of the deploy. The frame-hash cache
+  means a deploy encodes only what changed; the first full build is
+  measured in D0.
 - **Size of the backlog.** About 250 commands, 45 settings and an unknown
   number of gestures. Eight slices (D0 to D7) is an estimate, revised after
   D2.
