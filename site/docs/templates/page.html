@@ -17,6 +17,7 @@
   <div class="prose">
     {{ page.content | safe }}
   </div>
+  {%- block generated %}{% endblock generated %}
   {%- if page.extra.related %}
   <section class="related" aria-label="Related">
     <h2>Related</h2>

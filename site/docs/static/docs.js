@@ -156,6 +156,31 @@
     headings.forEach(function (h) { spy.observe(h); });
   }
 
+  // ---- The reference's filter: rows whose words hold every typed word ----
+  var filter = document.querySelector("[data-ref-filter]");
+  if (filter) {
+    var rows = document.querySelectorAll("[data-ref-row]");
+    var groups = document.querySelectorAll("[data-ref-group]");
+    var count = document.querySelector("[data-ref-count]");
+    var empty = document.querySelector("[data-ref-empty]");
+    var total = count.dataset.total;
+    rows.forEach(function (row) { row.dataset.refWords = row.dataset.refText.toLowerCase(); });
+    filter.addEventListener("input", function () {
+      var words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
+      var shown = 0;
+      rows.forEach(function (row) {
+        var hit = words.every(function (w) { return row.dataset.refWords.indexOf(w) !== -1; });
+        row.hidden = !hit;
+        if (hit) shown += 1;
+      });
+      groups.forEach(function (group) {
+        group.hidden = !group.querySelector("[data-ref-row]:not([hidden])");
+      });
+      count.textContent = words.length ? shown + " of " + total + " commands" : total + " commands";
+      empty.hidden = shown !== 0;
+    });
+  }
+
   // ---- Search: Ctrl/Cmd+K or "/" ----
   var layer = document.querySelector("[data-search-layer]");
   var searchReady = false;

@@ -28,6 +28,6 @@ screenshots.
 | `static/docs.css`, `static/docs.js` | The look and behaviour; colours and sizes are design tokens only | hand |
 | `static/media/` | Screenshots and clips | `cargo test -p lumen-app --test docs_media -- --ignored` with `DOCS_MEDIA=site/docs/static/media` |
 | `static/img/` | Lumi, from `docs/brand/` | `cwebp -resize 256 0` |
-| `data/commands.json` | Command names, areas, default keys | for the D0 specimens, a script reading `commands/mod.rs`; D0 replaces it with an export from the app |
+| `data/commands.json`, `preferences.json`, `controls.json` | Every command (keys on both systems, area, about), Preferences row and bar or menu control | `build.sh`, through `cargo test -p lumen-app --test docs_data -- --ignored` with `DOCS_DATA=site/docs/data` (not committed) |
 | `data/tokens.json` | The design tokens | `build.sh`, from `docs/design-system/lumen-tokens.json` (not committed) |
 | `data/nav.toml` | The sidebar | hand |

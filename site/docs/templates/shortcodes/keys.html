@@ -1,17 +1,11 @@
 {#- {{ keys(id="midi.split_notes") }}: a command's first default shortcut as
     keycaps, read from the generated command table, never written by hand
-    (USER_DOCS.md §4.1). Both platforms are written; the page shows the one
+    (USER_DOCS.md §4.1). Both systems are written; the page shows the one
     the reader chose. `all=true` shows every default chord. -#}
+{%- import "macros.html" as macros -%}
 {%- set data = load_data(path="data/commands.json") -%}
-{%- set command = data.commands[id] -%}
-{%- set chords = command.keys -%}
-{%- if not all | default(value=false) %}{% set chords = chords | slice(end=1) %}{% endif -%}
-<span class="keys" title="{{ command.name }}">
-{%- for chord in chords -%}
-{%- if not loop.first %}<span class="keys-or">or</span>{% endif -%}
-{%- for m in chord.mods -%}
-{%- if m == "ctrl" %}<kbd class="k-win">Ctrl</kbd><kbd class="k-mac">Cmd</kbd>{% elif m == "alt" %}<kbd class="k-win">Alt</kbd><kbd class="k-mac">Option</kbd>{% else %}<kbd>Shift</kbd>{% endif -%}
-{%- endfor -%}
-<kbd>{{ chord.key }}</kbd>
-{%- endfor -%}
-</span>
+{%- set found = data.commands | filter(attribute="id", value=id) -%}
+{%- if found | length != 1 %}{{ throw(message="keys: no command with the id " ~ id) }}{% endif -%}
+{%- set command = found | first -%}
+{%- if command.keys | length == 0 %}{{ throw(message="keys: " ~ id ~ " has no default shortcut") }}{% endif -%}
+{{ macros::keycaps(command=command, all=all | default(value=false)) }}

@@ -8,6 +8,10 @@ compile_sass = false
 build_search_index = false
 generate_feeds = false
 
+# The commands and settings each page explains (its `actions`), so the
+# reference can link every entry to its guide. No pages of their own.
+taxonomies = [{ name = "actions", render = false }]
+
 [markdown]
 smart_punctuation = true
 

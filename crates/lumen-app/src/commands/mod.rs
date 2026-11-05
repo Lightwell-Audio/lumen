@@ -307,7 +307,12 @@ impl Area {
     /// owner's K5): one of the track colours, so areas read apart the way
     /// tracks do.
     pub(crate) fn light(self) -> eframe::egui::Color32 {
-        let index = match self {
+        crate::theme::CLIP_COLORS[self.light_index()]
+    }
+
+    /// Which track colour [`Self::light`] is, from 0.
+    pub(crate) fn light_index(self) -> usize {
+        match self {
             Area::Edit => 0,
             Area::Track => 1,
             Area::Mixer => 6,
@@ -319,8 +324,25 @@ impl Area {
             Area::Midi => 7,
             Area::File => 11,
             Area::Devices => 8,
-        };
-        crate::theme::CLIP_COLORS[index]
+        }
+    }
+
+    /// Stable, for the user docs: the area's colour and its group of pages
+    /// on the site ("transport").
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Area::Transport => "transport",
+            Area::Edit => "edit",
+            Area::Clip => "clip",
+            Area::Track => "track",
+            Area::Mixer => "mixer",
+            Area::View => "view",
+            Area::Grid => "grid",
+            Area::Locators => "locators",
+            Area::Midi => "midi",
+            Area::File => "file",
+            Area::Devices => "devices",
+        }
     }
 }
 

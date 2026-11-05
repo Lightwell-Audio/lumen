@@ -8,7 +8,6 @@ kind = "Guide"
 area = "edit"
 minutes = 3
 also = ["cut a clip", "slice", "razor", "chop"]
-actions = ["midi.split_notes", "view.tool_split"]
 clips = ["split-lead"]
 shots = ["split-before", "split-after"]
 related = [
@@ -18,6 +17,9 @@ related = [
 ]
 prev = "Clips and selection"
 next = "Join clips"
+
+[taxonomies]
+actions = ["midi.split_notes", "view.tool_split"]
 +++
 
 {{ clip(id="split-lead", lead=true, focus="62%", alt="A drum clip is clicked at bar 3, then Ctrl+E cuts it in two there. The two halves sit side by side.") }}

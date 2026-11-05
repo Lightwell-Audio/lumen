@@ -31,6 +31,8 @@ mod commands;
 mod compensation;
 mod consolidate;
 mod controllers;
+#[path = "../shared/controls.rs"]
+mod controls;
 mod copies;
 mod coverage;
 mod crossfades;

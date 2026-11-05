@@ -21,6 +21,7 @@ mod automation;
 mod browser_files;
 pub(crate) mod coverage;
 mod devices;
+pub mod docs;
 mod editor;
 mod instance;
 pub use instance::{HandOver, not_answering_window};

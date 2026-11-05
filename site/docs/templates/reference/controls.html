@@ -1,0 +1,40 @@
+{% extends "page.html" %}
+{% import "macros.html" as macros %}
+{#- The transport bar's controls and the app menu's rows, generated from
+    the lists the E2E coverage test checks (USER_DOCS.md §3.4). -#}
+{% block generated %}
+{%- set data = load_data(path="data/controls.json") -%}
+{%- set commands = load_data(path="data/commands.json") -%}
+{%- for place in ["bar", "menu"] %}
+<section class="ref-area" id="{{ place }}">
+  {%- if place == "bar" %}
+  <h2>The transport bar</h2>
+  <p class="ref-lede">From left to right along the top of the window.</p>
+  {%- else %}
+  <h2>The app menu</h2>
+  <p class="ref-lede">Click Lumen at the left end of the transport bar. The menu's own rows come first, then the rows of its submenus.</p>
+  {%- endif %}
+  <ul class="ref-list">
+  {%- for ctl in data.controls | filter(attribute="place", value=place) %}
+    <li class="ref-row">
+      <div class="ref-head">
+        <span class="ref-name">{{ ctl.name | trim_end_matches(pat=" …") | trim_end_matches(pat=":") }}</span>
+        {%- if ctl.command %}{% set c = commands.commands | filter(attribute="id", value=ctl.command) | first %}{% if c.keys | length > 0 %}{{ macros::keycaps(command=c) }}{% endif %}{% endif %}
+      </div>
+      {%- if ctl.command %}
+      <p class="ref-about">Runs <a href="{{ get_url(path='@/reference/commands.md') }}#{{ ctl.command }}">{{ c.name }}</a>: {{ c.about }}</p>
+      {%- else %}
+      <p class="ref-about">No command: {{ ctl.why }}.</p>
+      {%- endif %}
+    </li>
+  {%- endfor %}
+  </ul>
+</section>
+{%- endfor %}
+{% endblock generated %}
+{% block aside %}
+<aside class="toc" aria-label="On this page" data-pagefind-ignore>
+  <h2>On this page</h2>
+  <ul><li><a href="#bar">The transport bar</a></li><li><a href="#menu">The app menu</a></li></ul>
+</aside>
+{% endblock aside %}

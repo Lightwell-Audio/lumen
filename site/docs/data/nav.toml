@@ -49,8 +49,9 @@ items = [
 title = "Reference"
 area = "view"
 items = [
-  { title = "Commands and shortcuts" },
-  { title = "Preferences" },
+  { title = "Commands and shortcuts", page = "reference/commands.md" },
+  { title = "Preferences", page = "reference/preferences.md" },
+  { title = "Transport bar and menus", page = "reference/bar-and-menus.md" },
   { title = "Mouse and gestures" },
   { title = "Interface map" },
 ]

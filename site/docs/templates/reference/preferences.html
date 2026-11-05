@@ -1,0 +1,36 @@
+{% extends "page.html" %}
+{#- Every Preferences row, page by page, generated from the app's search
+    table (USER_DOCS.md §3.4). A row's key is its anchor. -#}
+{% block generated %}
+{%- set data = load_data(path="data/preferences.json") -%}
+{%- for p in data.pages %}
+{%- set rows = data.rows | filter(attribute="page", value=p.name) %}
+<section class="ref-area" id="page-{{ p.name | slugify }}">
+  <h2><span class="ref-dot" aria-hidden="true"></span>{{ p.name }} <span class="ref-n">{{ rows | length }}</span></h2>
+  <p class="ref-lede">{{ p.about }}.</p>
+  <ul class="ref-list">
+  {%- for r in rows %}
+    <li class="ref-row" id="{{ r.id }}">
+      <div class="ref-head"><a class="ref-name" href="#{{ r.id }}">{{ r.name }}</a></div>
+      {%- set term = get_taxonomy_term(kind="actions", term=r.id, required=false) %}
+      {%- if term %}
+      <p class="ref-where">
+        {%- for g in term.pages %}
+        <a class="ref-guide" href="{{ g.permalink }}">{{ g.title }}</a>
+        {%- endfor %}
+      </p>
+      {%- endif %}
+      <p class="ref-words" data-pagefind-weight="0.5">Search in Preferences finds it with: {{ r.words | split(pat=" ") | join(sep=", ") }}</p>
+    </li>
+  {%- endfor %}
+  </ul>
+</section>
+{%- endfor %}
+{% endblock generated %}
+{% block aside %}
+{%- set data = load_data(path="data/preferences.json") -%}
+<aside class="toc" aria-label="On this page" data-pagefind-ignore>
+  <h2>Pages</h2>
+  <ul>{% for p in data.pages %}<li><a href="#page-{{ p.name | slugify }}">{{ p.name }}</a></li>{% endfor %}</ul>
+</aside>
+{% endblock aside %}
