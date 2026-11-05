@@ -1,8 +1,10 @@
 # Lumen user documentation: the strategy
 
-**Status:** Proposed, 2026-11-05 (ADR-0119). Owner, 2026-11-05: S A, L A,
-C A, H A, T A, and videos and animations throughout ("show, don't tell",
-§6). G, the site generator, is still open (§12). Nothing here is built yet.
+**Status:** Accepted, 2026-11-05 (ADR-0119). Owner, 2026-11-05: G A, S A,
+L A, C A, H A, T A; videos and animations throughout ("show, don't tell",
+§6); and docs that look inviting and are fun to read and learn from,
+matching the landing page and the design system (§9). The look is chosen
+from specimens at the start of D0 (§9.5). Nothing here is built yet.
 
 This is the plan for the user documentation published on the website: what
 it covers, how it is organised and searched, how every page gets its
@@ -499,12 +501,9 @@ pull request.
    workflow, which gains these steps and runs when `site/**` or the app's
    sources change on `main`.
 
-The docs use the landing page's fonts (Inter, Unbounded, Martian Mono) and
-the app's design tokens (`docs/design-system/lumen-tokens.json`): dark by
-default, a light theme, one accent colour, the muted track colours for
-areas, the same keycap style as the command palette. The look is pitched as
-rendered page specimens before it is built (§11, D0), as with every visual
-choice.
+The docs share the landing page's stylesheet and fonts, and take their
+tokens from `docs/design-system/lumen-tokens.json` at build time (§9.1).
+The look is pitched as rendered specimens before it is built (§9.5).
 
 ### 8.3 Checks on every pull request
 
@@ -519,7 +518,87 @@ choice.
 A pull request that changes the docs can attach the built site as a CI
 artifact, so the owner can look at the pages and shots before merging.
 
-## 9. Writing style
+## 9. Look and voice
+
+The owner (2026-11-05): the docs must **look inviting and be fun to read
+and learn from**. Fun has to fit the job each section does, so it lives
+mostly in the Quick start, Guides and Recipes. The Reference stays crisp and
+dense, because a reader looking something up wants the answer, not a
+smile.
+
+### 9.1 The look: the landing page and the design system, one source
+
+- **One stylesheet for the landing page and the docs.** The landing page's
+  inline styles move into a shared `site/assets/lumen.css` that both use,
+  so the docs and the front page cannot drift apart.
+- **Tokens from the design system, not copied.** A Zola template reads
+  `docs/design-system/lumen-tokens.json` (colour, type, spacing, radius,
+  size, duration, stroke) at build time and writes it out as CSS custom
+  properties. A token changed for the app changes the docs on the next
+  build.
+- **The same type**: Unbounded for page titles and section heads, Inter for
+  reading, Martian Mono for keys, values and paths. Dark by default, the
+  light theme one click away, one accent colour.
+- **Each guide section has a colour**: the track colour the app already
+  gives that command area (`Area::light`, exported with the commands; the light under a keycap in the
+  palette). Transport pages carry the Transport colour on their sidebar
+  mark, keycaps and section card, so a reader learns the app's colours
+  while reading.
+- **Keycaps that look like the app's**, lit in the area's colour.
+- **The landing page's motion**, kept restrained: headings and cards
+  reveal as they scroll in; clips play in view; nothing moves under reduced
+  motion.
+- **Comfortable reading**: a measure of about 70 characters, generous line
+  height, large step numbers, clips and shots wider than the text column.
+
+### 9.2 Inviting: the front door and Lumi
+
+- **The docs home asks what you want to make**, not which chapter you want:
+  big cards such as "Make your first song", "Record yourself", "Shape a
+  beat", "Mix it", "Share it", each with a looping clip, beside a search
+  box that says "Search or press Ctrl+K".
+- **Lumi is the guide, sparingly.** The mascot already has approved poses
+  (`docs/brand/`: waving, curious, focused, celebrating). Lumi welcomes on
+  the docs home, holds the "Lumi's tip" boxes (one at most per page),
+  celebrates at the end of the quick start and of each recipe, looks
+  curious on Troubleshooting pages and on a search with no results. Never on
+  Reference pages. New poses are made from
+  the approved design, as `docs/brand/lumi-expressions.md` describes, and
+  pitched first.
+- **Recipe cards** show the result in motion, how long it takes and what
+  it needs, so choosing one feels like picking a track to learn.
+
+### 9.3 Fun to learn from
+
+- **"You'll learn" and "About 5 minutes"** at the top of every tutorial and
+  recipe, so the reader knows the size of what they start.
+- **"Try it" at the end of a guide**: a small challenge in the demo song
+  ("split the drum clip at bar 5 and fade the second half in"), with the
+  answer as a clip behind a "Show me" button.
+- **Progress through the quick start**: steps tick off as the reader
+  marks them, remembered in the browser only (no account, nothing sent),
+  with Lumi celebrating at the end.
+- **Small wins said out loud**: after the step that makes the first sound,
+  the page says so ("That's your first sound in Lumen").
+- **Hover for a term**: a glossary word is underlined lightly and explains
+  itself on hover or focus, so no reader is left behind and no page stops
+  to define things.
+
+### 9.4 The voice
+
+Warm, direct and short: a friend who knows the app well and wants you to
+get to the music. Second person, present tense, active verbs. A light
+touch of wit in introductions and tips, never inside steps and never at
+the reader's expense.
+
+> Instead of: "The Split command divides the selected clip at the playhead
+> position."
+>
+> Write: "Split cuts a clip in two right at the playhead. Both halves keep
+> playing exactly as before, so nothing you hear changes until you move
+> them."
+
+The rules that keep it clear:
 
 - **Product-neutral**, by the owner's rule and the `lumen-documentation`
   skill: no other product is named or compared; behaviour is described
@@ -539,6 +618,21 @@ artifact, so the owner can look at the pages and shots before merging.
   `content/`.
 - English only for 1.0; the folder layout leaves room for
   `/docs/<language>/` later.
+
+### 9.5 Chosen from specimens
+
+D0 opens by rendering the docs home and one guide page (with a lead clip
+playing, two shots, keys, a tip and "Try it") in three directions, in both
+themes, at desktop and phone width:
+
+- **A. Studio**: close to the app's own chrome; quiet, dark, the clips
+  large; Lumi only on the home page and in tips.
+- **B. Playbook**: warmer and more playful; rounder cards, section colours
+  stronger, Lumi in tips, wins and "Try it".
+- **C. Stage**: the landing page's big Unbounded headlines and scroll
+  reveals carried into the docs; bold section openers.
+
+The owner picks one, or mixes parts, before anything is built.
 
 ## 10. Keeping the docs current
 
@@ -609,7 +703,7 @@ on `docs/…` branches. They can run alongside milestone 9.5 or before it
 
 | Slice | Delivers | Done when |
 |---|---|---|
-| **D0 Foundations** | Page specimens pitched first (with a clip playing in them); the docs project, theme and search; the data exporter; `keys`, `shot`, `clip`, `video` and callout shortcodes; the scene target with the demo song; the clip recorder (pointer, keycaps, pacing, encoding, cache) and the sound for walkthroughs proven; three scenes as a lead clip, a gesture clip and a screenshot; measured render time and size; `docs_coverage` with the full baseline; the extended name tests; the Pages workflow; the generated Commands, Preferences and Controls reference | `/docs/` is live with the full generated reference; CI runs the checks |
+| **D0 Foundations** | Specimens of the docs home and a guide page in three directions, pitched first (§9.5); the landing page's styles moved to a shared stylesheet; tokens generated from the design system; the docs project, theme and search; the data exporter; `keys`, `shot`, `clip`, `video` and callout shortcodes; the scene target with the demo song; the clip recorder (pointer, keycaps, pacing, encoding, cache) and the sound for walkthroughs proven; three scenes as a lead clip, a gesture clip and a screenshot; measured render time and size; `docs_coverage` with the full baseline; the extended name tests; the Pages workflow; the generated Commands, Preferences and Controls reference | `/docs/` is live with the full generated reference; CI runs the checks |
 | **D1 Quick start** | Install and first launch, Your first song with its walkthrough video, The window at a glance (the interface map's first shots); the starter project | A new user can follow it to an exported WAV; every step has a clip and a shot |
 | **D2 Arranging and editing** | Transport, Tracks, Clips and selection, Editing guides; gestures for the arrangement | The Transport, Edit, Clip, Track, View, Grid and Locators areas are out of the baseline |
 | **D3 Audio, recording and export** | Recording audio, Rendering and export, Projects and saving, Browser and media | File-area commands and Recording and Files preferences are out of the baseline |
@@ -628,15 +722,16 @@ what is covered.
 
 | Choice | Decision |
 |---|---|
+| **G. Site generator** | **A**: Zola, with Pagefind, on the condition that it matches the landing page and the design system (owner); §9.1 says how. |
 | **S. Screenshots** | **A**: rendered from scenes at deploy, not committed. Extended by the owner to videos and animations ("show, don't tell", §6); clips and walkthroughs are rendered the same way. |
 | **L. Where the pages live** | **A**: `site/docs/`, in this repository. |
 | **C. Coverage enforcement** | **A**: the test with a shrinking baseline, which also checks the clips and walkthroughs (§5.3). |
 | **H. Help inside Lumen** | **A**: later, as its own slice after D2: "Learn more" in the palette's detail strip and F1 "Help for this", by stable ids, pitched with specimens. |
 | **T. When the backlog is written** | **A**: D0 before milestone 9.5, D1 to D7 alongside it. |
 
-### 12.2 Open: G, the site generator
+### 12.2 Why Zola (the comparison behind G)
 
-The owner asked why Zola (2026-11-05). Search is Pagefind in every option:
+The owner asked why Zola (2026-11-05), then chose it. Search is Pagefind in every option:
 it indexes the built pages whatever made them, so G is only about turning
 Markdown into pages.
 
