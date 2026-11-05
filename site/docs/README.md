@@ -16,8 +16,8 @@ python3 -m http.server 8123 --directory /tmp/lumen-site
 
 The landing page's fonts and pictures are read from `../assets`, so serve
 the folder that holds `docs/` with `site/assets` beside it (link it in).
-`?direction=studio|playbook|stage` and `?theme=dark|light` choose the look
-while the specimens are being judged (USER_DOCS.md §9.5).
+`?theme=dark|light` in the address picks the theme, which helps for
+screenshots.
 
 ## Where things come from
 

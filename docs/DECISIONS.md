@@ -129,7 +129,7 @@ irreversible or external) · *Superseded*.
 | Question | Decision |
 |---|---|
 | One plan per milestone (2026-10-29) | The owner asked for every sub-plan to be folded into its milestone's plan. M7b went back into M7: its slices keep the names E0 to E6, and older records and code comments still say M7b. M9's slice plans R2 to R5 went into `M9.md`. The M5 recording-window plan went into `M5.md`. M4.5 stays a milestone of its own. Also at the owner's request, the audio clip editor and warp were placed as **M7 E7 and E8**, which wait for the owner to choose when they run (`docs/milestones/M7.md` §5). |
-| User documentation (ADR-0119, 2026-11-05) | S A (screenshots rendered from scenes at deploy, not committed), L A (`site/docs/`), C A (coverage test with a shrinking baseline), H A (in-app help later, after D2), T A (D0 before 9.5, D1 to D7 alongside it). The owner added videos and animations throughout, "show, don't tell": lead clips, gesture clips and walkthroughs (`USER_DOCS.md` §6). G A (Zola) after the owner asked why, on the condition that it matches the landing page and the design system; the docs must look inviting and be fun to read and learn from (§9). |
+| User documentation (ADR-0119, 2026-11-05) | S A (screenshots rendered from scenes at deploy, not committed), L A (`site/docs/`), C A (coverage test with a shrinking baseline), H A (in-app help later, after D2), T A (D0 before 9.5, D1 to D7 alongside it). The owner added videos and animations throughout, "show, don't tell": lead clips, gesture clips and walkthroughs (`USER_DOCS.md` §6). G A (Zola) after the owner asked why, on the condition that it matches the landing page and the design system; the docs must look inviting and be fun to read and learn from (§9). The look (D0 specimens): B, Playbook, with Stage's rays and shimmering title on the docs home only. |
 | Take lanes deferred (M9 R3, 2026-10-26) | Pitched after the owner's runs of R3 (each pass a clip on its own lane under the track, a comp lane that plays, comping by dragging across a lane): the owner likes individual take lanes and **deferred them, with comping, until after M9's must-have slices**, as recommended. Until then a take is a whole pass inside one clip (ADR-0104), reached from the Takes menu; the passes are windows on one file, so dragging a clip's edge past its pass shows the pass beside it (intended, as in common workstations). When lanes are built, the takes inside a clip become lanes by migration. Open for then: whether a comp segment is a copied clip or a reference to its take, whether recording over any material (not only loop passes) makes a lane, and MIDI lanes. |
 | M9 R4 choices (2026-10-26) | P1 A (renders follow the project rate), P2 A (Revert reloads the saved file after a quiet prompt, keeping the unsaved version in `Backups/Reverted`), S A (R4 is the save family and project settings; the media pool, relink and purge are R4b): every recommendation (`docs/milestones/M9.md` §2). After MT-PROJ-1 run 1 (2026-10-26): projects and templates get their own folders in `Documents/Lumen` (option A of four pitched), and the app menu is grouped (layout A of three pitched as specimens): ADR-0105. |
 | M9 R4b choices (2026-10-26) | M1 A (a "Project media" tab in the browser), M2 A (Locate one file, and search a folder with a report to look at before anything changes), M3 A (remove unused takes entries out as one undo step; Clear moves leftover files to the system trash after a second press), M4 A (a banner with Relink… on open): every recommendation (`docs/milestones/M9.md` §2; ADR-0106). |
@@ -10675,8 +10675,9 @@ more than 20 s.
 **Date:** 2026-11-05. **Branch:** `docs/documentation-strategy`. **Status:**
 Accepted (owner, 2026-11-05: G A, S A, L A, C A, H A, T A; videos and
 animations throughout; inviting and fun to read, matching the landing page
-and the design system). The look is chosen from specimens at the start of
-D0. Strategy: `docs/USER_DOCS.md`.
+and the design system). The look was chosen from specimens at the start of
+D0 (owner, 2026-11-05): B, Playbook, with Stage's light rays and shimmering
+title on the docs home only. Strategy: `docs/USER_DOCS.md`.
 
 **Context.** CLAUDE.md §10 asks that every feature be "documented for
 users", and no user documentation exists: the website is one landing page.
@@ -10722,8 +10723,9 @@ with a shrinking baseline, or review only.
 7. **Inviting and fun to learn from** (owner): the docs home asks what
    the reader wants to make; Lumi guides sparingly (tips, wins,
    troubleshooting; never in the reference); "Try it" challenges, progress
-   through the quick start, a warm and direct voice. Three directions are
-   rendered as specimens first.
+   through the quick start, a warm and direct voice. Three directions were
+   rendered as specimens first; the owner chose Playbook, with the home's
+   hero taking Stage's rays and shimmering title (USER_DOCS.md §9.5).
 8. **The backlog in eight slices**, D0 to D7.
 
 **Consequences.** Slices gain a docs list in their plan and docs work on

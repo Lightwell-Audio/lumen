@@ -1,8 +1,6 @@
 /* The Lumen documentation (docs/USER_DOCS.md §9). Every colour, size and
    duration is a design-system token from partials/tokens.html; this file
-   only mixes them. Three looks share the markup, chosen by
-   html[data-direction]: studio (calm, like the app), playbook (warm and
-   playful) and stage (cinematic, like the landing page). */
+   only mixes them. The look is Playbook (ADR-0119, USER_DOCS.md §9.5). */
 
 @font-face{font-family:Inter;src:url(../assets/fonts/Inter.woff2) format("woff2");font-weight:100 900;font-display:swap}
 @font-face{font-family:Unbounded;src:url(../assets/fonts/Unbounded.woff2) format("woff2");font-weight:200 900;font-display:swap}
@@ -174,7 +172,6 @@ figcaption{margin-top:var(--space-s);font-size:13.5px;color:var(--text-hint)}
 
 /* ---------- Home ---------- */
 .hero{position:relative;display:flex;align-items:center;gap:var(--space-2xl);padding:var(--space-2xl) 0 48px;isolation:isolate}
-.hero-glow,.hero-rays{display:none}
 .hero-text{flex:1;min-width:0}
 .hero-kicker{margin:0 0 var(--space-m);font:600 12.5px/1 var(--font-sans);letter-spacing:0.1em;text-transform:uppercase;color:color-mix(in srgb,var(--sun) 85%,var(--text))}
 .hero-title{margin:0 0 var(--space-l);font:650 48px/1.06 var(--font-display);letter-spacing:-0.025em;text-wrap:balance}
@@ -218,72 +215,25 @@ a.goal-link:hover{color:var(--text);transform:translateY(-3px);border-color:colo
 .foot{max-width:1360px;margin:0 auto;padding:var(--space-2xl) var(--space-xl) 48px;border-top:var(--stroke-hairline) solid var(--line);font-size:13px;color:var(--text-hint)}
 .foot p{margin:0 0 var(--space-s)}
 
-/* ================= Direction A · Studio =================
-   Calm and exact, like the app itself: its surfaces, Inter for titles,
-   flat cards and one accent. Lumi only in tips. */
-[data-direction="studio"]{--page-bg:var(--canvas);--title-font:var(--font-sans);--title-weight:680;--title-size:34px;--card-radius:var(--radius-lg);--frame:var(--border)}
-[data-direction="studio"] .top{background:var(--app)}
-[data-direction="studio"] .brand-sun{box-shadow:none}
-[data-direction="studio"] .side{border-right:var(--stroke-hairline) solid var(--line);padding-right:var(--space-l)}
-[data-direction="studio"] .nav-dot{box-shadow:none;width:6px;height:6px}
-[data-direction="studio"] .nav-item.is-here{background:var(--selected-row);box-shadow:none}
-[data-direction="studio"] .prose ol>li::before{background:var(--panel);border-color:var(--border-strong);border-radius:var(--radius-md);font-family:var(--font-mono);font-size:12.5px}
-[data-direction="studio"] .prose ol>li::after{display:none}
-[data-direction="studio"] .area-chip{background:none;border-color:var(--line);color:var(--text-secondary)}
-[data-direction="studio"] .clip.is-lead .clip-frame{padding:0;border:var(--stroke-hairline) solid var(--line);box-shadow:none}
-[data-direction="studio"] .tip{background:var(--panel);border:var(--stroke-hairline) solid var(--line);border-left:3px solid var(--sun)}
-[data-direction="studio"] .tip .lumi{width:48px}
-[data-direction="studio"] .tryit{border-style:solid;border-color:var(--line);background:var(--panel)}
-[data-direction="studio"] .tryit-head .lumi{display:none}
-[data-direction="studio"] .hero{padding-bottom:var(--space-2xl)}
-[data-direction="studio"] .hero-title{font:680 36px/1.1 var(--font-sans);letter-spacing:-0.02em}
-[data-direction="studio"] .hero-kicker{color:var(--text-secondary)}
-[data-direction="studio"] .hero-lumi{display:none}
-[data-direction="studio"] .hero-search{box-shadow:none}
-[data-direction="studio"] .goal-grid{grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:var(--space-m)}
-[data-direction="studio"] .goal-media{border-bottom-width:2px}
-[data-direction="studio"] a.goal-link:hover{transform:none;box-shadow:none}
-[data-direction="studio"] .welcome{background:var(--panel)}
-[data-direction="studio"] .welcome .lumi{display:none}
-
-/* ================= Direction B · Playbook =================
+/* ---------- The look: Playbook (owner, 2026-11-05) ----------
    Warm and playful: the landing page's sun glow behind every page, round
-   display titles, colour per area, Lumi as the guide. */
-[data-direction="playbook"] body{background:radial-gradient(1100px 520px at 18% -140px,var(--glow-warm),transparent 70%),radial-gradient(900px 480px at 92% -120px,var(--glow-cool),transparent 70%),var(--page-bg);background-repeat:no-repeat}
-[data-direction="playbook"] .hero-glow{display:block;position:absolute;z-index:-1;right:-60px;top:-40px;width:520px;height:420px;border-radius:50%;background:radial-gradient(closest-side,var(--glow-warm),color-mix(in srgb,var(--accent) 10%,transparent) 60%,transparent 80%);animation:breathe 9s ease-in-out infinite}
-[data-direction="playbook"] .hero-title span,[data-direction="stage"] .hero-title span{color:var(--sun)}
-[data-direction="playbook"] .doc-title{text-shadow:0 1px 0 var(--edge-light)}
-[data-direction="playbook"] .goal-link{border-radius:18px}
-[data-direction="playbook"] .way{border-radius:16px}
+   display titles, colour per area, Lumi as the guide. The docs home
+   alone takes the landing page's light rays and a shimmering title. */
+body{background:radial-gradient(1100px 520px at 18% -140px,var(--glow-warm),transparent 70%),radial-gradient(900px 480px at 92% -120px,var(--glow-cool),transparent 70%),var(--page-bg);background-repeat:no-repeat}
+.doc-title{text-shadow:0 1px 0 var(--edge-light)}
+.goal-link{border-radius:18px}
+.way{border-radius:16px}
+.hero-glow{display:block;position:absolute;z-index:-1;right:-60px;top:-40px;width:520px;height:420px;border-radius:50%;background:radial-gradient(closest-side,var(--glow-warm),color-mix(in srgb,var(--accent) 10%,transparent) 60%,transparent 80%);animation:breathe 9s ease-in-out infinite;pointer-events:none}
+/* The rays turn slowly around Lumi, as the sun does on the landing page. */
+.hero-rays{display:block;position:absolute;z-index:-1;right:-650px;top:50%;width:1500px;height:1500px;margin-top:-750px;background:repeating-conic-gradient(from 0deg,color-mix(in srgb,var(--sun) 7%,transparent) 0 3deg,transparent 3deg 15deg);-webkit-mask:radial-gradient(closest-side,#000,transparent 62%);mask:radial-gradient(closest-side,#000,transparent 62%);animation:spin 160s linear infinite;pointer-events:none}
+.hero-title{background:linear-gradient(100deg,var(--sun) 0%,var(--text) 30%,var(--accent-hi) 60%,var(--sun) 100%);background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 9s linear infinite}
 @keyframes breathe{50%{opacity:.7;transform:scale(1.06)}}
-
-/* ================= Direction C · Stage =================
-   Cinematic, like the landing page: the deepest ground, a lit hero with
-   rays, big type, the lead clip wide above the title. */
-[data-direction="stage"]{--page-bg:var(--ground);--title-size:52px;--title-weight:650;--measure:780px;--card-radius:18px}
-[data-direction="stage"] .top{background:color-mix(in srgb,var(--ground) 70%,transparent)}
-[data-direction="stage"] .hero{padding:64px 0 72px;flex-direction:column;align-items:flex-start;text-align:left}
-[data-direction="stage"] .hero-glow{display:block;position:absolute;z-index:-1;left:50%;top:-260px;width:1100px;height:760px;transform:translateX(-50%);border-radius:50%;background:radial-gradient(closest-side,color-mix(in srgb,var(--sun) 42%,transparent),color-mix(in srgb,var(--sun) 14%,transparent) 40%,var(--glow-cool) 62%,transparent 80%);animation:breathe 9s ease-in-out infinite;pointer-events:none}
-[data-direction="stage"] .hero-rays{display:block;position:absolute;z-index:-1;left:50%;top:-500px;width:1500px;height:1500px;margin-left:-750px;background:repeating-conic-gradient(from 0deg,color-mix(in srgb,var(--sun) 7%,transparent) 0 3deg,transparent 3deg 15deg);-webkit-mask:radial-gradient(closest-side,#000,transparent 62%);mask:radial-gradient(closest-side,#000,transparent 62%);animation:spin 160s linear infinite;pointer-events:none}
 @keyframes spin{to{transform:rotate(360deg)}}
-[data-direction="stage"] .hero-title{font-size:64px;max-width:820px;background:linear-gradient(100deg,var(--sun) 0%,var(--text) 30%,var(--accent-hi) 60%,var(--sun) 100%);background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 9s linear infinite}
 @keyframes shimmer{to{background-position:-200% center}}
-[data-direction="stage"] .hero-lumi{position:absolute;right:0;top:40px;width:220px}
-[data-direction="stage"] .hero-search{height:60px;max-width:620px;background:color-mix(in srgb,var(--overlay) 70%,transparent);backdrop-filter:blur(8px)}
-[data-direction="stage"] .goal-grid{grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:var(--space-xl)}
-[data-direction="stage"] .goal-link{padding:1px;background:var(--frame);border:0}
-[data-direction="stage"] .goal-media{border-radius:17px 17px 0 0;border-bottom:0}
-[data-direction="stage"] .goal-text{background:var(--overlay);border-radius:0 0 17px 17px;flex:1}
-[data-direction="stage"] .shell:not(.is-home){grid-template-columns:var(--side-w) minmax(0,1fr) var(--toc-w)}
-[data-direction="stage"] .doc{position:relative}
-[data-direction="stage"] .doc::before{content:"";position:absolute;z-index:-1;left:-120px;top:-120px;width:760px;height:520px;border-radius:50%;background:radial-gradient(closest-side,color-mix(in srgb,var(--area) 26%,transparent),transparent 75%);pointer-events:none}
-[data-direction="stage"] .clip.is-lead .clip-frame{box-shadow:0 40px 120px -40px var(--glow-warm)}
-[data-direction="stage"] .prose h2{font-size:28px;margin-top:72px}
-[data-direction="stage"] .prose ol>li::before{background:var(--area);border:0;color:var(--clip-text)}
 
 /* ---------- Narrow screens ---------- */
 @media (max-width:1180px){
-  .shell,[data-direction="stage"] .shell:not(.is-home){grid-template-columns:var(--side-w) minmax(0,1fr)}
+  .shell{grid-template-columns:var(--side-w) minmax(0,1fr)}
   .toc{display:none}
 }
 @media (max-width:860px){
@@ -293,25 +243,23 @@ a.goal-link:hover{color:var(--text);transform:translateY(-3px);border-color:colo
   .top-tools .seg,.site-link{display:none}
   .nav-open{display:grid}
   .brand-docs{display:none}
-  .shell,.shell.is-home,[data-direction="stage"] .shell:not(.is-home){display:block;padding:0 var(--space-l)}
+  .shell,.shell.is-home{display:block;padding:0 var(--space-l)}
   .side{position:fixed;z-index:25;top:var(--top-h);left:0;bottom:0;width:min(86vw,320px);max-height:none;padding:var(--space-l);background:var(--app);border-right:var(--stroke-hairline) solid var(--line);transform:translateX(-100%);transition:transform var(--duration-glide) ease;visibility:hidden}
   .side.is-open{transform:none;visibility:visible;box-shadow:0 0 60px var(--shade)}
   .nav-search{display:block;margin-bottom:var(--space-l)}
   .nav-search-btn{width:100%;text-align:left;padding:10px var(--space-m);border-radius:var(--radius-lg);border:var(--stroke-hairline) solid var(--line);background:var(--well);color:var(--text-hint);font-size:14px}
   .main{padding-top:var(--space-xl)}
   :root{--title-size:32px}
-  [data-direction="stage"]{--title-size:36px}
   .prose>p:first-of-type{font-size:17.5px}
   .prose ol>li{padding-left:40px}
   .hero{flex-direction:column-reverse;align-items:flex-start;gap:var(--space-l);padding:var(--space-l) 0 var(--space-2xl)}
-  .hero-title,[data-direction="studio"] .hero-title{font-size:34px}
-  [data-direction="stage"] .hero-title{font-size:40px}
+  .hero-title{font-size:34px}
   .hero-lumi{width:120px}
-  [data-direction="stage"] .hero-lumi{position:static;width:120px}
-  [data-direction="stage"] .hero{padding:var(--space-xl) 0 48px}
+  /* Lumi sits above the title here, so the rays turn around it there. */
+  .hero-rays{right:auto;left:60px;top:76px;margin:-750px 0 0 -750px}
   .hero-search{height:50px}
   .hero-search .keys{display:none}
-  .goal-grid,[data-direction="stage"] .goal-grid{grid-template-columns:1fr}
+  .goal-grid{grid-template-columns:1fr}
   .tip{flex-direction:column;gap:var(--space-s)}
   .welcome{flex-direction:column;align-items:flex-start}
   .clip-toggle{opacity:1}

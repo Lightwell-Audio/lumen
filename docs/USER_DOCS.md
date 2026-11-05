@@ -3,8 +3,9 @@
 **Status:** Accepted, 2026-11-05 (ADR-0119). Owner, 2026-11-05: G A, S A,
 L A, C A, H A, T A; videos and animations throughout ("show, don't tell",
 §6); and docs that look inviting and are fun to read and learn from,
-matching the landing page and the design system (§9). The look is chosen
-from specimens at the start of D0 (§9.5). Nothing here is built yet.
+matching the landing page and the design system (§9). The look was chosen
+from specimens at the start of D0: Playbook, with Stage's rays and
+shimmering title on the docs home (§9.5). D0 is being built.
 
 This is the plan for the user documentation published on the website: what
 it covers, how it is organised and searched, how every page gets its
@@ -633,7 +634,12 @@ themes, at desktop and phone width:
 - **C. Stage**: the landing page's big Unbounded headlines and scroll
   reveals carried into the docs; bold section openers.
 
-The owner picks one, or mixes parts, before anything is built.
+**Chosen (owner, 2026-11-05): B, Playbook**, with one part of C: the
+docs home's hero takes Stage's slowly turning light rays (around Lumi)
+and its shimmering gradient title. Guide pages keep Playbook's calmer
+style: the sun glow behind the page, round display titles, colour per
+area, Lumi in tips and "Try it". The other two directions were removed
+from the stylesheet once the choice was made.
 
 ## 10. Keeping the docs current
 

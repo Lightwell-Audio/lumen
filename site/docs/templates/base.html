@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-direction="{{ config.extra.direction }}">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,8 +7,8 @@
 <meta name="description" content="{% block description %}{{ config.description }}{% endblock description %}">
 <link rel="icon" href="{{ config.base_url }}/../favicon.svg" type="image/svg+xml">
 <script>
-  // Before the first paint: the reader's theme and keyboard choices, and,
-  // for specimen builds only, the look in the address (?direction=).
+  // Before the first paint: the reader's theme and keyboard choices (a
+  // ?theme= in the address wins, for screenshots).
   (function () {
     var root = document.documentElement;
     try {
@@ -18,7 +18,6 @@
       root.dataset.platform = platform || (/Mac|iPhone|iPad/.test(navigator.platform) ? "mac" : "win");
     } catch (e) { root.dataset.platform = "win"; }
     var params = new URLSearchParams(location.search);
-    if (params.get("direction")) root.dataset.direction = params.get("direction");
     if (params.get("theme")) root.dataset.theme = params.get("theme");
   })();
 </script>
