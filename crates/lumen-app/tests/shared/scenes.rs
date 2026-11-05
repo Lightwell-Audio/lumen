@@ -1,0 +1,34 @@
+//! The docs' scenes (docs/USER_DOCS.md §6.2): each renders the real app
+//! into the clips and screenshots it names. `tests/docs_media.rs` renders
+//! them and checks that a scene writes exactly these; `tests/docs_coverage.rs`
+//! checks that every clip and shot a page shows is one of them.
+
+#![allow(
+    dead_code,
+    reason = "each test target that includes this file uses part of it"
+)]
+
+/// A scene: the test in `docs_media.rs` that renders it, and what it writes.
+pub struct Scene {
+    pub test: &'static str,
+    /// Clips: `<name>-<theme>.mp4` with a `.webp` poster.
+    pub clips: &'static [&'static str],
+    /// Screenshots: `<name>-<theme>.webp`.
+    pub shots: &'static [&'static str],
+}
+
+pub const SCENES: &[Scene] = &[Scene {
+    test: "split_a_clip",
+    clips: &["split-lead"],
+    shots: &["split-before", "split-after"],
+}];
+
+/// Whether a scene writes the clip `name`.
+pub fn has_clip(name: &str) -> bool {
+    SCENES.iter().any(|s| s.clips.contains(&name))
+}
+
+/// Whether a scene writes the screenshot `name`.
+pub fn has_shot(name: &str) -> bool {
+    SCENES.iter().any(|s| s.shots.contains(&name))
+}

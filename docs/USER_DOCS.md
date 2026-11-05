@@ -270,14 +270,16 @@ The rules for a task page:
 | Kind | Source | Key |
 |---|---|---|
 | Command | `commands::ALL` | its `id` (`midi.split_notes`) |
-| Preference | `preferences::ROWS` | its id (`audio.driver`) |
-| Bar control and menu row | the lists in `tests/e2e/coverage.rs` | its accessible name |
-| Gesture | a new `site/docs/data/gestures.toml` (§5.2) | `gesture.<name>` |
+| Preference | `preferences::ROWS` | `pref:` and its key (`pref:audio.driver`; a key can equal a command's id) |
+| Bar control and menu row that runs no command | `tests/shared/controls.rs` (the E2E coverage lists) | `bar:` or `menu:` and its accessible name (`bar:Tempo`); one that runs a command is documented with it |
+| Gesture | `site/docs/data/gestures.toml` (§5.2) | `gesture.<name>` |
 
 A small exporter writes the first three to JSON for the site build
 (`commands.json`, `preferences.json`, `controls.json`). It runs as an
 ignored test target in `lumen-app` behind an environment variable, the way
-`shots` does, so nothing is added to the shipped binary.
+`shots` does (`tests/docs_data.rs`, `DOCS_DATA`). A page lists the ids it
+explains under `[taxonomies] actions`, which also links each reference
+entry to its guides.
 
 ### 5.2 Gestures
 

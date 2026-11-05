@@ -2331,6 +2331,7 @@ dependencies = [
  "rtrb",
  "serde",
  "serde_json",
+ "toml",
  "trash",
  "windows-sys 0.61.2",
 ]

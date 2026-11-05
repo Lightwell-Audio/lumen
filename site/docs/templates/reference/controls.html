@@ -12,7 +12,7 @@
   <p class="ref-lede">From left to right along the top of the window.</p>
   {%- else %}
   <h2>The app menu</h2>
-  <p class="ref-lede">Click Lumen at the left end of the transport bar. The menu's own rows come first, then the rows of its submenus.</p>
+  <p class="ref-lede">Click {{ config.extra.product }} at the left end of the transport bar. The menu's own rows come first, then the rows of its submenus.</p>
   {%- endif %}
   <ul class="ref-list">
   {%- for ctl in data.controls | filter(attribute="place", value=place) %}

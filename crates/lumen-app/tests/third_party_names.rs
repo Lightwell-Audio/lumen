@@ -2,7 +2,8 @@
 //! the code: a comment, a test name or a label the user reads does not use
 //! another digital audio workstation as a reference ("as in X"). State the
 //! behavior itself. Hardware, driver, platform and legal names are allowed
-//! and are not on this list. This scans every crate's Rust sources.
+//! and are not on this list. This scans every crate's Rust sources and
+//! the user documentation (`site/docs/`).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -64,6 +65,53 @@ fn no_source_names_another_workstation() {
     for file in files {
         let source = fs::read_to_string(&file).expect("a source reads");
         for (number, line) in source.lines().enumerate() {
+            for name in names_in(line) {
+                offenders.push(format!("{}:{}: {name}", file.display(), number + 1));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "describe the behavior instead of naming another product:\n{}",
+        offenders.join("\n")
+    );
+}
+
+/// The user documentation's files: its pages, templates, data, styles
+/// and scripts, but not a built site or generated data.
+fn docs_files(dir: &Path, into: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).expect("the folder reads") {
+        let path = entry.expect("an entry reads").path();
+        if path.is_dir() {
+            if path
+                .file_name()
+                .is_some_and(|n| n != "public" && n != "media")
+            {
+                docs_files(&path, into);
+            }
+        } else if path.extension().is_some_and(|e| {
+            ["md", "html", "toml", "txt", "css", "js", "sh"]
+                .iter()
+                .any(|x| e == *x)
+        }) {
+            into.push(path);
+        }
+    }
+}
+
+/// The owner's rule covers the user docs too (docs/USER_DOCS.md §9.4): no
+/// page, template or data file names another workstation, and neither
+/// does the documentation strategy.
+#[test]
+fn no_docs_page_names_another_workstation() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut files = vec![root.join("docs/USER_DOCS.md")];
+    docs_files(&root.join("site/docs"), &mut files);
+    assert!(files.len() > 20, "the scan found the docs");
+    let mut offenders = Vec::new();
+    for file in files {
+        let text = fs::read_to_string(&file).expect("a docs file reads");
+        for (number, line) in text.lines().enumerate() {
             for name in names_in(line) {
                 offenders.push(format!("{}:{}: {name}", file.display(), number + 1));
             }

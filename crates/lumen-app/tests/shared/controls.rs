@@ -4,13 +4,21 @@
 //! docs exporter (`tests/docs_data.rs`) publishes them for the user
 //! documentation's reference (docs/USER_DOCS.md §5.1).
 
+#![allow(
+    dead_code,
+    reason = "each test target that includes this file uses part of it"
+)]
+
 /// What a control is in the lists: the command it runs, by name, or why it
-/// has none.
+/// has none. `Each` is one row of a list the user fills (a template, a
+/// recent file), drawn here for the one the test makes: it runs no command
+/// and is documented with its submenu.
 pub enum Has {
     Command(&'static str),
     Without(&'static str),
+    Each(&'static str),
 }
-pub use Has::{Command, Without};
+pub use Has::{Command, Each, Without};
 
 /// The transport bar, by each control's accessible name. A name that ends
 /// in a colon or " …" goes on with a value ("Position 1.1.1", "Audio: On").
@@ -79,11 +87,11 @@ pub const MENU: &[(&str, Has)] = &[
     // New from template, with the template the test saves.
     (
         "Beat",
-        Without("a template: the palette lists each one as New from template"),
+        Each("a template: the palette lists each one as New from template"),
     ),
     ("Open templates folder", Command("Open templates folder")),
     // Open recent, with the project the test saves.
-    ("Song", Without("a recent file, opened by its path")),
+    ("Song", Each("a recent file, opened by its path")),
     // More ways to save.
     ("Save a copy…", Command("Save a copy…")),
     ("Collect and save", Command("Collect and save")),

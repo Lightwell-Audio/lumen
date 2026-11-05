@@ -1,0 +1,11 @@
+# Direct manipulation that no table in the app holds (docs/USER_DOCS.md
+# §5.2): one entry per gesture. The one list kept by hand; the milestone
+# review checks it, and docs_coverage checks each entry's scenario and clip.
+#
+# [[gesture]]
+# id = "gesture.<name>"         stable: pages list it in their actions
+# place = "arrangement"         where it happens
+# input = "drag"                the input: drag, Alt+drag, double-click…
+# does = "…"                    what it does, in one sentence
+# scenario = "<e2e test fn>"    the E2E scenario that covers it
+# clip = "<clip name>"          the gesture clip, made by a scene

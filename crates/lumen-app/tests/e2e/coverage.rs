@@ -15,7 +15,7 @@ use lumen_app::App;
 
 use super::Lumen;
 
-use crate::controls::{BAR, Command, Has, MENU, Without};
+use crate::controls::{BAR, Command, Each, Has, MENU, Without};
 
 /// How tall the transport bar is: the controls above this line are its.
 const BAR_HEIGHT: f32 = 44.0;
@@ -132,7 +132,7 @@ fn check(
             Command(command) if runs != [*command] => problems.push(format!(
                 "{place}: \"{name}\" should run \"{command}\" but was drawn for {runs:?}"
             )),
-            Without(why) if !runs.is_empty() => problems.push(format!(
+            Without(why) | Each(why) if !runs.is_empty() => problems.push(format!(
                 "{place}: \"{name}\" runs {runs:?}: list it with its command, not \"{why}\""
             )),
             _ => {}

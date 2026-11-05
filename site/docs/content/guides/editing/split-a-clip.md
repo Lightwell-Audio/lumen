@@ -8,8 +8,6 @@ kind = "Guide"
 area = "edit"
 minutes = 3
 also = ["cut a clip", "slice", "razor", "chop"]
-clips = ["split-lead"]
-shots = ["split-before", "split-after"]
 related = [
   { kind = "Guide", title = "Join clips" },
   { kind = "Guide", title = "Select a time range" },

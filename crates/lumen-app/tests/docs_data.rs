@@ -44,12 +44,15 @@ fn export() {
             .id
     };
     let controls = |place: &str, list: &[(&str, Has)]| -> Vec<Value> {
+        // `Each` rows are the test's own template and recent file, not
+        // controls a reader has.
         list.iter()
-            .map(|(name, has)| match has {
+            .filter_map(|(name, has)| match has {
                 Has::Command(command) => {
-                    json!({ "name": name, "place": place, "command": id_of(command) })
+                    Some(json!({ "name": name, "place": place, "command": id_of(command) }))
                 }
-                Has::Without(why) => json!({ "name": name, "place": place, "why": why }),
+                Has::Without(why) => Some(json!({ "name": name, "place": place, "why": why })),
+                Has::Each(_) => None,
             })
             .collect()
     };
