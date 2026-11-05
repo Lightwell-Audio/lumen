@@ -273,9 +273,16 @@ fn every_task_page_shows_the_move_and_every_picture_has_a_scene() {
         let clips: Vec<_> = shortcode_args(&page.body, "clip", "id")
             .into_iter()
             .chain(shortcode_args(&page.body, "tryit", "answer"))
-            .chain(shortcode_args(&page.body, "video", "id"))
             .collect();
+        let walks = shortcode_args(&page.body, "video", "id");
         let shots = shortcode_args(&page.body, "shot", "id");
+        for walk in &walks {
+            if !scenes::has_walk(walk) {
+                problems.push(format!(
+                    "{at} shows the walkthrough {walk}, which no scene makes"
+                ));
+            }
+        }
         for clip in &clips {
             if !scenes::has_clip(clip) {
                 problems.push(format!("{at} shows the clip {clip}, which no scene makes"));
@@ -290,7 +297,7 @@ fn every_task_page_shows_the_move_and_every_picture_has_a_scene() {
             "Guide" if !has_call_with(&page.body, "clip", "lead=true") => {
                 problems.push(format!("{at}: a guide opens with a lead clip"));
             }
-            "Recipe" | "Quick start" if !page.body.contains("video(") => {
+            "Recipe" | "Quick start" if walks.is_empty() => {
                 problems.push(format!("{at}: a {} has a walkthrough video", page.kind));
             }
             _ => {}

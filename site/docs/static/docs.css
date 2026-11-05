@@ -1,10 +1,9 @@
 /* The Lumen documentation (docs/USER_DOCS.md §9). Every colour, size and
    duration is a design-system token from partials/tokens.html; this file
-   only mixes them. The look is Playbook (ADR-0119, USER_DOCS.md §9.5). */
+   only mixes them. The look is Playbook (ADR-0119, USER_DOCS.md §9.5).
+   The fonts and the brand's keyframes come from the landing page's
+   ../assets/lumen.css, linked first. */
 
-@font-face{font-family:Inter;src:url(../assets/fonts/Inter.woff2) format("woff2");font-weight:100 900;font-display:swap}
-@font-face{font-family:Unbounded;src:url(../assets/fonts/Unbounded.woff2) format("woff2");font-weight:200 900;font-display:swap}
-@font-face{font-family:"Martian Mono";src:url(../assets/fonts/MartianMono.woff2) format("woff2");font-weight:100 800;font-stretch:75% 112.5%;font-display:swap}
 
 /* ---------- Shared ---------- */
 :root{
@@ -112,10 +111,10 @@ details:not([open])>summary.nav-item::after{transform:rotate(-45deg)}
 .prose ul li{margin:var(--space-s) 0}
 .prose ul li::marker{color:var(--area)}
 /* Steps: numbered discs in the area's colour. */
-.prose ol{list-style:none;counter-reset:step;padding:0;margin:var(--space-l) 0}
-.prose ol>li{counter-increment:step;position:relative;padding-left:46px;margin:0 0 var(--space-xl)}
-.prose ol>li::before{content:counter(step);position:absolute;left:0;top:-1px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font:600 14px/1 var(--font-sans);color:var(--text);background:color-mix(in srgb,var(--area) 30%,var(--panel));border:var(--stroke-hairline) solid color-mix(in srgb,var(--area) 70%,transparent)}
-.prose ol>li:not(:last-child)::after{content:"";position:absolute;left:14.5px;top:36px;bottom:calc(-1 * var(--space-xl) + 6px);width:var(--stroke-hairline);background:var(--line)}
+.prose ol:not(.callouts){list-style:none;counter-reset:step;padding:0;margin:var(--space-l) 0}
+.prose ol:not(.callouts)>li{counter-increment:step;position:relative;padding-left:46px;margin:0 0 var(--space-xl)}
+.prose ol:not(.callouts)>li::before{content:counter(step);position:absolute;left:0;top:-1px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font:600 14px/1 var(--font-sans);color:var(--text);background:color-mix(in srgb,var(--area) 30%,var(--panel));border:var(--stroke-hairline) solid color-mix(in srgb,var(--area) 70%,transparent)}
+.prose ol:not(.callouts)>li:not(:last-child)::after{content:"";position:absolute;left:14.5px;top:36px;bottom:calc(-1 * var(--space-xl) + 6px);width:var(--stroke-hairline);background:var(--line)}
 
 /* Pictures. */
 .shot,.clip{margin:var(--space-l) 0 var(--space-xl)}
@@ -130,6 +129,23 @@ figcaption{margin-top:var(--space-s);font-size:13.5px;color:var(--text-hint)}
 .clip.is-lead{margin:0 0 var(--space-2xl)}
 .clip.is-lead .clip-frame{border:0;padding:1px;background:var(--frame);box-shadow:0 30px 80px -40px var(--glow-warm)}
 .clip.is-lead video{border-radius:calc(var(--radius-xl) - 1px);background:var(--canvas)}
+/* Callouts: numbered markers over a screenshot, placed from the bounds the
+   scene recorded, and the same number inline in the steps. */
+.shot-frame{position:relative}
+.callouts{position:absolute;inset:0;margin:0;padding:0;list-style:none;pointer-events:none}
+.callout{position:absolute;box-sizing:border-box;border:var(--stroke-strong) solid var(--sun);border-radius:var(--radius-md);box-shadow:0 0 0 3px color-mix(in srgb,var(--sun) 22%,transparent)}
+.callout-n{display:inline-grid;place-items:center;min-width:24px;height:24px;padding:0 6px;box-sizing:border-box;border-radius:var(--radius-full);background:var(--sun);color:var(--on-sun);font:600 13px/1 var(--font-mono)}
+.callout>.callout-n{position:absolute;left:-12px;top:-12px;box-shadow:0 4px 14px -4px color-mix(in srgb,var(--sun) 80%,transparent)}
+.callout-n.is-inline{min-width:20px;height:20px;font-size:11.5px;vertical-align:0.1em}
+.callout-name,.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+/* Walkthroughs: controls, captions and chapters that follow the steps. */
+.walk{margin:var(--space-l) 0 var(--space-2xl)}
+.walk-frame{padding:1px;border-radius:var(--radius-xl);background:var(--frame);box-shadow:0 30px 80px -40px var(--glow-warm)}
+.walk video{display:block;width:100%;height:auto;border-radius:calc(var(--radius-xl) - 1px);background:var(--canvas)}
+.walk-from{margin-left:var(--space-s);vertical-align:0.2em;display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 10px;border-radius:var(--radius-full);border:var(--stroke-hairline) solid var(--line);background:transparent;color:var(--text-hint);font:500 12px/1 var(--font-mono);cursor:pointer;transition:color var(--duration-base) ease,border-color var(--duration-base) ease}
+.walk-from:hover,.walk-from:focus-visible{color:var(--text);border-color:var(--sun)}
+.is-playing .walk-from{color:var(--on-sun);background:var(--sun);border-color:var(--sun)}
+h2.is-playing,h3.is-playing{color:var(--text)}
 
 /* Lumi's tip and Try it. */
 .lumi{flex:none;height:auto;filter:drop-shadow(0 8px 18px color-mix(in srgb,var(--sun) 28%,transparent))}
@@ -255,10 +271,9 @@ body{background:radial-gradient(1100px 520px at 18% -140px,var(--glow-warm),tran
 .hero-glow{display:block;position:absolute;z-index:-1;right:-60px;top:-40px;width:520px;height:420px;border-radius:50%;background:radial-gradient(closest-side,var(--glow-warm),color-mix(in srgb,var(--accent) 10%,transparent) 60%,transparent 80%);animation:breathe 9s ease-in-out infinite;pointer-events:none}
 /* The rays turn slowly around Lumi, as the sun does on the landing page. */
 .hero-rays{display:block;position:absolute;z-index:-1;right:-650px;top:50%;width:1500px;height:1500px;margin-top:-750px;background:repeating-conic-gradient(from 0deg,color-mix(in srgb,var(--sun) 7%,transparent) 0 3deg,transparent 3deg 15deg);-webkit-mask:radial-gradient(closest-side,#000,transparent 62%);mask:radial-gradient(closest-side,#000,transparent 62%);animation:spin 160s linear infinite;pointer-events:none}
-.hero-title{background:linear-gradient(100deg,var(--sun) 0%,var(--text) 30%,var(--accent-hi) 60%,var(--sun) 100%);background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 9s linear infinite}
+.hero-title{background:linear-gradient(100deg,var(--sun) 0%,var(--text) 30%,var(--accent-hi) 60%,var(--sun) 100%);background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:lm-shimmer 9s linear infinite}
 @keyframes breathe{50%{opacity:.7;transform:scale(1.06)}}
 @keyframes spin{to{transform:rotate(360deg)}}
-@keyframes shimmer{to{background-position:-200% center}}
 
 /* ---------- Narrow screens ---------- */
 @media (max-width:1180px){
@@ -295,7 +310,7 @@ body{background:radial-gradient(1100px 520px at 18% -140px,var(--glow-warm),tran
   /* A wide picture would be too small to read: zoom to where the action
      is (each picture's --focus). */
   .clip-frame video{aspect-ratio:4/3;object-fit:cover;object-position:var(--focus) 50%}
-  .shot img{aspect-ratio:3/2;object-fit:cover;object-position:var(--focus) 50%}
+  .shot:not(.has-callouts) img{aspect-ratio:3/2;object-fit:cover;object-position:var(--focus) 50%}
   .pager{grid-template-columns:1fr}
   .pager-next{grid-column:1}
 }

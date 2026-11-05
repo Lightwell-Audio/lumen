@@ -14,8 +14,9 @@ site/docs/build.sh /tmp/lumen-site http://localhost:8123/docs
 python3 -m http.server 8123 --directory /tmp/lumen-site
 ```
 
-The landing page's fonts and pictures are read from `../assets`, so serve
-the folder that holds `docs/` with `site/assets` beside it (link it in).
+The landing page's stylesheet (`lumen.css`), fonts and pictures are read
+from `../assets`, so serve the folder that holds `docs/` with `site/assets`
+beside it (link it in).
 `?theme=dark|light` in the address picks the theme, which helps for
 screenshots.
 
@@ -24,7 +25,7 @@ screenshots.
 | Folder | What | Written by |
 |---|---|---|
 | `content/` | The pages, in Markdown | hand |
-| `templates/` | Page layouts and shortcodes (`keys`, `shot`, `clip`, `tip`, `tryit`) | hand |
+| `templates/` | Page layouts and shortcodes (`keys`, `shot` with its callouts, `callout`, `clip`, `video`, `tip`, `tryit`) | hand |
 | `static/docs.css`, `static/docs.js` | The look and behaviour; colours and sizes are design tokens only | hand |
 | `static/media/` | Screenshots and clips | `cargo test -p lumen-app --test docs_media -- --ignored` with `DOCS_MEDIA=site/docs/static/media` |
 | `static/img/` | Lumi, from `docs/brand/` | `cwebp -resize 256 0` |

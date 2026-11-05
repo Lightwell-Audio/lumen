@@ -127,6 +127,57 @@
     });
   });
 
+  // Walkthroughs: each chapter's cue id is the anchor of its step heading.
+  // The heading gains "Play from 0:42", and the playing step is marked.
+  document.querySelectorAll("[data-walk] video").forEach(function (video) {
+    var track = video.querySelector("track[kind=chapters]");
+    if (!track) return;
+    var chapters = track.track;
+    chapters.mode = "hidden";
+    function stamp(t) {
+      var s = Math.floor(t);
+      return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+    }
+    function mark() {
+      document.querySelectorAll(".is-playing").forEach(function (h) { h.classList.remove("is-playing"); });
+      var cue = chapters.activeCues && chapters.activeCues[0];
+      var heading = cue && document.getElementById(cue.id);
+      if (heading) heading.classList.add("is-playing");
+    }
+    function wire() {
+      Array.prototype.forEach.call(chapters.cues || [], function (cue) {
+        var heading = document.getElementById(cue.id);
+        if (!heading) {
+          console.warn("walkthrough chapter " + cue.id + " has no step heading");
+          return;
+        }
+        if (heading.querySelector(".walk-from")) return;
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "walk-from";
+        button.setAttribute("aria-label", "Play the walkthrough from " + stamp(cue.startTime));
+        button.innerHTML = '<svg aria-hidden="true" viewBox="0 0 16 16" width="10" height="10"><path d="M4 2.5v11l9.5-5.5z" fill="currentColor"/></svg>' + stamp(cue.startTime);
+        button.addEventListener("click", function () {
+          // A seek before the first load is lost: wait for the metadata.
+          function go() {
+            video.currentTime = cue.startTime;
+            video.play().catch(function () {});
+          }
+          if (video.readyState >= 1) {
+            go();
+          } else {
+            video.addEventListener("loadedmetadata", go, { once: true });
+            video.load();
+          }
+        });
+        heading.appendChild(button);
+      });
+    }
+    if (track.readyState === 2) wire();
+    track.addEventListener("load", wire);
+    chapters.addEventListener("cuechange", mark);
+  });
+
   swapMedia();
 
   // ---- Contents on phones ----

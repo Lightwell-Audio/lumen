@@ -1,0 +1,4 @@
+{#- {{ callout(n=1) }}: in a step, the number of a screenshot's callout, in
+    the same marker the picture shows (see shortcodes/shot.html). -#}
+{%- if not n %}{{ throw(message="callout needs its number: callout(n=1)") }}{% endif -%}
+<span class="callout-n is-inline"><span class="sr-only">callout </span>{{ n }}</span>

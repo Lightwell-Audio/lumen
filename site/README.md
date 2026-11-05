@@ -1,8 +1,10 @@
 # Lumen website
 
 The public page at https://lightwell-audio.github.io/lumen/: one static
-`index.html` with its fonts, videos and images under `assets/`. There is no
-build step.
+`index.html` with its fonts, videos and images under `assets/`. The page has
+no build step. Its stylesheet, `assets/lumen.css`, is shared with the user
+documentation in `docs/` (see its README), which links it before its own,
+so the fonts and the brand's motion are written once.
 
 ## Preview
 
