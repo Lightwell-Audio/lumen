@@ -516,8 +516,9 @@ per slice and move what is no longer current out of it.
   (`plan_the_render` in `tests/docs_coverage.rs`) differs from the
   published `docs/media/manifest.json` and fetches the rest; "Run
   workflow" renders all in parallel jobs (USER_DOCS.md §13). Checked on
-  Windows; meter E2E reads levels on a fresh frame (`listen`). Waiting for
-  the owner: the look at the built pages, the landing-page link.
+  Windows; meter E2E reads levels on a fresh frame (`listen`). The landing
+  page's menu links to Docs. Waiting for the owner: the look at the built
+  pages (PR's `docs-site` artifact).
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

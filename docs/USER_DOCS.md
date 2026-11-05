@@ -812,14 +812,14 @@ what is covered.
     the meters on egui's clock, a frame drawn straight after another sees
     no new audio on Windows and reads a step (0.33 dB) low. The tests now
     read levels on a frame drawn just after the engine played
-    (`tests/e2e/meters.rs`, `listen`); the app is unchanged.
+    (`tests/e2e/meters.rs`, `listen`); the app is unchanged;
+  - the landing page's top menu links to the docs ("Docs", after
+    Download; owner's go-ahead).
 - **Open:**
   - the side-by-side with a render made on Windows (needs ffmpeg on the
     owner's machine);
   - the owner's look at the built pages, in both themes and at phone
     width;
-  - a link to `/docs/` from the landing page. It changes the landing
-    page's look, so it waits for the owner;
   - the Preferences reference is an index (each setting, its page, the
     words that find it, and a link to its guide). Saying what each
     setting does needs an `about` on `preferences::Row`; that comes with
