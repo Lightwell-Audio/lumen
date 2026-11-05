@@ -499,8 +499,15 @@ per slice and move what is no longer current out of it.
   headless harness, a coverage test with a shrinking baseline, docs per slice
   and per milestone, later per version. Owner: every choice A (Zola),
   "show, don't tell" (lead clips, gesture clips, walkthrough videos, §6),
-  and inviting, fun docs matching the landing page and tokens (§9). Next:
-  D0, before 9.5, opening with three look specimens (§9.5).
+  and inviting, fun docs matching the landing page and tokens (§9).
+- **Branch `docs/d0-foundations` (from the strategy branch): D0's look
+  specimens are built** and wait for the owner's pick (A Studio, B Playbook,
+  C Stage). The Zola site is `site/docs/` (README there; `build.sh`); its
+  media comes from the real app through `tests/docs_media.rs` (ignored; GPU,
+  ffmpeg, `DOCS_MEDIA`), which draws the pointer and keycaps into clips.
+  Headless Chromium has no H.264, so specimen screenshots show a frame
+  of each clip. `data/commands.json` is a stand-in until D0's app export.
+  Next: the owner's choice, then the rest of D0.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

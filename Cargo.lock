@@ -2310,6 +2310,7 @@ dependencies = [
  "eframe",
  "egui_kittest",
  "embed-resource",
+ "image",
  "libc",
  "lumen-audio",
  "lumen-brand",

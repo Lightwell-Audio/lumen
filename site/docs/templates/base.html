@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en" data-direction="{{ config.extra.direction }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ config.title }}{% endblock title %}</title>
+<meta name="description" content="{% block description %}{{ config.description }}{% endblock description %}">
+<link rel="icon" href="{{ config.base_url }}/../favicon.svg" type="image/svg+xml">
+<script>
+  // Before the first paint: the reader's theme and keyboard choices, and,
+  // for specimen builds only, the look in the address (?direction=).
+  (function () {
+    var root = document.documentElement;
+    try {
+      var theme = localStorage.getItem("lumen-docs-theme");
+      if (theme) root.dataset.theme = theme;
+      var platform = localStorage.getItem("lumen-docs-platform");
+      root.dataset.platform = platform || (/Mac|iPhone|iPad/.test(navigator.platform) ? "mac" : "win");
+    } catch (e) { root.dataset.platform = "win"; }
+    var params = new URLSearchParams(location.search);
+    if (params.get("direction")) root.dataset.direction = params.get("direction");
+    if (params.get("theme")) root.dataset.theme = params.get("theme");
+  })();
+</script>
+{% include "partials/tokens.html" %}
+<link rel="preload" href="{{ config.base_url }}/../assets/fonts/Inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="{{ config.base_url }}/../assets/fonts/Unbounded.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{{ get_url(path='docs.css') }}">
+<link rel="stylesheet" href="{{ get_url(path='pagefind/pagefind-ui.css') }}">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the page</a>
+<header class="top">
+  <a class="brand" href="{{ get_url(path='/') }}" aria-label="{{ config.extra.product }} documentation home">
+    <span class="brand-sun" aria-hidden="true"></span>
+    <span class="brand-word">{{ config.extra.product }}</span>
+    <span class="brand-docs">Docs</span>
+  </a>
+  <button class="search-open" type="button" aria-label="Search the documentation" data-search-open>
+    <svg aria-hidden="true" viewBox="0 0 20 20" width="16" height="16"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13 13l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    <span class="search-hint">Search</span>
+    <span class="keys"><kbd class="k-win">Ctrl</kbd><kbd class="k-mac">Cmd</kbd><kbd>K</kbd></span>
+  </button>
+  <div class="top-tools">
+    <div class="seg" role="group" aria-label="Keyboard shortcuts for">
+      <button type="button" data-platform-set="win">Windows</button>
+      <button type="button" data-platform-set="mac">macOS</button>
+    </div>
+    <button class="icon-btn" type="button" data-theme-toggle aria-label="Switch between dark and light">
+      <svg aria-hidden="true" viewBox="0 0 20 20" width="16" height="16"><path d="M10 2.5a7.5 7.5 0 1 0 0 15z" fill="currentColor"/><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+    </button>
+    <a class="site-link" href="{{ config.base_url }}/../">{{ config.extra.product }} home</a>
+  </div>
+  <button class="icon-btn nav-open" type="button" aria-label="Open the contents" aria-controls="side" aria-expanded="false" data-nav-toggle>
+    <svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+  </button>
+</header>
+<div class="shell{% block shell_class %}{% endblock shell_class %}">
+  <nav class="side" id="side" aria-label="Contents">{% include "partials/nav.html" %}</nav>
+  <main id="main" class="main" data-pagefind-body>
+    {% block content %}{% endblock content %}
+  </main>
+  {% block aside %}{% endblock aside %}
+</div>
+<footer class="foot">
+  <p>{{ config.extra.product }} has no released version yet. These pages describe it as built on {{ config.extra.built_on }} (milestone {{ config.extra.milestone }}).</p>
+  <p class="legal">VST is a registered trademark of Steinberg Media Technologies GmbH. ASIO is a trademark and software of Steinberg Media Technologies GmbH.</p>
+</footer>
+<div class="search-layer" hidden data-search-layer>
+  <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search the documentation">
+    <div id="search"></div>
+    <p class="search-foot"><kbd>Esc</kbd> to close · <kbd>↑</kbd><kbd>↓</kbd> to choose</p>
+  </div>
+</div>
+<script src="{{ get_url(path='pagefind/pagefind-ui.js') }}"></script>
+<script src="{{ get_url(path='docs.js') }}"></script>
+</body>
+</html>

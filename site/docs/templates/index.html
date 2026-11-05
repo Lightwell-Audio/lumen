@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+{#- The docs home (USER_DOCS.md §3.1, §9.3): what do you want to make,
+    with a moving picture on every card, then the ways in. -#}
+{% block shell_class %} is-home{% endblock shell_class %}
+{% block content %}
+{%- set landing = config.base_url ~ "/../" -%}
+<section class="hero">
+  <div class="hero-glow" aria-hidden="true"></div>
+  <div class="hero-rays" aria-hidden="true"></div>
+  <div class="hero-text">
+    <p class="hero-kicker">{{ config.extra.product }} documentation</p>
+    <h1 class="hero-title">{{ section.extra.headline | default(value=section.title) }}</h1>
+    <p class="hero-lede">{{ section.extra.lede }}</p>
+    <button class="hero-search" type="button" data-search-open>
+      <svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13 13l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span>{{ section.extra.search_hint }}</span>
+      <span class="keys"><kbd class="k-win">Ctrl</kbd><kbd class="k-mac">Cmd</kbd><kbd>K</kbd></span>
+    </button>
+  </div>
+  <img class="hero-lumi lumi" src="{{ landing }}assets/img/lumi-wave.webp" alt="" width="220" height="220">
+</section>
+
+<section class="goals" aria-labelledby="goals-title">
+  <h2 id="goals-title" class="band-title">{{ section.extra.goals_title }}</h2>
+  <ul class="goal-grid">
+  {%- for goal in section.extra.goals %}
+    <li class="goal" style="--area:var(--area-{{ goal.area }})">
+      {%- if goal.page %}<a class="goal-link" href="{{ get_url(path='@/' ~ goal.page) }}">{% else %}<span class="goal-link is-planned">{% endif %}
+        <span class="goal-media" data-hover-play>
+          {%- if goal.clip %}
+          {%- set base = get_url(path="media/" ~ goal.clip) %}
+          <video muted loop playsinline preload="none" poster="{{ base }}-dark.webp" data-dark="{{ base }}-dark.mp4" data-light="{{ base }}-light.mp4" data-dark-poster="{{ base }}-dark.webp" data-light-poster="{{ base }}-light.webp" aria-hidden="true"></video>
+          {%- else %}
+          <video muted loop playsinline preload="none" poster="{{ landing }}assets/video/{{ goal.video }}.webp" src="{{ landing }}assets/video/{{ goal.video }}.mp4" aria-hidden="true"></video>
+          {%- endif %}
+        </span>
+        <span class="goal-text">
+          <span class="goal-kind">{{ goal.kind }}</span>
+          <span class="goal-title">{{ goal.title }}</span>
+          <span class="goal-blurb">{{ goal.blurb }}</span>
+          {%- if not goal.page %}<span class="soon">Coming soon</span>{% endif %}
+        </span>
+      {%- if goal.page %}</a>{% else %}</span>{% endif %}
+    </li>
+  {%- endfor %}
+  </ul>
+</section>
+
+<section class="ways" aria-labelledby="ways-title">
+  <h2 id="ways-title" class="band-title">{{ section.extra.ways_title }}</h2>
+  <ul class="way-grid">
+  {%- for way in section.extra.ways %}
+    <li class="way" style="--area:var(--area-{{ way.area }})">
+      <span class="way-icon">{{ macros::icon(name=way.icon) }}</span>
+      <span class="way-title">{{ way.title }}</span>
+      <span class="way-blurb">{{ way.blurb }}</span>
+    </li>
+  {%- endfor %}
+  </ul>
+</section>
+
+<section class="welcome">
+  <img class="lumi" src="{{ get_url(path='img/lumi-celebrating.webp') }}" alt="" width="96" height="96" loading="lazy">
+  <div class="prose">{{ section.content | safe }}</div>
+</section>
+{% endblock content %}

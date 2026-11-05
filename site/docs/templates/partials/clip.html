@@ -1,0 +1,18 @@
+{#- One clip: `id`, `alt`, and optionally `caption`, `lead` and `focus`
+    (where the action is, across: phones zoom there) (see
+    shortcodes/clip.html). Shared by the clip and tryit shortcodes. -#}
+{%- if not alt %}{{ throw(message="clip " ~ id ~ " needs alt text") }}{% endif -%}
+{%- set base = get_url(path="media/" ~ id) -%}
+<figure class="clip{% if lead | default(value=false) %} is-lead{% endif %}" data-clip style="--focus:{{ focus | default(value='50%') }}">
+  <div class="clip-frame">
+    <video muted loop playsinline preload="none" poster="{{ base }}-dark.webp"
+      data-dark="{{ base }}-dark.mp4" data-light="{{ base }}-light.mp4"
+      data-dark-poster="{{ base }}-dark.webp" data-light-poster="{{ base }}-light.webp"
+      aria-label="{{ alt }}"></video>
+    <button class="clip-toggle" type="button" aria-label="Pause" data-clip-toggle>
+      <svg class="i-pause" aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><rect x="3" y="2.5" width="3.5" height="11" rx="1" fill="currentColor"/><rect x="9.5" y="2.5" width="3.5" height="11" rx="1" fill="currentColor"/></svg>
+      <svg class="i-play" aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><path d="M4 2.5v11l9.5-5.5z" fill="currentColor"/></svg>
+    </button>
+  </div>
+  {%- if caption | default(value="") %}<figcaption>{{ caption }}</figcaption>{% endif %}
+</figure>

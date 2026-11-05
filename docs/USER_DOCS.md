@@ -174,7 +174,7 @@ tables the app runs on. Each **command entry** shows the name, the area,
 the default shortcut on Windows and on macOS, the one-line "about" text from
 the table, where it is reached (palette, menu, context menu, bar), and a
 link to the guide page that explains it with a screenshot. The table's
-stable `id` is the entry's anchor (`/docs/reference/commands/#edit.split`),
+stable `id` is the entry's anchor (`/docs/reference/commands/#midi.split_notes`),
 so links never break when a command is renamed.
 
 The written part of the reference is the **interface map**: one annotated
@@ -206,7 +206,7 @@ the build and the tests read.
 title = "Split a clip"
 section = "editing"
 also = ["cut a clip", "slice", "razor"]        # synonyms, shown and searched
-actions = ["edit.split", "gesture.split_tool_click"]   # what this page covers
+actions = ["midi.split_notes", "gesture.split_tool_click"]   # what this page covers
 clips = ["split-lead", "split-tool-click", "split-range"]
 shots = ["split-before", "split-after"]
 +++
@@ -220,7 +220,7 @@ The two halves play exactly as the whole did.
 1. Select the clip.
    {{ shot(id="split-before", alt="An audio clip selected, the playhead across its middle") }}
 2. Move the playhead to where the cut goes.
-3. Press {{ keys(id="edit.split") }}.
+3. Press {{ keys(id="midi.split_notes") }}.
    {{ shot(id="split-after", alt="Two clips where there was one, the second selected") }}
 
 ## With the mouse
@@ -231,7 +231,8 @@ The two halves play exactly as the whole did.
 ...
 
 ## Good to know
-- Split never clicks: each new edge gets a short fade.
+- Splitting never changes the sound: the halves play back to back exactly
+  as the clip did.
 - {{ keys(id="edit.undo") }} puts the clip back in one step.
 
 Related: [Join clips](...), [Time-range selection](...)
@@ -267,7 +268,7 @@ The rules for a task page:
 
 | Kind | Source | Key |
 |---|---|---|
-| Command | `commands::ALL` | its `id` (`edit.split`) |
+| Command | `commands::ALL` | its `id` (`midi.split_notes`) |
 | Preference | `preferences::ROWS` | its id (`audio.driver`) |
 | Bar control and menu row | the lists in `tests/e2e/coverage.rs` | its accessible name |
 | Gesture | a new `site/docs/data/gestures.toml` (§5.2) | `gesture.<name>` |

@@ -46,6 +46,7 @@ embed-resource.workspace = true
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["eframe", "wgpu"] }
+image.workspace = true
 lumen-test-plugin = { path = "../lumen-test-plugin" }
 
 [lints]
