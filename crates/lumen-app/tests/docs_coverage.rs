@@ -383,6 +383,27 @@ fn every_gesture_names_its_scenario_and_its_clip() {
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
+/// The reader's words for commands (`data/also.toml`) name real commands,
+/// so a renamed or removed command does not leave its words behind.
+#[test]
+fn every_synonym_names_a_command() {
+    let text = fs::read_to_string(site().join("data/also.toml")).expect("also.toml reads");
+    let also: BTreeMap<String, Vec<String>> = toml::from_str(&text).expect("also.toml is valid");
+    let ids: BTreeSet<&str> = docs::commands().iter().map(|c| c.id).collect();
+    let unknown: Vec<&String> = also
+        .keys()
+        .filter(|id| !ids.contains(id.as_str()))
+        .collect();
+    assert!(
+        unknown.is_empty(),
+        "also.toml names no command: {unknown:?}"
+    );
+    assert!(
+        also.values().all(|words| !words.is_empty()),
+        "an also.toml entry has no words"
+    );
+}
+
 #[test]
 fn shortcode_arguments_are_read_from_calls_only() {
     let body = "A clip(id=\"no\") in prose.\n{{ clip(id=\"lead\", lead=true) }}\n\

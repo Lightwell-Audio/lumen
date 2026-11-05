@@ -27,8 +27,9 @@ exactly as before, so nothing you hear changes until you move them.
 
 ## With the keyboard
 
-1. Click the clip where you want the cut. The clip is selected and the
-   playhead jumps to that spot.
+1. With the song stopped, click the clip below its name bar, where you
+   want the cut. The clip is selected and the playhead jumps to that spot,
+   on the grid.
    {{ shot(id="split-before", focus="62%", alt="The Drums clip selected, with the playhead across it at bar 3") }}
 2. Press {{ keys(id="midi.split_notes") }}.
    {{ shot(id="split-after", focus="62%", alt="Two Drums clips where there was one, meeting at bar 3", callouts=["First half", "Second half"]) }}
@@ -36,7 +37,9 @@ exactly as before, so nothing you hear changes until you move them.
    {{ callout(n=2) }} begins.
 
 The cut lands on the playhead, so you can also split while the song plays:
-press {{ keys(id="midi.split_notes") }} at the moment you hear the spot.
+select the clip, then press {{ keys(id="midi.split_notes") }} at the moment
+you hear the spot. While the song plays, a click selects a clip without
+moving the playhead.
 
 {{ video(id="split-playing", alt="The song plays from bar 1. On bar 3, Ctrl+E cuts the selected Drums clip, and the song plays on without a break.", caption="Turn the sound on: the cut lands on the beat and nothing you hear changes.") }}
 
@@ -65,6 +68,9 @@ block.
   sound exactly like the clip did, with no click at the cut.
 - {{ keys(id="edit.undo") }} puts the clip back in one step.
 - Locked clips are left whole, even inside a range.
+- Nothing is cut when the playhead is outside the selected clip or right on
+  its edge. A click on the name bar puts the playhead at the clip's start,
+  so click below it.
 
 {% tip() %}
 Split on the beat, not by ear. Leave snapping on and the cut lands on the

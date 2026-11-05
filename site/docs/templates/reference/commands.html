@@ -7,6 +7,7 @@
 {% block generated %}
 {%- set data = load_data(path="data/commands.json") -%}
 {%- set controls = load_data(path="data/controls.json") -%}
+{%- set also = load_data(path="data/also.toml") -%}
 <div class="ref-filter" data-pagefind-ignore>
   <label for="ref-filter">Filter</label>
   <input id="ref-filter" type="search" placeholder="Type a name, a word or a key: split, loop, Ctrl+D…" autocomplete="off" data-ref-filter>
@@ -18,11 +19,16 @@
   <h2><span class="ref-dot" aria-hidden="true"></span>{{ area.name }} <span class="ref-n">{{ commands | length }}</span></h2>
   <ul class="ref-list">
   {%- for c in commands %}
-    <li class="ref-row" id="{{ c.id }}" data-ref-row data-ref-text="{{ c.name }} {{ c.about }} {% for k in c.keys %}{{ k | join(sep='+') }} {% endfor %}{% for k in c.keys_mac %}{{ k | join(sep='+') }} {% endfor %}">
+    {%- set words = also[c.id] | default(value=[]) %}
+    <li class="ref-row" data-ref-row data-ref-text="{{ c.name }} {{ c.about }} {{ words | join(sep=' ') }} {% for k in c.keys %}{{ k | join(sep='+') }} {% endfor %}{% for k in c.keys_mac %}{{ k | join(sep='+') }} {% endfor %}">
+      {#- A heading with the id: search results land on the entry. #}
       <div class="ref-head">
-        <a class="ref-name" href="#{{ c.id }}">{{ c.name }}</a>
+        <h3 class="ref-title" id="{{ c.id }}"><a class="ref-name" href="#{{ c.id }}">{{ c.name }}</a></h3>
         {%- if c.keys | length > 0 %}{{ macros::keycaps(command=c, all=true) }}{% else %}<span class="ref-nokeys">No default shortcut</span>{% endif %}
       </div>
+      {%- if words | length > 0 %}
+      <p class="ref-also" data-pagefind-weight="2">Also called {{ words | join(sep=", ") }}</p>
+      {%- endif %}
       <p class="ref-about">{{ c.about }}</p>
       {%- set places = controls.controls | filter(attribute="command", value=c.id) %}
       {%- set term = get_taxonomy_term(kind="actions", term=c.id, required=false) %}

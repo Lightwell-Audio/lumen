@@ -16,13 +16,22 @@
     table: both systems are written and the page shows the reader's. `all`
     shows every default chord, otherwise the first. -#}
 {% macro keycaps(command, all=false) -%}
-<span class="keys" title="{{ command.name }}">
+{#- The caps are drawn for the eye; the same chord is written as text
+    ("Ctrl+E") for screen readers and search. Only the Windows text is
+    indexed, so a search for either system's keys finds one entry. -#}
+{%- set_global win = [] -%}{%- set_global mac = [] -%}
 {%- for chord in command.keys %}{% if all or loop.first -%}
-{%- set mac = command.keys_mac[loop.index0] -%}
-{%- if not loop.first %}<span class="keys-or">or</span>{% endif -%}
-{#- A space between caps keeps search words apart (the flex row hides
-    it), and only the Windows caps are indexed. -#}
-{%- for cap in chord %}{% set other = mac[loop.index0] %}{% if other == cap %}<kbd>{{ cap }}</kbd>{% else %}<kbd class="k-win">{{ cap }}</kbd><kbd class="k-mac" data-pagefind-ignore>{{ other }}</kbd>{% endif %} {% endfor -%}
+{%- set_global win = win | concat(with=chord | join(sep="+")) -%}
+{%- set_global mac = mac | concat(with=command.keys_mac[loop.index0] | join(sep="+")) -%}
 {%- endif %}{% endfor -%}
-</span>
+<span class="keys" title="{{ command.name }}"> {# the space parts the words before it in search; the flex row hides it #}
+{%- if win == mac %}<span class="sr-only">{{ win | join(sep=" or ") }}</span>
+{%- else %}<span class="sr-only k-win">{{ win | join(sep=" or ") }}</span><span class="sr-only k-mac" data-pagefind-ignore>{{ mac | join(sep=" or ") }}</span>{% endif -%}
+<span class="keys-caps" aria-hidden="true" data-pagefind-ignore>
+{%- for chord in command.keys %}{% if all or loop.first -%}
+{%- set caps_mac = command.keys_mac[loop.index0] -%}
+{%- if not loop.first %}<span class="keys-or">or</span>{% endif -%}
+{%- for cap in chord %}{% set other = caps_mac[loop.index0] %}{% if other == cap %}<kbd>{{ cap }}</kbd>{% else %}<kbd class="k-win">{{ cap }}</kbd><kbd class="k-mac">{{ other }}</kbd>{% endif %}{% endfor -%}
+{%- endif %}{% endfor -%}
+</span></span>
 {%- endmacro keycaps %}

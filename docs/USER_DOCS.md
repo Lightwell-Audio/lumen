@@ -562,8 +562,10 @@ These run in `.github/workflows/docs.yml` (D0) on every pull request that
 touches `site/` or the app, since CI skips changes to Markdown alone. The
 scenes check runs each scene once in the dark theme and writes nothing
 (no `DOCS_MEDIA`); Zola's build checks internal links and their anchors.
-The built pages, without media, are kept as the run's `docs-site`
-artifact for the owner to look at before merging.
+The built pages, without media and with the landing page beside them,
+are kept as the run's `docs-site` artifact for the owner to look at
+before merging. They are built for `http://localhost:8123/docs`: unzip
+the artifact and serve the folder on that port (`site/docs/README.md`).
 
 ## 9. Look and voice
 

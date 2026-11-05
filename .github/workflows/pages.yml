@@ -28,8 +28,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # Outside target/, which the Rust cache cleans.
-  DOCS_MEDIA_CACHE: ${{ runner.temp }}/docs-media-cache
 
 jobs:
   deploy:
@@ -41,6 +39,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v5
+      # The encoded clips live outside target/, which the Rust cache cleans.
+      # (The runner context is not available in a workflow's env.)
+      - name: Where the encoded clips are kept
+        run: echo "DOCS_MEDIA_CACHE=$RUNNER_TEMP/docs-media-cache" >> "$GITHUB_ENV"
       # lavapipe (mesa-vulkan-drivers) renders the app; ffmpeg encodes its
       # clips. Neither ships with Lumen.
       - name: Install Linux system libraries and ffmpeg

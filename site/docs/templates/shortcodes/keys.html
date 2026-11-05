@@ -8,4 +8,4 @@
 {%- if found | length != 1 %}{{ throw(message="keys: no command with the id " ~ id) }}{% endif -%}
 {%- set command = found | first -%}
 {%- if command.keys | length == 0 %}{{ throw(message="keys: " ~ id ~ " has no default shortcut") }}{% endif -%}
-{{ macros::keycaps(command=command, all=all | default(value=false)) }}
+{{ macros::keycaps(command=command, all=all | default(value=false)) -}}

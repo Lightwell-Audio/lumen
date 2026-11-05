@@ -142,12 +142,11 @@ fn split_while_playing() {
     });
     // Time to read the caption before the next one.
     take.result(&mut h);
+    assert!(h.state().is_playing(), "Space plays the song");
     take.caption("On bar 3, press Ctrl+E. The clip is cut and the song plays on.");
     // The keys go down a beat before bar 3 shows, so they land on it.
     let lead = pace::KEYS_LEAD as f64 / pace::FPS as f64 * 2.0;
-    while h.state().playhead().as_quarters() < 8.0 - lead {
-        take.hold(&mut h, 1);
-    }
+    hold_until(&mut take, &mut h, 8.0 - lead);
     take.keys(&mut h, &caps("midi.split_notes"), |h| {
         h.key_press_modifiers(Modifiers::COMMAND, Key::E);
     });
@@ -157,9 +156,7 @@ fn split_while_playing() {
         "Ctrl+E split the clip"
     );
     assert!(h.state().is_playing(), "the song plays on");
-    while h.state().playhead().as_quarters() < 13.0 {
-        take.hold(&mut h, 1);
-    }
+    hold_until(&mut take, &mut h, 13.0);
     take.caption("Space stops it.");
     take.keys(&mut h, &caps("transport.play_stop"), |h| {
         h.key_press(Key::Space)
@@ -167,6 +164,22 @@ fn split_while_playing() {
     take.result(&mut h);
     take.finish();
     check("split_while_playing", started);
+}
+
+/// Films frames until the playhead reaches `quarters`, within ten seconds
+/// of video: a song that stopped or stalled fails the scene instead of
+/// filming forever.
+fn hold_until(take: &mut Take, h: &mut Harness<'static, App>, quarters: f64) {
+    for _ in 0..10 * pace::FPS {
+        if h.state().playhead().as_quarters() >= quarters {
+            return;
+        }
+        take.hold(h, 1);
+    }
+    panic!(
+        "the playhead stayed at {} quarters, short of {quarters}",
+        h.state().playhead().as_quarters()
+    );
 }
 
 /// A command's first default shortcut on Windows, as keycaps show it:

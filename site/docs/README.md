@@ -43,6 +43,7 @@ screenshots.
 | `data/commands.json`, `preferences.json`, `controls.json` | Every command (keys on both systems, area, about), Preferences row and bar or menu control | `build.sh`, through `cargo test -p lumen-app --test docs_data -- --ignored` with `DOCS_DATA=site/docs/data` (not committed) |
 | `data/tokens.json` | The design tokens | `build.sh`, from `docs/design-system/lumen-tokens.json` (not committed) |
 | `data/nav.toml` | The sidebar | hand |
+| `data/also.toml` | The reader's words for a command ("consolidate" for Join into new file), shown and searched on its entry; `docs_coverage` checks each id | hand |
 
 Link between pages as `@/guides/editing/split-a-clip.md#with-the-keyboard`:
 the build stops when such a page or anchor does not exist. A plain
@@ -54,8 +55,10 @@ the build stops when such a page or anchor does not exist. A plain
   app: `docs_coverage` and the name tests, every scene once in the dark
   theme without writing anything (no `DOCS_MEDIA`), and the build, which
   stops at a wrong shortcode, missing alt text, an unknown key or a broken
-  internal link. The built pages are kept as the run's `docs-site`
-  artifact.
+  internal link. The built pages, with the landing page beside them and
+  without media, are kept as the run's `docs-site` artifact: unzip it and
+  serve the folder with `python3 -m http.server 8123`, then open
+  `http://localhost:8123/docs/`.
 - `.github/workflows/pages.yml`, on `main`: renders every scene in both
   themes, builds the docs into `docs/` beside the landing page and
   publishes both.
