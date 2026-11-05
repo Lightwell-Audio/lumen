@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}{{ config.title }}{% endblock title %}</title>
 <meta name="description" content="{% block description %}{{ config.description }}{% endblock description %}">
+{%- if current_url %}<link rel="canonical" href="{{ current_url | safe }}">{% endif %}
 <link rel="icon" href="{{ config.base_url }}/../favicon.svg" type="image/svg+xml">
 <script>
   // Before the first paint: the reader's theme and keyboard choices (a

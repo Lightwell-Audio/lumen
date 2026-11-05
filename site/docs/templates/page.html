@@ -5,7 +5,7 @@
 {%- set area = page.extra.area | default(value="edit") -%}
 <article class="doc" style="--area:var(--area-{{ area }})">
   <nav class="crumbs" aria-label="You are here">
-    {%- for ancestor in page.ancestors %}{% set s = get_section(path=ancestor, metadata_only=true) %}{% if not loop.first %}<a href="{{ s.permalink }}">{{ s.title }}</a><span aria-hidden="true">/</span>{% endif %}{% endfor %}
+    {%- for ancestor in page.ancestors %}{% set s = get_section(path=ancestor, metadata_only=true) %}{% if not loop.first %}{% if loop.index > 2 %}<span aria-hidden="true">/</span>{% endif %}<a href="{{ s.permalink }}">{{ s.title }}</a>{% endif %}{% endfor %}
   </nav>
   <header class="doc-head">
     <p class="doc-kind"><span class="area-chip">{{ page.extra.kind | default(value="Guide") }}</span>{% if page.extra.minutes %}<span class="doc-time">About {{ page.extra.minutes }} minutes</span>{% endif %}</p>

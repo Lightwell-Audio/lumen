@@ -10,7 +10,7 @@
 //! request learns quickly that a scene can no longer reach its state.
 
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::hash::{DefaultHasher, Hasher};
 use std::io::{BufWriter, Write as _};
@@ -75,13 +75,23 @@ pub fn themes() -> &'static [&'static str] {
 }
 
 thread_local! {
-    /// The files this thread's scene wrote, for [`written`].
+    /// The files this thread's scene wrote, or would write when it only
+    /// checks, for [`written`].
     static WRITTEN: RefCell<BTreeSet<String>> = RefCell::default();
+    /// The controls marked on each of its screenshots, for [`marked`].
+    static MARKED: RefCell<BTreeMap<String, Vec<String>>> = RefCell::default();
 }
 
-/// The files written since the last call, by name.
+/// The files written since the last call, by name. A scene that only checks
+/// names the files it would have written, so a scene that drifts from
+/// `scenes.rs` fails on the pull request, not at the deploy.
 pub fn written() -> BTreeSet<String> {
     WRITTEN.with(|w| std::mem::take(&mut *w.borrow_mut()))
+}
+
+/// The controls marked on each screenshot since the last call.
+pub fn marked() -> BTreeMap<String, Vec<String>> {
+    MARKED.with(|m| std::mem::take(&mut *m.borrow_mut()))
 }
 
 fn wrote(path: &Path) {
@@ -90,6 +100,10 @@ fn wrote(path: &Path) {
         .expect("a file")
         .to_string_lossy()
         .into_owned();
+    would_write(name);
+}
+
+fn would_write(name: String) {
     WRITTEN.with(|w| w.borrow_mut().insert(name));
 }
 
@@ -105,7 +119,15 @@ pub fn still(
     callouts: &[(&str, Rect)],
 ) {
     h.run_steps(6);
+    MARKED.with(|m| {
+        let names = callouts.iter().map(|(name, _)| (*name).to_owned());
+        m.borrow_mut().insert(id.to_owned(), names.collect())
+    });
     if !rendering() {
+        would_write(format!("{id}-{theme}.webp"));
+        if !callouts.is_empty() {
+            would_write(format!("{id}.callouts.json"));
+        }
         return;
     }
     let mut image = h.render().expect("render");
@@ -175,8 +197,8 @@ pub struct Take {
 /// is exactly what played while its frames showed.
 struct Clock {
     device: InputDeviceTurn,
-    /// The device's pace before the take, put back after it.
-    was: Option<Pace>,
+    /// The device's pace and delivery before the take, put back after it.
+    was: (Option<Pace>, u32),
     /// Blocks granted since the take began, and the frames heard of them.
     granted: u64,
     heard: u64,
@@ -184,17 +206,28 @@ struct Clock {
 
 impl Clock {
     fn start(h: &mut Harness<'static, App>, device: InputDeviceTurn) -> Self {
-        let mut was = None;
+        let mut was = (None, 1);
         device.set(|d| {
-            was = d.pace;
+            was = (d.pace, d.deliver_every);
             d.pace = Some(Pace::Every(Duration::from_micros(1)));
             d.allowance = Some(0);
             d.deliver_every = 1;
         });
-        // What played before the take, still on its way, is not part of it.
-        std::thread::sleep(Duration::from_millis(50));
+        // What played before the take, still on its way, is not part of
+        // it: drained until the device has been quiet for five of its polls.
         h.run_steps(2);
-        h.state_mut().heard();
+        let started = Instant::now();
+        let mut quiet_since = Instant::now();
+        while quiet_since.elapsed() < Duration::from_millis(50) {
+            assert!(
+                started.elapsed() < Duration::from_secs(20),
+                "the test device kept playing after it was held"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+            if !h.state_mut().heard().is_empty() {
+                quiet_since = Instant::now();
+            }
+        }
         Self {
             device,
             was,
@@ -233,9 +266,10 @@ impl Clock {
 
     /// Lets the device run freely again.
     fn stop(&self) {
-        let was = self.was;
+        let (pace, deliver_every) = self.was;
         self.device.set(|d| {
-            d.pace = was;
+            d.pace = pace;
+            d.deliver_every = deliver_every;
             d.allowance = None;
         });
     }
@@ -465,6 +499,12 @@ impl Take {
             sound.check_captions(self.frames);
         }
         let Some(mut raw) = self.raw.take() else {
+            would_write(format!("{}.mp4", self.name));
+            would_write(format!("{}.webp", self.name));
+            if self.sound.is_some() {
+                would_write(format!("{}.captions.vtt", self.name));
+                would_write(format!("{}.chapters.vtt", self.name));
+            }
             return;
         };
         raw.flush().expect("write the frames");
@@ -472,6 +512,12 @@ impl Take {
         let (w, h) = self.size;
         let filters = self.keycap_filters();
         self.hash.write(filters.as_bytes());
+        // How it is encoded, and by which ffmpeg: a change to either makes
+        // the clips again.
+        for setting in VIDEO.iter().chain(&AUDIO).chain(&POSTER) {
+            self.hash.write(setting.as_bytes());
+        }
+        self.hash.write(ffmpeg_version().as_bytes());
         let dir = media_dir();
         let outputs = [format!("{}.mp4", self.name), format!("{}.webp", self.name)];
         let mut pcm = None;
@@ -509,14 +555,9 @@ impl Take {
             if !filters.is_empty() {
                 args.extend(["-vf".into(), filters.clone()]);
             }
-            args.extend(
-                [
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "slow", "-crf", "24",
-                ]
-                .map(String::from),
-            );
+            args.extend(VIDEO.map(String::from));
             if pcm.is_some() {
-                args.extend(["-c:a", "aac", "-b:a", "128k", "-shortest"].map(String::from));
+                args.extend(AUDIO.map(String::from));
             } else {
                 args.push("-an".into());
             }
@@ -528,7 +569,7 @@ impl Take {
             });
             // The poster is the last frame: the result.
             let mut args = raw_input(w, h, None);
-            args.extend(["-frames:v", "1", "-c:v", "libwebp", "-quality", "85"].map(String::from));
+            args.extend(POSTER.map(String::from));
             ffmpeg(&args, &dir.join(&outputs[1]), |stdin| {
                 stdin.write_all(&self.last).expect("write the poster");
             });
@@ -718,9 +759,32 @@ pub fn media_dir() -> PathBuf {
     dir
 }
 
-/// Encoded clips by the hash of their frames, sound and keycaps.
+/// Encoded clips by the hash of their frames, sound, keycaps and encoding:
+/// `DOCS_MEDIA_CACHE`, or `target/docs-media-cache`. The deploy keeps it
+/// outside `target/`, which the Rust cache cleans.
 fn cache_dir() -> PathBuf {
-    repo().join("target/docs-media-cache")
+    std::env::var_os("DOCS_MEDIA_CACHE")
+        .map_or_else(|| repo().join("target/docs-media-cache"), PathBuf::from)
+}
+
+/// A clip's video and sound, and its poster, as ffmpeg encodes them (§6.4).
+const VIDEO: [&str; 8] = [
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "slow", "-crf", "24",
+];
+const AUDIO: [&str; 5] = ["-c:a", "aac", "-b:a", "128k", "-shortest"];
+const POSTER: [&str; 6] = ["-frames:v", "1", "-c:v", "libwebp", "-quality", "85"];
+
+/// The first line of `ffmpeg -version`.
+fn ffmpeg_version() -> String {
+    let out = Command::new("ffmpeg")
+        .arg("-version")
+        .output()
+        .expect("ffmpeg on the PATH");
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .to_owned()
 }
 
 fn ffmpeg(args: &[String], out: &Path, feed: impl FnOnce(&mut std::process::ChildStdin)) {

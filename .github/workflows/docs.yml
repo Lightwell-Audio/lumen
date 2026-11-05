@@ -13,6 +13,9 @@ on:
       - "Cargo.lock"
       - ".github/workflows/docs.yml"
 
+permissions:
+  contents: read
+
 concurrency:
   group: docs-${{ github.ref }}
   cancel-in-progress: true
@@ -27,6 +30,23 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # undocumented.txt only shrinks (§5.3): a new action gets a page, not
+      # a line here. Skipped while the base branch has no such file.
+      - name: The undocumented list only shrinks
+        run: |
+          list=site/docs/data/undocumented.txt
+          base="origin/${{ github.base_ref }}"
+          if before=$(git show "$base:$list" 2>/dev/null); then
+            added=$(comm -13 <(printf '%s\n' "$before" | sort -u) <(sort -u "$list") \
+              | grep -v -e '^#' -e '^[[:space:]]*$' || true)
+            if [ -n "$added" ]; then
+              echo "::error file=$list::undocumented.txt only shrinks; give these a page instead:"
+              echo "$added"
+              exit 1
+            fi
+          fi
       # mesa-vulkan-drivers is lavapipe: the scenes run the app on a
       # software Vulkan device, as the E2E suite does.
       - name: Install Linux system libraries

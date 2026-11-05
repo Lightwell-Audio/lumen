@@ -10,7 +10,8 @@ The screenshots and clips come from the app (needs a GPU, a software
 Vulkan one is enough, and ffmpeg; on a machine without a display, run it
 under `xvfb-run -a`). They are not committed: render them once, and again
 when a scene or what it shows changes. Unchanged clips come from
-`target/docs-media-cache` and are not encoded again.
+`target/docs-media-cache` (or `DOCS_MEDIA_CACHE`) and are not encoded
+again.
 
 ```bash
 DOCS_MEDIA=site/docs/static/media cargo test -p lumen-app --test docs_media -- --ignored --test-threads=1

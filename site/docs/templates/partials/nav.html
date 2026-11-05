@@ -5,6 +5,11 @@
 
 <div class="nav-search">
   <button type="button" class="nav-search-btn" data-search-open>Search or press <span class="keys"><kbd class="k-win">Ctrl</kbd><kbd class="k-mac">Cmd</kbd><kbd>K</kbd></span></button>
+  <div class="seg" role="group" aria-label="Keyboard shortcuts for">
+    <button type="button" data-platform-set="win">Windows</button>
+    <button type="button" data-platform-set="mac">macOS</button>
+  </div>
+  <a class="nav-home" href="{{ config.base_url }}/../">{{ config.extra.product }} home</a>
 </div>
 {%- for group in nav.group %}
 <section class="nav-group" style="--area:var(--area-{{ group.area }})">

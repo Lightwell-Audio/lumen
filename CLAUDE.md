@@ -529,7 +529,7 @@ per slice and move what is no longer current out of it.
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status and the milestone reports.
 - `docs/DECISIONS.md`: ADR-0001 to ADR-0119 and the table of owner decisions.
-- `docs/USER_DOCS.md`: the user documentation strategy (proposed).
+- `docs/USER_DOCS.md`: the user documentation strategy (accepted, ADR-0119).
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
 - `docs/KNOWN_ISSUES.md`, `docs/ARCHITECTURE.md` (crates, threads, module

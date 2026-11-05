@@ -47,23 +47,24 @@ press {{ keys(id="midi.split_notes") }} at the moment you hear the spot.
 1. Press {{ keys(id="view.tool_split") }}, or choose **Split** from the tool
    switch above the track headers.
 2. Click a clip where the cut goes. It snaps to the grid as you aim;
-   hold <kbd class="k-win">Alt</kbd><kbd class="k-mac">Option</kbd> to cut
+   hold <kbd class="k-win">Alt</kbd><kbd class="k-mac" data-pagefind-ignore>Option</kbd> to cut
    anywhere.
 3. Press <kbd>Esc</kbd> to go back to the pointer.
 
 ## On a time range
 
-Drag across the lower half of a clip, or across empty lanes, to select a
-time range. Then press
-{{ keys(id="midi.split_notes") }}. Every clip the range crosses is cut at both
-of its edges, ready to move, mute or delete as one block.
+Drag across a clip below its name bar, or across empty lanes, to select a
+time range. Drag up or down as well to take in more tracks. Then press
+{{ keys(id="midi.split_notes") }}. Every clip the range crosses on those
+tracks is cut at both of its edges, ready to move, mute or delete as one
+block.
 
 ## Good to know
 
 - Splitting never changes the sound. Played back to back, the two halves
   sound exactly like the clip did, with no click at the cut.
 - {{ keys(id="edit.undo") }} puts the clip back in one step.
-- Locked clips are left whole.
+- Locked clips are left whole, even inside a range.
 
 {% tip() %}
 Split on the beat, not by ear. Leave snapping on and the cut lands on the

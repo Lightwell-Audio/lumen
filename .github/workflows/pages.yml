@@ -28,6 +28,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Outside target/, which the Rust cache cleans.
+  DOCS_MEDIA_CACHE: ${{ runner.temp }}/docs-media-cache
 
 jobs:
   deploy:
@@ -62,7 +64,7 @@ jobs:
       - name: Restore the encoded clips
         uses: actions/cache@v4
         with:
-          path: target/docs-media-cache
+          path: ${{ runner.temp }}/docs-media-cache
           key: docs-media-${{ github.run_id }}
           restore-keys: docs-media-
       # Screenshots, clips and walkthroughs from the real app, in both
@@ -76,13 +78,13 @@ jobs:
       # gone; dropping them keeps the cache to one set of clips.
       - name: Drop unused encoded clips
         run: |
-          for entry in target/docs-media-cache/*/; do
+          for entry in "$DOCS_MEDIA_CACHE"/*/; do
             [ -e "$entry" ] || continue
             if [ ! "${entry}used" -nt "$RUNNER_TEMP/render-started" ]; then
               rm -rf "$entry"
             fi
           done
-          du -sh target/docs-media-cache site/docs/static/media
+          du -sh "$DOCS_MEDIA_CACHE" site/docs/static/media
       # The landing page as it is, and the docs built into docs/ beside it.
       - name: Build the site
         run: |

@@ -198,20 +198,14 @@ fn arrangement(h: &Harness<'static, App>) -> Rect {
     )
 }
 
-/// Checks that scene `test` wrote exactly what `scenes.rs` lists, and says
-/// how long it took and how big its files are (§6.4).
+/// Checks that scene `test` wrote exactly what `scenes.rs` lists, and
+/// marked the controls it lists (both also when the scene only checks), and
+/// says how long it took and how big its files are (§6.4).
 fn check(test: &str, started: Instant) {
     let scene = scenes::SCENES
         .iter()
         .find(|s| s.test == test)
         .unwrap_or_else(|| panic!("{test} is listed in tests/shared/scenes.rs"));
-    if !recorder::rendering() {
-        eprintln!(
-            "{test}: checked in {:.1} s",
-            started.elapsed().as_secs_f64()
-        );
-        return;
-    }
     let mut expected = BTreeSet::new();
     for theme in recorder::themes() {
         for c in scene.clips {
@@ -227,22 +221,34 @@ fn check(test: &str, started: Instant) {
             expected.insert(format!("{w}.{ext}"));
         }
     }
+    for (shot, _) in scene.callouts {
+        expected.insert(format!("{shot}.callouts.json"));
+    }
     let written = recorder::written();
-    let callouts: BTreeSet<String> = scene
-        .shots
-        .iter()
-        .map(|s| format!("{s}.callouts.json"))
-        .collect();
     let missing: Vec<_> = expected.difference(&written).collect();
-    let unlisted: Vec<_> = written
-        .iter()
-        .filter(|w| !expected.contains(*w) && !callouts.contains(*w))
-        .collect();
+    let unlisted: Vec<_> = written.difference(&expected).collect();
     assert!(
         missing.is_empty() && unlisted.is_empty(),
         "{test}: scenes.rs lists {missing:?} but the scene did not write them; \
          it wrote {unlisted:?}, which scenes.rs does not list"
     );
+    for (shot, names) in recorder::marked() {
+        let listed: Vec<String> = scenes::callouts(&shot)
+            .iter()
+            .map(|n| (*n).to_owned())
+            .collect();
+        assert_eq!(
+            names, listed,
+            "{test}: the controls marked on {shot}, against scenes.rs"
+        );
+    }
+    if !recorder::rendering() {
+        eprintln!(
+            "{test}: checked in {:.1} s",
+            started.elapsed().as_secs_f64()
+        );
+        return;
+    }
     let dir = recorder::media_dir();
     let mut total = 0;
     for name in &written {

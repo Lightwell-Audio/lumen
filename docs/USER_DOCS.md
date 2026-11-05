@@ -404,8 +404,9 @@ would have:
   frame whichever machine renders it and however slowly, so a scene makes
   the same frames on every run. The meters fall by egui's input clock for
   the same reason (the wall clock in the app, the harness's steps here).
-- **Sound for walkthroughs.** The recorder takes what that device played
-  from the export tap and lays it under the video, so the song moves on
+- **Sound for walkthroughs.** The recorder takes what that device played,
+  its whole output as a listener hears it (`App::heard` in the test API),
+  and lays it under the video, so the song moves on
   exactly as much as is heard. Each walkthrough checks that its first
   sound comes with the first playing frame and that the playhead keeps to
   the video's time, both within two frames, and that every caption shows
@@ -539,7 +540,8 @@ pull request.
 4. Publish `site/` with the docs at `/docs/`, by the existing Pages
    workflow, which gains these steps and runs when `site/**` or the app's
    sources change on `main` (`.github/workflows/pages.yml`, D0; the
-   encoded clips are kept in the Actions cache between deploys).
+   encoded clips are kept in the Actions cache between deploys, outside
+   `target/`, which the Rust cache cleans).
 
 The docs share the landing page's stylesheet and fonts, and take their
 tokens from `docs/design-system/lumen-tokens.json` at build time (§9.1).
@@ -549,8 +551,9 @@ The look is pitched as rendered specimens before it is built (§9.5).
 
 | Check | Fails when |
 |---|---|
-| `docs_coverage` | an action has no page, a page names a missing action or shot, or `undocumented.txt` grows (§5.3) |
-| Scenes, one theme at 1×, without encoding | a scene cannot reach its state (fast; the full set renders and encodes at deploy) |
+| `docs_coverage` | an action has no page, a page names a missing action or shot, or marks a control its scene does not record |
+| The undocumented list | `undocumented.txt` gains a line against the base branch (§5.3; a step in `docs.yml`) |
+| Scenes, once in the dark theme, without rendering | a scene cannot reach its state, or would write or mark other than `scenes.rs` lists (fast; the full set renders and encodes at deploy) |
 | Build | a shortcode is wrong, a shot has no alt text, or a key id is unknown |
 | Links | an internal link or anchor is broken |
 | Product-neutral names | a page names another product (`tests/third_party_names.rs`, extended to `site/docs/`) |
@@ -800,7 +803,13 @@ what is covered.
   - the render-time choice (§13; the recommendation is A);
   - the side-by-side with a render made on Windows;
   - the owner's look at the built pages, in both themes and at phone
-    width.
+    width;
+  - a link to `/docs/` from the landing page. It changes the landing
+    page's look, so it waits for the owner;
+  - the Preferences reference is an index (each setting, its page, the
+    words that find it, and a link to its guide). Saying what each
+    setting does needs an `about` on `preferences::Row`; that comes with
+    the Preferences guides in D1.
 - **Live:** `/docs/` goes live when the owner merges this branch to
   `main`. The repository's Pages source must be set to "GitHub Actions"
   once (§8.2).

@@ -13,7 +13,7 @@ zola="${ZOLA:-zola}"
 # Zola reads data only inside its folder: copy in what the app owns, and
 # export the app's tables (commands, preferences, controls; §5.1).
 cp "$repo/docs/design-system/lumen-tokens.json" "$here/data/tokens.json"
-(cd "$repo" && DOCS_DATA=site/docs/data cargo test -q -p lumen-app --test docs_data -- --ignored)
+(cd "$repo" && DOCS_DATA=site/docs/data cargo test -q --locked -p lumen-app --test docs_data -- --ignored)
 
 rm -rf "$out/docs"
 (cd "$here" && "$zola" build --base-url "$base" --output-dir "$out/docs")

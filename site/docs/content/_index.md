@@ -44,6 +44,7 @@ title = "Every command, one search away"
 blurb = "Press Ctrl+K in Lumen, or browse them all here."
 area = "view"
 video = "palette"
+page = "reference/commands.md"
 
 [[extra.goals]]
 kind = "Recipe"
@@ -63,6 +64,7 @@ icon = "guide"
 title = "Guides"
 blurb = "One task a page, in the order you need them."
 area = "edit"
+page = "guides/_index.md"
 
 [[extra.ways]]
 icon = "recipe"
@@ -75,6 +77,7 @@ icon = "keys"
 title = "Commands and shortcuts"
 blurb = "All of them, for Windows and macOS."
 area = "view"
+page = "reference/commands.md"
 
 [[extra.ways]]
 icon = "map"

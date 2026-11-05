@@ -170,8 +170,9 @@ fn markdown(dir: &Path, into: &mut Vec<PathBuf>) {
     }
 }
 
-/// The values of `key="…"` in the body's calls to the shortcode `name`.
-fn shortcode_args(body: &str, name: &str, key: &str) -> Vec<String> {
+/// The arguments of each of the body's calls to the shortcode `name`: from
+/// `name(` to the `)` that closes it, outside quoted text.
+fn calls<'a>(body: &'a str, name: &str) -> Vec<&'a str> {
     let open = format!("{name}(");
     let mut found = Vec::new();
     for (at, _) in body.match_indices(&open) {
@@ -180,24 +181,63 @@ fn shortcode_args(body: &str, name: &str, key: &str) -> Vec<String> {
         if !(before.ends_with("{{") || before.ends_with("{%")) {
             continue;
         }
-        let call = &body[at..];
-        let call = &call[..call.find(')').unwrap_or(call.len())];
-        let needle = format!("{key}=\"");
-        if let Some(start) = call.find(&needle) {
-            let value = &call[start + needle.len()..];
-            found.push(value[..value.find('"').unwrap_or(value.len())].to_owned());
-        }
+        let args = &body[at + open.len()..];
+        let mut quoted = false;
+        let end = args
+            .char_indices()
+            .find(|&(_, c)| {
+                if c == '"' {
+                    quoted = !quoted;
+                }
+                c == ')' && !quoted
+            })
+            .map_or(args.len(), |(i, _)| i);
+        found.push(&args[..end]);
     }
     found
 }
 
+/// The value of `key="…"` in a call's arguments.
+fn arg(call: &str, key: &str) -> Option<String> {
+    let needle = format!("{key}=\"");
+    let mut from = 0;
+    // A key, not the end of a longer one (`id` in `grid="…"`).
+    while let Some(start) = call[from..].find(&needle).map(|i| i + from) {
+        let before = call[..start].chars().next_back();
+        if before.is_none_or(|c| c == ' ' || c == ',' || c == '(') {
+            let value = &call[start + needle.len()..];
+            return Some(value[..value.find('"').unwrap_or(value.len())].to_owned());
+        }
+        from = start + needle.len();
+    }
+    None
+}
+
+/// The values of `key="…"` in the body's calls to the shortcode `name`.
+fn shortcode_args(body: &str, name: &str, key: &str) -> Vec<String> {
+    calls(body, name)
+        .into_iter()
+        .filter_map(|call| arg(call, key))
+        .collect()
+}
+
 /// Whether the body has a call to the shortcode `name` with `arg` in it.
 fn has_call_with(body: &str, name: &str, arg: &str) -> bool {
-    let open = format!("{name}(");
-    body.match_indices(&open).any(|(at, _)| {
-        let call = &body[at..];
-        call[..call.find(')').unwrap_or(call.len())].contains(arg)
-    })
+    calls(body, name).iter().any(|call| call.contains(arg))
+}
+
+/// The names in a call's `callouts=["…", "…"]`.
+fn callout_names(call: &str) -> Vec<String> {
+    let Some(start) = call.find("callouts=[") else {
+        return Vec::new();
+    };
+    let list = &call[start + "callouts=[".len()..];
+    let list = &list[..list.find(']').unwrap_or(list.len())];
+    list.split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_owned)
+        .collect()
 }
 
 /// The page kinds that teach a task, and so need pictures.
@@ -293,6 +333,18 @@ fn every_task_page_shows_the_move_and_every_picture_has_a_scene() {
                 problems.push(format!("{at} shows the shot {shot}, which no scene makes"));
             }
         }
+        for call in calls(&page.body, "shot") {
+            let id = arg(call, "id").unwrap_or_default();
+            let recorded = scenes::callouts(&id);
+            for name in callout_names(call) {
+                if !recorded.contains(&name.as_str()) {
+                    problems.push(format!(
+                        "{at} marks \"{name}\" on the shot {id}, which its scene does not \
+                         record (tests/shared/scenes.rs)"
+                    ));
+                }
+            }
+        }
         match page.kind.as_str() {
             "Guide" if !has_call_with(&page.body, "clip", "lead=true") => {
                 problems.push(format!("{at}: a guide opens with a lead clip"));
@@ -338,4 +390,14 @@ fn shortcode_arguments_are_read_from_calls_only() {
     assert_eq!(shortcode_args(body, "clip", "id"), ["lead"]);
     assert_eq!(shortcode_args(body, "tryit", "answer"), ["answer"]);
     assert!(has_call_with(body, "clip", "lead=true"));
+}
+
+#[test]
+fn a_bracket_in_quoted_text_does_not_end_a_call() {
+    let body = "{{ shot(alt=\"Two clips (cut)\", id=\"after\", callouts=[\"First\", \"Second\"]) }}\n\
+                {{ clip(alt=\"A (lead)\", lead=true, grid=\"x\", id=\"lead\") }}";
+    assert_eq!(shortcode_args(body, "shot", "id"), ["after"]);
+    assert_eq!(shortcode_args(body, "clip", "id"), ["lead"]);
+    assert!(has_call_with(body, "clip", "lead=true"));
+    assert_eq!(callout_names(calls(body, "shot")[0]), ["First", "Second"]);
 }

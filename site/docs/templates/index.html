@@ -51,9 +51,13 @@
   <h2 id="ways-title" class="band-title">{{ section.extra.ways_title }}</h2>
   <ul class="way-grid">
   {%- for way in section.extra.ways %}
-    <li class="way" style="--area:var(--area-{{ way.area }})">
+    <li class="way{% if way.page %} is-live{% endif %}" style="--area:var(--area-{{ way.area }})">
       <span class="way-icon">{{ macros::icon(name=way.icon) }}</span>
+      {%- if way.page %}
+      <a class="way-title" href="{{ get_url(path='@/' ~ way.page) }}">{{ way.title }}</a>
+      {%- else %}
       <span class="way-title">{{ way.title }}</span>
+      {%- endif %}
       <span class="way-blurb">{{ way.blurb }}</span>
     </li>
   {%- endfor %}

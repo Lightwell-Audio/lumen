@@ -20,7 +20,9 @@
 {%- for chord in command.keys %}{% if all or loop.first -%}
 {%- set mac = command.keys_mac[loop.index0] -%}
 {%- if not loop.first %}<span class="keys-or">or</span>{% endif -%}
-{%- for cap in chord %}{% set other = mac[loop.index0] %}{% if other == cap %}<kbd>{{ cap }}</kbd>{% else %}<kbd class="k-win">{{ cap }}</kbd><kbd class="k-mac">{{ other }}</kbd>{% endif %}{% endfor -%}
+{#- A space between caps keeps search words apart (the flex row hides
+    it), and only the Windows caps are indexed. -#}
+{%- for cap in chord %}{% set other = mac[loop.index0] %}{% if other == cap %}<kbd>{{ cap }}</kbd>{% else %}<kbd class="k-win">{{ cap }}</kbd><kbd class="k-mac" data-pagefind-ignore>{{ other }}</kbd>{% endif %} {% endfor -%}
 {%- endif %}{% endfor -%}
 </span>
 {%- endmacro keycaps %}
