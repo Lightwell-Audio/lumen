@@ -511,9 +511,13 @@ per slice and move what is no longer current out of it.
   time per frame, so a second run makes the same frames: anything drawn
   from the wall clock in the arrangement breaks that (the meters now use
   egui's input time). Headless Chromium has no H.264, so screenshots of
-  the site show a frame of each clip. Waiting for the owner: the
-  render-time choice (USER_DOCS.md §13, recommended A) and the look at the
-  built pages.
+  the site show a frame of each clip. Render time: owner chose A
+  (2026-11-05); a deploy renders only scenes whose fingerprint
+  (`plan_the_render` in `tests/docs_coverage.rs`) differs from the
+  published `docs/media/manifest.json` and fetches the rest; "Run
+  workflow" renders all in parallel jobs (USER_DOCS.md §13). Checked on
+  Windows; meter E2E reads levels on a fresh frame (`listen`). Waiting for
+  the owner: the look at the built pages, the landing-page link.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

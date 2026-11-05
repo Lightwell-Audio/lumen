@@ -51,13 +51,10 @@ fn shown(path: &Path) -> String {
 struct Gesture {
     id: String,
     /// Where it happens: "arrangement", "piano roll", "device card".
-    #[allow(dead_code, reason = "read by the site, checked for presence")]
     place: String,
     /// The input: "drag", "Alt+drag", "double-click".
-    #[allow(dead_code, reason = "read by the site, checked for presence")]
     input: String,
     /// What it does, in one sentence.
-    #[allow(dead_code, reason = "read by the site, checked for presence")]
     does: String,
     /// The E2E scenario that covers it: a test function in `tests/e2e/`.
     scenario: String,
@@ -421,4 +418,280 @@ fn a_bracket_in_quoted_text_does_not_end_a_call() {
     assert_eq!(shortcode_args(body, "clip", "id"), ["lead"]);
     assert!(has_call_with(body, "clip", "lead=true"));
     assert_eq!(callout_names(calls(body, "shot")[0]), ["First", "Second"]);
+}
+
+// ---- What the deploy renders (USER_DOCS.md §13, the owner's choice A) ----
+//
+// The deploy renders a scene again only when what it is made from changed
+// since the published site: its own function in `tests/docs_media/main.rs`,
+// the code every scene shares (the rest of that folder), its entry in
+// `scenes.rs`, the pages that show its media, and the gestures that name its
+// clips. The app's own code is left out on purpose: between milestones a
+// picture may show the interface as it was, and the full render at each
+// milestone's docs pass (§10.2) brings every picture up to date.
+
+/// Raised to render every scene again at the next deploy.
+const RENDER_EPOCH: u64 = 1;
+
+/// FNV-1a, 64 bits: the same on every machine and toolchain, unlike
+/// `DefaultHasher`, so the deploy compares fingerprints made on other runs.
+#[derive(Clone)]
+struct Fnv(u64);
+
+impl Fnv {
+    fn new() -> Self {
+        Self(0xcbf2_9ce4_8422_2325)
+    }
+
+    /// Adds `text`, ending it so that "ab" + "c" differs from "a" + "bc".
+    /// Line ends count as `\n` (a Windows checkout writes `\r\n`).
+    fn text(&mut self, text: &str) {
+        for byte in text.bytes().filter(|&b| b != b'\r').chain([0xff]) {
+            self.0 ^= u64::from(byte);
+            self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+
+    fn finish(&self) -> String {
+        format!("{:016x}", self.0)
+    }
+}
+
+/// Where the scene `test` is in the scene target's `main.rs`: its doc
+/// comment, attributes and function.
+fn scene_span(main: &str, test: &str) -> Option<std::ops::Range<usize>> {
+    let head = format!("\nfn {test}() {{\n");
+    let fn_at = main.find(&head)? + 1;
+    let end = fn_at + main[fn_at..].find("\n}\n")? + "\n}\n".len();
+    let mut start = fn_at;
+    while let Some(line_start) = main[..start - 1].rfind('\n').map(|i| i + 1) {
+        let line = main[line_start..start - 1].trim_start();
+        if !(line.starts_with("///") || line.starts_with("#[")) {
+            break;
+        }
+        start = line_start;
+    }
+    Some(start..end)
+}
+
+/// The scene target's sources with line ends as `\n`: `main.rs`, and every
+/// other file in the folder by name.
+fn scene_target() -> (String, BTreeMap<String, String>) {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/docs_media");
+    let mut main = String::new();
+    let mut others = BTreeMap::new();
+    for entry in fs::read_dir(&dir).expect("the scene target reads") {
+        let path = entry.expect("an entry reads").path();
+        let text = fs::read_to_string(&path)
+            .expect("a scene source reads")
+            .replace('\r', "");
+        let name = path
+            .file_name()
+            .expect("a file")
+            .to_string_lossy()
+            .into_owned();
+        if name == "main.rs" {
+            main = text;
+        } else {
+            others.insert(name, text);
+        }
+    }
+    (main, others)
+}
+
+/// Each scene's fingerprint: what its media is made from, short of the app.
+fn fingerprints() -> BTreeMap<&'static str, String> {
+    let (main, others) = scene_target();
+    let mut spans: Vec<_> = scenes::SCENES
+        .iter()
+        .map(|s| {
+            let span = scene_span(&main, s.test)
+                .unwrap_or_else(|| panic!("tests/docs_media/main.rs has `fn {}() {{`", s.test));
+            (s, span)
+        })
+        .collect();
+    spans.sort_by_key(|(_, span)| span.start);
+    // Everything that is not a scene's own source is shared by all of them.
+    let mut shared = Fnv::new();
+    shared.text(&RENDER_EPOCH.to_string());
+    let mut at = 0;
+    for (_, span) in &spans {
+        assert!(span.start >= at, "scene sources do not overlap");
+        shared.text(&main[at..span.start]);
+        at = span.end;
+    }
+    shared.text(&main[at..]);
+    for (name, text) in &others {
+        shared.text(name);
+        shared.text(text);
+    }
+    let pages = pages();
+    let gestures = gestures();
+    spans
+        .iter()
+        .map(|(scene, span)| {
+            let mut hash = shared.clone();
+            hash.text(&main[span.clone()]);
+            hash.text(&format!(
+                "{:?} {:?} {:?} {:?}",
+                scene.clips, scene.shots, scene.walks, scene.callouts
+            ));
+            for page in &pages {
+                let shows = |name: &str, key: &str, has: &[&str]| {
+                    shortcode_args(&page.body, name, key)
+                        .iter()
+                        .any(|id| has.contains(&id.as_str()))
+                };
+                if shows("clip", "id", scene.clips)
+                    || shows("tryit", "answer", scene.clips)
+                    || shows("shot", "id", scene.shots)
+                    || shows("video", "id", scene.walks)
+                {
+                    let path = page.path.strip_prefix(site()).unwrap_or(&page.path);
+                    hash.text(&path.to_string_lossy().replace('\\', "/"));
+                    hash.text(&page.body);
+                }
+            }
+            for g in gestures
+                .iter()
+                .filter(|g| scene.clips.contains(&g.clip.as_str()))
+            {
+                for field in [&g.id, &g.place, &g.input, &g.does, &g.scenario, &g.clip] {
+                    hash.text(field);
+                }
+            }
+            (scene.test, hash.finish())
+        })
+        .collect()
+}
+
+/// A scene as the published site records it in `media/manifest.json`.
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+struct Published {
+    fingerprint: String,
+    /// The commit it was last rendered at.
+    commit: String,
+    /// How long it took to render, for sharing scenes out among the jobs.
+    seconds: f64,
+    files: Vec<String>,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct Manifest {
+    #[serde(default)]
+    scenes: BTreeMap<String, Published>,
+}
+
+/// Writes the deploy's render plan to `DOCS_PLAN` (a JSON file), against
+/// the published `media/manifest.json` at `DOCS_PLAN_PUBLISHED` (when it is
+/// absent or unreadable, everything renders). `DOCS_PLAN_FULL=true` renders
+/// every scene (the milestone pass); `DOCS_PLAN_JOBS` is how many jobs may
+/// share the work (4 by default). Run by `.github/workflows/pages.yml`.
+#[test]
+#[ignore = "writes the deploy's render plan; run by pages.yml"]
+fn plan_the_render() {
+    let out = std::env::var("DOCS_PLAN").expect("DOCS_PLAN names the plan's file");
+    let full = std::env::var("DOCS_PLAN_FULL").is_ok_and(|v| v == "true");
+    let jobs: usize = std::env::var("DOCS_PLAN_JOBS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4)
+        .max(1);
+    let published = std::env::var("DOCS_PLAN_PUBLISHED")
+        .ok()
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str::<Manifest>(&text).ok())
+        .unwrap_or_default();
+    let fingerprints = fingerprints();
+    let mut render = Vec::new();
+    let mut reuse = serde_json::Map::new();
+    let mut why = serde_json::Map::new();
+    for scene in scenes::SCENES {
+        let fingerprint = &fingerprints[scene.test];
+        let before = published.scenes.get(scene.test);
+        let reason = match before {
+            _ if full => "full render",
+            None => "not published yet",
+            Some(p) if &p.fingerprint != fingerprint => "changed",
+            Some(p) => {
+                // Fetched from the site as they are; the file names come
+                // from scenes.rs, whose entry is in the fingerprint.
+                let mut entry = p.clone();
+                entry.files = scene.files(scenes::THEMES).into_iter().collect();
+                reuse.insert(
+                    scene.test.into(),
+                    serde_json::to_value(entry).expect("an entry"),
+                );
+                continue;
+            }
+        };
+        render.push((scene.test, before.map_or(60.0, |p| p.seconds)));
+        why.insert(scene.test.into(), reason.into());
+    }
+    // Longest first, each to the job with the least so far.
+    render.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let mut shards: Vec<(f64, Vec<&str>)> = vec![(0.0, Vec::new()); jobs.min(render.len())];
+    for (test, seconds) in &render {
+        let lightest = shards
+            .iter_mut()
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .expect("a job for each scene to render");
+        lightest.0 += seconds;
+        lightest.1.push(test);
+    }
+    let shards: Vec<_> = shards
+        .iter()
+        .enumerate()
+        .map(|(index, (_, tests))| serde_json::json!({ "index": index, "tests": tests.join(" ") }))
+        .collect();
+    let plan = serde_json::json!({
+        "full": full,
+        "fingerprints": fingerprints,
+        "render": render.iter().map(|(t, _)| *t).collect::<Vec<_>>(),
+        "why": why,
+        "reuse": reuse,
+        "shards": shards,
+    });
+    fs::write(
+        &out,
+        serde_json::to_string_pretty(&plan).expect("the plan") + "\n",
+    )
+    .expect("write the plan");
+}
+
+#[test]
+fn every_scene_has_its_own_source_and_fingerprint() {
+    let prints = fingerprints();
+    assert_eq!(prints.len(), scenes::SCENES.len());
+    let distinct: BTreeSet<_> = prints.values().collect();
+    assert_eq!(
+        distinct.len(),
+        prints.len(),
+        "each scene's fingerprint is its own"
+    );
+}
+
+#[test]
+fn a_scene_span_takes_its_comment_and_attributes_and_nothing_else() {
+    let main = "use x;\n\n/// Before.\n#[test]\nfn one() {\n    a();\n}\n\nfn helper() {\n}\n";
+    let span = scene_span(main, "one").expect("found");
+    assert_eq!(
+        &main[span],
+        "/// Before.\n#[test]\nfn one() {\n    a();\n}\n"
+    );
+    assert!(scene_span(main, "two").is_none());
+}
+
+#[test]
+fn fingerprints_ignore_windows_line_ends() {
+    let mut unix = Fnv::new();
+    unix.text("a\nb\n");
+    let mut windows = Fnv::new();
+    windows.text("a\r\nb\r\n");
+    assert_eq!(unix.finish(), windows.finish());
+    let (mut ab, mut a_b) = (Fnv::new(), Fnv::new());
+    ab.text("ab");
+    a_b.text("a");
+    a_b.text("b");
+    assert_ne!(ab.finish(), a_b.finish());
 }

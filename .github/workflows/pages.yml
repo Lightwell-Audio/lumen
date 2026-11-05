@@ -4,6 +4,14 @@ name: Site
 # §8.2) to GitHub Pages when either changes on main, or the app the docs
 # are made from. The repository's Pages source must be set to "GitHub
 # Actions" (Settings > Pages) once.
+#
+# The docs' media is rendered from the real app, at about 0.3 s a frame on
+# the software renderer. The owner chose (USER_DOCS.md §13, A): a push
+# renders only the scenes whose own source, pages or gestures changed since
+# the published site, and takes the rest from the published site as it is;
+# a full render runs by hand ("Run workflow", full) at each milestone's
+# docs pass, shared among parallel jobs. The plan is
+# `plan_the_render` in crates/lumen-app/tests/docs_coverage.rs.
 on:
   push:
     branches: [main]
@@ -14,6 +22,15 @@ on:
       - "Cargo.lock"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
+    inputs:
+      full:
+        description: "Render every scene again (each milestone's docs pass)"
+        type: boolean
+        default: true
+      jobs:
+        description: "How many jobs share the render"
+        type: number
+        default: 8
 
 permissions:
   contents: read
@@ -30,13 +47,71 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  deploy:
-    name: deploy
+  plan:
+    name: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    timeout-minutes: 30
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev \
+            libfontconfig1-dev
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docs
+      - id: pages
+        uses: actions/configure-pages@v5
+      # What the published site was made from. None yet (the first deploy,
+      # or Pages was reset): every scene renders.
+      - name: Fetch the published media's manifest
+        run: |
+          curl -fsSL --retry 3 "${{ steps.pages.outputs.base_url }}/docs/media/manifest.json" \
+            -o "$RUNNER_TEMP/published.json" \
+            || echo "No published media yet: every scene renders."
+      - id: plan
+        name: Plan the render
+        env:
+          DOCS_PLAN: ${{ runner.temp }}/plan/plan.json
+          DOCS_PLAN_PUBLISHED: ${{ runner.temp }}/published.json
+          DOCS_PLAN_FULL: ${{ github.event_name == 'workflow_dispatch' && inputs.full }}
+          DOCS_PLAN_JOBS: ${{ inputs.jobs || 4 }}
+        run: |
+          mkdir -p "$(dirname "$DOCS_PLAN")"
+          cargo test --locked -p lumen-app --test docs_coverage plan_the_render \
+            -- --ignored --exact
+          echo "shards=$(jq -c .shards "$DOCS_PLAN")" >> "$GITHUB_OUTPUT"
+          echo "count=$(jq '.shards | length' "$DOCS_PLAN")" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Docs media"
+            echo
+            echo "| Scene | This deploy | Rendered at |"
+            echo "|---|---|---|"
+            jq -r '(.why | to_entries[] | "| \(.key) | renders (\(.value)) | this commit |"),
+                   (.reuse | to_entries[] | "| \(.key) | reused | \(.value.commit[0:8]) |")' "$DOCS_PLAN"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs-plan
+          path: ${{ runner.temp }}/plan
+          retention-days: 1
+
+  render:
+    name: render ${{ matrix.shard.index }}
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     steps:
       - uses: actions/checkout@v5
       # The encoded clips live outside target/, which the Rust cache cleans.
@@ -56,26 +131,35 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: docs
-      - name: Install Zola
-        uses: taiki-e/install-action@v2
-        with:
-          tool: zola@0.22.1
-      # Encoded clips by the hash of what went into them: a deploy encodes
-      # only the clips whose frames, sound or keycaps changed. Each run saves
-      # its own entry and starts from the latest one.
+      # Encoded clips by the hash of what went into them: a scene rendered
+      # again for a page edit draws the same frames and encodes nothing.
+      # Each job saves its own entry and starts from its latest one.
       - name: Restore the encoded clips
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/docs-media-cache
-          key: docs-media-${{ github.run_id }}
-          restore-keys: docs-media-
-      # Screenshots, clips and walkthroughs from the real app, in both
-      # themes (§6). Not committed: rendered here at every deploy.
-      - name: Render the media
+          key: docs-media-${{ matrix.shard.index }}-${{ github.run_id }}
+          restore-keys: |
+            docs-media-${{ matrix.shard.index }}-
+            docs-media-
+      - name: Build the scenes
+        run: cargo test --locked -p lumen-app --test docs_media --no-run
+      # Each scene into its own folder, so the deploy knows which files are
+      # whose, with how long it took (the next full render shares the work
+      # out by it).
+      - name: Render this job's scenes
+        env:
+          TESTS: ${{ matrix.shard.tests }}
         run: |
           touch "$RUNNER_TEMP/render-started"
-          DOCS_MEDIA=site/docs/static/media cargo test --locked -p lumen-app \
-            --test docs_media -- --ignored --test-threads=1 --nocapture
+          out="$RUNNER_TEMP/scenes"
+          mkdir -p "$out"
+          for test in $TESTS; do
+            started=$(date +%s)
+            DOCS_MEDIA="$out/$test" cargo test --locked -p lumen-app --test docs_media \
+              -- --ignored --exact --test-threads=1 --nocapture "$test"
+            echo $(( $(date +%s) - started )) > "$out/$test.seconds"
+          done
       # Entries no scene used this run belong to clips that changed or are
       # gone; dropping them keeps the cache to one set of clips.
       - name: Drop unused encoded clips
@@ -86,14 +170,93 @@ jobs:
               rm -rf "$entry"
             fi
           done
-          du -sh "$DOCS_MEDIA_CACHE" site/docs/static/media
+          du -sh "$DOCS_MEDIA_CACHE" "$RUNNER_TEMP/scenes"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scenes-${{ matrix.shard.index }}
+          path: ${{ runner.temp }}/scenes
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    name: deploy
+    needs: [plan, render]
+    # The render is skipped when no scene changed; it must not have failed.
+    if: >-
+      ${{ !cancelled() && needs.plan.result == 'success'
+          && (needs.render.result == 'success' || needs.render.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev \
+            libfontconfig1-dev
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docs
+      - name: Install Zola
+        uses: taiki-e/install-action@v2
+        with:
+          tool: zola@0.22.1
+      - id: pages
+        uses: actions/configure-pages@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: docs-plan
+          path: ${{ runner.temp }}/plan
+      - if: needs.render.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: scenes-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/scenes
+      # The rendered scenes, the others fetched from the published site as
+      # they are, and the manifest the next deploy plans against.
+      - name: Gather the media
+        env:
+          PUBLISHED: ${{ steps.pages.outputs.base_url }}/docs/media
+        run: |
+          plan="$RUNNER_TEMP/plan/plan.json"
+          scenes="$RUNNER_TEMP/scenes"
+          media=site/docs/static/media
+          mkdir -p "$media"
+          rendered='{}'
+          for test in $(jq -r '.render[]' "$plan"); do
+            cp -R "$scenes/$test/." "$media/"
+            rendered=$(jq -c --arg t "$test" \
+              --arg fingerprint "$(jq -r --arg t "$test" '.fingerprints[$t]' "$plan")" \
+              --arg commit "$GITHUB_SHA" \
+              --argjson seconds "$(cat "$scenes/$test.seconds")" \
+              --argjson files "$(ls "$scenes/$test" | jq -R . | jq -sc .)" \
+              '.[$t] = {fingerprint: $fingerprint, commit: $commit, seconds: $seconds, files: $files}' \
+              <<< "$rendered")
+          done
+          for test in $(jq -r '.reuse | keys[]' "$plan"); do
+            for file in $(jq -r --arg t "$test" '.reuse[$t].files[]' "$plan"); do
+              curl -fsSL --retry 3 "$PUBLISHED/$file" -o "$media/$file" || {
+                echo "::error::$file of $test is not on the published site; run this workflow by hand with a full render"
+                exit 1
+              }
+            done
+          done
+          jq --arg commit "$GITHUB_SHA" --argjson rendered "$rendered" \
+            '{commit: $commit, scenes: (.reuse + $rendered)}' "$plan" > "$media/manifest.json"
+          du -sh "$media"
       # The landing page as it is, and the docs built into docs/ beside it.
       - name: Build the site
         run: |
           mkdir -p "$RUNNER_TEMP/site"
           rsync -a --exclude /docs/ site/ "$RUNNER_TEMP/site/"
           site/docs/build.sh "$RUNNER_TEMP/site"
-      - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ${{ runner.temp }}/site

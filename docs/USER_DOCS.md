@@ -533,8 +533,10 @@ pull request.
 
 ### 8.2 The build
 
-1. Export the reference data (§5.1), render the scenes to screenshots and
-   frames, and encode the changed clips (§6).
+1. Export the reference data (§5.1), render the scenes whose own source,
+   pages or gestures changed since the published site to screenshots and
+   frames, encode the changed clips (§6), and take every other scene's
+   media from the published site (§13, R).
 2. Build the Markdown into HTML with the static site generator (§12, G).
 3. Index the HTML for search.
 4. Publish `site/` with the docs at `/docs/`, by the existing Pages
@@ -801,9 +803,19 @@ what is covered.
     behaves as before.
 - **Measured:** sizes and times are in §6.4. The whole set comes to about
   100 to 130 MB, and about 10 hours to render on one runner.
+- **After the report (2026-11-05, on Windows):**
+  - the owner chose A for the render time; the deploy is built that way
+    (§13);
+  - the branch was checked on Windows for the first time: fmt, clippy, the
+    docs tests and the three scenes (checking, dark theme: 19 s on the
+    machine's GPU) pass. Two meter E2E tests failed there every time: with
+    the meters on egui's clock, a frame drawn straight after another sees
+    no new audio on Windows and reads a step (0.33 dB) low. The tests now
+    read levels on a frame drawn just after the engine played
+    (`tests/e2e/meters.rs`, `listen`); the app is unchanged.
 - **Open:**
-  - the render-time choice (§13; the recommendation is A);
-  - the side-by-side with a render made on Windows;
+  - the side-by-side with a render made on Windows (needs ffmpeg on the
+    owner's machine);
   - the owner's look at the built pages, in both themes and at phone
     width;
   - a link to `/docs/` from the landing page. It changes the landing
@@ -828,6 +840,7 @@ what is covered.
 | **C. Coverage enforcement** | **A**: the test with a shrinking baseline, which also checks the clips and walkthroughs (§5.3). |
 | **H. Help inside Lumen** | **A**: later, as its own slice after D2: "Learn more" in the palette's detail strip and F1 "Help for this", by stable ids, pitched with specimens. |
 | **T. When the backlog is written** | **A**: D0 before milestone 9.5, D1 to D7 alongside it. |
+| **R. Render time** | **A**: render only what changed; a full render by hand at each milestone's docs pass (§13). |
 
 ### 12.2 Why Zola (the comparison behind G)
 
@@ -904,14 +917,14 @@ weakest on 1 to 3.
   or many versions can outgrow it. When the site passes 700 MB, or traffic
   nears the limit, moving the media to another host is a decision for the
   owner (it may cost money). Lazy loading keeps traffic to what is watched.
-- **Render time (decision for the owner).** Measured in D0: about 0.3 s
+- **Render time (owner: A, 2026-11-05).** Measured in D0: about 0.3 s
   a frame on the software renderer, so the whole set would take about 10
   hours on one runner, where today's three scenes take 5 minutes. The
   cache saves encoding, not rendering: a frame has to be drawn before it
   can be compared. Only 11% of a walkthrough's frames repeat the one
   before (38 of 332), so skipping still frames would save little. The
-  choices, before D2 makes the set large:
-  - **A. Render when the docs change (recommended).** The deploy renders
+  choices were:
+  - **A. Render when the docs change (chosen).** The deploy renders
     only the scenes whose page or scene changed in the push, and reuses
     the last published media for the rest; a full render runs by hand
     (`workflow_dispatch`) at each milestone's docs pass (§10.2), split
@@ -924,8 +937,29 @@ weakest on 1 to 3.
     text in clips is blurred on high-density screens next to 2×
     screenshots. This can be combined with A or B.
 
-  Until the owner chooses, the deploy renders everything; that is
-  5 minutes with D0's scenes.
+  **How A is built** (`.github/workflows/pages.yml`; the plan is
+  `plan_the_render` in `tests/docs_coverage.rs`):
+  - Each scene has a fingerprint of what its media is made from, short of
+    the app: its own function in `tests/docs_media/main.rs`, the code the
+    scenes share (the rest of that folder), its `scenes.rs` entry, the
+    pages that show its media and the gestures that name its clips.
+    Editing the recorder or the demo song renders every scene;
+    `RENDER_EPOCH` forces it.
+  - The published site keeps `docs/media/manifest.json`: each scene's
+    fingerprint, the commit it was rendered at, how long it took and its
+    files. A deploy renders the scenes whose fingerprint differs from the
+    manifest (or that are not in it) and fetches the others' files from the
+    site as they are. With no manifest, everything renders. A file missing
+    from the site stops the deploy, which asks for a full render.
+  - "Run workflow" on the Site workflow renders every scene (full, the
+    default) among up to 8 jobs, longest scenes first, by the times in the
+    manifest. Do it at each milestone's docs pass (§10.2), and after a
+    change to the app that the pictures should show at once.
+  - The run's summary lists each scene: rendered and why, or reused and
+    the commit it shows.
+  - Not checked before the merge: the workflow only runs on `main`, so the
+    first deploy is its first run (it renders everything, as there is no
+    manifest yet).
 - **Size of the backlog.** About 250 commands, 45 settings and an unknown
   number of gestures. Eight slices (D0 to D7) is an estimate, revised after
   D2.

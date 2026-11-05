@@ -59,6 +59,10 @@ the build stops when such a page or anchor does not exist. A plain
   without media, are kept as the run's `docs-site` artifact: unzip it and
   serve the folder with `python3 -m http.server 8123`, then open
   `http://localhost:8123/docs/`.
-- `.github/workflows/pages.yml`, on `main`: renders every scene in both
-  themes, builds the docs into `docs/` beside the landing page and
-  publishes both.
+- `.github/workflows/pages.yml`, on `main`: renders, in both themes, the
+  scenes whose own source, pages or gestures changed since the published
+  site (`plan_the_render` in `tests/docs_coverage.rs`), takes the other
+  scenes' media from the published site by `media/manifest.json`, builds
+  the docs into `docs/` beside the landing page and publishes both. "Run
+  workflow" renders every scene again, shared among parallel jobs: do it
+  at each milestone's docs pass (`docs/USER_DOCS.md` §13).

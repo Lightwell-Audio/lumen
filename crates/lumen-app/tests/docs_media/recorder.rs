@@ -68,7 +68,7 @@ pub fn rendering() -> bool {
 /// screenshot and loop is made in both; Lumen's default when they check.
 pub fn themes() -> &'static [&'static str] {
     if rendering() {
-        &["dark", "light"]
+        crate::scenes::THEMES
     } else {
         &["dark"]
     }

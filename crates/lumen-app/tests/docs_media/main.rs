@@ -23,7 +23,6 @@ mod pointer;
 mod recorder;
 mod song;
 
-use std::collections::BTreeSet;
 use std::time::Instant;
 
 use eframe::egui::{Key, Modifiers, Rect, pos2};
@@ -219,24 +218,7 @@ fn check(test: &str, started: Instant) {
         .iter()
         .find(|s| s.test == test)
         .unwrap_or_else(|| panic!("{test} is listed in tests/shared/scenes.rs"));
-    let mut expected = BTreeSet::new();
-    for theme in recorder::themes() {
-        for c in scene.clips {
-            expected.insert(format!("{c}-{theme}.mp4"));
-            expected.insert(format!("{c}-{theme}.webp"));
-        }
-        for s in scene.shots {
-            expected.insert(format!("{s}-{theme}.webp"));
-        }
-    }
-    for w in scene.walks {
-        for ext in ["mp4", "webp", "captions.vtt", "chapters.vtt"] {
-            expected.insert(format!("{w}.{ext}"));
-        }
-    }
-    for (shot, _) in scene.callouts {
-        expected.insert(format!("{shot}.callouts.json"));
-    }
+    let expected = scene.files(recorder::themes());
     let written = recorder::written();
     let missing: Vec<_> = expected.difference(&written).collect();
     let unlisted: Vec<_> = written.difference(&expected).collect();

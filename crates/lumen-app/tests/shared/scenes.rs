@@ -24,6 +24,36 @@ pub struct Scene {
     pub callouts: &'static [(&'static str, &'static [&'static str])],
 }
 
+impl Scene {
+    /// The files the scene writes when it runs in `themes`: what
+    /// `docs_media` checks it wrote, and what the deploy fetches from the
+    /// published site for a scene it does not render again.
+    pub fn files(&self, themes: &[&str]) -> std::collections::BTreeSet<String> {
+        let mut files = std::collections::BTreeSet::new();
+        for theme in themes {
+            for c in self.clips {
+                files.insert(format!("{c}-{theme}.mp4"));
+                files.insert(format!("{c}-{theme}.webp"));
+            }
+            for s in self.shots {
+                files.insert(format!("{s}-{theme}.webp"));
+            }
+        }
+        for w in self.walks {
+            for ext in ["mp4", "webp", "captions.vtt", "chapters.vtt"] {
+                files.insert(format!("{w}.{ext}"));
+            }
+        }
+        for (shot, _) in self.callouts {
+            files.insert(format!("{shot}.callouts.json"));
+        }
+        files
+    }
+}
+
+/// The themes a scene renders in when it makes media.
+pub const THEMES: &[&str] = &["dark", "light"];
+
 pub const SCENES: &[Scene] = &[
     Scene {
         test: "split_a_clip",
