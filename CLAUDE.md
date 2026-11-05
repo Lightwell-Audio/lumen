@@ -492,6 +492,13 @@ per slice and move what is no longer current out of it.
   **Next (owner, 2026-11-03):** a mini milestone, 9.5, before M8: audio clip
   warping and a fleshed-out audio clip detail panel (M7's planned E7 and E8).
   It is planned and pitched first.
+- **Branch `docs/documentation-strategy`: the user documentation strategy**
+  (ADR-0119, `docs/USER_DOCS.md`; owner asked 2026-11-05). Docs on the
+  website at `/docs/`: Quick start, Guides, Recipes, a reference generated
+  from `commands::ALL` and `preferences::ROWS`, screenshots rendered by the
+  headless harness, a coverage test with a shrinking baseline, docs per slice
+  and per milestone, later per version. Waits for the owner's choices (§12:
+  G, S, L, C, H, T); then D0 to D7.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
@@ -506,7 +513,8 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status and the milestone reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0118 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0119 and the table of owner decisions.
+- `docs/USER_DOCS.md`: the user documentation strategy (proposed).
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
 - `docs/KNOWN_ISSUES.md`, `docs/ARCHITECTURE.md` (crates, threads, module

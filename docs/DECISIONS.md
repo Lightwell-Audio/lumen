@@ -119,6 +119,8 @@ irreversible or external) · *Superseded*.
 | [0115](#adr-0115--the-first-run-window-m9-r7b) | The first-run window (M9 R7b) | Accepted 2026-10-31 (MT-FIRSTRUN-1 pending) | No |
 | [0116](#adr-0116--the-browsers-files-and-preview-m9-r7c) | The browser's files and preview (M9 R7c) | Accepted 2026-11-02 (MT-BROWSE-1 pending) | No |
 | [0117](#adr-0117--icons-single-instance-and-file-association-m9-r8) | Icons, single instance and file association (M9 R8) | Accepted 2026-11-03 (MT-SYS-1 pending) | No |
+| [0118](#adr-0118--take-recovery-that-survives-every-crash-window-m9-review-h1-to-h6) | Take recovery that survives every crash window (M9 review H1 to H6) | Accepted 2026-11-03 | No |
+| [0119](#adr-0119--user-documentation-on-the-website) | User documentation on the website | **Proposed** 2026-11-05 (owner choices in `USER_DOCS.md` §12) | Yes |
 
 ---
 
@@ -10666,3 +10668,51 @@ the autosave (H3) and in a clean project (H4), each checked to fail with its
 fix taken out; the recording, recovery and walkthrough scenarios.
 **Not verified here:** a slow or network drive by hand, and a real stall of
 more than 20 s.
+
+## ADR-0119 — User documentation on the website
+
+**Date:** 2026-11-05. **Branch:** `docs/documentation-strategy`. **Status:**
+Proposed (the owner's choices G, S, L, C, H and T in `USER_DOCS.md` §12 are
+pending). Strategy: `docs/USER_DOCS.md`.
+
+**Context.** CLAUDE.md §10 asks that every feature be "documented for
+users", and no user documentation exists: the website is one landing page.
+The owner (2026-11-05) asked for documentation on the website that covers
+every action, is easy to navigate and search, has screenshots with examples
+for every piece of functionality, a quick start and recipes, and is updated
+per slice and per milestone until versioning exists, then per version.
+
+**Options.** For the generator: Zola with Pagefind, mdBook, or a Node
+documentation framework. For screenshots: rendered from scripted scenes at
+deploy, rendered and committed, or captured by hand. For coverage: a test
+with a shrinking baseline, or review only.
+
+**Proposed choice.**
+
+1. **Sections by reader need**: Quick start, Guides (one task per page, by
+   the app's own areas), Recipes, Reference, Concepts, Troubleshooting,
+   What's new.
+2. **Generated reference** from the tables the app runs on
+   (`commands::ALL`, `preferences::ROWS`, the coverage lists), plus a
+   hand-kept gesture list; keys on every page are read from the keymap.
+3. **A coverage test with a baseline that only shrinks**: an action with no
+   task page fails CI unless it is in the backlog file, so new work is
+   documented from the first day.
+4. **Screenshots rendered by the real app** in the existing headless
+   harness, from scenes that follow the page's steps, in both themes, cropped
+   and annotated by accessible name; drags as short loops.
+5. **Zola and Pagefind under `site/docs/`**, published by the existing
+   Pages workflow at `/docs/`; Ctrl/Cmd+K search, shortcuts and synonyms
+   searchable, no analytics.
+6. **Per slice and per milestone now** (docs on the slice branch; a docs
+   pass in the milestone review), **per version later** (built from release
+   tags with a version picker), once every planned milestone is finished and
+   a versioning ADR is accepted.
+7. **The backlog in eight slices**, D0 to D7.
+
+**Consequences.** Slices gain a docs list in their plan and docs work on
+their branch. Interface changes can break scenes, which is how stale pages
+are caught. Two tools (Zola, Pagefind) join the deploy, not the app.
+Prose accuracy and the gesture list are checked by review, not by tests.
+**Not verified yet:** render time and fidelity of the full scene set on a
+Linux CI runner (measured in D0).
