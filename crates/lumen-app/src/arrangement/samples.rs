@@ -225,7 +225,7 @@ type Read = (Want, Vec<[i16; 2]>);
 /// so the UI never waits for the disk. One request at a time is kept: a
 /// newer one replaces what was asked before.
 #[derive(Default)]
-struct StripReader {
+pub(crate) struct StripReader {
     worker: Option<Worker>,
 }
 
@@ -245,7 +245,7 @@ impl StripReader {
     /// `count` samples of `audio` from frame `first`: at once for audio in
     /// memory; for a file played from disk once the worker has read them
     /// (`None` until then, and `ctx` is woken when they are there).
-    fn samples(
+    pub(crate) fn samples(
         &mut self,
         audio: &ClipAudio,
         first: i64,

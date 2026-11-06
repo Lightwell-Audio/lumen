@@ -250,8 +250,22 @@ pub fn remove_names(names: &Names) {
     }
 }
 
-/// Unix has no per-thread class like Windows' audio scheduling; a real-time
-/// scheduling request needs privileges Lumen does not assume.
+/// Linux has no per-thread class like Windows' audio scheduling; a real-time
+/// scheduling request (`SCHED_FIFO`) needs privileges Lumen does not assume.
+#[cfg(not(target_os = "macos"))]
 pub fn audio_thread_priority() -> bool {
     false
+}
+
+/// macOS gives any thread the time-constraint (real-time) policy Core
+/// Audio's threads have, without privileges (`lumen_rt::realtime_thread`).
+/// Without it a host's block thread is an ordinary thread of a background
+/// process, which the system may leave waiting past the callback's deadline
+/// (KNOWN_ISSUES: late blocks on the macOS runner). The period is the most
+/// the engine hands a plugin at once, 256 frames at 48 kHz.
+#[cfg(target_os = "macos")]
+pub fn audio_thread_priority() -> bool {
+    lumen_rt::realtime_thread(std::time::Duration::from_nanos(
+        256 * 1_000_000_000 / 48_000,
+    ))
 }

@@ -76,6 +76,16 @@ pub const SCENES: &[Scene] = &[
         walks: &["split-playing"],
         callouts: &[],
     },
+    Scene {
+        test: "audio_clip_editor",
+        clips: &["audio-editor-lead"],
+        shots: &["audio-editor-whole", "audio-editor-samples"],
+        walks: &[],
+        callouts: &[(
+            "audio-editor-whole",
+            &["The part the clip plays", "The rest of the file"],
+        )],
+    },
 ];
 
 /// Whether a scene writes the clip `name`.

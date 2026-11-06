@@ -31,3 +31,8 @@ lumen-hosting::parameters
 lumen-hosting::rt
 lumen-hosting::soak
 lumen-app midi::out::sender_tests
+# The disk soak plays 64 streamed tracks in real time. Beside the rest of
+# the tests on a three-core macOS runner it missed a third of its blocks
+# and the starved disk thread read late (2026-11-06, PR #92); alone, and
+# here under full load, it reads nothing late (ADR-0109).
+lumen-app disk::soak::sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late

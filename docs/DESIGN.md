@@ -466,7 +466,7 @@ strokes are 4 wide and the third reflection goes.
 | Popover / window | `overlay`, `border_strong`, the edge light, the shadow; windows radius 12, popovers and menus 8 | | | | |
 | Notice | `raised` ground, a 1 pt `warning` hairline at 45%, radius 8, ⚠ and `warning` text, wrapped, with buttons named for the action | | | | |
 | Switch (on/off) | a 30 × 16 pt sunk pill (`well`, the lip), the knob a `text` to `text_secondary` gradient; its label at the left of a 20 pt row as wide as there is room for | Ember over the pill (`FAST`) | — | the knob glides right (`GLIDE`), `accent_hi` to `accent_lo`, on `accent_muted` with the 38% hairline | `text_disabled` |
-| Segmented (2–5 choices; `widgets::segmented`, `segmented_styled`, `segmented_full` across the width given) | a sunk trough (`well`, the lip; radius by height), optional icon, label and keycap, the icon and keycap centred on the label's optical middle (`fonts::optical_middle`: halfway between its capitals' and its lower-case letters' middles), `text_secondary` | Ember over the piece, label `text` | — | a neutral raised thumb (`thumb_hi` to `thumb`, the edge light, the trough's radius less 2) that slides to the choice (`GLIDE`), label `text`; `segmented_styled(.., Some(Tone::Accent))` fills the chosen tool with the accent | label in `text_disabled`, with why on hover |
+| Segmented (2–5 choices; `widgets::segmented`, `segmented_tool` for the clip editors' tools, `segmented_full` across the width given) | a sunk trough (`well`, the lip; radius by height), optional icon and label, the icon centred on the label's optical middle (`fonts::optical_middle`: halfway between its capitals' and its lower-case letters' middles), `text_secondary` | Ember over the piece, label `text` | — | a neutral raised thumb (`thumb_hi` to `thumb`, the edge light, the trough's radius less 2) that slides to the choice (`GLIDE`), label `text`; `segmented_tool(.., Some(Tone::Accent))` fills the chosen tool with the accent (only while it is not Pointer, TL C); a choice's key is in its tooltip, never in the piece (KC C) | label in `text_disabled`, with why on hover |
 | Choice row (longer lists, such as a device's channel pairs) | a 24 pt row, `text`, radius 6 | Ember wash | — | `accent_muted` fill, `accent` text | — |
 | Menu row (`widgets::menu_item`) | `size::MENU_ROW` (32 pt) tall whether it has keycaps or not; rows touch, so the pointer is always over one; `text`, with keycaps at the right, cap and light centred together; `menu_toggle_icon` puts a `size::MENU_ICON` icon before the label | Ember highlight, radius 6, reaching `space::XS` past the row, following the pointer | — | a toggle that is on: `accent_muted`, `accent` letters | `text_disabled` |
 | Pill (lane tabs; `widgets::pills`) | 24 pt, radius `FULL`, `text_secondary` | Ember | — | `accent_muted`, `accent` letters, the 38% hairline; "+ CC" a `border_strong` hairline pill; the browser's chips (`chip_toggle`, `chip_button`) have 8 pt of room, and a button among them is a bare word | — |
@@ -871,12 +871,45 @@ onto an empty page.
   already selected; a selection made another way (the arrow keys, a range)
   moves the subject and leaves Clip open.
 - **Mixer** sits at the right after a hairline (`TabsLayout::right_from`).
-- **An audio clip's Clip tab:** its properties (the clip card's rows,
-  `docked_clip_props`) in a 296 pt column on `app` with a hairline at its
-  right, scrolling when short, beside the clip's wave: bar numbers in mono
-  10 pt on an 18 pt ruler, at least 32 pt apart (`size::CLIP_RULER`,
-  `BAR_NUMBER_ROOM`), over the clip body in its colour with the title strip, the wave drawn
-  one column per physical pixel with its gain and fades.
+- **An audio clip's Clip tab** (M9.5 S1, ADR-0121): its properties (the
+  clip card's rows, `docked_clip_props`) in a 296 pt column on `app` with a
+  hairline at its right, scrolling when short, until S3 moves them into the
+  strip (the owner's L B); beside them the audio editor:
+  - the clip editors' shared header (below, "The clip editor's look"), with
+    the caption "N bars · 0:08.0 file" and, at the right, **Zoom to clip** and
+    **Whole file** (raised buttons; palette commands with the same names);
+  - a 30 pt ruler (`size::CLIP_RULER`) on `raised`: bar numbers in mono 10 pt
+    on top, at least 32 pt apart (`BAR_NUMBER_ROOM`), with the grid's bar and
+    beat ticks; the file's own time under them in `text_hint`, as m:ss with
+    as many decimals as the step needs, at least 64 pt apart
+    (`TIME_LABEL_ROOM`), a label that would be cut at the right edge left
+    out; bar numbers every 1, 2, 4… bars by number, so they hold still while
+    scrolling; the clip's window as a 3 pt `accent_muted` band on its bottom
+    edge (`size::RULER_BAND`);
+  - the clip's whole file on `canvas` with the grid's lines: the part the
+    clip plays on `clip_body`, in the track colour (`theme::wave`), at its
+    gain and through its fades; the rest of the file on a `well` wash at
+    70% (`OUTSIDE_WASH`), in `text_hint` at 55% (`WAVE_OUTSIDE`), as the
+    file is. One column per physical pixel from the peaks; below 4 frames a
+    pixel, a line through the samples, with a 2 pt dot (`size::SAMPLE_DOT`)
+    on each from 6 pixels apart. A stereo file is left
+    over right from 96 pt tall (`size::WAVE_SPLIT`);
+  - the playhead as in the note editor (the arrangement's beam while
+    playing);
+  - the file's two ends as `border_strong` hairlines, so where it stops reads
+    in both themes;
+  - in a narrow panel (under 600 pt, `size::CLIP_HEADER_NARROW`) the header's
+    buttons read "Clip" and "File" (names and tooltips keep the whole); the
+    header draws its right-hand group first and clips the left parts to the
+    room left, so they are cut, never drawn over the buttons;
+  - Z zooms the editor to the clip and X goes back while its keys are live
+    (the pointer is over it, or the panel has the keyboard);
+  - designed states: "Reading the file" while it loads; "Preparing the wave"
+    while its peaks or rate catch up; "This clip's file is not in the
+    project"; "This clip's file
+    cannot be read" with **Open the media pool** (where Locate finds it);
+    "This clip's wave cannot be shown" when the file does not reach the part
+    the clip plays.
 - **Commands:** Show devices, Show clip and Show mixer (no default keys);
   Show clip needs an open clip.
 
@@ -977,15 +1010,22 @@ and grid.
 ### The clip editor's look (M5 slice 5, the owner's approved canvas mock-up)
 
 The Clip tab uses the shared controls (§5a, ADR-0052).
-- **Header strip** (`note_editor/toolbar.rs`, 40 pt, `raised`): the clip's
-  colour bar, its name (medium) over "N bars · N notes" in the mono face
-  (`SCALE`, `text_hint`; "· locked" when it cannot be edited); a rule; the
-  Pointer/Draw `segmented_styled` control with icons, the Draw key as a
-  keycap from the keymap (`Choice::hint`); the grid chip (a raised button:
-  magnet lit while snapping, "Grid", the value in mono, a chevron; it opens
-  the grid menu; named "Editor grid: 1/8"); at the right Lane (a lit icon
-  toggle) and Pop out/Dock (icon buttons), keycaps in their tooltips. No
-  Quantize button yet: there is no quantize command until slice 5 of M5's plan.
+- **Header strip** (`app/clip_header.rs`, shared by the note editor and the
+  audio editor since M9.5 S1 so the two never drift apart, the owner's
+  request; 40 pt, `raised`): the clip's colour bar, its name (medium) over a
+  caption in the mono face (`SCALE`, `text_hint`: "N bars · N notes", "·
+  locked" when it cannot be edited; "N bars · 0:08.0 file" for audio); a
+  rule; the Pointer/Draw tool switch (`widgets::segmented_tool`, 30 pt, with
+  icons): **Pointer chosen is the grey raised thumb, Draw chosen is filled
+  accent** (the owner's TL C, the arrangement tool switch's rule: a tool is
+  lit only while it is not Pointer); **the Draw key is only in Draw's
+  tooltip**, as a K5 keycap, never inside the control (KC C); the grid chip
+  (a raised button: magnet lit while snapping, "Grid", the value in mono, a
+  chevron; it opens the grid menu; named "Editor grid: 1/8"); the editor's
+  own action (Quantize for notes); at the right the editor's view toggles
+  (Lane for notes) and Pop out/Dock (icon buttons), keycaps in their
+  tooltips. The audio editor has no tool switch until its handles arrive
+  (M9.5 S2); its parts keep the same places.
 - **Notes:** the GPU boxes (rounded, light top edge, velocity brightness)
   plus egui layers: a two-layer soft shadow beneath (`control_shadow`), a
   2 pt velocity bar on the bottom edge, and a `light::LIT` glow around picked

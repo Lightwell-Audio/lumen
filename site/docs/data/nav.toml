@@ -16,7 +16,9 @@ area = "edit"
 items = [
   { title = "Transport and timing" },
   { title = "Tracks" },
-  { title = "Clips and selection" },
+  { title = "Clips and selection", children = [
+    { title = "Look inside an audio clip", page = "guides/clips/look-inside-an-audio-clip.md" },
+  ] },
   { title = "Editing", children = [
     { title = "Split a clip", page = "guides/editing/split-a-clip.md" },
     { title = "Join clips" },

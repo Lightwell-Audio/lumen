@@ -233,6 +233,7 @@ impl App {
             detail_tab: Default::default(),
             detail: Default::default(),
             note_editor: Default::default(),
+            audio_editor: Default::default(),
             browser_size: 260.0,
             detail_size: 220.0,
             toggle_detail_requested: false,

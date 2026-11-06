@@ -51,10 +51,25 @@ fn peak(lumen: &mut Lumen) -> f32 {
         .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()))
 }
 
-/// The quietest of a few windows: an effect whose host answers late is passed
-/// through for that block, so what a lane takes away shows in the lowest.
+/// The quietest stretch of half a block (512 frames) in a few windows. An
+/// effect whose host answers late is passed through for that block, so on a
+/// busy machine every 200 ms window can hold a loud block although the lane
+/// holds the plugin shut (Linux CI read 0.034 so); a lane that does not hold
+/// it has no quiet stretch at all (its 440 Hz note has four cycles in each).
+/// The lane opens at the second quarter, so the windows cannot simply be
+/// waited out as `plugin_lanes` does.
 fn quietest(lumen: &mut Lumen) -> f32 {
-    (0..4).map(|_| peak(lumen)).fold(f32::MAX, f32::min)
+    let mut least = f32::MAX;
+    for _ in 0..4 {
+        let heard = lumen.listen(Duration::from_millis(100), 4_800);
+        for stretch in heard.as_chunks::<512>().0 {
+            let peak = stretch
+                .iter()
+                .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()));
+            least = least.min(peak);
+        }
+    }
+    least
 }
 
 fn loudest(lumen: &mut Lumen) -> f32 {

@@ -121,6 +121,8 @@ irreversible or external) · *Superseded*.
 | [0117](#adr-0117--icons-single-instance-and-file-association-m9-r8) | Icons, single instance and file association (M9 R8) | Accepted 2026-11-03 (MT-SYS-1 pending) | No |
 | [0118](#adr-0118--take-recovery-that-survives-every-crash-window-m9-review-h1-to-h6) | Take recovery that survives every crash window (M9 review H1 to H6) | Accepted 2026-11-03 | No |
 | [0119](#adr-0119--user-documentation-on-the-website) | User documentation on the website | Accepted 2026-11-05 (the look is chosen from specimens in D0) | No |
+| [0120](#adr-0120--the-time-stretch-trial-m95-s0) | The time-stretch trial (M9.5 S0) | Proposed 2026-11-04; the library waits for the owner's ear, and E A's piece length for the owner | Yes (T, E) |
+| [0121](#adr-0121--the-audio-editors-canvas-and-the-shared-clip-header-m95-s1) | The audio editor's canvas and the shared clip header (M9.5 S1) | Accepted 2026-11-04 (MT-CLIP-1 pending) | No |
 
 ---
 
@@ -9706,6 +9708,16 @@ fell from about 140 ms to about 100 ms (debug build). Tests:
 `stream_plan_64`'s baseline is the container's count (the other engine
 scenarios read within 0.5% of the WSL baseline there).
 
+**Moved to the timing list** (2026-11-06, PR #92). On the macOS runner's
+`rest` job, beside every other test on three cores, the soak missed 1,873
+of about 6,000 blocks and counted 26 late reads in one burst, 210 ms after
+a locate whose hold had ended at 137 ms. In the container it reads nothing
+late alone (twice) and under 16 busy loops on four cores (three times;
+holds then grow to 390 ms, as designed). It now runs as the other
+real-time tests do (`.github/timing-tests.txt`): alone, after the others,
+with two retries. Alone is where the disk thread's own lateness showed
+before, so that check is kept; its assertions are unchanged.
+
 **Consequences.** Streaming stays off by default until MT-STREAM-1 passes
 on the owner's interface at 64 and 128 frames (S6); then the default
 flips. The 30 s rule and the pool size were kept after the soak and the
@@ -10737,3 +10749,288 @@ Prose accuracy and the gesture list are checked by review, not by tests.
 **Not verified yet:** render and encode time, size and fidelity of the
 full scene set on a Linux CI runner, and the walkthroughs' sound from the
 fake device (all measured or proven in D0).
+
+## ADR-0120 — The time-stretch trial (M9.5 S0)
+
+**Date:** 2026-11-04. **Branch:** `m9.5-s0-stretch-trial`, cut from
+`m9.5-plan` (the plan is not merged yet). **Status:** Proposed. The library
+(choice T) waits for the owner's ear; E A is confirmed by these measurements,
+subject to the seam listening below.
+
+**Context.** `docs/milestones/M9.5.md` (§2, T and E) asks for the time-stretch
+library to be chosen by ear and by measurement, and for E (stretching prepared
+ahead on a worker) to be confirmed or sent back by the same trial. The
+candidates are every library with Rust bindings whose licence can ship in the
+sold, GPL-3.0-or-later Lumen.
+
+**What was built.** `tools/stretch-trial`, a bench program in its own Cargo
+workspace (so no candidate enters Lumen's `Cargo.lock` or `cargo-deny`). It
+drives every candidate as Lumen would: streaming, a block of input at a time,
+latency removed so the output lines up with the input (checked by
+`check.py`: every render within 10 ms and 0.5 dB of its original). It
+writes a blind listening pack and the measurements
+(`tools/stretch-trial/results/`). The pack is published as a private page,
+"Lumen Stretch Trial" (https://claude.ai/artifact/NkH3UNWUD57otsLPFWDbHc).
+
+**Sources** (fetched, not committed). The plan had the owner supply three
+files; the owner works on a VM and asked for this to be done here ("this is a
+VM so you need to do all that", 2026-11-04). The sources are a CC0 breakbeat,
+a public-domain sung hymn (LibriVox) and a public-domain military-band march,
+8 to 9 s each (`tools/stretch-trial/README.md`).
+Wikimedia Commons refused this machine's downloads (HTTP 429), so the Internet
+Archive was used.
+
+**The candidates and their letters** (fixed across the pack; the owner listens
+before reading this table):
+
+| Letter | Candidate | Licence |
+|---|---|---|
+| A | `bungee-rs` 0.1.1, stream API | MPL-2.0 (bundles MPL-2.0 Eigen, BSD kissfft) |
+| B | `rubberband` 0.1.5, R2 "faster" engine, real-time mode | GPL-2.0-or-later (commercial licence also sold) |
+| C | `signalsmith-stretch` 0.1.3, default preset | MIT |
+| D | `timestretch` 0.16.0, whole-buffer render | MIT, pure Rust |
+| E | `rubberband` 0.1.5, R3 "finer" engine, real-time mode | GPL-2.0-or-later (commercial licence also sold) |
+
+**Measurements** (one core of a 2.8 GHz Xeon, one stereo 48 kHz clip, 6
+transforms × 3 sources; medians, with the worst case in brackets;
+`results/summary.json` and `results/sustained.json`, the third run, on
+2026-11-04 after review round 2). Two costs are given, because they differ
+by up to ten times: **streaming** is one stretcher run straight through a
+clip (plan E B, or E A with one stretcher per clip); **prepared ahead** is
+plan E A as first specified, every 85 ms piece rendered by a fresh stretcher
+from a 340 ms lead-in, at 0.9 speed, and in brackets the same with 2 s
+pieces.
+
+| Letter | Share of one core per clip, streaming | Prepared ahead, 85 ms pieces (2 s pieces) | One 85 ms piece after a jump | Own latency | Same bits at any block size | Allocations while playing | Repeats bit for bit |
+|---|---|---|---|---|---|---|---|
+| A | 2.5% (3.3%) | 27% (3.7%) | 18 ms (38) | 203 ms | 12 of 18 (not at 0.9 and 1.1) | None | Yes |
+| B | 8.9% (12.6%) | 77% (11.5%) | 51 ms (69) | 21 ms | Yes | None | Yes |
+| C | 2.0% (3.9%) | 18% (2.9%) | 13 ms (26) | 120 ms | Yes | None | Yes |
+| D | 5.1% (6.4%) | 44% (6.8%) | 34 ms (47) | Not measured | Not measured | Not measured | Yes |
+| E | 19.0% (27.2%) | 178% (26%) | 119 ms (168) | 43 ms | 6 of 18 | None | Yes |
+
+The machine was busier during this run than the first two (the streaming
+medians moved by up to 2 points); the order of the letters did not change.
+E's real-time mode also gives a different output at different block sizes
+in 12 of 18 cases, which is not explained here; E is ruled out on cost
+anyway.
+
+D's API used here renders a whole buffer, so the streaming columns do not
+apply to it; its streaming session API exists and was not tried. A's stream
+API rounds each call's output to whole frames, so where a block does not map
+to a whole number of output frames (0.9 and 1.1) its output depends on the
+block size; that is a real property of the API, and does not matter under E
+A, whose chunk grid is fixed.
+
+**Method, and its limits** (from review round 1, which found and had fixed
+three faults in the first run: an unfair padding and latency read for A,
+pack levels up to 3.5 dB apart, and allocations counted on `process` only):
+
+- Every render is aligned with its original and the pack is loudness-matched
+  to it, then each source's whole pack (original included) is scaled by one
+  gain so its loudest file peaks at -1 dBFS (drums -5.3 dB, mix -2.4 dB,
+  voice 0 dB). `check.py` fails a render more than 10 ms or 0.5 dB off, or
+  any file at full scale; all pass. The second pack clipped (loudness
+  matching pushed drums for B and D over full scale, found by review round
+  2); this third one does not. The measurements are of the renders as they
+  came out.
+- "Own latency" is each library's own figure, in different units: input plus
+  output frames for C, input frames for A, output frames for B and E.
+- Allocations are counted during `process` and `retrieve` after the first
+  eight blocks, the last call excluded. The `rubberband` wrapper allocates
+  one Vec per call, and one allocation per counted call is taken off for B
+  and E; a library that allocated exactly once per call itself would be
+  hidden by that. Lumen would call `rubberband-sys` directly.
+- A's latency is read at one input position (16,384 frames) for every block
+  size, once its first grains exist, and only that much silence is fed
+  after the input.
+
+**What the numbers mean for Lumen.**
+
+1. **E A as first specified is too costly.** Rendering every 85 ms piece from
+   its own 340 ms lead-in processes about six times the audio: 18% of a core
+   per clip with C, so 64 stretched tracks would need about 12 cores (review
+   round 2 found this; the trial now measures it). With **2 s pieces** the
+   lead-in is amortised: 2.9% per clip with C, about 1.8 cores for 64 tracks,
+   which a worker pool on a mid-range machine carries. Streaming costs about
+   1.3 cores for 64 with C (E B, or one stretcher per clip under E A).
+2. **The click-to-sound delay under E A grows with the piece.** A jump into a
+   stretched clip waits for the piece that holds it. With 2 s pieces that is
+   about 2.3 s of audio to render: about 60 ms with C, 85 ms with A, 270 ms
+   with B and over half a second with E. The plan's bound (about 150 ms, risk
+   4) holds for C and A only. Two ways keep it short, to be chosen in S4b with
+   the owner: a first, short piece after a jump (fast, but its bits differ
+   from the grid piece, so offline and live would differ there), or the
+   hybrid E C (live stretching until the prepared audio catches up).
+   **E A is therefore confirmed only with this change, and goes back to the
+   owner** (the plan's §2 E: "if S0 contradicts the recommendation, the plan
+   comes back to the owner").
+3. **Same bits offline and live.** Every candidate repeats bit for bit. Under
+   E A the chunk grid makes offline and live use the same pieces, so this is
+   all E A needs; block-size independence is not required. It would matter
+   only for E B.
+4. **Seams.** Pieces rendered from their own lead-in differ in waveform from a
+   straight render (phases differ: −3 to +7 dB SNR). At the seams (each
+   crossfade and 48 frames either side) the 99.5th percentile of the
+   sample-to-sample change is 0.79 to 1.31 times the rest of the clip, against
+   0.87 to 1.27 at the same places in the straight render (`seams.py`). The
+   metric cannot tell a seam from the music around it, so it shows no clear
+   click and proves none absent: whether a seam is heard is decided by ear in
+   the pack's "Prepared ahead" rows. If it is, S4b lengthens the pieces
+   (fewer seams) or overlaps them more, and the measurement repeats.
+5. **Real-time safety.** No candidate allocated while processing, as far
+   as the method above can see. The
+   `rubberband` wrapper allocates one small Vec per call; Lumen would call
+   `rubberband-sys` directly. A and C are C++ through bindgen or cc, E and B
+   C++ through cc; all three need a C++ compiler in CI, A also CMake 3.30 or
+   newer.
+
+**Preliminary recommendation, pending the ear:** C. It is the cheapest in
+every column (streaming, prepared ahead, the piece after a jump), the same at
+any block size and MIT-licensed (no ADR-0013 exception). E A with C needs 2 s
+pieces (above). If the owner's ear prefers another letter by a clear margin, the
+cost table above says what that choice costs. E is ruled out for real-time
+playback by its cost.
+
+**Review rounds.** Round 1 found the unfair Bungee harness, unmatched levels
+and the narrow allocation count; round 2 the clipping pack and the sustained
+cost of E A. All were fixed and the trial re-run; **round 2's fixes were not
+reviewed again.**
+
+**Consequences.** T is chosen when the owner has listened; the ADR is then
+accepted with the answer, the dependency is added to `lumen-media` (with an
+ADR-0013 exception if it is not MIT) and its notice to
+`THIRD_PARTY_NOTICES.md`.
+
+**Not verified here:** the measurements on Windows or on the owner's machine;
+D's streaming API; behaviour of any candidate with a changing ratio
+(tempo ramps), which S4b tests with the chosen one.
+
+## ADR-0121 — The audio editor's canvas and the shared clip header (M9.5 S1)
+
+**Date:** 2026-11-04. **Branch:** `m9.5-s1-editor-canvas`, cut from
+`m9.5-s0-stretch-trial` (neither is merged yet). **Status:** Accepted;
+MT-CLIP-1 waits for the owner. Plan: `docs/milestones/M9.5.md` S1 (owner
+choices: L B, TL C, KC C, all 2026-11-04).
+
+**Context.** The audio Clip tab drew the clip alone, painted once at a fixed
+size, beside the clip card's rows (ADR-0108 DP1). M9.5 asks for an editor
+like the piano roll: the whole file, zoom and scroll, samples at depth, the
+ruler and the playhead. The owner also asked that the two clip editors stay
+consistent in design (2026-11-04): one header, the tool switch grey while
+Pointer is chosen and lit only for Draw (TL C), with no key inside the
+control (KC C).
+
+**Choice.**
+
+1. **One header** (`app/clip_header.rs`): `HeaderStrip` draws the title and
+   caption, the tool switch and the right-hand group; `App::header_grid_chip`
+   the grid chip. The note editor's toolbar is now its own parts on that
+   strip. `Tool` moved there. `widgets::segmented_styled` became
+   `segmented_tool`, whose chosen piece is lit only when given a tone (the
+   neutral thumb otherwise); `Choice::hint` (a key drawn in the piece) became
+   `Choice::keys`, shown as K5 keycaps in the choice's tooltip. Nothing else
+   used either.
+2. **The whole file on the timeline** (`audio_editor/source.rs`). The file is
+   the waves of a copy of the clip with no loop or fades, stretched from the
+   file's first frame to its last, its phase moved by the seconds its start
+   moved, so the same frame plays at the same time. This reuses the
+   arrangement's mapping (`waves::spans_of`, which takes a clip directly),
+   tempo changes and ramps included, so the editor and the arrangement can
+   never disagree. A looping clip shows its first repeat (the loop) as the
+   window. A file that would start before the song is cut at the song start.
+3. **Drawn on the CPU from the peaks, one column per physical pixel**
+   (`audio_editor/paint.rs`), as the Clip tab already was, rather than on the
+   GPU: the arrangement's waves live in a box layer with a peak atlas of up to
+   128 MB, which a second canvas would duplicate; the columns are only those
+   in view (a few thousand), each a few buckets of the right level. Below 4
+   frames a pixel the samples are drawn: from memory, or for a file played
+   from disk from the arrangement's strip reader on its worker
+   (`arrangement::samples::StripReader`, now shared). They are asked for with
+   a screen's width to spare either side and kept while the view stays
+   inside them (`audio_editor::SampleCache`), so a streamed file is read once,
+   not every frame; until they arrive the peaks are drawn. The file's place
+   on the timeline is cached too (`FileCache`, until the clip, the tempo, the
+   rate or the file changes).
+4. **The view is the editor's own** (ADR-0048): fitted to the clip when it
+   opens (each time it is opened), Ctrl+wheel and the zoom keys zoom around
+   the pointer (or the playhead), the wheel scrolls; while playing it follows
+   the playhead by the arrangement's own rule (`navigate::follow_view`: Page
+   or Continuous), and looking around (wheel, zoom, a fit, a ruler click)
+   pauses Follow, as it does in the arrangement. Its limits reach the whole
+   file with room, and the arrangement's deepest zoom (8 points a sample).
+5. **Two commands**, at the end of the table: "Zoom the audio editor to the
+   clip" and "Show the whole file in the audio editor", also the header's
+   Zoom to clip and Whole file. No default keys.
+6. **Layout, for now.** The clip card's rows stay in the left column; S3
+   replaces them with the strip (L B). This keeps every property reachable
+   meanwhile.
+7. **The audio header has no tool switch in S1.** Pointer and Draw arrive in
+   S2 with the handles, when Draw has something to draw (the envelope); a
+   switch with nothing behind Draw would be a stub. Its other parts (title,
+   grid chip, right-hand group) are the shared ones in the shared places.
+
+**Consequences.** The playhead drawing is one function both editors call
+(`App::paint_editor_playhead`). `theme::size::CLIP_RULER` is 30 pt (two
+rows); `TIME_LABEL_ROOM` and `WAVE_SPLIT` are new size tokens. No format
+change.
+
+**Review round 1** (an independent read of S0 and S1) found, and this ADR's
+slice fixed: streamed samples read again every frame; Follow without
+Continuous and fighting a scroll; a KC test that could not fail; a short
+looping clip's window; per-frame work and literals; the samples threshold
+under the peaks' bucket size; thin error states; `Tool` defined in `app/`
+and re-exported by the component. Declined, with reasons, in the report: the
+note editor's older `impl App` blocks (a move of their own), and the
+header's few literals carried over unchanged from the note editor.
+
+**Review round 2** found, and this slice fixed: a header with no narrow form
+(at the 960 pt minimum with the browser open its buttons would have been
+drawn over the grid chip; the header now draws its right-hand group first and
+clips the left parts, and its buttons take short words under 600 pt); Z and X
+not reaching the editor (they now zoom it to the clip and back); one line
+shape per sample pair at depth (now one per run of one colour); empty states
+that confused causes (now: reading, preparing, not in the project, cannot be
+read, cannot be shown); a ruler drag seeking every frame while playing (now
+on release); the file's end hard to see in the light theme (its ends are
+drawn); the info line naming the ruler over the wave (the ruler has its own);
+and the sample cache keyed by file alone (now by file and length). The
+records say the audio header's tool switch and Pop out come with S2 and that
+the headers share their parts' order; the hearing items of the plan's §1 are
+given to S2.
+
+**After main's D0 (2026-11-06).** Main took ADR-0119 for the user
+documentation, so S0 and S1 moved to ADR-0120 and ADR-0121 when main was
+merged in. D0 made user docs part of every slice (USER_DOCS.md §10.1), and
+its coverage test failed on this slice's two commands. The slice now carries
+the guide **Look inside an audio clip** (`site/docs/content/guides/clips/`,
+under Clips and selection) with its scene `audio_clip_editor` in
+`tests/docs_media/`: a lead clip (open a trimmed clip, Whole file, Zoom to
+clip), the whole file with the part the clip plays and the rest marked, and
+the wave zoomed to its samples. The page also lists Open clip, so
+`midi.open_editor` left `undocumented.txt`. The scene's window is 640 pt
+tall rather than the demo song's 420, so the tracks show above the detail
+panel. **Review round 3** (a read of round 2's fixes) found one bug, fixed:
+X straight after opening a clip went back to the view of an earlier
+opening (another clip's, or the whole file), since opening recorded the view
+before it as the one to go back to. Opening now leaves nothing to go back
+to (E2E `x_right_after_opening_a_clip_keeps_it_framed`, which fails
+without the fix).
+
+**Verified.** Unit tests of the mapping (offset, a file cut at the song
+start, a tempo change frame for frame, a loop and a loop longer than its
+clip, a phase, a reversed clip's twin, lookup, a MIDI clip), of the time
+labels, and of the tool switch (Pointer chosen is not lit, Draw chosen is;
+no key is painted in a piece); E2E `audio_editor` (11 scenarios: Z and X; X right after opening; the file and
+window, Whole file by button and palette, the zoom keys down to samples with
+the arrangement still and to the arrangement when the pointer is there, the
+wheel and Ctrl+wheel, Follow paging and pausing on a scroll, samples of a
+file played from disk staying drawn, the ruler moving the playhead, and the
+two headers' title and grid chip in the same order and heights, with Draw's
+key in its tooltip); the shots `detail_tabs` and `audio_clip_editor` in both
+themes at 100, 150 and 200%, and at the 960 × 540 minimum with the browser
+open at 100% and 200%. **Not verified:** the frame time on a one-hour
+file at every zoom (no Windows machine here; the bench is S2's), how it
+looks on the owner's display, and the docs site built with the page (no
+`zola` here; CI's docs job builds it). The scene was rendered here in
+both themes and its pictures looked at.

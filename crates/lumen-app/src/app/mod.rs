@@ -3,6 +3,7 @@
 //! M1).
 
 pub(crate) mod association;
+pub(crate) mod audio_editor;
 pub(crate) mod audio_export;
 pub(crate) mod audio_inputs;
 pub(crate) mod audio_record;
@@ -19,6 +20,7 @@ pub(crate) mod clip_card;
 mod clip_commands;
 pub(crate) mod clip_consolidate;
 mod clip_envelopes;
+pub(crate) mod clip_header;
 pub(crate) mod clip_normalize;
 pub(crate) mod clipboard_keys;
 mod commands;

@@ -205,3 +205,30 @@ impl PianoRollDemo {
         crate::piano_roll::demo::show(ui, &self.boxes, points_per_beat, row_height);
     }
 }
+
+/// What the audio clip editor drew last frame (M9.5 S1).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AudioEditorShown {
+    /// The wave area.
+    pub body: egui::Rect,
+    /// The editor's own view.
+    pub view: TimeView,
+    /// The beats the clip plays, and the beats its file covers.
+    pub window: (f64, f64),
+    pub file: (f64, f64),
+    /// The wave was drawn sample by sample.
+    pub samples: bool,
+}
+
+impl App {
+    /// Where and what the audio editor drew last, if it has.
+    pub fn audio_editor_shown(&self) -> Option<AudioEditorShown> {
+        self.audio_editor.last.map(|d| AudioEditorShown {
+            body: d.body,
+            view: d.time,
+            window: d.window,
+            file: d.file,
+            samples: d.samples,
+        })
+    }
+}

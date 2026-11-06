@@ -200,6 +200,12 @@ fn a_recording_started_behind_the_save_question_holds_dont_save_and_asks_again()
     lumen.wait_for("the save question", |app| app.save_prompt_open());
     lumen.key(Modifiers::NONE, Key::F9);
     lumen.wait_for("the recording", |app| app.recording());
+    // The take is the change asked about again; one stopped before its
+    // first input block has nothing to place (as in `recording_ready`).
+    let vox = lumen.app().project().tracks[0].id;
+    lumen.wait_for("the take's first frames", move |app| {
+        app.audio_take_frames(vox).is_some_and(|f| f > 0)
+    });
     lumen.click("Don't save");
     lumen.frames(5);
     assert!(

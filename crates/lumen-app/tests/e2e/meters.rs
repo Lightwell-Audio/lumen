@@ -312,12 +312,14 @@ fn full_scale_reads_zero_and_a_converted_file_shows_its_true_peak() {
         let master = lumen.app().project().master.id;
         play(&mut lumen);
         listen(&mut lumen, 600);
-        for id in [track, master] {
-            let peak = lumen.app().meter(id).peak_db;
-            assert!(
-                (peak - want).abs() < 0.05,
-                "{rate} Hz: {peak} dB, want {want}"
-            );
-        }
+        // Waited for, not read once: a shown peak falls between callbacks,
+        // so a frame drawn after a late block on a busy machine reads under
+        // the tone (2.0 dB for 3.01 on macOS CI). A gain added or a peak
+        // missed never reaches the window, so the claim is unchanged.
+        lumen.wait_for(&format!("{rate} Hz read at {want} dB"), |app| {
+            [track, master]
+                .iter()
+                .all(|id| (app.meter(*id).peak_db - want).abs() < 0.05)
+        });
     }
 }

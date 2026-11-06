@@ -288,9 +288,10 @@ pub struct Choice<'a, T> {
     /// An icon before the label, drawn centred on the point it is given in
     /// the colour given; on the same line as the label.
     pub icon: Option<fn(&egui::Painter, egui::Pos2, egui::Color32)>,
-    /// The choice's key, drawn as a small keycap after the label (from the
-    /// keymap, never written text). Short keys only.
-    pub hint: Option<&'a str>,
+    /// The choice's shortcut, shown as K5 keycaps in its tooltip beside
+    /// `tip` (the owner's KC C: no key inside the control). From the
+    /// keymap, never written text.
+    pub keys: Option<&'a super::Keys>,
 }
 
 impl<'a, T> Choice<'a, T> {
@@ -302,13 +303,13 @@ impl<'a, T> Choice<'a, T> {
             tip: None,
             name: None,
             icon: None,
-            hint: None,
+            keys: None,
         }
     }
 
-    /// Shows `key` as a keycap after the label.
-    pub fn hint(mut self, key: Option<&'a str>) -> Self {
-        self.hint = key.filter(|k| k.chars().count() <= 3);
+    /// Shows `keys` as keycaps in the choice's tooltip.
+    pub fn keys(mut self, keys: Option<&'a super::Keys>) -> Self {
+        self.keys = keys;
         self
     }
 
@@ -343,7 +344,7 @@ pub fn segmented<T: PartialEq + Copy>(
     value: T,
     choices: &[Choice<'_, T>],
 ) -> Option<T> {
-    segmented_styled(ui, id, value, choices, None)
+    segmented_with(ui, id, value, choices, Look::default())
 }
 
 /// [`segmented`] across the whole width it is given, the choices in equal
@@ -357,7 +358,16 @@ pub fn segmented_full<T: PartialEq + Copy>(
     value: T,
     choices: &[Choice<'_, T>],
 ) -> Option<T> {
-    segmented_with(ui, id, value, choices, (None, true))
+    segmented_with(
+        ui,
+        id,
+        value,
+        choices,
+        Look {
+            full: true,
+            ..Look::default()
+        },
+    )
 }
 
 /// Width of a choice's icon (the Button card's 14 pt).
@@ -377,32 +387,52 @@ fn icon_room<T>(choice: &Choice<'_, T>) -> f32 {
 /// Segmented card's `padding: 0 10px`).
 const TOOL_PAD: f32 = 10.0;
 
-/// [`segmented`] for the *tool* the user is working with (the piano roll's
-/// Pointer and Draw): 30 pt high, with the chosen piece filled in `lit`'s
-/// tone (`Tone::Accent`: `accent_hi` to `accent_lo`, `on_accent` letters, no
-/// glow) instead of the neutral raised thumb. `None` is [`segmented`]: 20 pt
-/// and neutral (the Segmented card, ADR-0052).
-pub fn segmented_styled<T: PartialEq + Copy>(
+/// [`segmented`] for the *tool* the user is working with (the clip
+/// editors' Pointer and Draw): 30 pt high. The chosen piece is filled in
+/// `lit`'s tone (`Tone::Accent`: `accent_hi` to `accent_lo`, `on_accent`
+/// letters, no glow), or is the neutral raised thumb when `lit` is `None`.
+/// The owner's TL C: the resting tool (Pointer) is grey and a drawing tool
+/// is lit, as the arrangement's tool switch is.
+pub fn segmented_tool<T: PartialEq + Copy>(
     ui: &mut Ui,
     id: EguiId,
     value: T,
     choices: &[Choice<'_, T>],
     lit: Option<Tone>,
 ) -> Option<T> {
-    segmented_with(ui, id, value, choices, (lit, false))
+    segmented_with(
+        ui,
+        id,
+        value,
+        choices,
+        Look {
+            tool: true,
+            lit,
+            full: false,
+        },
+    )
 }
 
-/// [`segmented_styled`], its pieces as wide as their words or (`full`)
-/// filling the width given, as [`segmented_full`] says.
+/// How a [`segmented_with`] row looks.
+#[derive(Debug, Clone, Copy, Default)]
+struct Look {
+    /// The 30 pt tool size, with its wider padding.
+    tool: bool,
+    /// The chosen piece is filled in this tone instead of the thumb.
+    lit: Option<Tone>,
+    /// The pieces fill the width given ([`segmented_full`]).
+    full: bool,
+}
+
+/// The segmented control, as [`Look`] says.
 fn segmented_with<T: PartialEq + Copy>(
     ui: &mut Ui,
     id: EguiId,
     value: T,
     choices: &[Choice<'_, T>],
-    (lit, full): (Option<Tone>, bool),
+    Look { tool, lit, full }: Look,
 ) -> Option<T> {
     let palette = theme::p();
-    let tool = lit.is_some();
     let pad = if tool { TOOL_PAD } else { theme::space::S };
     let font = FontId::proportional(theme::size::BODY);
     let galleys: Vec<_> = choices
@@ -421,23 +451,10 @@ fn segmented_with<T: PartialEq + Copy>(
     // Pieces sit 2 pt inside the trough with its radius less 2.
     let trough_radius = theme::radius::for_height(height);
     let piece_radius = trough_radius.saturating_sub(inset as u8);
-    let caps: Vec<_> = choices
-        .iter()
-        .map(|c| {
-            c.hint.map(|key| {
-                ui.painter().layout_no_wrap(
-                    key.to_owned(),
-                    FontId::monospace(theme::size::SCALE),
-                    palette.text_hint,
-                )
-            })
-        })
-        .collect();
     let widths: Vec<f32> = galleys
         .iter()
         .zip(choices)
-        .zip(&caps)
-        .map(|((g, c), cap)| g.size().x + icon_room(c) + cap_width(cap.as_deref()) + 2.0 * pad)
+        .map(|(g, c)| g.size().x + icon_room(c) + 2.0 * pad)
         .collect();
     let side = menu_inset(ui);
     // Full width: equal pieces when the widest's content fits that way with
@@ -475,7 +492,9 @@ fn segmented_with<T: PartialEq + Copy>(
         };
         let mut response = ui.interact(segment, id.with(i), sense);
         if let Some(tip) = choice.tip {
-            response = if choice.enabled {
+            response = if choice.keys.is_some() {
+                super::tip(response, tip, choice.keys, None)
+            } else if choice.enabled {
                 response.on_hover_text(tip)
             } else {
                 response.on_disabled_hover_text(tip)
@@ -533,8 +552,8 @@ fn segmented_with<T: PartialEq + Copy>(
         raised::gradient(painter, thumb, f32::from(piece_radius), top, bottom);
         raised::bare_lip(painter, thumb, piece_radius, light);
     }
-    for (((segment, response, chosen), (choice, galley)), cap) in
-        segments.iter().zip(choices.iter().zip(galleys)).zip(caps)
+    for ((segment, response, chosen), (choice, galley)) in
+        segments.iter().zip(choices.iter().zip(galleys))
     {
         let on = *chosen || picked == Some(choice.value);
         // An unchosen piece under the pointer takes the Ember wash.
@@ -559,10 +578,10 @@ fn segmented_with<T: PartialEq + Copy>(
         } else {
             controls.text
         };
-        // The label is centred in the piece; its icon and keycap are centred
-        // on the label's optical middle, snapped to whole pixels.
+        // The label is centred in the piece; its icon is centred on the
+        // label's optical middle, snapped to whole pixels.
         let icon = icon_room(choice);
-        let content = galley.size().x + icon + cap_width(cap.as_deref());
+        let content = galley.size().x + icon;
         let left = (segment.center().x - content / 2.0).round();
         let top = segment.center().y.round() - (galley.size().y / 2.0).round();
         let mid = (top + fonts::optical_middle(&galley)).round_to_pixels(ppp);
@@ -570,51 +589,11 @@ fn segmented_with<T: PartialEq + Copy>(
             draw(painter, pos2(left + ICON / 2.0, mid), colour);
         }
         painter.galley_with_override_text_color(pos2(left + icon, top), galley.clone(), colour);
-        if let Some(cap) = cap {
-            let at = pos2(left + icon + galley.size().x + CAP_GAP, mid);
-            paint_cap(painter, at, cap, colour);
-        }
         if response.has_focus() {
             raised::paint_focus(painter, *segment, piece_radius);
         }
     }
     picked
-}
-
-/// Gap between a choice's label and its keycap.
-const CAP_GAP: f32 = 6.0;
-/// Padding either side of a keycap's letters.
-const CAP_PAD: f32 = 4.0;
-
-/// The room a keycap takes after a label, with its gap.
-fn cap_width(cap: Option<&egui::Galley>) -> f32 {
-    cap.map_or(0.0, |g| CAP_GAP + g.size().x + 2.0 * CAP_PAD)
-}
-
-/// A small keycap whose left edge is at `at.x`, centred on `at.y`: a
-/// hairline outline and the key in the mono face, in `ink` at a lower
-/// strength so it reads as a hint beside the label. Not the full K5 keycap
-/// (`keys::keycaps` is 25 pt tall with its light, and a 20 pt trough's
-/// pieces are 16 pt): the shortcut is also in the choice's tooltip as K5.
-fn paint_cap(
-    painter: &egui::Painter,
-    at: egui::Pos2,
-    galley: std::sync::Arc<egui::Galley>,
-    ink: egui::Color32,
-) {
-    let size = vec2(galley.size().x + 2.0 * CAP_PAD, galley.size().y + 2.0);
-    let rect = Rect::from_min_size(pos2(at.x, at.y - (size.y / 2.0).round()), size);
-    painter.rect_stroke(
-        rect,
-        theme::radius::SMALL,
-        Stroke::new(theme::stroke::HAIRLINE, ink.gamma_multiply(0.45)),
-        egui::StrokeKind::Inside,
-    );
-    painter.galley_with_override_text_color(
-        pos2(rect.left() + CAP_PAD, rect.top() + 1.0),
-        galley,
-        ink.gamma_multiply(0.75),
-    );
 }
 
 /// A button that stays lit while `on` (Browser, Detail): raised like every
@@ -997,17 +976,17 @@ mod tests {
     }
 
     #[test]
-    fn icons_and_keycaps_sit_on_the_labels_optical_middle() {
+    fn icons_sit_on_the_labels_optical_middle() {
         let ctx = context();
         let dot: fn(&egui::Painter, egui::Pos2, egui::Color32) = |painter, at, colour| {
             painter.circle_filled(at, 1.0, colour);
         };
         let list = [
             Choice::new(0, "Pointer").icon(dot),
-            Choice::new(1, "Draw").icon(dot).hint(Some("B")),
+            Choice::new(1, "Draw").icon(dot),
         ];
         let shapes = frame(&ctx, 0.0, 0.0, &mut |ui| {
-            segmented_styled(ui, EguiId::new("tool"), 0, &list, Some(Tone::Accent));
+            segmented_tool(ui, EguiId::new("tool"), 0, &list, None);
         });
         let dots: Vec<f32> = shapes
             .iter()
@@ -1019,31 +998,62 @@ mod tests {
         let labels: Vec<f32> = shapes
             .iter()
             .filter_map(|shape| match shape {
-                egui::Shape::Text(text) if text.galley.text() != "B" => {
+                egui::Shape::Text(text) => {
                     Some(text.pos.y + crate::fonts::optical_middle(&text.galley))
                 }
                 _ => None,
             })
             .collect();
-        let cap = shapes
-            .iter()
-            .find_map(|shape| match shape {
-                egui::Shape::Rect(rect) if rect.stroke.width > 0.0 => Some(rect.rect.center().y),
-                _ => None,
-            })
-            .expect("the keycap's outline");
         assert_eq!(dots.len(), 2);
-        assert_eq!(labels.len(), 2);
+        assert_eq!(labels.len(), 2, "no keycap is drawn in the control (KC C)");
         for (dot, label) in dots.iter().zip(&labels) {
             assert!(
                 (dot - label).abs() <= 0.5,
                 "icon at {dot}, label's middle at {label}"
             );
         }
+    }
+
+    /// The colour each label is drawn in, by its text.
+    fn label_colours(shapes: &[egui::Shape]) -> Vec<(String, Option<egui::Color32>)> {
+        shapes
+            .iter()
+            .filter_map(|shape| match shape {
+                egui::Shape::Text(text) => {
+                    Some((text.galley.text().to_owned(), text.override_text_color))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_tool_switch_is_grey_for_pointer_and_lit_for_draw() {
+        // The owner's TL C: the resting tool is the neutral thumb, a drawing
+        // tool is filled in the accent.
+        let ctx = context();
+        let list = [Choice::new(0, "Pointer"), Choice::new(1, "Draw")];
+        let resting = frame(&ctx, 0.0, 0.0, &mut |ui| {
+            segmented_tool(ui, EguiId::new("tool"), 0, &list, None);
+        });
+        let palette = theme::p();
+        let on_accent = theme::lit(Tone::Accent).text;
+        let colours = label_colours(&resting);
         assert!(
-            (cap - labels[1]).abs() <= 1.0,
-            "keycap at {cap}, label's middle at {}",
-            labels[1]
+            colours.contains(&("Pointer".into(), Some(palette.text))),
+            "{colours:?}"
+        );
+        assert!(
+            !colours.iter().any(|(_, c)| *c == Some(on_accent)),
+            "{colours:?}"
+        );
+        let drawing = frame(&ctx, 0.0, 0.0, &mut |ui| {
+            segmented_tool(ui, EguiId::new("tool"), 1, &list, Some(Tone::Accent));
+        });
+        let colours = label_colours(&drawing);
+        assert!(
+            colours.contains(&("Draw".into(), Some(on_accent))),
+            "{colours:?}"
         );
     }
 

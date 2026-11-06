@@ -519,6 +519,21 @@ per slice and move what is no longer current out of it.
   Windows; meter E2E reads levels on a fresh frame (`listen`). The landing
   page's menu links to Docs. Waiting for the owner: the look at the built
   pages (PR's `docs-site` artifact).
+- **M9.5 (audio clip editing and warp)**, planned on `m9.5-plan`
+  (`docs/milestones/M9.5.md`; the owner chose every recommendation, BS B,
+  TL C, KC C on 2026-11-04). **S0** (`m9.5-s0-stretch-trial`, ADR-0120): the
+  owner works on a VM, so the test audio was fetched (CC0/public domain);
+  `tools/stretch-trial` is its own workspace; the blind pack is the page
+  "Lumen Stretch Trial". T waits for the owner's ear (recommendation C).
+  **S1** (`m9.5-s1-editor-canvas`, cut from S0, ADR-0121): the clip editors'
+  shared header (`app/clip_header.rs`: a new header part goes there, for
+  both editors) and the audio editor's canvas (`audio_editor/`,
+  `app/audio_editor.rs`). Main (D0) is merged in: S0 and S1 moved to
+  ADR-0120 and 0121 (S0's own branch still says 0119, so merge S1, which
+  holds S0, rather than S0 alone). Its docs page is Guides › Clips and
+  selection › Look inside an audio clip (scene `audio_clip_editor`).
+  MT-CLIP-1 waits. Next: S2 (handles); every slice now carries its docs
+  (USER_DOCS.md §10.1; `docs_coverage` fails on a command with no page).
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
@@ -533,7 +548,7 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status and the milestone reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0119 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0121 and the table of owner decisions.
 - `docs/USER_DOCS.md`: the user documentation strategy (accepted, ADR-0119).
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
@@ -588,7 +603,10 @@ error where it can be)
   WSL, so copy `perf/baseline.json` back and record the reason in the ADR.
 - **Cloud container:** `apt-get update`, then `libasound2-dev libudev-dev
   pkg-config mesa-vulkan-drivers xvfb libxkbcommon-x11-0`; smoke tests run
-  under `xvfb-run -a`.
+  under `xvfb-run -a`. Its disk allowance is about 38 GB, which a debug
+  `cargo test --workspace` overflows (a linker "Bus error"): build with
+  `CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0`
+  (about 3 GB). The docs scenes run there too, and render with ffmpeg.
 - **Disk:** the D: drive fills (LNK1318 means full); `target/debug/incremental`
   is safe to delete, and `CARGO_INCREMENTAL=0` helps.
 - **Shell tooling:** in the bash tool a heredoc with apostrophes or

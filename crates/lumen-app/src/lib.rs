@@ -43,6 +43,7 @@ mod app;
 mod arrangement;
 mod association;
 mod audio;
+mod audio_editor;
 mod audition;
 mod autosave;
 mod bench;
@@ -311,6 +312,8 @@ pub struct App {
     detail: app::detail::DetailState,
     /// The MIDI note editor: in the Clip tab, or popped out (slice 3c).
     note_editor: note_editor::NoteEditor,
+    /// The audio clip editor in the Clip tab (M9.5 S1).
+    audio_editor: audio_editor::AudioEditor,
     /// Full panel sizes, for sliding (kept while the panels are open).
     browser_size: f32,
     detail_size: f32,
@@ -531,6 +534,7 @@ impl eframe::App for App {
         self.capture_chord(&ctx);
         self.computer_keyboard_keys(&ctx);
         self.refresh_note_editor(&ctx);
+        self.refresh_audio_editor();
         self.refresh_detail(&ctx);
         self.refresh_chain(&ctx);
         self.take_prompt_enter(&ctx);

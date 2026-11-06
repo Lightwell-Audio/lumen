@@ -398,6 +398,10 @@ pub const METER_PEAK_ALPHA: f32 = 0.4;
 pub const DIMMED: f32 = 0.45;
 /// How strong a clip's outline is in its colour.
 pub const CLIP_EDGE: f32 = 0.6;
+/// The audio editor's file outside the clip's window: the wave in
+/// `text_hint` at this strength, on a `well` wash at `OUTSIDE_WASH`.
+pub const WAVE_OUTSIDE: f32 = 0.55;
+pub const OUTSIDE_WASH: f32 = 0.7;
 
 /// A meter's colour at `db`: `base` (the accent, or the track's colour with
 /// the owner's M2 setting) up to [`METER_WARN_DB`], the warning colour up to
@@ -624,10 +628,24 @@ pub mod size {
     pub const SUBJECT_BAR: f32 = 3.0;
     /// The widest a tab's note (a clip's name after "Clip") is drawn.
     pub const TAB_NOTE: f32 = 140.0;
-    /// The Clip tab's ruler of bar numbers over the wave, and the least
-    /// room between two numbers before only every second, fourth… shows.
-    pub const CLIP_RULER: f32 = 18.0;
+    /// The audio editor's ruler (bar numbers over the file's time), and the
+    /// least room between two bar numbers before only every second, fourth…
+    /// shows.
+    pub const CLIP_RULER: f32 = 30.0;
     pub const BAR_NUMBER_ROOM: f32 = 32.0;
+    /// The least room between two of the audio editor's time labels.
+    pub const TIME_LABEL_ROOM: f32 = 64.0;
+    /// From this height the audio editor draws a stereo file's left over its
+    /// right.
+    pub const WAVE_SPLIT: f32 = 96.0;
+    /// The audio editor's ruler: the clip's window band along its bottom,
+    /// a beat tick and a time tick, and the dot on each sample at depth.
+    pub const RULER_BAND: f32 = 3.0;
+    pub const BEAT_TICK: f32 = 5.0;
+    pub const TIME_TICK: f32 = 6.0;
+    pub const SAMPLE_DOT: f32 = 2.0;
+    /// Below this width the audio editor's header buttons take short words.
+    pub const CLIP_HEADER_NARROW: f32 = 600.0;
     /// How far a card's shadow reaches past it: what its painter's clip
     /// keeps around the card.
     pub const SHADOW_ROOM: f32 = 24.0;

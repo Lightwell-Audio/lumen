@@ -7,14 +7,12 @@
 
 use std::collections::BTreeSet;
 
-use eframe::egui::{self, Color32, FontId, Rect, Sense, Stroke, Ui, pos2, vec2};
-use lumen_core::meter::MeterMap;
-use lumen_project::model::{ClipContent, Id};
+use eframe::egui::{self, Color32, Rect, Sense, Ui, pos2, vec2};
+use lumen_project::model::Id;
 use lumen_project::routing::all_tracks;
 
 use super::panes::{self, Pane};
-use crate::arrangement::{self, waves};
-use crate::media::State;
+use crate::arrangement;
 use crate::{App, fonts, theme, widgets};
 
 /// Which tab of the detail panel is showing.
@@ -42,10 +40,6 @@ pub(crate) struct DetailState {
     /// tab takes it next frame.
     focus_devices: bool,
 }
-
-/// The properties column beside an opened audio clip's wave: the clip
-/// card's rows, with its padding.
-const PROPS_WIDTH: f32 = super::clip_card::CARD_WIDTH + 2.0 * theme::space::M;
 
 impl App {
     /// The track holding clip `clip`.
@@ -101,6 +95,8 @@ impl App {
         };
         self.close_note_editor();
         self.detail.opened_audio = Some(clip);
+        // Opening a clip frames the editor on it, even the same one again.
+        self.audio_editor.framed_for = None;
         self.detail.anchor = Some(track);
         self.detail_tab = DetailTab::Clip;
         self.show_detail = true;
@@ -308,234 +304,9 @@ impl App {
         }
     }
 
-    /// An opened audio clip: the clip card's rows in a column that scrolls
-    /// when the panel is short, beside the clip's wave under its bar
-    /// numbers (DP1).
-    fn audio_clip_view(&mut self, ui: &mut Ui, area: Rect, clip: Id) {
-        let palette = *theme::p();
-        let column =
-            Rect::from_min_size(area.min, vec2(PROPS_WIDTH.min(area.width()), area.height()));
-        ui.painter().rect_filled(column, 0.0, palette.app);
-        ui.painter().vline(
-            column.right() - theme::stroke::HAIRLINE / 2.0,
-            column.y_range(),
-            Stroke::new(theme::stroke::HAIRLINE, palette.border),
-        );
-        let mut props = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(column.shrink(theme::space::M))
-                .layout(egui::Layout::top_down(egui::Align::Min)),
-        );
-        egui::ScrollArea::vertical()
-            .id_salt("docked clip properties")
-            .auto_shrink([false, false])
-            .show(&mut props, |ui| {
-                ui.set_width(super::clip_card::CARD_WIDTH.min(ui.available_width()));
-                self.docked_clip_props(ui, clip);
-            });
-        let wave = Rect::from_min_max(pos2(column.right(), area.top()), area.max);
-        if wave.width() > 2.0 * theme::space::L {
-            self.paint_clip_wave(ui, wave, clip);
-        }
-    }
-
-    /// The wave of clip `clip` filling `area` (inset 12 pt by 16 pt), at
-    /// its gain and through its fades, under a ruler of bar numbers.
-    fn paint_clip_wave(&self, ui: &Ui, area: Rect, clip: Id) {
-        let palette = *theme::p();
-        let project = self.document.project();
-        let Some((track, model)) =
-            all_tracks(project).find_map(|t| t.clips.iter().find(|c| c.id == clip).map(|c| (t, c)))
-        else {
-            return;
-        };
-        let inner = area.shrink2(vec2(theme::space::L, theme::space::M));
-        let painter = ui.painter_at(area);
-        let (start, length) = (model.start, model.length);
-        let quarters = length.as_quarters().max(f64::EPSILON);
-        let x_of =
-            |q: f64| inner.left() + ((q - start.as_quarters()) / quarters) as f32 * inner.width();
-
-        // The bar numbers, thinned to keep their room.
-        if let Ok(meter) = MeterMap::new(project.meter.clone()) {
-            let first = meter.bbt_at(start).bar;
-            let last = meter.bbt_at(start + length).bar;
-            let bars = (last - first + 1).max(1);
-            let per_bar = inner.width() / bars as f32;
-            let mut every = 1;
-            while per_bar * (every as f32) < theme::size::BAR_NUMBER_ROOM && every < bars {
-                every *= 2;
-            }
-            let font = FontId::monospace(theme::size::MONO_SMALL);
-            let mut bar = first;
-            while bar <= last {
-                let at = meter.bar_start(bar);
-                if at >= start {
-                    let x = x_of(at.as_quarters());
-                    painter.text(
-                        pos2(
-                            x + theme::space::XXS,
-                            inner.top() + theme::size::CLIP_RULER / 2.0,
-                        ),
-                        egui::Align2::LEFT_CENTER,
-                        (bar + 1).to_string(),
-                        font.clone(),
-                        palette.text_hint,
-                    );
-                }
-                // Only the numbers shown: a long clip has many bars.
-                bar += every;
-            }
-        }
-
-        let colour = arrangement::clip_color(track, model);
-        let body = Rect::from_min_max(
-            pos2(inner.left(), inner.top() + theme::size::CLIP_RULER),
-            inner.max,
-        );
-        if body.height() < arrangement::TITLE * 2.0 {
-            return;
-        }
-        let radius = theme::radius::SMALL;
-        painter.rect_filled(body, radius, palette.clip_body);
-        let title = Rect::from_min_size(body.min, vec2(body.width(), arrangement::TITLE));
-        painter.rect_filled(
-            title,
-            egui::CornerRadius {
-                nw: radius,
-                ne: radius,
-                sw: 0,
-                se: 0,
-            },
-            colour,
-        );
-        let name = widgets::fit(
-            &painter,
-            &model.name,
-            FontId::proportional(theme::size::CAPTION),
-            title.width() - 2.0 * theme::space::XS,
-        );
-        painter.text(
-            // The name clears the outline's hairline by the inset.
-            pos2(
-                title.left() + theme::stroke::HAIRLINE + theme::space::XS,
-                title.center().y,
-            ),
-            egui::Align2::LEFT_CENTER,
-            name,
-            FontId::proportional(theme::size::CAPTION),
-            theme::CLIP_TEXT,
-        );
-        let lane = Rect::from_min_max(pos2(body.left(), title.bottom()), body.max);
-        self.paint_wave_columns(&painter, lane, model, theme::wave(colour));
-        painter.rect_stroke(
-            body,
-            radius,
-            Stroke::new(
-                theme::stroke::HAIRLINE,
-                colour.gamma_multiply(theme::CLIP_EDGE),
-            ),
-            egui::StrokeKind::Inside,
-        );
-    }
-
-    /// The wave of `clip` in `lane`, one column a point wide: the extent of
-    /// the frames under each column from the peaks, both channels together.
-    fn paint_wave_columns(
-        &self,
-        painter: &egui::Painter,
-        lane: Rect,
-        clip: &lumen_project::model::Clip,
-        colour: Color32,
-    ) {
-        if !matches!(clip.content, ClipContent::Audio { .. }) {
-            return;
-        }
-        let rate = self.lanes.rate();
-        let library = &self.lanes.library;
-        let ready = |key: u64| {
-            library.with_twins().find(|i| i.id == key).and_then(|item| {
-                let (State::Ready(audio), Some(peaks)) = (&item.state, &item.peaks) else {
-                    return None;
-                };
-                (audio.sample_rate() == rate).then(|| {
-                    (
-                        waves::Source {
-                            slot: 0,
-                            channels: peaks.channels as u32,
-                            native_rate: item.info.sample_rate.unwrap_or(audio.sample_rate()),
-                        },
-                        std::sync::Arc::clone(peaks),
-                    )
-                })
-            })
-        };
-        let spans = waves::one_clip(self.document.project(), clip.id, rate, |key| {
-            ready(key).map(|(source, _)| source)
-        });
-        // Each span's own peaks: a span reads its own media.
-        let peaks: Vec<_> = spans
-            .iter()
-            .map(|s| ready(s.media).map(|(_, p)| p))
-            .collect();
-        if peaks.iter().all(Option::is_none) {
-            return;
-        }
-        let start = clip.start.as_quarters();
-        let quarters = clip.length.as_quarters().max(f64::EPSILON);
-        let fade_in = clip.fade_in.length.as_quarters();
-        let fade_out = clip.fade_out.length.as_quarters();
-        let middle = lane.center().y;
-        let half = lane.height() / 2.0 - theme::space::XXS;
-        // One column per physical pixel, so the wave stays crisp when
-        // scaled.
-        let pixel = 1.0 / painter.pixels_per_point();
-        let columns = (lane.width() / pixel).floor().max(0.0) as usize;
-        let mut mesh = egui::Mesh::default();
-        for column in 0..columns {
-            let q0 = start + quarters * column as f64 / columns as f64;
-            let q1 = start + quarters * (column + 1) as f64 / columns as f64;
-            // The span under the column's middle; a column over no span
-            // (before the first, or between two) is left empty.
-            let middle_q = (q0 + q1) / 2.0;
-            let Some(at) = spans
-                .iter()
-                .position(|s| middle_q >= s.start && middle_q < s.end)
-            else {
-                continue;
-            };
-            let (span, Some(peaks)) = (&spans[at], &peaks[at]) else {
-                continue;
-            };
-            let frame = |q: f64| {
-                span.first_frame
-                    + (q.clamp(span.start, span.end) - span.start) * span.frames_per_beat
-            };
-            let (f0, f1, gain) = (frame(q0), frame(q1), span.gain);
-            let [lmin, lmax, rmin, rmax] = peaks.extent(f0.min(f1), f0.max(f1));
-            let (lo, hi) = (
-                f32::from(lmin.min(rmin)) / 127.0,
-                f32::from(lmax.max(rmax)) / 127.0,
-            );
-            let into = q0 - start;
-            let mut level = gain;
-            if fade_in > 0.0 && into < fade_in {
-                level *= clip.fade_in.level((into / fade_in) as f32);
-            }
-            let left = quarters - into;
-            if fade_out > 0.0 && left < fade_out {
-                level *= clip.fade_out.level((left / fade_out) as f32);
-            }
-            let (a, b) = (lo * level, hi * level);
-            let top = middle - a.max(b) * half;
-            let bottom = middle - a.min(b) * half;
-            let x = lane.left() + column as f32 * pixel;
-            mesh.add_colored_rect(
-                Rect::from_min_max(pos2(x, top), pos2(x + pixel, bottom.max(top + pixel))),
-                colour,
-            );
-        }
-        painter.add(egui::Shape::mesh(mesh));
+    /// The audio clip opened in the Clip tab, if any.
+    pub(crate) fn detail_audio_clip(&self) -> Option<Id> {
+        self.detail.opened_audio
     }
 }
 

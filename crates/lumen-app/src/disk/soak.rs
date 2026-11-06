@@ -8,7 +8,8 @@
 //! Blocks whose time passed while the machine was busy are missed, as a
 //! device misses them, and reported apart: they are dropouts, not late reads.
 //!
-//! `LUMEN_SOAK_SECONDS` runs it longer than CI's default.
+//! `LUMEN_SOAK_SECONDS` runs it longer than CI's default. CI runs it alone,
+//! with the other real-time tests (`.github/timing-tests.txt`).
 
 use std::sync::atomic::AtomicUsize;
 

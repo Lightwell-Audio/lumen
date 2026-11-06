@@ -165,6 +165,118 @@ fn split_while_playing() {
     check("split_while_playing", started);
 }
 
+/// Guides › Clips › Look inside an audio clip: the lead clip opens a trimmed
+/// clip in the Clip tab, shows its whole file and zooms back to the clip;
+/// the shots show the whole file with the part the clip plays marked, and
+/// the wave zoomed in to its samples.
+#[test]
+#[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
+fn audio_clip_editor() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_core::time::Ticks;
+
+    let started = Instant::now();
+    for &theme in recorder::themes() {
+        let dir = TempDir::new(&format!("docs-audio-editor-{theme}"));
+        let (mut h, device) = song(&dir, theme);
+        // Tall enough for the tracks above the detail panel.
+        h.set_size(eframe::egui::vec2(960.0, 640.0));
+        h.run_steps(10);
+        // The Drums clip plays bars 2 and 3 of its four-bar file.
+        let id = h.state().project().tracks[0].clips[0].id;
+        h.state_mut().trim_clip_start_to(id, Ticks::quarters(4));
+        h.state_mut()
+            .trim_clip_end_to(id, Ticks::quarters(12), false);
+        h.run_steps(10);
+        let drums = clip(&h, 0, 0);
+        let crop = Rect::from_min_max(
+            pos2(0.0, arrangement(&h).top()),
+            h.ctx.content_rect().right_bottom(),
+        );
+        let rest = pos2(crop.right() - 60.0, crop.top() + 90.0);
+
+        let mut take = Take::clip(&mut h, device, "audio-editor-lead", theme, crop, 0.5, rest);
+        take.hold(&mut h, pace::RESULT / 2);
+        take.move_to(&mut h, pos2(drums.center().x, drums.bottom() - 8.0));
+        take.click(&mut h);
+        take.settle(&mut h);
+        take.keys(&mut h, &caps("midi.open_editor"), |h| {
+            h.key_press(Key::Enter)
+        });
+        take.settle(&mut h);
+        let opened = h
+            .state()
+            .audio_editor_shown()
+            .expect("Enter opens the editor");
+        assert_eq!(opened.window, (4.0, 12.0), "the clip plays bars 2 and 3");
+        take.hold(&mut h, pace::READ);
+
+        let whole = h.get_by_label("Whole file").rect().center();
+        take.move_to(&mut h, whole);
+        take.click(&mut h);
+        take.settle(&mut h);
+        let shown = h.state().audio_editor_shown().expect("drawn");
+        assert!(shown.view.zoom < opened.view.zoom, "Whole file zooms out");
+        take.hold(&mut h, pace::READ);
+
+        let to_clip = h.get_by_label("Zoom to clip").rect().center();
+        take.move_to(&mut h, to_clip);
+        take.click(&mut h);
+        take.settle(&mut h);
+        let back = h.state().audio_editor_shown().expect("drawn");
+        assert!(
+            (back.view.zoom - opened.view.zoom).abs() < 1e-9,
+            "back on the clip"
+        );
+        take.move_to(&mut h, pos2(crop.right() - 60.0, back.body.top() - 60.0));
+        take.result(&mut h);
+        take.finish();
+
+        // The whole file, with the part the clip plays and the rest marked.
+        h.get_by_label("Whole file").click();
+        h.run_steps(6);
+        let shown = h.state().audio_editor_shown().expect("drawn");
+        let x = |q: f64| shown.view.x(shown.body.left(), q);
+        let band =
+            |from: f64, to: f64| Rect::from_x_y_ranges(x(from)..=x(to), shown.body.y_range());
+        // The editor alone: its header, ruler and wave.
+        let editor = Rect::from_min_max(
+            pos2(shown.body.left() - 1.0, shown.body.top() - 70.0),
+            pos2(crop.right(), shown.body.bottom() + 1.0),
+        );
+        h.hover_at(pos2(crop.left() + 8.0, crop.top() + 8.0));
+        still(
+            &mut h,
+            editor,
+            "audio-editor-whole",
+            theme,
+            None,
+            &[
+                ("The part the clip plays", band(4.0, 12.0)),
+                ("The rest of the file", band(12.0, 16.0)),
+            ],
+        );
+
+        // Zoomed in on a kick's start until the wave is drawn through its
+        // samples, then one step further.
+        let on_wave = pos2(x(8.0) + 1.0, shown.body.center().y);
+        h.hover_at(on_wave);
+        for _ in 0..40 {
+            if h.state().audio_editor_shown().is_some_and(|s| s.samples) {
+                break;
+            }
+            h.key_press(Key::Plus);
+            h.run_steps(2);
+        }
+        let deep = h.state().audio_editor_shown().expect("drawn");
+        assert!(deep.samples, "the zoom keys reach the samples");
+        h.key_press(Key::Plus);
+        h.run_steps(2);
+        still(&mut h, editor, "audio-editor-samples", theme, None, &[]);
+    }
+    check("audio_clip_editor", started);
+}
+
 /// Films frames until the playhead reaches `quarters`, within ten seconds
 /// of video: a song that stopped or stalled fails the scene instead of
 /// filming forever.

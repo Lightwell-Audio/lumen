@@ -267,6 +267,8 @@ pub(crate) enum Command {
     AddPlace,
     RefreshFiles,
     AssociateFiles,
+    AudioEditorZoomToClip,
+    AudioEditorWholeFile,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -434,12 +436,12 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::PanLawCompromise, "mixer.pan_law_compromise", "Pan law: −4.5 dB", Area::Mixer, &[], "A centered mono track plays 4.5 dB down per side: between constant power and linear. Stereo tracks keep their level at the center."),
     info(Command::PanLawLinear, "mixer.pan_law_linear", "Pan law: −6 dB, linear", Area::Mixer, &[], "A centered mono track plays 6 dB down per side; the two sides always add up to unity. Stereo tracks keep their level at the center."),
     info(Command::PanLawBalance, "mixer.pan_law_balance", "Pan law: 0 dB, balance", Area::Mixer, &[], "A centered mono track plays at unity on both sides; panning turns only the far side down. Stereo tracks always pan this way."),
-    info(Command::ZoomIn, "view.zoom_in", "Zoom in", Area::View, &[plain(Key::Plus), shift(Key::Plus), plain(Key::Equals), shift(Key::Equals)], "Zooms in around the pointer, or the playhead. With the clip editor's keys live, zooms its piano roll."),
-    info(Command::ZoomOut, "view.zoom_out", "Zoom out", Area::View, &[plain(Key::Minus)], "Zooms out around the pointer, or the playhead. With the clip editor's keys live, zooms its piano roll."),
-    info(Command::ZoomBack, "view.zoom_back", "Zoom back", Area::View, &[plain(Key::X)], "Goes back to the view before the last zoom."),
+    info(Command::ZoomIn, "view.zoom_in", "Zoom in", Area::View, &[plain(Key::Plus), shift(Key::Plus), plain(Key::Equals), shift(Key::Equals)], "Zooms in around the pointer, or the playhead. With the clip editor's keys live, zooms the clip editor."),
+    info(Command::ZoomOut, "view.zoom_out", "Zoom out", Area::View, &[plain(Key::Minus)], "Zooms out around the pointer, or the playhead. With the clip editor's keys live, zooms the clip editor."),
+    info(Command::ZoomBack, "view.zoom_back", "Zoom back", Area::View, &[plain(Key::X)], "Goes back to the view before the last zoom. With the audio editor's keys live, its view before the last Zoom to clip or Whole file."),
     info(Command::FitWidth, "view.fit_width", "Fit song to width", Area::View, &[plain(Key::W)], "Fits the whole song to the window's width."),
     info(Command::FitHeight, "view.fit_height", "Fit tracks to height", Area::View, &[plain(Key::H)], "Fits every track into the window's height, or back."),
-    info(Command::ZoomToSelection, "view.zoom_selection", "Zoom to selection", Area::View, &[plain(Key::Z)], "Fits the selected clips or time range to the window."),
+    info(Command::ZoomToSelection, "view.zoom_selection", "Zoom to selection", Area::View, &[plain(Key::Z)], "Fits the selected clips or time range to the window. With the audio editor's keys live, zooms it to the clip."),
     info(Command::FitLoop, "view.fit_loop", "Fit loop", Area::View, &[], "Fits the loop to the window."),
     info(Command::ToggleDetail, "view.detail_panel", "Show / hide detail panel", Area::View, &[shift(Key::Tab)], "Shows or hides the detail panel."),
     info(Command::ToggleInfoLine, "view.info_line", "Show info line", Area::View, &[], "Shows or hides the line along the bottom that says what is under the pointer."),
@@ -621,6 +623,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AddPlace, "view.add_place", "Add a place…", Area::View, &[], "Chooses a folder to keep in the Places tab, to browse it without looking for it again."),
     info(Command::RefreshFiles, "view.refresh_files", "Refresh the browser's files", Area::View, &[], "Reads the sample folders, the projects folder and the open place again, for files added or removed outside the app."),
     info(Command::AssociateFiles, "file.associate_files", concat!("Open .lumen files with ", lumen_core::product_name!()), Area::File, &[], "Turns on or off opening projects from File Explorer with this copy, each with the project icon."),
+    info(Command::AudioEditorZoomToClip, "view.audio_editor_zoom_to_clip", "Zoom the audio editor to the clip", Area::View, &[], "Shows the part of the file the opened audio clip plays across the Clip tab's editor. A looping clip shows its loop."),
+    info(Command::AudioEditorWholeFile, "view.audio_editor_whole_file", "Show the whole file in the audio editor", Area::View, &[], "Shows the opened audio clip's whole file in the Clip tab's editor, with the part the clip plays bright."),
 ];
 
 const fn info(
@@ -684,7 +688,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::AssociateFiles as usize + 1,
+            Command::AudioEditorWholeFile as usize + 1,
             ALL.len(),
             "a command is missing"
         );

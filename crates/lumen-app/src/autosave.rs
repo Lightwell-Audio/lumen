@@ -486,7 +486,14 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(5));
         }
-        panic!("the autosave was never written");
+        // Which of the two it was: a write still under way (a stalled disk)
+        // or one that ended in an error (its reason is in the trace log).
+        panic!(
+            "the autosave was never written: still writing {}, last write ended {:?} \
+             (Some(false): it failed)",
+            autosave.writing.is_some(),
+            autosave.finished
+        );
     }
 
     #[test]
