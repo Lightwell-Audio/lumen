@@ -492,6 +492,33 @@ per slice and move what is no longer current out of it.
   **Next (owner, 2026-11-03):** a mini milestone, 9.5, before M8: audio clip
   warping and a fleshed-out audio clip detail panel (M7's planned E7 and E8).
   It is planned and pitched first.
+- **Branch `docs/documentation-strategy`: the user documentation strategy**
+  (ADR-0119, `docs/USER_DOCS.md`; owner asked 2026-11-05). Docs on the
+  website at `/docs/`: Quick start, Guides, Recipes, a reference generated
+  from `commands::ALL` and `preferences::ROWS`, screenshots rendered by the
+  headless harness, a coverage test with a shrinking baseline, docs per slice
+  and per milestone, later per version. Owner: every choice A (Zola),
+  "show, don't tell" (lead clips, gesture clips, walkthrough videos, §6),
+  and inviting, fun docs matching the landing page and tokens (§9).
+- **Branch `docs/d0-foundations` (from the strategy branch): D0 is built**
+  (report: USER_DOCS.md §11). The Zola site is `site/docs/` (README
+  there; `build.sh`), in the Playbook look. Its media is rendered from the
+  real app by `tests/docs_media/` (ignored; with `DOCS_MEDIA` it renders
+  and encodes, needing a GPU and ffmpeg; without it each scene only
+  checks). `tests/shared/scenes.rs` lists what each scene writes. Media is
+  not committed: `pages.yml` renders it at each deploy, and `docs.yml`
+  checks pull requests. During a take the test device runs a video frame's
+  time per frame, so a second run makes the same frames: anything drawn
+  from the wall clock in the arrangement breaks that (the meters now use
+  egui's input time). Headless Chromium has no H.264, so screenshots of
+  the site show a frame of each clip. Render time: owner chose A
+  (2026-11-05); a deploy renders only scenes whose fingerprint
+  (`plan_the_render` in `tests/docs_coverage.rs`) differs from the
+  published `docs/media/manifest.json` and fetches the rest; "Run
+  workflow" renders all in parallel jobs (USER_DOCS.md §13). Checked on
+  Windows; meter E2E reads levels on a fresh frame (`listen`). The landing
+  page's menu links to Docs. Waiting for the owner: the look at the built
+  pages (PR's `docs-site` artifact).
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
@@ -506,7 +533,8 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status and the milestone reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0118 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0119 and the table of owner decisions.
+- `docs/USER_DOCS.md`: the user documentation strategy (accepted, ADR-0119).
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
 - `docs/KNOWN_ISSUES.md`, `docs/ARCHITECTURE.md` (crates, threads, module

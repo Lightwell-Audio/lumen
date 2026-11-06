@@ -1,0 +1,39 @@
+{% extends "page.html" %}
+{#- Every Preferences row, page by page, generated from the app's search
+    table (USER_DOCS.md §3.4). A row's key is its anchor. -#}
+{% block generated %}
+{%- set data = load_data(path="data/preferences.json") -%}
+{%- set total = data.rows | length %}{% set noun = "settings" %}{% set example = "buffer, autosave, theme…" %}
+{% include "partials/ref_filter.html" %}
+{%- for p in data.pages %}
+{%- set rows = data.rows | filter(attribute="page", value=p.name) %}
+<section class="ref-area" id="page-{{ p.name | slugify }}" data-ref-group data-ref-area="{{ p.name }}">
+  <h2><span class="ref-dot" aria-hidden="true"></span>{{ p.name }} <span class="ref-n">{{ rows | length }}</span></h2>
+  <p class="ref-lede">{{ p.about }}.</p>
+  <ul class="ref-list">
+  {%- for r in rows %}
+    <li class="ref-row" data-ref-row data-ref-name="{{ r.name }}" data-ref-also="{{ r.words }}">
+      <div class="ref-head"><h3 class="ref-title" id="{{ r.id }}"><a class="ref-name" href="#{{ r.id }}">{{ r.name }}</a></h3></div>
+      {%- set term = get_taxonomy_term(kind="actions", term="pref:" ~ r.id, required=false) %}
+      {%- if term %}
+      <p class="ref-where">
+        {%- for g in term.pages %}
+        <a class="ref-guide" href="{{ g.permalink }}">{{ g.title }}</a>
+        {%- endfor %}
+      </p>
+      {%- endif %}
+      <p class="ref-words"><span data-pagefind-ignore>Also found by </span><span data-pagefind-weight="0.5">{{ r.words | split(pat=" ") | join(sep=", ") }}</span></p>
+    </li>
+  {%- endfor %}
+  </ul>
+</section>
+{%- endfor %}
+<p class="ref-empty" data-ref-empty hidden>No setting matches. Try a shorter word, or search the whole documentation.</p>
+{% endblock generated %}
+{% block aside %}
+{%- set data = load_data(path="data/preferences.json") -%}
+<aside class="toc" aria-label="On this page" data-pagefind-ignore>
+  <h2>Pages</h2>
+  <ul>{% for p in data.pages %}<li><a href="#page-{{ p.name | slugify }}">{{ p.name }}</a></li>{% endfor %}</ul>
+</aside>
+{% endblock aside %}

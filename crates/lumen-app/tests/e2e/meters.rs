@@ -37,9 +37,16 @@ fn play(lumen: &mut Lumen) {
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
 }
 
-/// Lets audio play for `ms`, drawing frames as the app would.
+/// Lets audio play for `ms`, drawing frames as the app would, and ends on a
+/// frame drawn just after the engine played, so a level read next is fresh.
 fn listen(lumen: &mut Lumen, ms: u64) {
     for _ in 0..ms / 50 {
+        // The meters fall by egui's clock, 1/60 s a step: three steps are
+        // the 50 ms the engine plays meanwhile. Two go before the wait and
+        // one after it: steps drawn back to back see no new audio (how
+        // often the device delivers differs by system), so a level read
+        // after the third of three would have fallen by two steps, 0.67 dB.
+        lumen.frames(2);
         std::thread::sleep(Duration::from_millis(50));
         lumen.frames(1);
     }
@@ -71,6 +78,9 @@ fn a_playing_tracks_level_shows_and_comes_to_rest_when_stopped() {
         (app.meter(track).peak_db - want).abs() < 0.3
             && (app.meter(master).peak_db - want).abs() < 0.3
     });
+    // `wait_for` draws one more frame, which may see no new audio: read the
+    // levels on a fresh frame instead.
+    listen(&mut lumen, 50);
     let shown = lumen.app().meter(track);
     assert!((shown.peak_db - want).abs() < 0.3, "{shown:?}, want {want}");
     assert!(shown.rms_db < shown.peak_db && shown.rms_db > want - 4.0);

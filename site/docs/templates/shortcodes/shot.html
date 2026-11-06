@@ -1,0 +1,35 @@
+{#- {{ shot(id="split-after", alt="…", caption="…", callouts=["Left half", "Right half"]) }}:
+    a screenshot in both themes, rendered by the app (USER_DOCS.md §6.2).
+    `focus` says where the action is, across; phones zoom there. Alt text
+    is required: the build stops without it.
+
+    `callouts` names controls the scene recorded in `<id>.callouts.json`
+    (their bounds, as fractions of the picture). They are drawn here as
+    numbered markers, in the order given, and the steps refer to them with
+    {{ callout(n=1) }}. A name the scene did not record stops the build;
+    before the media is rendered the markers are left out. -#}
+{%- if not alt %}{{ throw(message="shot " ~ id ~ " needs alt text") }}{% endif -%}
+{%- set base = get_url(path="media/" ~ id) -%}
+{%- set names = callouts | default(value=[]) -%}
+{%- set bounds = load_data(path="static/media/" ~ id ~ ".callouts.json", required=false) -%}
+{%- set meta = get_image_metadata(path="media/" ~ id ~ "-dark.webp", allow_missing=true) -%}
+<figure class="shot{% if wide | default(value=false) %} is-wide{% endif %}{% if names and meta %} has-callouts{% endif %}" style="--focus:{{ focus | default(value='50%') }}">
+  <div class="shot-frame">
+  {%- if meta %}
+  <picture>
+    <source srcset="{{ base }}-light.webp" media="(prefers-color-scheme: light)" data-theme-src="light">
+    <img src="{{ base }}-dark.webp" data-dark="{{ base }}-dark.webp" data-light="{{ base }}-light.webp" alt="{{ alt }}" width="{{ meta.width }}" height="{{ meta.height }}" loading="lazy" decoding="async">
+  </picture>
+  {%- else %}{% set kind = "picture" %}{% include "partials/missing.html" %}{% endif %}
+  {%- if names and bounds and meta %}
+  <ol class="callouts" aria-label="Callouts">
+    {%- for name in names %}
+    {%- if name not in bounds.at %}{{ throw(message="shot " ~ id ~ ": the scene recorded no callout called " ~ name) }}{% endif %}
+    {%- set r = bounds.at[name] %}
+    <li class="callout" style="left:{{ r.0 * 100 }}%;top:{{ r.1 * 100 }}%;width:{{ r.2 * 100 }}%;height:{{ r.3 * 100 }}%"><span class="callout-n">{{ loop.index }}</span><span class="callout-name">{{ name }}</span></li>
+    {%- endfor %}
+  </ol>
+  {%- endif %}
+  </div>
+  {%- if caption | default(value="") %}<figcaption>{{ caption }}</figcaption>{% endif %}
+</figure>

@@ -119,6 +119,8 @@ irreversible or external) · *Superseded*.
 | [0115](#adr-0115--the-first-run-window-m9-r7b) | The first-run window (M9 R7b) | Accepted 2026-10-31 (MT-FIRSTRUN-1 pending) | No |
 | [0116](#adr-0116--the-browsers-files-and-preview-m9-r7c) | The browser's files and preview (M9 R7c) | Accepted 2026-11-02 (MT-BROWSE-1 pending) | No |
 | [0117](#adr-0117--icons-single-instance-and-file-association-m9-r8) | Icons, single instance and file association (M9 R8) | Accepted 2026-11-03 (MT-SYS-1 pending) | No |
+| [0118](#adr-0118--take-recovery-that-survives-every-crash-window-m9-review-h1-to-h6) | Take recovery that survives every crash window (M9 review H1 to H6) | Accepted 2026-11-03 | No |
+| [0119](#adr-0119--user-documentation-on-the-website) | User documentation on the website | Accepted 2026-11-05 (the look is chosen from specimens in D0) | No |
 
 ---
 
@@ -127,6 +129,7 @@ irreversible or external) · *Superseded*.
 | Question | Decision |
 |---|---|
 | One plan per milestone (2026-10-29) | The owner asked for every sub-plan to be folded into its milestone's plan. M7b went back into M7: its slices keep the names E0 to E6, and older records and code comments still say M7b. M9's slice plans R2 to R5 went into `M9.md`. The M5 recording-window plan went into `M5.md`. M4.5 stays a milestone of its own. Also at the owner's request, the audio clip editor and warp were placed as **M7 E7 and E8**, which wait for the owner to choose when they run (`docs/milestones/M7.md` §5). |
+| User documentation (ADR-0119, 2026-11-05) | S A (screenshots rendered from scenes at deploy, not committed), L A (`site/docs/`), C A (coverage test with a shrinking baseline), H A (in-app help later, after D2), T A (D0 before 9.5, D1 to D7 alongside it). The owner added videos and animations throughout, "show, don't tell": lead clips, gesture clips and walkthroughs (`USER_DOCS.md` §6). G A (Zola) after the owner asked why, on the condition that it matches the landing page and the design system; the docs must look inviting and be fun to read and learn from (§9). The look (D0 specimens): B, Playbook, with Stage's rays and shimmering title on the docs home only. Render time (after D0): R A, render only the scenes whose source, pages or gestures changed; a full render by hand at each milestone's docs pass (`USER_DOCS.md` §13). |
 | Take lanes deferred (M9 R3, 2026-10-26) | Pitched after the owner's runs of R3 (each pass a clip on its own lane under the track, a comp lane that plays, comping by dragging across a lane): the owner likes individual take lanes and **deferred them, with comping, until after M9's must-have slices**, as recommended. Until then a take is a whole pass inside one clip (ADR-0104), reached from the Takes menu; the passes are windows on one file, so dragging a clip's edge past its pass shows the pass beside it (intended, as in common workstations). When lanes are built, the takes inside a clip become lanes by migration. Open for then: whether a comp segment is a copied clip or a reference to its take, whether recording over any material (not only loop passes) makes a lane, and MIDI lanes. |
 | M9 R4 choices (2026-10-26) | P1 A (renders follow the project rate), P2 A (Revert reloads the saved file after a quiet prompt, keeping the unsaved version in `Backups/Reverted`), S A (R4 is the save family and project settings; the media pool, relink and purge are R4b): every recommendation (`docs/milestones/M9.md` §2). After MT-PROJ-1 run 1 (2026-10-26): projects and templates get their own folders in `Documents/Lumen` (option A of four pitched), and the app menu is grouped (layout A of three pitched as specimens): ADR-0105. |
 | M9 R4b choices (2026-10-26) | M1 A (a "Project media" tab in the browser), M2 A (Locate one file, and search a folder with a report to look at before anything changes), M3 A (remove unused takes entries out as one undo step; Clear moves leftover files to the system trash after a second press), M4 A (a banner with Relink… on open): every recommendation (`docs/milestones/M9.md` §2; ADR-0106). |
@@ -10666,3 +10669,71 @@ the autosave (H3) and in a clean project (H4), each checked to fail with its
 fix taken out; the recording, recovery and walkthrough scenarios.
 **Not verified here:** a slow or network drive by hand, and a real stall of
 more than 20 s.
+
+## ADR-0119 — User documentation on the website
+
+**Date:** 2026-11-05. **Branch:** `docs/documentation-strategy`. **Status:**
+Accepted (owner, 2026-11-05: G A, S A, L A, C A, H A, T A; videos and
+animations throughout; inviting and fun to read, matching the landing page
+and the design system). The look was chosen from specimens at the start of
+D0 (owner, 2026-11-05): B, Playbook, with Stage's light rays and shimmering
+title on the docs home only. Strategy: `docs/USER_DOCS.md`.
+
+**Context.** CLAUDE.md §10 asks that every feature be "documented for
+users", and no user documentation exists: the website is one landing page.
+The owner (2026-11-05) asked for documentation on the website that covers
+every action, is easy to navigate and search, has screenshots with examples
+for every piece of functionality, a quick start and recipes, and is updated
+per slice and per milestone until versioning exists, then per version.
+
+**Options.** For the generator: Zola with Pagefind, mdBook, or a Node
+documentation framework. For screenshots: rendered from scripted scenes at
+deploy, rendered and committed, or captured by hand. For coverage: a test
+with a shrinking baseline, or review only.
+
+**Proposed choice.**
+
+1. **Sections by reader need**: Quick start, Guides (one task per page, by
+   the app's own areas), Recipes, Reference, Concepts, Troubleshooting,
+   What's new.
+2. **Generated reference** from the tables the app runs on
+   (`commands::ALL`, `preferences::ROWS`, the coverage lists), plus a
+   hand-kept gesture list; keys on every page are read from the keymap.
+3. **A coverage test with a baseline that only shrinks**: an action with no
+   task page fails CI unless it is in the backlog file, so new work is
+   documented from the first day.
+4. **Show, don't tell** (owner): every guide page opens with a lead clip
+   of the task, every gesture has a clip, the quick start and each recipe
+   have a walkthrough video with sound, captions and chapters, and every
+   state a step reaches has a screenshot. All are rendered by the real app
+   in the existing headless harness, from scenes that follow the page's
+   steps, in both themes, cropped and annotated by accessible name; the
+   recorder draws the pointer, clicks and keycaps, paces the motion, and
+   encodes with ffmpeg in CI (a deploy tool, not shipped), cached by frame
+   hash.
+5. **Zola and Pagefind under `site/docs/`** (Zola because the templates
+   are ours: the landing page's stylesheet is shared, and the design
+   system's tokens are read at build time), published by the existing
+   Pages workflow at `/docs/`; Ctrl/Cmd+K search, shortcuts and synonyms
+   searchable, no analytics.
+6. **Per slice and per milestone now** (docs on the slice branch; a docs
+   pass in the milestone review), **per version later** (built from release
+   tags with a version picker), once every planned milestone is finished and
+   a versioning ADR is accepted.
+7. **Inviting and fun to learn from** (owner): the docs home asks what
+   the reader wants to make; Lumi guides sparingly (tips, wins,
+   troubleshooting; never in the reference); "Try it" challenges, progress
+   through the quick start, a warm and direct voice. Three directions were
+   rendered as specimens first; the owner chose Playbook, with the home's
+   hero taking Stage's rays and shimmering title (USER_DOCS.md §9.5).
+8. **The backlog in eight slices**, D0 to D7.
+
+**Consequences.** Slices gain a docs list in their plan and docs work on
+their branch. Interface changes can break scenes, which is how stale pages
+are caught. The generator, Pagefind and ffmpeg join the deploy, not the
+app. One set of docs is about 400 to 600 MB with its videos; versions share
+media by content hash, and outgrowing GitHub Pages is an owner decision.
+Prose accuracy and the gesture list are checked by review, not by tests.
+**Not verified yet:** render and encode time, size and fidelity of the
+full scene set on a Linux CI runner, and the walkthroughs' sound from the
+fake device (all measured or proven in D0).

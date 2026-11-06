@@ -1,0 +1,23 @@
+# The Lumen documentation (docs/USER_DOCS.md). Built with Zola into
+# /docs/ beside the landing page; see site/docs/README.md.
+base_url = "https://lightwell-audio.github.io/lumen/docs"
+title = "Lumen documentation"
+description = "How to do everything in Lumen, shown in motion."
+default_language = "en"
+compile_sass = false
+build_search_index = false
+generate_feeds = false
+
+# The commands and settings each page explains (its `actions`), so the
+# reference can link every entry to its guide. No pages of their own.
+taxonomies = [{ name = "actions", render = false }]
+
+[markdown]
+smart_punctuation = true
+
+[extra]
+# The product name, defined once for templates (USER_DOCS.md §9.4).
+product = "Lumen"
+# The line under every title until Lumen has versions (§10.2).
+built_on = "5 November 2026"
+milestone = "9"

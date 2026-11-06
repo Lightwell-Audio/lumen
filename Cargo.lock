@@ -2310,6 +2310,7 @@ dependencies = [
  "eframe",
  "egui_kittest",
  "embed-resource",
+ "image",
  "libc",
  "lumen-audio",
  "lumen-brand",
@@ -2330,6 +2331,7 @@ dependencies = [
  "rtrb",
  "serde",
  "serde_json",
+ "toml",
  "trash",
  "windows-sys 0.61.2",
 ]

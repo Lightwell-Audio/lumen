@@ -307,7 +307,12 @@ impl Area {
     /// owner's K5): one of the track colours, so areas read apart the way
     /// tracks do.
     pub(crate) fn light(self) -> eframe::egui::Color32 {
-        let index = match self {
+        crate::theme::CLIP_COLORS[self.light_index()]
+    }
+
+    /// Which track colour [`Self::light`] is, from 0.
+    pub(crate) fn light_index(self) -> usize {
+        match self {
             Area::Edit => 0,
             Area::Track => 1,
             Area::Mixer => 6,
@@ -319,8 +324,25 @@ impl Area {
             Area::Midi => 7,
             Area::File => 11,
             Area::Devices => 8,
-        };
-        crate::theme::CLIP_COLORS[index]
+        }
+    }
+
+    /// Stable, for the user docs: the area's colour and its group of pages
+    /// on the site ("transport").
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Area::Transport => "transport",
+            Area::Edit => "edit",
+            Area::Clip => "clip",
+            Area::Track => "track",
+            Area::Mixer => "mixer",
+            Area::View => "view",
+            Area::Grid => "grid",
+            Area::Locators => "locators",
+            Area::Midi => "midi",
+            Area::File => "file",
+            Area::Devices => "devices",
+        }
     }
 }
 
@@ -445,7 +467,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::OpenClipEditor, "midi.open_editor", "Open clip", Area::Midi, &[plain(Key::Enter)], "Opens the selected clip in the Clip tab of the detail panel: an audio clip's properties beside its wave, a MIDI clip's notes."),
     info(Command::PopOutEditor, "midi.pop_out_editor", "Pop out clip editor", Area::Midi, &[Chord { ctrl: true, shift: true, alt: true, key: Key::E }], "Moves the clip editor into its own window, or docks it back into the detail panel."),
     info(Command::DrawTool, "midi.draw_tool", "Draw tool", Area::Midi, &[plain(Key::B)], "Toggles Pointer and Draw in the arrangement or active editor. In the note editor, click to add a note and drag to set its length."),
-    info(Command::SplitNotes, "midi.split_notes", "Split", Area::Midi, &[ctrl(Key::E)], "Splits selected clips or a time range at the edit cursor; in the clip editor, splits selected notes."),
+    info(Command::SplitNotes, "midi.split_notes", "Split", Area::Midi, &[ctrl(Key::E)], "Splits selected clips at the playhead, or a time range at its edges; in the clip editor, splits selected notes."),
     info(Command::GlueNotes, "midi.glue_notes", "Join", Area::Midi, &[ctrl(Key::J)], "Joins selected notes of one pitch that touch or overlap into one. With clips selected, joins them: MIDI clips merge, audio clips that continue one another in their source become one, and other audio clips are rendered into one new file."),
     info(Command::LegatoNotes, "midi.legato", "Legato", Area::Midi, &[plain(Key::L)], "Lengthens each selected note to the start of the next one."),
     info(Command::TransposeUp, "midi.transpose_up", "Transpose up", Area::Midi, &[], "Moves the selected notes up a semitone. In the clip editor the Up arrow does it."),
@@ -526,7 +548,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::ToolPointer, "view.tool_pointer", "Pointer tool", Area::View, &[plain(Key::V)], "Selects and moves clips and time ranges."),
     info(Command::ToolDraw, "view.tool_draw", "Arrangement draw tool", Area::View, &[], "Draws MIDI clips in empty MIDI lanes. B switches between it and Pointer."),
     info(Command::ToolErase, "view.tool_erase", "Erase tool", Area::View, &[plain(Key::D)], "Deletes the clip under the pointer."),
-    info(Command::ToolSplit, "view.tool_split", "Split tool", Area::View, &[plain(Key::C)], "Cuts clips at the pointer or at the edit cursor."),
+    info(Command::ToolSplit, "view.tool_split", "Split tool", Area::View, &[plain(Key::C)], "Cuts the clip under the pointer where you click."),
     info(Command::ToolMute, "view.tool_mute", "Mute tool", Area::View, &[plain(Key::U)], "Toggles mute on the clip under the pointer."),
     info(Command::ToolZoom, "view.tool_zoom", "Zoom tool", Area::View, &[], "Zooms to a time range dragged in the arrangement."),
     info(Command::CropToSelection, "edit.crop", "Crop to selection", Area::Edit, &[], "Keeps the selected time range and removes the rest of the selected tracks' clips."),

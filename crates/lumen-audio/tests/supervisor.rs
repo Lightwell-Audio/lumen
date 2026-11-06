@@ -465,3 +465,21 @@ fn a_switch_says_when_the_audio_is_handed_over_and_gives_up_on_a_driver_that_hol
     assert_eq!(error, lumen_audio::SwitchError::NoHandover);
     assert!(started.elapsed() >= lumen_audio::HANDOVER_TIMEOUT);
 }
+
+#[test]
+fn an_allowance_runs_exactly_the_blocks_granted() {
+    let control = FakeControl::new();
+    control.set(|d| {
+        d.pace = Some(lumen_audio::fake::Pace::Every(Duration::from_micros(1)));
+        d.allowance = Some(5);
+    });
+    let (audio, blocks) = system(&control);
+    audio.configure(config(None));
+    wait_for_blocks(&blocks, 4);
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(blocks.load(Ordering::Relaxed), 5, "no more than granted");
+    control.set(|d| d.allowance = Some(3));
+    wait_for_blocks(&blocks, 7);
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(blocks.load(Ordering::Relaxed), 8, "and then the next grant");
+}

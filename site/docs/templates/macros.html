@@ -1,0 +1,37 @@
+{#- Small line icons, drawn on a 24 grid with a 1.8 stroke like the app's
+    own (DESIGN.md §7). -#}
+{% macro icon(name) -%}
+<svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+{%- if name == "start" %}<path d="M5 19l4-1 9-9a2.1 2.1 0 0 0-3-3l-9 9z"/><path d="M14 7l3 3"/><path d="M4 4h4M4 8h2"/>
+{%- elif name == "guide" %}<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/>
+{%- elif name == "recipe" %}<path d="M6 10a6 6 0 0 1 12 0v1H6z"/><path d="M4 11h16"/><path d="M8 15h8l-1 5H9z"/>
+{%- elif name == "keys" %}<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/>
+{%- elif name == "map" %}<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>
+{%- elif name == "help" %}<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.6"/><path d="M12 17h.01"/>
+{%- endif -%}
+</svg>
+{%- endmacro icon %}
+
+{#- A command's default shortcuts as keycaps, from the generated command
+    table: both systems are written and the page shows the reader's. `all`
+    shows every default chord, otherwise the first. -#}
+{% macro keycaps(command, all=false) -%}
+{#- The caps are drawn for the eye; the same chord is written as text
+    ("Ctrl+E") for screen readers and search. Only the Windows text is
+    indexed, so a search for either system's keys finds one entry. -#}
+{%- set_global win = [] -%}{%- set_global mac = [] -%}
+{%- for chord in command.keys %}{% if all or loop.first -%}
+{%- set_global win = win | concat(with=chord | join(sep="+")) -%}
+{%- set_global mac = mac | concat(with=command.keys_mac[loop.index0] | join(sep="+")) -%}
+{%- endif %}{% endfor -%}
+<span class="keys" title="{{ command.name }}"> {# the space parts the words before it in search; the flex row hides it #}
+{%- if win == mac %}<span class="sr-only">{{ win | join(sep=" or ") }}</span>
+{%- else %}<span class="sr-only k-win">{{ win | join(sep=" or ") }}</span><span class="sr-only k-mac" data-pagefind-ignore>{{ mac | join(sep=" or ") }}</span>{% endif -%}
+<span class="keys-caps" aria-hidden="true" data-pagefind-ignore>
+{%- for chord in command.keys %}{% if all or loop.first -%}
+{%- set caps_mac = command.keys_mac[loop.index0] -%}
+{%- if not loop.first %}<span class="keys-or">or</span>{% endif -%}
+{%- for cap in chord %}{% set other = caps_mac[loop.index0] %}{% if other == cap %}<kbd>{{ cap }}</kbd>{% else %}<kbd class="k-win">{{ cap }}</kbd><kbd class="k-mac">{{ other }}</kbd>{% endif %}{% endfor -%}
+{%- endif %}{% endfor -%}
+</span></span>
+{%- endmacro keycaps %}

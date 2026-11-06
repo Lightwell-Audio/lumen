@@ -95,6 +95,67 @@ fn no_string_the_user_reads_spells_out_the_products_name() {
     );
 }
 
+/// A template's text without its `{# … #}` comments.
+fn without_comments(template: &str) -> String {
+    let mut kept = String::new();
+    let mut rest = template;
+    while let Some(start) = rest.find("{#") {
+        kept.push_str(&rest[..start]);
+        rest = rest[start..]
+            .split_once("#}")
+            .map_or("", |(_, after)| after);
+    }
+    kept.push_str(rest);
+    kept
+}
+
+/// The docs' templates take the name from the site's config
+/// (`config.extra.product`, docs/USER_DOCS.md §9.4), so a rename is one
+/// line there; only the pages' prose writes it out.
+#[test]
+fn no_docs_template_spells_out_the_products_name() {
+    let mut files = Vec::new();
+    let templates = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../site/docs/templates");
+    templates_in(&templates, &mut files);
+    assert!(files.len() > 10, "the scan found the templates");
+    let mut offenders = Vec::new();
+    for file in files {
+        let text = without_comments(&fs::read_to_string(&file).expect("a template reads"));
+        for (number, line) in text.lines().enumerate() {
+            if names_the_product(line) {
+                offenders.push(format!(
+                    "{}: {}: {}",
+                    file.display(),
+                    number + 1,
+                    line.trim()
+                ));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "use {{{{ config.extra.product }}}}:\n{}",
+        offenders.join("\n")
+    );
+}
+
+fn templates_in(dir: &Path, into: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).expect("the folder reads") {
+        let path = entry.expect("an entry reads").path();
+        if path.is_dir() {
+            templates_in(&path, into);
+        } else if path.extension().is_some_and(|e| e == "html") {
+            into.push(path);
+        }
+    }
+}
+
+#[test]
+fn a_templates_comments_are_not_scanned() {
+    assert_eq!(without_comments("a {# Lumen #} b {#- x -#}c"), "a  b c");
+    assert!(!names_the_product(&without_comments("{# Lumen #}")));
+}
+
 #[test]
 fn the_scan_sees_a_name_in_a_literal_and_nothing_else() {
     let source = "\

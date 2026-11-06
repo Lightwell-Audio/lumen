@@ -1,0 +1,5 @@
+{#- {% tip() %}…{% end %}: "Lumi's tip", one at most per page (USER_DOCS.md §9.2). -#}
+<aside class="tip" aria-label="Lumi's tip">
+  <img class="lumi" src="{{ get_url(path='img/lumi-focused.webp') }}" alt="" width="72" height="72" loading="lazy">
+  <div><p class="tip-title">Lumi's tip</p>{{ body | markdown | safe }}</div>
+</aside>

@@ -1,0 +1,55 @@
+{% extends "page.html" %}
+{% import "macros.html" as macros %}
+{#- Every command, generated from the app's table (USER_DOCS.md §3.4): its
+    keys on the reader's system, what it does, where it is reached and the
+    guide that shows it. A command's id is its anchor, so links survive a
+    rename. -#}
+{% block generated %}
+{%- set data = load_data(path="data/commands.json") -%}
+{%- set controls = load_data(path="data/controls.json") -%}
+{%- set also = load_data(path="data/also.toml") -%}
+{%- set total = data.commands | length %}{% set noun = "commands" %}{% set example = "split, loop, Ctrl+D…" %}
+{% include "partials/ref_filter.html" %}
+{%- for area in data.areas %}
+{%- set commands = data.commands | filter(attribute="area", value=area.id) %}
+<section class="ref-area" id="area-{{ area.id }}" style="--area:var(--clip-{{ area.light }})" data-ref-group data-ref-area="{{ area.name }}">
+  <h2><span class="ref-dot" aria-hidden="true"></span>{{ area.name }} <span class="ref-n">{{ commands | length }}</span></h2>
+  <ul class="ref-list">
+  {%- for c in commands %}
+    {%- set words = also[c.id] | default(value=[]) %}
+    <li class="ref-row" data-ref-row data-ref-name="{{ c.name }}" data-ref-also="{{ words | join(sep=' ') }}" data-ref-keys="{% for k in c.keys %}{{ k | join(sep='+') }} {% endfor %}{% for k in c.keys_mac %}{{ k | join(sep='+') }} {% endfor %}" data-ref-about="{{ c.about }}">
+      {#- A heading with the id: search results land on the entry. #}
+      <div class="ref-head">
+        <h3 class="ref-title" id="{{ c.id }}"><a class="ref-name" href="#{{ c.id }}">{{ c.name }}</a></h3>
+        {%- if c.keys | length > 0 %}{{ macros::keycaps(command=c, all=true) }}{% else %}<span class="ref-nokeys">No default shortcut</span>{% endif %}
+      </div>
+      {%- if words | length > 0 %}
+      <p class="ref-also" data-pagefind-weight="2">Also called {{ words | join(sep=", ") }}</p>
+      {%- endif %}
+      <p class="ref-about">{{ c.about }}</p>
+      {%- set places = controls.controls | filter(attribute="command", value=c.id) %}
+      {%- set term = get_taxonomy_term(kind="actions", term=c.id, required=false) %}
+      {%- if places | length > 0 or term %}
+      <p class="ref-where">
+        {%- for ctl in places %}
+        <span>{% if ctl.place == "bar" %}Transport bar{% else %}App menu{% endif %}: {{ ctl.name | trim_end_matches(pat=" …") | trim_end_matches(pat=":") }}</span>
+        {%- endfor %}
+        {%- if term %}{% for p in term.pages %}
+        <a class="ref-guide" href="{{ p.permalink }}">{{ p.title }}</a>
+        {%- endfor %}{% endif %}
+      </p>
+      {%- endif %}
+    </li>
+  {%- endfor %}
+  </ul>
+</section>
+{%- endfor %}
+<p class="ref-empty" data-ref-empty hidden>No command matches. Try a shorter word, or search the whole documentation.</p>
+{% endblock generated %}
+{% block aside %}
+{%- set data = load_data(path="data/commands.json") -%}
+<aside class="toc" aria-label="On this page" data-pagefind-ignore>
+  <h2>Areas</h2>
+  <ul>{% for area in data.areas %}<li><a href="#area-{{ area.id }}">{{ area.name }}</a></li>{% endfor %}</ul>
+</aside>
+{% endblock aside %}
