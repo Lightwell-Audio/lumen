@@ -202,8 +202,8 @@ impl Hosting {
                 t.editor = EditorState::Closed;
                 t.editor_hidden = false;
                 t.relinking = false;
+                note_failure(&mut t.failures, &t.state);
                 t.state = State::Failed(why.to_string());
-                note_failure(&mut t.failures);
             }
             Happened::Key { code, down } => self.keys.push((code, down)),
             Happened::Text { id, value, text } => {
@@ -482,8 +482,8 @@ impl Hosting {
             t.relinking = true;
         }
         if status.failed() && t.state == State::Ready && !t.relinking {
+            note_failure(&mut t.failures, &t.state);
             t.state = State::Failed(gave_up_words(t.log.as_deref()));
-            note_failure(&mut t.failures);
         }
         if self.follow_state(w, id) {
             return;

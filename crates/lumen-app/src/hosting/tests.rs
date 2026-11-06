@@ -244,3 +244,20 @@ fn a_frozen_track_has_no_plugin_and_unfreezing_wants_it_again() {
     );
     assert!(hosting.state(device).is_some(), "it starts again");
 }
+
+/// One failure told twice (the engine gives up, then the host's end is seen)
+/// counts once however far apart the two come; a failure after a reload
+/// counts again. A slow macOS runner once heard the two more than a second
+/// apart and showed "keeps stopping" a failure early.
+#[test]
+fn a_failure_told_twice_counts_once_and_one_after_a_reload_counts_again() {
+    let mut failures = Vec::new();
+    note_failure(&mut failures, &State::Ready);
+    let failed = State::Failed("ended".into());
+    note_failure(&mut failures, &failed);
+    note_failure(&mut failures, &failed);
+    assert_eq!(failures.len(), 1, "the same failure, told again later");
+    note_failure(&mut failures, &State::Ready);
+    note_failure(&mut failures, &State::Loading);
+    assert_eq!(failures.len(), 3, "after reloads, each failure counts");
+}

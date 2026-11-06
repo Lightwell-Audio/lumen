@@ -382,18 +382,18 @@ const CHECKPOINT: std::time::Duration = std::time::Duration::from_secs(30);
 const FAILURES_THAT_COUNT: usize = 3;
 const FAILURE_WINDOW: std::time::Duration = std::time::Duration::from_secs(120);
 
-/// Notes a failure now, forgetting the ones too old to count. A second word
-/// about the same failure (the engine gave up on a host that then reported its
-/// end) is not another failure.
-fn note_failure(failures: &mut Vec<std::time::Instant>) {
-    let now = std::time::Instant::now();
-    failures.retain(|at| at.elapsed() < FAILURE_WINDOW);
-    if failures
-        .last()
-        .is_none_or(|at| now.duration_since(*at) > std::time::Duration::from_secs(1))
-    {
-        failures.push(now);
+/// Notes a failure now, forgetting the ones too old to count. One failure
+/// can be told twice (the engine gives up on a host that then reports its
+/// end, or the other way round), so it is noted only when the plugin was not
+/// failed already: only a reload takes a failed plugin out of that state.
+/// The two words can be seconds apart on a busy machine, so their time does
+/// not tell them apart (a slow macOS runner counted one failure as two).
+fn note_failure(failures: &mut Vec<std::time::Instant>, state: &State) {
+    if matches!(state, State::Failed(_)) {
+        return;
     }
+    failures.retain(|at| at.elapsed() < FAILURE_WINDOW);
+    failures.push(std::time::Instant::now());
 }
 
 /// How long what a plugin does inside itself after a state was loaded into it
