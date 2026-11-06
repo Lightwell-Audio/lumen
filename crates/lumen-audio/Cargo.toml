@@ -10,6 +10,9 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[dependencies]
+lumen-rt.workspace = true
+
 [target.'cfg(windows)'.dependencies.windows-sys]
 workspace = true
 features = [

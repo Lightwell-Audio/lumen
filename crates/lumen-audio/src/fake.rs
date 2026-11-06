@@ -243,6 +243,7 @@ impl Backend for FakeBackend {
             polls: 0,
             opened: Instant::now(),
             ran: 0,
+            realtime: false,
         }))
     }
 }
@@ -266,6 +267,8 @@ struct FakeStream {
     /// a paced device measures real time by.
     opened: Instant,
     ran: u64,
+    /// The polling thread has asked to be scheduled as an audio thread.
+    realtime: bool,
 }
 
 impl FakeStream {
@@ -361,6 +364,16 @@ impl Stream for FakeStream {
         // Real drivers ask for a reset when their hardware disappears.
         if reset || !present {
             return Some(StreamEvent::ResetRequested);
+        }
+        // A device in real time runs its callback on a thread the system
+        // schedules as an audio thread, as Core Audio's is; on macOS an
+        // ordinary thread of a busy machine is left waiting past blocks'
+        // deadlines (KNOWN_ISSUES, `walkthrough_plugins`).
+        if pace == Some(Pace::RealTime) && !self.realtime {
+            self.realtime = true;
+            let block =
+                f64::from(self.info.buffer_frames) / f64::from(self.info.sample_rate.max(1));
+            lumen_rt::realtime_thread(Duration::from_secs_f64(block));
         }
         let mut blocks = pace.map_or(1, |pace| self.owed(pace));
         if let Some(left) = &mut self.control.0.lock().expect("fake device lock").allowance {

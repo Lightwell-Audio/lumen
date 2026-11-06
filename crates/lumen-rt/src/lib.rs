@@ -16,6 +16,10 @@
 //! [`DenormalGuard`] makes the audio thread flush denormals to zero, so
 //! decaying filters and reverbs never hit the slow path.
 
+mod thread;
+
+pub use thread::realtime_thread;
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicU64, Ordering};

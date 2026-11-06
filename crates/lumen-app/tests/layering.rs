@@ -17,8 +17,9 @@ const ALLOWED: &[(&str, &[&str])] = &[
     ("lumen-core", &[]),
     ("lumen-brand", &[]),
     ("lumen-rt", &[]),
-    // Stand alone.
-    ("lumen-audio", &[]),
+    // Stand alone, but for the real-time tooling (the fake device's thread
+    // asks for an audio thread's scheduling, as a driver's has).
+    ("lumen-audio", &["lumen-rt"]),
     ("lumen-media", &[]),
     ("lumen-midi", &[]),
     ("lumen-render", &["lumen-shader-check"]),

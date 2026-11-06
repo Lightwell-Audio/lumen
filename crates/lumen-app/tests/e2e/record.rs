@@ -1378,6 +1378,9 @@ fn replace_keeps_each_loop_pass_as_a_take_and_the_last_one_plays() {
     project.transport.loop_start = Ticks::ZERO;
     project.transport.loop_end = beats(2.0);
     project.transport.loop_enabled = true;
+    // The stop at beat 1.8 races the loop's end: at 120 BPM that was 100 ms,
+    // which a busy macOS runner missed, recording a third pass.
+    slowly(&mut project);
     let mut lumen = launch("loop-takes", &project, &fake);
     let keys = Keys::new(&fake);
     record(&mut lumen);

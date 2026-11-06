@@ -2341,6 +2341,7 @@ name = "lumen-audio"
 version = "0.0.1"
 dependencies = [
  "cpal",
+ "lumen-rt",
  "rubato",
  "wasapi",
  "windows-sys 0.61.2",
@@ -2474,6 +2475,7 @@ name = "lumen-rt"
 version = "0.0.1"
 dependencies = [
  "divan",
+ "libc",
  "rtsan-standalone",
 ]
 
