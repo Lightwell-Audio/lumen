@@ -522,7 +522,7 @@ per slice and move what is no longer current out of it.
   built** (USER_DOCS.md §11, "D1 plan"). Checked against `main`: no
   built-in reverb (M8), no bundled samples, no installer (M10), so the
   path changes and a starter kit made by a scene supplies the drum loop.
-  Waiting for the owner: choices P, I, W, S and M.
+  Waiting for the owner: choices P, I, W, F, K and M.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
