@@ -302,3 +302,26 @@ fn z_zooms_the_editor_to_the_clip_and_x_goes_back() {
     assert_eq!(back.view, whole.view, "X goes back to the whole file");
     assert_eq!(lumen.app().view(), arrangement, "the arrangement stays put");
 }
+
+#[test]
+fn x_right_after_opening_a_clip_keeps_it_framed() {
+    let (mut lumen, clip) = with_trimmed_clip("audio-editor-x-opened");
+    lumen.harness.get_by_label("Whole file").click();
+    lumen.frames(3);
+    // Opened again, the clip is framed with nothing to go back to: the
+    // whole file was the view of an earlier opening.
+    lumen.app_mut().select_clip(clip);
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(3);
+    let framed = lumen.app().audio_editor_shown().expect("drawn");
+    lumen.harness.hover_at(framed.body.center());
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::X);
+    lumen.frames(3);
+    let after = lumen.app().audio_editor_shown().expect("drawn");
+    assert_eq!(
+        after.view, framed.view,
+        "X has no earlier view of this opening"
+    );
+}

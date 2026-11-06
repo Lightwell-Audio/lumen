@@ -163,7 +163,10 @@ impl App {
         );
         let body = Rect::from_min_max(pos2(area.left(), ruler.bottom()), area.max);
         if let Some(file) = &file {
-            if ed.framed_for != Some(clip.id) {
+            // Opening a clip frames it with nothing to go back to: the view
+            // before belongs to another clip, or to this one opened before.
+            let opening = ed.framed_for != Some(clip.id);
+            if opening {
                 ed.framed_for = Some(clip.id);
                 ed.fit = Some(Fit::Clip);
             }
@@ -179,7 +182,7 @@ impl App {
                         self.file_limits(file, body.width()),
                     ),
                 };
-                ed.back = Some(before);
+                ed.back = (!opening).then_some(before);
                 self.transport.follow_paused = true;
             }
         }
