@@ -111,12 +111,10 @@ fn a_click_on_the_editor_ruler_moves_the_playhead() {
         .rect();
     let x = shown.view.x(shown.body.left(), 2.0);
     click_at(&mut lumen, Pos2::new(x, ruler.center().y));
-    let at = lumen.app().playhead();
-    assert!(
-        (at.0 - Ticks::quarters(2).0).abs() < PPQ / 4,
-        "the playhead is at beat {}",
-        at.as_quarters()
-    );
+    // The playhead is the engine's answer to the locate: wait for it.
+    lumen.wait_for("the playhead to reach beat 2", |app| {
+        (app.playhead().0 - Ticks::quarters(2).0).abs() < PPQ / 4
+    });
 }
 
 #[test]
