@@ -832,17 +832,17 @@ what is covered.
 ### D1 plan: the quick start (2026-11-06, branch `docs/d1-quick-start`)
 
 **Status:** pitched, not built. The choices at the end wait for the owner.
-D1 does not change how the app behaves. It adds to the test API
-(`lumen_app::testing`) where a scene needs a fixed clock or a fixed
-reading (R1 and R2 below), and it changes the docs' scenes, the site and
-`docs_coverage`.
+D1 does not change how the app behaves for a user. It adds two test
+seams to app code (R1 and R2 below), switched on only through the test
+API (`lumen_app::testing`). It also changes the recorder (R3), the docs'
+scenes, the site, `docs_coverage` and the two docs workflows.
 
 **What D1 delivers.** The three Quick start pages from §3.1, the scenes
 that make their media, and a starter kit for the reader:
 
 | Page | Kind | What it covers | Media |
 |---|---|---|---|
-| **First launch** (§3.1's "Install and first launch"; choice I) | Guide | The first-run window. **Sound**: the device, **Play test sound**, and in words only, the ASIO offer on Windows (it is never drawn on the test device). **Plugins**: the scan and the plugin folders. **Ready**: theme, size, the switch that opens `.lumen` files with Lumen, and **Open a project…**. Opening the window again with **Set up Lumen…** | A lead clip of the three steps; a shot of each step with its controls numbered |
+| **First launch** (§3.1's "Install and first launch"; choice I) | Guide | The first-run window. **Sound**: the device (the shot shows the test device, and the page says your own appears there), **Play test sound**, and in words only, the ASIO offer on Windows (never drawn on the test device). **Plugins**: the scan and the plugin folders (choice F). **Ready**: theme, size and **Open a project…**; in words only, the Windows switch that opens `.lumen` files with Lumen (drawn only on Windows, and the scenes render on Linux). Opening the window again with **Set up Lumen…** | A lead clip of the three steps; a shot of each step with its controls numbered |
 | **Your first song in 15 minutes** | Quick start | The path in P, one `##` heading per step | A walkthrough with sound, chaptered by step (W); one shot of each step's result |
 | **The window at a glance** | Map (new) | The areas of `docs/DESIGN.md` §2: the transport bar with the app menu under its **Lumen** button, the browser, the arrangement with its ruler, the detail panel and its tabs, and the info line. The device banner is described in words and links to Troubleshooting, since it shows only when the device needs attention | One shot of the whole window with the areas numbered; one close shot per area with its controls numbered |
 
@@ -866,6 +866,10 @@ the owner to approve with the choices:
     recipe "Build a parallel reverb on a return" after M8.
   - **"Install":** there is no installer until M10. The landing page says
     "No installer yet".
+- **§3.2's starter project** let a reader skip ahead to step 4. The kit
+  (K) holds the finished project instead, for comparing. Skipping ahead
+  would need one project per step, eight downloads to keep current, so
+  it is left out.
 
 **What the path uses on `main`.** These were checked against
 `commands::ALL`. They are listed so the owner can check the path; pages
@@ -875,8 +879,11 @@ never write keys by hand (§4.1).
   synth's **Poly** sound, so the step chooses **Instrument: Keys**.
 - **Computer keyboard** (Ctrl+Shift+K).
 - The track header's record-arm button. Arming has no command.
-- **Record** (F9), after the default count-in of two bars. Record takes
-  MIDI tracks only.
+- **Count-in: 1 bar**, chosen under Count-in in the Metronome button's
+  menu. A new install has the count-in off (`RecordSettings::default`),
+  and Replace rather than Overdub, so the step turns the count-in on.
+- **Record** (F9). It records every armed track, audio or MIDI; the path
+  arms only the MIDI track.
 - **Quantize** (Q).
 - **Add audio track** (Ctrl+T), and the Samples tab with **Add a sample
   folder…**.
@@ -885,11 +892,14 @@ never write keys by hand (§4.1).
   (Ctrl+E) and **Join** (Ctrl+J), which also joins audio clips.
 - The inline fader and pan.
 - The automation lane (A), which opens on volume.
-- **Save** (Ctrl+S), and **Export audio…** (Ctrl+Shift+E) to WAV.
+- **Save** (Ctrl+S), and **Export audio…** (Ctrl+Shift+E), which opens
+  Lumen's Export window: format WAV, the whole project, then the file
+  name.
 
-**System dialogs are not filmed.** In the harness, **Add a sample
-folder…**, **Save** and **Export audio…** get their answer at once and no
-dialog opens. The walkthrough's caption says what to choose in the
+**System dialogs are not filmed.** In the harness, the system's file
+dialog gets its answer at once and does not open: for **Add a sample
+folder…**, for **Save**, and for the file name in the Export window (the
+Export window itself is Lumen's and is filmed). The walkthrough's caption says what to choose in the
 system's dialog, and the video goes from the command to the result. No
 hand-captured shot is planned (§6.5): the dialog looks different on each
 system, and readers know it.
@@ -900,7 +910,7 @@ shots in both themes, walkthroughs in the dark theme, §6.4):
 | Scene | Window | Writes |
 |---|---|---|
 | `first_launch` | 960 × 600 points | `first-launch-lead`; the shots `first-launch-sound`, `first-launch-plugins` and `first-launch-ready`, with callouts |
-| `first_song_<n>`, one per step (W) | 1280 × 800 points, the whole window, the browser shown: one fixed size, so the parts can join | the step's part of the walkthrough; a shot of the step's result |
+| `first_song_<n>`, one per step (W) | 1280 × 800 points at 1.5× (1920 × 1200 px), the whole window, the browser shown: one size for every part, so they join into one video | the step's part of the walkthrough; a shot of the step's result at 2× |
 | `window_map` | 1280 × 800 points | `window-map` with the areas as callouts; one close shot per area with its controls as callouts |
 
 - `song()` opens the demo song at a fixed 960 × 420 points with the
@@ -908,32 +918,44 @@ shots in both themes, walkthroughs in the dark theme, §6.4):
   the panels as parameters.
 - The callouts on `window_map` are found by accessible name, like D0's.
   Each panel's name is checked in the first step of the work.
-- 1280 × 800 at 2× is 2560 px wide. The page shows it at the text width
+- The whole-window shots, at 2×, are 2560 px wide. The page shows it at the text width
   and links the full-size file. At phone width, the close shots carry
   the detail and the whole-window shot is only for orientation.
 
-**Two things the harness must fix first.**
+**Three things the harness must fix first.**
 
 - **R1. The computer keyboard follows the wall clock.** A key is
   stamped with the wall clock (`LiveKeys::push`, `live.rs`; `now()` in
   `midi/out.rs`). During a take, the test device runs a video frame's
   time per frame, about 0.3 s of real time per frame. So the beat a
   recorded note lands on would depend on how fast the machine renders.
-  Two runs would make different notes, and the sync check of §6.3 would
-  fail. No E2E test records from the computer keyboard today. The fix is
-  a test-only hook in `lumen_app::testing` that stamps the keys by the
-  device's clock during a take. The first step of the work proves it:
-  two runs record the same notes.
+  Two runs would record different notes, so the frames would differ
+  from run to run and the cache of §6.3 would never hold. No E2E test
+  records from the computer keyboard today. The fix is a seam in
+  `live.rs`: when the test API sets it, a key is stamped by the device's
+  clock instead. The first step of the work proves it: two runs record
+  the same notes.
 - **R2. The CPU reading is live.** The transport bar draws "CPU n%" from
   the wall clock (`transport/status.rs`). That is why D0's crop leaves
-  the bar out. Every D1 scene shows the bar. A test-only switch draws a
-  fixed reading of 3% during takes, so two runs make the same frames.
+  the bar out. Every D1 scene shows the bar, in takes and in stills
+  (`window_map` has no take at all). A seam in `transport/status.rs`, set
+  through the test API for the whole scene, draws a fixed "CPU 3%". The
+  pages never quote it as a measurement.
+- **R3. The recorder keeps every raw frame on disk.** It writes each
+  frame to one temporary file and runs ffmpeg at the end
+  (`tests/docs_media/recorder.rs`). A 1920 × 1200 frame is 9.2 MB, so a
+  4-minute walkthrough would need about 66 GB, more than a runner has.
+  The recorder pipes the frames into ffmpeg as it renders instead. The
+  hash for the cache is made from the same frames, as now.
 
-**Plugins in the scenes.** Test launches start with plugins off, and the
-Plugins step then says "This run started with plugins off". That is a
-line no reader sees. The step lists no plugin names, only "n plugins
-ready to use", **Rescan** and the folder rows. Choice F decides what the
-scene shows.
+**Plugins in the scenes.** Test launches start with plugins off. The
+Plugins step then says "This run started with plugins off. Start again
+normally to load them.", and the Ready step says "Plugins are off". No
+reader sees those lines. With plugins on, the step shows "n plugins ready
+to use", **Rescan**, and the standard folders. On the Linux runner those
+are the Linux folders, so the page names the Windows and macOS folders in
+words. The step never names a plugin. Any scan needs the scan host
+(`lumen-plugin-host`) built beside the tests. Choice F decides the rest.
 
 **Coverage** (§5.3 and §4.1 gain what follows):
 
@@ -942,13 +964,16 @@ scene shows.
   the mouse and with the keyboard, and the quick start explains each
   command only as far as the path needs. So its commands go under `uses`
   and stay in `undocumented.txt` until their guide (D2 to D6) explains
-  them. The `uses` taxonomy links each reference entry to the pages that
-  use it, as `actions` does. `docs_coverage` checks that each id in
-  `uses` exists.
+  them. Zola gains the taxonomy in `config.toml`; the reference
+  templates (`reference/commands.html`, `reference/preferences.html`)
+  list a page under "Used in" beside the pages that explain it.
+  `docs_coverage` reads `uses` as well as `actions`, and checks that each
+  id in it exists. The Export window's controls (format, range, the
+  loudness report) are in `uses` too.
 - **Kinds.** A Quick start page must show a walkthrough (`video`), as
   today. A Guide page must show a lead clip. **Map** is a new kind for
-  "The window at a glance": it counts toward `actions`, needs at least one
-  screenshot, and needs no clip.
+  "The window at a glance": `documented()` counts its `actions`, it
+  needs at least one screenshot, and it needs no clip.
 - **What D1 takes out of `undocumented.txt`:** `file.welcome` (First
   launch) and `bar:Lumen`, the button that opens the app menu (the map).
   The other bar controls with no command (Tempo, Time signature,
@@ -959,17 +984,29 @@ scene shows.
 
 **The joined walkthrough (W at A) needs:**
 
+- One fixture function per step, `state_after(n)`, in the scenes' code.
+  Part n starts from `state_after(n - 1)` and, when it ends, checks that
+  the project equals `state_after(n)`. So the parts meet without a jump,
+  and the finished project in the kit is the one the video ends on.
+
 - A `joined` table in `scenes.rs`: the walkthrough's name and its parts.
   `files()`, `has_walk`, the manifest and the deploy's fetch must all know
   it.
-- A join step in `docs_media`, run after the parts. It re-encodes the
+- A join step, run after the parts. It re-encodes the
   joined file instead of copying the streams, since AAC adds a short gap
   at the start of each part. It shifts each part's captions and chapters
   by the part's start, and takes the poster from the last part. Encoding
   is cheap next to rendering (§6.3).
 - Its own sync check on the joined file, like each take's (§6.3).
-- `docs.yml` runs the join after the parts, so pull requests check it.
-  `pages.yml` runs it in the render job, which has ffmpeg.
+- Where it runs: after the media is gathered, since the parts can come
+  from different render jobs or from the published site. That is the
+  deploy job in `pages.yml`, which gains ffmpeg, and the media step in
+  `docs.yml`, so pull requests check it.
+- **The pull-request job's time.** `docs.yml` renders the changed scenes
+  one after another within 75 minutes. D1 changes `song()`, which every
+  scene shares, so all of them render, about an hour of walkthrough
+  among them. `docs.yml` shares the scenes among parallel jobs, as
+  `pages.yml` already does.
 
 This is about a day of work, beside the scenes.
 
@@ -978,35 +1015,46 @@ This is about a day of work, beside the scenes.
 - a `downloads` field on `Scene`;
 - a `download` shortcode;
 - a check in `docs_coverage` that every download a page offers is one
-  that a scene writes.
+  that a scene writes;
+- the zip, made with `zip` after the media is gathered, beside the join:
+  the loop comes from the first part and the project from the last,
+  rendered or fetched from the published site.
 
 **The page's extras (§9.3).** These are new in D1:
 
-- "You'll learn" and "About 15 minutes" at the top of the first-song
-  page.
+- "You'll learn" at the top of the first-song page, beside the "About
+  15 minutes" that pages already show.
 - Step ticks that the reader marks, kept only in the browser. When the
   browser's storage is blocked or empty, the ticks start unmarked and the
   page still works.
 - "That's your first sound in Lumen" after the first step that plays
   music. First launch's test sound is a check, not music.
 - Lumi celebrating at the end.
-- Numbered callouts that link. D0's callouts are plain markers, so the
-  `callout` shortcode gains an optional link.
+- Numbered callouts that link. D0's numbers on a picture are drawn by
+  the `shot` shortcode from `callouts=[…]`, as plain markers. `shot`
+  gains a matching `links=[…]`, and `docs_coverage` reads it with the
+  names. Each number links to the control's entry in the generated
+  reference, which exists today for every command and bar control. The
+  link moves to the guide when D2 to D6 write it.
 - **What's new.** The page does not exist yet. D1 creates it with D0's
   line and D1's line. The sidebar and the docs home link the three pages.
   The home's "Your first song" card plays the walkthrough's poster instead
   of its placeholder.
 
-**Render time.** At D0's 0.3 s a frame, a walkthrough of 3 to 4 minutes
-is 5,400 to 7,200 frames, 27 to 36 minutes. D0 measured that at 960 × 420
-points. At 1280 × 800 there are 2.4 times the pixels, so it may take up to
-twice as long: about an hour. The first step of the work measures it.
-With W at A, a full render shares the parts among parallel jobs.
+**Render time and size.** D0 measured 0.3 s a frame for a 960 × 420
+point window at 2× (1920 × 840 px). A walkthrough frame at 1920 × 1200 px
+has 1.43 times those pixels: about 0.43 s a frame, if the time follows
+the pixels. A walkthrough of 3 to 4 minutes is 5,400 to 7,200 frames, so
+about 40 to 50 minutes. The whole-window shots at 2× have 2.54 times
+D0's pixels, but they are single frames. By D0's walkthrough (285 KB for
+11 s of a 302 px tall cut), the video may come to 10 to 25 MB. It loads
+only when the reader presses play (§6.4). The spike measures the time,
+the size and the disk used.
 
 **Order of work** (each step ends with the checks passing):
 
-1. A spike: R1 and R2, `song()`'s size and panels, the panel names
-   `window_map` needs, and the render time at 1280 × 800.
+1. A spike: R1, R2 and R3; `song()`'s size and panels; the panel names
+   `window_map` needs; the render time, size and disk at 1280 × 800.
 2. `uses`, the Map kind and downloads in `docs_coverage`.
 3. First launch, with its scene.
 4. Your first song, one step at a time: the page section, then its scene.
@@ -1043,7 +1091,10 @@ With W at A, a full render shares the parts among parallel jobs.
     8. Save and export to WAV.
 
     Recording over a beat is more musical than recording to a click, and
-    music plays from the first step.
+    music plays from the first step. The cost: before that first sound,
+    the reader downloads the kit, unzips it and adds its folder to the
+    Samples tab. That takes a minute or two out of the 15. The owner's
+    first run of the path times it.
   - B. §3.2's order without the return: keys first, then the audio track.
   - C. No download: two MIDI tracks from the built-in synth (Bass and
     Keys). The reader needs no file. But the path never touches an audio
@@ -1064,35 +1115,37 @@ With W at A, a full render shares the parts among parallel jobs.
     - Gains: a broken step names itself; editing one step's scene renders
       only that part; a full render shares the parts among parallel jobs.
     - Limits: an edit to the page's text, or to the code the scenes
-      share, renders every part again, since every part's shot is on the
-      page (`fingerprints`, `tests/docs_coverage.rs`). The join is new
-      code.
+      share (the `state_after` fixtures among it), renders every part
+      again, since every part's shot is on the page (`fingerprints`,
+      `tests/docs_coverage.rs`). The join, its place in both workflows
+      and the fixtures are new code.
   - B. One scene for the whole path, as §3.2 says. Nothing new to build.
-    But any change renders the whole video again (about 30 to 60
+    But any change renders the whole video again (about 40 to 50
     minutes) in one job that cannot be shared, and a break anywhere
     stops the whole video.
 - **F. The Plugins step's picture**
-  - **A (rec.) Build the test plugin and its host in the docs jobs.**
-    The step shows a finished scan, "1 plugin ready to use", under the
-    anonymous name of §6.2. It adds a few minutes to each docs job, and
-    D6's plugin pages need it anyway.
-  - B. Scan an empty folder. The step shows "0 plugins ready to use",
-    which is what a reader with no plugins sees. It needs no extra build,
-    if a test launch can point the scan at a folder (checked in the
-    spike).
+  Both options build the scan host in the docs jobs, a few minutes each.
+  - **A (rec.) Scan the test plugin too.** The Plugins step shows a
+    finished scan, "1 plugin ready to use", and Ready says the plugins
+    are ready. D6's plugin pages need the test plugin built anyway.
+  - B. Scan with no plugins. The step shows "0 plugins ready to use",
+    which is what a reader with no plugins sees, and the test plugin is
+    not built.
 - **K. The starter kit**
   - **A (rec.) A drum loop and the finished project, in one zip.** The
     loop is made by code, like the demo song (only Lumen's own sounds;
     §6.2), and written by the first step's scene. The project is the one
-    the last step's scene saves, so it always matches the video. Both are
-    made at deploy, like the other media (§12.1, S).
+    the last step's scene saves, checked against its fixture, so it
+    matches the video. Both are made at deploy, like the other media
+    (§12.1, S). The cost: the zip step and the downloads check above.
   - B. The drum loop alone, as a WAV. This is simpler, but the reader
     has nothing to compare their song with.
 - **M. The window at a glance**
   - **A (rec.) Numbered shots that link.** One shot of the whole window
     with the areas numbered, and one close shot per area with its
     controls numbered. Each number links to the reference entry or guide
-    for that control.
+    for that control. The cost: `links` on `shot`, and a link to each
+    full-size picture.
   - B. One interactive map, where pointing at a part of the window names
     it. This is closer to the app, but it is new code in the site, hard to
     use on a phone, and needs a keyboard path for accessibility. It could
