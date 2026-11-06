@@ -9708,6 +9708,16 @@ fell from about 140 ms to about 100 ms (debug build). Tests:
 `stream_plan_64`'s baseline is the container's count (the other engine
 scenarios read within 0.5% of the WSL baseline there).
 
+**Moved to the timing list** (2026-11-06, PR #92). On the macOS runner's
+`rest` job, beside every other test on three cores, the soak missed 1,873
+of about 6,000 blocks and counted 26 late reads in one burst, 210 ms after
+a locate whose hold had ended at 137 ms. In the container it reads nothing
+late alone (twice) and under 16 busy loops on four cores (three times;
+holds then grow to 390 ms, as designed). It now runs as the other
+real-time tests do (`.github/timing-tests.txt`): alone, after the others,
+with two retries. Alone is where the disk thread's own lateness showed
+before, so that check is kept; its assertions are unchanged.
+
 **Consequences.** Streaming stays off by default until MT-STREAM-1 passes
 on the owner's interface at 64 and 128 frames (S6); then the default
 flips. The 30 s rule and the pool size were kept after the soak and the
