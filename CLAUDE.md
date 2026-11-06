@@ -518,11 +518,11 @@ per slice and move what is no longer current out of it.
   workflow" renders all in parallel jobs (USER_DOCS.md §13). Checked on
   Windows; meter E2E reads levels on a fresh frame (`listen`). The landing
   page's menu links to Docs. Merged (PR #91).
-- **Branch `docs/d1-quick-start`: D1, the quick start, is pitched, not
-  built** (USER_DOCS.md §11, "D1 plan"). Checked against `main`: no
-  built-in reverb (M8), no bundled samples, no installer (M10), so the
-  path changes and a starter kit made by a scene supplies the drum loop.
-  Waiting for the owner: choices P, I, W, F, K and M.
+- **Branch `docs/d1-quick-start`: D1 is pitched, not built**
+  (USER_DOCS.md §11, "D1 plan"): First launch and The window at a glance.
+  "Your first song" is left out for now (owner, 2026-11-06); what a check
+  against `main` found for it is kept in the plan. Waiting for the owner:
+  choices I, F and M.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
