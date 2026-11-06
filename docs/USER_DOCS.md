@@ -5,7 +5,8 @@ L A, C A, H A, T A; videos and animations throughout ("show, don't tell",
 §6); and docs that look inviting and are fun to read and learn from,
 matching the landing page and the design system (§9). The look was chosen
 from specimens at the start of D0: Playbook, with Stage's rays and
-shimmering title on the docs home (§9.5). D0 is being built.
+shimmering title on the docs home (§9.5). D0 is merged (PR #91). D1, the
+quick start, is pitched (§11, "D1 plan").
 
 This is the plan for the user documentation published on the website: what
 it covers, how it is organised and searched, how every page gets its
@@ -823,10 +824,175 @@ what is covered.
   - the Preferences reference is an index (each setting, its page, the
     words that find it, and a link to its guide). Saying what each
     setting does needs an `about` on `preferences::Row`; that comes with
-    the Preferences guides in D1.
+    the Preferences guides in D6, where the table above puts them (the
+    report said D1 until 2026-11-06).
 - **Live:** `/docs/` goes live when the owner merges this branch to
   `main`. The repository's Pages source must be set to "GitHub Actions"
   once (§8.2).
+
+### D1 plan: the quick start (2026-11-06, branch `docs/d1-quick-start`)
+
+**Status:** pitched, not built. The choices below wait for the owner.
+Nothing in D1 changes the app. Only the docs' scenes, the site and
+`docs_coverage` change.
+
+**What D1 delivers.** The three Quick start pages from §3.1, the scenes
+that make their media, and a download for readers who want the same
+material as the walkthrough:
+
+| Page | What it covers | Media |
+|---|---|---|
+| **First launch** (§3.1's "Install and first launch"; choice I) | The first-run window: **Sound** (device, Play test sound, the ASIO offer on Windows), **Plugins** (the scan, plugin folders), **Ready** (theme and size); opening it again with **Set up Lumen…** | A lead clip of the three steps; a shot of each step with its controls numbered |
+| **Your first song in 15 minutes** | The path in P below, one `##` heading per step | A walkthrough with sound, chaptered by step (W); one shot of each step's result |
+| **The window at a glance** | The five areas: transport bar, browser, arrangement, detail panel and its tabs, and the app menu | One shot of the whole window with the areas numbered; one close shot per area with its controls numbered, each linking to its reference entry |
+
+**What the code shows about §3.2's path.** §3.2 was written before a
+check against `main`. Three of its steps ask for things Lumen does not
+have yet, and rule 6 (§1) keeps them out:
+
+- **Step 4, "drag a sample from the browser":** Lumen has no bundled
+  samples (§8 of the brief rules out bundled sample libraries for 1.0),
+  and the Samples tab lists only the folders the reader adds. The reader
+  needs a file. The starter kit (S) supplies one.
+- **Step 6, "a send to a return with the built-in reverb":** no built-in
+  effect exists yet. The built-in devices come in M8. A return with
+  nothing on it does nothing audible. The step drops the return and keeps
+  the fader, pan, mute and solo. Returns get their own recipe ("Build a
+  parallel reverb on a return") after M8.
+- **"Install":** there is no installer. It comes with M10, and the landing
+  page says "No installer yet". Choice I decides what the page says until
+  then.
+
+The rest of the path is on `main`: **Add MIDI track**
+(Ctrl+Shift+T) with **Instrument: Keys**, the computer keyboard
+(Ctrl+Shift+K), arming, a count-in, **Record** (F9), **Quantize** (Q),
+**Add audio track** (Ctrl+T), the Samples tab with **Add a sample
+folder…**, trim and fade handles, **Loop selection** (Ctrl+L),
+**Duplicate** (Ctrl+D), **Split** (Ctrl+E), **Join** (Ctrl+J), the inline
+fader and pan, the automation lane (A) on volume, **Save** (Ctrl+S) and
+**Export audio…** (Ctrl+Shift+E) to WAV. Pages never write these keys by
+hand (§4.1). They are listed here only so the owner can check the path.
+
+**Scenes** (all in `tests/docs_media/`, listed in `tests/shared/scenes.rs`;
+the screenshots in both themes and the walkthroughs in the dark theme,
+§6.4):
+
+| Scene | Writes |
+|---|---|
+| `first_launch` | `first-launch-lead`; shots `first-launch-sound`, `first-launch-plugins` and `first-launch-ready`, with callouts. The Plugins step shows the test plugin under an anonymous name (§6.2) |
+| `first_song_<n>` (one per step, choice W) | the step's walkthrough part; a shot of the step's result |
+| `window_map` | `window-map` (the whole window, with the five areas as callouts) and one close shot per area, with its controls as callouts |
+| `starter_kit` | the starter kit download (S) |
+
+`window_map` needs a larger window than D0's 960 × 420 points so the
+whole window is readable: 1280 × 800 points, at 2×. That size is new to
+§6.4. The page shows the shot full width, and readers can open it at full
+size.
+
+**Coverage.** `docs_coverage` counts an id as documented when a page's
+`actions` lists it, and rule 1 (§1) means a page explains it with the
+mouse and with the keyboard. The quick start touches about 25 commands
+but explains each one only as far as the path needs. So the quick start
+lists the commands its steps use under a new front-matter field,
+`[extra] uses`. `docs_coverage` checks that each id there exists and
+links it from the reference entry, but the id stays in `undocumented.txt`
+until its guide page (D2 to D6) explains it fully. D1 takes out what it
+explains fully: **Set up Lumen…** (`file.welcome`) and the transport
+bar's and app menu's own controls (`bar:` and `menu:`) that the window
+map names and describes.
+
+**The page's extras (§9.3).** These are new in D1:
+
+- "You'll learn" and "About 15 minutes" at the top.
+- Step ticks that the reader marks, remembered only in the browser. A
+  blocked or empty browser storage leaves the ticks unmarked and the page
+  still works.
+- "That's your first sound in Lumen" after step 2.
+- Lumi celebrating at the end.
+
+**Render time**, from §6.4's 0.3 s a frame: a walkthrough of about 3 to 4
+minutes is 5,400 to 7,200 frames, about 30 to 36 minutes on one runner.
+The shots add a few minutes. With W at A, a changed step renders only its
+own part.
+
+**Order of work** (each step ends with the checks passing):
+
+1. `uses` in `docs_coverage`, and the `starter_kit` scene.
+2. First launch, with its scene.
+3. Your first song, one step at a time: the page section, then its scene.
+4. The joined walkthrough and its chapters (W).
+5. The window at a glance.
+6. What's new: D1's line. The sidebar and the docs home link the three
+   pages; the home's "Your first song" card plays the walkthrough's
+   poster instead of its placeholder.
+
+**Done when:** a new user can follow the quick start from the first-run
+window to an exported WAV. Every step has its part of the walkthrough and
+a shot. The checks of §8.3 pass, with the scenes checked in the dark
+theme. The owner has looked at the built pages in both themes and at
+phone width.
+
+**Choices for the owner** (recommendation first):
+
+- **P. The quick start's path**
+  - **A (rec.) A beat first, then keys over it.**
+    1. First launch.
+    2. Add an audio track and drag the starter kit's drum loop onto it;
+       play it.
+    3. Add a MIDI track with Keys and play it from the computer keyboard.
+    4. Record four bars over a one-bar count-in, with the drums playing,
+       and quantize them.
+    5. Trim the drums and fade them in.
+    6. Loop the four bars, duplicate them, then split and **Join** a clip.
+    7. Balance the fader and pan.
+    8. Automate the volume to fade out the end.
+    9. Save and export to WAV.
+
+    Recording over a beat is more musical than recording to a click alone,
+    and the first sound comes in step 2.
+  - B. §3.2's order without the return: keys first, then the audio
+    track at step 4.
+  - C. No download: two MIDI tracks from the built-in synth (Bass and
+    Keys). The reader needs no file, but the path never touches an audio
+    clip, so trim, fades and the browser are not taught.
+- **I. "Install" until there is an installer**
+  - **A (rec.) "First launch", with a short "Get Lumen" box.** The box
+    says that installers come with 1.0 and links to the repository's
+    "Getting started" section, the one place that explains a build from
+    source. The page is about the first-run window. It is renamed
+    "Install and first launch" when M10's installer ships.
+  - B. Build-from-source steps for Windows, macOS and Linux on the page
+    itself. These duplicate the repository's instructions and can drift
+    from them.
+- **W. The walkthrough**
+  - **A (rec.) One scene per step, joined into one video.** Each step's
+    scene starts from the project state the previous step ends in. Code
+    builds that state, and only the step itself is filmed. The deploy
+    joins the parts into one MP4, with one chapter per step. A change to
+    one step renders only that part. A step whose scene breaks names
+    itself. The parts are encoded with the same settings, so they join
+    without re-encoding.
+  - B. One scene for the whole path, as §3.2 says. This is simpler, but
+    a change to any step renders the whole video again (about 30 minutes),
+    and a break anywhere stops the whole video.
+- **S. The starter kit**
+  - **A (rec.) Made by a scene at deploy.** The kit is a zip with a drum
+    loop and a bass loop that code makes, like the demo song (§6.2; only
+    Lumen's own sounds), and the finished quick-start project. That
+    project is the one the walkthrough's last step saves, so it always
+    matches the video. Nothing is committed, as with the other media
+    (S, §12.1).
+  - B. Commit the kit's files under `site/docs/static/`. This is simpler
+    to build, but the files go stale when the format or the path changes.
+- **M. The window at a glance**
+  - **A (rec.) Numbered shots.** One shot of the whole window with the
+    areas numbered, and one close shot per area with its controls
+    numbered. Each number links to the reference entry or guide for that
+    control. This uses the callouts D0 already draws.
+  - B. One interactive map, where pointing at a part of the window names
+    it. This is closer to the app, but it is new code in the site, harder
+    to read on a phone, and needs a keyboard path for accessibility.
+    It could follow later.
 
 ## 12. Choices
 
