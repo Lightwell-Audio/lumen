@@ -760,8 +760,12 @@ fn a_take_in_a_project_with_no_unsaved_changes_is_offered_back_after_a_crash() {
     lumen.click("Arm Vox");
     lumen.key(Modifiers::COMMAND, Key::S);
     lumen.wait_for("the save", |app| !app.is_dirty() && !app.is_busy());
-    lumen.frames(10);
-    assert!(!lumen.app().autosave_writing());
+    // The arming's autosave may still be on its way to the disk (a slow
+    // one on Windows CI took more than ten frames): wait for it, so the
+    // autosave waited for below is the clean project's.
+    lumen.wait_for("the arming's autosave to end", |app| {
+        !app.autosave_writing()
+    });
     lumen.key(Modifiers::NONE, Key::F9);
     lumen.wait_for("frames to be written", |app| {
         app.audio_take_frames(VOX).is_some_and(|f| f >= 12_000)
