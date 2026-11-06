@@ -189,7 +189,6 @@ locators.next
 midi.computer_keyboard
 midi.create_clip
 midi.export_clip
-midi.open_editor
 midi.pop_out_editor
 midi.draw_tool
 midi.glue_notes

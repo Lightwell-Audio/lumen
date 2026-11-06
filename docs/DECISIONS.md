@@ -10987,13 +10987,31 @@ drawn); the info line naming the ruler over the wave (the ruler has its own);
 and the sample cache keyed by file alone (now by file and length). The
 records say the audio header's tool switch and Pop out come with S2 and that
 the headers share their parts' order; the hearing items of the plan's §1 are
-given to S2. **These round-2 fixes were not reviewed again.**
+given to S2.
+
+**After main's D0 (2026-11-06).** Main took ADR-0119 for the user
+documentation, so S0 and S1 moved to ADR-0120 and ADR-0121 when main was
+merged in. D0 made user docs part of every slice (USER_DOCS.md §10.1), and
+its coverage test failed on this slice's two commands. The slice now carries
+the guide **Look inside an audio clip** (`site/docs/content/guides/clips/`,
+under Clips and selection) with its scene `audio_clip_editor` in
+`tests/docs_media/`: a lead clip (open a trimmed clip, Whole file, Zoom to
+clip), the whole file with the part the clip plays and the rest marked, and
+the wave zoomed to its samples. The page also lists Open clip, so
+`midi.open_editor` left `undocumented.txt`. The scene's window is 640 pt
+tall rather than the demo song's 420, so the tracks show above the detail
+panel. **Review round 3** (a read of round 2's fixes) found one bug, fixed:
+X straight after opening a clip went back to the view of an earlier
+opening (another clip's, or the whole file), since opening recorded the view
+before it as the one to go back to. Opening now leaves nothing to go back
+to (E2E `x_right_after_opening_a_clip_keeps_it_framed`, which fails
+without the fix).
 
 **Verified.** Unit tests of the mapping (offset, a file cut at the song
 start, a tempo change frame for frame, a loop and a loop longer than its
 clip, a phase, a reversed clip's twin, lookup, a MIDI clip), of the time
 labels, and of the tool switch (Pointer chosen is not lit, Draw chosen is;
-no key is painted in a piece); E2E `audio_editor` (10 scenarios: Z and X; the file and
+no key is painted in a piece); E2E `audio_editor` (11 scenarios: Z and X; X right after opening; the file and
 window, Whole file by button and palette, the zoom keys down to samples with
 the arrangement still and to the arrangement when the pointer is there, the
 wheel and Ctrl+wheel, Follow paging and pausing on a scroll, samples of a
@@ -11002,5 +11020,7 @@ two headers' title and grid chip in the same order and heights, with Draw's
 key in its tooltip); the shots `detail_tabs` and `audio_clip_editor` in both
 themes at 100, 150 and 200%, and at the 960 × 540 minimum with the browser
 open at 100% and 200%. **Not verified:** the frame time on a one-hour
-file at every zoom (no Windows machine here; the bench is S2's), and how it
-looks on the owner's display.
+file at every zoom (no Windows machine here; the bench is S2's), how it
+looks on the owner's display, and the docs site built with the page (no
+`zola` here; CI's docs job builds it). The scene was rendered here in
+both themes and its pictures looked at.
