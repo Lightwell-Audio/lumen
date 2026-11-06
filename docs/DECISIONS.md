@@ -11160,3 +11160,18 @@ runs through the API. **Not verified here:** the workflow itself on GitHub
 (the next push shows it), macOS and Linux runs of the converted tests, and
 the WSL perf gate (no WSL distribution on this machine; CI's perf job runs
 it, and the link change adds no work when a wait is shorter than 5 ms).
+
+**The first CI run (PR #93, 2026-11-06).** Every test passed on every OS,
+yet eight test jobs were red, for three faults of this change, fixed:
+`ci-test.sh` used `mapfile`, which macOS's bash 3.2 lacks (its `rest` ran
+no tests); the step that names flaky tests failed whenever there was none
+(GitHub runs bash with `-e` and `pipefail`, and a `grep` that finds nothing
+exits 1); and `failure-output = "final"` printed nothing of a flaky
+attempt. The retries named one flake, as meant:
+`measure_latency::a_cable_measures_…` on Windows failed its first try in
+1.2 s. It did not repeat in 40 runs here beside 12 busy loops, so it was
+read from the code: the scenario clicked the cable's list once, just after
+the card was scrolled into view, and then its option, which panics at once
+if the list did not open. The E2E harness now has `Lumen::pick`, which
+opens a list until the option shows and clicks it until the choice holds,
+each brought into view first; the scenario uses it.

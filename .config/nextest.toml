@@ -19,9 +19,10 @@
 # guard, for what no test can control (a runner that stalls for seconds).
 retries = 2
 fail-fast = false
-# Each attempt that failed is printed once, at the end, and only for tests
-# that never passed, so a flaky pass adds no panic text to the log.
-failure-output = "final"
+# Every attempt that failed is printed as it fails, a flaky one included, and
+# a test that never passed again at the end: a flake reported without its
+# panic cannot be looked into ("final" alone dropped them, 2026-11-06).
+failure-output = "immediate-final"
 status-level = "retry"
 final-status-level = "flaky"
 # A test that hangs is ended after 8 minutes (three attempts fit in the job
@@ -34,7 +35,7 @@ retries = 2
 fail-fast = false
 # One at a time, with nothing else running beside them.
 test-threads = 1
-failure-output = "final"
+failure-output = "immediate-final"
 status-level = "retry"
 final-status-level = "flaky"
 slow-timeout = { period = "60s", terminate-after = 8 }

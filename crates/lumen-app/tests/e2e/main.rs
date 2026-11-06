@@ -322,6 +322,32 @@ impl Lumen {
         self.frames(3);
     }
 
+    /// Picks `option` from the dropdown named `button`, as a user does, until
+    /// `chosen` holds. A click while the page scrolls or lays out lands where
+    /// the control was, so a single click can miss on a busy machine (how
+    /// many frames a page has had to settle depends on when the engine
+    /// answered): the list is opened until the option shows, and the option
+    /// clicked until the choice is made, each brought into view first.
+    #[track_caller]
+    pub fn pick(&mut self, button: &str, option: &str, chosen: impl Fn(&Lumen) -> bool) {
+        let deadline = lumen_testkit::Deadline::new();
+        while !chosen(self) {
+            deadline.check(format_args!("{option:?} chosen from {button:?}"));
+            let target = if self.shows(option) { option } else { button };
+            if let Some(node) = self.harness.query_by_label(target) {
+                node.scroll_to_me();
+                self.frames(2);
+            }
+            match self.harness.query_by_label(target) {
+                Some(node) => {
+                    node.click();
+                    self.frames(3);
+                }
+                None => self.frames(1),
+            }
+        }
+    }
+
     /// Whether a control named `label` is on screen.
     pub fn shows(&self, label: &str) -> bool {
         self.harness.query_by_label(label).is_some()

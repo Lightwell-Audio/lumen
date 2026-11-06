@@ -75,11 +75,13 @@ fn measure(lumen: &mut Lumen) {
     });
 }
 
-/// Plugs the card's input end into input 2.
+/// Plugs the card's input end into input 2. The card has just been
+/// scrolled into view: one click on its list could land where the list was
+/// (a first try on Windows CI, 2026-11-06), so `pick` tries until it holds.
 fn to_input_2(lumen: &mut Lumen) {
-    lumen.click("Cable to: 1  In 1");
-    lumen.click("2  In 2");
-    lumen.run_until("input 2 chosen", |l| l.shows("Cable to: 2  In 2"));
+    lumen.pick("Cable to: 1  In 1", "2  In 2", |l| {
+        l.shows("Cable to: 2  In 2")
+    });
 }
 
 #[test]

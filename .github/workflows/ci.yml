@@ -149,7 +149,7 @@ jobs:
           # One annotation per panic (a step shows at most ten): the thread,
           # which names the test, the place and the message's first lines.
           awk '/panicked at/ { n = 3; msg = $0; next }
-               n > 0 { msg = msg " | " $0; if (--n == 0) print "::error title=Failed test::" msg }' test-output.txt | head -10
+               n > 0 { msg = msg " | " $0; if (--n == 0) print "::error title=Failed test::" msg }' test-output.txt | head -10 || true
           grep -E "^ +(FAIL|TIMEOUT|SIG[A-Z]+) \[" test-output.txt | head -20 || true
           grep -E "^test .* FAILED$" test-output.txt | head -20 || true
       # A test that failed and then passed on a retry does not fail the job,
@@ -159,18 +159,19 @@ jobs:
         if: always()
         shell: bash
         run: |
+          # GitHub runs bash with -e and pipefail: a grep that finds nothing
+          # (no flaky test, the usual case) must not fail the step.
           for file in test-output.txt timing-output.txt; do
             [ -f "$file" ] || continue
             grep -E "^ +FLAKY " "$file" | head -10 | while read -r line; do
               echo "::warning title=Flaky test (passed on a retry)::$line"
-            done
+            done || true
           done
           if [ -f timing-output.txt ]; then
             grep -E "^ +(FAIL|TIMEOUT|SIG[A-Z]+) \[" timing-output.txt | head -10 | while read -r line; do
               echo "::warning title=Real-time test failed (not gating)::$line"
-            done
+            done || true
           fi
-          true
       # Scanner isolation: crashing, hanging and broken VST3 modules must be
       # contained and classified (P-VST3). Windows-only until the macOS and
       # Linux port (PROGRESS.md, Stretch goals).

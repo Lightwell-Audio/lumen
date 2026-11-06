@@ -78,7 +78,10 @@ build_plugins() {
 case "$part" in
 rest)
   build_plugins
-  mapfile -t targets < <(app_targets)
+  # A read loop, not `mapfile`: macOS runs bash 3.2, which has no mapfile.
+  targets=()
+  while IFS= read -r line; do targets+=("$line"); done < <(app_targets)
+  [ "${#targets[@]}" -gt 0 ] || { echo "no lumen-app test targets found" >&2; exit 1; }
   status=0
   # Two runs: the workspace but lumen-app, then lumen-app's targets but the
   # E2E suite, which the e2e parts run.

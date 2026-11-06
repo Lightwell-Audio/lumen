@@ -296,7 +296,8 @@ cargo test -p lumen-app --test smoke -- --ignored             # the real binary,
 - **The E2E suite** (`crates/lumen-app/tests/e2e/`) starts the whole app
   with egui's test harness, without a window, and drives it by accessible
   names, keys and dropped files. Use the `Lumen` helper: `start`, `click`,
-  `key`, `drop_files`, `wait_for`, `shows`, `is_on`. Wait on state (a
+  `key`, `drop_files`, `wait_for`, `shows`, `is_on`, and `pick` for a
+  dropdown (one click on a list that just scrolled can miss). Wait on state (a
   position, a flag), never on time; `wait_for` and `run_until` give up
   after the patience (below) and say what they waited for. A control a
   test needs must have an accessible name (CLAUDE.md §5, item 10).
