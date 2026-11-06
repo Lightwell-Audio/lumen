@@ -12,13 +12,16 @@
 {%- set base = get_url(path="media/" ~ id) -%}
 {%- set names = callouts | default(value=[]) -%}
 {%- set bounds = load_data(path="static/media/" ~ id ~ ".callouts.json", required=false) -%}
-<figure class="shot{% if wide | default(value=false) %} is-wide{% endif %}{% if names %} has-callouts{% endif %}" style="--focus:{{ focus | default(value='50%') }}">
+{%- set meta = get_image_metadata(path="media/" ~ id ~ "-dark.webp", allow_missing=true) -%}
+<figure class="shot{% if wide | default(value=false) %} is-wide{% endif %}{% if names and meta %} has-callouts{% endif %}" style="--focus:{{ focus | default(value='50%') }}">
   <div class="shot-frame">
+  {%- if meta %}
   <picture>
     <source srcset="{{ base }}-light.webp" media="(prefers-color-scheme: light)" data-theme-src="light">
-    <img src="{{ base }}-dark.webp" data-dark="{{ base }}-dark.webp" data-light="{{ base }}-light.webp" alt="{{ alt }}" loading="lazy" decoding="async">
+    <img src="{{ base }}-dark.webp" data-dark="{{ base }}-dark.webp" data-light="{{ base }}-light.webp" alt="{{ alt }}" width="{{ meta.width }}" height="{{ meta.height }}" loading="lazy" decoding="async">
   </picture>
-  {%- if names and bounds %}
+  {%- else %}{% set kind = "picture" %}{% include "partials/missing.html" %}{% endif %}
+  {%- if names and bounds and meta %}
   <ol class="callouts" aria-label="Callouts">
     {%- for name in names %}
     {%- if name not in bounds.at %}{{ throw(message="shot " ~ id ~ ": the scene recorded no callout called " ~ name) }}{% endif %}

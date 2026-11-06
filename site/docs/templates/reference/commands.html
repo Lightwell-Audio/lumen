@@ -8,19 +8,16 @@
 {%- set data = load_data(path="data/commands.json") -%}
 {%- set controls = load_data(path="data/controls.json") -%}
 {%- set also = load_data(path="data/also.toml") -%}
-<div class="ref-filter" data-pagefind-ignore>
-  <label for="ref-filter">Filter</label>
-  <input id="ref-filter" type="search" placeholder="Type a name, a word or a key: split, loop, Ctrl+D…" autocomplete="off" data-ref-filter>
-  <p class="ref-count" data-ref-count data-total="{{ data.commands | length }}" aria-live="polite">{{ data.commands | length }} commands</p>
-</div>
+{%- set total = data.commands | length %}{% set noun = "commands" %}{% set example = "split, loop, Ctrl+D…" %}
+{% include "partials/ref_filter.html" %}
 {%- for area in data.areas %}
 {%- set commands = data.commands | filter(attribute="area", value=area.id) %}
-<section class="ref-area" id="area-{{ area.id }}" style="--area:var(--clip-{{ area.light }})" data-ref-group>
+<section class="ref-area" id="area-{{ area.id }}" style="--area:var(--clip-{{ area.light }})" data-ref-group data-ref-area="{{ area.name }}">
   <h2><span class="ref-dot" aria-hidden="true"></span>{{ area.name }} <span class="ref-n">{{ commands | length }}</span></h2>
   <ul class="ref-list">
   {%- for c in commands %}
     {%- set words = also[c.id] | default(value=[]) %}
-    <li class="ref-row" data-ref-row data-ref-text="{{ c.name }} {{ c.about }} {{ words | join(sep=' ') }} {% for k in c.keys %}{{ k | join(sep='+') }} {% endfor %}{% for k in c.keys_mac %}{{ k | join(sep='+') }} {% endfor %}">
+    <li class="ref-row" data-ref-row data-ref-name="{{ c.name }}" data-ref-also="{{ words | join(sep=' ') }}" data-ref-keys="{% for k in c.keys %}{{ k | join(sep='+') }} {% endfor %}{% for k in c.keys_mac %}{{ k | join(sep='+') }} {% endfor %}" data-ref-about="{{ c.about }}">
       {#- A heading with the id: search results land on the entry. #}
       <div class="ref-head">
         <h3 class="ref-title" id="{{ c.id }}"><a class="ref-name" href="#{{ c.id }}">{{ c.name }}</a></h3>
@@ -47,7 +44,7 @@
   </ul>
 </section>
 {%- endfor %}
-<p class="ref-empty" data-ref-empty hidden>Nothing matches. Try a shorter word, or search the whole documentation.</p>
+<p class="ref-empty" data-ref-empty hidden>No command matches. Try a shorter word, or search the whole documentation.</p>
 {% endblock generated %}
 {% block aside %}
 {%- set data = load_data(path="data/commands.json") -%}

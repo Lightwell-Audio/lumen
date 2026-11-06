@@ -1,0 +1,9 @@
+{#- Shown in place of a picture, clip or walkthrough whose media is not in
+    `static/media/` (a build without rendered media). Set `alt` and `kind`
+    ("picture", "clip" or "walkthrough") before including it. The alt text
+    stands in for what the reader would have seen. -#}
+<div class="media-missing" role="img" aria-label="{{ alt }}">
+  <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 15.5l5-4.5 4 3.5 3-2.5 6 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+  <span class="media-missing-alt">{{ alt }}</span>
+  <span class="media-missing-note">This {{ kind }} is rendered from the app when the site is published.</span>
+</div>

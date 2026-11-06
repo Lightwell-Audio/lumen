@@ -21,6 +21,7 @@ on:
       - "docs/design-system/**"
       - "Cargo.lock"
       - ".github/workflows/pages.yml"
+      - ".github/scripts/docs-media.sh"
   workflow_dispatch:
     inputs:
       full:
@@ -69,34 +70,19 @@ jobs:
           key: docs
       - id: pages
         uses: actions/configure-pages@v5
-      # What the published site was made from. None yet (the first deploy,
-      # or Pages was reset): every scene renders.
-      - name: Fetch the published media's manifest
-        run: |
-          curl -fsSL --retry 3 "${{ steps.pages.outputs.base_url }}/docs/media/manifest.json" \
-            -o "$RUNNER_TEMP/published.json" \
-            || echo "No published media yet: every scene renders."
+      # Against what the published site was made from; with none yet (the
+      # first deploy, or Pages was reset), every scene renders.
       - id: plan
         name: Plan the render
         env:
-          DOCS_PLAN: ${{ runner.temp }}/plan/plan.json
-          DOCS_PLAN_PUBLISHED: ${{ runner.temp }}/published.json
-          DOCS_PLAN_FULL: ${{ github.event_name == 'workflow_dispatch' && inputs.full }}
-          DOCS_PLAN_JOBS: ${{ inputs.jobs || 4 }}
+          PUBLISHED: ${{ steps.pages.outputs.base_url }}/docs/media
+          FULL: ${{ github.event_name == 'workflow_dispatch' && inputs.full }}
+          JOBS: ${{ inputs.jobs || 4 }}
         run: |
-          mkdir -p "$(dirname "$DOCS_PLAN")"
-          cargo test --locked -p lumen-app --test docs_coverage plan_the_render \
-            -- --ignored --exact
-          echo "shards=$(jq -c .shards "$DOCS_PLAN")" >> "$GITHUB_OUTPUT"
-          echo "count=$(jq '.shards | length' "$DOCS_PLAN")" >> "$GITHUB_OUTPUT"
-          {
-            echo "### Docs media"
-            echo
-            echo "| Scene | This deploy | Rendered at |"
-            echo "|---|---|---|"
-            jq -r '(.why | to_entries[] | "| \(.key) | renders (\(.value)) | this commit |"),
-                   (.reuse | to_entries[] | "| \(.key) | reused | \(.value.commit[0:8]) |")' "$DOCS_PLAN"
-          } >> "$GITHUB_STEP_SUMMARY"
+          plan="$RUNNER_TEMP/plan/plan.json"
+          bash .github/scripts/docs-media.sh plan "$PUBLISHED" "$plan" "$FULL" "$JOBS"
+          echo "shards=$(jq -c .shards "$plan")" >> "$GITHUB_OUTPUT"
+          echo "count=$(jq '.shards | length' "$plan")" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: docs-plan
@@ -142,8 +128,6 @@ jobs:
           restore-keys: |
             docs-media-${{ matrix.shard.index }}-
             docs-media-
-      - name: Build the scenes
-        run: cargo test --locked -p lumen-app --test docs_media --no-run
       # Each scene into its own folder, so the deploy knows which files are
       # whose, with how long it took (the next full render shares the work
       # out by it).
@@ -152,14 +136,8 @@ jobs:
           TESTS: ${{ matrix.shard.tests }}
         run: |
           touch "$RUNNER_TEMP/render-started"
-          out="$RUNNER_TEMP/scenes"
-          mkdir -p "$out"
-          for test in $TESTS; do
-            started=$(date +%s)
-            DOCS_MEDIA="$out/$test" cargo test --locked -p lumen-app --test docs_media \
-              -- --ignored --exact --test-threads=1 --nocapture "$test"
-            echo $(( $(date +%s) - started )) > "$out/$test.seconds"
-          done
+          # shellcheck disable=SC2086 # the tests are words
+          bash .github/scripts/docs-media.sh render "$RUNNER_TEMP/scenes" $TESTS
       # Entries no scene used this run belong to clips that changed or are
       # gone; dropping them keeps the cache to one set of clips.
       - name: Drop unused encoded clips
@@ -225,32 +203,8 @@ jobs:
         env:
           PUBLISHED: ${{ steps.pages.outputs.base_url }}/docs/media
         run: |
-          plan="$RUNNER_TEMP/plan/plan.json"
-          scenes="$RUNNER_TEMP/scenes"
-          media=site/docs/static/media
-          mkdir -p "$media"
-          rendered='{}'
-          for test in $(jq -r '.render[]' "$plan"); do
-            cp -R "$scenes/$test/." "$media/"
-            rendered=$(jq -c --arg t "$test" \
-              --arg fingerprint "$(jq -r --arg t "$test" '.fingerprints[$t]' "$plan")" \
-              --arg commit "$GITHUB_SHA" \
-              --argjson seconds "$(cat "$scenes/$test.seconds")" \
-              --argjson files "$(ls "$scenes/$test" | jq -R . | jq -sc .)" \
-              '.[$t] = {fingerprint: $fingerprint, commit: $commit, seconds: $seconds, files: $files}' \
-              <<< "$rendered")
-          done
-          for test in $(jq -r '.reuse | keys[]' "$plan"); do
-            for file in $(jq -r --arg t "$test" '.reuse[$t].files[]' "$plan"); do
-              curl -fsSL --retry 3 "$PUBLISHED/$file" -o "$media/$file" || {
-                echo "::error::$file of $test is not on the published site; run this workflow by hand with a full render"
-                exit 1
-              }
-            done
-          done
-          jq --arg commit "$GITHUB_SHA" --argjson rendered "$rendered" \
-            '{commit: $commit, scenes: (.reuse + $rendered)}' "$plan" > "$media/manifest.json"
-          du -sh "$media"
+          bash .github/scripts/docs-media.sh gather "$PUBLISHED" \
+            "$RUNNER_TEMP/plan/plan.json" "$RUNNER_TEMP/scenes" site/docs/static/media
       # The landing page as it is, and the docs built into docs/ beside it.
       - name: Build the site
         run: |

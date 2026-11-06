@@ -53,12 +53,16 @@ the build stops when such a page or anchor does not exist. A plain
 
 - `.github/workflows/docs.yml`, on pull requests that touch the site or the
   app: `docs_coverage` and the name tests, every scene once in the dark
-  theme without writing anything (no `DOCS_MEDIA`), and the build, which
-  stops at a wrong shortcode, missing alt text, an unknown key or a broken
-  internal link. The built pages, with the landing page beside them and
-  without media, are kept as the run's `docs-site` artifact: unzip it and
-  serve the folder with `python3 -m http.server 8123`, then open
-  `http://localhost:8123/docs/`.
+  theme without writing anything (no `DOCS_MEDIA`), the media (the scenes
+  the branch changed are rendered, the others fetched from the published
+  site; `.github/scripts/docs-media.sh`), and the build, which stops at a
+  wrong shortcode, missing alt text, an unknown key or a broken internal
+  link. The built pages, with the landing page and the media, are kept as
+  the run's `docs-site` artifact: unzip it and serve the folder with
+  `python3 -m http.server 8123`, then open `http://localhost:8123/docs/`.
+- A picture, clip or walkthrough whose media is missing (a local build
+  without rendering) shows a placeholder with its alt text, not a broken
+  image.
 - `.github/workflows/pages.yml`, on `main`: renders, in both themes, the
   scenes whose own source, pages or gestures changed since the published
   site (`plan_the_render` in `tests/docs_coverage.rs`), takes the other

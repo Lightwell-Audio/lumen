@@ -100,6 +100,7 @@
   // Cards on the home page play on hover and focus.
   document.querySelectorAll("[data-hover-play]").forEach(function (media) {
     var video = media.querySelector("video");
+    if (!video) return;
     var card = media.closest(".goal-link") || media;
     function start() {
       if (reduced.matches) return;
@@ -207,27 +208,64 @@
     headings.forEach(function (h) { spy.observe(h); });
   }
 
-  // ---- The reference's filter: rows whose words hold every typed word ----
+  // ---- The reference's filter: rows that hold every typed word, best first ----
+  // Each typed word scores by the best place it is found: in the name (more
+  // at the start of a word), the reader's other words for it, its keys, its
+  // group's name, then its description. Groups follow their best row, so
+  // "locator" shows Locators before Edit, whose rows only mention it.
   var filter = document.querySelector("[data-ref-filter]");
   if (filter) {
-    var rows = document.querySelectorAll("[data-ref-row]");
-    var groups = document.querySelectorAll("[data-ref-group]");
+    var FIELDS = [["refName", 4], ["refAlso", 3], ["refKeys", 3], ["area", 2], ["refAbout", 1]];
     var count = document.querySelector("[data-ref-count]");
     var empty = document.querySelector("[data-ref-empty]");
     var total = count.dataset.total;
-    rows.forEach(function (row) { row.dataset.refWords = row.dataset.refText.toLowerCase(); });
+    var noun = count.dataset.noun;
+    var groups = Array.prototype.map.call(document.querySelectorAll("[data-ref-group]"), function (el, order) {
+      var list = el.querySelector(".ref-list");
+      var rows = Array.prototype.map.call(el.querySelectorAll("[data-ref-row]"), function (row, at) {
+        var text = {};
+        FIELDS.forEach(function (f) {
+          var raw = f[0] === "area" ? el.dataset.refArea : row.dataset[f[0]];
+          text[f[0]] = (raw || "").toLowerCase();
+        });
+        return { el: row, order: at, text: text, score: 0 };
+      });
+      return { el: el, list: list, order: order, rows: rows, score: 0 };
+    });
+    function scoreOf(row, words) {
+      var sum = 0;
+      for (var i = 0; i < words.length; i++) {
+        var best = 0;
+        for (var j = 0; j < FIELDS.length; j++) {
+          var text = row.text[FIELDS[j][0]];
+          var at = text.indexOf(words[i]);
+          if (at === -1) continue;
+          var s = FIELDS[j][1];
+          if (FIELDS[j][0] === "refName" && (at === 0 || /[^a-z0-9]/.test(text.charAt(at - 1)))) s += 1;
+          if (s > best) best = s;
+        }
+        if (!best) return 0;
+        sum += best;
+      }
+      return sum;
+    }
+    function byScore(a, b) { return b.score - a.score || a.order - b.order; }
     filter.addEventListener("input", function () {
       var words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
       var shown = 0;
-      rows.forEach(function (row) {
-        var hit = words.every(function (w) { return row.dataset.refWords.indexOf(w) !== -1; });
-        row.hidden = !hit;
-        if (hit) shown += 1;
+      groups.forEach(function (g) {
+        g.score = 0;
+        g.rows.forEach(function (r) {
+          r.score = words.length ? scoreOf(r, words) : 1;
+          r.el.hidden = !r.score;
+          if (r.score) shown += 1;
+          if (r.score > g.score) g.score = r.score;
+        });
+        g.rows.slice().sort(byScore).forEach(function (r) { g.list.appendChild(r.el); });
+        g.el.hidden = !g.score;
       });
-      groups.forEach(function (group) {
-        group.hidden = !group.querySelector("[data-ref-row]:not([hidden])");
-      });
-      count.textContent = words.length ? shown + " of " + total + " commands" : total + " commands";
+      groups.slice().sort(byScore).forEach(function (g) { g.el.parentNode.insertBefore(g.el, empty); });
+      count.textContent = words.length ? shown + " of " + total + " " + noun : total + " " + noun;
       empty.hidden = shown !== 0;
     });
   }

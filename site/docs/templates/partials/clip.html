@@ -1,11 +1,15 @@
 {#- One clip: `id`, `alt`, and optionally `caption`, `lead` and `focus`
     (where the action is, across: phones zoom there) (see
-    shortcodes/clip.html). Shared by the clip and tryit shortcodes. -#}
+    shortcodes/clip.html). Shared by the clip and tryit shortcodes. Without
+    its media (a build that did not render it) a placeholder says so. -#}
 {%- if not alt %}{{ throw(message="clip " ~ id ~ " needs alt text") }}{% endif -%}
 {%- set base = get_url(path="media/" ~ id) -%}
+{%- set meta = get_image_metadata(path="media/" ~ id ~ "-dark.webp", allow_missing=true) -%}
+{%- if meta %}
 <figure class="clip{% if lead | default(value=false) %} is-lead{% endif %}" data-clip style="--focus:{{ focus | default(value='50%') }}">
   <div class="clip-frame">
     <video muted loop playsinline preload="none" poster="{{ base }}-dark.webp"
+      width="{{ meta.width }}" height="{{ meta.height }}"
       data-dark="{{ base }}-dark.mp4" data-light="{{ base }}-light.mp4"
       data-dark-poster="{{ base }}-dark.webp" data-light-poster="{{ base }}-light.webp"
       aria-label="{{ alt }}"></video>
@@ -16,3 +20,9 @@
   </div>
   {%- if caption | default(value="") %}<figcaption>{{ caption }}</figcaption>{% endif %}
 </figure>
+{%- else %}
+<figure class="clip{% if lead | default(value=false) %} is-lead{% endif %}">
+  <div class="clip-frame">{% set kind = "clip" %}{% include "partials/missing.html" %}</div>
+  {%- if caption | default(value="") %}<figcaption>{{ caption }}</figcaption>{% endif %}
+</figure>
+{%- endif %}
