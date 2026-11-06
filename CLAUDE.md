@@ -521,8 +521,8 @@ per slice and move what is no longer current out of it.
 - **Branch `docs/d1-quick-start`: D1 is pitched, not built**
   (USER_DOCS.md §11, "D1 plan"): First launch and The window at a glance.
   "Your first song" is left out for now (owner, 2026-11-06); what a check
-  against `main` found for it is kept in the plan. Waiting for the owner:
-  choices I, F and M.
+  against `main` found for it is kept in the plan. Owner: M A. Waiting
+  for the owner: choices I and F.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

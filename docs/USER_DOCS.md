@@ -832,8 +832,8 @@ what is covered.
 
 ### D1 plan: first launch and the window (2026-11-06, branch `docs/d1-quick-start`)
 
-**Status:** pitched, not built. Choices I, F and M at the end wait for the
-owner.
+**Status:** pitched, not built. Owner, 2026-11-06: M A. Choices I and F at
+the end wait for the owner.
 
 **"Your first song in 15 minutes" is left out of D1** (owner,
 2026-11-06). It stays planned in the sidebar, and the docs home keeps its
@@ -981,7 +981,7 @@ scene shares, so D0's three scenes render again too (about 5 minutes).
     which is what a reader with no plugins sees, and the test plugin is
     not built.
 - **M. The window at a glance**
-  - **A (rec.) Numbered shots that link.** One shot of the whole window
+  - **A (rec.; chosen, owner 2026-11-06) Numbered shots that link.** One shot of the whole window
     with the areas numbered, and one close shot per area with its
     controls numbered. Each number links to the reference entry or guide
     for that control. The cost: `links` on `shot`, and a link to each
