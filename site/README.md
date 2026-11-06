@@ -1,8 +1,10 @@
 # Lumen website
 
 The public page at https://lightwell-audio.github.io/lumen/: one static
-`index.html` with its fonts, videos and images under `assets/`. There is no
-build step.
+`index.html` with its fonts, videos and images under `assets/`. The page has
+no build step. Its stylesheet, `assets/lumen.css`, is shared with the user
+documentation in `docs/` (see its README), which links it before its own,
+so the fonts and the brand's motion are written once.
 
 ## Preview
 
@@ -14,10 +16,11 @@ Then open http://localhost:8765/.
 
 ## Publish
 
-`.github/workflows/pages.yml` deploys this folder when a change to `site/`
-reaches `main`, or when the workflow is run by hand from the Actions tab. The
-repository's Pages source must be "GitHub Actions" (Settings > Pages), set
-once.
+`.github/workflows/pages.yml` deploys this folder, with the documentation
+built into `docs/` (its screenshots and clips rendered from the app at each
+deploy), when a change to `site/` or the app reaches `main`, or when the
+workflow is run by hand from the Actions tab. The repository's Pages source
+must be "GitHub Actions" (Settings > Pages), set once.
 
 ## Search and sharing
 

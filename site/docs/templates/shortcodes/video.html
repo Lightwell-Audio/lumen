@@ -1,0 +1,22 @@
+{#- {{ video(id="first-song", alt="…", caption="…") }}: a walkthrough with
+    sound, for the quick start and every recipe (USER_DOCS.md §6.1). It
+    never plays on its own. Dark theme only: `<id>.mp4`, a `<id>.webp`
+    poster, `<id>.captions.vtt` and `<id>.chapters.vtt`, all written by the
+    scene. Each chapter's cue id is the anchor of the step heading it
+    shows (`## Add a track` is `add-a-track`): the heading gains a button
+    that plays from there, and the playing step is highlighted. Without its
+    media (a build that did not render it) a placeholder says so. -#}
+{%- if not alt %}{{ throw(message="video " ~ id ~ " needs alt text") }}{% endif -%}
+{%- set base = get_url(path="media/" ~ id) -%}
+{%- set meta = get_image_metadata(path="media/" ~ id ~ ".webp", allow_missing=true) -%}
+<figure class="walk"{% if meta %} data-walk{% endif %}>
+  <div class="walk-frame">
+    {%- if meta %}
+    <video controls playsinline preload="none" poster="{{ base }}.webp" src="{{ base }}.mp4" width="{{ meta.width }}" height="{{ meta.height }}" aria-label="{{ alt }}">
+      <track kind="captions" srclang="en" label="English" src="{{ base }}.captions.vtt" default>
+      <track kind="chapters" srclang="en" src="{{ base }}.chapters.vtt">
+    </video>
+    {%- else %}{% set kind = "walkthrough" %}{% include "partials/missing.html" %}{% endif %}
+  </div>
+  {%- if caption | default(value="") %}<figcaption>{{ caption }}</figcaption>{% endif %}
+</figure>

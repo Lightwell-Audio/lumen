@@ -1,0 +1,66 @@
+# The sidebar (USER_DOCS.md §3.1). An item with `page` links to it; an item
+# without one is planned and drawn as such until its page exists.
+
+[[group]]
+title = "Quick start"
+area = "transport"
+items = [
+  { title = "Install and first launch" },
+  { title = "Your first song in 15 minutes" },
+  { title = "The window at a glance" },
+]
+
+[[group]]
+title = "Guides"
+area = "edit"
+items = [
+  { title = "Transport and timing" },
+  { title = "Tracks" },
+  { title = "Clips and selection" },
+  { title = "Editing", children = [
+    { title = "Split a clip", page = "guides/editing/split-a-clip.md" },
+    { title = "Join clips" },
+    { title = "Duplicate and repeat" },
+    { title = "Delete and insert time" },
+    { title = "Crossfades" },
+  ] },
+  { title = "Recording audio" },
+  { title = "MIDI and the piano roll" },
+  { title = "Automation and envelopes" },
+  { title = "Mixer and routing" },
+  { title = "Plugins and devices" },
+  { title = "Browser and media" },
+  { title = "Projects and saving" },
+  { title = "Rendering and export" },
+  { title = "Audio and MIDI setup" },
+  { title = "Preferences" },
+]
+
+[[group]]
+title = "Recipes"
+area = "clip"
+items = [
+  { title = "Record a vocal with punch-in" },
+  { title = "Duck the bass under the kick" },
+  { title = "Export stems for a mix" },
+]
+
+[[group]]
+title = "Reference"
+area = "view"
+items = [
+  { title = "Commands and shortcuts", page = "reference/commands.md" },
+  { title = "Preferences", page = "reference/preferences.md" },
+  { title = "Transport bar and menus", page = "reference/bar-and-menus.md" },
+  { title = "Mouse and gestures" },
+  { title = "Interface map" },
+]
+
+[[group]]
+title = "More"
+area = "file"
+items = [
+  { title = "Concepts" },
+  { title = "Troubleshooting" },
+  { title = "What's new" },
+]

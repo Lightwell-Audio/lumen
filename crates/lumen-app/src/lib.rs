@@ -357,8 +357,8 @@ pub struct App {
     /// Clipboard chords egui-winit turned into events, being put back as
     /// keys (`app/clipboard_keys.rs`).
     clipboard_keys: app::clipboard_keys::Pending,
-    /// When the meters last moved on (M4 slice 5).
-    meters_at: Option<Instant>,
+    /// When the meters last moved on (M4 slice 5), in egui's input time.
+    meters_at: Option<f64>,
     /// What the engine knows of the tracks' audio inputs (M9 slice R1).
     inputs: app::audio_inputs::InputSync,
     /// How the transport's mark was last lit (ADR-0043).
@@ -665,7 +665,7 @@ impl eframe::App for App {
             &inputs,
         );
         self.sync_document(&ctx);
-        let meters_moving = self.update_meters();
+        let meters_moving = self.update_meters(&ctx);
         let inputs_watched = self.update_inputs(&ctx);
         self.update_outputs(&ctx);
         self.transport.clip_memory = self.lanes.library.memory();

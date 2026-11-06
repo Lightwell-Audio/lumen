@@ -492,13 +492,40 @@ per slice and move what is no longer current out of it.
   **Next (owner, 2026-11-03):** a mini milestone, 9.5, before M8: audio clip
   warping and a fleshed-out audio clip detail panel (M7's planned E7 and E8).
   It is planned and pitched first.
+- **Branch `docs/documentation-strategy`: the user documentation strategy**
+  (ADR-0119, `docs/USER_DOCS.md`; owner asked 2026-11-05). Docs on the
+  website at `/docs/`: Quick start, Guides, Recipes, a reference generated
+  from `commands::ALL` and `preferences::ROWS`, screenshots rendered by the
+  headless harness, a coverage test with a shrinking baseline, docs per slice
+  and per milestone, later per version. Owner: every choice A (Zola),
+  "show, don't tell" (lead clips, gesture clips, walkthrough videos, §6),
+  and inviting, fun docs matching the landing page and tokens (§9).
+- **Branch `docs/d0-foundations` (from the strategy branch): D0 is built**
+  (report: USER_DOCS.md §11). The Zola site is `site/docs/` (README
+  there; `build.sh`), in the Playbook look. Its media is rendered from the
+  real app by `tests/docs_media/` (ignored; with `DOCS_MEDIA` it renders
+  and encodes, needing a GPU and ffmpeg; without it each scene only
+  checks). `tests/shared/scenes.rs` lists what each scene writes. Media is
+  not committed: `pages.yml` renders it at each deploy, and `docs.yml`
+  checks pull requests. During a take the test device runs a video frame's
+  time per frame, so a second run makes the same frames: anything drawn
+  from the wall clock in the arrangement breaks that (the meters now use
+  egui's input time). Headless Chromium has no H.264, so screenshots of
+  the site show a frame of each clip. Render time: owner chose A
+  (2026-11-05); a deploy renders only scenes whose fingerprint
+  (`plan_the_render` in `tests/docs_coverage.rs`) differs from the
+  published `docs/media/manifest.json` and fetches the rest; "Run
+  workflow" renders all in parallel jobs (USER_DOCS.md §13). Checked on
+  Windows; meter E2E reads levels on a fresh frame (`listen`). The landing
+  page's menu links to Docs. Waiting for the owner: the look at the built
+  pages (PR's `docs-site` artifact).
 - **M9.5 (audio clip editing and warp)**, planned on `m9.5-plan`
   (`docs/milestones/M9.5.md`; the owner chose every recommendation, BS B,
-  TL C, KC C on 2026-11-04). **S0** (`m9.5-s0-stretch-trial`, ADR-0119): the
+  TL C, KC C on 2026-11-04). **S0** (`m9.5-s0-stretch-trial`, ADR-0120): the
   owner works on a VM, so the test audio was fetched (CC0/public domain);
   `tools/stretch-trial` is its own workspace; the blind pack is the page
   "Lumen Stretch Trial". T waits for the owner's ear (recommendation C).
-  **S1** (`m9.5-s1-editor-canvas`, cut from S0, ADR-0120): the clip editors'
+  **S1** (`m9.5-s1-editor-canvas`, cut from S0, ADR-0121): the clip editors'
   shared header (`app/clip_header.rs`: a new header part goes there, for
   both editors) and the audio editor's canvas (`audio_editor/`,
   `app/audio_editor.rs`). MT-CLIP-1 waits. Next: S2 (handles).
@@ -516,7 +543,8 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status and the milestone reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0118 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0121 and the table of owner decisions.
+- `docs/USER_DOCS.md`: the user documentation strategy (accepted, ADR-0119).
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
 - `docs/KNOWN_ISSUES.md`, `docs/ARCHITECTURE.md` (crates, threads, module

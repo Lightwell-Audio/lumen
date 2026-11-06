@@ -1,0 +1,32 @@
+{#- The sidebar from data/nav.toml. A planned item (no page yet) is drawn
+    quietly and is not a link. -#}
+{%- set nav = load_data(path="data/nav.toml") -%}
+{%- if page -%}{%- set here = page.relative_path -%}{%- else -%}{%- set here = "" -%}{%- endif -%}
+
+<div class="nav-search">
+  <button type="button" class="nav-search-btn" data-search-open>Search or press <span class="keys"><kbd class="k-win">Ctrl</kbd><kbd class="k-mac">Cmd</kbd><kbd>K</kbd></span></button>
+  <div class="seg" role="group" aria-label="Keyboard shortcuts for">
+    <button type="button" data-platform-set="win">Windows</button>
+    <button type="button" data-platform-set="mac">macOS</button>
+  </div>
+  <a class="nav-home" href="{{ config.base_url }}/../">{{ config.extra.product }} home</a>
+</div>
+{%- for group in nav.group %}
+<section class="nav-group" style="--area:var(--area-{{ group.area }})">
+  <h2 class="nav-title"><span class="nav-dot" aria-hidden="true"></span>{{ group.title }}</h2>
+  <ul>
+  {%- for it in group.items %}
+    <li>
+    {%- if it.children %}
+      <details open>
+        <summary class="nav-item">{{ it.title }}</summary>
+        <ul>{% for child in it.children %}<li>{%- if child.page %}<a class="nav-item{% if child.page == here %} is-here{% endif %}" href="{{ get_url(path='@/' ~ child.page) }}"{% if child.page == here %} aria-current="page"{% endif %}>{{ child.title }}</a>{%- else %}<span class="nav-item is-planned" title="Coming soon">{{ child.title }}</span>{%- endif %}</li>{% endfor %}</ul>
+      </details>
+    {%- else -%}
+      {%- if it.page %}<a class="nav-item{% if it.page == here %} is-here{% endif %}" href="{{ get_url(path='@/' ~ it.page) }}"{% if it.page == here %} aria-current="page"{% endif %}>{{ it.title }}</a>{%- else %}<span class="nav-item is-planned" title="Coming soon">{{ it.title }}</span>{%- endif %}
+    {%- endif -%}
+    </li>
+  {%- endfor %}
+  </ul>
+</section>
+{%- endfor %}

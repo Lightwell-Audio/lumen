@@ -3,7 +3,7 @@
 A bench program for choice T in `docs/milestones/M9.5.md`: which time-stretch
 library Lumen uses. It is never shipped. It is its own Cargo workspace, so the
 candidates (one GPL, one MPL) never enter Lumen's `Cargo.lock` or the
-`cargo-deny` check. The reasoning and the results are ADR-0119.
+`cargo-deny` check. The reasoning and the results are ADR-0120.
 
 **Listen before you look.** `src/main.rs` (`letter`) and `results/results.json`
 say which candidate each letter is.

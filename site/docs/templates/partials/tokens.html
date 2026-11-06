@@ -1,0 +1,23 @@
+{#- The design system's tokens as CSS custom properties, read from
+    docs/design-system/lumen-tokens.json (copied to data/tokens.json by
+    build.sh, as Zola reads only inside its folder) at build time (USER_DOCS.md §9.1),
+    so a token changed for the app changes the docs on the next build.
+    Dark is the default; light follows the reader's system or the switch. -#}
+{%- set t = load_data(path="data/tokens.json") -%}
+{%- set families = t.type.families -%}
+<style>
+:root{
+{%- for c in t.color.tokens %}--{{ c.name | replace(from="_", to="-") }}:{{ c.value.dark }};{% endfor %}
+{%- for s in t.spacing.tokens %}--{{ s.name | replace(from="_", to="-") }}:{{ s.value }};{% endfor %}
+{%- for r in t.radius.tokens %}--{{ r.name | replace(from="_", to="-") }}:{{ r.value }};{% endfor %}
+{%- for d in t.duration.tokens %}--{{ d.name | replace(from="_", to="-") }}:{{ d.value }};{% endfor %}
+{%- for s in t.stroke.tokens %}--{{ s.name | replace(from="_", to="-") }}:{{ s.value }};{% endfor %}
+--font-sans:{{ families.sans | safe }};--font-display:{{ families.display | safe }};--font-mono:{{ families.mono | safe }};
+color-scheme:dark}
+:root[data-theme="light"]{
+{%- for c in t.color.tokens %}--{{ c.name | replace(from="_", to="-") }}:{{ c.value.light }};{% endfor %}
+color-scheme:light}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){
+{%- for c in t.color.tokens %}--{{ c.name | replace(from="_", to="-") }}:{{ c.value.light }};{% endfor %}
+color-scheme:light}}
+</style>

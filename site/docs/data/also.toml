@@ -1,0 +1,32 @@
+# The reader's words for a command whose name in Lumen differs
+# (docs/USER_DOCS.md §7.2): shown as "Also called" on its entry in the
+# command reference and searched with it. Keys are command ids; the
+# docs_coverage test checks each one exists. Plain words only: no other
+# product's name.
+"midi.split_notes" = ["cut", "razor", "slice", "chop"]
+"midi.glue_notes" = ["glue", "merge", "combine"]
+"clip.consolidate" = ["consolidate", "render to one file", "merge into audio"]
+"clip.bounce" = ["render in place", "print"]
+"clip.unloop" = ["loop to copies", "make loops real"]
+"clip.crossfade" = ["x-fade", "blend"]
+"clip.polarity" = ["phase invert", "flip phase"]
+"edit.delete_time" = ["ripple delete", "remove time"]
+"edit.insert_time" = ["insert silence", "add bars"]
+"edit.crop" = ["trim to selection"]
+"edit.undo" = ["take back"]
+"track.group" = ["folder", "bus", "submix"]
+"track.flatten" = ["commit", "render track"]
+"view.palette" = ["search commands", "quick actions"]
+"view.fit_width" = ["zoom to fit", "zoom all"]
+"view.detail_panel" = ["editor panel", "bottom panel"]
+"transport.panic" = ["all notes off", "stuck notes"]
+"transport.go_to_start" = ["return to zero", "home"]
+"transport.overdub" = ["merge recording"]
+"transport.capture_midi" = ["retrospective record", "record what I played"]
+"locators.set" = ["marker", "add marker"]
+"locators.previous" = ["previous marker"]
+"locators.next" = ["next marker"]
+"mixer.cue_mode" = ["pre-listen", "headphone cue"]
+"devices.bypass" = ["disable effect", "turn off device"]
+"file.media_pool" = ["media pool", "used files"]
+"file.collect_and_save" = ["gather media", "archive project"]

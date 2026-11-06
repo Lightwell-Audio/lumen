@@ -1,0 +1,10 @@
+{#- The reference's filter, shared by Commands and Preferences: set `total`,
+    `noun` (plural) and `example` before including it. Rows carry their
+    words in `data-ref-name`, `-also`, `-keys` and `-about`, and each group
+    its name in `data-ref-area`; docs.js shows the rows that hold every
+    typed word, best match first (a name before a description). -#}
+<div class="ref-filter" data-pagefind-ignore>
+  <label for="ref-filter">Filter</label>
+  <input id="ref-filter" type="search" placeholder="Type a name or a word: {{ example }}" autocomplete="off" data-ref-filter>
+  <p class="ref-count" data-ref-count data-total="{{ total }}" data-noun="{{ noun }}" aria-live="polite">{{ total }} {{ noun }}</p>
+</div>

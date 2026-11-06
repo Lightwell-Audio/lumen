@@ -298,7 +298,7 @@ fn rubberband(
     // src/lib.rs), so one allocation per counted call is the wrapper's, not
     // the library's, and is taken off. Lumen would call `rubberband-sys`
     // directly. A library that allocated once per call itself would be
-    // hidden by this; that is the method's limit, stated in ADR-0119.
+    // hidden by this; that is the method's limit, stated in ADR-0120.
     let mut wrapper_calls = 0u64;
     let mut drain =
         |s: &mut Stretcher, l: &mut Vec<f32>, r: &mut Vec<f32>, counting: bool, calls: &mut u64| {

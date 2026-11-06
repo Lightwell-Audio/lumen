@@ -93,9 +93,15 @@ impl Chord {
 
     /// "Ctrl+Shift+Z".
     pub(crate) fn text(self) -> String {
-        let mut parts = self.modifier_names();
-        parts.push(self.key_name());
-        parts.join("+")
+        self.caps_on(cfg!(target_os = "macos")).join("+")
+    }
+
+    /// The keycaps of the chord on macOS (`mac`) or on Windows and Linux:
+    /// ["Ctrl", "Shift", "Z"].
+    pub(crate) fn caps_on(self, mac: bool) -> Vec<&'static str> {
+        let mut caps = modifier_names_on(mac, self.ctrl, self.shift, self.alt);
+        caps.push(self.key_name());
+        caps
     }
 
     /// Whether a focused control uses this chord itself: Space and Enter
@@ -328,7 +334,17 @@ impl Keymap {
 /// Modifiers as they are written: "Ctrl", "Shift", "Alt" (Cmd and Option
 /// on macOS), in that order.
 pub(crate) fn modifier_names(ctrl: bool, shift: bool, alt: bool) -> Vec<&'static str> {
-    let mac = cfg!(target_os = "macos");
+    modifier_names_on(cfg!(target_os = "macos"), ctrl, shift, alt)
+}
+
+/// Modifiers as they are written on Windows and Linux (`mac` false) or on
+/// macOS: the user docs show both.
+pub(crate) fn modifier_names_on(
+    mac: bool,
+    ctrl: bool,
+    shift: bool,
+    alt: bool,
+) -> Vec<&'static str> {
     let mut names = Vec::new();
     if ctrl {
         names.push(if mac { "Cmd" } else { "Ctrl" });

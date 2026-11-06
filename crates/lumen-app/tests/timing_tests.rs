@@ -21,6 +21,11 @@ use std::path::{Path, PathBuf};
 
 /// Files that read the clock and are not on the timing list (see above).
 const KNOWN: &[&str] = &[
+    // The docs' scenes (ignored): `main.rs` prints how long a scene took and
+    // asserts nothing on it; `recorder.rs` bounds its waits for the engine
+    // with deadlines of 20 s. The frames themselves run on the video's clock.
+    "crates/lumen-app/tests/docs_media/main.rs",
+    "crates/lumen-app/tests/docs_media/recorder.rs",
     "crates/lumen-app/tests/e2e/clips.rs",
     "crates/lumen-app/tests/e2e/cue.rs",
     "crates/lumen-app/tests/e2e/dropdown.rs",

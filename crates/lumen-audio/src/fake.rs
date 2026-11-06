@@ -54,6 +54,10 @@ pub struct FakeDevice {
     /// block however long it took, which a busy machine turns into a device
     /// that runs slow and falls ever further behind the wall clock.
     pub pace: Option<Pace>,
+    /// Run at most this many more blocks, then none until it is raised:
+    /// a test that steps the engine by its own clock (the docs' recorder
+    /// grants each video frame its time's worth). `None` runs freely.
+    pub allowance: Option<u64>,
     /// A cable from an output to an input (M9 slice R2b): what the output
     /// played comes back on the input `delay` frames later, times `gain`,
     /// in place of `input_levels`. Delays shorter than a block read as
@@ -123,6 +127,7 @@ impl FakeDevice {
             input_levels: Vec::new(),
             input_ramp: false,
             pace: None,
+            allowance: None,
             cable: None,
             refuse_open: false,
             open_delay: Duration::ZERO,
@@ -357,7 +362,11 @@ impl Stream for FakeStream {
         if reset || !present {
             return Some(StreamEvent::ResetRequested);
         }
-        let blocks = pace.map_or(1, |pace| self.owed(pace));
+        let mut blocks = pace.map_or(1, |pace| self.owed(pace));
+        if let Some(left) = &mut self.control.0.lock().expect("fake device lock").allowance {
+            blocks = blocks.min(*left);
+            *left -= blocks;
+        }
         // Held out while it runs, so the cable can use the stream meanwhile.
         if let Some(mut callback) = self.callback.take() {
             for n in 0..blocks {

@@ -1,0 +1,16 @@
+{#- {% tryit(answer="clip-id", answer_alt="…") %}…{% end %}: a small challenge
+    in the demo song, with the answer as a clip behind "Show me" (USER_DOCS.md §9.3). -#}
+<section class="tryit" aria-labelledby="tryit-title">
+  <div class="tryit-head">
+    <img class="lumi" src="{{ get_url(path='img/lumi-curious.webp') }}" alt="" width="64" height="64" loading="lazy">
+    <h2 id="tryit-title" class="tryit-title">Try it</h2>
+  </div>
+  <div class="tryit-body">{{ body | markdown | safe }}</div>
+  {%- if answer %}
+  <details class="tryit-answer">
+    <summary>Show me</summary>
+    {%- set id = answer %}{% set alt = answer_alt %}{% set caption = "" %}{% set lead = false %}{% set focus = answer_focus | default(value="50%") %}
+    {% include "partials/clip.html" %}
+  </details>
+  {%- endif %}
+</section>

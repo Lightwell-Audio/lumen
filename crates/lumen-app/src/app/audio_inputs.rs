@@ -3,8 +3,6 @@
 //! changed, the input meters move on, and the project learns how many inputs
 //! the device has open (so arming a track can pick a free one).
 
-use std::time::Instant;
-
 use eframe::egui;
 
 use crate::App;
@@ -20,8 +18,8 @@ pub(crate) const WATCH_EVERY: std::time::Duration = std::time::Duration::from_mi
 pub(crate) struct InputSync {
     /// The project state and open inputs the routes were built from.
     sent: Option<(u64, Vec<usize>)>,
-    /// When the input meters were last moved on.
-    meters_at: Option<Instant>,
+    /// When the input meters were last moved on, in egui's input time.
+    meters_at: Option<f64>,
 }
 
 impl App {
@@ -43,12 +41,7 @@ impl App {
 
         let open = self.transport.audio.open_inputs();
         self.lend_input_choices(ctx, &open);
-        let now = Instant::now();
-        let dt = self
-            .inputs
-            .meters_at
-            .map_or(0.0, |at| now.duration_since(at).as_secs_f32());
-        self.inputs.meters_at = Some(now);
+        let dt = super::mixer::meter_step(&mut self.inputs.meters_at, ctx);
         let running = matches!(
             self.transport.audio.status,
             crate::audio::Status::Running { .. }

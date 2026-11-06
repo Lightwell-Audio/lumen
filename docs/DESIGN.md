@@ -871,7 +871,7 @@ onto an empty page.
   already selected; a selection made another way (the arrow keys, a range)
   moves the subject and leaves Clip open.
 - **Mixer** sits at the right after a hairline (`TabsLayout::right_from`).
-- **An audio clip's Clip tab** (M9.5 S1, ADR-0120): its properties (the
+- **An audio clip's Clip tab** (M9.5 S1, ADR-0121): its properties (the
   clip card's rows, `docked_clip_props`) in a 296 pt column on `app` with a
   hairline at its right, scrolling when short, until S3 moves them into the
   strip (the owner's L B); beside them the audio editor:
