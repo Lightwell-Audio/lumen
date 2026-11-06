@@ -250,8 +250,63 @@ pub fn remove_names(names: &Names) {
     }
 }
 
-/// Unix has no per-thread class like Windows' audio scheduling; a real-time
-/// scheduling request needs privileges Lumen does not assume.
+/// Linux has no per-thread class like Windows' audio scheduling; a real-time
+/// scheduling request (`SCHED_FIFO`) needs privileges Lumen does not assume.
+#[cfg(not(target_os = "macos"))]
 pub fn audio_thread_priority() -> bool {
     false
+}
+
+/// macOS gives any thread a time-constraint (real-time) policy without
+/// privileges, as Core Audio's own threads have. Without it a host's block
+/// thread is an ordinary thread of a background process, which the system
+/// may leave waiting past the callback's deadline (KNOWN_ISSUES: late blocks
+/// on the macOS runner). The period is the most the engine hands a plugin at
+/// once, 256 frames at 48 kHz; half of it is asked for the work, and the work
+/// must be done within the period.
+#[cfg(target_os = "macos")]
+pub fn audio_thread_priority() -> bool {
+    const PERIOD_NS: u64 = 256 * 1_000_000_000 / 48_000;
+    let mut timebase = Timebase { numer: 0, denom: 0 };
+    // SAFETY: a valid out pointer.
+    if unsafe { mach_timebase_info(&mut timebase) } != 0 || timebase.numer == 0 {
+        return false;
+    }
+    let ticks = |ns: u64| {
+        u32::try_from(ns * u64::from(timebase.denom) / u64::from(timebase.numer))
+            .unwrap_or(u32::MAX)
+    };
+    let mut policy = libc::thread_time_constraint_policy {
+        period: ticks(PERIOD_NS),
+        computation: ticks(PERIOD_NS / 2),
+        constraint: ticks(PERIOD_NS),
+        preemptible: 1,
+    };
+    // SAFETY: this thread's own Mach port, and a policy of the flavor and
+    // size named.
+    let result = unsafe {
+        let thread = libc::pthread_mach_thread_np(libc::pthread_self());
+        libc::thread_policy_set(
+            thread,
+            libc::THREAD_TIME_CONSTRAINT_POLICY as libc::thread_policy_flavor_t,
+            (&raw mut policy).cast::<libc::integer_t>(),
+            libc::THREAD_TIME_CONSTRAINT_POLICY_COUNT,
+        )
+    };
+    result == libc::KERN_SUCCESS
+}
+
+/// The ratio of Mach absolute time to nanoseconds. Declared here because
+/// `libc` deprecates its copy in favour of a crate this one call does not
+/// warrant; the function is part of libSystem and stable.
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct Timebase {
+    numer: u32,
+    denom: u32,
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn mach_timebase_info(info: *mut Timebase) -> libc::c_int;
 }
