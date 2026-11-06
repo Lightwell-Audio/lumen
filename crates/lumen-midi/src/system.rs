@@ -608,8 +608,11 @@ mod tests {
         assert_eq!(fake.opens(Direction::Input, "Busy"), 0, "no retry loop");
         fake.refuse(Direction::Input, "Busy", false);
         midi.set_use(input("Busy"), ON);
-        until("open", || fake.open_inputs() == 1);
-        assert!(midi.ports()[0].error.is_none());
+        // The fake opens the port first; the worker clears the error after:
+        // a slow machine can be read between the two.
+        until("open, the error cleared", || {
+            fake.open_inputs() == 1 && midi.ports()[0].error.is_none()
+        });
     }
 
     #[test]
