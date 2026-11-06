@@ -183,6 +183,23 @@ fn a_plugin_that_crashes_mid_render_ends_it_with_a_result() {
 }
 
 #[test]
+fn a_plugin_that_crashes_is_not_waited_for_until_the_end_of_a_long_wait() {
+    // A wait of minutes per block (as an offline render's, or a test
+    // device's, ADR-0122): the block the host died on ends when the host
+    // is seen gone, not when the wait runs out.
+    let wait = Duration::from_secs(120);
+    let waited = std::time::Instant::now();
+    let r = run("process_crash@30", Some(wait), 256, 48_000);
+    assert!(r.failed || r.late > 0, "the failure is seen");
+    assert!(r.blocks < 48_000 / 256, "the render stopped at it");
+    assert!(
+        waited.elapsed() < wait / 2,
+        "the dead host's block ended early: {:?}",
+        waited.elapsed()
+    );
+}
+
+#[test]
 fn a_plugin_that_hangs_ends_the_render_after_one_wait() {
     let waited = std::time::Instant::now();
     let r = run(

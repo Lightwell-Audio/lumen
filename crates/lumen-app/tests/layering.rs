@@ -11,7 +11,8 @@ use std::fs;
 use std::path::Path;
 
 /// Each crate and the Lumen crates it may depend on. `*` is any crate but
-/// the tools and test fixtures (`lumen-perf`, `lumen-test-plugin`).
+/// the tools and test fixtures (`lumen-perf`, `lumen-test-plugin`,
+/// `lumen-testkit`).
 const ALLOWED: &[(&str, &[&str])] = &[
     // The bottom: nothing of Lumen's.
     ("lumen-core", &[]),
@@ -25,6 +26,8 @@ const ALLOWED: &[(&str, &[&str])] = &[
     ("lumen-render", &["lumen-shader-check"]),
     ("lumen-shader-check", &[]),
     ("lumen-test-plugin", &[]),
+    // Test support (waits), for dev-dependencies only.
+    ("lumen-testkit", &[]),
     // On the core.
     ("lumen-devices", &["lumen-core"]),
     ("lumen-project", &["lumen-core"]),
@@ -106,7 +109,9 @@ fn the_crates_depend_on_each_other_one_way() {
         };
         for dependency in lumen_dependencies(&manifest) {
             let ok = if allowed == &["*"] {
-                dependency != "lumen-perf" && dependency != "lumen-test-plugin"
+                dependency != "lumen-perf"
+                    && dependency != "lumen-test-plugin"
+                    && dependency != "lumen-testkit"
             } else {
                 allowed.contains(&dependency.as_str())
             };

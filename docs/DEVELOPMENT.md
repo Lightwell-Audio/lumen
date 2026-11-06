@@ -289,7 +289,7 @@ Run both **at the end of every slice**, and add scenarios for the
 workflows the slice delivers.
 
 ```powershell
-cargo test -p lumen-app --test e2e                            # the E2E suite (6 to 8 minutes on four cores; CI splits it in two, see "How CI splits the tests")
+cargo test -p lumen-app --test e2e                            # the E2E suite (6 to 8 minutes on four cores; CI splits it in two, see "How CI runs the tests")
 cargo test -p lumen-app --test smoke -- --ignored             # the real binary, with its window and GPU
 ```
 
@@ -297,24 +297,33 @@ cargo test -p lumen-app --test smoke -- --ignored             # the real binary,
   with egui's test harness, without a window, and drives it by accessible
   names, keys and dropped files. Use the `Lumen` helper: `start`, `click`,
   `key`, `drop_files`, `wait_for`, `shows`, `is_on`. Wait on state (a
-  position, a flag), never on time; `wait_for` gives up after 30 s and
-  says what it waited for. A control a test needs must have an accessible
-  name (CLAUDE.md §5, item 10).
+  position, a flag), never on time; `wait_for` and `run_until` give up
+  after the patience (below) and say what they waited for. A control a
+  test needs must have an accessible name (CLAUDE.md §5, item 10).
 - **Listening:** the test device keeps what it plays. `app.heard()`
   returns the frames played since the last call (the fake device runs at
   about a quarter of real time), so a scenario can check for clicks, as
   `dragging_a_playing_clip_does_not_click` does. To hear a level, use
   `lumen.listen(settle, frames)`: it waits for the frames, not for a
   time (a busy CI machine played 768 frames in 150 ms).
-- **Timing-proof tests** (macOS CI flaked on all of these; they were
-  found by running the suite beside 16 busy loops, which a shared runner
-  resembles):
+- **Timing-proof tests** (ADR-0122; macOS CI flaked on all of these, and
+  they were found by running the suite beside 16 busy loops, which a shared
+  runner resembles):
+  - **Assert what the code decides, never how fast the machine is.** The
+    test devices wait for plugin hosts as an offline render does, so a
+    block is never played dry in a test because the machine was busy. A
+    test whose claim is about time (a deadline kept) goes on
+    `.github/timing-tests.txt`, which CI runs without gating.
+  - **Wait with `lumen_testkit`** (`wait_until`, `wait_for`, `Deadline`), or
+    in the E2E with `run_until` and `wait_for`. Their only bound is the
+    patience, a hang guard: 60 s, or `LUMEN_TEST_PATIENCE` seconds (CI sets
+    180). A counted poll (`for _ in 0..200 { ...; sleep(5 ms) }` that leaves
+    when done) fails `timing_tests.rs`'s lint, with the file and line.
   - Never wait a fixed time for something another thread does, and never
     stop a test on a file that only partly shows the state it needs. Wait
     until the state itself holds (`wait_for`, `wait_for_row`, the autosave
     that names both tracks, the settings whose `recents` list has the
-    device). A wall-clock bound is only for "ends at all", so keep it
-    several times past what is asked for.
+    device).
   - macOS checks every new executable file the first time it is loaded,
     one file after another at about 0.1 s each (a copy or hard link is a new
     file; a symlink is not, but module discovery then sees one file). Tests
@@ -356,17 +365,36 @@ cargo test -p lumen-app --test smoke -- --ignored             # the real binary,
   `$env:SHOTS = "<folder>"; cargo test -p lumen-app --test shots -- --ignored --test-threads=1`
   (one at a time: the theme is process-wide, so parallel shots mix themes)
 
-## How CI splits the tests (ADR-0111)
+## How CI runs the tests (ADR-0111, ADR-0122)
 
 Each OS runs a `clippy` job and three `test` jobs side by side: `rest` (every
-test target but the E2E suite, doc tests and, on Windows, the scanner
-self-test) and `e2e-1`, `e2e-2` (half of the E2E suite each). The runner is
-`.github/scripts/ci-test.sh`; run `bash .github/scripts/ci-test.sh e2e-1`
-to reproduce one shard. The E2E suite is dealt out by module, never one
-process per scenario, because its scenarios share in-process locks. A new
-module needs no edit: the shards read the same list. The plugin routing
-walkthrough runs after the scenarios of shard 1. To change the number of
-shards, change `E2E_SHARDS` and the `part` list in `ci.yml` together.
+test target but the E2E suite and the real-time tests, the doc tests, each
+benchmark once and, on Windows, the scanner self-test) and `e2e-1`, `e2e-2`
+(half of the E2E suite each, dealt by count). The runner is
+`.github/scripts/ci-test.sh`; it needs cargo-nextest
+(`cargo install cargo-nextest --locked`). Run
+`bash .github/scripts/ci-test.sh e2e-1` to reproduce one shard, or one
+target as CI does: `cargo nextest run --profile ci -p lumen-app --test e2e`.
+
+- **Every test runs in a process of its own** (nextest), so no test shares
+  statics, locks or a process's load with another.
+- **Retries name flakes, they do not hide them** (`.config/nextest.toml`):
+  a test that passes on a retry prints FLAKY and becomes a warning on the
+  run; three failures fail the job. A hung attempt ends after 8 minutes.
+- **The real-time tests** (`.github/timing-tests.txt`) run after the gate
+  in `rest`, alone, with `ci-test.sh timing`; a failure is a warning, not a
+  red job. Locally they are ordinary tests.
+- **The test plugin and host are built once** by the script;
+  `LUMEN_TEST_PLUGINS_BUILT=1` tells the tests' `built()` helpers not to run
+  cargo again. Set it by hand only after building them yourself.
+- **Setup is retried, tests are not rerun:** network steps go through
+  `.github/scripts/retry.sh`, and `rerun.yml` reruns a run's failed jobs
+  once when they failed only for want of a runner or in a setup step
+  (`.github/scripts/rerun-infra.sh --classify <jobs.json>` shows its verdict
+  on the API's jobs list).
+
+To change the number of shards, change `E2E_SHARDS` and the `part` list in
+`ci.yml` together.
 
 ## Test flags for files and recovery (M3 slice 3)
 

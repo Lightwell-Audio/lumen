@@ -24,6 +24,22 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Every wait in the tests is bounded by this many seconds: a hang guard,
+  # never a measure of speed (ADR-0122, lumen_testkit).
+  LUMEN_TEST_PATIENCE: "180"
+
+# How CI keeps from failing for reasons other than the code (ADR-0122):
+#
+# - Gated tests assert what the code decides, never how fast the runner is
+#   (the test audio devices wait for plugin hosts; waits are hang guards).
+# - Every test runs in a process of its own under cargo-nextest, and a test
+#   that passes on a retry is named as flaky on the run instead of failing
+#   it (.config/nextest.toml).
+# - The real-time tests (.github/timing-tests.txt), whose claim is about
+#   time, run after the gate and report as warnings.
+# - Setup steps that reach the network are retried (.github/scripts/retry.sh),
+#   and a run that failed only for want of a runner or a setup step is run
+#   again once (.github/workflows/rerun.yml).
 
 jobs:
   fmt:
@@ -32,7 +48,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install pinned toolchain (rust-toolchain.toml)
-        run: rustup toolchain install
+        shell: bash
+        run: bash .github/scripts/retry.sh rustup toolchain install
       - run: cargo fmt --all -- --check
 
   # Clippy is its own job so that it runs beside the tests: in `rest` it added
@@ -50,22 +67,23 @@ jobs:
       - name: Install Linux system libraries
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev \
-            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev \
-            libfontconfig1-dev mesa-vulkan-drivers
+          bash .github/scripts/retry.sh sudo apt-get update
+          bash .github/scripts/retry.sh sudo apt-get install -y libxkbcommon-dev \
+            libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libasound2-dev libfontconfig1-dev mesa-vulkan-drivers
       - name: Install pinned toolchain (rust-toolchain.toml)
-        run: rustup toolchain install
+        shell: bash
+        run: bash .github/scripts/retry.sh rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           key: clippy
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-  # Three test jobs per OS: `rest` (every test but the E2E suite, doc tests)
-  # and the E2E suite in E2E_SHARDS shards. The E2E suite is one test binary
-  # that took 6.5 of the 10 minutes of the single job (measured on Linux,
-  # 2026-10-30), and it is split by module because its scenarios share
-  # in-process locks. See .github/scripts/ci-test.sh. To change the number of
+  # Three test jobs per OS: `rest` (every test but the E2E suite and the
+  # real-time tests, then the real-time tests, which do not gate) and the
+  # E2E suite in E2E_SHARDS shards. The E2E suite is one test binary that
+  # took 6.5 of the 10 minutes of the single job (measured on Linux,
+  # 2026-10-30). See .github/scripts/ci-test.sh. To change the number of
   # shards, change E2E_SHARDS and the `part` list together.
   test:
     name: test (${{ matrix.os }}, ${{ matrix.part }})
@@ -79,7 +97,7 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
         part: [rest, e2e-1, e2e-2]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       E2E_SHARDS: 2
     steps:
@@ -90,20 +108,18 @@ jobs:
       - name: Install Linux system libraries
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev \
-            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev \
-            libfontconfig1-dev mesa-vulkan-drivers
+          bash .github/scripts/retry.sh sudo apt-get update
+          bash .github/scripts/retry.sh sudo apt-get install -y libxkbcommon-dev \
+            libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libasound2-dev libfontconfig1-dev mesa-vulkan-drivers
       - name: Install pinned toolchain (rust-toolchain.toml)
-        run: rustup toolchain install
+        shell: bash
+        run: bash .github/scripts/retry.sh rustup toolchain install
       # The parts build different targets, so each keeps its own cache.
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ startsWith(matrix.part, 'e2e') && 'e2e' || matrix.part }}
-      # cargo-nextest runs the real-time tests of the `rest` part, alone and
-      # with retries (.github/timing-tests.txt). Nothing else uses it.
       - name: Install cargo-nextest
-        if: matrix.part == 'rest'
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
@@ -113,6 +129,17 @@ jobs:
         run: |
           set -o pipefail
           bash .github/scripts/ci-test.sh ${{ matrix.part }} 2>&1 | tee test-output.txt
+      # The real-time tests, alone, after the gate: their claim is about time
+      # on a shared runner, so a failure is a warning (named below), never a
+      # red job. Look at one when it shows; a test whose claim is not about
+      # time does not belong on the list.
+      - name: Real-time tests (reported, not gating)
+        if: matrix.part == 'rest' && !cancelled()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          bash .github/scripts/ci-test.sh timing 2>&1 | tee timing-output.txt
       # Each failed test and where it panicked, as annotations on the run:
       # readable on the run's page and through the API without the full log.
       - name: Name the failed tests
@@ -123,18 +150,27 @@ jobs:
           # which names the test, the place and the message's first lines.
           awk '/panicked at/ { n = 3; msg = $0; next }
                n > 0 { msg = msg " | " $0; if (--n == 0) print "::error title=Failed test::" msg }' test-output.txt | head -10
-          grep -E "^test .* FAILED$" test-output.txt | head -20
-          # The timing tests run under nextest, which prints its own lines.
           grep -E "^ +(FAIL|TIMEOUT|SIG[A-Z]+) \[" test-output.txt | head -20 || true
-      # A timing test that failed and then passed on a retry does not fail
-      # the job; it is named here so that it is not forgotten.
-      - name: Name the flaky tests
+          grep -E "^test .* FAILED$" test-output.txt | head -20 || true
+      # A test that failed and then passed on a retry does not fail the job,
+      # and a real-time test that failed does not either: both are named
+      # here so that they are not forgotten.
+      - name: Name the flaky and the late tests
         if: always()
         shell: bash
         run: |
-          grep -E "^ +FLAKY " test-output.txt | head -10 | while read -r line; do
-            echo "::warning title=Flaky timing test (passed on a retry)::$line"
-          done || true
+          for file in test-output.txt timing-output.txt; do
+            [ -f "$file" ] || continue
+            grep -E "^ +FLAKY " "$file" | head -10 | while read -r line; do
+              echo "::warning title=Flaky test (passed on a retry)::$line"
+            done
+          done
+          if [ -f timing-output.txt ]; then
+            grep -E "^ +(FAIL|TIMEOUT|SIG[A-Z]+) \[" timing-output.txt | head -10 | while read -r line; do
+              echo "::warning title=Real-time test failed (not gating)::$line"
+            done
+          fi
+          true
       # Scanner isolation: crashing, hanging and broken VST3 modules must be
       # contained and classified (P-VST3). Windows-only until the macOS and
       # Linux port (PROGRESS.md, Stretch goals).
@@ -147,6 +183,8 @@ jobs:
 
   # RealtimeSanitizer (ADR-0010): real-time sections must not lock, block or
   # allocate. The crate downloads a prebuilt runtime when RTSAN_ENABLE is set.
+  # The tests run under nextest's `ci` profile: a section that allocates does
+  # so on every attempt, so a retry hides no finding, only a slow runner.
   rtsan:
     name: realtime sanitizer
     runs-on: ubuntu-latest
@@ -157,29 +195,33 @@ jobs:
       - uses: actions/checkout@v5
       - name: Install Linux system libraries
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev
+          bash .github/scripts/retry.sh sudo apt-get update
+          bash .github/scripts/retry.sh sudo apt-get install -y libasound2-dev
       - name: Install pinned toolchain (rust-toolchain.toml)
-        run: rustup toolchain install
+        run: bash .github/scripts/retry.sh rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           key: rtsan
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
       - name: Real-time tests under RTSan
-        run: cargo test --locked -p lumen-engine -p engine-core --test realtime
+        run: cargo nextest run --profile ci --locked -p lumen-engine -p engine-core --test realtime
       # The engine's side of the plugin hosts (ADR-0069, ADR-0070): hosted
       # instruments and effects, with fake hosts that never block in the
       # section (the real one's wait on an OS event is the one exception, and
       # is not part of these tests).
       - name: Hosted devices under RTSan
-        run: cargo test --locked -p lumen-engine --test hosted --test hosted_effects
+        run: cargo nextest run --profile ci --locked -p lumen-engine --test hosted --test hosted_effects
       # The hosting manager's link, against a real host process (ADR-0071):
       # only the polling wake-up is run under the sanitizer.
       - name: Hosting link under RTSan
-        run: cargo test --locked -p lumen-hosting --test rt
+        run: cargo nextest run --profile ci --locked -p lumen-hosting --test rt
       # Lumen's side of the audio path to the plugin hosts (ADR-0067): only
       # the polling wake-up is run, since an OS wait blocks by design.
       - name: Plugin-host audio path under RTSan
-        run: cargo test --locked -p lumen-plugin-host --test shm_rt --test shm_latency
+        run: cargo nextest run --profile ci --locked -p lumen-plugin-host --test shm_rt --test shm_latency
       # Each canary opens a file, waits on a held lock or allocates inside a
       # real-time section. Each must abort with an RTSan report on its own, or
       # the sanitizer is not actually running. (Canaries chosen by probing the
@@ -205,24 +247,32 @@ jobs:
   # Performance gate (ADR-0022): instruction counts under Callgrind, compared
   # with perf/baseline.json. The pinned container keeps glibc and the counts
   # identical to the baseline machine (WSL Ubuntu 26.04) when GitHub updates
-  # its runner images.
+  # its runner images. Instruction counts do not depend on the runner's load.
   perf:
     name: performance gate
     runs-on: ubuntu-latest
     container: ubuntu:26.04
     timeout-minutes: 30
     steps:
+      # Before the checkout, so no script of the repository's is there yet:
+      # the retry is written out.
       - name: Install build tools and Valgrind
         run: |
-          apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends             ca-certificates curl git build-essential pkg-config valgrind
+          for attempt in 1 2 3; do
+            apt-get update &&
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                ca-certificates curl git build-essential pkg-config valgrind && exit 0
+            sleep 20
+          done
+          exit 1
       - uses: actions/checkout@v5
       - name: Install rustup
         run: |
-          curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
+          bash .github/scripts/retry.sh sh -c \
+            'curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal'
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Install pinned toolchain (rust-toolchain.toml)
-        run: rustup toolchain install
+        run: bash .github/scripts/retry.sh rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           key: perf

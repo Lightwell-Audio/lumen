@@ -130,6 +130,7 @@ preserves older playback.
 | `lumen-render` | Toolkit-independent renderer: GPU-resident instanced layers (rectangles; boxes with a per-frame row table, ADR-0026; waveforms drawn per pixel from a peak atlas, ADR-0027) plus Vello; GPU pipeline cache |
 | `lumen-perf` | Performance-gate scenarios and the `perf-gate` runner |
 | `lumen-shader-check` | Build-time shader checks: build scripts validate every `.wgsl` file with naga and generate each shader's source and uniform size |
+| `lumen-testkit` | How tests wait for work on other threads (ADR-0122), with no dependencies and for dev-dependencies only: `wait_until`, `wait_for` and `Deadline` poll until the work is done, bounded only by the patience, a hang guard (60 s, or `LUMEN_TEST_PATIENCE` seconds; CI sets 180) |
 | `lumen-app` | The `lumen` application (modules below) |
 
 `lumen-app` modules:
@@ -178,7 +179,7 @@ for shutdown; the shared region's quit setter is internal.
 | `ui-stress`, `render-shell` | Reference for dense rendering in the arrangement (M3 slice 4) |
 
 ## Rules every crate follows
-- Layering: `lumen-core`, `lumen-brand` and `lumen-rt` at the bottom (nothing of Lumen's); `lumen-devices` and `lumen-project` only on `lumen-core`; `lumen-engine` only on `lumen-core`, `lumen-rt` and `lumen-devices`; `lumen-audio` only on `lumen-rt`; `lumen-media`, `lumen-midi` and `lumen-render` stand alone (`lumen-render` builds with `lumen-shader-check`); plugins: `lumen-plugin-host` only on `lumen-rt`, `lumen-plugin-catalog` only on `lumen-plugin-host`, `lumen-hosting` on `lumen-core`, `lumen-devices` and `lumen-plugin-host`; `lumen-perf` (the performance gate's tool) on core, devices, engine and project; only `lumen-app` joins them. Dev-dependencies are free. No cycles, and no UI types below the app. `crates/lumen-app/tests/layering.rs` holds this table and fails on a dependency it does not allow, or a crate it does not list (M9 review M2).
+- Layering: `lumen-core`, `lumen-brand` and `lumen-rt` at the bottom (nothing of Lumen's); `lumen-devices` and `lumen-project` only on `lumen-core`; `lumen-engine` only on `lumen-core`, `lumen-rt` and `lumen-devices`; `lumen-audio` only on `lumen-rt`; `lumen-media`, `lumen-midi` and `lumen-render` stand alone (`lumen-render` builds with `lumen-shader-check`); plugins: `lumen-plugin-host` only on `lumen-rt`, `lumen-plugin-catalog` only on `lumen-plugin-host`, `lumen-hosting` on `lumen-core`, `lumen-devices` and `lumen-plugin-host`; `lumen-perf` (the performance gate's tool) on core, devices, engine and project; only `lumen-app` joins them. `lumen-testkit` has no dependencies and is only a dev-dependency. Dev-dependencies are free. No cycles, and no UI types below the app. `crates/lumen-app/tests/layering.rs` holds this table and fails on a dependency it does not allow, or a crate it does not list (M9 review M2).
 - Audio-thread code never allocates, locks, blocks or panics. Tests enforce
   it: the allocation guard, plus RealtimeSanitizer in CI with canaries that
   prove the sanitizer is active.

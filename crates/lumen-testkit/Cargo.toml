@@ -1,0 +1,13 @@
+[package]
+name = "lumen-testkit"
+description = "How Lumen's tests wait for work on other threads: one patience, no counted polls"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

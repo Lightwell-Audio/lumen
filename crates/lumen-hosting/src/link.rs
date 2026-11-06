@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use lumen_core::midi::{Event, Kind};
 use lumen_devices::{Hosted, ParamBlock, Refused, Reply};
@@ -247,7 +247,7 @@ impl Hosted for Link {
     }
 
     fn collect(&mut self, deadline: Instant, left: &mut [f32], right: &mut [f32]) -> Reply {
-        match self.link.wait(deadline) {
+        match self.wait_while_alive(deadline) {
             Poll::Done(answer) if answer.outcome == Outcome::Done => {
                 self.copy_pair(0, left, right);
                 Reply::Ready {
@@ -290,7 +290,25 @@ impl Hosted for Link {
     }
 }
 
+/// How often a long wait for a block looks whether its host has ended.
+const ENDED_LOOK: Duration = Duration::from_millis(5);
+
 impl Link {
+    /// Waits for the block's answer until `deadline`, in steps of at most
+    /// [`ENDED_LOOK`], and stops early once the host has ended: an offline
+    /// render (or a test device, ADR-0122) waits seconds per block, and a
+    /// host that died would otherwise hold each block that long. A real-time
+    /// deadline is shorter than one step, so it waits as one.
+    fn wait_while_alive(&mut self, deadline: Instant) -> Poll {
+        loop {
+            let step = (Instant::now() + ENDED_LOOK).min(deadline);
+            let poll = self.link.wait(step);
+            if poll != Poll::Pending || step >= deadline || self.ended.load(Ordering::Acquire) {
+                return poll;
+            }
+        }
+    }
+
     /// Bus pair `pair` of the block last answered, into `left` and `right`.
     fn copy_pair(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) {
         let Some(&Pair { first, channels }) = self.pairs.get(pair) else {

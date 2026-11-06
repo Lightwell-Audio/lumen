@@ -281,7 +281,8 @@ impl<S: Source> Engine<S> {
     /// Renders without a device from now on: a plugin host is waited for up
     /// to `wait` per block (see [`OFFLINE_WAIT`]); `None` is real time again.
     /// Set before the first block; the engine is not shared with a callback
-    /// then.
+    /// then. The app's test devices set it too, so what a test hears does
+    /// not depend on how busy the machine is (ADR-0122).
     pub fn set_offline(&mut self, wait: Option<Duration>) {
         self.offline = wait;
     }

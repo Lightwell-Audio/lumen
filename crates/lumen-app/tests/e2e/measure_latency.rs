@@ -56,7 +56,7 @@ fn press(lumen: &mut Lumen, label: &str, done: impl Fn(&Lumen) -> bool) {
     let started = std::time::Instant::now();
     while !done(lumen) {
         assert!(
-            started.elapsed() < super::PATIENCE,
+            started.elapsed() < super::patience(),
             "{label} never answered"
         );
         lumen.harness.get_by_label(label).scroll_to_me();
