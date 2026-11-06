@@ -31,7 +31,8 @@
           {%- if goal.clip %}
           {%- set base = get_url(path="media/" ~ goal.clip) %}
           {#- Without its media the card keeps its coloured band, no picture. #}
-          {%- if get_image_metadata(path="media/" ~ goal.clip ~ "-dark.webp", allow_missing=true) %}
+          {%- set poster = get_image_metadata(path="media/" ~ goal.clip ~ "-dark.webp", allow_missing=true) %}
+          {%- if poster %}
           <video muted loop playsinline preload="none" poster="{{ base }}-dark.webp" data-dark="{{ base }}-dark.mp4" data-light="{{ base }}-light.mp4" data-dark-poster="{{ base }}-dark.webp" data-light-poster="{{ base }}-light.webp" aria-hidden="true"></video>
           {%- endif %}
           {%- else %}
