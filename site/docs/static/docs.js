@@ -247,6 +247,8 @@
         if (!best) return 0;
         sum += best;
       }
+      // The command named exactly what was typed comes first.
+      if (words.join(" ") === row.text.refName) sum += 2;
       return sum;
     }
     function byScore(a, b) { return b.score - a.score || a.order - b.order; }
