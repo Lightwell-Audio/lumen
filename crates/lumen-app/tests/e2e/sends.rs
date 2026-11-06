@@ -24,13 +24,9 @@ fn with_a_return(name: &str) -> (Lumen, String) {
     let track = lumen.track_names()[0].clone();
     lumen.click(&format!("Fold {track}"));
     let knob = format!("Send {track} to A Return 1");
-    for _ in 0..100 {
-        if lumen.harness.query_by_label_contains(&knob).is_some() {
-            break;
-        }
-        lumen.frames(1);
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    lumen.run_until(&format!("the knob {knob:?}"), |l| {
+        l.harness.query_by_label_contains(&knob).is_some()
+    });
     (lumen, track)
 }
 

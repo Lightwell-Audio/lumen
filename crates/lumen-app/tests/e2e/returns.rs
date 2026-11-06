@@ -97,17 +97,9 @@ fn the_divider_resizes_the_area_and_double_click_restores_its_natural_size() {
 fn the_masters_volume_is_set_from_its_unfolded_row() {
     let mut lumen = Lumen::start("returns-master");
     lumen.click("Fold Master");
-    for _ in 0..100 {
-        if lumen
-            .harness
-            .query_by_label_contains("Volume Master")
-            .is_some()
-        {
-            break;
-        }
-        lumen.frames(1);
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    lumen.run_until("the master's volume", |l| {
+        l.harness.query_by_label_contains("Volume Master").is_some()
+    });
     // The row grows with a glide: let it settle before aiming at the field.
     lumen.frames(30);
     let volume = lumen.harness.get_by_label_contains("Volume Master").rect();

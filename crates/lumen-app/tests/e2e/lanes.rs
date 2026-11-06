@@ -398,7 +398,8 @@ fn what_the_lane_draws_is_sent_to_the_port() {
     lumen.key(Modifiers::NONE, Key::Home);
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.is_playing());
-    for _ in 0..1_000 {
+    let deadline = lumen_testkit::Deadline::new();
+    loop {
         lumen.frames(1);
         let sent = fake.sent();
         // Channel 4 (index 3), controller 1.
@@ -411,9 +412,12 @@ fn what_the_lane_draws_is_sent_to_the_port() {
             lumen.key(Modifiers::NONE, Key::Space);
             return;
         }
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        deadline.check(format_args!(
+            "the port never got the drawn controller: {:?}",
+            fake.sent()
+        ));
+        std::thread::sleep(lumen_testkit::POLL);
     }
-    panic!("the port never got the drawn controller: {:?}", fake.sent());
 }
 
 /// Runs the palette command that `query` finds first.

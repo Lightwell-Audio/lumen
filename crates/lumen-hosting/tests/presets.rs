@@ -78,12 +78,9 @@ fn a_state_loaded_into_a_running_plugin_is_heard_and_its_values_come_back() {
     manager.want(1, instrument("")).unwrap();
     let mut first = linked(&mut manager, 1);
     manager.set_param(1, LEVEL, 0.25);
-    for _ in 0..200 {
-        if loudness(&mut first.link) == 0.25 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    lumen_testkit::wait_until("the plugin to have the value", || {
+        loudness(&mut first.link) == 0.25
+    });
     let preset = captured(&mut manager, 1);
 
     // A second plugin, still at its defaults, is given that sound.

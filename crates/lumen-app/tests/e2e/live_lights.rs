@@ -130,22 +130,9 @@ fn the_computer_keyboard_is_heard_on_the_selected_midi_track_and_lights_it() {
 fn switch_on_for_tracks(lumen: &mut Lumen, fake: &FakeControl, port: &str) {
     lumen.open_midi_settings();
     let label = format!("Track {port} input");
-    for _ in 0..400 {
-        lumen.frames(1);
-        if lumen.shows(&label) {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    lumen.run_until(&format!("the switch {label:?}"), |l| l.shows(&label));
     lumen.click(&label);
-    for _ in 0..400 {
-        lumen.frames(1);
-        if fake.open_inputs() == 1 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    assert_eq!(fake.open_inputs(), 1);
+    lumen.run_until("the input to open", |_| fake.open_inputs() == 1);
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(10);
 }

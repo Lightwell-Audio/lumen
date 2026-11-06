@@ -52,12 +52,8 @@ fn launch(name: &str, project: &Project, fake: &FakeControl) -> Lumen {
     lumen.frames(30);
     // Wait for the output to open, unless no track sends to it.
     let to_port = project.tracks.iter().any(|t| t.midi_to.is_some());
-    for _ in 0..1_500 {
-        if !to_port || lumen_open(fake) {
-            break;
-        }
-        lumen.frames(1);
-        std::thread::sleep(Duration::from_millis(5));
+    if to_port {
+        lumen.run_until("the output to open", |_| lumen_open(fake));
     }
     lumen
 }
@@ -93,14 +89,15 @@ fn balance(fake: &FakeControl) -> (usize, usize) {
 
 #[track_caller]
 fn until(lumen: &mut Lumen, fake: &FakeControl, what: &str, done: impl Fn((usize, usize)) -> bool) {
-    for _ in 0..1_000 {
+    let deadline = lumen_testkit::Deadline::new();
+    loop {
         lumen.frames(1);
         if done(balance(fake)) {
             return;
         }
-        std::thread::sleep(Duration::from_millis(5));
+        deadline.check(format_args!("{what}; the port got {:?}", fake.sent()));
+        std::thread::sleep(lumen_testkit::POLL);
     }
-    panic!("{what}; the port got {:?}", fake.sent());
 }
 
 fn play(lumen: &mut Lumen) {

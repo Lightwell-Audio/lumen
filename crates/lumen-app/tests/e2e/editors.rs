@@ -112,14 +112,7 @@ fn palette(lumen: &mut Lumen, words: &str) {
 /// Frames until a control called `label` is on screen.
 #[track_caller]
 fn wait_shows(lumen: &mut Lumen, label: &str) {
-    for _ in 0..200 {
-        if lumen.shows(label) {
-            return;
-        }
-        lumen.frames(3);
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    panic!("`{label}` never appeared");
+    lumen.run_until(&format!("`{label}` to appear"), |l| l.shows(label));
 }
 
 #[test]
@@ -222,13 +215,15 @@ fn the_computer_keyboard_plays_from_the_plugins_window() {
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
     assert!(lumen.app().computer_keyboard_on());
     let mut sent = Vec::new();
-    for _ in 0..300 {
+    let deadline = lumen_testkit::Deadline::new();
+    loop {
         sent.extend(lumen.app_mut().computer_keyboard_sent());
         if sent.len() >= 2 {
             break;
         }
+        deadline.check(format_args!("two notes from the keyboard, got {sent:?}"));
         lumen.frames(2);
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(lumen_testkit::POLL);
     }
     assert_eq!(
         sent,

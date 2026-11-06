@@ -1,8 +1,11 @@
+//! How tests may depend on time (ADR-0122), checked over the sources.
+//!
 //! A test that reads the wall clock can fail on a slow runner for no fault of
-//! the code. CI runs the ones whose result depends on timing apart from the
-//! others, one at a time and with retries (`.github/timing-tests.txt`,
-//! `.github/scripts/ci-test.sh`). This keeps that list from going stale: a
-//! test file under `crates/*/tests` that reads the clock must be
+//! the code. CI runs the ones whose claim is about time apart from the
+//! others, one at a time, with retries and without gating on them
+//! (`.github/timing-tests.txt`, `.github/scripts/ci-test.sh`). The first
+//! check keeps that list from going stale: a test file under
+//! `crates/*/tests` that reads the clock must be
 //!
 //! - part of a test target listed in `.github/timing-tests.txt`, or
 //! - an E2E file that takes the `timing_sensitive()` turn, or
@@ -14,6 +17,12 @@
 //! A new file is not added to `KNOWN` without a look at what it asserts: a
 //! deadline of seconds on a wait is harmless, a bound on how long work took
 //! is a timing test.
+//!
+//! The second check finds counted polling loops in test code (`for _ in
+//! 0..200 { ...; sleep(5 ms) }` that leaves when the work is done): their
+//! budget is a guess at the machine's speed, and a loaded runner runs out of
+//! it. A test waits with `lumen_testkit::wait_until` (or the E2E harness's
+//! `run_until`) instead, whose only bound is a hang guard.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -251,6 +260,119 @@ fn every_entry_of_the_timing_list_names_a_test_that_exists() {
             "{package} {name} is on the timing list but no module it names has tests"
         );
     }
+}
+
+/// Test files run by hand only (`--ignored` screenshots and the docs'
+/// scenes), whose waits are not part of CI.
+const BY_HAND: &[&str] = &[
+    "crates/lumen-app/tests/shots.rs",
+    "crates/lumen-app/tests/shots_recording.rs",
+    "crates/lumen-app/tests/audit_shots/",
+    "crates/lumen-app/tests/docs_media/",
+];
+
+/// The test code of a source: all of a file under `tests/` or named
+/// `tests.rs`, else what follows its first `#[cfg(test)]` (empty when it has
+/// none).
+fn test_code<'a>(relative: &str, source: &'a str) -> &'a str {
+    if relative.contains("/tests/") || relative.ends_with("/tests.rs") {
+        return source;
+    }
+    source
+        .find("#[cfg(test)]")
+        .map_or("", |start| &source[start..])
+}
+
+/// The lines of the counted polling loops in `code`: a `for _ in 0..N` whose
+/// body sleeps and leaves early (`break` or `return`), which waits a number of
+/// polls rather than until the work is done (ADR-0122). A loop that sleeps
+/// without leaving early lets time pass on purpose, and is not one.
+fn counted_waits(code: &str) -> Vec<usize> {
+    let lines: Vec<&str> = code.lines().collect();
+    let mut found = Vec::new();
+    for (start, line) in lines.iter().enumerate() {
+        if !line.trim_start().starts_with("for _ in 0..") || !line.trim_end().ends_with('{') {
+            continue;
+        }
+        let mut depth = 0_i32;
+        let mut body = String::new();
+        for line in &lines[start..] {
+            depth += line.matches('{').count() as i32 - line.matches('}').count() as i32;
+            body.push_str(line);
+            body.push('\n');
+            if depth <= 0 {
+                break;
+            }
+        }
+        let sleeps = body.contains("sleep(");
+        let leaves = body.contains("break") || body.contains("return");
+        if sleeps && leaves {
+            found.push(start + 1);
+        }
+    }
+    found
+}
+
+#[test]
+fn no_test_waits_a_counted_number_of_polls() {
+    // A wait of "400 polls of 5 ms" is two seconds on a quiet machine and
+    // too short on a loaded runner; lumen_testkit waits until the work is
+    // done, with a hang guard CI raises (ADR-0122).
+    let root = root();
+    let mut files = Vec::new();
+    for krate in fs::read_dir(root.join("crates")).expect("crates read") {
+        let krate = krate.expect("an entry reads").path();
+        for part in ["src", "tests"] {
+            if krate.join(part).is_dir() {
+                rust_files(&krate.join(part), &mut files);
+            }
+        }
+    }
+    let mut counted = Vec::new();
+    for file in &files {
+        let relative = file
+            .strip_prefix(&root)
+            .expect("under the root")
+            .to_string_lossy()
+            .replace('\\', "/");
+        if BY_HAND.iter().any(|skip| relative.starts_with(skip)) {
+            continue;
+        }
+        let source = text(file);
+        let code = test_code(&relative, &source);
+        // The lines before the test code (its marker starts a line).
+        let before = source[..source.len() - code.len()].lines().count();
+        for line in counted_waits(code) {
+            counted.push(format!("{relative}:{}", before + line));
+        }
+    }
+    assert!(
+        counted.is_empty(),
+        "these tests wait a counted number of polls; use lumen_testkit::wait_until \
+         (or a Deadline) so a slow machine waits longer instead of failing:\n{}",
+        counted.join("\n")
+    );
+}
+
+#[test]
+fn a_counted_wait_is_told_from_a_loop_that_lets_time_pass() {
+    let wait = "fn f() {\n    for _ in 0..200 {\n        if done() {\n            break;\n        }\n        \
+                std::thread::sleep(T);\n    }\n}\n";
+    assert_eq!(counted_waits(wait), [2]);
+    let pass =
+        "    for _ in 0..8 {\n        lumen.frames(2);\n        std::thread::sleep(T);\n    }\n";
+    assert!(counted_waits(pass).is_empty());
+    let busy = "    for _ in 0..8 {\n        if x { break; }\n        work();\n    }\n";
+    assert!(counted_waits(busy).is_empty());
+    assert_eq!(test_code("crates/a/src/x.rs", "fn a() {}\n"), "");
+    assert_eq!(
+        test_code("crates/a/src/x.rs", "fn a() {}\n#[cfg(test)]\nmod t {}\n"),
+        "#[cfg(test)]\nmod t {}\n"
+    );
+    assert_eq!(
+        test_code("crates/a/tests/x.rs", "fn a() {}\n"),
+        "fn a() {}\n"
+    );
 }
 
 #[test]

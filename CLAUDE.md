@@ -534,6 +534,15 @@ per slice and move what is no longer current out of it.
   selection › Look inside an audio clip (scene `audio_clip_editor`).
   MT-CLIP-1 waits. Next: S2 (handles); every slice now carries its docs
   (USER_DOCS.md §10.1; `docs_coverage` fails on a command with no page).
+- **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
+  runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
+  plugin hosts as an offline render does (a dead host ends the wait early);
+  every wait is `lumen_testkit`'s, bounded by a hang guard; a lint fails
+  counted polls; CI runs each test in its own process under nextest, with
+  retries that print FLAKY as warnings; the timing list runs after the gate
+  without gating; setup steps retry, and `rerun.yml` reruns a run once when
+  only the infrastructure failed (it works once on `main`). Open: the timing
+  list's correctness checks no longer gate (KNOWN_ISSUES, top row).
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
@@ -548,7 +557,7 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status and the milestone reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0121 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0122 and the table of owner decisions.
 - `docs/USER_DOCS.md`: the user documentation strategy (accepted, ADR-0119).
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
@@ -589,9 +598,14 @@ error where it can be)
 - **E2E rules:** wait for what the engine answers (`Lumen::wait_for`,
   `listen`), never a count of frames; write chords through `keys()`; let
   rows settle (`frames(30)`) after adding, moving or folding tracks; never
-  flip process-wide settings (theme, Reduce motion). Timing-sensitive
-  scenarios can fail under a loaded full run: rerun alone before chasing.
-  A macOS-only `walkthrough_plugins` flake is known and ignored (owner).
+  flip process-wide settings (theme, Reduce motion).
+- **Test waits and CI** (ADR-0122): a test waits with `lumen_testkit`
+  (`wait_until`, `wait_for`, `Deadline`) or the E2E's `run_until`, never a
+  `for _ in 0..N` poll with a sleep (`timing_tests.rs` fails it). A test
+  asserts what the code decides; one whose claim is about time goes on
+  `.github/timing-tests.txt` (not gating). CI runs nextest
+  (`.config/nextest.toml`, `cargo nextest run --profile ci`); a FLAKY
+  warning on a run is a finding, not noise.
 - **Shots:** `$env:SHOTS = "<existing folder>"; cargo test -p lumen-app --test
   shots <name> -- --ignored --test-threads=1` (the theme is process-wide).
   Look at them in both themes at 100, 150 and 200%.

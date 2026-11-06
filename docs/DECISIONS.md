@@ -123,6 +123,7 @@ irreversible or external) · *Superseded*.
 | [0119](#adr-0119--user-documentation-on-the-website) | User documentation on the website | Accepted 2026-11-05 (the look is chosen from specimens in D0) | No |
 | [0120](#adr-0120--the-time-stretch-trial-m95-s0) | The time-stretch trial (M9.5 S0) | Proposed 2026-11-04; the library waits for the owner's ear, and E A's piece length for the owner | Yes (T, E) |
 | [0121](#adr-0121--the-audio-editors-canvas-and-the-shared-clip-header-m95-s1) | The audio editor's canvas and the shared clip header (M9.5 S1) | Accepted 2026-11-04 (MT-CLIP-1 pending) | No |
+| [0122](#adr-0122--tests-that-do-not-depend-on-the-runner-deterministic-ci) | Tests that do not depend on the runner (deterministic CI) | Accepted 2026-11-06 | No |
 
 ---
 
@@ -11034,3 +11035,143 @@ file at every zoom (no Windows machine here; the bench is S2's), how it
 looks on the owner's display, and the docs site built with the page (no
 `zola` here; CI's docs job builds it). The scene was rendered here in
 both themes and its pictures looked at.
+
+## ADR-0122 — Tests that do not depend on the runner (deterministic CI)
+
+**Date:** 2026-11-06. **Branch:** `chore/ci-deterministic-tests`.
+**Status:** Accepted (owner asked: "tests in different environments will
+never flake and fail ever again").
+
+**Context.** CI went red on and off for reasons that were not the code's.
+The annotations of the failed runs since October fall into four families:
+
+- **A, plugin hosts late.** The engine gives a host 3/4 of a block period
+  (`HOST_SHARE`) and plays a late block dry. On a loaded three-core runner
+  the E2E's hosts missed that on tens of blocks a run, so a test heard dry
+  audio, a meter reset, a lane's value "not reaching" the plugin or a budget
+  reading low (KNOWN_ISSUES: `walkthrough_plugins`, the plugin-lane
+  scenarios, the block-budget readout).
+- **B, counted polls.** About forty waits in the tests were
+  `for _ in 0..N { ...; sleep(d) }` with a budget of a second or two: a
+  guess at the machine's speed that a loaded runner runs out of.
+- **C, claims about time.** Some tests assert that real time was kept (a
+  host answered its deadline, a sender kept its spacing, a disk thread read
+  ahead). No shared runner keeps such a claim every time.
+- **D, the infrastructure.** A job that never got a runner (macOS capacity),
+  a download that failed in setup.
+
+Tests also shared processes: the E2E suite ran as one process per shard,
+with in-process locks (`timing_sensitive`) to keep the heavy scenarios apart.
+
+**Options.** (1) Loosen bounds and add retries where tests flake, as before:
+each fix moved the flake elsewhere. (2) Make every gated test independent of
+the runner's speed, run the claims about time apart without gating, and
+retry only what is outside the code. (3) Self-hosted runners: cost, upkeep,
+and still loaded by parallel tests.
+
+**Choice: (2).**
+
+1. **Patient hosts on the test devices.** `Audio::start` sets the engine's
+   offline wait (`OFFLINE_WAIT`, the export's) when the device is a test
+   driver, so a block waits for its hosts as an offline render does and is
+   never played dry because the machine was busy. What a test hears is what
+   the code decides. Real devices are unchanged; the engine's own tests
+   (`hosted`, `hosted_effects`) still prove the deadline and the dry
+   fallback with fake hosts.
+2. **A dead host is not waited for.** With a patient wait, a host that
+   crashed mid-block would hold the callback for the whole wait.
+   `Link::collect` (`lumen-hosting`) now waits in 5 ms steps and stops as
+   soon as the host is known to have ended (`wait_while_alive`; the run
+   thread sets `ended` within about 10 ms). Real-time waits, shorter than a step, are one wait
+   as before. Test `offline::a_plugin_that_crashes_is_not_waited_for_until_the_end_of_a_long_wait`.
+3. **One way to wait: `lumen-testkit`** (new crate, dev-dependency only, no
+   dependencies). `wait_until(what, done)`, `wait_for(what, found)` and
+   `Deadline` poll every 2 ms until the work is done, bounded by one
+   patience: 60 s by default, `LUMEN_TEST_PATIENCE` seconds when set (180 in
+   CI). The bound is a hang guard that names what it waited for, not a
+   measure of speed. The E2E harness's `patience()` is the same value. Every
+   counted poll in test code was converted (autosave, MIDI out, hosting
+   parameters and presets, and sixteen E2E files).
+4. **A lint keeps them out.** `timing_tests.rs` gains
+   `no_test_waits_a_counted_number_of_polls`: test code (a file under
+   `tests/`, a `tests.rs`, or what follows `#[cfg(test)]`) with a
+   `for _ in 0..` loop whose body sleeps and leaves early fails, with the
+   file and line. A loop that sleeps without leaving early lets time pass on
+   purpose and is allowed. By-hand targets (shots, the docs' scenes) are
+   exempt.
+5. **Every test in a process of its own** (cargo-nextest, `.config/nextest.toml`).
+   No test shares statics, locks or a CPU budget's process with another;
+   the E2E suite is dealt into shards by count (`--partition count:i/N`),
+   which picks up a new scenario with no edit and replaces the module-dealing
+   awk and the separate `walkthrough_plugins` run. Profile `ci`: two retries;
+   a pass on a retry prints FLAKY and becomes a warning on the run, not a
+   pass that hides it; three failures fail; a hung attempt ends after 8
+   minutes (three fit in the 60-minute job).
+6. **Claims about time report, they do not gate.** The tests of
+   `.github/timing-tests.txt` run after the gate, alone, one at a time, with
+   retries (profile `timing`), in a `continue-on-error` step of the `rest`
+   job; a failure is a "Real-time test failed (not gating)" warning. Locally
+   they are ordinary tests. RTSan keeps gating: an allocation or a lock in a
+   real-time section happens on every attempt, so it does not depend on the
+   runner.
+7. **The plugins are built once.** The test plugin and host are built by
+   `ci-test.sh` before the tests; `LUMEN_TEST_PLUGINS_BUILT` makes the tests'
+   `built()` helpers skip their `cargo build`, so a hundred processes do not
+   queue on cargo's lock.
+8. **The infrastructure is retried, the code is not.** Setup steps that
+   reach the network (package lists, toolchains, rustup) run through
+   `.github/scripts/retry.sh` (three tries, 20 s apart, a warning per
+   retry). `rerun.yml` (on `workflow_run` of CI and Docs) reruns a failed
+   run's failed jobs once when every failed job had no steps, failed with no
+   failed step (a lost runner), or failed only in setup steps
+   (`.github/scripts/rerun-infra.sh`). Tried on the last fifteen failed CI
+   runs: it reruns only the one whose macOS jobs were "not acquired by
+   Runner of type hosted", and none where a test failed.
+
+**Consequences.**
+
+- The gated suite asserts behaviour, not speed. "Never" holds for what the
+  code decides; it cannot hold for claims about real time on shared
+  runners, which is why those report instead.
+- **The timing list's targets no longer gate**, and some of them also check
+  correctness (the hosting targets, `lumen-audio::supervisor`, the engine's
+  `hosted` files). Until each is split into a real-time target and a
+  correctness target, a correctness regression there shows as a warning
+  only. The list's header says so, and that a test belongs on it only for a
+  claim about time.
+- A test that hangs costs up to 24 minutes before it fails, rather than a
+  short budget's flake.
+- `timing_sensitive()` in the E2E suite is moot under nextest and harmless;
+  it stays for `cargo test` runs.
+- `rerun.yml` takes effect once it is on `main` (GitHub runs `workflow_run`
+  workflows from the default branch only). It needs `actions: write`.
+- The E2E's audio no longer exercises the dry fallback under load; that
+  path is the engine tests' and the owner's hardware runs'.
+
+**Verified (Windows, this machine).** The E2E suite under `nextest --profile
+ci` with `LUMEN_TEST_PATIENCE=180` and the plugins prebuilt: 861 passed, 2
+skipped, none flaky, in 112 s. `ci-test.sh rest`: 1,463 workspace tests and
+1,205 of lumen-app's passed, then the benchmarks once and the doc tests;
+`ci-test.sh timing`: 98 real-time tests passed, one at a time, and none of
+them ran in `rest`. The smoke tests: 13 passed. The dead-host test fails
+without `wait_while_alive` (after the whole 120 s wait) and passes with it.
+Workspace clippy and the macOS cross-target clippy are clean. The rerun rule was run against fifteen real failed
+runs through the API. **Not verified here:** the workflow itself on GitHub
+(the next push shows it), macOS and Linux runs of the converted tests, and
+the WSL perf gate (no WSL distribution on this machine; CI's perf job runs
+it, and the link change adds no work when a wait is shorter than 5 ms).
+
+**The first CI run (PR #93, 2026-11-06).** Every test passed on every OS,
+yet eight test jobs were red, for three faults of this change, fixed:
+`ci-test.sh` used `mapfile`, which macOS's bash 3.2 lacks (its `rest` ran
+no tests); the step that names flaky tests failed whenever there was none
+(GitHub runs bash with `-e` and `pipefail`, and a `grep` that finds nothing
+exits 1); and `failure-output = "final"` printed nothing of a flaky
+attempt. The retries named one flake, as meant:
+`measure_latency::a_cable_measures_…` on Windows failed its first try in
+1.2 s. It did not repeat in 40 runs here beside 12 busy loops, so it was
+read from the code: the scenario clicked the cable's list once, just after
+the card was scrolled into view, and then its option, which panics at once
+if the list did not open. The E2E harness now has `Lumen::pick`, which
+opens a list until the option shows and clicks it until the choice holds,
+each brought into view first; the scenario uses it.

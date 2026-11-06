@@ -12,7 +12,7 @@ use lumen_app::testing::{TEST_DRIVER, TEST_HOLDS_DRIVER, TEST_LATE_DRIVER, TEST_
 use lumen_project::testing::TempDir;
 
 use super::hosting::timing_sensitive;
-use super::{Lumen, PATIENCE};
+use super::{Lumen, patience};
 
 /// The longest a frame (or a click's few frames) may take while a change
 /// runs. A blocked window took the whole handover, ten seconds; a loaded
@@ -41,7 +41,10 @@ fn pick(lumen: &mut Lumen, button: &str, option: &str) {
     let started = Instant::now();
     while !lumen.shows(option) {
         lumen.click(button);
-        assert!(started.elapsed() < PATIENCE, "{option:?} was never offered");
+        assert!(
+            started.elapsed() < patience(),
+            "{option:?} was never offered"
+        );
         std::thread::sleep(Duration::from_millis(5));
     }
     click_drawing(lumen, option);
@@ -72,7 +75,7 @@ fn drawing_until(lumen: &mut Lumen, what: &str, done: impl Fn(&Lumen) -> bool) -
         if done(lumen) {
             return started.elapsed();
         }
-        assert!(started.elapsed() < PATIENCE, "{what} never happened");
+        assert!(started.elapsed() < patience(), "{what} never happened");
         std::thread::sleep(Duration::from_millis(5));
     }
 }
@@ -217,7 +220,7 @@ fn quitting_with_a_finished_switch_unread_does_not_wait_for_the_new_device() {
     assert!(lumen.app_mut().choose_audio_driver(TEST_LATE_DRIVER));
     let started = Instant::now();
     while !lumen.app_mut().audio_switched_unread() {
-        assert!(started.elapsed() < PATIENCE, "the switch never finished");
+        assert!(started.elapsed() < patience(), "the switch never finished");
         std::thread::sleep(Duration::from_millis(5));
     }
     let took = quit(lumen);
@@ -233,7 +236,7 @@ fn every_test_driver_with_a_fault_is_offered_beside_the_test_device() {
     let started = Instant::now();
     while !lumen.shows("Slow test device") {
         lumen.click(button);
-        assert!(started.elapsed() < PATIENCE, "the list never opened");
+        assert!(started.elapsed() < patience(), "the list never opened");
     }
     for label in [
         "Test device that refuses",

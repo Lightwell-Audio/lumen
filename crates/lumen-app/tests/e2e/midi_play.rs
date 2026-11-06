@@ -96,14 +96,9 @@ fn stop(lumen: &mut Lumen) {
 
 /// Waits for the fake output to be opened by the app.
 pub fn wait_open(lumen: &mut Lumen, fake: &FakeControl) {
-    for _ in 0..1_500 {
-        if fake.opens(Direction::Output, "Synth") > 0 {
-            return;
-        }
-        lumen.frames(1);
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    panic!("the output was never opened");
+    lumen.run_until("the output to be opened", |_| {
+        fake.opens(Direction::Output, "Synth") > 0
+    });
 }
 
 /// Runs frames until `done` holds for what the port received.
@@ -114,15 +109,16 @@ fn until_sent(
     what: &str,
     done: impl Fn(&[Vec<u8>]) -> bool,
 ) {
-    for _ in 0..1_000 {
+    let deadline = lumen_testkit::Deadline::new();
+    loop {
         lumen.frames(1);
         let sent: Vec<Vec<u8>> = fake.sent().into_iter().map(|(_, b)| b).collect();
         if done(&sent) {
             return;
         }
-        std::thread::sleep(Duration::from_millis(5));
+        deadline.check(format_args!("{what}; the port got {:?}", fake.sent()));
+        std::thread::sleep(lumen_testkit::POLL);
     }
-    panic!("{what}; the port got {:?}", fake.sent());
 }
 
 fn count(sent: &[Vec<u8>], status: u8) -> usize {

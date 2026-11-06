@@ -65,6 +65,8 @@ lumen-media = { path = "crates/lumen-media" }
 lumen-perf = { path = "crates/lumen-perf" }
 lumen-shader-check = { path = "crates/lumen-shader-check" }
 lumen-brand = { path = "crates/lumen-brand" }
+# How tests wait for other threads (ADR-0122): dev-dependency only.
+lumen-testkit = { path = "crates/lumen-testkit" }
 # Embeds the icon resources in lumen.exe (R8, ADR-0117): MIT or Apache-2.0.
 embed-resource = "3"
 

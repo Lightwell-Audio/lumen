@@ -134,8 +134,12 @@ use lumen_app::{App, Launch};
 
 /// The window size the tests run at, in points.
 const SIZE: egui::Vec2 = egui::vec2(1600.0, 900.0);
-/// How long a test waits for background work (audio start, loads, saves).
-const PATIENCE: Duration = Duration::from_secs(30);
+/// How long a test waits for background work (audio start, loads, saves)
+/// before it calls it hung: a guard, never a measure of speed (ADR-0122,
+/// `lumen_testkit`).
+pub fn patience() -> Duration {
+    lumen_testkit::patience()
+}
 /// The test device's sample rate unless a test chooses another: what
 /// [`Lumen::listen`] counts its settling time in.
 const TEST_RATE: u32 = 48_000;
@@ -191,7 +195,7 @@ impl Lumen {
         let started = Instant::now();
         while self.app().autosave_writing() {
             assert!(
-                started.elapsed() < PATIENCE,
+                started.elapsed() < patience(),
                 "timed out waiting for the autosave in progress"
             );
             std::thread::sleep(Duration::from_millis(5));
@@ -220,7 +224,7 @@ impl Lumen {
         let mut heard = Vec::new();
         while heard.len() < settle + frames {
             assert!(
-                started.elapsed() < PATIENCE,
+                started.elapsed() < patience(),
                 "heard {} of {} frames",
                 heard.len(),
                 settle + frames
@@ -234,7 +238,7 @@ impl Lumen {
 
     /// Runs frames until `done` holds, sleeping a little between them so
     /// background work (audio, loading, saving) moves on. Panics, saying
-    /// what it waited for, if it takes longer than [`PATIENCE`].
+    /// what it waited for, if it takes longer than [`patience`].
     pub fn wait_for(&mut self, what: &str, done: impl Fn(&App) -> bool) {
         let started = Instant::now();
         loop {
@@ -245,13 +249,16 @@ impl Lumen {
                 self.harness.step();
                 return;
             }
-            assert!(started.elapsed() < PATIENCE, "timed out waiting for {what}");
+            assert!(
+                started.elapsed() < patience(),
+                "timed out waiting for {what}"
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
     }
 
     /// Runs frames until `done` holds, for as long as background work may
-    /// take ([`PATIENCE`]), never a count of frames: a worker thread answers
+    /// take ([`patience`]), never a count of frames: a worker thread answers
     /// in its own time, and on a loaded machine that can take far longer
     /// than a few hundred frames. For state that is drawn or that the test
     /// holds; [`wait_for`](Self::wait_for) reads the app's.
@@ -263,7 +270,7 @@ impl Lumen {
             if done(self) {
                 return;
             }
-            assert!(started.elapsed() < PATIENCE, "{what} never happened");
+            assert!(started.elapsed() < patience(), "{what} never happened");
             std::thread::sleep(Duration::from_millis(5));
         }
     }
@@ -289,7 +296,7 @@ impl Lumen {
                 return;
             }
             assert!(
-                started.elapsed() < PATIENCE,
+                started.elapsed() < patience(),
                 "timed out waiting for the {page} page"
             );
             std::thread::sleep(Duration::from_millis(5));
@@ -313,6 +320,32 @@ impl Lumen {
     pub fn click(&mut self, label: &str) {
         self.harness.get_by_label(label).click();
         self.frames(3);
+    }
+
+    /// Picks `option` from the dropdown named `button`, as a user does, until
+    /// `chosen` holds. A click while the page scrolls or lays out lands where
+    /// the control was, so a single click can miss on a busy machine (how
+    /// many frames a page has had to settle depends on when the engine
+    /// answered): the list is opened until the option shows, and the option
+    /// clicked until the choice is made, each brought into view first.
+    #[track_caller]
+    pub fn pick(&mut self, button: &str, option: &str, chosen: impl Fn(&Lumen) -> bool) {
+        let deadline = lumen_testkit::Deadline::new();
+        while !chosen(self) {
+            deadline.check(format_args!("{option:?} chosen from {button:?}"));
+            let target = if self.shows(option) { option } else { button };
+            if let Some(node) = self.harness.query_by_label(target) {
+                node.scroll_to_me();
+                self.frames(2);
+            }
+            match self.harness.query_by_label(target) {
+                Some(node) => {
+                    node.click();
+                    self.frames(3);
+                }
+                None => self.frames(1),
+            }
+        }
     }
 
     /// Whether a control named `label` is on screen.
