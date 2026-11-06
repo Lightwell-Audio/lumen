@@ -319,6 +319,16 @@
     } else if (event.key === "/" && !typing) {
       event.preventDefault();
       openSearch();
+    } else if ((event.key === "ArrowDown" || event.key === "ArrowUp") && layer && !layer.hidden) {
+      // Up and down move between the search field and the results.
+      var stops = [layer.querySelector("input")].concat(
+        Array.prototype.slice.call(layer.querySelectorAll("a.pagefind-ui__result-link")));
+      var at = stops.indexOf(document.activeElement);
+      if (at === -1 || stops.length < 2) return;
+      event.preventDefault();
+      var next = Math.max(0, Math.min(stops.length - 1, at + (event.key === "ArrowDown" ? 1 : -1)));
+      stops[next].focus();
+      stops[next].scrollIntoView({ block: "nearest" });
     } else if (event.key === "Escape") {
       closeSearch();
       if (side && side.classList.contains("is-open")) side.classList.remove("is-open");

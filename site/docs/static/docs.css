@@ -266,8 +266,22 @@ a.way-title:focus-visible{outline:none}
 /* ---------- Search ---------- */
 .search-layer{position:fixed;inset:0;z-index:40;display:flex;justify-content:center;align-items:flex-start;padding:10vh var(--space-l) var(--space-l);background:var(--shade);backdrop-filter:blur(4px)}
 .search-layer[hidden]{display:none}
-.search-panel{width:100%;max-width:640px;max-height:76vh;overflow:auto;padding:var(--space-l);border-radius:var(--radius-xl);background:var(--overlay);border:var(--stroke-hairline) solid var(--border-strong);box-shadow:0 40px 100px -30px var(--shade)}
-.search-foot{margin:var(--space-m) 0 0;font-size:12.5px;color:var(--text-secondary)}
+/* The panel does not scroll: the search field and the footer stay put and
+   only the results scroll, inside the panel's padding, so the scroll bar
+   never crosses its rounded corners. */
+.search-panel{width:100%;max-width:640px;max-height:76vh;display:flex;flex-direction:column;overflow:hidden;padding:var(--space-l);border-radius:var(--radius-xl);background:var(--overlay);border:var(--stroke-hairline) solid var(--border-strong);box-shadow:0 40px 100px -30px var(--shade)}
+#search,#search .pagefind-ui,#search .pagefind-ui__form{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+#search .pagefind-ui__search-input{flex:none}
+#search mark{background:color-mix(in srgb,var(--accent) 28%,transparent);color:var(--text);border-radius:var(--radius-sm);padding:0 2px}
+#search .pagefind-ui__drawer{flex:1 1 auto;min-height:0;margin-top:var(--space-s);overflow:auto;scrollbar-width:thin;padding-right:var(--space-s)}
+#search .pagefind-ui__search-clear{top:calc(32px * var(--pagefind-ui-scale));right:var(--space-s);transform:translateY(-50%);height:32px;display:inline-flex;align-items:center;padding:0 var(--space-m);border:var(--stroke-hairline) solid var(--line);border-radius:var(--radius-md);background:transparent;color:var(--text-secondary);font-size:13px;line-height:1}
+#search .pagefind-ui__search-clear:hover{color:var(--text);border-color:var(--border-strong)}
+/* The nested results' arrow, drawn rather than a glyph the font may lack. */
+#search .pagefind-ui__result-nested .pagefind-ui__result-link::before{content:"";top:0.35em;right:calc(100% + 6px);width:7px;height:7px;border-left:1.5px solid var(--text-hint);border-bottom:1.5px solid var(--text-hint);border-bottom-left-radius:2px}
+#search .pagefind-ui__result-link:focus-visible{outline-offset:2px}
+.search-foot{flex:none;display:flex;align-items:center;gap:var(--space-xs);margin:var(--space-m) 0 0;font-size:12.5px;color:var(--text-secondary)}
+.search-foot kbd{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:20px;padding:0 6px;vertical-align:0}
+.search-foot kbd svg{display:block}
 #search{--pagefind-ui-primary:var(--accent);--pagefind-ui-text:var(--text);--pagefind-ui-background:var(--overlay);--pagefind-ui-border:var(--border-strong);--pagefind-ui-tag:var(--control);--pagefind-ui-border-width:1px;--pagefind-ui-border-radius:8px;--pagefind-ui-font:var(--font-sans)}
 
 /* ---------- Footer ---------- */
