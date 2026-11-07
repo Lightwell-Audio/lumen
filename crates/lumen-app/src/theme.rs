@@ -402,6 +402,11 @@ pub const CLIP_EDGE: f32 = 0.6;
 /// `text_hint` at this strength, on a `well` wash at `OUTSIDE_WASH`.
 pub const WAVE_OUTSIDE: f32 = 0.55;
 pub const OUTSIDE_WASH: f32 = 0.7;
+/// The audio editor's handles at rest: `text` at this strength. They stay
+/// out of the wave's way and are still plain to find (M9.5 HS A).
+pub const HANDLE_QUIET: f32 = 0.55;
+/// The audio editor's trim grips at rest: `text_secondary` at this strength.
+pub const GRIP_QUIET: f32 = 0.7;
 
 /// A meter's colour at `db`: `base` (the accent, or the track's colour with
 /// the owner's M2 setting) up to [`METER_WARN_DB`], the warning colour up to
@@ -645,7 +650,14 @@ pub mod size {
     pub const TIME_TICK: f32 = 6.0;
     pub const SAMPLE_DOT: f32 = 2.0;
     /// Below this width the audio editor's header buttons take short words.
-    pub const CLIP_HEADER_NARROW: f32 = 600.0;
+    /// The audio editor keeps at least this much wave beside its properties
+    /// column; less and the column folds.
+    pub const WAVE_LEAST: f32 = 320.0;
+    /// The tab on an audio editor's trim grip.
+    pub const GRIP_WIDTH: f32 = 4.0;
+    pub const GRIP_HEIGHT: f32 = 22.0;
+    /// Within this many points of a list's or a view's side, a drag scrolls it.
+    pub const EDGE_SCROLL: f32 = 36.0;
     /// How far a card's shadow reaches past it: what its painter's clip
     /// keeps around the card.
     pub const SHADOW_ROOM: f32 = 24.0;

@@ -36,7 +36,7 @@ pub use crate::audio::{
     InputDeviceTurn, TEST_DRIVER, TEST_HOLDS_DRIVER, TEST_LATE_DRIVER, TEST_REFUSES_DRIVER,
     TEST_SLOW_DRIVER, input_device, input_device_turn,
 };
-pub use editor::{AudioEditorShown, PianoRollDemo};
+pub use editor::{AudioEditorShown, AudioHandlesShown, PianoRollDemo};
 
 /// A note edit for tests (`App::edit_notes`).
 #[derive(Debug, Clone, Copy)]

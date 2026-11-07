@@ -69,7 +69,11 @@ impl App {
         if let Some(tool) = strip.tools(self, ed.tool, tips) {
             ed.tool = tool;
         }
-        self.header_grid_chip(&mut strip.row, ed.time);
+        self.header_grid_chip(
+            &mut strip.row,
+            ed.time,
+            crate::app::clip_header::GridChip::Full,
+        );
         if editable {
             self.quantize_button(&mut strip.row, ed, clip);
         }

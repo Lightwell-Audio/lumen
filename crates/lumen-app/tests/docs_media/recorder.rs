@@ -491,8 +491,14 @@ impl Take {
             .expect("captions and chapters are for walkthroughs")
     }
 
-    /// Encodes the take, or takes it from the cache when nothing changed.
-    pub fn finish(mut self) {
+    /// Encodes the take, or takes it from the cache when nothing changed,
+    /// and gives the test device back for the scene's next take.
+    pub fn finish(mut self) -> InputDeviceTurn {
+        self.encode();
+        self.clock.device
+    }
+
+    fn encode(&mut self) {
         self.clock.stop();
         if let Some(sound) = &self.sound {
             sound.check_sync();

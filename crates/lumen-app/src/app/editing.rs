@@ -12,6 +12,7 @@ use lumen_core::time::Ticks;
 use lumen_project::model::Id;
 
 use super::grid::draw_snap_guide;
+use super::handles::{GestureFrame, TrimStep};
 use super::navigate::ViewStep;
 use crate::arrangement::Arrangement;
 use crate::arrangement::select::{
@@ -170,10 +171,7 @@ impl App {
             // The history would refuse the edit; saying so up front keeps the
             // clip from being dragged around for nothing (the owner's FR2).
             let name = self.document.project().tracks[hit.track].name.clone();
-            self.say(format!(
-                "{name} is frozen, so its clips can't be changed. \
-                 Click the lit Frozen badge on its header (or use Unfreeze track) to unfreeze it"
-            ));
+            self.say_frozen(&name);
             return None;
         }
         if hit.handle.is_some() {
@@ -188,21 +186,17 @@ impl App {
         let locked = grabbed.is_none_or(|c| c.locked);
         if let Some(edge) = hit.edge {
             let clip = grabbed.filter(|c| !c.locked)?;
-            let side = match edge {
-                Edge::Start => clip.start,
-                Edge::End => clip.start + clip.length,
-            };
-            let grab = side - self.ticks_at(canvas, origin.x);
+            let gesture = self.trim_gesture(
+                clip,
+                edge,
+                edge == Edge::End && modifiers.shift,
+                origin.x,
+                GestureFrame::new(self.nav.view, canvas),
+            );
             self.arrangement.clips = BTreeSet::from([hit.clip]);
             self.arrangement.range = None;
             self.selected_clips_now();
-            return Some(Gesture::Trim {
-                base: std::sync::Arc::new(self.document.project().clone()),
-                clip: hit.clip,
-                edge,
-                looping: edge == Edge::End && modifiers.shift,
-                grab,
-            });
+            return Some(gesture);
         }
         if hit.region == ClipRegion::Header && modifiers.command && modifiers.alt {
             if locked {
@@ -363,45 +357,42 @@ impl App {
                 looping,
                 grab,
             } => {
-                // The edge keeps its distance from the pointer: picked up a
-                // few pixels inside, it does not jump to the pointer.
-                let to = self.snapped(self.ticks_at(canvas, p.x) + grab, free);
-                self.document
-                    .trim_clip(&base, clip, edge, to, looping, Some("clip trim"));
-                if let Some(c) = self
-                    .document
-                    .project()
-                    .tracks
-                    .iter()
-                    .flat_map(|t| &t.clips)
-                    .find(|c| c.id == clip)
-                {
-                    let side = match edge {
-                        Edge::Start => c.start,
-                        Edge::End => c.start + c.length,
-                    };
-                    draw_snap_guide(painter, x(side), guides);
-                }
+                let frame = GestureFrame::new(self.nav.view, canvas);
+                self.step_trim(
+                    ctx,
+                    painter,
+                    &TrimStep {
+                        base: &base,
+                        clip,
+                        edge,
+                        looping,
+                        grab,
+                    },
+                    p,
+                    (frame, free),
+                );
                 self.arrangement.hover = Some(Hover {
                     clip,
                     region: ClipRegion::Header,
                     edge: Some(edge),
                     handle: None,
                 });
-                ctx.set_cursor_icon(if looping {
-                    CursorIcon::ResizeEast
-                } else {
-                    CursorIcon::ResizeHorizontal
-                });
             }
             Gesture::Slip { base, clip, at } => {
-                // Slipping is free: the audio follows the hand exactly.
-                let by = self.ticks_at(canvas, p.x) - at;
-                self.document.slip_clip(&base, clip, by, Some("clip slip"));
-                ctx.set_cursor_icon(CursorIcon::ResizeColumn);
+                let frame = GestureFrame::new(self.nav.view, canvas);
+                self.step_slip(ctx, &base, clip, at, p, frame);
             }
             handle @ (Gesture::Fade { .. } | Gesture::Bend { .. } | Gesture::Gain { .. }) => {
-                self.continue_handle_gesture(ctx, handle, p, canvas, painter);
+                let frame = GestureFrame::new(self.nav.view, canvas);
+                if let Some(step) = self.continue_handle_gesture(ctx, handle, p, frame, painter) {
+                    self.arrangement.gesture = Some(step.gesture);
+                    self.arrangement.hover = Some(Hover {
+                        clip: step.clip,
+                        region: ClipRegion::Header,
+                        edge: None,
+                        handle: Some(step.handle),
+                    });
+                }
             }
             Gesture::Range { at, track } => {
                 let (a, b) = (

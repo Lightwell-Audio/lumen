@@ -404,7 +404,7 @@ impl Plan {
     /// tail rendered ahead of a jump), levels are read but do not move;
     /// delay lines do move, which only matters to a latent plan's stop
     /// (and playback clears them when it starts, unless an instrument still
-    /// rings, ADR-0123). With `tap` (the plan the
+    /// rings, ADR-0124). With `tap` (the plan the
     /// listener hears, not one fading out), every node's output is metered
     /// and the measured node's loudness taken.
     pub(super) fn process(

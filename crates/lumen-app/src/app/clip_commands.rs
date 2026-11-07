@@ -9,7 +9,7 @@ use lumen_project::model::Id;
 use crate::App;
 
 /// The finest nudge: a 128th note, as the clip editor's fine nudge.
-const FINE: Ticks = Ticks(PPQ / 32);
+pub(crate) const FINE: Ticks = Ticks(PPQ / 32);
 
 impl App {
     /// The selected clips, in no order.

@@ -177,6 +177,22 @@ impl Document {
         });
     }
 
+    /// The curve [`Self::set_fade_curve`] would change for `clip`'s fade at
+    /// `edge`: at a crossfade's left clip, the one the next clip keeps.
+    pub fn fade_curve(&self, clip: Id, edge: Edge) -> Option<Curve> {
+        let project = self.project();
+        let (id, edge) = crossfade_curve_owner(project, clip, edge);
+        let owner = project
+            .tracks
+            .iter()
+            .flat_map(|t| &t.clips)
+            .find(|c| c.id == id)?;
+        Some(match edge {
+            Edge::Start => owner.fade_in.curve,
+            Edge::End => owner.fade_out.curve,
+        })
+    }
+
     /// Sets the curve of the fades at `edge` of `clips` (the bend dot, the
     /// right-click menu). Locked clips stay as they are, and a curve that
     /// leaves its square is refused.
@@ -382,7 +398,6 @@ impl Document {
     }
 }
 
-/// Replaces the unlocked clip `id` with `change` of it.
 /// Where the curve of `clip`'s fade at `edge` is kept: with the next clip
 /// when it is the crossfade that clip ends.
 fn crossfade_curve_owner(project: &Project, clip: Id, edge: Edge) -> (Id, Edge) {
@@ -399,6 +414,7 @@ fn crossfade_curve_owner(project: &Project, clip: Id, edge: Edge) -> (Id, Edge) 
     (clip, edge)
 }
 
+/// Replaces the unlocked clip `id` with `change` of it.
 fn replace_clip(project: &mut Project, id: Id, change: impl FnOnce(&Clip) -> Clip) {
     for track in &mut project.tracks {
         if let Some(i) = track.clips.iter().position(|c| c.id == id && !c.locked) {

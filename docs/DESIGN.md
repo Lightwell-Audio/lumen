@@ -898,10 +898,29 @@ onto an empty page.
     playing);
   - the file's two ends as `border_strong` hairlines, so where it stops reads
     in both themes;
-  - in a narrow panel (under 600 pt, `size::CLIP_HEADER_NARROW`) the header's
-    buttons read "Clip" and "File" (names and tooltips keep the whole); the
-    header draws its right-hand group first and clips the left parts to the
-    room left, so they are cut, never drawn over the buttons;
+  - the header takes the first of five layouts that fits the parts as they
+    measure this frame (M9.5 S2a, ADR-0123): **Words**; **Icons** (the view
+    buttons as 30 pt icon buttons); **Compact** (the title gives up its
+    caption and shortens, the grid chip its word); **More** (the view
+    buttons move into a ⋯ icon button's menu); **Least** (the colour bar,
+    the grid's icon and ⋯). A control that loses its word keeps it in its
+    tooltip and accessible name. When the properties column would leave the
+    wave under 320 pt (`size::WAVE_LEAST`) it folds, and Clip properties is
+    in the ⋯ menu at every layout;
+  - **the handles** (M9.5 S2a, HS A): always drawn, quiet, and lit in
+    `accent` under the pointer, during a drag or with the keyboard. The trim
+    grips are 4 × 22 pt tabs (`size::GRIP_WIDTH`, `GRIP_HEIGHT`) in
+    `text_secondary` at 70% (`GRIP_QUIET`), hollow on a clip that takes no
+    edit; the fade handles, bend dots and gain line are the arrangement's
+    shapes in `text` at 55% (`HANDLE_QUIET`). A handle with the keyboard has
+    the 2 pt accent focus ring. The cursor is the resize cursor on a grip,
+    the column cursor over the dimmed file (slip) and while Ctrl+Alt is
+    held. A drag near the wave's sides scrolls it, from the 36 pt zone
+    (`size::EDGE_SCROLL`) up to `motion::EDGE_SCROLL_SPEED`, only once the
+    hand goes outwards past where it pressed;
+  - Enter on a handle opens a popover under it: a caption, a mono field
+    with the value selected, a warning line when it cannot be read, and on a
+    fade its shapes and Straighten;
   - Z zooms the editor to the clip and X goes back while its keys are live
     (the pointer is over it, or the panel has the keyboard);
   - designed states: "Reading the file" while it loads; "Preparing the wave"
@@ -1024,8 +1043,8 @@ The Clip tab uses the shared controls (§5a, ADR-0052).
   chevron; it opens the grid menu; named "Editor grid: 1/8"); the editor's
   own action (Quantize for notes); at the right the editor's view toggles
   (Lane for notes) and Pop out/Dock (icon buttons), keycaps in their
-  tooltips. The audio editor has no tool switch until its handles arrive
-  (M9.5 S2); its parts keep the same places.
+  tooltips. The audio editor has no tool switch until its envelopes arrive
+  (M9.5 S2b); its parts keep the same places.
 - **Notes:** the GPU boxes (rounded, light top edge, velocity brightness)
   plus egui layers: a two-layer soft shadow beneath (`control_shadow`), a
   2 pt velocity bar on the bottom edge, and a `light::LIT` glow around picked

@@ -269,6 +269,8 @@ pub(crate) enum Command {
     AssociateFiles,
     AudioEditorZoomToClip,
     AudioEditorWholeFile,
+    SlipClipEarlier,
+    SlipClipLater,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -363,7 +365,7 @@ pub(crate) struct Info {
 }
 
 use eframe::egui::Key;
-use keys::{alt, alt_shift, ctrl, ctrl_shift, plain, shift};
+use keys::{alt, alt_shift, ctrl, ctrl_alt, ctrl_shift, plain, shift};
 
 /// Every command, in the order of [`Command`]. Kept as a table, one line
 /// per command, so it reads as one.
@@ -625,6 +627,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AssociateFiles, "file.associate_files", concat!("Open .lumen files with ", lumen_core::product_name!()), Area::File, &[], "Turns on or off opening projects from File Explorer with this copy, each with the project icon."),
     info(Command::AudioEditorZoomToClip, "view.audio_editor_zoom_to_clip", "Zoom the audio editor to the clip", Area::View, &[], "Shows the part of the file the opened audio clip plays across the Clip tab's editor. A looping clip shows its loop."),
     info(Command::AudioEditorWholeFile, "view.audio_editor_whole_file", "Show the whole file in the audio editor", Area::View, &[], "Shows the opened audio clip's whole file in the Clip tab's editor, with the part the clip plays bright."),
+    info(Command::SlipClipEarlier, "edit.slip_clip_earlier", "Slide the audio earlier in its clip", Area::Edit, &[ctrl_alt(Key::ArrowLeft)], "Slides the opened audio clip's audio one grid step earlier inside the clip, which stays where it is. Its key works while the audio editor is in use."),
+    info(Command::SlipClipLater, "edit.slip_clip_later", "Slide the audio later in its clip", Area::Edit, &[ctrl_alt(Key::ArrowRight)], "Slides the opened audio clip's audio one grid step later inside the clip, which stays where it is. Its key works while the audio editor is in use."),
 ];
 
 const fn info(
@@ -688,7 +692,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::AudioEditorWholeFile as usize + 1,
+            Command::SlipClipLater as usize + 1,
             ALL.len(),
             "a command is missing"
         );

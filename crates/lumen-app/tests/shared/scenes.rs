@@ -86,6 +86,23 @@ pub const SCENES: &[Scene] = &[
             &["The part the clip plays", "The rest of the file"],
         )],
     },
+    Scene {
+        test: "audio_editor_handles",
+        clips: &[
+            "audio-editor-handles-lead",
+            "audio-editor-trim",
+            "audio-editor-fade",
+            "audio-editor-fade-shape",
+            "audio-editor-gain",
+            "audio-editor-slip",
+        ],
+        shots: &["audio-editor-handles"],
+        walks: &[],
+        callouts: &[(
+            "audio-editor-handles",
+            &["Trim grip", "Fade handle", "Gain line"],
+        )],
+    },
 ];
 
 /// Whether a scene writes the clip `name`.
