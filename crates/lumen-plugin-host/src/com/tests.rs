@@ -103,3 +103,15 @@ fn a_value_that_is_not_a_number_is_never_kept() {
     h.drain_to_processor(&mut now);
     assert!(now.is_empty());
 }
+
+#[test]
+fn a_plugin_naming_its_parameters_anew_is_told_as_a_retitle_and_not_a_change() {
+    let h = Handler::default();
+    // SAFETY: a plain call on an object of this process.
+    unsafe { h.restartComponent(1 << 4) };
+    assert_eq!(
+        h.take_reports().0,
+        vec![edit(0, 0.0, EditKind::Retitled)],
+        "the list is to be read again; the project is not changed"
+    );
+}

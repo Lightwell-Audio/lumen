@@ -311,3 +311,28 @@ fn enter_for_the_save_question_reaches_no_other_window() {
     );
     assert!(lumen.app().project_path().is_none() && lumen.app().is_dirty());
 }
+
+#[test]
+fn a_new_or_opened_project_does_not_play_on_from_the_last() {
+    // Open or New while the song plays: the song belonged to the project
+    // that closed, so playback stops rather than carrying on over the next.
+    let mut lumen = Lumen::start("open-while-playing");
+    lumen.key(Modifiers::COMMAND, Key::T);
+    let path = project_file(lumen.dir(), "Song");
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
+
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback", |app| app.is_playing());
+    super::copies::command(&mut lumen, "New project");
+    lumen.wait_for("the new project to stop playback", |app| {
+        app.project_path().is_none() && !app.is_playing()
+    });
+
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback", |app| app.is_playing());
+    lumen.app_mut().open_project_file(path.clone());
+    lumen.wait_for("the opened project to stop playback", |app| {
+        !app.is_busy() && app.project_path().is_some() && !app.is_playing()
+    });
+}

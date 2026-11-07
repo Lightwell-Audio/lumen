@@ -899,6 +899,79 @@ fn an_edit_elsewhere_does_not_cut_the_synth_that_is_sounding() {
     assert_eq!(rig.engine.source().tracks().1.held(TRACK), 1);
 }
 
+#[test]
+fn taking_the_synth_away_lets_its_note_ring_out_instead_of_cutting_it() {
+    // The track loses its instrument while a note sounds (removed, or a
+    // device of another kind in its place): the old synth plays its release
+    // out into the track, then the engine goes idle (M5 slice 1 finding).
+    let (mut rig, timeline) = synth_rig(1.0, true);
+    rig.play();
+    let start = timeline.sample_at(Ticks::quarters(1) + Ticks(77), 48_000) as usize;
+    let before = rig.run(start + 3_000, 128);
+    let q = Ticks::quarters;
+    let bare = MidiTrack::new(
+        TRACK,
+        Target::Instrument,
+        None,
+        vec![clip(
+            1,
+            Ticks::ZERO,
+            q(8),
+            vec![note(q(1) + Ticks(77), q(1), 60)],
+        )],
+    );
+    rig.midi.set(vec![bare]).ok().unwrap();
+    let out = rig.run(4_800, 128);
+    let sounding = steepest_step(&before[start..]);
+    let at_swap = steepest_step(&out[..256]);
+    assert!(
+        at_swap <= sounding * 1.5,
+        "no step where the instrument went: {at_swap} against {sounding}"
+    );
+    assert!(rms(&out[..480]) > 0.001, "the release rings");
+    assert!(rms(&out[4_000..]) < rms(&out[..480]), "and fades");
+    rig.transport.send(Command::Stop).unwrap();
+    rig.run(48_000, 128);
+    assert!(
+        !lumen_engine::Source::ringing(rig.engine.source()),
+        "silent and idle again"
+    );
+}
+
+#[test]
+fn panic_silences_a_synth_that_is_ringing_out_after_it_was_taken_away() {
+    // The removed synth's release is still sounding when Panic comes: Panic
+    // silences it as it does the track's own instrument.
+    let (mut rig, timeline) = synth_rig(1.0, true);
+    rig.play();
+    let start = timeline.sample_at(Ticks::quarters(1) + Ticks(77), 48_000) as usize;
+    rig.run(start + 3_000, 128);
+    let q = Ticks::quarters;
+    let bare = MidiTrack::new(
+        TRACK,
+        Target::Instrument,
+        None,
+        vec![clip(
+            1,
+            Ticks::ZERO,
+            q(8),
+            vec![note(q(1) + Ticks(77), q(1), 60)],
+        )],
+    );
+    rig.midi.set(vec![bare]).ok().unwrap();
+    let ringing = rig.run(256, 128);
+    assert!(rms(&ringing) > 0.001, "the release rings before Panic");
+    rig.transport.send(Command::Stop).unwrap();
+    rig.transport.send(Command::Panic).unwrap();
+    rig.run(1_024, 128);
+    let after = rig.run(1_024, 128);
+    assert!(rms(&after) < 1e-6, "silent after Panic: {}", rms(&after));
+    assert!(
+        !lumen_engine::Source::ringing(rig.engine.source()),
+        "and idle"
+    );
+}
+
 /// A synth track on `preset` with one note at beat 1 (+77 ticks).
 fn preset_track(preset: lumen_devices::Preset) -> MidiTrack {
     let q = Ticks::quarters;

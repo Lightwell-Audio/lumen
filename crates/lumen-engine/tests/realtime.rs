@@ -657,7 +657,9 @@ fn midi_never_touches_the_heap() {
                     id,
                     target,
                     Some(InstrumentSpec {
-                        kind: 1,
+                        // One edit in five changes the instrument's kind:
+                        // the old one rings out on the new list.
+                        kind: if variant == 4 { 2 } else { 1 },
                         preset: (variant % 3) as u32,
                         instrument: Box::new(Counter {
                             held: [false; 128],

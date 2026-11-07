@@ -261,3 +261,61 @@ fn a_failure_told_twice_counts_once_and_one_after_a_reload_counts_again() {
     note_failure(&mut failures, &State::Loading);
     assert_eq!(failures.len(), 3, "after reloads, each failure counts");
 }
+
+fn info(id: u32, title: &str, units: &str, steps: i32) -> ParamInfo {
+    ParamInfo {
+        id,
+        title: title.to_owned(),
+        units: units.to_owned(),
+        steps,
+        default: 0.0,
+        flags: 1,
+        unit: 0,
+        value: 0.0,
+    }
+}
+
+/// Parameters that know the words for a value and the steps of a chooser.
+fn worded() -> Parameters {
+    let mut p = Parameters {
+        list: vec![info(1, "Cutoff", "Hz", 0), info(2, "Mode", "", 2)],
+        ..Parameters::default()
+    };
+    p.remember_text(1, 0.5, "1.2 kHz".to_owned());
+    p.choices
+        .insert(2, vec!["Low".into(), "Band".into(), "High".into()]);
+    p.choices_asked.insert(2);
+    p
+}
+
+#[test]
+fn a_list_read_again_with_new_names_units_or_steps_forgets_the_plugins_words() {
+    // A patch that names its controls anew may also say their values
+    // otherwise, at the same value (review of ADR-0125).
+    for now in [
+        vec![info(1, "Tone", "Hz", 0), info(2, "Mode", "", 2)],
+        vec![info(1, "Cutoff", "%", 0), info(2, "Mode", "", 2)],
+        vec![info(1, "Cutoff", "Hz", 0), info(2, "Mode", "", 3)],
+    ] {
+        let mut p = worded();
+        assert!(p.forget_texts_if_renamed(&now));
+        assert!(p.texts.is_empty() && p.choices.is_empty());
+        assert!(p.choices_asked.is_empty(), "the steps are asked for again");
+    }
+}
+
+#[test]
+fn a_list_read_again_unchanged_keeps_the_words_unless_the_plugin_said_it_renamed() {
+    // A checkpoint reads every value again: nothing renamed, nothing lost.
+    let same = vec![info(1, "Cutoff", "Hz", 0), info(2, "Mode", "", 2)];
+    let mut p = worded();
+    assert!(!p.forget_texts_if_renamed(&same));
+    assert_eq!(p.texts[&1], vec![(0.5, "1.2 kHz".to_owned())]);
+    assert_eq!(p.choices[&2].len(), 3);
+    // The plugin said its titles changed, though the list looks the same:
+    // its words may have, and are asked for again.
+    p.retitled = true;
+    assert!(p.forget_texts_if_renamed(&same));
+    assert!(p.texts.is_empty() && p.choices.is_empty());
+    assert!(!p.retitled, "once");
+}

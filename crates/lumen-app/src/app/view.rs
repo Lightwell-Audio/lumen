@@ -447,6 +447,7 @@ report: {}",
         }
         let pending = self.lanes.pending().len();
         self.lane_names();
+        self.lane_texts(ui.ctx());
         self.arrangement.lane_overlay(
             ui,
             &painter,
@@ -769,11 +770,16 @@ report: {}",
             }
         }
         // Last, so it sits over the headers; on their side of the edge
-        // only, so a drag at the lanes' left edge stays a clip or locator
-        // drag.
+        // only, a point short of it, so a press on the lanes' first column
+        // stays the lanes' (a clip or locator drag, or the point at the
+        // start of a lane: KNOWN_ISSUES rows 37 and 54).
         self.header_divider(
             ui,
-            egui::Rect::from_x_y_ranges(corner.right() - 5.0..=corner.right(), whole.y_range()),
+            egui::Rect::from_x_y_ranges(
+                corner.right() - 6.0..=corner.right() - 1.0,
+                whole.y_range(),
+            ),
+            corner.right(),
         );
         if let Some(info) = self.arrangement.info.take() {
             self.set_info(info);
@@ -790,7 +796,7 @@ report: {}",
     /// drag to widen the headers, double-click to go back to the default
     /// width. It glows in the accent while hovered or dragged, as a track's
     /// bottom edge does. Not an edit: saved with the project's view.
-    fn header_divider(&mut self, ui: &mut egui::Ui, edge: egui::Rect) {
+    fn header_divider(&mut self, ui: &mut egui::Ui, edge: egui::Rect, line: f32) {
         let id = ui.id().with("header divider");
         let response = ui
             .interact(edge, id, Sense::click_and_drag())
@@ -825,7 +831,7 @@ report: {}",
             response.hovered() || response.dragged(),
         );
         if glow > 0.0 {
-            widgets::draw_edge_glow_vertical(ui.painter(), edge.right(), edge.y_range(), glow);
+            widgets::draw_edge_glow_vertical(ui.painter(), line, edge.y_range(), glow);
         }
     }
 

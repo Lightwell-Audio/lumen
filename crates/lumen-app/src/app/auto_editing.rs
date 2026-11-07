@@ -179,7 +179,7 @@ impl App {
                     CursorIcon::Grab,
                     Info::new(format!(
                         "{name} point \u{00B7} {}",
-                        scale::text(target, point.value)
+                        self.arrangement.auto.value_text(target, point.value)
                     ))
                     .on(Held::NONE, Mouse::Drag, "move")
                     .on(Held::NONE, Mouse::Click, "pick")

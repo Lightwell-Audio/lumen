@@ -7,8 +7,8 @@ use crate::wire::WireError;
 pub const MAGIC: u32 = 0x3148_504c; // "LPH1"
 /// Bumped when a message changes shape or a limit both sides keep changes. A
 /// host of another version is refused (8: a block may carry 64 channels, 32
-/// stereo buses, where it was 16).
-pub const VERSION: u16 = 8;
+/// stereo buses, where it was 16; 9: the `Retitled` edit).
+pub const VERSION: u16 = 9;
 
 pub const MAX_FRAMES: usize = 8192;
 /// The channels a block carries each way in all: the main bus and every
@@ -45,6 +45,13 @@ pub const MAX_KEYS: usize = 64;
 /// note expression, key switches) are news for the controller's readers, and a
 /// plugin sends them whenever it changes a program or a patch.
 pub const RESTART_RECONFIGURE: u32 = 1 | (1 << 1) | (1 << 3);
+
+/// The restart flag that says the plugin's parameters have new titles, units
+/// or steps (`kParamTitlesChanged`, as when a patch names its controls anew):
+/// reported as a [`EditKind::Retitled`] edit, and Lumen reads the list again.
+/// Changed values (`kParamValuesChanged`) are a change inside the plugin,
+/// read once it rests.
+pub const RESTART_TITLES: u32 = 1 << 4;
 
 /// The same 16 bytes as a VST3 class id.
 pub type ClassId = [u8; 16];
@@ -351,6 +358,10 @@ pub enum EditKind {
     /// shows (a patch, a preset): `setDirty`, or a restart that says the
     /// values changed. The id and the value mean nothing.
     Dirty = 4,
+    /// The plugin's parameters have new titles, units or steps (a restart
+    /// with [`RESTART_TITLES`]): the list is to be read again. The id and
+    /// the value mean nothing.
+    Retitled = 5,
 }
 
 impl EditKind {
@@ -361,6 +372,7 @@ impl EditKind {
             2 => Self::End,
             3 => Self::Output,
             4 => Self::Dirty,
+            5 => Self::Retitled,
             _ => return Err(WireError::Invalid("edit kind")),
         })
     }

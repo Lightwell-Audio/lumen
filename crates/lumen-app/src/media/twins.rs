@@ -146,6 +146,7 @@ impl Library {
                     peaks: None,
                     job: None,
                     streamed: None,
+                    generated: false,
                 },
                 from: Arc::clone(&from),
                 cancel: Arc::clone(&cancel),

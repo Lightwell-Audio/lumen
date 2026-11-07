@@ -90,6 +90,9 @@ pub(crate) struct Chain {
     pub text_asked: RefCell<HashMap<(u64, u32), (f64, std::time::Instant)>>,
     /// A knob's text is waiting on a later frame to be asked for.
     pub text_pending: Cell<bool>,
+    /// [`crate::hosting::Hosting::texts_forgotten`] when `text_asked` was
+    /// last cleared for it.
+    pub texts_seen: Cell<u64>,
     /// The panel with every parameter of one plugin, when open.
     pub panel: Option<params::Panel>,
     /// Outputs of an instrument being turned off whose tracks hold work,

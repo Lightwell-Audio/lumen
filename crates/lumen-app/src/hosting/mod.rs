@@ -173,13 +173,20 @@ struct Parameters {
     released: Vec<(u32, std::time::Instant)>,
     /// The values the project held when the host was started.
     started_with: BTreeMap<u32, f64>,
-    /// The plugin's own text for a value, last asked for, by parameter.
-    texts: HashMap<u32, (f64, String)>,
+    /// The plugin's own text for the values last asked about, by parameter:
+    /// the newest last, at most [`TEXTS_KEPT`] each. More than one is kept
+    /// because more than one reader asks (the card for the value it shows,
+    /// a lane for the point under the pointer), and one answer must not
+    /// stand for another's value.
+    texts: HashMap<u32, Vec<(f64, String)>>,
     /// The plugin's own word for each step of a stepped parameter, by
     /// parameter (a chooser's list), as far as it has said them.
     choices: HashMap<u32, Vec<String>>,
     /// The parameters whose steps have been asked about.
     choices_asked: std::collections::HashSet<u32>,
+    /// The plugin named its controls anew and the list is being read again:
+    /// once it comes, the texts above are forgotten.
+    retitled: bool,
     /// What the plugin made of text the user typed, waiting for the document:
     /// the parameter, the text, and the value or `None` when it did not
     /// understand.
@@ -334,6 +341,46 @@ impl Parameters {
         self.capturing = Some(self.edit_count);
         self.capturing_values = Some(self.values.clone());
     }
+
+    /// Forgets the plugin's words for values and steps when the list `now`
+    /// read again names its controls anew (it said so, or a title, unit or
+    /// step count differs): a patch that renames them may say their values
+    /// otherwise too. True when they were forgotten.
+    fn forget_texts_if_renamed(&mut self, now: &[ParamInfo]) -> bool {
+        let renamed = std::mem::take(&mut self.retitled)
+            || now.iter().any(|now| {
+                self.list.iter().any(|known| {
+                    known.id == now.id
+                        && (known.title != now.title
+                            || known.units != now.units
+                            || known.steps != now.steps)
+                })
+            });
+        if renamed {
+            self.texts.clear();
+            self.choices.clear();
+            self.choices_asked.clear();
+        }
+        renamed
+    }
+
+    /// Keeps the plugin's `text` for `value` of parameter `id`, the newest.
+    fn remember_text(&mut self, id: u32, value: f64, text: String) {
+        let kept = self.texts.entry(id).or_default();
+        kept.retain(|(at, _)| !same_value(*at, value));
+        if kept.len() >= TEXTS_KEPT {
+            kept.remove(0);
+        }
+        kept.push((value, text));
+    }
+}
+
+/// How many of a parameter's value texts are kept.
+const TEXTS_KEPT: usize = 8;
+
+/// Whether two normalized values are the same value, for their texts.
+pub(crate) fn same_value(a: f64, b: f64) -> bool {
+    (a - b).abs() < 1e-9
 }
 
 /// The most steps a parameter may have to be shown as a list of choices; a
@@ -455,6 +502,9 @@ pub struct Hosting {
     places: Vec<(String, EditorBounds)>,
     /// A plugin changed inside, waiting for the app to say so.
     inside_changes: bool,
+    /// Counts the times a plugin's words for its values were forgotten, so
+    /// readers that remember what they asked for ask again.
+    texts_forgotten: u64,
     /// Keys pressed and let go of in plugins' windows (virtual-key codes,
     /// `true` for down), oldest first, waiting for the computer keyboard.
     keys: Vec<(u8, bool)>,
@@ -561,6 +611,7 @@ impl Hosting {
             frames: promised_frames(0),
             places: Vec::new(),
             inside_changes: false,
+            texts_forgotten: 0,
             keys: Vec::new(),
             presets: Vec::new(),
             checkpoint_every: CHECKPOINT,

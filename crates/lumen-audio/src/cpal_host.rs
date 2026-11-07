@@ -242,6 +242,7 @@ impl CpalBackend {
                 output_latency: frames,
                 input_channels: 0,
                 output_channels: config.output_channels.len(),
+                silent_inputs: Vec::new(),
             },
         }))
     }

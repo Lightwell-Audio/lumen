@@ -3,7 +3,7 @@
 //! the bar fields follow the playhead through the changes; every edit is one
 //! undo step, and the keyboard reaches all of it.
 
-use eframe::egui::{Event, Key, Modifiers, pos2, vec2};
+use eframe::egui::{Event, Key, Modifiers, pos2};
 use lumen_core::time::Ticks;
 
 use super::Lumen;
@@ -25,9 +25,9 @@ fn start(name: &str) -> Lumen {
 }
 
 pub(super) fn click_tempo(lumen: &mut Lumen, quarters: f64, bpm: f64) {
-    // A point at the start sits on the lane's edge: press a little inside it.
-    let nudge = if quarters == 0.0 { 3.0 } else { 0.0 };
-    let at = lumen.app().song_tempo_spot(quarters, bpm).unwrap() + vec2(nudge, 0.0);
+    // A point at the start sits on the lane's edge, and a press there picks
+    // it (KNOWN_ISSUES row 37).
+    let at = lumen.app().song_tempo_spot(quarters, bpm).unwrap();
     click_at(lumen, at);
 }
 
@@ -129,7 +129,7 @@ fn a_drag_moves_a_tempo_change_in_time_and_value_as_one_step() {
 fn the_first_tempo_stays_at_zero_and_only_changes_value() {
     let mut lumen = start("song-first-tempo");
     // The first point sits on the lane's left edge: press a little inside it.
-    let from = lumen.app().song_tempo_spot(0.0, 120.0).unwrap() + vec2(3.0, 0.0);
+    let from = lumen.app().song_tempo_spot(0.0, 120.0).unwrap();
     let to = pos2(
         lumen.app().song_tempo_spot(8.0, 120.0).unwrap().x,
         lumen.app().song_tempo_spot(0.0, 130.0).unwrap().y,
@@ -310,7 +310,7 @@ fn a_tempo_change_ramps_to_the_next_from_its_menu_and_the_bar_follows_the_glide(
     click_tempo(&mut lumen, 8.0, 100.0);
     assert_eq!(tempos(&lumen).len(), 2);
     // Right-click the first change: it can ramp to the one after it.
-    let first = lumen.app().song_tempo_spot(0.0, 120.0).unwrap() + vec2(3.0, 0.0);
+    let first = lumen.app().song_tempo_spot(0.0, 120.0).unwrap();
     lumen.right_click(first);
     lumen.click("Ramp to the next change");
     assert!(lumen.app().project().tempo[0].ramp);

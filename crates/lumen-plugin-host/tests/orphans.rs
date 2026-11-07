@@ -127,15 +127,17 @@ fn child_exits_if_its_parent_is_already_gone() {
 #[test]
 #[ignore = "helper: creates a short-lived parent for the race test below"]
 fn parent_exits_immediately_after_starting_watcher_child() {
-    let child = Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "child_exits_if_its_parent_is_already_gone",
-            "--ignored",
-            "--nocapture",
-        ])
-        .spawn()
-        .unwrap();
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command.args([
+        "--exact",
+        "child_exits_if_its_parent_is_already_gone",
+        "--ignored",
+        "--nocapture",
+    ]);
+    // As Lumen starts a host: the child knows who started it, so an orphan
+    // adopted by another ancestor (not process 1) still sees its parent is gone.
+    lumen_plugin_host::process::started_by_this_process(&mut command);
+    let child = command.spawn().unwrap();
     println!("watcher child {}", child.id());
     let mut stdout = std::io::stdout();
     std::io::Write::flush(&mut stdout).unwrap();

@@ -114,7 +114,6 @@ pub use timeview::TimeView;
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 use eframe::egui;

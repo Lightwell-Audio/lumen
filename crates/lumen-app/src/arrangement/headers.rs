@@ -128,6 +128,7 @@ impl Arrangement {
         let base_clip = ui.clip_rect();
         let base_painter = painter.clone();
         let mut edges = Vec::new();
+        let mut covered = None;
         for (n, &row) in rows.iter().enumerate() {
             let zone = Rect::from_x_y_ranges(
                 column.x_range(),
@@ -193,7 +194,26 @@ impl Arrangement {
                     hearing: &hearing,
                 },
             );
+            // A control of a row partly under the pinned returns and master
+            // that takes the keyboard focus (Tab, or a screen reader) brings
+            // its row into view, so what has the focus can be seen
+            // (KNOWN_ISSUES row 114).
+            if row.zone == Zone::Main
+                && !zone.contains_rect(rect)
+                && let Some(focused) = ui.ctx().memory(|m| m.focused())
+                && ui
+                    .ctx()
+                    .read_response(focused)
+                    .is_some_and(|r| rect.contains_rect(r.rect) && !zone.contains_rect(r.rect))
+            {
+                covered = Some(track.id);
+            }
             edges.push((track, rect, zone));
+        }
+        if let Some(id) = covered {
+            let pending = lanes.pending().len();
+            self.scroll_to_track(&ctx, doc.project(), pending, id, column.height());
+            ui.ctx().request_repaint();
         }
         // The resize edges go over every row, so the band below a row's line
         // is not taken by the next row's header.

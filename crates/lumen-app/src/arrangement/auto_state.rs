@@ -233,6 +233,14 @@ pub(crate) struct AutoView {
     /// plugin's parameter id: "Filter · Cutoff". Filled each frame for the
     /// lanes of the tracks shown.
     pub names: BTreeMap<(Id, u32), String>,
+    /// The plugins' own text for the value of a lane's point that rests
+    /// under the pointer, is picked or is being moved, with the value it
+    /// answers ("1.2 kHz" for 0.4). Filled each frame by the app.
+    pub texts: BTreeMap<(Id, u32), (f64, String)>,
+    /// The last value a plugin was asked to put in words, and when.
+    pub text_asked: Option<((Id, u32), f64, std::time::Instant)>,
+    /// `Hosting::texts_forgotten` when `text_asked` was last cleared for it.
+    pub texts_seen: u64,
     /// The lane each track shows, by track.
     pub shown: BTreeMap<Id, Target>,
     /// The points picked, on one lane.
@@ -287,6 +295,36 @@ impl AutoView {
             return name.clone();
         }
         super::auto_scale::name(project, target)
+    }
+
+    /// How `value` of `target` reads: the plugin's own text for a plugin's
+    /// parameter once it has answered (the answer for the nearest value
+    /// kept stands until the point's own comes, as on a device card's
+    /// knob), else the lane's own words.
+    pub fn value_text(&self, target: Target, value: f32) -> String {
+        if let Target::Device { device, param } = target
+            && let Some((_, text)) = self.texts.get(&(device, param))
+        {
+            return text.clone();
+        }
+        super::auto_scale::text(target, value)
+    }
+
+    /// The point of a plugin's lane whose value is read out now: the one
+    /// being moved, else the one under the pointer, else the one picked.
+    pub fn resting(&self) -> Option<Picked> {
+        let moving = self.active.as_ref().and_then(|a| match &a.how {
+            Gesture::Move(m) => Some(Picked {
+                track: a.track,
+                target: a.target,
+                index: m.anchor,
+            }),
+            _ => None,
+        });
+        moving
+            .or(self.hover)
+            .or_else(|| self.picks.as_ref().and_then(Picks::single))
+            .filter(|p| matches!(p.target, Target::Device { .. }))
     }
 
     /// Whether `track`'s clips step back for the lane it shows. A clip's own

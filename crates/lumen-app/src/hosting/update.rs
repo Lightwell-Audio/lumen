@@ -227,7 +227,7 @@ impl Hosting {
                         words[index] = text.clone();
                     }
                 }
-                t.params.texts.insert(id, (value, text));
+                t.params.remember_text(id, value, text);
             }
             Happened::Editor(news) => match news {
                 EditorEvent::Opened(b) | EditorEvent::Moved(b) => {
@@ -282,11 +282,28 @@ impl Hosting {
                 }
             }
             Happened::Values(all) => {
+                let p = &mut t.params;
+                // What the plugin calls its parameters now: a patch may name
+                // its controls anew (`kParamTitlesChanged`). Its words for
+                // values and steps may have changed with them: they are
+                // asked for again.
+                if p.forget_texts_if_renamed(&all) {
+                    self.texts_forgotten += 1;
+                }
+                for now in &all {
+                    if let Some(known) = p.list.iter_mut().find(|i| i.id == now.id) {
+                        known.title.clone_from(&now.title);
+                        known.units.clone_from(&now.units);
+                        known.steps = now.steps;
+                        known.default = now.default;
+                        known.flags = now.flags;
+                        known.unit = now.unit;
+                    }
+                }
                 // What the plugin holds now: a value that moved without a
                 // word (a program chosen in its window, a patch) is an edit
                 // of the project, as if the plugin had said so.
-                let p = &mut t.params;
-                for (id, value) in all {
+                for (id, value) in all.into_iter().map(|p| (p.id, p.value)) {
                     let moves = p
                         .list
                         .iter()
@@ -373,7 +390,7 @@ impl Hosting {
                     .quiet_until
                     .is_some_and(|at| std::time::Instant::now() < at);
                 for edit in taken.list {
-                    if quiet && edit.kind != EditKind::Output {
+                    if quiet && !matches!(edit.kind, EditKind::Output | EditKind::Retitled) {
                         return;
                     }
                     let p = &mut t.params;
@@ -416,6 +433,14 @@ impl Hosting {
                             if t.linked_at.is_some_and(|at| at.elapsed() >= SETTLE) {
                                 p.touch();
                                 self.inside_changes = true;
+                            }
+                        }
+                        // Its controls were named anew (a patch): the list
+                        // is read again, and the card and panel follow.
+                        EditKind::Retitled => {
+                            if let Some(manager) = self.manager.as_ref() {
+                                p.retitled = true;
+                                manager.refresh(id);
                             }
                         }
                     }

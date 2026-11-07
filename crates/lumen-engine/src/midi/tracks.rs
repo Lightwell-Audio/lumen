@@ -104,6 +104,7 @@ pub(super) fn render_instrument(
     buses: &mut Buses<'_>,
     events: bool,
 ) {
+    ring_out(track, id, (frames, cx_rate), buses);
     if std::mem::take(&mut track.begun)
         && let Some(spec) = track.instrument.as_mut()
     {
@@ -150,6 +151,25 @@ pub(super) fn render_instrument(
     }
     if events {
         track.state.events.clear();
+    }
+}
+
+/// Plays the release of an instrument the track no longer has into its bus,
+/// while anything of it still sounds.
+fn ring_out(track: &mut MidiTrack, id: u64, (frames, rate): (usize, u32), buses: &mut Buses<'_>) {
+    let Some(spec) = track.leaving.as_mut().filter(|s| s.instrument.active()) else {
+        return;
+    };
+    let mut left = [0.0f32; CHUNK];
+    let mut right = [0.0f32; CHUNK];
+    spec.instrument
+        .render(rate, &[], &mut left[..frames], &mut right[..frames]);
+    if let Some(mut bus) = buses.track(id) {
+        for (side, samples) in [(0, &left), (1, &right)] {
+            for (to, from) in bus.channel(side).iter_mut().zip(samples) {
+                *to += from;
+            }
+        }
     }
 }
 

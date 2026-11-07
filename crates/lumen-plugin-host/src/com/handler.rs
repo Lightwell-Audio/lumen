@@ -1,6 +1,7 @@
 //! The component handler: the edits and restarts a plugin reports.
 
 use super::*;
+use crate::protocol::RESTART_TITLES;
 
 /// Hears the controller: restart requests (latency or bus changes) and
 /// parameter edits made in its own windows.
@@ -46,7 +47,7 @@ impl Handler {
             && edit.kind == last.kind
             && matches!(
                 edit.kind,
-                EditKind::Perform | EditKind::Output | EditKind::Dirty
+                EditKind::Perform | EditKind::Output | EditKind::Dirty | EditKind::Retitled
             )
             && edit.id == last.id
         {
@@ -185,6 +186,13 @@ impl IComponentHandlerTrait for Handler {
         self.restart.fetch_or(flags as u32, Ordering::AcqRel);
         if flags as u32 & RESTART_CHANGED_STATE != 0 {
             self.report_dirty();
+        }
+        if flags as u32 & RESTART_TITLES != 0 {
+            self.report(Edit {
+                id: 0,
+                value: 0.0,
+                kind: EditKind::Retitled,
+            });
         }
         kResultOk
     }

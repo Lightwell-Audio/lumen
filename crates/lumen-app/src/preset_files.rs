@@ -40,11 +40,22 @@ impl Places {
     pub fn standard() -> Self {
         let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
         if cfg!(windows) {
+            // The Documents folder where Windows keeps it, which a person may
+            // have moved (KNOWN_ISSUES row 175); the profile's own Documents
+            // when it cannot say.
+            let profile = var("USERPROFILE").map(|p| p.join("Documents").join("VST3 Presets"));
+            let user = documents_folder()
+                .map(|d| d.join("VST3 Presets"))
+                .or_else(|| profile.clone());
+            // Presets an earlier Lumen saved under the profile's Documents,
+            // when that is not the user's folder, are still listed.
+            let earlier = profile.filter(|p| Some(p) != user.as_ref() && p.is_dir());
             Self {
-                user: var("USERPROFILE").map(|p| p.join("Documents").join("VST3 Presets")),
+                user,
                 system: var("PROGRAMDATA")
                     .map(|p| p.join("VST3 Presets"))
                     .into_iter()
+                    .chain(earlier)
                     .collect(),
                 fixed: false,
             }
@@ -94,6 +105,44 @@ impl Places {
         }
         out
     }
+}
+
+/// The user's Documents folder as Windows knows it (`FOLDERID_Documents`),
+/// which follows a folder the person moved or had redirected.
+#[cfg(windows)]
+fn documents_folder() -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::{
+        FOLDERID_Documents, KF_FLAG_DEFAULT, SHGetKnownFolderPath,
+    };
+    let mut wide: windows_sys::core::PWSTR = std::ptr::null_mut();
+    // SAFETY: the GUID is a static, the token is null (the current user),
+    // and `wide` receives a string the shell allocates, freed below on
+    // every path.
+    let result = unsafe {
+        SHGetKnownFolderPath(
+            &FOLDERID_Documents,
+            KF_FLAG_DEFAULT as u32,
+            std::ptr::null_mut(),
+            &mut wide,
+        )
+    };
+    let path = (result >= 0 && !wide.is_null()).then(|| {
+        // SAFETY: on success the shell returns a NUL-terminated string.
+        let len = (0..).take_while(|&i| unsafe { *wide.add(i) } != 0).count();
+        // SAFETY: `len` characters were just read from it.
+        let chars = unsafe { std::slice::from_raw_parts(wide, len) };
+        PathBuf::from(std::ffi::OsString::from_wide(chars))
+    });
+    // SAFETY: the string (or null) came from SHGetKnownFolderPath.
+    unsafe { CoTaskMemFree(wide as *const core::ffi::c_void) };
+    path.filter(|p| p.is_absolute())
+}
+
+#[cfg(not(windows))]
+fn documents_folder() -> Option<PathBuf> {
+    None
 }
 
 fn plugin_folder(root: &Path, vendor: &str, plugin: &str) -> PathBuf {
@@ -393,6 +442,15 @@ fn read_file(path: &Path) -> Result<Preset, String> {
 mod tests {
     use super::*;
     use lumen_project::testing::TempDir;
+
+    #[cfg(windows)]
+    #[test]
+    fn the_documents_folder_is_the_one_windows_knows() {
+        let documents = documents_folder().expect("Windows names a Documents folder");
+        assert!(documents.is_absolute(), "{}", documents.display());
+        let places = Places::standard();
+        assert_eq!(places.user, Some(documents.join("VST3 Presets")));
+    }
 
     #[test]
     fn names_are_made_safe_for_a_file_system() {

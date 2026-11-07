@@ -1137,3 +1137,81 @@ fn two_slow_or_distant_clicks_are_not_a_double_click() {
     click(&mut lumen, p + vec2(40.0, 0.0), Modifiers::NONE);
     assert_eq!(notes(&lumen).len(), before, "too far apart in space");
 }
+
+#[test]
+fn the_wheel_over_the_velocity_lane_zooms_and_scrolls_the_editors_time() {
+    // The lane shares the roll's time; the wheel used to do nothing there
+    // (KNOWN_ISSUES row 118).
+    let mut lumen = launch("notes-lane-wheel");
+    open(&mut lumen);
+    let over_lane = lumen
+        .app()
+        .lane_point(beat(4.0), 64)
+        .expect("the velocity lane has drawn");
+    let roll0 = lumen.app().editor_view().unwrap();
+    wheel(&mut lumen, over_lane, 2, Modifiers::COMMAND);
+    let roll1 = lumen.app().editor_view().unwrap();
+    assert!(roll1.zoom > roll0.zoom, "{roll0:?} -> {roll1:?}");
+    let over_lane = lumen.app().lane_point(beat(4.0), 64).unwrap();
+    wheel(&mut lumen, over_lane, 2, Modifiers::SHIFT);
+    let roll2 = lumen.app().editor_view().unwrap();
+    assert_ne!(roll2.left, roll1.left, "the editor scrolled in time");
+}
+
+#[test]
+fn a_note_dragged_to_the_rolls_side_scrolls_the_view_and_goes_on_past_it() {
+    // There was no auto-scroll at the editor's sides (KNOWN_ISSUES row 128).
+    let mut lumen = launch("notes-edge-scroll");
+    open(&mut lumen);
+    let body = lumen.app().editor_body().unwrap();
+    // Zoomed in, so the clip runs on past the roll's right side.
+    let anchor = at(&lumen, Ticks::ZERO, 60);
+    wheel(&mut lumen, anchor, 4, Modifiers::COMMAND);
+    // Inside the note, away from its edges.
+    let first = at(&lumen, beat(0.5), 60);
+    assert!(
+        body.contains(first),
+        "the first note is in view: {first:?} in {body:?}"
+    );
+    let view0 = lumen.app().editor_view().unwrap();
+    let left0 = view0.left;
+    let side = Pos2::new(body.right() - 2.0, first.y);
+    // As far as the roll as it was could take the note.
+    let reach = f64::from(side.x - first.x) / view0.zoom;
+    lumen.harness.hover_at(first);
+    lumen.harness.drag_at(first);
+    lumen.frames(2);
+    for step in 1..=8 {
+        lumen
+            .harness
+            .hover_at(first + (side - first) * (step as f32 / 8.0));
+        lumen.frames(1);
+    }
+    lumen.run_until("the roll to scroll a beat on", |lumen| {
+        lumen.app().editor_view().unwrap().left > left0 + 1.0
+    });
+    // The note goes on with the content under the pointer.
+    lumen.harness.drop_at(side);
+    lumen.frames(3);
+    let moved = notes(&lumen)
+        .iter()
+        .find(|n| n.pitch() == 60)
+        .map(|n| n.start())
+        .unwrap();
+    let scrolled = lumen.app().editor_view().unwrap().left - left0;
+    assert!(
+        moved.as_quarters() > reach + scrolled - 0.5,
+        "the note went on with the view: at {}, the screen alone reaches {reach}, the view scrolled {scrolled}",
+        moved.as_quarters()
+    );
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(
+        notes(&lumen)
+            .iter()
+            .find(|n| n.pitch() == 60)
+            .unwrap()
+            .start(),
+        Ticks::ZERO,
+        "one undo step"
+    );
+}

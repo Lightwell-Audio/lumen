@@ -74,6 +74,9 @@ pub struct Item {
     /// Whether streaming was on when the file loaded: it loads again when
     /// that changes. `None` for audio given ready, which never loads.
     streamed: Option<bool>,
+    /// Made by the library's generator (`--stress`), not read from a file:
+    /// at another device rate it is generated again, never loaded.
+    generated: bool,
 }
 
 impl Drop for Item {
@@ -114,7 +117,12 @@ pub struct Library {
     twin_rx: Receiver<twins::Mirrored>,
     done_tx: Sender<Done>,
     done_rx: Receiver<Done>,
+    /// Makes the audio of generated items at a rate (`--stress`).
+    generator: Option<Generator>,
 }
+
+/// Audio made at a device rate rather than read from a file.
+pub type Generator = fn(u32) -> Vec<Vec<f32>>;
 
 impl Default for Library {
     fn default() -> Self {
@@ -128,8 +136,20 @@ impl Default for Library {
             twin_rx,
             done_tx,
             done_rx,
+            generator: None,
         }
     }
+}
+
+/// The generator's audio at `rate`, with its peaks.
+fn generate(generator: Generator, rate: u32) -> Option<(Arc<ClipAudio>, Arc<Peaks>)> {
+    let channels = generator(rate);
+    let peaks = Peaks::build(&channels, &AtomicBool::new(false))?;
+    let audio = ClipAudio::Memory {
+        sample_rate: rate,
+        channels,
+    };
+    Some((Arc::new(audio), Arc::new(peaks)))
 }
 
 impl Library {
@@ -172,13 +192,39 @@ impl Library {
             peaks: None,
             job: None,
             streamed: None,
+            generated: false,
         });
         self.start_job(id, rate, ctx);
     }
 
-    /// Adds audio that is already in memory as `id`, ready at once
-    /// (`--stress`: generated audio for every file of the stress project).
+    /// Adds audio that is already in memory as `id`, ready at once (tests).
+    #[cfg(test)]
     pub fn insert_ready(&mut self, id: u64, name: &str, audio: Arc<ClipAudio>, peaks: Arc<Peaks>) {
+        self.insert_audio(id, name, audio, peaks, false);
+    }
+
+    /// Gives every one of `files` (id and name) the same audio from
+    /// `generator` at `rate` (one copy in memory, one set of peaks). When
+    /// the device rate changes, [`Self::update`] generates it again at the
+    /// new rate rather than looking for a file (`--stress`).
+    pub fn insert_generated(&mut self, files: &[(u64, &str)], rate: u32, generator: Generator) {
+        self.generator = Some(generator);
+        let Some((audio, peaks)) = generate(generator, rate) else {
+            return;
+        };
+        for &(id, name) in files {
+            self.insert_audio(id, name, Arc::clone(&audio), Arc::clone(&peaks), true);
+        }
+    }
+
+    fn insert_audio(
+        &mut self,
+        id: u64,
+        name: &str,
+        audio: Arc<ClipAudio>,
+        peaks: Arc<Peaks>,
+        generated: bool,
+    ) {
         self.items.retain(|i| i.id != id);
         self.items.push(Item {
             id,
@@ -196,6 +242,7 @@ impl Library {
             peaks: Some(peaks),
             job: None,
             streamed: None,
+            generated,
         });
     }
 
@@ -218,6 +265,7 @@ impl Library {
                 stream: false,
             }),
             streamed: None,
+            generated: false,
         });
     }
 
@@ -392,10 +440,12 @@ impl Library {
             .retain(|i| !(matches!(i.state, State::Loading) && i.job.is_none()));
         changed |= self.items.len() != before;
 
+        changed |= self.regenerate(rate);
         let on = self.streaming.is_some();
         let stale: Vec<u64> = self
             .items
             .iter()
+            .filter(|i| !i.generated)
             .filter(|i| match (&i.state, &i.job) {
                 (State::Ready(audio), None) => {
                     audio.sample_rate() != rate || i.streamed.is_some_and(|was| was != on)
@@ -411,6 +461,32 @@ impl Library {
             self.start_job(id, rate, ctx);
         }
         changed
+    }
+
+    /// Generates the generated items' audio again when the device rate is
+    /// no longer theirs. True if it did. It runs on the UI thread, which only
+    /// the generated `--stress` project may do: real media is decoded on a
+    /// worker.
+    fn regenerate(&mut self, rate: u32) -> bool {
+        let Some(generator) = self.generator else {
+            return false;
+        };
+        let stale = self.items.iter().any(|i| {
+            i.generated && matches!(&i.state, State::Ready(audio) if audio.sample_rate() != rate)
+        });
+        if !stale {
+            return false;
+        }
+        let Some((audio, peaks)) = generate(generator, rate) else {
+            return false;
+        };
+        for item in self.items.iter_mut().filter(|i| i.generated) {
+            item.info.sample_rate = Some(rate);
+            item.info.frames = Some(audio.frames() as u64);
+            item.state = State::Ready(Arc::clone(&audio));
+            item.peaks = Some(Arc::clone(&peaks));
+        }
+        true
     }
 
     /// Loading progress, 0.0–1.0, while a file loads or converts.
@@ -561,6 +637,46 @@ mod tests {
         };
         assert_eq!(audio.sample_rate(), 44_100);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn generated_audio_is_made_again_at_a_new_rate_and_never_read_from_disk() {
+        // `--stress` at a device rate other than the one it started at: its
+        // made-up paths are never loaded (they used to fail, one warning per
+        // file); the audio is generated again, shared by every file.
+        fn tone(rate: u32) -> Vec<Vec<f32>> {
+            vec![vec![0.25; rate as usize / 10]; 2]
+        }
+        let ctx = egui::Context::default();
+        let mut library = Library::default();
+        library.insert_generated(
+            &[(1, "Samples/Take 1.wav"), (2, "Samples/Take 2.wav")],
+            48_000,
+            tone,
+        );
+        assert!(
+            !library.update(48_000, &ctx),
+            "nothing to do at its own rate"
+        );
+
+        assert!(library.update(44_100, &ctx), "made again");
+        assert!(!library.is_loading(), "nothing is read from disk");
+        for id in [1, 2] {
+            let item = library.get(id).unwrap();
+            let State::Ready(audio) = &item.state else {
+                panic!("not ready: {:?}", item.state);
+            };
+            assert_eq!(audio.sample_rate(), 44_100);
+            assert_eq!(audio.frames(), 4_410);
+            assert!(item.peaks.is_some());
+        }
+        let (State::Ready(a), State::Ready(b)) = (
+            &library.get(1).unwrap().state,
+            &library.get(2).unwrap().state,
+        ) else {
+            unreachable!("both ready, checked above");
+        };
+        assert!(Arc::ptr_eq(a, b), "one copy shared");
     }
 
     #[test]

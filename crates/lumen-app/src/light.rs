@@ -217,9 +217,6 @@ struct Seen {
     at: f64,
 }
 
-/// How long a Reduce-motion flash stays, without fading.
-const STEADY_FLASH: f64 = 0.15;
-
 /// An activity light's brightness, 0 to 1: it jumps to 1 when `count`
 /// (a traffic counter) differs from the last frame's and fades over
 /// `motion::NOTE`, asking for frames only while it fades. The first look
@@ -250,8 +247,10 @@ pub fn flash_held(ctx: &egui::Context, id: egui::Id, count: u32, held: bool) -> 
     ctx.data_mut(|d| d.insert_temp(id, seen));
     let elapsed = now - seen.at;
     if crate::motion::reduced() {
-        return if elapsed < STEADY_FLASH {
-            ctx.request_repaint_after(std::time::Duration::from_secs_f64(STEADY_FLASH - elapsed));
+        return if elapsed < crate::motion::STEADY_FLASH {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(
+                crate::motion::STEADY_FLASH - elapsed,
+            ));
             1.0
         } else {
             0.0
@@ -261,7 +260,7 @@ pub fn flash_held(ctx: &egui::Context, id: egui::Id, count: u32, held: bool) -> 
     if t >= 1.0 {
         return 0.0;
     }
-    ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    ctx.request_repaint_after(crate::motion::FADE_FRAME);
     let left = 1.0 - t;
     left * left
 }

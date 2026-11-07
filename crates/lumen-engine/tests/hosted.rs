@@ -869,6 +869,51 @@ fn a_host_attached_after_a_stand_in_list_is_the_one_that_plays() {
 }
 
 #[test]
+fn a_host_that_arrives_while_a_note_is_held_sounds_that_note() {
+    // The plugin finishes loading in the middle of a long note: the host
+    // has not heard its note-on, so it is struck there and ended as usual.
+    let long = || {
+        MidiTrack::new(
+            1,
+            Target::Instrument,
+            standin(),
+            vec![clip(1, Ticks::ZERO, Q(16), vec![note(Q(1), Q(6), 60)])],
+        )
+    };
+    let mut rig = rig(Timeline::default(), 48_000, vec![long()]);
+    rig.play();
+    // Past the note's start (a quarter is 24,000 frames at 120 BPM).
+    rig.run(36_000, 128);
+    let log = Log::default();
+    let (spec, status) = hosted(FakeHost::new(Duration::ZERO, false, Some(Arc::clone(&log))));
+    let mut arrived = long();
+    arrived.instrument = spec;
+    assert!(rig.midi.set(vec![arrived]).is_ok());
+    rig.run(12_000, 128);
+    // A later list (an edit) carries the host on: the note is not struck
+    // again.
+    assert!(rig.midi.set(vec![long()]).is_ok());
+    // Through the note's end, at a quarter after seven.
+    rig.run(24_000 * 7, 128);
+    let log = log.lock().unwrap();
+    let ons: Vec<_> = log
+        .iter()
+        .filter(|m| matches!(m.kind(), Kind::NoteOn { key: 60, .. }))
+        .collect();
+    let offs = log
+        .iter()
+        .filter(|m| matches!(m.kind(), Kind::NoteOff { key: 60, .. }))
+        .count();
+    assert_eq!(
+        ons.len(),
+        1,
+        "the held note is struck on the new host, once"
+    );
+    assert_eq!(offs, 1, "and ended where it ends");
+    assert!(!status.failed());
+}
+
+#[test]
 fn a_list_skipped_before_it_plays_hands_its_host_to_the_list_that_replaces_it() {
     let mut rig = rig(Timeline::default(), 48_000, vec![one_note_track(standin())]);
     rig.run(256, 128);

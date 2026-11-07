@@ -500,3 +500,24 @@ fn a_shape_on_a_mute_lane_is_made_of_steps() {
             .all(|p| p.value == 0.0 || p.value == 1.0)
     );
 }
+
+#[test]
+fn a_point_at_the_start_of_the_song_is_picked_by_a_press_on_the_lane_edge() {
+    // Exactly on the edge (once taken by the headers' resize grip), and just
+    // inside it.
+    for nudge in [0.0, 1.0] {
+        let (mut lumen, track) = shown("lane-edge", &[(0, -30.0), (4, -12.0)]);
+        let first = point_pos(&lumen, track, 0);
+        click_at(&mut lumen, eframe::egui::pos2(first.x + nudge, first.y));
+        assert_eq!(
+            lumen.app().automation_picked(),
+            Some((track, vec![0])),
+            "a press {nudge} from the point at the lane's edge picks it"
+        );
+        assert_eq!(
+            points(&lumen, track, Target::Volume).len(),
+            2,
+            "nothing added"
+        );
+    }
+}

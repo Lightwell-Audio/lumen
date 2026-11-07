@@ -493,6 +493,9 @@ impl Render {
                 output_latency: fill_limit as u32,
                 input_channels,
                 output_channels: outputs,
+                silent_inputs: capture
+                    .as_ref()
+                    .map_or_else(Vec::new, |c| c.silent().to_vec()),
             },
             capture,
             inputs: vec![0.0; input_channels * period],

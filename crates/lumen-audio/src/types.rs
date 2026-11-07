@@ -110,6 +110,10 @@ pub struct StreamInfo {
     pub output_latency: u32,
     pub input_channels: usize,
     pub output_channels: usize,
+    /// Inputs that would not open and are silent in their place, by name
+    /// (a microphone blocked in the system's privacy settings, say): the
+    /// other inputs keep their numbers.
+    pub silent_inputs: Vec<String>,
 }
 
 impl StreamInfo {

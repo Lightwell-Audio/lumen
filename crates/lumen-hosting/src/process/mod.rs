@@ -236,10 +236,11 @@ pub enum Happened {
     /// The plugin's saved state, as asked for ([`Process::capture`]): the
     /// bytes, or why they could not be read in time.
     State(Result<Captured, String>),
-    /// Every parameter's value now, as asked for ([`Process::refresh`]): what
-    /// a plugin changed inside itself without saying which (a patch loaded in
-    /// its window, a program change).
-    Values(Vec<(u32, f64)>),
+    /// Every parameter as the plugin lists it now, its value with it, as
+    /// asked for ([`Process::refresh`]): what a plugin changed inside itself
+    /// without saying which (a patch loaded in its window, a program change,
+    /// controls it named anew).
+    Values(Vec<ParamInfo>),
     /// A state loaded into the plugin ([`Process::load_state`]): the value of
     /// every parameter now, or why the plugin would not take it (it keeps the
     /// sound it had).

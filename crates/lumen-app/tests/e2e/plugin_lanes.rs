@@ -354,3 +354,76 @@ fn a_parameter_can_be_changed_again_once_its_lane_is_switched_off() {
     assert!(up > 0.01, "and another: {up}");
     lumen.key(Modifiers::NONE, Key::Space);
 }
+
+#[test]
+fn a_plugin_lanes_point_reads_in_the_plugins_own_words_when_the_pointer_rests_on_it() {
+    // Half way up the effect's gain is −24 dB in its own words: the lane
+    // used to say "50%" (KNOWN_ISSUES row 51).
+    let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
+    let mut lumen = launch("lane-words", &song, &["Plug"]);
+    wait_for_state(&mut lumen, FX, "ready");
+    let target = Target::Device {
+        device: FX,
+        param: LEVEL,
+    };
+    lumen
+        .app_mut()
+        .give_lane(KEYS, target, lane(&[(0, 0.0), (4, 0.5)]))
+        .unwrap();
+    // As the chip's menu shows it.
+    lumen.app_mut().show_clip_envelope(KEYS, target);
+    lumen.frames(30);
+    let at = super::lane_view::point_pos(&lumen, KEYS, 1);
+    lumen.harness.hover_at(at);
+    lumen.run_until("the plugin's words for the point", |lumen| {
+        lumen
+            .app()
+            .info_line()
+            .is_some_and(|line| line.contains("-24.0"))
+    });
+    let line = lumen.app().info_line().unwrap_or_default();
+    assert!(!line.contains("50%"), "{line}");
+}
+
+#[test]
+fn a_lanes_point_and_the_devices_card_each_read_their_own_value_at_once() {
+    // The playhead holds the gain at its bottom (−60 dB) and the pointer
+    // rests on a point half way up (−24 dB): asking for the point's words
+    // must not change what the card says for its own value (review of
+    // ADR-0125: one answer per parameter stood for both).
+    let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
+    let mut lumen = launch("lane-and-card-words", &song, &["Plug"]);
+    wait_for_state(&mut lumen, FX, "ready");
+    lumen.app_mut().select_tracks(&[KEYS]);
+    lumen.show_whole_cards();
+    let target = Target::Device {
+        device: FX,
+        param: LEVEL,
+    };
+    lumen
+        .app_mut()
+        .give_lane(KEYS, target, lane(&[(0, 0.0), (4, 0.5)]))
+        .unwrap();
+    lumen.app_mut().show_clip_envelope(KEYS, target);
+    lumen.frames(30);
+    lumen.run_until("the card's words for the bottom", |lumen| {
+        lumen.shows("Gain, parameter: -60.0")
+    });
+    let at = super::lane_view::point_pos(&lumen, KEYS, 1);
+    lumen.harness.hover_at(at);
+    lumen.run_until("the plugin's words for the point", |lumen| {
+        lumen
+            .app()
+            .info_line()
+            .is_some_and(|line| line.contains("-24.0"))
+    });
+    lumen.frames(10);
+    assert!(
+        lumen.shows("Gain, parameter: -60.0"),
+        "the card still reads its own value"
+    );
+    assert!(
+        !lumen.shows("Gain, parameter: -24.0"),
+        "and not the point's"
+    );
+}

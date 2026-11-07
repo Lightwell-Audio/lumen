@@ -157,7 +157,7 @@ fn a_refresh_brings_every_parameters_value_as_the_plugin_has_it_now() {
         &mut manager,
         Duration::from_secs(10),
         |_, happened| match happened {
-            Happened::Values(v) => Ok(v),
+            Happened::Values(v) => Ok(v.iter().map(|p| (p.id, p.value)).collect::<Vec<_>>()),
             other => Err(other),
         },
     );

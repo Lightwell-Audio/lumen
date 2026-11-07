@@ -64,6 +64,73 @@ impl App {
         }
     }
 
+    /// Asks the plugin to put the value of the lane point read out now in
+    /// its own words ([`AutoView::resting`]), not faster than every
+    /// [`TEXT_EVERY`], and hands the arrangement the answers there are. Only
+    /// a point at rest (or the one being moved) is asked about, so the
+    /// pointer's travel over a lane costs no round trips.
+    ///
+    /// [`AutoView::resting`]: crate::arrangement::auto_state::AutoView::resting
+    pub(crate) fn lane_texts(&mut self, ctx: &egui::Context) {
+        use crate::motion::{TEXT_AGAIN, TEXT_EVERY, TEXT_FRAME};
+        let forgotten = self.hosting.texts_forgotten();
+        if self.arrangement.auto.texts_seen != forgotten {
+            self.arrangement.auto.texts_seen = forgotten;
+            self.arrangement.auto.text_asked = None;
+        }
+        let auto = &self.arrangement.auto;
+        let wanted = auto.resting().and_then(|p| {
+            let Target::Device { device, param } = p.target else {
+                return None;
+            };
+            let value = self
+                .document
+                .project()
+                .tracks
+                .iter()
+                .find(|t| t.id == p.track)?
+                .lane_view(p.target)?
+                .lane
+                .points()
+                .get(p.index)?
+                .value;
+            Some(((device, param), f64::from(value)))
+        });
+        if let Some((key, value)) = wanted {
+            let answered = self.hosting.text(key.0, key.1, value).is_some();
+            let asked = auto.text_asked;
+            let same = asked.is_some_and(|(k, v, when)| {
+                k == key && (v - value).abs() < 1e-6 && when.elapsed() < TEXT_AGAIN
+            });
+            if !answered && !same {
+                let early = asked.filter(|(k, _, when)| *k == key && when.elapsed() < TEXT_EVERY);
+                if let Some((_, _, when)) = early {
+                    ctx.request_repaint_after(TEXT_EVERY.saturating_sub(when.elapsed()));
+                } else {
+                    self.hosting.ask_text(key.0, key.1, value);
+                    self.arrangement.auto.text_asked =
+                        Some((key, value, std::time::Instant::now()));
+                    ctx.request_repaint_after(TEXT_FRAME);
+                }
+            }
+        }
+        // The answer for the point's own value, else the nearest kept one
+        // until it comes (as on a device card's knob).
+        let texts: std::collections::BTreeMap<_, _> = wanted
+            .and_then(|(key, value)| {
+                let text = self
+                    .hosting
+                    .text(key.0, key.1, value)
+                    .or_else(|| self.hosting.nearest_text(key.0, key.1, value))?;
+                Some((key, (value, text.to_owned())))
+            })
+            .into_iter()
+            .collect();
+        if self.arrangement.auto.texts != texts {
+            self.arrangement.auto.texts = texts;
+        }
+    }
+
     /// The chooser, when open. Choosing a parameter shows its lane on the
     /// track (the lane itself exists once a point is added) and closes it.
     pub(crate) fn lane_parameters(&mut self, ctx: &egui::Context) {

@@ -17,7 +17,7 @@ use super::raised;
 use crate::{motion, theme};
 
 /// How long after the pointer leaves a changed menu it starts to fade.
-const LEAVE_DELAY: f64 = 0.4;
+const LEAVE_DELAY: f64 = motion::MENU_LEAVE_DELAY;
 /// Room around a menu the pointer may stray into without leaving it.
 const LEAVE_SLOP: f32 = 8.0;
 /// How far a closing menu drifts up as it fades.

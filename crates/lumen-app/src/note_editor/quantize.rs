@@ -153,6 +153,62 @@ impl Options {
         text
     }
 
+    /// The options as the settings keep them.
+    pub fn saved(&self) -> crate::settings::QuantizeChoices {
+        crate::settings::QuantizeChoices {
+            grid: self.grid.map(|d| d.label().to_owned()),
+            kind: match self.kind {
+                Kind::Straight => "straight",
+                Kind::Triplet => "triplet",
+                Kind::Dotted => "dotted",
+            }
+            .into(),
+            mode: match self.mode {
+                Mode::Start => "start",
+                Mode::End => "end",
+                Mode::StartAndEnd => "both",
+                Mode::Length => "length",
+            }
+            .into(),
+            strength: self.strength,
+            swing: self.swing,
+            window: self.window,
+        }
+    }
+
+    /// The options the settings keep; a word or an amount that cannot be
+    /// read is the default's.
+    pub fn from_saved(saved: &crate::settings::QuantizeChoices) -> Self {
+        let d = Self::default();
+        let amount = |v: f32, default: f32| {
+            if v.is_finite() {
+                v.clamp(0.0, 1.0)
+            } else {
+                default
+            }
+        };
+        Self {
+            grid: saved
+                .grid
+                .as_deref()
+                .and_then(|g| Division::ALL.into_iter().find(|d| d.label() == g)),
+            kind: match saved.kind.as_str() {
+                "triplet" => Kind::Triplet,
+                "dotted" => Kind::Dotted,
+                _ => Kind::Straight,
+            },
+            mode: match saved.mode.as_str() {
+                "end" => Mode::End,
+                "both" => Mode::StartAndEnd,
+                "length" => Mode::Length,
+                _ => Mode::Start,
+            },
+            strength: amount(saved.strength, d.strength),
+            swing: amount(saved.swing, d.swing),
+            window: amount(saved.window, d.window),
+        }
+    }
+
     /// The grid as the popover's dropdown names it.
     fn grid_label(&self, editing: Ticks) -> String {
         match self.grid {
@@ -441,6 +497,9 @@ impl App {
         }
         if changed {
             widgets::note_change(ui);
+            // Kept for the next start (KNOWN_ISSUES row 120).
+            self.settings.quantize = o.saved();
+            self.settings_changed = Some(std::time::Instant::now());
         }
 
         // What it will do.
@@ -569,4 +628,40 @@ fn label(ui: &mut Ui, text: &str) {
         egui::FontId::proportional(theme::size::BODY),
         theme::p().text_secondary,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn options_survive_the_settings_and_unknown_words_read_as_defaults() {
+        let options = Options {
+            grid: Some(Division::Sixteenth),
+            kind: Kind::Dotted,
+            mode: Mode::Length,
+            strength: 0.6,
+            swing: 0.2,
+            window: 0.4,
+        };
+        assert_eq!(Options::from_saved(&options.saved()), options);
+        assert_eq!(
+            Options::from_saved(&crate::settings::QuantizeChoices::default()),
+            Options::default()
+        );
+        let odd = crate::settings::QuantizeChoices {
+            grid: Some("1/3".into()),
+            kind: "wobbly".into(),
+            mode: "sideways".into(),
+            strength: f32::NAN,
+            swing: 7.0,
+            window: -1.0,
+        };
+        let read = Options::from_saved(&odd);
+        assert_eq!(read.grid, None);
+        assert_eq!(read.kind, Kind::Straight);
+        assert_eq!(read.mode, Mode::Start);
+        assert_eq!(read.strength, 1.0);
+        assert_eq!((read.swing, read.window), (1.0, 0.0));
+    }
 }

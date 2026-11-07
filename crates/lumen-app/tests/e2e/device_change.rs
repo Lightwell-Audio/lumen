@@ -249,3 +249,20 @@ fn every_test_driver_with_a_fault_is_offered_beside_the_test_device() {
     // None of the machine's own drivers is, so no scenario reaches hardware.
     assert!(!lumen.shows("ASIO") && !lumen.shows("System audio"));
 }
+
+#[test]
+fn an_input_that_would_not_open_is_named_in_the_audio_settings() {
+    // A microphone blocked by the system's privacy settings: the device runs,
+    // its channels stay in place and are silent, and the Input row says why
+    // rather than leaving the input dead without a word.
+    let mut lumen = Lumen::start_with(TempDir::new("e2e-blocked-input"), |l| {
+        l.on_audio_driver(lumen_app::testing::TEST_BLOCKED_INPUT_DRIVER)
+    });
+    lumen.wait_for("the device", |app| app.audio_running());
+    lumen.open_audio_settings();
+    let name = lumen_app::testing::BLOCKED_INPUT;
+    let start = format!("{name} would not open, so its inputs are silent.");
+    lumen.run_until("the input named on the page", |l| {
+        l.harness.query_by_label_contains(&start).is_some()
+    });
+}

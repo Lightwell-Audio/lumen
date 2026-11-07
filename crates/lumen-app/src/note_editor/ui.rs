@@ -92,7 +92,14 @@ impl App {
         let layer = ui.layer_id();
         let on_top = |p: Pos2| ctx.layer_id_at(p) == Some(layer);
         let over_area = pointer.filter(|p| area.contains(*p) && on_top(*p));
-        self.editor_wheel(&ctx, over_area.filter(|p| roll.contains(*p)), &mut view);
+        // Over the roll the wheel moves time and pitch; over the lane under
+        // it, which shares the roll's time, it moves time only.
+        let over_roll = over_area.filter(|p| roll.contains(*p));
+        let over_lane = over_area.filter(|p| lane_area.contains(*p));
+        if let Some(p) = over_roll.or(over_lane) {
+            self.editor_wheel(&ctx, p, over_roll.is_some(), &mut view);
+        }
+        self.editor_edge_scroll(&ctx, ed, &mut view);
         ed.time = view.time;
         view.clamp_scroll();
         ed.row_height = view.row_height;
@@ -264,19 +271,17 @@ impl App {
 
     /// The wheel over the editor: Ctrl+wheel zooms time, Shift+wheel or a
     /// sideways swipe scrolls time (egui turns Shift into a horizontal
-    /// scroll), Alt+wheel sizes the rows, the wheel scrolls pitch. Time is
-    /// the editor's own view: the arrangement does not move (ADR-0048).
-    fn editor_wheel(&self, ctx: &egui::Context, over: Option<Pos2>, view: &mut EditorView) {
-        let Some(pointer) = over else {
-            return;
-        };
+    /// scroll); over the roll (`pitch`), Alt+wheel sizes the rows and the
+    /// wheel scrolls pitch. Time is the editor's own view: the arrangement
+    /// does not move (ADR-0048).
+    fn editor_wheel(&self, ctx: &egui::Context, pointer: Pos2, pitch: bool, view: &mut EditorView) {
         let (delta, zoom, modifiers) =
             ctx.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers));
         let limits = self.zoom_limits_at(view.body.width(), view.time.left);
         if zoom != 1.0 {
             let anchor = pointer.x - view.body.left();
             view.time = view.time.zoomed(anchor, f64::from(zoom), limits);
-        } else if modifiers.alt {
+        } else if modifiers.alt && pitch {
             let wheel = if delta.y != 0.0 { delta.y } else { delta.x };
             if wheel != 0.0 {
                 // Keep the pitch under the pointer where it is.
@@ -289,10 +294,68 @@ impl App {
             if delta.x != 0.0 {
                 view.time = view.time.scrolled(delta.x, limits);
             }
-            if delta.y != 0.0 {
+            if delta.y != 0.0 && pitch {
                 view.scroll -= delta.y;
             }
         }
+    }
+
+    /// A drag in the roll or the lane near the body's sides scrolls the
+    /// view (and near its top or bottom, for the roll, the pitches), as the
+    /// arrangement and the audio editor do: faster the closer, and only once
+    /// the hand moves outwards from where it pressed
+    /// (`audio_editor::handles::edge_scroll`). The gesture's press, and the
+    /// pencil's stroke, move with the content, so what was under them stays
+    /// under them.
+    fn editor_edge_scroll(
+        &mut self,
+        ctx: &egui::Context,
+        ed: &mut NoteEditor,
+        view: &mut EditorView,
+    ) {
+        use crate::audio_editor::handles::edge_scroll;
+        let notes = ed.gesture.as_ref().is_some_and(|g| g.dragging);
+        let lane = ed.lane.gesture.as_ref().is_some_and(|g| g.dragging);
+        let (down, latest, from, dt) = ctx.input(|i| {
+            (
+                i.pointer.primary_down(),
+                i.pointer.latest_pos(),
+                i.pointer.press_origin(),
+                i.stable_dt,
+            )
+        });
+        let (Some(p), Some(from)) = (latest, from) else {
+            return;
+        };
+        if !down || !(notes || lane) {
+            return;
+        }
+        let before = *view;
+        let limits = self.zoom_limits_at(view.body.width(), view.time.left);
+        let pull = edge_scroll(p.x, from.x, view.body.x_range(), dt);
+        view.time = view.time.scrolled(pull, limits);
+        if notes {
+            view.scroll -= edge_scroll(p.y, from.y, view.body.y_range(), dt);
+            view.clamp_scroll();
+        }
+        let left = view.body.left();
+        let dx = view.time.x(left, before.time.left) - left;
+        let dy = before.scroll - view.scroll;
+        if dx == 0.0 && dy == 0.0 {
+            return;
+        }
+        if let Some(g) = ed.gesture.as_mut() {
+            g.origin += vec2(dx, dy);
+        }
+        if let Some(g) = ed.lane.gesture.as_mut() {
+            g.origin.x += dx;
+            for q in &mut g.trail {
+                q.x += dx;
+            }
+        }
+        // Looking around pauses Follow, as in the arrangement.
+        self.transport.follow_paused = true;
+        ctx.request_repaint();
     }
 
     /// Frames the editor on `clip` (its first draw, or a new clip): the

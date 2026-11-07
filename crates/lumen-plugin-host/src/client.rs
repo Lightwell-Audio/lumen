@@ -235,6 +235,7 @@ impl HostProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        crate::process::started_by_this_process(&mut command);
         for (key, value) in env {
             command.env(key, value);
         }

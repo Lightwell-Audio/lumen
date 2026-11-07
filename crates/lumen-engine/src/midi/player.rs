@@ -20,6 +20,11 @@ use lumen_core::midi::{Event, Kind, Msg, cc};
 const QUEUE: usize = 4;
 /// Messages waiting for the app's sender.
 const OUT_QUEUE: usize = 8_192;
+/// Slots at the end of the hardware queue kept for what lets go: a release
+/// for every note eight hardware tracks can hold. Eight is not a limit on
+/// tracks: past it, note-offs share the ordinary room, which only a sender
+/// thousands of messages behind fills.
+const OUT_KEPT_FOR_RELEASES: usize = 8 * hold::KEPT_FOR_RELEASES;
 
 /// A track list, sorted by id for carrying state into the next.
 struct MidiSet {
@@ -147,8 +152,24 @@ pub(super) struct Out {
 }
 
 impl Out {
+    /// Queues `message` for the sender, or counts it dropped. As a track's
+    /// queue does, the last [`OUT_KEPT_FOR_RELEASES`] slots take only the
+    /// note-offs of held notes (`hold::ends_a_held_note`) and Flush, so a
+    /// full queue refuses new notes before a note-off. A pedal or a bend put
+    /// back at rest takes ordinary room here: by the time it is forwarded it
+    /// cannot be told from a clip's own, and a flood of those must not use
+    /// up the room the note-offs need.
     fn push(&mut self, message: MidiOut) {
-        if self.tx.push(message).is_err() {
+        let releases = match message {
+            MidiOut::At { msg, .. } => hold::ends_a_held_note(msg),
+            MidiOut::Flush => true,
+        };
+        let full = if releases {
+            self.tx.slots() == 0
+        } else {
+            self.tx.slots() <= OUT_KEPT_FOR_RELEASES
+        };
+        if full || self.tx.push(message).is_err() {
             self.dropped = self.dropped.saturating_add(1);
         }
     }
@@ -265,7 +286,12 @@ impl MidiPlayer {
     /// Events and notes dropped for lack of room so far (a full track
     /// queue, a full output queue). Zero in any sane project.
     pub fn dropped(&self) -> u32 {
-        let tracks: u32 = self.current.tracks.iter().map(|t| t.state.dropped).sum();
+        let tracks: u32 = self
+            .current
+            .tracks
+            .iter()
+            .map(|t| t.state.dropped.saturating_add(t.state.live.dropped))
+            .sum();
         tracks
             .saturating_add(self.out.dropped)
             .saturating_add(self.lost)
@@ -448,7 +474,15 @@ impl MidiPlayer {
                 if let Some(msg) = track.state.live.take(m.source, m.msg, out) {
                     let offset = apart_from_its_on(&mut track.state.events, msg, offset, last32);
                     floor = floor.max(offset);
-                    track.state.push(Event { offset, msg });
+                    // A live note-off ends a note the track holds (`take`
+                    // sends no other), so it may use the room kept for
+                    // releases; a player's pedal-up or bend may not.
+                    let event = Event { offset, msg };
+                    if hold::ends_a_held_note(msg) {
+                        track.state.push_release(event);
+                    } else if !track.state.push(event) {
+                        track.state.live.refused(msg);
+                    }
                 }
             }
         });
@@ -544,16 +578,48 @@ impl MidiPlayer {
                 match before.target {
                     Target::Port { .. } => self.out.forward(before, clock),
                     Target::Instrument => {
-                        if same_kind && let Some(spec) = before.instrument.as_mut() {
+                        // The releases go to the old instrument; a plugin's
+                        // only when it plays on (a host going away is not
+                        // waited for).
+                        if let Some(spec) = before
+                            .instrument
+                            .as_mut()
+                            .filter(|spec| same_kind || !spec.instrument.hosted())
+                        {
                             let events = std::mem::take(&mut before.state.events);
                             spec.instrument.render(0, &events, &mut [], &mut []);
                             before.state.events = events;
+                        }
+                        // An instrument of another kind (or none) takes its
+                        // place: the old one plays its release out on the
+                        // new list. A plugin's host goes with the old list.
+                        if !same_kind
+                            && before
+                                .instrument
+                                .as_ref()
+                                .is_some_and(|spec| !spec.instrument.hosted())
+                        {
+                            track.leaving = before.instrument.take();
                         }
                     }
                 }
                 before.state.events.clear();
             }
+            // One still ringing out from an earlier change rings on, unless a
+            // newer one took its place (then it goes with the old list).
+            if track.leaving.is_none() {
+                track.leaving = before.leaving.take();
+            }
             std::mem::swap(&mut track.state, &mut before.state);
+            // A host the new list brings (not one carried over below) has
+            // heard none of the notes held on the old instrument (a stand-in
+            // while the plugin loaded).
+            let host_arrives = same_kind
+                && track.target == Target::Instrument
+                && track
+                    .instrument
+                    .as_ref()
+                    .is_some_and(|spec| spec.instrument.hosted());
             // The instrument the old list had plays on, except a host the
             // new list brings: that one is attached now, and the old list's
             // (a stand-in, or the host it replaces) goes with the old list.
@@ -567,6 +633,12 @@ impl MidiPlayer {
                 }
             }
             track.dirty = !track.same_as(before);
+            // Its held notes are forgotten, so the sync below strikes them
+            // on the new host.
+            if host_arrives && !track.state.held.is_empty() {
+                track.state.held.clear();
+                track.dirty = true;
+            }
         }
         // Notes in line with the new data, at the position being played.
         if let Some((clock, pos)) = at {
@@ -840,6 +912,11 @@ impl TrackSource for MidiPlayer {
             if let Some(spec) = track.instrument.as_mut() {
                 spec.instrument.silence();
             }
+            // An instrument taken away and still ringing out is silenced too;
+            // it is kept (not dropped on this thread) and goes with its list.
+            if let Some(spec) = track.leaving.as_mut() {
+                spec.instrument.silence();
+            }
             if let Target::Port { port, .. } = track.target
                 && !seen[..count].contains(&port)
             {
@@ -862,6 +939,7 @@ impl TrackSource for MidiPlayer {
             || self.current.tracks.iter().any(|t| {
                 !t.state.events.is_empty()
                     || t.instrument.as_ref().is_some_and(|i| i.instrument.active())
+                    || t.leaving.as_ref().is_some_and(|i| i.instrument.active())
             })
     }
 }

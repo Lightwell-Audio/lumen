@@ -79,11 +79,27 @@ fn project(events: Vec<ClipEvent>) -> Project {
 
 /// Starts Lumen with the project, the grid at 1/16 and the clip open.
 fn launch(name: &str, events: Vec<ClipEvent>) -> Lumen {
+    launch_with(name, events, None)
+}
+
+/// As [`launch`], with a settings file of `settings` when given.
+fn launch_with(name: &str, events: Vec<ClipEvent>, settings: Option<&str>) -> Lumen {
     let dir = TempDir::new(&format!("e2e-{name}"));
     let path = dir.path().join("song.lumen");
     lumen_project::save(&project(events), &path, &Default::default())
         .expect("save the test project");
-    let mut lumen = Lumen::start_with(dir, move |l| l.opening(path));
+    let file = dir.path().join("settings.json");
+    if let Some(text) = settings {
+        std::fs::write(&file, text).expect("write the settings");
+    }
+    let mut lumen = Lumen::start_with(dir, move |l| {
+        let l = l.opening(path);
+        if settings.is_some() {
+            l.with_settings_file(&file)
+        } else {
+            l
+        }
+    });
     lumen.wait_for("the project", |app| app.project().tracks.len() == 1);
     lumen.app_mut().set_detail_size(560.0);
     lumen.app_mut().set_view(TimeView {
@@ -586,4 +602,26 @@ fn q_with_nothing_picked_says_what_it_quantized_in_a_note() {
         lumen.shows("Quantized 4 notes to 1/16"),
         "the note is on screen"
     );
+}
+
+#[test]
+fn the_quantize_options_are_kept_for_the_next_start() {
+    // They used to last the session only (KNOWN_ISSUES row 120).
+    let mut lumen = launch_with(
+        "quantize-kept",
+        Vec::new(),
+        Some(r#"{"version": 1, "quantize": {"strength": 0.5, "mode": "length"}}"#),
+    );
+    open_popover(&mut lumen);
+    assert!(lumen.shows("Strength: 50%"), "the saved strength");
+    set_strength(&mut lumen, "25");
+    assert!(lumen.shows("Strength: 25%"));
+    let file = lumen.dir().join("settings.json");
+    lumen.run_until("the settings written", |_| {
+        std::fs::read_to_string(&file).is_ok_and(|text| {
+            let saved: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+            saved["quantize"]["strength"].as_f64() == Some(0.25)
+                && saved["quantize"]["mode"] == "length"
+        })
+    });
 }

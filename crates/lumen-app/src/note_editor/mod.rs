@@ -103,6 +103,9 @@ pub(crate) struct NoteEditor {
     pub pointer_at: Option<(Ticks, i32)>,
     /// The pop-out window has the keyboard.
     pub window_focused: bool,
+    /// Where the pop-out window opened, kept while it is open so its
+    /// builder does not change under it (egui would move the window).
+    pub window_opened_at: Option<crate::settings::WindowPlace>,
     /// The editor's keys are live: set at the start of each frame.
     pub live: bool,
     pub menu_for: MenuFor,

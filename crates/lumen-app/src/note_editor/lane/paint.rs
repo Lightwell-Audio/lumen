@@ -111,13 +111,19 @@ pub(crate) struct LaneScene<'a> {
 pub(crate) fn paint_lane(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
     let palette = theme::p();
     let body = view.body;
+    // A head on the plot's left edge (a note at the clip's start) may reach
+    // over the scale beside it rather than show half of itself.
+    let overhang = painter.with_clip_rect(
+        body.with_min_x(body.left() - STEM_RADIUS_HOVER - theme::stroke::LIT)
+            .intersect(painter.clip_rect()),
+    );
     let painter = painter.with_clip_rect(body);
     painter.rect_filled(body, 0.0, palette.canvas);
     draw_grid(&painter, view, scene.lines);
     draw_guides(&painter, view);
     draw_outside_clip(&painter, view, scene.clip_length);
     match view.kind {
-        LaneKind::Velocity => draw_stems(&painter, view, scene),
+        LaneKind::Velocity => draw_stems([&painter, &overhang], view, scene),
         _ => draw_trace(&painter, view, scene),
     }
     draw_preview(&painter, view, scene);
@@ -153,7 +159,7 @@ pub(crate) fn paint_scale(painter: &Painter, view: &LaneView, column: Rect) {
     painter.vline(
         column.right() - 0.5,
         column.top()..=column.bottom(),
-        Stroke::new(1.0, palette.border),
+        Stroke::new(theme::stroke::HAIRLINE, palette.border),
     );
 }
 
@@ -172,7 +178,11 @@ fn draw_grid(painter: &Painter, view: &LaneView, lines: &[Line]) {
             Level::Beat => palette.grid_beat,
             Level::Sub => palette.grid_sub,
         };
-        painter.vline(x, body.top()..=body.bottom(), Stroke::new(1.0, colour));
+        painter.vline(
+            x,
+            body.top()..=body.bottom(),
+            Stroke::new(theme::stroke::HAIRLINE, colour),
+        );
     }
 }
 
@@ -189,14 +199,14 @@ fn draw_guides(painter: &Painter, view: &LaneView) {
         painter.hline(
             x_range.clone(),
             view.y_of(value),
-            Stroke::new(1.0, palette.grid_beat),
+            Stroke::new(theme::stroke::HAIRLINE, palette.grid_beat),
         );
     }
     if view.kind == LaneKind::PitchBend {
         painter.hline(
             x_range,
             view.y_of(0),
-            Stroke::new(1.0, palette.border_strong),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
         );
     }
 }
@@ -228,7 +238,10 @@ fn draw_outside_clip(painter: &Painter, view: &LaneView, clip_length: Ticks) {
 /// stem sits in each [`STEM_SPACING`], with a head for every note of the
 /// stem at its own velocity (lit when picked, greyed when muted, bigger when
 /// hovered). Heads are drawn in note order, so the higher index is on top.
-fn draw_stems(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
+/// `painters` are the plot's, and the plot's with room for a head to reach
+/// past its left edge: a stem at or right of the edge uses the second, so
+/// its head shows whole; one scrolled past it is cut at the edge as before.
+fn draw_stems(painters: [&Painter; 2], view: &LaneView, scene: &LaneScene<'_>) {
     let body = view.body;
     let picked = Members::new(scene.picked_notes);
     let range = view.stems_between(
@@ -254,6 +267,7 @@ fn draw_stems(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
         _ => (None, None),
     };
     for mark in thin_stems(marks, hovered_stem) {
+        let painter = painters[usize::from(mark.x >= body.left() - 0.5)];
         draw_chord(painter, view, scene, &picked, mark, hovered_note);
     }
 }
@@ -377,7 +391,7 @@ fn draw_points(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
         let hovered = scene.hover == LaneHover::Point(first + offset);
         let radius = if hovered { POINT_R_HOVER } else { POINT_R };
         let ring = if picked.contains(point.index) {
-            Stroke::new(1.5, palette.text)
+            Stroke::new(theme::stroke::LIT, palette.text)
         } else {
             Stroke::NONE
         };
@@ -457,7 +471,7 @@ fn draw_preview(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
                 *rect,
                 theme::radius::SMALL,
                 palette.accent.gamma_multiply(0.12),
-                Stroke::new(1.0, palette.accent),
+                Stroke::new(theme::stroke::HAIRLINE, palette.accent),
                 StrokeKind::Inside,
             );
         }
