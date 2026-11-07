@@ -561,6 +561,14 @@ per slice and move what is no longer current out of it.
   `midi_play::playing_again_at_once_after_a_stop_does_not_pop`. MT-MIDI-10
   (`docs/manual-tests/M9.md`) waits for the owner. Found and not fixed: Stop
   in a latent project leaves a hole in the ring (KNOWN_ISSUES, top row).
+- **Branch `docs/manual-test-agent-runs`: manual tests run (2026-11-07).**
+  An agent drove the real UI for the parts that need no person, and the owner
+  did the listening and hand parts. Passed by the owner: MT-M9-1, MT-REC-5,
+  MT-AUDIO-7, MT-FIRSTRUN-1, MT-SYS-1; MT-BROWSE-1 in part (the preview);
+  MT-EDIT-2 and MT-CLIP-2 by ear. Failed: the smallest window at UI scale
+  200% is unusable (MT-CLIP-1 step 9, MT-CLIP-2 step 10; KNOWN_ISSUES, top
+  row). Still waiting: MT-EXPORT-1's real-time export on the Focusrite and
+  MT-PREF-1. Results are in `docs/manual-tests/` and `docs/PROGRESS.md`.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
