@@ -569,6 +569,7 @@ per slice and move what is no longer current out of it.
   ids, switch parameters, the synth's full steal, the projects folder
   under a moved Documents. Not run here: WSL (no distribution on this
   machine), so the orphans test and the perf baseline wait. MT-KI-1 waits.
+  Reviewed twice (ADR-0125's last bullets say what each round changed).
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
