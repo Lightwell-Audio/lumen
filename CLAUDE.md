@@ -543,6 +543,14 @@ per slice and move what is no longer current out of it.
   without gating; setup steps retry, and `rerun.yml` reruns a run once when
   only the infrastructure failed (it works once on `main`). Open: the timing
   list's correctness checks no longer gate (KNOWN_ISSUES, top row).
+- **Branch `fix/midi-replay-pop`: Play after a Stop keeps what rings**
+  (ADR-0123; owner's report, 2026-11-07). Play used to fade the whole output
+  in from silence, cutting a synth note still ringing out from the Stop: a
+  pop. Now the engine crossfades from the ring, and a latent mixer keeps its
+  lines and blends from it. Engine test `midi::playing_again_while_…`, E2E
+  `midi_play::playing_again_at_once_after_a_stop_does_not_pop`. MT-MIDI-10
+  (`docs/manual-tests/M9.md`) waits for the owner. Found and not fixed: Stop
+  in a latent project leaves a hole in the ring (KNOWN_ISSUES, top row).
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
@@ -557,7 +565,7 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status and the milestone reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0122 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0123 and the table of owner decisions.
 - `docs/USER_DOCS.md`: the user documentation strategy (accepted, ADR-0119).
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.

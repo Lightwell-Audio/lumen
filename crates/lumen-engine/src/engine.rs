@@ -443,7 +443,7 @@ impl<S: Source> Engine<S> {
             self.counting = Some(count);
         } else {
             self.counting = None;
-            self.start();
+            self.start(channels);
         }
         n
     }
@@ -574,8 +574,17 @@ impl<S: Source> Engine<S> {
         self.position = self.playhead.position();
     }
 
-    /// Playback starts rendering at `self.ahead`.
-    fn start(&mut self) {
+    /// Playback starts rendering at `self.ahead`, fading in from silence.
+    /// What still rings from before (an instrument's release after a Stop)
+    /// carries on instead: fading the whole output in would cut the ringing
+    /// note to nothing for a frame. Without latency it is crossfaded here,
+    /// as a jump while playing is; a latent source carries it through its
+    /// delay lines itself, and the first frames heard are from them.
+    fn start(&mut self, channels: usize) {
+        let ringing = self.source.ringing();
+        if ringing && self.lookahead == 0 {
+            self.render_tail(channels, Mode::Ring, false);
+        }
         self.playing = true;
         self.locate_source(Jump::Play);
         // Read after the source's locate, which takes up a waiting
@@ -583,7 +592,9 @@ impl<S: Source> Engine<S> {
         self.lookahead = i64::from(self.source.latency());
         self.playhead.start(self.ahead, self.lookahead);
         self.position = self.playhead.position();
-        self.declick.fade_in(fade_frames(self.sample_rate));
+        if !ringing || self.lookahead == 0 {
+            self.declick.fade_in(fade_frames(self.sample_rate));
+        }
     }
 
     /// Stops where the playhead is: playback continues from what was
@@ -612,9 +623,14 @@ impl<S: Source> Engine<S> {
     /// stop rather than jump (instruments carry on ringing after a stop,
     /// so they leave the tail out).
     fn capture(&mut self, channels: usize, stopping: bool) {
-        if !self.playing {
-            return;
+        if self.playing {
+            self.render_tail(channels, Mode::Play, stopping);
         }
+    }
+
+    /// Renders the next frames from the render position in `mode` into the
+    /// declick tail, faded out, without moving the source on.
+    fn render_tail(&mut self, channels: usize, mode: Mode, stopping: bool) {
         let frames = fade_frames(self.sample_rate);
         let Some(buffer) = self.declick.tail_buffer(channels) else {
             return;
@@ -625,7 +641,7 @@ impl<S: Source> Engine<S> {
             start: self.ahead,
             tail: true,
             stopping,
-            mode: Mode::Play,
+            mode,
             stream: 0,
             device: 0,
             recording: false,
@@ -653,10 +669,10 @@ impl<S: Source> Engine<S> {
                         } else {
                             self.position
                         };
-                        self.start();
+                        self.start(channels);
                     }
                 }
-                Command::Record { count_in } => self.record(count_in),
+                Command::Record { count_in } => self.record(count_in, channels),
                 Command::EndRecord => self.recording = false,
                 Command::Pause => {
                     if self.cancel_count_in() {
@@ -727,7 +743,7 @@ impl<S: Source> Engine<S> {
     }
 
     /// Starts recording (Command::Record).
-    fn record(&mut self, count_in: u32) {
+    fn record(&mut self, count_in: u32, channels: usize) {
         if self.playing {
             self.recording = true;
         } else if self.counting.is_none() {
@@ -736,7 +752,7 @@ impl<S: Source> Engine<S> {
             self.recording = true;
             if count_in == 0 {
                 self.ahead = marker;
-                self.start();
+                self.start(channels);
                 return;
             }
             self.place(marker);

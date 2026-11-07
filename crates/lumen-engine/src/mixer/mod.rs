@@ -505,6 +505,32 @@ impl<T> Mixer<T> {
     }
 }
 
+impl<T: TrackSource> Mixer<T> {
+    /// A latent plan only: the tracks blend into what they play next from
+    /// what they would have played from the cursor in `mode` (what rings,
+    /// for [`Mode::Ring`]), without moving them on.
+    fn blend_from(&mut self, timeline: &Timeline, sample_rate: u32, mode: Mode) {
+        let cx = RenderContext {
+            timeline,
+            sample_rate,
+            start: self.cursor,
+            tail: true,
+            stopping: false,
+            mode,
+            stream: 0,
+            device: 0,
+            recording: false,
+            looping: None,
+            deadline: None,
+        };
+        let length = fade_frames(sample_rate).min(CHUNK);
+        if let Some(mut tail) = self.plan.input_tail(length) {
+            self.tracks.render(&cx, &mut tail);
+            self.blend = Some(Blend::new());
+        }
+    }
+}
+
 impl<T: TrackSource> Source for Mixer<T> {
     fn input(&mut self, inputs: &Inputs<'_>) {
         self.tracks.input(inputs);
@@ -643,24 +669,7 @@ impl<T: TrackSource> Source for Mixer<T> {
             // Latent: the engine's crossfade would come before the jump is
             // heard. Blend where the tracks play in instead, from what they
             // would have played next; a plan crossfade carries on.
-            let cx = RenderContext {
-                timeline,
-                sample_rate,
-                start: self.cursor,
-                tail: true,
-                stopping: false,
-                mode: Mode::Play,
-                stream: 0,
-                device: 0,
-                recording: false,
-                looping: None,
-                deadline: None,
-            };
-            let length = fade_frames(sample_rate).min(CHUNK);
-            if let Some(mut tail) = self.plan.input_tail(length) {
-                self.tracks.render(&cx, &mut tail);
-                self.blend = Some(Blend::new());
-            }
+            self.blend_from(timeline, sample_rate, Mode::Play);
         } else {
             // The engine crossfades the jump: a plan crossfade ends here,
             // and levels start at their targets rather than gliding.
@@ -669,11 +678,18 @@ impl<T: TrackSource> Source for Mixer<T> {
             self.plan.settle();
             self.blend = None;
             if self.plan.latency() > 0 {
-                // Playback starts: the delay lines forget what played
-                // before, and the tracks fade in from silence.
-                self.plan.clear_lines();
-                if self.plan.input_tail(0).is_some() {
-                    self.blend = Some(Blend::new());
+                if self.tracks.ringing() {
+                    // Playback starts while an instrument rings out: the
+                    // delay lines hold its ring, and the tracks blend from
+                    // it into the new audio, so the ring carries on.
+                    self.blend_from(timeline, sample_rate, Mode::Ring);
+                } else {
+                    // The delay lines forget what played before, and the
+                    // tracks fade in from silence.
+                    self.plan.clear_lines();
+                    if self.plan.input_tail(0).is_some() {
+                        self.blend = Some(Blend::new());
+                    }
                 }
             }
         }

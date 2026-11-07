@@ -1465,3 +1465,94 @@ fn a_synced_port_gets_start_clocks_on_their_frames_the_loop_wrap_and_stop() {
         "the stop flushes what waits"
     );
 }
+
+/// What [`replay_while_ringing`] measures.
+struct Replay {
+    /// The steepest step where play starts (and where a latent path's start
+    /// is heard), and the steepest while only the release rang.
+    join: f32,
+    ringing: f32,
+    /// The quietest 1 ms after play starts against the ring's peak.
+    quietest: f32,
+}
+
+/// Plays into the middle of the synth's note, stops, and plays again at
+/// once from the same place while the released note still rings and the
+/// chased one starts under it.
+fn replay_while_ringing(latency: u32) -> Replay {
+    let (mut rig, _) = synth_rig(1.0, true);
+    if latency > 0 {
+        rig.routing
+            .set(&Routing {
+                nodes: vec![
+                    NodeSpec::unity(MASTER, Destination::Hardware(0)),
+                    NodeSpec {
+                        devices: vec![lumen_engine::Device::Delay {
+                            frames: latency,
+                            listen: false,
+                        }],
+                        ..NodeSpec::unity(TRACK, Destination::Node(MASTER))
+                    },
+                ],
+                cue: None,
+                measure: None,
+            })
+            .unwrap();
+    }
+    let inside = Ticks::quarters(1) + Ticks(77 + Ticks::quarters(1).0 / 2);
+    rig.transport.send(Command::Locate(inside)).unwrap();
+    rig.play();
+    rig.run(6_000, 128);
+    rig.transport.send(Command::Stop).unwrap();
+    let ringing = rig.run(1_000, 128);
+    rig.transport.send(Command::Locate(inside)).unwrap();
+    rig.play();
+    let played = rig.run(2_000, 128);
+    assert!(
+        played[1_000..].iter().any(|v| v.abs() > 0.05),
+        "the note plays"
+    );
+    let steepest = |x: &[f32]| {
+        x.windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0, f32::max)
+    };
+    let peak = |x: &[f32]| x.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+    // Each over the 2 ms fade: later, the chased note's attack is steeper
+    // than the quiet release.
+    let fade = 96;
+    let latency = latency as usize;
+    let start: Vec<f32> = ringing[ringing.len() - 200..]
+        .iter()
+        .chain(&played[..fade])
+        .copied()
+        .collect();
+    let heard = &played[latency.saturating_sub(fade)..latency + fade];
+    Replay {
+        join: steepest(&start).max(steepest(heard)),
+        ringing: steepest(&ringing),
+        quietest: played[..latency + 2 * fade]
+            .windows(48)
+            .map(peak)
+            .fold(f32::MAX, f32::min)
+            / peak(&ringing[ringing.len() - 480..]),
+    }
+}
+
+#[test]
+fn playing_again_while_the_synth_rings_out_does_not_click() {
+    for latency in [0, 256] {
+        let replay = replay_while_ringing(latency);
+        assert!(
+            replay.join < 1.5 * replay.ringing,
+            "latency {latency}: a step where play starts: {} against {} ringing",
+            replay.join,
+            replay.ringing
+        );
+        assert!(
+            replay.quietest > 0.25,
+            "latency {latency}: the ring drops out when play starts: {}",
+            replay.quietest
+        );
+    }
+}
