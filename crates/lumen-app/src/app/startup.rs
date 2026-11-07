@@ -286,6 +286,8 @@ impl App {
             app.settings.appearance.theme = theme::Appearance::from_key(&theme).key().into();
             app.appearance_override = true;
         }
+        app.note_editor.quantize.options =
+            crate::note_editor::quantize::Options::from_saved(&app.settings.quantize);
         fonts::install(&cc.egui_ctx);
         app.apply_appearance(&cc.egui_ctx);
         // Requests from later starts wake the window from now on.

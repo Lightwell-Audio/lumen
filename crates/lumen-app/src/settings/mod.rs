@@ -372,6 +372,38 @@ pub struct Settings {
     /// The browser's open tab (M9 R7c): an added section with defaults, so
     /// older files read as before (no version change).
     pub browser: browser::Browser,
+    /// The clip editor's quantize options, so Q after a restart does what
+    /// it did before: an added section with defaults, so older files read
+    /// as before (no version change).
+    pub quantize: QuantizeChoices,
+}
+
+/// The quantize popover's settings, as words and fractions: `grid` is a note
+/// value ("1/16") or none for the editing grid; `kind` is `straight`,
+/// `triplet` or `dotted`; `mode` is `start`, `end`, `both` or `length`.
+/// A word Lumen does not know reads as the default.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct QuantizeChoices {
+    pub grid: Option<String>,
+    pub kind: String,
+    pub mode: String,
+    pub strength: f32,
+    pub swing: f32,
+    pub window: f32,
+}
+
+impl Default for QuantizeChoices {
+    fn default() -> Self {
+        Self {
+            grid: None,
+            kind: "straight".into(),
+            mode: "start".into(),
+            strength: 1.0,
+            swing: 0.0,
+            window: 1.0,
+        }
+    }
 }
 
 /// The device setup a loopback measurement was taken on.
@@ -560,6 +592,7 @@ impl Default for Settings {
             cache: Cache::default(),
             setup_done: false,
             browser: Default::default(),
+            quantize: QuantizeChoices::default(),
         }
     }
 }
@@ -879,6 +912,14 @@ mod tests {
                 previous: Some("C:/Users/me/AppData/Local/Lumen/Cache".into()),
             },
             setup_done: true,
+            quantize: QuantizeChoices {
+                grid: Some("1/16".into()),
+                kind: "triplet".into(),
+                mode: "both".into(),
+                strength: 0.75,
+                swing: 0.25,
+                window: 0.5,
+            },
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings.clone(), None));
