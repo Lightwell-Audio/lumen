@@ -6,7 +6,9 @@
 //! go (stop, a jump, a loop wrap, an edit, a change of instrument, a lost
 //! port, Panic) can release exactly what sounds. Nothing here allocates:
 //! the vectors are made at their full size on the UI side and never grow;
-//! a full one drops the new event and counts it.
+//! a full one drops the new event and counts it. Near the top, room is kept
+//! for what lets go ([`lets_go`]): a full queue refuses new notes, never a
+//! note-off, so a note can never stick for lack of room.
 //!
 //! Positions are worked out from ticks every block, through the timeline,
 //! so tempo changes move notes with the music. An event belongs to the
@@ -26,6 +28,10 @@ use crate::timeline::Timeline;
 pub(super) const MAX_HELD: usize = 128;
 /// Most events one track queues for one part; past it, they are dropped.
 pub(super) const MAX_EVENTS: usize = 1_024;
+/// Room at the top of a track's queue kept for what lets go: a note-off for
+/// every clip note and live note it can hold, and the pedal and the bend
+/// back at rest for each.
+pub(super) const KEPT_FOR_RELEASES: usize = 2 * MAX_HELD + 4;
 /// Ticks of margin around a block's window of ticks.
 const MARGIN: i64 = 2;
 /// How many repeats back a chase looks for a controller.
@@ -166,11 +172,21 @@ impl TrackState {
         }
     }
 
-    pub fn push(&mut self, event: Event) {
-        if self.events.len() < MAX_EVENTS {
+    /// Queues `event` for the next part; false (and counted) when there is
+    /// no room. What lets go may use the room kept at the top of the queue;
+    /// anything else may not, so a note-off always finds a place.
+    pub fn push(&mut self, event: Event) -> bool {
+        let room = if lets_go(event.msg) {
+            MAX_EVENTS
+        } else {
+            MAX_EVENTS - KEPT_FOR_RELEASES
+        };
+        if self.events.len() < room {
             self.events.push(event);
+            true
         } else {
             self.dropped = self.dropped.saturating_add(1);
+            false
         }
     }
 
@@ -192,11 +208,14 @@ impl TrackState {
             self.dropped = self.dropped.saturating_add(1);
             return;
         }
-        self.push(Event {
+        // A note-on with no room is not held: its note-off would be a
+        // release of nothing.
+        if self.push(Event {
             offset,
             msg: Msg::note_on(held.channel, held.key, velocity),
-        });
-        self.held.push(held);
+        }) {
+            self.held.push(held);
+        }
     }
 
     /// Sends a controller-like message, remembering the pedal and bend.
@@ -216,7 +235,9 @@ impl TrackState {
     /// part.
     pub fn release_live(&mut self) {
         let mut live = std::mem::replace(&mut self.live, LiveState::empty());
-        live.release_all(|event| self.push(event));
+        live.release_all(|event| {
+            self.push(event);
+        });
         self.live = live;
     }
 
@@ -237,6 +258,18 @@ impl TrackState {
         if self.bend {
             self.send(0, Msg::pitch_bend(channel, 0));
         }
+    }
+}
+
+/// Whether `msg` lets go of something sounding: a note-off, the sustain
+/// pedal up, or the bend back at the centre. These may use the room kept at
+/// the top of a full queue.
+pub(super) fn lets_go(msg: Msg) -> bool {
+    match msg.kind() {
+        Kind::NoteOff { .. } => true,
+        Kind::Controller { number, value } => number == cc::SUSTAIN && value < 64,
+        Kind::PitchBend { value } => value == 0,
+        _ => false,
     }
 }
 
@@ -929,5 +962,63 @@ mod tests {
                 1
             );
         }
+    }
+
+    #[test]
+    fn a_full_queue_refuses_new_notes_and_never_a_note_off() {
+        // A pathological part fills one block's queue: a note started before
+        // the flood must still end, so it can never stick (M5 review M4).
+        let mut state = TrackState::new();
+        let held = |key| Held {
+            channel: 0,
+            key,
+            start: Ticks::ZERO,
+            on_sample: 0,
+            off_tick: Ticks(10),
+        };
+        state.start_note(held(60), 100, 0);
+        state.release_live();
+        let mut refused = 0;
+        for i in 0..2 * MAX_EVENTS {
+            if !state.push(Event {
+                offset: 1,
+                msg: Msg::controller(0, 1, (i % 128) as u8),
+            }) {
+                refused += 1;
+            }
+        }
+        assert_eq!(state.events.len(), MAX_EVENTS - KEPT_FOR_RELEASES);
+        assert_eq!(refused, 2 * MAX_EVENTS - state.events.len() + 1);
+
+        // A note-on now is refused and not held: no release of nothing later.
+        state.start_note(held(62), 100, 2);
+        assert!(state.held.iter().all(|h| h.key != 62), "not held");
+        let ons = |state: &TrackState| {
+            state
+                .events
+                .iter()
+                .filter(|e| matches!(e.msg.kind(), Kind::NoteOn { .. }))
+                .count()
+        };
+        assert_eq!(ons(&state), 1, "only the first note went out");
+
+        // Every held note, the pedal and the bend still let go.
+        state.sustain = true;
+        state.bend = true;
+        state.release_all(0);
+        let offs = state
+            .events
+            .iter()
+            .filter(|e| matches!(e.msg.kind(), Kind::NoteOff { key: 60, .. }))
+            .count();
+        assert_eq!(offs, 1, "the first note ends");
+        assert!(
+            state
+                .events
+                .iter()
+                .any(|e| e.msg == Msg::controller(0, cc::SUSTAIN, 0))
+        );
+        assert!(state.events.iter().any(|e| e.msg == Msg::pitch_bend(0, 0)));
+        assert!(state.events.len() <= MAX_EVENTS);
     }
 }

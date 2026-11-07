@@ -20,6 +20,9 @@ use lumen_core::midi::{Event, Kind, Msg, cc};
 const QUEUE: usize = 4;
 /// Messages waiting for the app's sender.
 const OUT_QUEUE: usize = 8_192;
+/// Slots at the end of the hardware queue kept for what lets go: a release
+/// for every note eight hardware tracks can hold.
+const OUT_KEPT_FOR_RELEASES: usize = 8 * hold::KEPT_FOR_RELEASES;
 
 /// A track list, sorted by id for carrying state into the next.
 struct MidiSet {
@@ -147,8 +150,21 @@ pub(super) struct Out {
 }
 
 impl Out {
+    /// Queues `message` for the sender, or counts it dropped. As a track's
+    /// queue does (`hold::lets_go`), the last [`OUT_KEPT_FOR_RELEASES`]
+    /// slots take only what lets go (and Flush), so a full queue refuses
+    /// new notes before a note-off.
     fn push(&mut self, message: MidiOut) {
-        if self.tx.push(message).is_err() {
+        let releases = match message {
+            MidiOut::At { msg, .. } => hold::lets_go(msg),
+            MidiOut::Flush => true,
+        };
+        let full = if releases {
+            self.tx.slots() == 0
+        } else {
+            self.tx.slots() <= OUT_KEPT_FOR_RELEASES
+        };
+        if full || self.tx.push(message).is_err() {
             self.dropped = self.dropped.saturating_add(1);
         }
     }
