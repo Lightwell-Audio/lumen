@@ -202,9 +202,7 @@ impl Run {
                     }
                     Command::Refresh => {
                         if let Ok((_, list)) = up.host.parameters(CAPTURE) {
-                            self.say(Happened::Values(
-                                list.iter().map(|p| (p.id, p.value)).collect(),
-                            ));
+                            self.say(Happened::Values(list));
                         }
                     }
                     Command::Load {

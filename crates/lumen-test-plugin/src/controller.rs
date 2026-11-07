@@ -5,7 +5,7 @@
 
 use std::ffi::c_char;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use vst3::Steinberg::Vst::{
     BusDirection, IComponentHandler, IComponentHandler2, IComponentHandler2Trait,
@@ -37,6 +37,8 @@ pub struct Controller {
     extra: Vec<AtomicU64>,
     /// The trigger's value (bits), when the `window_edits` fault is on.
     trigger: AtomicU64,
+    /// The trigger was stepped on under `titles_changed`: it has a new name.
+    retitled: AtomicBool,
     /// The program-change parameter's value (bits), with `presets`.
     program: AtomicU64,
     /// The controller's own state (bits): a view value, with `presets`.
@@ -84,6 +86,7 @@ impl Controller {
             handler: Mutex::new(None),
             extra,
             trigger: AtomicU64::new(0.0_f64.to_bits()),
+            retitled: AtomicBool::new(false),
             program: AtomicU64::new(0.0_f64.to_bits()),
             view: AtomicU64::new(VIEW_DEFAULT.to_bits()),
         }
@@ -108,6 +111,7 @@ impl Controller {
             && (self.faults.has(Fault::WindowEdits)
                 || self.faults.has(Fault::SetDirty)
                 || self.faults.has(Fault::ValuesChanged)
+                || self.faults.has(Fault::TitlesChanged)
                 || self.faults.has(Fault::BusChange))
     }
 
@@ -260,7 +264,12 @@ impl IEditControllerTrait for Controller {
             // SAFETY: the host passes a valid out pointer.
             let info = unsafe { &mut *info };
             info.id = TRIGGER;
-            text::copy_wstring("Trigger", &mut info.title);
+            let title = if self.retitled.load(Ordering::Relaxed) {
+                "Triggered"
+            } else {
+                "Trigger"
+            };
+            text::copy_wstring(title, &mut info.title);
             text::copy_wstring("Trig", &mut info.shortTitle);
             text::copy_wstring("", &mut info.units);
             info.stepCount = 1;
@@ -432,6 +441,10 @@ impl IEditControllerTrait for Controller {
                         }
                         if self.faults.has(Fault::ValuesChanged) {
                             handler.restartComponent(RestartFlags_::kParamValuesChanged);
+                        }
+                        if self.faults.has(Fault::TitlesChanged) {
+                            self.retitled.store(true, Ordering::Relaxed);
+                            handler.restartComponent(RestartFlags_::kParamTitlesChanged);
                         }
                         if self.faults.has(Fault::BusChange) {
                             // The instrument now has one output more.

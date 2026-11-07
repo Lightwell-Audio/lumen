@@ -889,6 +889,10 @@ fn a_host_that_arrives_while_a_note_is_held_sounds_that_note() {
     let mut arrived = long();
     arrived.instrument = spec;
     assert!(rig.midi.set(vec![arrived]).is_ok());
+    rig.run(12_000, 128);
+    // A later list (an edit) carries the host on: the note is not struck
+    // again.
+    assert!(rig.midi.set(vec![long()]).is_ok());
     // Through the note's end, at a quarter after seven.
     rig.run(24_000 * 7, 128);
     let log = log.lock().unwrap();
@@ -900,7 +904,11 @@ fn a_host_that_arrives_while_a_note_is_held_sounds_that_note() {
         .iter()
         .filter(|m| matches!(m.kind(), Kind::NoteOff { key: 60, .. }))
         .count();
-    assert_eq!(ons.len(), 1, "the held note is struck on the new host");
+    assert_eq!(
+        ons.len(),
+        1,
+        "the held note is struck on the new host, once"
+    );
     assert_eq!(offs, 1, "and ended where it ends");
     assert!(!status.failed());
 }

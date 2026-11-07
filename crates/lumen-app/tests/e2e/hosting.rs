@@ -124,6 +124,9 @@ pub(super) fn faults(stem: &str) -> Option<&'static str> {
         // loaded in its own window does; no parameter shows it.
         "Dirty" => Some("set_dirty"),
         "Values" => Some("values_changed"),
+        // Stepping the trigger renames it and says the titles changed, as a
+        // patch that names its controls anew does.
+        "Titles" => Some("titles_changed"),
         // Reading the plugin's state never returns.
         "Stuck" => Some("state_hang"),
         // The walkthrough's plugins: a sidechain on the effect and three
@@ -868,6 +871,24 @@ fn a_change_inside_a_plugin_marks_the_project_unsaved_with_nothing_to_undo_and_a
             "{module}: the plugin's state is in the file"
         );
     }
+}
+
+#[test]
+fn a_plugin_that_names_its_parameters_anew_is_read_again() {
+    // A patch loaded in the plugin's window renames its controls and says so
+    // (`kParamTitlesChanged`): the card and the panel show the new names.
+    const TRIGGER: u32 = 90;
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("titles", &project, &["Titles"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    let titles = lumen.app().device_param_titles(PLUGIN);
+    assert!(titles.iter().any(|t| t == "Trigger"), "{titles:?}");
+    lumen.app_mut().poke_plugin(PLUGIN, TRIGGER, 1.0);
+    lumen.wait_for("the new name", |app| {
+        app.device_param_titles(PLUGIN)
+            .iter()
+            .any(|t| t == "Triggered")
+    });
 }
 
 #[test]

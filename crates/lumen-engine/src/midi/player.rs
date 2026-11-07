@@ -593,6 +593,15 @@ impl MidiPlayer {
                 track.leaving = before.leaving.take();
             }
             std::mem::swap(&mut track.state, &mut before.state);
+            // A host the new list brings (not one carried over below) has
+            // heard none of the notes held on the old instrument (a stand-in
+            // while the plugin loaded).
+            let host_arrives = same_kind
+                && track.target == Target::Instrument
+                && track
+                    .instrument
+                    .as_ref()
+                    .is_some_and(|spec| spec.instrument.hosted());
             // The instrument the old list had plays on, except a host the
             // new list brings: that one is attached now, and the old list's
             // (a stand-in, or the host it replaces) goes with the old list.
@@ -606,17 +615,9 @@ impl MidiPlayer {
                 }
             }
             track.dirty = !track.same_as(before);
-            // A host the new list brings has heard none of the notes held
-            // on the old instrument (a stand-in while the plugin loaded):
-            // they are forgotten, so the sync below strikes them on it.
-            if same_kind
-                && track.target == Target::Instrument
-                && track
-                    .instrument
-                    .as_ref()
-                    .is_some_and(|spec| spec.instrument.hosted())
-                && !track.state.held.is_empty()
-            {
+            // Its held notes are forgotten, so the sync below strikes them
+            // on the new host.
+            if host_arrives && !track.state.held.is_empty() {
                 track.state.held.clear();
                 track.dirty = true;
             }

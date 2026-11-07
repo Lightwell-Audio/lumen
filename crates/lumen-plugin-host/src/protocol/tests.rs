@@ -360,7 +360,7 @@ fn a_wrong_marker_or_version_is_refused() {
     bytes[0] ^= 1;
     assert!(rejects(&bytes));
     let mut bytes = frame(REQ_QUIT, &[]);
-    bytes[4] = 9;
+    bytes[4] = (VERSION + 1) as u8;
     assert!(rejects(&bytes));
 }
 

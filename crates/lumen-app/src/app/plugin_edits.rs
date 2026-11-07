@@ -156,7 +156,7 @@ pub(crate) fn record(
                 }
             }
             // Not an edit of the project.
-            EditKind::Output | EditKind::Dirty => {}
+            EditKind::Output | EditKind::Dirty | EditKind::Retitled => {}
         }
     }
     flush(doc, &mut loose);

@@ -32,6 +32,7 @@
 //! | `editor_hang=MS` | as `editor`, and the editor's window thread stops answering `MS` milliseconds after it is attached |
 //! | `set_dirty` | the instrument lists the trigger, and stepping it on makes the plugin tell the host `setDirty(true)` and nothing else: a change inside it that no parameter shows |
 //! | `values_changed` | as `set_dirty`, but the plugin asks the host to restart with `kParamValuesChanged`, as a plugin does when a patch loads |
+//! | `titles_changed` | the instrument lists the trigger, and stepping it on renames the trigger "Triggered" and asks the host to restart with `kParamTitlesChanged`, as a plugin does when a patch names its controls anew |
 //! | `headless_editor` | no effect on the plugin: the host (not this plugin) stands in for an editor window that is only a record of where it would be, for tests where there are no windows (`LUMEN_HOST_HEADLESS_EDITOR`) |
 //! | `headless_hang=MS` | as `headless_editor`, and opening it blocks the host's main thread for `MS` milliseconds |
 //! | `headless_close=MS` | as `headless_editor`, and the "user" closes it `MS` milliseconds after it opens |
@@ -99,6 +100,7 @@ pub enum Kind {
     WindowEdits,
     SetDirty,
     ValuesChanged,
+    TitlesChanged,
     HeadlessEditor,
     HeadlessHang,
     HeadlessClose,
@@ -164,6 +166,7 @@ impl Faults {
                 "window_edits" => Kind::WindowEdits,
                 "set_dirty" => Kind::SetDirty,
                 "values_changed" => Kind::ValuesChanged,
+                "titles_changed" => Kind::TitlesChanged,
                 "headless_editor" => Kind::HeadlessEditor,
                 "headless_hang" => Kind::HeadlessHang,
                 "headless_close" => Kind::HeadlessClose,
