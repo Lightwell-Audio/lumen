@@ -291,6 +291,16 @@ pub fn button(ui: &mut Ui, label: &str) -> Response {
     button_inked(ui, label, None)
 }
 
+/// How wide [`button`] is for `label`, for a layout that measures first.
+pub fn button_width(ui: &Ui, label: &str) -> f32 {
+    let galley = ui.painter().layout_no_wrap(
+        label.to_owned(),
+        egui::FontId::proportional(theme::size::BODY),
+        theme::p().text,
+    );
+    galley.size().x + 2.0 * theme::space::M
+}
+
 /// The one primary button of a view: filled accent, `on_accent` letters.
 pub fn primary_button(ui: &mut Ui, label: &str) -> Response {
     button_face(ui, label, None, Some(Tone::Accent))

@@ -38,7 +38,7 @@ fn open_trimmed(mut lumen: Lumen, seconds: f32) -> (Lumen, Id) {
     (lumen, clip)
 }
 
-fn click_at(lumen: &mut Lumen, at: Pos2) {
+pub(super) fn click_at(lumen: &mut Lumen, at: Pos2) {
     lumen.harness.hover_at(at);
     lumen.frames(1);
     for pressed in [true, false] {

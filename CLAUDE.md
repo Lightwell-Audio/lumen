@@ -532,8 +532,18 @@ per slice and move what is no longer current out of it.
   ADR-0120 and 0121 (S0's own branch still says 0119, so merge S1, which
   holds S0, rather than S0 alone). Its docs page is Guides › Clips and
   selection › Look inside an audio clip (scene `audio_clip_editor`).
-  MT-CLIP-1 waits. Next: S2 (handles); every slice now carries its docs
-  (USER_DOCS.md §10.1; `docs_coverage` fails on a command with no page).
+  MT-CLIP-1 waits. Every slice now carries its docs (USER_DOCS.md §10.1;
+  `docs_coverage` fails on a command with no page).
+  **S2** is planned in three (`docs/milestones/M9.5.md` §9; owner: every
+  recommendation, 2026-11-06). **S2a** (`m9.5-s2a-editor-handles`, ADR-0123)
+  is built: trims, fades, gain and slip in the editor through the
+  arrangement's own gestures on a `GestureFrame`; the handles' Tab stops,
+  whose keys run before the commands (`audio_handle_keys`); the header's
+  five layouts; a drag past the view scrolls it, only outwards from the
+  press. Its page is Guides › Clips and selection › Trim and fade inside an
+  audio clip (scene `audio_editor_handles`; `Take::finish` now hands the
+  test device back for a scene's next take). MT-CLIP-2 waits. Next: S2b
+  (range, cursor, envelopes, the loop brace).
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);
@@ -557,7 +567,7 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status and the milestone reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0122 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0123 and the table of owner decisions.
 - `docs/USER_DOCS.md`: the user documentation strategy (accepted, ADR-0119).
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.

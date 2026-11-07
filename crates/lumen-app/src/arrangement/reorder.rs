@@ -24,9 +24,9 @@ use crate::document::{Document, Place, Refused};
 use crate::theme;
 
 /// Within this many points of the list's top or bottom, it scrolls.
-const EDGE: f32 = 36.0;
+const EDGE: f32 = theme::size::EDGE_SCROLL;
 /// The fastest auto-scroll, in points per second (at the very edge).
-const SPEED: f32 = 900.0;
+const SPEED: f32 = crate::motion::EDGE_SCROLL_SPEED;
 
 /// A drag of tracks in progress.
 #[derive(Debug, Clone)]

@@ -37,6 +37,24 @@ const BAR: egui::Vec2 = vec2(8.0, 22.0);
 const CHIP_ICON: f32 = 13.0;
 /// The widest the name and caption get before they are cut.
 const TITLE_WIDTH: f32 = 220.0;
+/// The name alone, shortened, when the header is narrow.
+const TITLE_SHORT: f32 = 64.0;
+/// The room of the grid chip's chevron.
+const CHIP_ARROW: f32 = 9.0;
+
+/// A rule's width.
+const RULE: f32 = 1.0;
+
+/// How much of itself the grid chip shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GridChip {
+    /// The magnet, "Grid", the value and the arrow.
+    Full,
+    /// Without the word.
+    Value,
+    /// The magnet alone.
+    Icon,
+}
 
 /// A header being drawn: its left-to-right row, which ends where the
 /// right-hand group begins.
@@ -94,16 +112,7 @@ impl HeaderStrip {
     pub fn title(&mut self, name: &str, caption: &str, colour: Color32) {
         let row = &mut self.row;
         let palette = theme::p();
-        let ppp = row.pixels_per_point();
-        let (bar, _) = row.allocate_exact_size(BAR, Sense::hover());
-        let bar = bar.round_to_pixels(ppp);
-        row.painter().rect_filled(bar, 3.0, colour);
-        // The light top edge a lit thing has, as on the notes.
-        row.painter().rect_filled(
-            Rect::from_min_size(bar.min, vec2(bar.width(), bar.height() / 2.0)),
-            3.0,
-            Color32::WHITE.gamma_multiply(0.18),
-        );
+        colour_bar(row, colour);
         let name_galley = row.painter().layout_no_wrap(
             name.to_owned(),
             fonts::medium(theme::size::BODY),
@@ -137,6 +146,59 @@ impl HeaderStrip {
         separator(row);
     }
 
+    /// The whole title's width: what [`Self::title`] takes, rule included.
+    pub fn title_width(ui: &Ui, name: &str, caption: &str) -> f32 {
+        let measure = |text: &str, font| {
+            ui.painter()
+                .layout_no_wrap(text.to_owned(), font, Color32::PLACEHOLDER)
+                .size()
+                .x
+        };
+        let words = measure(name, fonts::medium(theme::size::BODY))
+            .max(measure(caption, FontId::monospace(theme::size::SCALE)))
+            .min(TITLE_WIDTH);
+        BAR.x + words + 2.0 * theme::space::M + RULE
+    }
+
+    /// The name alone, shortened with "…" to [`TITLE_SHORT`], then a rule.
+    pub fn title_short(&mut self, name: &str, colour: Color32) {
+        let row = &mut self.row;
+        let palette = theme::p();
+        colour_bar(row, colour);
+        let mut job = egui::text::LayoutJob::simple_singleline(
+            name.to_owned(),
+            fonts::medium(theme::size::BODY),
+            palette.text,
+        );
+        job.wrap = egui::text::TextWrapping::truncate_at_width(TITLE_SHORT);
+        let galley = row.painter().layout_job(job);
+        let (rect, response) =
+            row.allocate_exact_size(vec2(TITLE_SHORT, galley.size().y), Sense::hover());
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("Clip {name}"))
+        });
+        row.painter()
+            .galley_with_override_text_color(rect.min.round(), galley, palette.text);
+        separator(row);
+    }
+
+    pub fn title_short_width() -> f32 {
+        BAR.x + TITLE_SHORT + 2.0 * theme::space::M + RULE
+    }
+
+    /// Only the clip's colour bar, which keeps the title's name for assistive
+    /// technology.
+    pub fn title_bar(&mut self, name: &str, colour: Color32) {
+        let response = colour_bar(&mut self.row, colour);
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("Clip {name}"))
+        });
+    }
+
+    pub fn title_bar_width() -> f32 {
+        BAR.x
+    }
+
     /// The tool switch: Pointer and Draw with their icons, 30 pt. Pointer
     /// chosen is the grey thumb; Draw chosen is filled accent (TL C). The
     /// Draw key is in Draw's tooltip, not in the control (KC C). `tips` say
@@ -161,10 +223,28 @@ impl HeaderStrip {
 }
 
 impl App {
+    /// The grid chip's widths: as a whole, without its word, as its icon.
+    pub(crate) fn grid_chip_widths(&self, ui: &Ui, time: TimeView) -> (f32, f32, f32) {
+        let measure = |text: String, font| {
+            ui.painter()
+                .layout_no_wrap(text, font, Color32::PLACEHOLDER)
+                .size()
+                .x
+        };
+        let word = measure("Grid".to_owned(), FontId::proportional(theme::size::BODY));
+        let value = measure(
+            self.grid_label_at(time.left, time.zoom),
+            FontId::monospace(theme::size::CAPTION),
+        );
+        let gap = theme::space::S;
+        let without = 2.0 * gap + CHIP_ICON + gap + value + gap + CHIP_ARROW;
+        (without + word + gap, without, theme::size::CONTROL)
+    }
+
     /// The grid chip: a magnet (lit while snapping), "Grid", the value at the
     /// editor's zoom in the mono face and an arrow; a click opens the grid
-    /// menu.
-    pub(crate) fn header_grid_chip(&mut self, row: &mut Ui, time: TimeView) {
+    /// menu. `shows` says how much of that fits.
+    pub(crate) fn header_grid_chip(&mut self, row: &mut Ui, time: TimeView, shows: GridChip) {
         let palette = theme::p();
         let label = self.grid_label_at(time.left, time.zoom);
         let word = row.painter().layout_no_wrap(
@@ -178,15 +258,12 @@ impl App {
             palette.text,
         );
         let gap = theme::space::S;
-        let arrow = 9.0;
-        let width = theme::space::S * 2.0
-            + CHIP_ICON
-            + gap
-            + word.size().x
-            + gap
-            + value.size().x
-            + gap
-            + arrow;
+        let (full, without, icon_only) = self.grid_chip_widths(row, time);
+        let width = match shows {
+            GridChip::Full => full,
+            GridChip::Value => without,
+            GridChip::Icon => icon_only,
+        };
         let (rect, response) =
             row.allocate_exact_size(vec2(width, theme::size::CONTROL), Sense::click());
         let snap = self.grid.snap;
@@ -209,30 +286,44 @@ impl App {
             );
             let painter = row.painter();
             let mid = body.center().y.round();
-            let mut x = (body.left() + theme::space::S).round();
             let (magnet, ink) = if snap {
                 (Icon::Magnet, palette.accent)
             } else {
                 (Icon::MagnetOff, palette.text_hint)
             };
-            let icon =
-                Rect::from_center_size(pos2(x + CHIP_ICON / 2.0, mid), vec2(CHIP_ICON, CHIP_ICON));
-            painter.extend(icons::shapes(magnet, icon, ink));
-            x += CHIP_ICON + gap;
-            let top = |g: &egui::Galley| mid - (g.size().y / 2.0).round();
-            painter.galley_with_override_text_color(pos2(x, top(&word)), word.clone(), face.text());
-            x += word.size().x + gap;
-            painter.galley_with_override_text_color(
-                pos2(x, top(&value)),
-                value.clone(),
-                palette.text,
-            );
-            x += value.size().x + gap;
-            // A down chevron, as in the mock-up.
-            let c = pos2((x + arrow / 2.0).round(), mid);
-            let stroke = egui::Stroke::new(1.5, palette.text_hint);
-            painter.line_segment([c + vec2(-3.0, -1.5), c + vec2(0.0, 1.5)], stroke);
-            painter.line_segment([c + vec2(0.0, 1.5), c + vec2(3.0, -1.5)], stroke);
+            if shows == GridChip::Icon {
+                let icon =
+                    Rect::from_center_size(body.center().round(), vec2(CHIP_ICON, CHIP_ICON));
+                painter.extend(icons::shapes(magnet, icon, ink));
+            } else {
+                let mut x = (body.left() + theme::space::S).round();
+                let icon = Rect::from_center_size(
+                    pos2(x + CHIP_ICON / 2.0, mid),
+                    vec2(CHIP_ICON, CHIP_ICON),
+                );
+                painter.extend(icons::shapes(magnet, icon, ink));
+                x += CHIP_ICON + gap;
+                let top = |g: &egui::Galley| mid - (g.size().y / 2.0).round();
+                if shows == GridChip::Full {
+                    painter.galley_with_override_text_color(
+                        pos2(x, top(&word)),
+                        word.clone(),
+                        face.text(),
+                    );
+                    x += word.size().x + gap;
+                }
+                painter.galley_with_override_text_color(
+                    pos2(x, top(&value)),
+                    value.clone(),
+                    palette.text,
+                );
+                x += value.size().x + gap;
+                // A down chevron, as in the mock-up.
+                let c = pos2((x + CHIP_ARROW / 2.0).round(), mid);
+                let stroke = egui::Stroke::new(1.5, palette.text_hint);
+                painter.line_segment([c + vec2(-3.0, -1.5), c + vec2(0.0, 1.5)], stroke);
+                painter.line_segment([c + vec2(0.0, 1.5), c + vec2(3.0, -1.5)], stroke);
+            }
             raised::focus_ring(painter, &response, rect);
         }
         let keys = self.keymap.keys(Command::SnapToGrid);
@@ -246,9 +337,23 @@ impl App {
     }
 }
 
+/// The clip's colour bar, with the light top edge a lit thing has, as on the
+/// notes.
+fn colour_bar(row: &mut Ui, colour: Color32) -> Response {
+    let (bar, response) = row.allocate_exact_size(BAR, Sense::hover());
+    let bar = bar.round_to_pixels(row.pixels_per_point());
+    row.painter().rect_filled(bar, 3.0, colour);
+    row.painter().rect_filled(
+        Rect::from_min_size(bar.min, vec2(bar.width(), bar.height() / 2.0)),
+        3.0,
+        Color32::WHITE.gamma_multiply(0.18),
+    );
+    response
+}
+
 /// A thin rule between groups in the strip.
 pub(crate) fn separator(row: &mut Ui) {
-    let (rect, _) = row.allocate_exact_size(vec2(1.0, 24.0), Sense::hover());
+    let (rect, _) = row.allocate_exact_size(vec2(RULE, 24.0), Sense::hover());
     row.painter().rect_filled(rect, 0.0, theme::p().border);
 }
 

@@ -277,6 +277,222 @@ fn audio_clip_editor() {
     check("audio_clip_editor", started);
 }
 
+/// Guides › Clips › Trim and fade inside an audio clip: the lead clip fades
+/// the opened clip in, trims its end and lowers its gain in the editor; a
+/// gesture clip for each handle and for slip; and a shot with the handles
+/// marked.
+#[test]
+#[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
+fn audio_editor_handles() {
+    use eframe::egui::{Pos2, vec2};
+    use egui_kittest::kittest::Queryable;
+    use lumen_app::testing::InputDeviceTurn;
+    use lumen_core::time::Ticks;
+
+    type H = Harness<'static, App>;
+    fn shown(h: &H) -> lumen_app::testing::AudioEditorShown {
+        h.state().audio_editor_shown().expect("drawn")
+    }
+    fn handles(h: &H) -> lumen_app::testing::AudioHandlesShown {
+        shown(h).handles.expect("the handles")
+    }
+    fn x(h: &H, q: f64) -> f32 {
+        let s = shown(h);
+        s.view.x(s.body.left(), q)
+    }
+    fn undo(h: &mut H, steps: usize) {
+        for _ in 0..steps {
+            h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+            h.run_steps(3);
+        }
+    }
+    /// One drag from `from` to `to` as its own clip; gives the device back.
+    #[expect(clippy::too_many_arguments, reason = "one take's whole setting")]
+    fn gesture(
+        h: &mut H,
+        device: InputDeviceTurn,
+        (name, theme): (&str, &str),
+        editor: Rect,
+        rest: Pos2,
+        from: Pos2,
+        to: Pos2,
+        wanted: &str,
+    ) -> InputDeviceTurn {
+        let mut take = Take::clip(h, device, name, theme, editor, 0.5, rest);
+        take.hold(h, pace::RESULT / 2);
+        take.move_to(h, from);
+        take.press(h);
+        take.move_to(h, to);
+        take.hold(h, 2);
+        take.release(h);
+        take.settle(h);
+        assert_eq!(h.state().undo_label(), Some(wanted), "{name}");
+        take.move_to(h, rest);
+        take.result(h);
+        take.finish()
+    }
+
+    let started = Instant::now();
+    for &theme in recorder::themes() {
+        let dir = TempDir::new(&format!("docs-audio-handles-{theme}"));
+        let (mut h, device) = song(&dir, theme);
+        h.set_size(vec2(960.0, 640.0));
+        h.run_steps(10);
+        // The Drums clip plays bars 2 and 3 of its four-bar file, opened.
+        let id = h.state().project().tracks[0].clips[0].id;
+        h.state_mut().trim_clip_start_to(id, Ticks::quarters(4));
+        h.state_mut()
+            .trim_clip_end_to(id, Ticks::quarters(12), false);
+        h.state_mut().select_clip(id);
+        h.run_steps(4);
+        h.key_press(Key::Enter);
+        h.run_steps(10);
+        let s = shown(&h);
+        let editor = Rect::from_min_max(
+            pos2(s.body.left() - 1.0, s.body.top() - 70.0),
+            pos2(h.ctx.content_rect().right(), s.body.bottom() + 1.0),
+        );
+        let rest = pos2(editor.right() - 40.0, editor.top() + 20.0);
+        let mid = s.body.center().y;
+
+        // The lead: a fade in, the end trimmed by a beat, the gain down.
+        let mut take = Take::clip(
+            &mut h,
+            device,
+            "audio-editor-handles-lead",
+            theme,
+            editor,
+            0.5,
+            rest,
+        );
+        take.hold(&mut h, pace::RESULT / 2);
+        let fade_in = handles(&h).fade_in;
+        let faded = pos2(x(&h, 5.0), fade_in.y);
+        take.move_to(&mut h, fade_in);
+        take.press(&mut h);
+        take.move_to(&mut h, faded);
+        take.hold(&mut h, 2);
+        take.release(&mut h);
+        take.settle(&mut h);
+        let end = pos2(handles(&h).end - 2.0, mid);
+        let trimmed = pos2(x(&h, 11.0), mid);
+        take.move_to(&mut h, end);
+        take.press(&mut h);
+        take.move_to(&mut h, trimmed);
+        take.hold(&mut h, 2);
+        take.release(&mut h);
+        take.settle(&mut h);
+        let line = pos2(x(&h, 8.0), handles(&h).gain_y);
+        take.move_to(&mut h, line);
+        take.press(&mut h);
+        take.move_to(&mut h, line + vec2(0.0, 30.0));
+        take.hold(&mut h, 2);
+        take.release(&mut h);
+        take.settle(&mut h);
+        let c = h.state().project().tracks[0].clips[0].clone();
+        assert!(c.fade_in.length > Ticks::ZERO, "faded in");
+        assert_eq!(
+            c.start + c.length,
+            Ticks::quarters(11),
+            "trimmed on the grid"
+        );
+        take.move_to(&mut h, rest);
+        take.result(&mut h);
+        let device = take.finish();
+        undo(&mut h, 3);
+
+        // The handles, marked.
+        let hs = handles(&h);
+        let s = shown(&h);
+        let gain_line =
+            Rect::from_x_y_ranges(x(&h, 7.0)..=x(&h, 9.0), hs.gain_y - 6.0..=hs.gain_y + 6.0);
+        let grip = Rect::from_x_y_ranges(hs.end - 8.0..=hs.end + 4.0, s.body.y_range());
+        let fade_mark = Rect::from_center_size(hs.fade_in, vec2(18.0, 18.0));
+        h.hover_at(rest);
+        still(
+            &mut h,
+            editor,
+            "audio-editor-handles",
+            theme,
+            None,
+            &[
+                ("Trim grip", grip),
+                ("Fade handle", fade_mark),
+                ("Gain line", gain_line),
+            ],
+        );
+
+        // One gesture a clip, each undone before the next.
+        let end = pos2(handles(&h).end - 2.0, mid);
+        let to = pos2(x(&h, 10.0), mid);
+        let device = gesture(
+            &mut h,
+            device,
+            ("audio-editor-trim", theme),
+            editor,
+            rest,
+            end,
+            to,
+            "Trim clip",
+        );
+        undo(&mut h, 1);
+        let fade_in = handles(&h).fade_in;
+        let to = pos2(x(&h, 6.0), fade_in.y);
+        let device = gesture(
+            &mut h,
+            device,
+            ("audio-editor-fade", theme),
+            editor,
+            rest,
+            fade_in,
+            to,
+            "Fade in",
+        );
+        let bend = handles(&h).bend_in.expect("a fade has its bend dot");
+        let device = gesture(
+            &mut h,
+            device,
+            ("audio-editor-fade-shape", theme),
+            editor,
+            rest,
+            bend,
+            bend + vec2(0.0, -40.0),
+            "Fade curve",
+        );
+        undo(&mut h, 2);
+        let line = pos2(x(&h, 8.0), handles(&h).gain_y);
+        let device = gesture(
+            &mut h,
+            device,
+            ("audio-editor-gain", theme),
+            editor,
+            rest,
+            line,
+            line + vec2(0.0, 40.0),
+            "Clip gain",
+        );
+        undo(&mut h, 1);
+
+        // Slip: the whole file shows, and its grey end is dragged.
+        h.get_by_label("Whole file").click();
+        h.run_steps(6);
+        let grey = pos2(x(&h, 14.0), mid);
+        let to = pos2(x(&h, 12.0), mid);
+        let _device = gesture(
+            &mut h,
+            device,
+            ("audio-editor-slip", theme),
+            editor,
+            rest,
+            grey,
+            to,
+            "Slip clip",
+        );
+        undo(&mut h, 1);
+    }
+    check("audio_editor_handles", started);
+}
+
 /// Films frames until the playhead reaches `quarters`, within ten seconds
 /// of video: a song that stopped or stalled fails the scene instead of
 /// filming forever.

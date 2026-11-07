@@ -9,10 +9,11 @@ area = "clip"
 minutes = 3
 also = ["audio editor", "sample editor", "waveform", "zoom into audio"]
 related = [
+  { kind = "Guide", title = "Trim and fade inside an audio clip" },
   { kind = "Guide", title = "Split a clip" },
   { kind = "Reference", title = "Commands and shortcuts" },
 ]
-next = "Split a clip"
+next = "Trim and fade inside an audio clip"
 
 [taxonomies]
 actions = ["midi.open_editor", "view.audio_editor_whole_file", "view.audio_editor_zoom_to_clip"]
@@ -66,6 +67,8 @@ editor" and "Zoom the audio editor to the clip".
 - If the file is missing, the editor says so and offers **Open the media
   pool**, where you can find it again.
 - Looking around changes nothing in the song, so there is nothing to undo.
+- To trim, fade, set the gain or slide the audio right here, see
+  [Trim and fade inside an audio clip](@/guides/clips/trim-and-fade-inside-an-audio-clip.md).
 
 {% tip() %}
 Before you trim a clip, click **Whole file**. You can see at once whether a

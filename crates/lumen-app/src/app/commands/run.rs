@@ -557,6 +557,8 @@ impl App {
             Command::AudioEditorWholeFile => {
                 self.audio_editor_fit(crate::audio_editor::Fit::File);
             }
+            Command::SlipClipEarlier => self.slip_opened_clip(-1),
+            Command::SlipClipLater => self.slip_opened_clip(1),
             Command::AddSampleFolder => {
                 self.show_browser_tab(crate::browser::Tab::Samples);
                 self.pick_sample_folder(ctx);

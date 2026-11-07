@@ -2821,6 +2821,103 @@ fn audio_clip_editor() {
     }
 }
 
+/// The audio editor's handles (M9.5 S2a): at rest with a fade in, a fade out
+/// and a gain, with a fade hot under the pointer, with the keyboard on a
+/// handle and its popover open; the header at the widths it must fit.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn audio_editor_handles() {
+    use lumen_core::time::Ticks;
+
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1400.0, 800.0)),
+        ("light", 1.0, vec2(1400.0, 800.0)),
+        ("dark", 1.5, vec2(1300.0, 800.0)),
+        ("light", 1.5, vec2(1300.0, 800.0)),
+        ("dark", 2.0, vec2(1100.0, 800.0)),
+        ("light", 2.0, vec2(1100.0, 800.0)),
+        ("dark", 1.0, vec2(960.0, 540.0)),
+        // The smallest window at 150% and 200%, in points.
+        ("light", 1.5, vec2(640.0, 360.0)),
+        ("dark", 2.0, vec2(480.0, 270.0)),
+    ] {
+        let dir = TempDir::new("shots-audio-handles");
+        let mut h = bare_scaled(&dir, appearance, scale, size);
+        drop_files(&mut h, &dir, 8.0);
+        let tag = format!("{appearance}-{}-{}", (scale * 100.0) as u32, size.x as u32);
+        let clip = h.state().project().tracks[0].clips[0].id;
+        h.state_mut().trim_clip_start_to(clip, Ticks::quarters(4));
+        h.state_mut()
+            .trim_clip_end_to(clip, Ticks::quarters(10), false);
+        h.state_mut().select_clip(clip);
+        h.run_steps(4);
+        h.key_press(Key::Enter);
+        h.run_steps(10);
+        h.state_mut().set_detail_size(308.0);
+        h.run_steps(30);
+        save(&mut h, &format!("audio-handles-plain-{tag}"));
+
+        // A fade each way and the gain pulled down, by hand.
+        let shown = |h: &egui_kittest::Harness<'_, lumen_app::App>| {
+            h.state().audio_editor_shown().expect("drawn")
+        };
+        let drag = |h: &mut egui_kittest::Harness<'_, lumen_app::App>, from: Pos2, to: Pos2| {
+            h.hover_at(from);
+            h.run_steps(2);
+            h.drag_at(from);
+            h.run_steps(2);
+            for step in 1..=4 {
+                h.hover_at(from + (to - from) * (step as f32 / 4.0));
+                h.run_steps(2);
+            }
+            h.drop_at(to);
+            h.run_steps(6);
+        };
+        let at = shown(&h).handles.expect("handles");
+        let quarter = (at.end - at.start) / 6.0;
+        drag(&mut h, at.fade_in, at.fade_in + vec2(quarter, 0.0));
+        let at = shown(&h).handles.expect("handles");
+        drag(&mut h, at.fade_out, at.fade_out - vec2(quarter, 0.0));
+        let at = shown(&h).handles.expect("handles");
+        let middle = Pos2::new((at.start + at.end) / 2.0, at.gain_y);
+        drag(&mut h, middle, middle + vec2(0.0, 24.0));
+        h.hover_at(shown(&h).body.left_top());
+        h.run_steps(10);
+        save(&mut h, &format!("audio-handles-edited-{tag}"));
+
+        // The pointer on a fade: its curve lights and the info line says what
+        // a drag does.
+        let at = shown(&h).handles.expect("handles");
+        h.hover_at(at.fade_out);
+        h.run_steps(10);
+        save(&mut h, &format!("audio-handles-hot-{tag}"));
+
+        // The keyboard on the fade in, then its popover.
+        h.hover_at(shown(&h).body.left_top());
+        h.run_steps(2);
+        let ctx = h.ctx.clone();
+        for _ in 0..4 {
+            if h.state().focused_pane(&ctx).as_deref() == Some("Detail") {
+                break;
+            }
+            h.key_press(Key::F6);
+            h.run_steps(3);
+        }
+        for _ in 0..80 {
+            if h.state().audio_handle_focused(&ctx) == Some("fade in") {
+                break;
+            }
+            h.key_press(Key::Tab);
+            h.run_steps(3);
+        }
+        h.run_steps(6);
+        save(&mut h, &format!("audio-handles-focus-{tag}"));
+        h.key_press(Key::Enter);
+        h.run_steps(10);
+        save(&mut h, &format!("audio-handles-popover-{tag}"));
+    }
+}
+
 /// The preset field on a card, its menu, and the failed faces (M6 slice 5f).
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]

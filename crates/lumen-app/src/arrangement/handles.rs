@@ -23,8 +23,8 @@ use crate::{light, theme};
 const MIN_DB: f32 = *crate::document::CLIP_GAIN.start();
 const MAX_DB: f32 = *crate::document::CLIP_GAIN.end();
 /// The radius of a fade handle, and of a bend dot.
-const HANDLE_RADIUS: f32 = 3.5;
-const BEND_RADIUS: f32 = 3.0;
+pub(crate) const HANDLE_RADIUS: f32 = 3.5;
+pub(crate) const BEND_RADIUS: f32 = 3.0;
 /// A fade with no length keeps its handle this far in from the clip's
 /// side, clear of the trim edge.
 const CORNER: f32 = 8.0;
@@ -34,7 +34,7 @@ const FADE_GRAB: f32 = 6.0;
 const BEND_GRAB: f32 = 5.0;
 const LINE_GRAB: f32 = 3.0;
 /// Clips narrower than this, or with a shorter wave area, show no handles.
-const MIN_WIDTH: f32 = 28.0;
+pub(crate) const MIN_WIDTH: f32 = 28.0;
 const MIN_HEIGHT: f32 = 10.0;
 /// How strong the shading of a crossfade zone is (of the ember wash), how
 /// strongly each clip's colour fills under its curve, and
@@ -208,24 +208,44 @@ impl ClipHandles {
         if rect.width() < MIN_WIDTH || wave.height() < MIN_HEIGHT {
             return None;
         }
+        Some(Self::placed(clip, gain_db, wave, rect.x_range(), x_of))
+    }
+
+    /// The handles of `clip` in a wave area of its own (the audio editor's):
+    /// `wave` runs across the clip from side to side, with no title above it
+    /// and no least size. `None` for clips without audio.
+    pub fn in_wave(clip: &Clip, wave: Rect, x_of: impl Fn(Ticks) -> f32) -> Option<Self> {
+        let ClipContent::Audio { gain_db, .. } = clip.content else {
+            return None;
+        };
+        Some(Self::placed(clip, gain_db, wave, wave.x_range(), x_of))
+    }
+
+    fn placed(
+        clip: &Clip,
+        gain_db: f32,
+        wave: Rect,
+        sides: Rangef,
+        x_of: impl Fn(Ticks) -> f32,
+    ) -> Self {
         let end = clip.start + clip.length;
-        Some(Self {
+        Self {
             wave,
             fade_in: FadeLook::new(
                 Edge::Start,
                 clip.fade_in,
-                rect.left(),
+                sides.min,
                 x_of(clip.start + clip.fade_in.length),
             ),
             fade_out: FadeLook::new(
                 Edge::End,
                 clip.fade_out,
-                rect.right(),
+                sides.max,
                 x_of(end - clip.fade_out.length),
             ),
             crossfade: clip.crossfade,
             gain_db,
-        })
+        }
     }
 
     pub fn fade(&self, edge: Edge) -> &FadeLook {
@@ -365,15 +385,7 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
     for edge in [Edge::Start, Edge::End] {
         let mut curve = h.curve(edge, view.min, view.max);
         let other = if h.crossfade && edge == crossing_edge {
-            let zone = &h.fade_out;
-            let mut incoming = Vec::with_capacity(curve.len());
-            let mut outgoing = Vec::with_capacity(curve.len());
-            for point in curve {
-                let progress = zone.progress_at(point.x);
-                let (in_gain, out_gain) = equal_power_gains(progress);
-                incoming.push(pos2(point.x, h.y_of(in_gain)));
-                outgoing.push(pos2(point.x, h.y_of(out_gain)));
-            }
+            let (incoming, outgoing) = crossing_curves(h, &curve);
             // What each clip still gives across the zone: filled under its
             // curve in its own colour, so the outgoing clip fades away
             // beneath the incoming one's rise.
@@ -476,6 +488,40 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
     }
 }
 
+/// A fade under the pointer: a wash and a glow along its curve, or both
+/// curves of a crossfade.
+pub(crate) fn draw_hot_fade(painter: &Painter, h: &ClipHandles, edge: Edge, view: Rangef) {
+    let accent = theme::p().accent;
+    let curve = h.curve(edge, view.min, view.max);
+    if curve.len() < 2 {
+        return;
+    }
+    if h.crossfade && edge == Edge::End {
+        let (incoming, outgoing) = crossing_curves(h, &curve);
+        glow_line(painter, incoming, accent, true);
+        glow_line(painter, outgoing, accent, true);
+    } else {
+        wash_to(painter, &curve, h.wave.top(), accent.gamma_multiply(0.10));
+        glow_line(painter, curve, accent, true);
+    }
+}
+
+/// The two curves of a crossfade through the zone, at the x of each point of
+/// `curve`: the incoming clip's and the outgoing clip's.
+fn crossing_curves(h: &ClipHandles, curve: &[Pos2]) -> (Vec<Pos2>, Vec<Pos2>) {
+    let zone = &h.fade_out;
+    curve
+        .iter()
+        .map(|point| {
+            let (in_gain, out_gain) = equal_power_gains(zone.progress_at(point.x));
+            (
+                pos2(point.x, h.y_of(in_gain)),
+                pos2(point.x, h.y_of(out_gain)),
+            )
+        })
+        .unzip()
+}
+
 /// A wash `tint` between `curve` and the horizontal line at `y`.
 fn wash_to(painter: &Painter, curve: &[Pos2], y: f32, tint: Color32) {
     if curve.len() < 2 {
@@ -502,7 +548,7 @@ fn equal_power_gains(progress: f32) -> (f32, f32) {
 
 /// A glowing accent line through `points` (the [`light::LIT`] level),
 /// brighter when `hot`.
-fn glow_line(painter: &Painter, points: Vec<Pos2>, accent: Color32, hot: bool) {
+pub(crate) fn glow_line(painter: &Painter, points: Vec<Pos2>, accent: Color32, hot: bool) {
     let lift = if hot { 1.6 } else { 1.0 };
     light::polyline(painter, light::LIT, points, accent, lift);
 }

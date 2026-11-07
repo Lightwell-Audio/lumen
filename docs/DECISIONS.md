@@ -124,6 +124,7 @@ irreversible or external) · *Superseded*.
 | [0120](#adr-0120--the-time-stretch-trial-m95-s0) | The time-stretch trial (M9.5 S0) | Proposed 2026-11-04; the library waits for the owner's ear, and E A's piece length for the owner | Yes (T, E) |
 | [0121](#adr-0121--the-audio-editors-canvas-and-the-shared-clip-header-m95-s1) | The audio editor's canvas and the shared clip header (M9.5 S1) | Accepted 2026-11-04 (MT-CLIP-1 pending) | No |
 | [0122](#adr-0122--tests-that-do-not-depend-on-the-runner-deterministic-ci) | Tests that do not depend on the runner (deterministic CI) | Accepted 2026-11-06 | No |
+| [0123](#adr-0123--the-audio-editors-handles-m95-s2a) | The audio editor's handles (M9.5 S2a) | Accepted 2026-11-06 (MT-CLIP-2 pending) | No |
 
 ---
 
@@ -11175,3 +11176,97 @@ the card was scrolled into view, and then its option, which panics at once
 if the list did not open. The E2E harness now has `Lumen::pick`, which
 opens a list until the option shows and clicks it until the choice holds,
 each brought into view first; the scenario uses it.
+
+## ADR-0123 — The audio editor's handles (M9.5 S2a)
+
+**Date:** 2026-11-06. **Branch:** `m9.5-s2a-editor-handles`, cut from
+`main` after S1 merged (PR #92). **Status:** Accepted; MT-CLIP-2 waits for
+the owner. Plan: `docs/milestones/M9.5.md` §9 (owner: HS A, WD A, FD A,
+CU A, LC A, LB A, LS A, ZC A, DR A, 2026-11-06; S2 split into S2a, S2b and
+S2c).
+
+**Context.** S1 drew an audio clip's whole file in the Clip tab but nothing
+in it could be edited. The editor exists to shape one clip up close, so its
+edges, fades, gain and the file under it must be editable there, by mouse
+and by keyboard, with the arrangement's results and undo steps.
+
+**Choice.**
+
+1. **Shared, not copied (D10).** The arrangement's handle and trim gestures
+   (`app/handles.rs`, `app/editing.rs`) take a small `GestureFrame` (the
+   view, its left edge and the lane) instead of reading the arrangement's
+   view, and `ClipHandles::in_wave` builds the handles from a wave area.
+   Every edit keeps its step name and merge key (D14), so a drag in the
+   editor equals the same drag on the arrangement; the E2E checks that by
+   undoing and redoing the trim on the arrangement's path.
+2. **The folder (D26).** `app/audio_editor.rs` became `app/audio_editor/`:
+   `mod` (layout and view), `gestures` (the pointer), `keys` (Tab stops,
+   arrow keys, the popover) and `header` (the five layouts). Placement, hit
+   testing, the quiet look and typed values are pure in
+   `audio_editor/handles.rs`; the layout choice is pure in
+   `audio_editor/header.rs`.
+3. **D27's origin and D15's stretches.** The loop's origin is the last
+   turn's start at or before the clip's start, worked out in frames as the
+   engine does, so a clip split past its first repeat draws the frame it
+   plays (unit tests in `source.rs`, E2E
+   `a_looped_clip_split_at_a_later_repeat_draws_the_frame_it_plays`). The
+   bright part is the one or two pieces of a turn the clip reaches.
+4. **What the pointer does (HS A, WD A, FD A).** The grips, fade handles,
+   bend dots and gain line are always drawn, quiet (`theme::HANDLE_QUIET`,
+   `GRIP_QUIET`), and light under the pointer or the keyboard. The grips sit
+   at the clip's real ends, past the bright part on a looping clip (D11).
+   The dimmed file slips; Ctrl+Alt slips anywhere; the bright part has no
+   drag until S2b's range. Double-click removes a fade, straightens a bend
+   or resets the gain; right-click on a fade lists its shapes, elsewhere it
+   is the clip menu (D19). A locked clip or frozen track takes no edit and
+   says why (D12).
+5. **Keys (D17, D18).** Five Tab stops (trim start, fade in, gain, fade
+   out, trim end) with stable ids and names that hold their values. A step
+   `audio_handle_keys` runs before `command_keys` in `lib.rs` and takes the
+   arrows, Delete and Enter from the input while a handle has the keyboard,
+   so Alt and an arrow moves the handle and no clip. Enter opens a popover
+   with the typed value (and a fade's shapes); closing it gives the handle
+   the keyboard back. Slip is the pair `edit.slip_clip_earlier` and
+   `edit.slip_clip_later` (Ctrl+Alt+Left and Right while the editor is in
+   use), added at the end of `Command`.
+6. **The header (D24).** `header::choose` takes the first of Words, Icons,
+   Compact, More and Least that fits the parts measured this frame
+   (`raised::button_width`), and the properties column folds when it would
+   leave the wave under `theme::size::WAVE_LEAST` (320 pt), with Clip
+   properties in the ⋯ menu. `CLIP_HEADER_NARROW` is gone.
+7. **A drag past the view scrolls it (D29),** for trims and fades, through
+   `audio_editor::handles::edge_scroll`; the arrangement's track and strip
+   drags now take the same tokens (`theme::size::EDGE_SCROLL`,
+   `motion::EDGE_SCROLL_SPEED`). **A change to D29 found while making the
+   docs scene:** Zoom to clip frames the clip's ends inside the 36 pt zone,
+   so pressing the end grip and pausing scrolled the view away under the
+   hand. Scrolling now starts only once the hand goes outwards past where it
+   pressed, and ramps up from nothing (unit
+   `a_press_inside_the_zone_scrolls_only_once_the_hand_goes_outwards`; the
+   E2E holds a press still for 30 frames). The gain line moves up and down,
+   so it has nothing to scroll.
+
+**Consequences.** No format change. The arrangement's handle code now takes
+its view as an argument; its E2E (`fades`, `crossfades`, `clips`) passes
+unchanged. S2b adds the range, cursor, tool switch, pills, envelopes and
+the loop brace on top of these gestures; S2c adds scrubbing, Loop clip and
+Pop out.
+
+**Verified.** Unit tests: placement and hit testing, the stretches at and
+past a turn and shorter than one, the header's layouts and the column's
+fold, edge scroll, typed gains and lengths. E2E `audio_editor_handles` (17
+scenarios): trim end by drag, one step, the same as the arrangement's;
+Alt off the grid; a fade by its handle, the gain line, double-click
+removing the fade; the fade's shapes from its menu; slip from the dimmed
+file and by Ctrl+Alt+Right; a locked clip and a frozen track; a looping
+clip's end grip; a crossfade made from the editor; the deepest zoom stays
+quick; Tab to each handle, Alt and an arrow, Delete, Enter's popover and
+focus coming back, gain by Up and Delete; the split origin; the header at
+960, 640 and 480 pt windows (100, 150 and 200% of the smallest) with
+nothing overlapping and every view button in the strip or its menu; a trim
+dragged past the view scrolling it, pausing Follow, one undo step. The full
+E2E suite passes (878 scenarios, these included). The docs scene
+`audio_editor_handles` reaches its states in check mode. **Not verified:**
+the look by eye on the owner's display, the scene rendered with ffmpeg
+(left to CI's docs job), and a screen reader reading the handles' names
+(the Narrator check is deferred by the owner).
