@@ -16,8 +16,9 @@ pub use devices::{
 
 use test_devices::is_test;
 pub use test_devices::{
-    InputDeviceTurn, TEST_DRIVER, TEST_HOLDS_DRIVER, TEST_LATE_DRIVER, TEST_PACED_DRIVER,
-    TEST_REFUSES_DRIVER, TEST_SLOW_DRIVER, input_device, input_device_turn,
+    BLOCKED_INPUT, InputDeviceTurn, TEST_BLOCKED_INPUT_DRIVER, TEST_DRIVER, TEST_HOLDS_DRIVER,
+    TEST_LATE_DRIVER, TEST_PACED_DRIVER, TEST_REFUSES_DRIVER, TEST_SLOW_DRIVER, input_device,
+    input_device_turn,
 };
 
 use std::sync::Arc;

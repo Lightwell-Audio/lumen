@@ -65,6 +65,9 @@ pub struct FakeDevice {
     pub cable: Option<Cable>,
     /// Every open is refused, as a driver that will not start.
     pub refuse_open: bool,
+    /// Inputs reported as not opening (silent in place), as a system that
+    /// blocks a microphone does.
+    pub silent_inputs: Vec<String>,
     /// Each open takes this long before it answers, as a driver that is
     /// slow to start (or, for long enough, one that does not answer).
     pub open_delay: Duration,
@@ -130,6 +133,7 @@ impl FakeDevice {
             allowance: None,
             cable: None,
             refuse_open: false,
+            silent_inputs: Vec::new(),
             open_delay: Duration::ZERO,
             close_delay: Duration::ZERO,
             buffer_sizes: BufferSizes {
@@ -233,6 +237,11 @@ impl Backend for FakeBackend {
                 output_latency: frames + 64,
                 input_channels: inputs,
                 output_channels: outputs,
+                silent_inputs: if inputs > 0 {
+                    device.silent_inputs.clone()
+                } else {
+                    Vec::new()
+                },
             },
             inputs: vec![0.0; inputs * frames as usize],
             input_map,

@@ -489,6 +489,9 @@ impl State {
                         ui,
                         "The inputs tracks can record from and monitor; choose one in a track's In menu",
                     );
+                    for name in running.map_or(&[][..], |i| &i.silent_inputs[..]) {
+                        warning(ui, &silent_input_words(name), 0.0);
+                    }
                 });
             })));
         }
@@ -594,6 +597,17 @@ impl State {
             }
         });
     }
+}
+
+/// What the Input row says about an input that would not open: its channels
+/// are silent in place, and where to look.
+fn silent_input_words(name: &str) -> String {
+    let look = if cfg!(windows) {
+        "Windows may be keeping apps from it: see Settings, Privacy & security, Microphone"
+    } else {
+        "The system may be keeping apps from it: see its privacy settings for the microphone"
+    };
+    format!("{name} would not open, so its inputs are silent. {look}.")
 }
 
 #[cfg(test)]

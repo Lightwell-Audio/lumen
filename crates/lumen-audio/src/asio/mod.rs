@@ -501,6 +501,7 @@ impl AsioBackend {
                 output_latency: output_latency.max(0) as u32,
                 input_channels: inputs.len(),
                 output_channels: outputs.len(),
+                silent_inputs: Vec::new(),
             },
             driver,
             inputs,

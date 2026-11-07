@@ -21,6 +21,10 @@ pub(super) const TEST_DRIVERS: &[(&str, &str)] = &[
     (TEST_SLOW_DRIVER, "Slow test device"),
     (TEST_HOLDS_DRIVER, "Test device that holds on"),
     (TEST_LATE_DRIVER, "Test device that answers late"),
+    (
+        TEST_BLOCKED_INPUT_DRIVER,
+        "Test device with a blocked input",
+    ),
 ];
 
 /// The backend of test driver `driver`.
@@ -44,6 +48,11 @@ pub(super) fn backend(driver: &str) -> Option<MakeBackend> {
         TEST_SLOW_DRIVER => Some(|| faulty_test_backend(|d| d.open_delay = TEST_SLOW_OPEN)),
         TEST_HOLDS_DRIVER => Some(|| faulty_test_backend(|d| d.close_delay = TEST_HOLD_CLOSE)),
         TEST_LATE_DRIVER => Some(|| faulty_test_backend(|d| d.open_delay = TEST_LATE_OPEN)),
+        // One whose microphone would not open (blocked by the system's
+        // privacy settings): its inputs are silent in place.
+        TEST_BLOCKED_INPUT_DRIVER => {
+            Some(|| faulty_test_backend(|d| d.silent_inputs = vec![BLOCKED_INPUT.to_owned()]))
+        }
         _ => None,
     }
 }
@@ -145,6 +154,10 @@ pub const TEST_SLOW_DRIVER: &str = "test-slow";
 pub const TEST_HOLDS_DRIVER: &str = "test-holds";
 /// The silent test device that takes [`TEST_LATE_OPEN`] to start.
 pub const TEST_LATE_DRIVER: &str = "test-late";
+/// The silent test device one of whose inputs would not open.
+pub const TEST_BLOCKED_INPUT_DRIVER: &str = "test-blocked-input";
+/// The name of [`TEST_BLOCKED_INPUT_DRIVER`]'s input that would not open.
+pub const BLOCKED_INPUT: &str = "Test microphone";
 
 #[cfg(test)]
 mod tests {

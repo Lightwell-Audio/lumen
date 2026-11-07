@@ -177,6 +177,8 @@ pub(crate) struct Capture {
     /// and one device packet, a little below the true figure (the converter
     /// and driver add their own).
     latency: u32,
+    /// Endpoints that would not open for "all inputs", by name.
+    silent: Vec<String>,
 }
 
 impl Capture {
@@ -207,6 +209,7 @@ impl Capture {
             return Ok(None);
         }
         let mut taps = Vec::new();
+        let mut silent = Vec::new();
         let mut first = 0;
         let mut packet_frames = 0;
         for endpoint in &found {
@@ -229,7 +232,10 @@ impl Capture {
             packet_frames = packet_frames.max(packet);
             let live = match Live::open(endpoint, rate, period, packet) {
                 Ok(live) => Some(live),
-                Err(_) if all => None,
+                Err(_) if all => {
+                    silent.push(endpoint.name.clone());
+                    None
+                }
                 Err(error) => return Err(error),
             };
             taps.push(Tap {
@@ -250,7 +256,13 @@ impl Capture {
             pulled: vec![0.0; widest * period],
             channels: wanted.len(),
             latency: (queued + packet_frames) as u32,
+            silent,
         }))
+    }
+
+    /// The endpoints that would not open, by name: their channels are silent.
+    pub(crate) fn silent(&self) -> &[String] {
+        &self.silent
     }
 
     pub(crate) fn channels(&self) -> usize {

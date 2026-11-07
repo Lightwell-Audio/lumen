@@ -33,8 +33,8 @@ mod tools;
 mod welcome;
 
 pub use crate::audio::{
-    InputDeviceTurn, TEST_DRIVER, TEST_HOLDS_DRIVER, TEST_LATE_DRIVER, TEST_REFUSES_DRIVER,
-    TEST_SLOW_DRIVER, input_device, input_device_turn,
+    BLOCKED_INPUT, InputDeviceTurn, TEST_BLOCKED_INPUT_DRIVER, TEST_DRIVER, TEST_HOLDS_DRIVER,
+    TEST_LATE_DRIVER, TEST_REFUSES_DRIVER, TEST_SLOW_DRIVER, input_device, input_device_turn,
 };
 pub use editor::{AudioEditorShown, AudioHandlesShown, PianoRollDemo};
 
