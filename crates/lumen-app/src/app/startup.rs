@@ -47,25 +47,19 @@ impl App {
         }
         let mut lanes = lanes::Lanes::default();
         // `--stress`: every file of the generated project plays the same
-        // generated audio (one copy in memory, one set of peaks).
+        // generated audio (one copy in memory, one set of peaks), made again
+        // if the device opens at another rate.
         if launch.stress {
             let rate = transport.state().sample_rate;
-            let channels = bench::stress_audio(rate);
-            let peaks = lumen_media::Peaks::build(&channels, &AtomicBool::new(false)).map(Arc::new);
-            let audio = Arc::new(lumen_engine::ClipAudio::Memory {
-                sample_rate: rate,
-                channels,
-            });
-            for media in &document.project().media {
-                if let Some(peaks) = &peaks {
-                    lanes.library.insert_ready(
-                        media.id.0,
-                        &media.path,
-                        Arc::clone(&audio),
-                        Arc::clone(peaks),
-                    );
-                }
-            }
+            let files: Vec<(u64, &str)> = document
+                .project()
+                .media
+                .iter()
+                .map(|media| (media.id.0, media.path.as_str()))
+                .collect();
+            lanes
+                .library
+                .insert_generated(&files, rate, bench::stress_audio);
         }
         if let Some(path) = launch.open_audio {
             lanes.add_files(

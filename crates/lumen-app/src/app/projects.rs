@@ -430,9 +430,12 @@ impl App {
         }
     }
 
-    /// Swaps in another project: its media load afresh, the playhead goes
-    /// to the start, and the transport follows its tempo.
+    /// Swaps in another project: its media load afresh, playback stops, the
+    /// playhead goes to the start, and the transport follows its tempo.
     pub(crate) fn replace_document(&mut self, document: document::Document) {
+        // The song that played belongs to the project being closed: it never
+        // carries on over the next one (M7 review H1).
+        self.transport.stop();
         self.document = document;
         // The Undo steps preference acts from the next project opened or
         // made, on a history that holds no steps yet.
