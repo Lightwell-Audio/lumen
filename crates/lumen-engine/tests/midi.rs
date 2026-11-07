@@ -938,6 +938,40 @@ fn taking_the_synth_away_lets_its_note_ring_out_instead_of_cutting_it() {
     );
 }
 
+#[test]
+fn panic_silences_a_synth_that_is_ringing_out_after_it_was_taken_away() {
+    // The removed synth's release is still sounding when Panic comes: Panic
+    // silences it as it does the track's own instrument.
+    let (mut rig, timeline) = synth_rig(1.0, true);
+    rig.play();
+    let start = timeline.sample_at(Ticks::quarters(1) + Ticks(77), 48_000) as usize;
+    rig.run(start + 3_000, 128);
+    let q = Ticks::quarters;
+    let bare = MidiTrack::new(
+        TRACK,
+        Target::Instrument,
+        None,
+        vec![clip(
+            1,
+            Ticks::ZERO,
+            q(8),
+            vec![note(q(1) + Ticks(77), q(1), 60)],
+        )],
+    );
+    rig.midi.set(vec![bare]).ok().unwrap();
+    let ringing = rig.run(256, 128);
+    assert!(rms(&ringing) > 0.001, "the release rings before Panic");
+    rig.transport.send(Command::Stop).unwrap();
+    rig.transport.send(Command::Panic).unwrap();
+    rig.run(1_024, 128);
+    let after = rig.run(1_024, 128);
+    assert!(rms(&after) < 1e-6, "silent after Panic: {}", rms(&after));
+    assert!(
+        !lumen_engine::Source::ringing(rig.engine.source()),
+        "and idle"
+    );
+}
+
 /// A synth track on `preset` with one note at beat 1 (+77 ticks).
 fn preset_track(preset: lumen_devices::Preset) -> MidiTrack {
     let q = Ticks::quarters;

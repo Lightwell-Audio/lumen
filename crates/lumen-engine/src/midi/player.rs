@@ -151,12 +151,15 @@ pub(super) struct Out {
 
 impl Out {
     /// Queues `message` for the sender, or counts it dropped. As a track's
-    /// queue does (`hold::lets_go`), the last [`OUT_KEPT_FOR_RELEASES`]
-    /// slots take only what lets go (and Flush), so a full queue refuses
-    /// new notes before a note-off.
+    /// queue does, the last [`OUT_KEPT_FOR_RELEASES`] slots take only the
+    /// note-offs of held notes (`hold::ends_a_held_note`) and Flush, so a
+    /// full queue refuses new notes before a note-off. A pedal or a bend put
+    /// back at rest takes ordinary room here: by the time it is forwarded it
+    /// cannot be told from a clip's own, and a flood of those must not use
+    /// up the room the note-offs need.
     fn push(&mut self, message: MidiOut) {
         let releases = match message {
-            MidiOut::At { msg, .. } => hold::lets_go(msg),
+            MidiOut::At { msg, .. } => hold::ends_a_held_note(msg),
             MidiOut::Flush => true,
         };
         let full = if releases {
@@ -469,7 +472,15 @@ impl MidiPlayer {
                 if let Some(msg) = track.state.live.take(m.source, m.msg, out) {
                     let offset = apart_from_its_on(&mut track.state.events, msg, offset, last32);
                     floor = floor.max(offset);
-                    track.state.push(Event { offset, msg });
+                    // A live note-off ends a note the track holds (`take`
+                    // sends no other), so it may use the room kept for
+                    // releases; a player's pedal-up or bend may not.
+                    let event = Event { offset, msg };
+                    if hold::ends_a_held_note(msg) {
+                        track.state.push_release(event);
+                    } else {
+                        track.state.push(event);
+                    }
                 }
             }
         });
@@ -897,6 +908,11 @@ impl TrackSource for MidiPlayer {
             state.live.clear();
             state.down.clear();
             if let Some(spec) = track.instrument.as_mut() {
+                spec.instrument.silence();
+            }
+            // An instrument taken away and still ringing out is silenced too;
+            // it is kept (not dropped on this thread) and goes with its list.
+            if let Some(spec) = track.leaving.as_mut() {
                 spec.instrument.silence();
             }
             if let Target::Port { port, .. } = track.target
