@@ -68,7 +68,7 @@ pub(super) fn choose_cue_pair(lumen: &mut Lumen) {
             break;
         }
         assert!(
-            started.elapsed() < super::PATIENCE,
+            started.elapsed() < super::patience(),
             "the cue pair selection was not accepted"
         );
         std::thread::sleep(Duration::from_millis(5));

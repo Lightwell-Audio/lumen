@@ -49,6 +49,7 @@ egui_kittest = { workspace = true, features = ["eframe", "wgpu"] }
 image.workspace = true
 toml.workspace = true
 lumen-test-plugin = { path = "../lumen-test-plugin" }
+lumen-testkit.workspace = true
 
 [lints]
 workspace = true

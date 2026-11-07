@@ -25,7 +25,7 @@ fn open_by_click(lumen: &mut Lumen, button: &str, option: &str) {
             return;
         }
         assert!(
-            started.elapsed() < super::PATIENCE,
+            started.elapsed() < super::patience(),
             "the dropdown option {option:?} never became available"
         );
         std::thread::sleep(std::time::Duration::from_millis(5));
@@ -37,17 +37,7 @@ fn a_buffer_size_is_picked_by_click_and_by_keyboard() {
     let mut lumen = Lumen::start("dropdown");
     lumen.open_audio_settings();
     // The window opens over a few frames; wait for the combo, not for a count.
-    for _ in 0..400 {
-        lumen.frames(1);
-        if lumen.shows("Buffer size: 128 samples") {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    assert!(
-        lumen.shows("Buffer size: 128 samples"),
-        "the combo is named"
-    );
+    lumen.run_until("the combo, named", |l| l.shows("Buffer size: 128 samples"));
     // By click: the list opens as a menu and a row applies its size; the
     // button keeps keyboard focus afterwards.
     open_by_click(&mut lumen, "Buffer size: 128 samples", "64 samples");

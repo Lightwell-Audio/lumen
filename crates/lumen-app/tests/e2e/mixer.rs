@@ -384,13 +384,7 @@ fn a_track_plays_straight_to_another_pair_of_outputs() {
     tall_mixer(&mut lumen);
     let name = lumen.track_names()[0].clone();
     lumen.click(&format!("{name} output in the mixer: Master"));
-    for _ in 0..200 {
-        if lumen.shows("3/4") {
-            break;
-        }
-        lumen.frames(1);
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    lumen.run_until("the output pairs", |l| l.shows("3/4"));
     assert!(lumen.shows("1/2 Main"), "the main pair is marked");
     lumen.click("3/4");
     assert_eq!(lumen.app().project().tracks[0].output, Output::Device(1));

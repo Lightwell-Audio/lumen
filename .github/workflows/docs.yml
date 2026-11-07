@@ -52,12 +52,12 @@ jobs:
       # software Vulkan device, as the E2E suite does.
       - name: Install Linux system libraries
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev \
-            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev \
-            libfontconfig1-dev mesa-vulkan-drivers ffmpeg
+          bash .github/scripts/retry.sh sudo apt-get update
+          bash .github/scripts/retry.sh sudo apt-get install -y libxkbcommon-dev \
+            libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libasound2-dev libfontconfig1-dev mesa-vulkan-drivers ffmpeg
       - name: Install pinned toolchain (rust-toolchain.toml)
-        run: rustup toolchain install
+        run: bash .github/scripts/retry.sh rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           key: docs

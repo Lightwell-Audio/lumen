@@ -29,7 +29,12 @@ fn built() -> &'static (PathBuf, PathBuf) {
         if !cfg!(debug_assertions) {
             build.arg("--release");
         }
-        assert!(build.status().expect("run cargo").success(), "build");
+        // CI builds them before its tests (`.github/scripts/ci-test.sh`), and
+        // nextest runs every test in a process of its own: with this set,
+        // no process waits on cargo's build lock to learn nothing changed.
+        if std::env::var_os("LUMEN_TEST_PLUGINS_BUILT").is_none() {
+            assert!(build.status().expect("run cargo").success(), "build");
+        }
         // target/<profile>/deps/<this test> -> target/<profile>
         let exe = std::env::current_exe().expect("test binary");
         let profile = exe.parent().and_then(Path::parent).expect("profile dir");

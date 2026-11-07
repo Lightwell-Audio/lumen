@@ -899,7 +899,7 @@ onto an empty page.
   - the file's two ends as `border_strong` hairlines, so where it stops reads
     in both themes;
   - the header takes the first of five layouts that fits the parts as they
-    measure this frame (M9.5 S2a, ADR-0122): **Words**; **Icons** (the view
+    measure this frame (M9.5 S2a, ADR-0123): **Words**; **Icons** (the view
     buttons as 30 pt icon buttons); **Compact** (the title gives up its
     caption and shortens, the grid chip its word); **More** (the view
     buttons move into a ⋯ icon button's menu); **Least** (the colour bar,

@@ -2325,6 +2325,7 @@ dependencies = [
  "lumen-render",
  "lumen-rt",
  "lumen-test-plugin",
+ "lumen-testkit",
  "png",
  "raw-window-handle",
  "rfd",
@@ -2391,6 +2392,7 @@ dependencies = [
  "lumen-plugin-host",
  "lumen-rt",
  "lumen-test-plugin",
+ "lumen-testkit",
  "windows-sys 0.61.2",
 ]
 
@@ -2496,6 +2498,10 @@ dependencies = [
  "vst3",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "lumen-testkit"
+version = "0.0.1"
 
 [[package]]
 name = "mach2"

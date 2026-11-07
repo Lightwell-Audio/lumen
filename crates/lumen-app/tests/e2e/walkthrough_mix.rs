@@ -60,14 +60,9 @@ fn hears(lumen: &mut Lumen, want: f32, what: &str) {
 /// Waits until the control named `label` shows (rows grow over a few
 /// frames when unfolded).
 fn wait_to_show(lumen: &mut Lumen, label: &str) {
-    for _ in 0..100 {
-        if lumen.harness.query_by_label_contains(label).is_some() {
-            return;
-        }
-        lumen.frames(1);
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    panic!("{label} never showed");
+    lumen.run_until(&format!("{label} to show"), |l| {
+        l.harness.query_by_label_contains(label).is_some()
+    });
 }
 
 /// Types `level` into the send knob named `label`.

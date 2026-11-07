@@ -1,97 +1,108 @@
 #!/usr/bin/env bash
-# The CI test runner, one part per job (see the `test` job in ci.yml).
+# The CI test runner (ADR-0122), one part per step of the `test` job in ci.yml.
 #
-#   ci-test.sh rest      every test target but the E2E suite, plus doc tests;
-#                        the real-time tests listed in .github/timing-tests.txt
-#                        run last, alone and with retries (cargo-nextest)
-#   ci-test.sh e2e-<i>   shard <i> (1-based) of the E2E suite's modules
+#   ci-test.sh rest      every test but the E2E suite and the real-time
+#                        tests; the doc tests; one pass of every benchmark
+#   ci-test.sh e2e-<i>   shard <i> (1-based) of E2E_SHARDS of the E2E suite
+#   ci-test.sh timing    the real-time tests (.github/timing-tests.txt), one
+#                        at a time; ci.yml does not fail the job on them
 #
-# The E2E suite is one test binary of about 760 scenarios that takes most of
-# the time. Its scenarios share in-process locks (`timing_sensitive`) that
-# keep real-time scenarios from starving one another's plugin hosts, so it is
-# split by module across jobs and never into one process per test.
+# The first two gate a merge. Their tests assert what the code decides, not
+# how fast the runner is: the test audio devices wait for plugin hosts as an
+# offline render does, and every wait is bounded by lumen_testkit's patience,
+# a hang guard (LUMEN_TEST_PATIENCE). They run under cargo-nextest, each test
+# in a process of its own (so no test shares a process's locks, statics or
+# CPU budget with another), with the `ci` profile's retries: a pass on a
+# retry is printed as FLAKY and ci.yml turns it into a warning
+# (.config/nextest.toml).
 #
-# Every module goes to exactly one shard: the shards read the same list and
-# deal the modules out the same way (largest first, to the lightest shard),
-# so a new module is picked up with no edit here.
+# The real-time tests claim something about time (a block answered within
+# its deadline on a shared three-core runner), which no runner promises. They
+# run last, alone, and report rather than gate.
 set -euo pipefail
 
-part=${1:?usage: ci-test.sh rest | e2e-<shard>}
+part=${1:?usage: ci-test.sh rest | e2e-<shard> | timing}
 shards=${E2E_SHARDS:-2}
+
+# The hang guard of every wait in the tests, in seconds: far past what any
+# wait needs on a loaded runner, and free while the tests pass.
+export LUMEN_TEST_PATIENCE=${LUMEN_TEST_PATIENCE:-180}
+# The test plugin and its host are built once, below, not by each test's
+# process (the tests' `built()` helpers).
+export LUMEN_TEST_PLUGINS_BUILT=1
+
+nextest=(cargo nextest run --locked --color never)
 
 # The real-time tests, one entry per line (comments and blank lines dropped).
 timing_file=.github/timing-tests.txt
 timing_entries() {
   sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$timing_file"
 }
-# Whole test targets (`package::target`, no space) and unit tests (`package name`).
-timing_targets() { timing_entries | { grep -v ' ' || true; }; }
-timing_units() { timing_entries | { grep ' ' || true; }; }
+# A nextest filter for the timing list: whole test targets
+# (`package::target`) and lumen-app's unit tests by path (`lumen-app name`).
+timing_filter() {
+  local filters=() package name
+  while read -r package name; do
+    if [ -z "$name" ]; then
+      filters+=("binary_id(=$package)")
+    else
+      [ "$package" = lumen-app ] || { echo "$timing_file: unit tests of $package are not supported" >&2; exit 1; }
+      filters+=("(binary_id(=lumen-app) & test(~$name))")
+    fi
+  done < <(timing_entries)
+  local IFS='|'
+  echo "${filters[*]}"
+}
+timing=$(timing_filter)
+timing=${timing:-none()}
 
-case "$part" in
-rest)
-  # Cargo has no "all test targets but one", so name lumen-app's others: the
-  # files in tests/ and the directories with a main.rs, as cargo finds them.
-  # The timing tests (.github/timing-tests.txt) are left out of these runs
-  # and run last, apart from everything else.
-  targets=()
+# lumen-app's test targets but the E2E suite: the files in tests/ and the
+# directories with a main.rs, as cargo finds them. Cargo has no "every test
+# target but one", and building the E2E suite here would cost minutes.
+app_targets() {
+  local entry name
   for entry in crates/lumen-app/tests/*.rs crates/lumen-app/tests/*/main.rs; do
     [ -e "$entry" ] || continue
     case "$entry" in
     */main.rs) name=$(basename "$(dirname "$entry")") ;;
     *) name=$(basename "$entry" .rs) ;;
     esac
-    [ "$name" = e2e ] || targets+=(--test "$name")
+    [ "$name" = e2e ] || printf -- '--test\n%s\n' "$name"
   done
-  # Packages with a whole timing test target, and lumen-app's timing unit tests.
-  timed_packages=$(timing_targets | sed 's/::.*//' | sort -u)
-  excludes=()
-  for package in $timed_packages; do excludes+=(--exclude "$package"); done
-  skips=()
-  while read -r package name; do
-    [ -n "$name" ] || continue
-    [ "$package" = lumen-app ] || { echo "$timing_file: unit tests of $package are not supported"; exit 1; }
-    skips+=(--skip "$name")
-  done < <(timing_units)
+}
+
+build_plugins() {
+  cargo build --locked -p lumen-test-plugin -p lumen-plugin-host
+}
+
+case "$part" in
+rest)
+  build_plugins
+  # A read loop, not `mapfile`: macOS runs bash 3.2, which has no mapfile.
+  targets=()
+  while IFS= read -r line; do targets+=("$line"); done < <(app_targets)
+  [ "${#targets[@]}" -gt 0 ] || { echo "no lumen-app test targets found" >&2; exit 1; }
   status=0
-  # --all-targets also runs every divan benchmark once as a smoke test.
-  # --no-fail-fast runs every test binary, so one run shows all failures.
-  cargo test --workspace --exclude lumen-app ${excludes[@]+"${excludes[@]}"} --all-targets --locked --no-fail-fast || status=$?
-  # A package with a timing test target gets all its other targets, named.
-  for package in $timed_packages; do
-    flags=(--bins --benches --examples)
-    [ -f "crates/$package/src/lib.rs" ] && flags+=(--lib)
-    others=()
-    for entry in crates/"$package"/tests/*.rs crates/"$package"/tests/*/main.rs; do
-      [ -e "$entry" ] || continue
-      case "$entry" in
-      */main.rs) name=$(basename "$(dirname "$entry")") ;;
-      *) name=$(basename "$entry" .rs) ;;
-      esac
-      timing_targets | grep -qx "$package::$name" || others+=(--test "$name")
-    done
-    cargo test -p "$package" "${flags[@]}" ${others[@]+"${others[@]}"} --locked --no-fail-fast || status=$?
-  done
-  cargo test -p lumen-app --lib --bins --benches --examples "${targets[@]}" --locked --no-fail-fast -- ${skips[@]+"${skips[@]}"} || status=$?
-  # The same packages as the first run: cargo unifies features over the
-  # packages it is given, so a different set rebuilds crates that are already
-  # built (23 s for lumen-app alone on Windows). lumen-app has no doc tests.
-  cargo test --workspace --exclude lumen-app --doc --locked || status=$?
-  # The timing tests, last and alone: one at a time, with no other test
-  # running beside them, and two retries each (profile `timing` in
-  # .config/nextest.toml). A pass on a retry is printed as FLAKY and the
-  # workflow turns it into a warning; three failures fail the job.
-  # nextest builds the same targets as above, so nothing is rebuilt.
-  whole=$(timing_targets | sed 's/.*/binary_id(=&)/' | paste -sd'|' -)
-  units=$(timing_units | sed 's/^\([^ ]*\) \(.*\)$/binary_id(=\1) \& test(~\2)/' | paste -sd'|' -)
-  if [ -n "$whole" ]; then
-    cargo nextest run --profile timing --workspace --exclude lumen-app --all-targets --locked \
-      --test-threads 1 --color never -E "$whole" || status=$?
-  fi
-  if [ -n "$units" ]; then
-    cargo nextest run --profile timing -p lumen-app --lib --locked \
-      --test-threads 1 --color never -E "$units" || status=$?
-  fi
+  # Two runs: the workspace but lumen-app, then lumen-app's targets but the
+  # E2E suite, which the e2e parts run.
+  "${nextest[@]}" --profile ci --workspace --exclude lumen-app \
+    --lib --bins --tests --examples -E "not ($timing)" --no-tests=pass || status=$?
+  "${nextest[@]}" --profile ci -p lumen-app --lib --bins "${targets[@]}" \
+    -E "not ($timing)" --no-tests=pass || status=$?
+  # Every divan benchmark once, as a smoke test, and the doc tests: the same
+  # packages as the first run, since cargo unifies features over the
+  # packages it is given and another set rebuilds what is built.
+  cargo test --locked --workspace --exclude lumen-app --benches || status=$?
+  cargo test --locked --workspace --exclude lumen-app --doc || status=$?
+  exit $status
+  ;;
+timing)
+  # After `rest`, which built the same targets: nothing is rebuilt.
+  build_plugins
+  status=0
+  "${nextest[@]}" --profile timing --workspace --exclude lumen-app \
+    --lib --bins --tests --examples -E "$timing" --no-tests=pass || status=$?
+  "${nextest[@]}" --profile timing -p lumen-app --lib -E "$timing" --no-tests=pass || status=$?
   exit $status
   ;;
 e2e-*)
@@ -100,49 +111,11 @@ e2e-*)
     echo "E2E shard $shard is outside 1..$shards (E2E_SHARDS)"
     exit 1
   fi
-  # The scenarios' names are module::scenario; the plugin routing walkthrough
-  # runs on its own, below, so it is not dealt out.
-  scenarios=$(cargo test -p lumen-app --test e2e --locked -- --list --format terse 2>/dev/null |
-    sed -n 's/: test$//p' | grep -v '^walkthrough_plugins::' || true)
-  # A filter is a substring, so `record::` also matches `audio_record::`. A
-  # module and the modules whose names end with it are one unit, named by
-  # the shortest of them, and its filter matches exactly the unit.
-  modules=$(printf '%s\n' "$scenarios" | awk -F'::' '
-      NF { n[$1]++ }
-      END {
-        for (m in n) {
-          root = m
-          for (r in n)
-            if (length(r) < length(root) && substr(m, length(m) - length(r) + 1) == r) root = r
-          size[root] += n[m]
-        }
-        for (r in size) print size[r], r
-      }' |
-    LC_ALL=C sort -k1,1nr -k2,2 |
-    awk -v shards="$shards" -v shard="$shard" '
-      { lightest = 0
-        for (s = 1; s < shards; s++) if (load[s] < load[lightest]) lightest = s
-        load[lightest] += $1
-        if (lightest == shard - 1) print $2 }')
-  if [ -z "$modules" ]; then
-    echo "E2E shard $shard of $shards has no modules: the suite could not be listed"
-    exit 1
-  fi
-  echo "E2E shard $shard of $shards: $(echo "$modules" | wc -l | tr -d ' ') modules"
-  filters=()
-  for m in $modules; do filters+=("$m::"); done
-  status=0
-  # `plugins::` also matches `walkthrough_plugins::`, which is not dealt out
-  # (its unit is `plugins`): skip it here.
-  cargo test -p lumen-app --test e2e --locked -- --skip walkthrough_plugins:: "${filters[@]}" || status=$?
-  if [ "$shard" -eq 1 ]; then
-    # Five live plugin hosts share the callback deadline in this flow.
-    # Run it without competing E2E scenarios: peer tests can starve a
-    # host and trigger the intended dry fallback, resetting peak meters.
-    # Keep its audio deadlines and sound assertions unchanged.
-    cargo test -p lumen-app --test e2e --locked walkthrough_plugins:: -- --nocapture || status=$?
-  fi
-  exit $status
+  build_plugins
+  # nextest deals the scenarios out by count; every shard reads the same
+  # list, so each scenario runs in exactly one shard, and a new one is
+  # picked up with no edit here.
+  "${nextest[@]}" --profile ci -p lumen-app --test e2e --partition "count:$shard/$shards"
   ;;
 *)
   echo "unknown part: $part"

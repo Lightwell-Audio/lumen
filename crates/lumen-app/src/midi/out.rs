@@ -666,12 +666,7 @@ mod sender_tests {
             uses,
             Duration::from_millis(10),
         );
-        for _ in 0..200 {
-            if system.ports().iter().any(|p| p.open) {
-                break;
-            }
-            thread::sleep(Duration::from_millis(5));
-        }
+        lumen_testkit::wait_until("the port to open", || system.ports().iter().any(|p| p.open));
         let (queue, rx) = rtrb::RingBuffer::new(4_096);
         let clock = StreamClock::new();
         let mut output = Output::new(rx, system.sender(), Arc::clone(&clock));
@@ -685,13 +680,11 @@ mod sender_tests {
         }
     }
 
+    #[track_caller]
     fn wait_for(fake: &FakeControl, count: usize) {
-        for _ in 0..600 {
-            if fake.sent().len() >= count {
-                return;
-            }
-            thread::sleep(Duration::from_millis(5));
-        }
+        lumen_testkit::wait_until(format_args!("{count} messages sent"), || {
+            fake.sent().len() >= count
+        });
     }
 
     fn at(frame: u64, msg: Msg) -> MidiOut {
@@ -830,12 +823,9 @@ mod sender_tests {
         rig.queue.push(at(0, Msg::note_on(0, 60, 90))).unwrap();
         wait_for(&rig.fake, 1);
         rig.fake.unplug(Direction::Output, "Synth");
-        for _ in 0..200 {
-            if !rig._system.ports().iter().any(|p| p.open) {
-                break;
-            }
-            thread::sleep(Duration::from_millis(5));
-        }
+        lumen_testkit::wait_until("the port to close", || {
+            !rig._system.ports().iter().any(|p| p.open)
+        });
         rig.queue.push(at(0, Msg::note_off(0, 60))).unwrap();
         rig.queue.push(MidiOut::Flush).unwrap();
         thread::sleep(Duration::from_millis(80));
@@ -846,12 +836,9 @@ mod sender_tests {
         );
         // It comes back and works again.
         rig.fake.plug(Direction::Output, "Synth");
-        for _ in 0..400 {
-            if rig._system.ports().iter().any(|p| p.open) {
-                break;
-            }
-            thread::sleep(Duration::from_millis(5));
-        }
+        lumen_testkit::wait_until("the port to open again", || {
+            rig._system.ports().iter().any(|p| p.open)
+        });
         rig.queue.push(at(0, Msg::note_on(0, 61, 90))).unwrap();
         wait_for(&rig.fake, 2);
         assert_eq!(rig.fake.sent().len(), 2);

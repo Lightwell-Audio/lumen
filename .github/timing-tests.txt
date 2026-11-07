@@ -1,12 +1,18 @@
-# The tests whose result depends on the machine keeping real-time deadlines
-# (a plugin host answering a block in time, a sender keeping its spacing).
-# On a runner with three cores they can miss a deadline for no fault of the
-# code, so CI runs them apart from the others (.github/scripts/ci-test.sh):
+# The tests whose claim is about time (ADR-0122): a plugin host answering a
+# block within its deadline, a sender keeping its spacing, a disk thread
+# reading ahead of real-time playback. On a shared runner with three cores
+# no such claim holds every time, whatever the code does, so CI does not
+# gate on them (.github/scripts/ci-test.sh, part `timing`):
 #
-#   - alone, one test at a time, after the parallel tests have finished, and
-#   - with up to two retries (profile `timing` in .config/nextest.toml). A
-#     test that passes on a retry is reported as flaky, not as a failure; a
-#     test that fails all three times fails the job.
+#   - they run after the gated tests, alone, one test at a time, with up to
+#     two retries (profile `timing` in .config/nextest.toml), and
+#   - a failure is a warning on the run ("Real-time test failed"), not a red
+#     job. Look at one when it shows: three misses in a row on a quiet
+#     runner is a finding.
+#
+# Everything else gates, so only a test whose claim is about time belongs
+# here. A test that also checks what the code decides (a value, a state, a
+# message) should have that part in a target of its own, off this list.
 #
 # One entry per line. Locally these tests are ordinary tests: `cargo test`
 # runs them with everything else.
@@ -16,10 +22,9 @@
 #                              the name (only lumen-app's are supported)
 #
 # A test file that reads the wall clock and is neither listed here nor known
-# to be harmless fails crates/lumen-app/tests/timing_tests.rs: add it here
-# when its result depends on timing. The E2E suite is not listed. Its
-# scenarios share in-process locks (`timing_sensitive`) and so stay in one
-# process per shard; they are not retried.
+# to be harmless fails crates/lumen-app/tests/timing_tests.rs. The E2E suite
+# is not listed: its test devices wait for plugin hosts as an offline render
+# does, and its waits are lumen_testkit's hang guards.
 
 lumen-audio::supervisor
 lumen-engine::hosted

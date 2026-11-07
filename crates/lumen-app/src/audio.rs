@@ -176,6 +176,14 @@ impl Audio {
             Choice::Saved(saved) => is_test(&saved.driver),
             Choice::Default => false,
         };
+        if testing {
+            // A test device waits for its plugin hosts as an offline render
+            // does (ADR-0122): a block is never played dry because a busy
+            // CI machine kept a host from answering in a share of a period,
+            // so a test hears what the code decides, not how loaded the
+            // machine was. Missed deadlines are the engine's tests' to prove.
+            engine.set_offline(Some(lumen_engine::OFFLINE_WAIT));
+        }
         let (mut tap, heard) = if testing {
             let (tap, heard) = rtrb::RingBuffer::new(HEARD);
             (Some(tap), Some(heard))

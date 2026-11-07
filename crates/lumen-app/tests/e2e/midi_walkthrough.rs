@@ -1,8 +1,6 @@
 //! The M5 exit walkthrough (slice 8): record a MIDI part, quantize it in the
 //! piano roll, save and reopen the project, then play the reopened notes.
 
-use std::time::Duration;
-
 use eframe::egui::{Key, Modifiers};
 use lumen_app::TimeView;
 use lumen_midi::Direction;
@@ -121,23 +119,13 @@ fn record_quantize_save_reopen_and_play_the_same_midi_part() {
     reopened.frames(3);
     reopened.key(Modifiers::NONE, Key::Space);
     reopened.wait_for("playback", |app| app.is_playing());
-    for _ in 0..1_000 {
-        reopened.frames(1);
-        if fake
-            .sent()
-            .iter()
-            .skip(sent_before_playback)
-            .any(|(_, bytes)| bytes.len() == 3 && bytes[0] & 0xF0 == 0x90 && bytes[2] > 0)
-        {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    assert!(
-        fake.sent()
-            .iter()
-            .skip(sent_before_playback)
-            .any(|(_, bytes)| { bytes.len() == 3 && bytes[0] & 0xF0 == 0x90 && bytes[2] > 0 }),
-        "the reopened MIDI part plays through the fake output"
+    reopened.run_until(
+        "the reopened MIDI part to play through the fake output",
+        |_| {
+            fake.sent()
+                .iter()
+                .skip(sent_before_playback)
+                .any(|(_, bytes)| bytes.len() == 3 && bytes[0] & 0xF0 == 0x90 && bytes[2] > 0)
+        },
     );
 }

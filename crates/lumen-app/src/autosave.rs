@@ -473,7 +473,8 @@ mod tests {
     }
 
     fn wait_for_write(autosave: &mut Autosave, doc: &Document, now: Instant) {
-        for _ in 0..500 {
+        let deadline = lumen_testkit::Deadline::new();
+        loop {
             autosave.tick(
                 true,
                 doc.state(),
@@ -484,16 +485,17 @@ mod tests {
             if autosave.written == Some(doc.state()) {
                 return;
             }
-            std::thread::sleep(Duration::from_millis(5));
+            // Which of the two it was: a write still under way (a stalled
+            // disk) or one that ended in an error (its reason is in the
+            // trace log).
+            deadline.check(format_args!(
+                "the autosave was never written: still writing {}, last write ended {:?} \
+                 (Some(false): it failed)",
+                autosave.writing.is_some(),
+                autosave.finished
+            ));
+            std::thread::sleep(lumen_testkit::POLL);
         }
-        // Which of the two it was: a write still under way (a stalled disk)
-        // or one that ended in an error (its reason is in the trace log).
-        panic!(
-            "the autosave was never written: still writing {}, last write ended {:?} \
-             (Some(false): it failed)",
-            autosave.writing.is_some(),
-            autosave.finished
-        );
     }
 
     #[test]
@@ -552,14 +554,8 @@ mod tests {
             |_| unreachable!(),
             || unreachable!(),
         );
-        // Removed in the background: give it a moment.
-        for _ in 0..200 {
-            if files(tmp.path()) == 0 {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        assert_eq!(files(tmp.path()), 0);
+        // Removed in the background.
+        lumen_testkit::wait_until("the copy to be removed", || files(tmp.path()) == 0);
         // And a session never leaves its own autosave to itself.
         autosave.clear();
         assert!(leftovers(tmp.path(), None).is_empty());

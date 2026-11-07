@@ -58,15 +58,9 @@ fn input_of(lumen: &Lumen, id: Id) -> Option<AudioInput> {
 /// Unfolds `track`'s header and waits for its rows.
 fn unfold(lumen: &mut Lumen, track: &str) {
     lumen.click(&format!("Fold {track}"));
-    for _ in 0..100 {
-        if lumen.shows(&format!("{track} input: None"))
-            || lumen.shows(&format!("Volume {track}: 0.0 dB"))
-        {
-            break;
-        }
-        lumen.frames(1);
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    lumen.run_until(&format!("{track}'s rows"), |l| {
+        l.shows(&format!("{track} input: None")) || l.shows(&format!("Volume {track}: 0.0 dB"))
+    });
     lumen.frames(5);
 }
 

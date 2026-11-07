@@ -21,17 +21,11 @@ fn playing(name: &str) -> (Lumen, String) {
     let track = lumen.track_names()[0].clone();
     // Unfolded, the header shows volume and pan once the row has grown.
     lumen.click(&format!("Fold {track}"));
-    for _ in 0..100 {
-        if lumen
-            .harness
+    lumen.run_until(&format!("{track}'s pan"), |l| {
+        l.harness
             .query_by_label_contains(&format!("Pan {track}:"))
             .is_some()
-        {
-            break;
-        }
-        lumen.frames(1);
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    });
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
     (lumen, track)

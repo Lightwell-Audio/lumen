@@ -1,14 +1,41 @@
-# cargo-nextest, used by CI only and only for the timing tests listed in
-# .github/timing-tests.txt (see .github/scripts/ci-test.sh). Every other test
-# runs under `cargo test`.
+# cargo-nextest runs every test in CI, each in a process of its own
+# (ADR-0122; `.github/scripts/ci-test.sh`). Locally `cargo test` works as
+# before; `cargo nextest run --profile ci` runs as CI does.
+#
+# Two kinds of test, two profiles:
+#
+# - `ci` gates a merge. Its tests assert what the code decides, never how
+#   fast the machine is: plugin hosts are waited for (the test devices),
+#   and waits are bounded by `lumen_testkit::patience`, a hang guard.
+# - `timing` runs the real-time tests of `.github/timing-tests.txt`, whose
+#   claim is about time (a deadline kept on a shared three-core runner).
+#   CI runs them after the gate and does not fail on them: a failure is a
+#   warning on the run, to be looked at, not a red build.
 
-[profile.timing]
-# A real-time test can miss a deadline on a loaded runner. A pass on a retry
-# is reported as flaky; three failures in a row fail the run.
+[profile.ci]
+# A test that fails and then passes is reported as FLAKY (a warning on the
+# run, `ci.yml`), not as a pass that hides it; three failures in a row fail.
+# With the causes of timing out of the gated tests, a retry is the last
+# guard, for what no test can control (a runner that stalls for seconds).
 retries = 2
 fail-fast = false
-# Output of the attempts that failed is printed once, at the end, and only
-# for tests that never passed, so a flaky pass adds no panic text to the log.
-failure-output = "final"
+# Every attempt that failed is printed as it fails, a flaky one included, and
+# a test that never passed again at the end: a flake reported without its
+# panic cannot be looked into ("final" alone dropped them, 2026-11-06).
+failure-output = "immediate-final"
 status-level = "retry"
 final-status-level = "flaky"
+# A test that hangs is ended after 8 minutes (three attempts fit in the job
+# timeout of ci.yml): every wait has its own guard (3 minutes in CI) well
+# under that, and the slowest test takes under a minute.
+slow-timeout = { period = "60s", terminate-after = 8 }
+
+[profile.timing]
+retries = 2
+fail-fast = false
+# One at a time, with nothing else running beside them.
+test-threads = 1
+failure-output = "immediate-final"
+status-level = "retry"
+final-status-level = "flaky"
+slow-timeout = { period = "60s", terminate-after = 8 }

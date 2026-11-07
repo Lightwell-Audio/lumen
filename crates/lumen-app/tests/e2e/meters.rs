@@ -18,18 +18,11 @@ fn tone_db() -> f32 {
 /// Unfolds `track`'s header and waits for its volume slider.
 fn unfold(lumen: &mut Lumen, track: &str) {
     lumen.click(&format!("Fold {track}"));
-    for _ in 0..100 {
-        if lumen
-            .harness
+    lumen.run_until(&format!("{track} to unfold"), |l| {
+        l.harness
             .query_by_label_contains(&format!("Volume {track}:"))
             .is_some()
-        {
-            return;
-        }
-        lumen.frames(1);
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    panic!("{track} did not unfold");
+    });
 }
 
 fn play(lumen: &mut Lumen) {

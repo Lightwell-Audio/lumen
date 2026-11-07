@@ -61,15 +61,9 @@ fn a_value_set_while_running_is_heard_in_the_next_block() {
     assert_eq!(loudness(&mut linked.link, &held()), 0.5);
     manager.set_param(1, LEVEL, 0.75);
     // The host thread sends it on; give it a moment, then the next block has it.
-    let mut heard = 0.0;
-    for _ in 0..200 {
-        heard = loudness(&mut linked.link, &held());
-        if heard == 0.75 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    assert_eq!(heard, 0.75);
+    lumen_testkit::wait_until("the block to have the new value", || {
+        loudness(&mut linked.link, &held()) == 0.75
+    });
 }
 
 #[test]
@@ -81,15 +75,9 @@ fn a_drag_is_one_value_not_a_queue_of_them() {
         manager.set_param(1, LEVEL, f64::from(i) / 1000.0);
     }
     manager.set_param(1, LEVEL, 0.9);
-    let mut heard = 0.0;
-    for _ in 0..400 {
-        heard = loudness(&mut linked.link, &held());
-        if heard == 0.9 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    assert_eq!(heard, 0.9);
+    lumen_testkit::wait_until("the block to have the last value", || {
+        loudness(&mut linked.link, &held()) == 0.9
+    });
 }
 
 #[test]
@@ -193,12 +181,9 @@ fn the_plugins_state_is_read_on_request_and_a_reload_can_start_from_it() {
     let mut linked = linked(&mut manager, 1);
     manager.set_param(1, LEVEL, 0.25);
     // Wait until the plugin has it, then read the state it would save.
-    for _ in 0..200 {
-        if loudness(&mut linked.link, &held()) == 0.25 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    lumen_testkit::wait_until("the plugin to have the value", || {
+        loudness(&mut linked.link, &held()) == 0.25
+    });
     manager.capture(1);
     let state = wait_for(
         &mut manager,

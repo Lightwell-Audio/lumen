@@ -36,14 +36,18 @@ fn until_sent(
     what: &str,
     done: impl Fn(&[Vec<u8>]) -> bool,
 ) {
-    for _ in 0..3_000 {
+    let deadline = lumen_testkit::Deadline::new();
+    loop {
         lumen.frames(1);
         if done(&sent(fake)) {
             return;
         }
-        std::thread::sleep(Duration::from_millis(2));
+        deadline.check(format_args!(
+            "{what}; the port got {} messages",
+            sent(fake).len()
+        ));
+        std::thread::sleep(lumen_testkit::POLL);
     }
-    panic!("{what}; the port got {} messages", sent(fake).len());
 }
 
 /// Clocks between each transport message: `(status, clocks after it)`.
@@ -92,13 +96,7 @@ fn a_synced_port_follows_play_the_tempo_map_loops_jumps_and_stop() {
 
     // Sync on in the MIDI settings: the delay field appears beside it.
     lumen.open_midi_settings();
-    for _ in 0..400 {
-        if lumen.shows("Sync Drum machine output") {
-            break;
-        }
-        lumen.frames(1);
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    lumen.run_until("the Sync switch", |l| l.shows("Sync Drum machine output"));
     assert!(!lumen.shows("Sync delay of Drum machine: 0 ms"));
     lumen.click("Sync Drum machine output");
     assert!(lumen.is_on("Sync Drum machine output"));
