@@ -1137,3 +1137,23 @@ fn two_slow_or_distant_clicks_are_not_a_double_click() {
     click(&mut lumen, p + vec2(40.0, 0.0), Modifiers::NONE);
     assert_eq!(notes(&lumen).len(), before, "too far apart in space");
 }
+
+#[test]
+fn the_wheel_over_the_velocity_lane_zooms_and_scrolls_the_editors_time() {
+    // The lane shares the roll's time; the wheel used to do nothing there
+    // (KNOWN_ISSUES row 118).
+    let mut lumen = launch("notes-lane-wheel");
+    open(&mut lumen);
+    let over_lane = lumen
+        .app()
+        .lane_point(beat(4.0), 64)
+        .expect("the velocity lane has drawn");
+    let roll0 = lumen.app().editor_view().unwrap();
+    wheel(&mut lumen, over_lane, 2, Modifiers::COMMAND);
+    let roll1 = lumen.app().editor_view().unwrap();
+    assert!(roll1.zoom > roll0.zoom, "{roll0:?} -> {roll1:?}");
+    let over_lane = lumen.app().lane_point(beat(4.0), 64).unwrap();
+    wheel(&mut lumen, over_lane, 2, Modifiers::SHIFT);
+    let roll2 = lumen.app().editor_view().unwrap();
+    assert_ne!(roll2.left, roll1.left, "the editor scrolled in time");
+}
