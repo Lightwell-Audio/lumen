@@ -464,7 +464,9 @@ impl Library {
     }
 
     /// Generates the generated items' audio again when the device rate is
-    /// no longer theirs. True if it did.
+    /// no longer theirs. True if it did. It runs on the UI thread, which only
+    /// the generated `--stress` project may do: real media is decoded on a
+    /// worker.
     fn regenerate(&mut self, rate: u32) -> bool {
         let Some(generator) = self.generator else {
             return false;

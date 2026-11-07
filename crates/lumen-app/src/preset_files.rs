@@ -440,6 +440,8 @@ fn read_file(path: &Path) -> Result<Preset, String> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use lumen_project::testing::TempDir;
 
     #[cfg(windows)]
     #[test]
@@ -449,9 +451,6 @@ mod tests {
         let places = Places::standard();
         assert_eq!(places.user, Some(documents.join("VST3 Presets")));
     }
-
-    use super::*;
-    use lumen_project::testing::TempDir;
 
     #[test]
     fn names_are_made_safe_for_a_file_system() {

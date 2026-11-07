@@ -11411,6 +11411,12 @@ visibility is saved, MIDI port ids, and switch parameters.
   room (once forwarded it cannot be told from a clip's own): it is refused
   only when the sender has fallen thousands of messages behind, and Panic
   sends All notes off there regardless (KNOWN_ISSUES).
+- Reviewed twice. Round 1 moved the queue's kept room from what a message
+  is to where it comes from, had Panic silence an instrument ringing out,
+  kept a plugin's texts by value and forgot them on a rename (the bullets
+  above). Round 2 found nothing blocking: a live note-on the queue refuses
+  is no longer held (`live::a_live_note_the_queue_refused_is_not_held`), and
+  comments say what the kept room relies on.
 - Still open and recorded: the synth's newest note when all 16 voices are
   being stolen (changing it changes what is heard); the projects and
   templates folder, which still follows `%USERPROFILE%\Documents` (moving

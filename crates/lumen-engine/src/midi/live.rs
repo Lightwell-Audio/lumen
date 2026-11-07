@@ -183,6 +183,15 @@ impl LiveState {
         }
     }
 
+    /// Forgets the note `take` held last, when its note-on found no room in
+    /// the track's queue (which counts the drop): a note that never sounded
+    /// owes no note-off and keeps no place among the [`MAX_HELD`].
+    pub(super) fn refused(&mut self, msg: Msg) {
+        if let Kind::NoteOn { .. } = msg.kind() {
+            self.held.pop();
+        }
+    }
+
     /// Lets go of every live note, the pedal and the bend, at the start of
     /// the next part: `push` takes each message.
     pub(super) fn release_all(&mut self, mut push: impl FnMut(Event)) {
@@ -232,6 +241,23 @@ mod tests {
         // A note-off for a note not held is not a drop.
         assert_eq!(live.take(9, Msg::note_off(0, 1), None), None);
         assert_eq!(live.dropped, 1);
+    }
+
+    #[test]
+    fn a_live_note_the_queue_refused_is_not_held() {
+        let mut live = LiveState::new();
+        let on = live.take(0, Msg::note_on(0, 60, 100), None).unwrap();
+        live.refused(on);
+        assert_eq!(live.len(), 0, "a note that never sounded is not held");
+        assert_eq!(
+            live.take(0, Msg::note_off(0, 60), None),
+            None,
+            "and owes no note-off"
+        );
+        // A refused pedal leaves the held notes alone.
+        live.take(0, Msg::note_on(0, 61, 100), None).unwrap();
+        live.refused(Msg::controller(0, cc::SUSTAIN, 127));
+        assert_eq!(live.len(), 1);
     }
 
     #[test]

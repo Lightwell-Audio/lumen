@@ -21,7 +21,9 @@ const QUEUE: usize = 4;
 /// Messages waiting for the app's sender.
 const OUT_QUEUE: usize = 8_192;
 /// Slots at the end of the hardware queue kept for what lets go: a release
-/// for every note eight hardware tracks can hold.
+/// for every note eight hardware tracks can hold. Eight is not a limit on
+/// tracks: past it, note-offs share the ordinary room, which only a sender
+/// thousands of messages behind fills.
 const OUT_KEPT_FOR_RELEASES: usize = 8 * hold::KEPT_FOR_RELEASES;
 
 /// A track list, sorted by id for carrying state into the next.
@@ -478,8 +480,8 @@ impl MidiPlayer {
                     let event = Event { offset, msg };
                     if hold::ends_a_held_note(msg) {
                         track.state.push_release(event);
-                    } else {
-                        track.state.push(event);
+                    } else if !track.state.push(event) {
+                        track.state.live.refused(msg);
                     }
                 }
             }

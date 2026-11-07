@@ -12,7 +12,9 @@
 //! Room is kept by where a message comes from, not by what it is: a clip's or
 //! a player's own pedal-up takes ordinary room, so a flood of them cannot use
 //! up what a held note's note-off needs, and a note can never stick for lack
-//! of room.
+//! of room. That holds because a track holds at most [`MAX_HELD`] clip notes
+//! and [`MAX_HELD`] live notes, which is what [`KEPT_FOR_RELEASES`] is made
+//! from.
 //!
 //! Positions are worked out from ticks every block, through the timeline,
 //! so tempo changes move notes with the music. An event belongs to the
