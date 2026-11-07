@@ -9,7 +9,7 @@ use eframe::egui::{self, Id as EguiId, Rect, Sense, Ui, pos2, vec2};
 use crate::{motion, theme};
 
 /// How long after the last scroll or approach the bar stays.
-const LINGER: f64 = 0.8;
+const LINGER: f64 = motion::SCROLL_BAR_LINGER;
 /// How near its edge the pointer brings the bar in.
 const NEAR: f32 = 24.0;
 /// The bar's thickness, and its inset from the edge.

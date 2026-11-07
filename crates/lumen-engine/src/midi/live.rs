@@ -109,28 +109,33 @@ pub(super) struct LiveState {
     sustain: Option<u8>,
     /// A live bend away from the centre, on this outgoing channel.
     bend: Option<u8>,
+    /// Live notes refused because [`MAX_HELD`] were held already: counted
+    /// with the other events dropped for lack of room.
+    pub(super) dropped: u32,
 }
 
 impl LiveState {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             held: Vec::with_capacity(MAX_HELD),
             sustain: None,
             bend: None,
+            dropped: 0,
         }
     }
 
     /// A placeholder while the real state is borrowed: never holds.
-    pub fn empty() -> Self {
+    pub(super) fn empty() -> Self {
         Self {
             held: Vec::new(),
             sustain: None,
             bend: None,
+            dropped: 0,
         }
     }
 
     /// Live notes held now (tests).
-    pub fn len(&self) -> usize {
+    pub(super) fn len(&self) -> usize {
         self.held.len()
     }
 
@@ -138,13 +143,14 @@ impl LiveState {
     /// (`None` keeps the message's own), and remembers what it holds.
     /// `None` when nothing should go: a note-off for a note this track is
     /// not holding (it was let go already), or a full tracker.
-    pub fn take(&mut self, source: u8, msg: Msg, out: Option<u8>) -> Option<Msg> {
+    pub(super) fn take(&mut self, source: u8, msg: Msg, out: Option<u8>) -> Option<Msg> {
         let channel = msg.channel();
         let to = out.unwrap_or(channel) & 15;
         let sent = Msg([(msg.0[0] & 0xF0) | to, msg.0[1], msg.0[2]]);
         match msg.kind() {
             Kind::NoteOn { key, .. } => {
                 if self.held.len() >= MAX_HELD {
+                    self.dropped = self.dropped.saturating_add(1);
                     return None;
                 }
                 self.held.push(LiveHeld {
@@ -179,7 +185,7 @@ impl LiveState {
 
     /// Lets go of every live note, the pedal and the bend, at the start of
     /// the next part: `push` takes each message.
-    pub fn release_all(&mut self, mut push: impl FnMut(Event)) {
+    pub(super) fn release_all(&mut self, mut push: impl FnMut(Event)) {
         for held in self.held.drain(..) {
             push(Event {
                 offset: 0,
@@ -201,7 +207,7 @@ impl LiveState {
     }
 
     /// Forgets everything without sending (Panic silences the rest).
-    pub fn clear(&mut self) {
+    pub(super) fn clear(&mut self) {
         self.held.clear();
         self.sustain = None;
         self.bend = None;
@@ -211,6 +217,22 @@ impl LiveState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_live_note_past_the_most_held_is_refused_and_counted() {
+        let mut live = LiveState::new();
+        for key in 0..MAX_HELD {
+            let key = (key % 128) as u8;
+            let source = (key as usize / 128) as u8;
+            assert!(live.take(source, Msg::note_on(0, key, 100), None).is_some());
+        }
+        assert_eq!(live.dropped, 0);
+        assert_eq!(live.take(9, Msg::note_on(0, 1, 100), None), None);
+        assert_eq!(live.dropped, 1, "the refused note is counted");
+        // A note-off for a note not held is not a drop.
+        assert_eq!(live.take(9, Msg::note_off(0, 1), None), None);
+        assert_eq!(live.dropped, 1);
+    }
 
     #[test]
     fn a_track_takes_its_sources_and_channel() {

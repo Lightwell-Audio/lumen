@@ -134,7 +134,7 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
             painter.rect_stroke(
                 view.note_rect(*note),
                 NOTE_RADIUS,
-                Stroke::new(1.5, palette.accent),
+                Stroke::new(theme::stroke::LIT, palette.accent),
                 StrokeKind::Inside,
             );
         }
@@ -144,7 +144,11 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
     for ghost in &scene.preview.ghosts {
         let rect = view.note_rect(*ghost).shrink2(vec2(0.0, 0.5));
         painter.rect_filled(rect, NOTE_RADIUS, palette.accent.gamma_multiply(0.12));
-        dashed_outline(&painter, rect, Stroke::new(1.5, palette.accent));
+        dashed_outline(
+            &painter,
+            rect,
+            Stroke::new(theme::stroke::LIT, palette.accent),
+        );
         if rect.width() >= 30.0 && view.row_height >= 12.0 {
             painter.text(
                 rect.left_center() + vec2(4.0, 0.0),
@@ -165,12 +169,16 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
     {
         let from = view.note_rect(trail.from).shrink2(vec2(0.0, 0.5));
         let to = view.note_rect(trail.to).shrink2(vec2(0.0, 0.5));
-        dashed_outline(&painter, from, Stroke::new(1.0, palette.text_hint));
+        dashed_outline(
+            &painter,
+            from,
+            Stroke::new(theme::stroke::HAIRLINE, palette.text_hint),
+        );
         let y = from.bottom() + 1.5;
         painter.hline(
             from.left().min(to.left())..=from.left().max(to.left()),
             y,
-            Stroke::new(1.0, palette.accent.gamma_multiply(0.6)),
+            Stroke::new(theme::stroke::HAIRLINE, palette.accent.gamma_multiply(0.6)),
         );
     }
     if let Some(rect) = scene.preview.marquee {
@@ -178,7 +186,7 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
             rect,
             theme::radius::SMALL,
             palette.accent.gamma_multiply(0.12),
-            Stroke::new(1.0, palette.accent),
+            Stroke::new(theme::stroke::HAIRLINE, palette.accent),
             StrokeKind::Inside,
         );
     }
@@ -252,7 +260,7 @@ pub(crate) fn paint_ruler(
                 painter.vline(
                     x,
                     strip.top() + 4.0..=strip.bottom(),
-                    Stroke::new(1.0, palette.grid_bar),
+                    Stroke::new(theme::stroke::HAIRLINE, palette.grid_bar),
                 );
                 if x - last_label > 28.0 {
                     last_label = x;
@@ -269,7 +277,7 @@ pub(crate) fn paint_ruler(
                 painter.vline(
                     x,
                     strip.bottom() - 6.0..=strip.bottom(),
-                    Stroke::new(1.0, palette.grid_beat),
+                    Stroke::new(theme::stroke::HAIRLINE, palette.grid_beat),
                 );
             }
             Level::Sub => {}
@@ -279,6 +287,6 @@ pub(crate) fn paint_ruler(
     painter.hline(
         strip.x_range(),
         strip.bottom(),
-        Stroke::new(1.0, palette.border),
+        Stroke::new(theme::stroke::HAIRLINE, palette.border),
     );
 }

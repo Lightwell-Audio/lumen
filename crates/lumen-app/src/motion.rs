@@ -38,6 +38,16 @@ pub const BREATH_FRAME: std::time::Duration = std::time::Duration::from_millis(3
 pub const TEXT_EVERY: std::time::Duration = std::time::Duration::from_millis(50);
 /// The frame after a plugin's text was asked for, to show what came back.
 pub const TEXT_FRAME: std::time::Duration = std::time::Duration::from_millis(60);
+/// How long an activity light's flash stays, without fading, with Reduce
+/// motion on (seconds).
+pub const STEADY_FLASH: f64 = 0.15;
+/// The frame interval while an activity light fades (about 60 fps).
+pub const FADE_FRAME: std::time::Duration = std::time::Duration::from_millis(16);
+/// How long after the pointer leaves a changed menu it starts to fade
+/// (seconds).
+pub const MENU_LEAVE_DELAY: f64 = 0.4;
+/// How long a scroll bar stays after the last scroll or approach (seconds).
+pub const SCROLL_BAR_LINGER: f64 = 0.8;
 /// A state read again after it changed while being read.
 pub const RECHECK: std::time::Duration = std::time::Duration::from_millis(50);
 /// Once a second: the age of a sound that Reload would use.

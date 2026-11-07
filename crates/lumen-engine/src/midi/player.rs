@@ -281,7 +281,12 @@ impl MidiPlayer {
     /// Events and notes dropped for lack of room so far (a full track
     /// queue, a full output queue). Zero in any sane project.
     pub fn dropped(&self) -> u32 {
-        let tracks: u32 = self.current.tracks.iter().map(|t| t.state.dropped).sum();
+        let tracks: u32 = self
+            .current
+            .tracks
+            .iter()
+            .map(|t| t.state.dropped.saturating_add(t.state.live.dropped))
+            .sum();
         tracks
             .saturating_add(self.out.dropped)
             .saturating_add(self.lost)

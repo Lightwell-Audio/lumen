@@ -159,7 +159,7 @@ pub(crate) fn paint_scale(painter: &Painter, view: &LaneView, column: Rect) {
     painter.vline(
         column.right() - 0.5,
         column.top()..=column.bottom(),
-        Stroke::new(1.0, palette.border),
+        Stroke::new(theme::stroke::HAIRLINE, palette.border),
     );
 }
 
@@ -178,7 +178,11 @@ fn draw_grid(painter: &Painter, view: &LaneView, lines: &[Line]) {
             Level::Beat => palette.grid_beat,
             Level::Sub => palette.grid_sub,
         };
-        painter.vline(x, body.top()..=body.bottom(), Stroke::new(1.0, colour));
+        painter.vline(
+            x,
+            body.top()..=body.bottom(),
+            Stroke::new(theme::stroke::HAIRLINE, colour),
+        );
     }
 }
 
@@ -195,14 +199,14 @@ fn draw_guides(painter: &Painter, view: &LaneView) {
         painter.hline(
             x_range.clone(),
             view.y_of(value),
-            Stroke::new(1.0, palette.grid_beat),
+            Stroke::new(theme::stroke::HAIRLINE, palette.grid_beat),
         );
     }
     if view.kind == LaneKind::PitchBend {
         painter.hline(
             x_range,
             view.y_of(0),
-            Stroke::new(1.0, palette.border_strong),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
         );
     }
 }
@@ -387,7 +391,7 @@ fn draw_points(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
         let hovered = scene.hover == LaneHover::Point(first + offset);
         let radius = if hovered { POINT_R_HOVER } else { POINT_R };
         let ring = if picked.contains(point.index) {
-            Stroke::new(1.5, palette.text)
+            Stroke::new(theme::stroke::LIT, palette.text)
         } else {
             Stroke::NONE
         };
@@ -467,7 +471,7 @@ fn draw_preview(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
                 *rect,
                 theme::radius::SMALL,
                 palette.accent.gamma_multiply(0.12),
-                Stroke::new(1.0, palette.accent),
+                Stroke::new(theme::stroke::HAIRLINE, palette.accent),
                 StrokeKind::Inside,
             );
         }
