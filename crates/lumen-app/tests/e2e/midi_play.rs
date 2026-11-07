@@ -546,6 +546,13 @@ fn steepest(x: &[f32]) -> f32 {
         .fold(0.0, f32::max)
 }
 
+/// The largest second difference: how sharply the wave turns.
+fn sharpest_bend(x: &[f32]) -> f32 {
+    x.windows(3)
+        .map(|w| (w[2] - 2.0 * w[1] + w[0]).abs())
+        .fold(0.0, f32::max)
+}
+
 fn rms_of(x: &[f32]) -> f32 {
     (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt()
 }
@@ -641,4 +648,52 @@ fn resizing_a_playing_clip_does_not_strike_its_notes_again() {
         count(s, 0x80) == 1
     });
     assert_eq!(balance(&fake), (1, 1));
+}
+
+/// Owner: playing again quickly after a Stop, over a held synth note,
+/// popped. The released note still rang when Play faded the whole output in
+/// from silence, cutting it to nothing for a frame. Stop and Play are
+/// pressed back to back a few times (the pop lands wherever the wave is, so
+/// one try can miss it), and nothing heard turns as sharply as a step
+/// against the note's own attack, played from silence.
+#[test]
+fn playing_again_at_once_after_a_stop_does_not_pop() {
+    let fake = FakeControl::new();
+    let mut lumen = launch("midi-replay-pop", &one_note("poly"), &fake);
+    play(&mut lumen);
+    lumen.listen(Duration::from_millis(400), 2_400);
+    let mut heard = Vec::new();
+    for _ in 0..4 {
+        stop(&mut lumen);
+        heard.extend(lumen.app_mut().heard_all());
+        play(&mut lumen);
+        heard.extend(lumen.app_mut().heard_all());
+        // Past the new note's attack, before the next Stop.
+        let until = heard.len() + 4_800;
+        let deadline = lumen_testkit::Deadline::new();
+        while heard.len() < until {
+            deadline.check(format_args!("heard {} of {until} frames", heard.len()));
+            std::thread::sleep(lumen_testkit::POLL);
+            lumen.frames(1);
+            heard.extend(lumen.app_mut().heard_all());
+        }
+    }
+    let replays = left(&heard);
+    // The same note from silence: Stop, let it ring out, then Play.
+    stop(&mut lumen);
+    lumen.listen(Duration::from_millis(1_500), 0);
+    play(&mut lumen);
+    let fresh = left(&lumen.listen(Duration::ZERO, 9_600));
+    assert!(rms_of(&fresh) > 0.01, "the note plays");
+    // The ring and the new note add up, so the wave itself may be steeper
+    // than the note alone: a pop is told by the bend, how sharply the slope
+    // turns, which a step makes as large as the step and the smooth synth
+    // never does (about 1.1 times the note's own with the fix, 2.5 to 4.4
+    // without it).
+    assert!(
+        sharpest_bend(&replays) < sharpest_bend(&fresh) * 1.6,
+        "a pop where play started again: {} vs the note's own {}",
+        sharpest_bend(&replays),
+        sharpest_bend(&fresh),
+    );
 }

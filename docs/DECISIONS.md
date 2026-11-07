@@ -125,6 +125,7 @@ irreversible or external) · *Superseded*.
 | [0121](#adr-0121--the-audio-editors-canvas-and-the-shared-clip-header-m95-s1) | The audio editor's canvas and the shared clip header (M9.5 S1) | Accepted 2026-11-04 (MT-CLIP-1 pending) | No |
 | [0122](#adr-0122--tests-that-do-not-depend-on-the-runner-deterministic-ci) | Tests that do not depend on the runner (deterministic CI) | Accepted 2026-11-06 | No |
 | [0123](#adr-0123--the-audio-editors-handles-m95-s2a) | The audio editor's handles (M9.5 S2a) | Accepted 2026-11-06 (MT-CLIP-2 pending) | No |
+| [0124](#adr-0124--play-after-a-stop-carries-on-what-still-rings) | Play after a Stop carries on what still rings | Accepted 2026-11-07 (MT-MIDI-10 pending) | No |
 
 ---
 
@@ -11270,3 +11271,48 @@ E2E suite passes (878 scenarios, these included). The docs scene
 the look by eye on the owner's display, the scene rendered with ffmpeg
 (left to CI's docs job), and a screen reader reading the handles' names
 (the Narrator check is deferred by the owner).
+
+## ADR-0124 — Play after a Stop carries on what still rings
+
+**Date:** 2026-11-07. **Branch:** `fix/midi-replay-pop`.
+**Status:** Accepted (owner's report: playing again quickly after a Stop,
+over a held note of the built-in synth, popped).
+
+**Context.** A Stop lets an instrument ring out (its release, ADR-0045), and
+the engine renders that ring while stopped. Play then faded the whole output
+in from silence over 2 ms (the jump crossfade of ADR-0019), which is
+right for audio clips that start mid-wave but cut the ring, which is
+already sounding, to about 1/96 of its level on the first frame: a step as
+large as the wave itself. With latency in the project the mixer also cleared
+its delay lines and faded the tracks in from silence, so the ring dropped
+out for the length of the latency. Measured on the Poly preset: the last
+frame before Play was 0.056 and the first after it 0.0006, against 0.028 for
+the steepest step of the ring itself.
+
+**Options.** (1) Skip the fade-in when something rings: audio clips would
+then start mid-wave with a click. (2) Treat Play while ringing as the jump a
+locate while playing is: crossfade from what would have followed (the ring)
+into the new audio. (3) Fade only the timeline's sources and not the
+instruments: the engine sees one mixed output, so it would need a fade per
+track in the mixer.
+
+**Choice: (2).** `Engine::start` renders what rings (`Mode::Ring`, as a
+tail: instruments are previewed, not moved on) into the declick tail before
+the source locates, and the new audio fades in under it, so the ring is
+heard at its level across Play. With latency, the engine leaves this to the
+mixer: when a track rings, `Mixer::locate` keeps the delay lines (they hold
+the ring) and blends the tracks from what rings (`blend_from`, the input
+tail a latent jump already uses), and the engine does not fade the output
+in, because the first frames heard come from those lines. With nothing
+ringing, Play is unchanged.
+
+**Consequences.**
+- A stop and a play within the 2 ms of the stop's own fade replace that
+  fade's remainder with the ring's tail; too short to press by hand.
+- A hosted instrument has no preview (KNOWN_ISSUES, the ADR-0070 row), so
+  its ring is still faded in from silence at Play, as at a locate.
+- Tests: `lumen-engine` `midi::playing_again_while_the_synth_rings_out_does_not_click`
+  (no step at Play, and no drop-out, without latency and with 256 frames of
+  it; each half of the fix fails it when taken out) and the E2E
+  `midi_play::playing_again_at_once_after_a_stop_does_not_pop` (Space to
+  stop and play, four times).
