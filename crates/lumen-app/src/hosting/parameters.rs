@@ -74,9 +74,29 @@ impl Hosting {
         out
     }
 
-    /// The plugin's text for the value it was last asked about, and that value.
-    pub fn text(&self, device: Id, id: u32) -> Option<&(f64, String)> {
-        self.tracked.get(&device.0)?.params.texts.get(&id)
+    /// The plugin's text for `value` of a parameter, if it has answered for
+    /// that value (and the answer is still kept).
+    pub fn text(&self, device: Id, id: u32, value: f64) -> Option<&str> {
+        self.texts(device, id)
+            .iter()
+            .find(|(at, _)| super::same_value(*at, value))
+            .map(|(_, text)| text.as_str())
+    }
+
+    /// The kept answer for the value nearest `value`, to stand for it until
+    /// the plugin answers for `value` itself.
+    pub fn nearest_text(&self, device: Id, id: u32, value: f64) -> Option<&str> {
+        self.texts(device, id)
+            .iter()
+            .min_by(|(a, _), (b, _)| (a - value).abs().total_cmp(&(b - value).abs()))
+            .map(|(_, text)| text.as_str())
+    }
+
+    fn texts(&self, device: Id, id: u32) -> &[(f64, String)] {
+        self.tracked
+            .get(&device.0)
+            .and_then(|t| t.params.texts.get(&id))
+            .map_or(&[], Vec::as_slice)
     }
 
     /// The plugin's own word for each step of a stepped parameter, as far as

@@ -296,9 +296,9 @@ impl AutoView {
     }
 
     /// How `value` of `target` reads: the plugin's own text for a plugin's
-    /// parameter once it has answered (the answer to an earlier value of
-    /// the same parameter stands until the next comes, as on a device
-    /// card's knob), else the lane's own words.
+    /// parameter once it has answered (the answer for the nearest value
+    /// kept stands until the point's own comes, as on a device card's
+    /// knob), else the lane's own words.
     pub fn value_text(&self, target: Target, value: f32) -> String {
         if let Target::Device { device, param } = target
             && let Some((_, text)) = self.texts.get(&(device, param))

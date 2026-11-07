@@ -72,7 +72,7 @@ impl App {
     ///
     /// [`AutoView::resting`]: crate::arrangement::auto_state::AutoView::resting
     pub(crate) fn lane_texts(&mut self, ctx: &egui::Context) {
-        use crate::motion::{TEXT_EVERY, TEXT_FRAME};
+        use crate::motion::{TEXT_AGAIN, TEXT_EVERY, TEXT_FRAME};
         let auto = &self.arrangement.auto;
         let wanted = auto.resting().and_then(|p| {
             let Target::Device { device, param } = p.target else {
@@ -92,12 +92,11 @@ impl App {
             Some(((device, param), f64::from(value)))
         });
         if let Some((key, value)) = wanted {
-            let answered = self
-                .hosting
-                .text(key.0, key.1)
-                .is_some_and(|(at, _)| (at - value).abs() < 1e-6);
+            let answered = self.hosting.text(key.0, key.1, value).is_some();
             let asked = auto.text_asked;
-            let same = asked.is_some_and(|(k, v, _)| k == key && (v - value).abs() < 1e-6);
+            let same = asked.is_some_and(|(k, v, when)| {
+                k == key && (v - value).abs() < 1e-6 && when.elapsed() < TEXT_AGAIN
+            });
             if !answered && !same {
                 let early = asked.filter(|(k, _, when)| *k == key && when.elapsed() < TEXT_EVERY);
                 if let Some((_, _, when)) = early {
@@ -110,8 +109,16 @@ impl App {
                 }
             }
         }
+        // The answer for the point's own value, else the nearest kept one
+        // until it comes (as on a device card's knob).
         let texts: std::collections::BTreeMap<_, _> = wanted
-            .and_then(|(key, _)| Some((key, self.hosting.text(key.0, key.1)?.clone())))
+            .and_then(|(key, value)| {
+                let text = self
+                    .hosting
+                    .text(key.0, key.1, value)
+                    .or_else(|| self.hosting.nearest_text(key.0, key.1, value))?;
+                Some((key, (value, text.to_owned())))
+            })
             .into_iter()
             .collect();
         if self.arrangement.auto.texts != texts {

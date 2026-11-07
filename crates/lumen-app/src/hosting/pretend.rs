@@ -78,7 +78,7 @@ impl Hosting {
                 value: *value,
             });
             t.params.values.insert(id, *value);
-            t.params.texts.insert(id, (*value, (*text).to_owned()));
+            t.params.remember_text(id, *value, (*text).to_owned());
         }
         t.params.total = list.len() as u32;
     }
@@ -128,7 +128,7 @@ impl Hosting {
             t.params.values.insert(id, *value);
             let at = (value * f64::from((*steps).max(1))).round() as usize;
             let text = choices.get(at).copied().unwrap_or("");
-            t.params.texts.insert(id, (*value, text.to_owned()));
+            t.params.remember_text(id, *value, text.to_owned());
             t.params
                 .choices
                 .insert(id, choices.iter().map(|c| (*c).to_owned()).collect());

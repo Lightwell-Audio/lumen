@@ -36,6 +36,9 @@ pub const BREATH_FRAME: std::time::Duration = std::time::Duration::from_millis(3
 /// again (the knob's words follow a drag a little late), and the frame that
 /// shows the answer.
 pub const TEXT_EVERY: std::time::Duration = std::time::Duration::from_millis(50);
+/// How long a plugin is given to answer for a value before the same value is
+/// asked about again (its answer may have been pushed out by other values').
+pub const TEXT_AGAIN: std::time::Duration = std::time::Duration::from_secs(1);
 /// The frame after a plugin's text was asked for, to show what came back.
 pub const TEXT_FRAME: std::time::Duration = std::time::Duration::from_millis(60);
 /// How long an activity light's flash stays, without fading, with Reduce

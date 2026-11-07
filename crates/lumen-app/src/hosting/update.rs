@@ -227,7 +227,7 @@ impl Hosting {
                         words[index] = text.clone();
                     }
                 }
-                t.params.texts.insert(id, (value, text));
+                t.params.remember_text(id, value, text);
             }
             Happened::Editor(news) => match news {
                 EditorEvent::Opened(b) | EditorEvent::Moved(b) => {

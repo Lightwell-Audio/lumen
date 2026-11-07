@@ -62,7 +62,7 @@ impl Panel {
     }
 }
 
-use crate::motion::TEXT_EVERY;
+use crate::motion::{TEXT_AGAIN, TEXT_EVERY};
 /// A row of the list.
 const ROW: f32 = 28.0;
 
@@ -274,19 +274,18 @@ impl App {
 
     /// The plugin's own words for a value. The plugin is asked when the value
     /// changes (not faster than every [`TEXT_EVERY`]); until it answers, the
-    /// answer to an earlier value stands, or a percentage.
+    /// answer to the nearest value kept stands, or a percentage. A value
+    /// asked about and not answered (its answer pushed out by other values',
+    /// a lane's among them) is asked again after [`TEXT_AGAIN`].
     fn parameter_text(&self, device: Id, p: &ParamInfo, value: f64) -> String {
-        let cached = self.hosting.text(device, p.id);
-        if let Some((at, text)) = cached
-            && (at - value).abs() < 1e-9
-        {
-            return text.clone();
+        if let Some(text) = self.hosting.text(device, p.id, value) {
+            return text.to_owned();
         }
         let mut asked = self.chain.text_asked.borrow_mut();
         let key = (device.0, p.id);
-        let recent = asked
-            .get(&key)
-            .is_some_and(|(v, when)| (v - value).abs() < 1e-9 || when.elapsed() < TEXT_EVERY);
+        let recent = asked.get(&key).is_some_and(|(v, when)| {
+            ((v - value).abs() < 1e-9 && when.elapsed() < TEXT_AGAIN) || when.elapsed() < TEXT_EVERY
+        });
         if recent {
             // Waiting on a frame to ask again, if the value moved on.
             if asked
@@ -299,7 +298,9 @@ impl App {
             asked.insert(key, (value, Instant::now()));
             self.hosting.ask_text(device, p.id, value);
         }
-        cached.map_or_else(|| format!("{:.0} %", value * 100.0), |(_, t)| t.clone())
+        self.hosting
+            .nearest_text(device, p.id, value)
+            .map_or_else(|| format!("{:.0} %", value * 100.0), str::to_owned)
     }
 
     /// Applies what a strip's knob or button asked for.
