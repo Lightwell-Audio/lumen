@@ -583,6 +583,20 @@ impl MidiPlayer {
                 }
             }
             track.dirty = !track.same_as(before);
+            // A host the new list brings has heard none of the notes held
+            // on the old instrument (a stand-in while the plugin loaded):
+            // they are forgotten, so the sync below strikes them on it.
+            if same_kind
+                && track.target == Target::Instrument
+                && track
+                    .instrument
+                    .as_ref()
+                    .is_some_and(|spec| spec.instrument.hosted())
+                && !track.state.held.is_empty()
+            {
+                track.state.held.clear();
+                track.dirty = true;
+            }
         }
         // Notes in line with the new data, at the position being played.
         if let Some((clock, pos)) = at {
