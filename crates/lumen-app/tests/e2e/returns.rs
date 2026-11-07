@@ -111,3 +111,49 @@ fn the_masters_volume_is_set_from_its_unfolded_row() {
     assert!(lumen.app().project().master.gain_db < 0.0);
     assert_eq!(lumen.app().undo_label(), Some("Change volume"));
 }
+
+#[test]
+fn a_control_half_under_the_returns_that_takes_the_focus_brings_its_track_into_view() {
+    // A track row partly under the pinned returns kept its controls where a
+    // screen reader or Tab could reach them unseen (KNOWN_ISSUES row 114).
+    let mut lumen = Lumen::start("returns-covered");
+    lumen.click("Add track");
+    lumen.click("Add return track");
+    for _ in 0..14 {
+        lumen.key(Modifiers::COMMAND, Key::T);
+    }
+    lumen.frames(30);
+    // A track whose header the divider cuts, found by scrolling a little at
+    // a time.
+    let mut covered = None;
+    for _ in 0..40 {
+        let line = divider(&lumen).top();
+        covered = (1..=15).map(|n| format!("Audio {n}")).find(|name| {
+            lumen
+                .harness
+                .query_by_label_contains(&format!("Track {name},"))
+                .is_some_and(|node| {
+                    let r = node.rect();
+                    r.top() < line - 8.0 && r.bottom() > line + 8.0
+                })
+        });
+        if covered.is_some() {
+            break;
+        }
+        let at = header(&lumen, "Audio 1").center();
+        lumen.harness.hover_at(at);
+        lumen.harness.event(eframe::egui::Event::MouseWheel {
+            unit: eframe::egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, -7.0),
+            phase: eframe::egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        });
+        lumen.frames(3);
+    }
+    let name = covered.expect("a track the returns cover in part");
+    lumen.harness.get_by_label(&format!("Mute {name}")).focus();
+    lumen.run_until("the track to come into view", |lumen| {
+        // The divider's grip overlaps the last row's edge a little.
+        header(lumen, &name).bottom() <= divider(lumen).center().y
+    });
+}
