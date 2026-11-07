@@ -218,17 +218,84 @@ pub struct AudioEditorShown {
     pub file: (f64, f64),
     /// The wave was drawn sample by sample.
     pub samples: bool,
+    /// The bright parts: first, and after a wrap.
+    pub played: ((f64, f64), Option<(f64, f64)>),
+    /// Where the clip's handles were.
+    pub handles: Option<AudioHandlesShown>,
+    /// The header's layout, by name, and whether the column was folded.
+    pub layout: &'static str,
+    pub folded: bool,
+}
+
+/// Where the audio editor's handles were last frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AudioHandlesShown {
+    /// The x of the clip's start and end, which may be out of view.
+    pub start: f32,
+    pub end: f32,
+    pub fade_in: egui::Pos2,
+    pub fade_out: egui::Pos2,
+    pub bend_in: Option<egui::Pos2>,
+    pub bend_out: Option<egui::Pos2>,
+    pub gain_y: f32,
 }
 
 impl App {
     /// Where and what the audio editor drew last, if it has.
     pub fn audio_editor_shown(&self) -> Option<AudioEditorShown> {
+        use crate::arrangement::select::Edge;
+        use crate::audio_editor::header::Layout;
+        let layout = match self.audio_editor.layout {
+            Layout::Words => "words",
+            Layout::Icons => "icons",
+            Layout::Compact => "compact",
+            Layout::More => "more",
+            Layout::Least => "least",
+        };
         self.audio_editor.last.map(|d| AudioEditorShown {
             body: d.body,
             view: d.time,
             window: d.window,
             file: d.file,
             samples: d.samples,
+            played: (d.played.first, d.played.second),
+            handles: d.handles.map(|h| AudioHandlesShown {
+                start: h.start,
+                end: h.end,
+                fade_in: h.fades.handle_pos(Edge::Start),
+                fade_out: h.fades.handle_pos(Edge::End),
+                bend_in: h.fades.bend_pos(Edge::Start),
+                bend_out: h.fades.bend_pos(Edge::End),
+                gain_y: h.fades.gain_y(),
+            }),
+            layout,
+            folded: self.audio_editor.folded,
         })
+    }
+
+    /// Whether Follow is paused, as a scroll or an editor drag pauses it.
+    pub fn follow_paused(&self) -> bool {
+        self.transport.follow_paused
+    }
+
+    /// The file frame the audio editor draws at beat `q`, if it draws one
+    /// there.
+    pub fn audio_editor_frame_at(&self, q: f64) -> Option<f64> {
+        self.audio_editor.file.as_ref()?.file.frame_at(q)
+    }
+
+    /// Lets Follow run again, as Play or the transport's Follow button does.
+    pub fn resume_follow(&mut self) {
+        self.transport.follow_paused = false;
+    }
+
+    /// Moves the playhead to `at`, as a click on a ruler does.
+    pub fn locate_to(&mut self, at: Ticks) {
+        self.transport.locate(at);
+    }
+
+    /// The audio editor's handle with the keyboard, by name ("fade in").
+    pub fn audio_handle_focused(&self, ctx: &egui::Context) -> Option<&'static str> {
+        crate::app::audio_editor::keys::focused_stop(ctx).map(|part| part.key())
     }
 }

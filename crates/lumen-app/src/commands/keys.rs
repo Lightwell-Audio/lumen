@@ -57,6 +57,14 @@ pub(crate) const fn alt_shift(key: Key) -> Chord {
     }
 }
 
+pub(crate) const fn ctrl_alt(key: Key) -> Chord {
+    Chord {
+        ctrl: true,
+        alt: true,
+        ..plain(key)
+    }
+}
+
 pub(crate) const fn ctrl_shift(key: Key) -> Chord {
     Chord {
         ctrl: true,

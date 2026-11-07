@@ -184,6 +184,13 @@ impl App {
             if (focused && chord.used_by_controls()) || self.availability(ctx, command).is_err() {
                 continue;
             }
+            // The slip keys are the audio editor's: the palette runs them from
+            // anywhere, the keys only while it is in use (M9.5 D17).
+            if matches!(command, Command::SlipClipEarlier | Command::SlipClipLater)
+                && !self.audio_editor_live(ctx)
+            {
+                continue;
+            }
             // A key held down taps once: its repeats are not taps.
             let ignored = repeat && command == Command::TapTempo;
             // While a window is up (the save question, the bounce popover,

@@ -17,3 +17,43 @@ input = "click with the Split tool"
 does = "Cuts the clip where you click, on the grid; hold Alt to cut anywhere."
 scenario = "split_tool_clicks_cut_on_the_grid_and_undo_restores_the_original"
 clip = "split-tool"
+
+[[gesture]]
+id = "gesture.audio_editor_trim"
+place = "audio editor"
+input = "drag a clip's edge"
+does = "Trims the clip's start or end on the grid, as on the arrangement; hold Alt to place it anywhere, Shift on the end to loop to there."
+scenario = "dragging_the_end_grip_trims_the_clip_in_one_step_as_the_arrangement_does"
+clip = "audio-editor-trim"
+
+[[gesture]]
+id = "gesture.audio_editor_fade"
+place = "audio editor"
+input = "drag a fade handle"
+does = "Sets how long the fade in or out lasts; a fade out dragged past the clip's end crossfades into the next clip. Double-click the handle to remove the fade."
+scenario = "a_fade_handle_and_the_gain_line_edit_the_clip_and_double_click_removes_the_fade"
+clip = "audio-editor-fade"
+
+[[gesture]]
+id = "gesture.audio_editor_fade_bend"
+place = "audio editor"
+input = "drag a fade's middle dot"
+does = "Bends the fade's curve; right-click the fade for its shapes, double-click the dot to straighten it."
+scenario = "the_fade_menu_lists_the_shapes"
+clip = "audio-editor-fade-shape"
+
+[[gesture]]
+id = "gesture.audio_editor_gain"
+place = "audio editor"
+input = "drag the gain line up or down"
+does = "Sets the clip's gain in dB; double-click the line to put it back to 0 dB."
+scenario = "a_fade_handle_and_the_gain_line_edit_the_clip_and_double_click_removes_the_fade"
+clip = "audio-editor-gain"
+
+[[gesture]]
+id = "gesture.audio_editor_slip"
+place = "audio editor"
+input = "drag the grey part of the file, or Ctrl+Alt+drag anywhere"
+does = "Slides the audio inside the clip, which stays where it is in the song."
+scenario = "the_dimmed_file_and_ctrl_alt_slip_the_audio_and_the_clip_stays"
+clip = "audio-editor-slip"
