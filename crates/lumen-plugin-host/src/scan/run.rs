@@ -63,6 +63,7 @@ pub fn run_scan(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    crate::process::started_by_this_process(&mut command);
     for (key, value) in env {
         command.env(key, value);
     }

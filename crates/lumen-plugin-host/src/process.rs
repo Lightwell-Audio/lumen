@@ -34,23 +34,51 @@ pub fn take_stdout() -> File {
     }
 }
 
+/// The environment variable that carries the id of the process that started
+/// a host. A host whose parent is gone before it can watch for that must
+/// notice, and an orphan is not always adopted by process 1: another
+/// ancestor that takes orphans in (WSL's session init, a service manager,
+/// a container's init) adopts it under its own id.
+pub const PARENT_ENV: &str = "LUMEN_HOST_PARENT";
+
+/// Marks `command` as started by this process, for [`die_with_parent`].
+pub fn started_by_this_process(command: &mut std::process::Command) {
+    command.env(PARENT_ENV, std::process::id().to_string());
+}
+
+/// Whether a process whose parent is now `parent` has lost the one that
+/// started it, `started_by` (from [`PARENT_ENV`], when the spawner set it).
+#[cfg(unix)]
+fn orphaned(parent: i64, started_by: Option<i64>) -> bool {
+    parent <= 1 || started_by.is_some_and(|id| id != parent)
+}
+
+/// The id the spawner put in [`PARENT_ENV`], if any.
+#[cfg(unix)]
+fn started_by() -> Option<i64> {
+    std::env::var(PARENT_ENV).ok()?.trim().parse().ok()
+}
+
 /// A host whose Lumen died must not linger, hung inside a plugin: ask the
 /// kernel to end this process with its parent: a parent-death signal on Linux
 /// and a process-exit event on macOS. Windows uses a job object on the Lumen
 /// side.
 pub fn die_with_parent() {
     #[cfg(target_os = "linux")]
-    // SAFETY: a plain prctl call. If the parent is already gone the signal
-    // would never come, so check for that after arming it.
-    unsafe {
-        libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
-        if libc::getppid() == 1 {
-            libc::_exit(0);
+    {
+        let started_by = started_by();
+        // SAFETY: a plain prctl call. If the parent is already gone the
+        // signal would never come, so check for that after arming it.
+        unsafe {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+            if orphaned(i64::from(libc::getppid()), started_by) {
+                libc::_exit(0);
+            }
         }
     }
 
     #[cfg(target_os = "macos")]
-    macos::die_with_parent();
+    macos::die_with_parent(started_by());
 }
 
 #[cfg(target_os = "macos")]
@@ -62,10 +90,10 @@ mod macos {
     /// Darwin has no parent-death signal. A separate thread waits in the
     /// kernel for the original parent to exit, so a plugin hung on the host's
     /// main thread cannot keep this process alive.
-    pub(super) fn die_with_parent() {
+    pub(super) fn die_with_parent(started_by: Option<i64>) {
         // SAFETY: reads this process's current parent id.
         let parent = unsafe { libc::getppid() };
-        if parent <= 1 {
+        if super::orphaned(i64::from(parent), started_by) {
             // SAFETY: a process with no stable parent cannot be monitored.
             unsafe { libc::_exit(0) };
         }
@@ -499,4 +527,26 @@ pub fn quiet_crashes() {
     };
     // SAFETY: a plain call.
     unsafe { SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX) };
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::orphaned;
+
+    #[test]
+    fn a_host_adopted_by_process_one_is_orphaned() {
+        assert!(orphaned(1, None));
+        assert!(orphaned(1, Some(4242)));
+    }
+
+    #[test]
+    fn a_host_adopted_by_another_ancestor_is_orphaned_when_it_knows_its_parent() {
+        assert!(orphaned(7, Some(4242)));
+        assert!(!orphaned(4242, Some(4242)));
+    }
+
+    #[test]
+    fn a_host_with_no_parent_id_trusts_only_process_one() {
+        assert!(!orphaned(7, None));
+    }
 }
