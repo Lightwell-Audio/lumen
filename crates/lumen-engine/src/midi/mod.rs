@@ -181,6 +181,11 @@ pub struct MidiTrack {
     /// The hosted instrument began this part's block early and is collected
     /// when the track plays.
     begun: bool,
+    /// A built-in instrument the track no longer has (taken away, or another
+    /// kind in its place): it was told to let go of its notes and plays its
+    /// release out into the track's bus, rather than being cut. Freed with
+    /// the list that holds it.
+    leaving: Option<InstrumentSpec>,
 }
 
 impl MidiTrack {
@@ -209,6 +214,7 @@ impl MidiTrack {
             state: Box::new(TrackState::new()),
             dirty: true,
             begun: false,
+            leaving: None,
         }
     }
 

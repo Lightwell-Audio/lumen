@@ -560,14 +560,37 @@ impl MidiPlayer {
                 match before.target {
                     Target::Port { .. } => self.out.forward(before, clock),
                     Target::Instrument => {
-                        if same_kind && let Some(spec) = before.instrument.as_mut() {
+                        // The releases go to the old instrument; a plugin's
+                        // only when it plays on (a host going away is not
+                        // waited for).
+                        if let Some(spec) = before
+                            .instrument
+                            .as_mut()
+                            .filter(|spec| same_kind || !spec.instrument.hosted())
+                        {
                             let events = std::mem::take(&mut before.state.events);
                             spec.instrument.render(0, &events, &mut [], &mut []);
                             before.state.events = events;
                         }
+                        // An instrument of another kind (or none) takes its
+                        // place: the old one plays its release out on the
+                        // new list. A plugin's host goes with the old list.
+                        if !same_kind
+                            && before
+                                .instrument
+                                .as_ref()
+                                .is_some_and(|spec| !spec.instrument.hosted())
+                        {
+                            track.leaving = before.instrument.take();
+                        }
                     }
                 }
                 before.state.events.clear();
+            }
+            // One still ringing out from an earlier change rings on, unless a
+            // newer one took its place (then it goes with the old list).
+            if track.leaving.is_none() {
+                track.leaving = before.leaving.take();
             }
             std::mem::swap(&mut track.state, &mut before.state);
             // The instrument the old list had plays on, except a host the
@@ -892,6 +915,7 @@ impl TrackSource for MidiPlayer {
             || self.current.tracks.iter().any(|t| {
                 !t.state.events.is_empty()
                     || t.instrument.as_ref().is_some_and(|i| i.instrument.active())
+                    || t.leaving.as_ref().is_some_and(|i| i.instrument.active())
             })
     }
 }
