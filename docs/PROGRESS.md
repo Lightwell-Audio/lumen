@@ -15,6 +15,14 @@ the approval). Next, before M8 (owner, 2026-11-03): a mini milestone for audio
 clip warping and the audio clip detail panel, M7's planned E7 and E8, to be
 planned and approved first. Details: the table below and `CLAUDE.md` §12.
 
+On branch `fix/known-issues-round-1` (2026-11-07, ADR-0125): the known issues
+that needed no behaviour choice are fixed, each with a test (a stuck note when
+the MIDI queue fills, an instrument that is cut instead of ringing out, Open
+playing on, the lanes' left edge, plugin lane values, the clip editor's
+wheel, edge scroll and window place, kept quantize options, the presets
+folder, a covered control taking the focus, an orphaned host adopted by an
+ancestor other than process 1). MT-KI-1 waits for the owner.
+
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
 
 ## Milestones

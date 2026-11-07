@@ -11316,3 +11316,86 @@ ringing, Play is unchanged.
   it; each half of the fix fails it when taken out) and the E2E
   `midi_play::playing_again_at_once_after_a_stop_does_not_pop` (Space to
   stop and play, four times).
+
+
+## ADR-0125 — Known issues, round one: the fixes that change no behaviour
+
+**Date:** 2026-11-07. **Branch:** `fix/known-issues-round-1`.
+**Status:** Accepted (owner: "fix all the items that don't need behavior
+changes").
+
+**Context.** `docs/KNOWN_ISSUES.md` held rows that were bugs against what
+Lumen already promises (a note that sticks, a press that misses, a setting
+that is not kept), beside rows that need the owner to choose a behaviour.
+This round fixes the first kind only. Left for the owner: consolidating on
+a time range (the seam), Space twice within one buffer, the pinned clip card
+over windows, MIDI and audio takes as one undo step, whether lane
+visibility is saved, MIDI port ids, and switch parameters.
+
+**Choice.** One commit per row, each with a test that fails without it:
+- **Open and New stop the transport** (`replace_document`); `--stress`
+  makes its audio again at the device's new rate instead of reading made-up
+  paths (`media::Generator`). E2E
+  `files::a_new_or_opened_project_does_not_play_on_from_the_last`.
+- **A full MIDI queue keeps room for note-offs**: near the limit new notes
+  are refused, a note-off never is, so a note cannot stick
+  (`hold::a_full_queue_refuses_new_notes_and_never_a_note_off`).
+- **A plugin instrument that arrives while a note is held sounds it**
+  (`hosted::a_host_that_arrives_while_a_note_is_held_sounds_that_note`).
+- **A plugin that names its parameters anew is read again**:
+  `kParamTitlesChanged` is reported as a `Retitled` edit, protocol 9 (close
+  Lumen and rebuild the plugin host after updating). E2E
+  `hosting::a_plugin_that_names_its_parameters_anew_is_read_again`.
+- **An instrument taken away, or replaced by another kind, rings out**
+  instead of being cut
+  (`midi::taking_the_synth_away_lets_its_note_ring_out_instead_of_cutting_it`).
+- **An input that would not open is named** in the audio settings, with
+  where to look (Windows privacy settings), from the stream's
+  `silent_inputs`. E2E
+  `device_change::an_input_that_would_not_open_is_named_in_the_audio_settings`.
+- **A press on the lanes' left edge reaches the point there** (song lanes
+  and automation): the header divider ended 1 pt past the edge and took the
+  press. E2E
+  `lane_edit::a_point_at_the_start_of_the_song_is_picked_by_a_press_on_the_lane_edge`.
+- **A plugin lane's point reads in the plugin's own words** ("-24.0", not
+  "62%"): the text is asked for once the pointer rests and kept per value.
+  E2E `plugin_lanes::a_plugin_lanes_point_reads_in_the_plugins_own_words_when_the_pointer_rests_on_it`.
+- **The velocity lane shows a note at the clip's start whole** (its head
+  overhangs the plot's edge). Checked by eye (shot `clip_lane`).
+- **The wheel over the velocity lane zooms and scrolls time**, as over the
+  roll; pitch scroll and row sizing stay with the roll. E2E
+  `notes::the_wheel_over_the_velocity_lane_zooms_and_scrolls_the_editors_time`.
+- **The quantize options are kept for the next start** (a `quantize`
+  section in the settings, with defaults: no version change). E2E
+  `quantize::the_quantize_options_are_kept_for_the_next_start`.
+- **The pop-out clip editor opens where it was last** (a
+  `clip_editor_window` place in the settings). Manual test MT-KI-1.
+- **A drag at the clip editor's side scrolls its view** (notes, drawing,
+  lane points), with the arrangement's edge scroll. E2E
+  `notes::a_note_dragged_to_the_rolls_side_scrolls_the_view_and_goes_on_past_it`.
+- **The user's presets folder follows a moved Documents folder** on
+  Windows (`SHGetKnownFolderPath`); the old profile path is still read when
+  it holds presets. MT-KI-1.
+- **A control half under the returns that takes the focus brings its track
+  into view**, so a Tab or a screen reader never acts on a covered control.
+  E2E `returns::a_control_half_under_the_returns_that_takes_the_focus_brings_its_track_into_view`.
+- **A plugin host knows who started it** (`LUMEN_HOST_PARENT`): a host
+  whose parent left before it could watch for that ends even when a
+  another ancestor (WSL's session init, a service manager) adopts it rather
+  than process 1. Unit tests in `process.rs`; the WSL run of `orphans.rs` is
+  still to do (no WSL distribution on the machine this round ran on).
+- **Tidying with no effect**: the review's leftover durations moved to
+  `motion.rs`, stroke literals to `theme::stroke`, live notes past 128 are
+  counted in `MidiPlayer::dropped`, `LiveState`'s methods narrowed, a stale
+  `allow` removed; `testing/mod.rs` and `arrangement/clips.rs` split
+  (`testing/{launch, audio_device}.rs`, `arrangement/clip_look.rs`).
+
+**Consequences.**
+- Still open and recorded: the synth's newest note when all 16 voices are
+  being stolen (changing it changes what is heard); the projects and
+  templates folder, which still follows `%USERPROFILE%\Documents` (moving
+  it would move existing users' Lumen folder); the pop-out's saved place is
+  not checked against a monitor that was unplugged (egui lists no
+  monitors); the performance baseline from WSL (row kept: no WSL here).
+- `note_editor/window.rs` and `note_editor/quantize.rs` keep their `impl
+  App` blocks; they move to `app/` with the editor's next real change.

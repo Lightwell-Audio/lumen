@@ -561,6 +561,14 @@ per slice and move what is no longer current out of it.
   `midi_play::playing_again_at_once_after_a_stop_does_not_pop`. MT-MIDI-10
   (`docs/manual-tests/M9.md`) waits for the owner. Found and not fixed: Stop
   in a latent project leaves a hole in the ring (KNOWN_ISSUES, top row).
+- **Branch `fix/known-issues-round-1`: the known issues with no behaviour
+  choice are fixed** (ADR-0125; owner asked 2026-11-07). One commit per row,
+  each with a test; the plugin host's protocol is 9 (rebuild it). Left for
+  the owner: consolidate on a range, Space twice in a buffer, the pinned
+  card, one undo step for MIDI and audio takes, lane visibility, MIDI port
+  ids, switch parameters, the synth's full steal, the projects folder
+  under a moved Documents. Not run here: WSL (no distribution on this
+  machine), so the orphans test and the perf baseline wait. MT-KI-1 waits.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
