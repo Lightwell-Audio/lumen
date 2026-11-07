@@ -1,5 +1,5 @@
 //! Drawing the audio editor (M9.5 S1): the file's wave, one column per
-//! physical pixel from the peaks, bright inside the clip's window (at the
+//! physical pixel from the peaks, bright where the clip plays it (at the
 //! clip's gain and through its fades, as it plays) and dimmed outside it (as
 //! the file is); sample by sample at the deepest zoom; and the ruler of bars
 //! and file time. Only the columns in view are drawn, so a one-hour file
@@ -30,9 +30,9 @@ pub(crate) const RULER: f32 = theme::size::CLIP_RULER;
 /// How the wave looks.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct WaveLook {
-    /// Inside the clip's window.
+    /// What the clip plays.
     pub bright: Color32,
-    /// Outside it.
+    /// The rest of the file.
     pub dim: Color32,
 }
 
@@ -79,12 +79,11 @@ pub(crate) fn frames_per_pixel(file: &WholeFile, time: TimeView, q: f64, ppp: f3
     Some(span.frames_per_beat / (time.zoom * f64::from(ppp)))
 }
 
-/// The level a frame inside the window plays at: the clip's gain (negative
+/// The level a frame the clip plays is heard at: the clip's gain (negative
 /// when inverted) through its fades; 1 outside it, where the file is drawn
 /// as it is.
 fn level_at(input: &WaveInput<'_>, q: f64, gain: f32) -> f32 {
-    let (start, end) = input.file.window;
-    if q < start || q >= end {
+    if !input.file.played.contains(q) {
         return 1.0;
     }
     let clip = input.clip;
@@ -106,8 +105,7 @@ fn level_at(input: &WaveInput<'_>, q: f64, gain: f32) -> f32 {
 pub(crate) fn wave(painter: &Painter, lane: Rect, input: &WaveInput<'_>) {
     let painter = painter.with_clip_rect(lane.intersect(painter.clip_rect()));
     let palette = theme::p();
-    // The file outside the clip's window sits on a sunk wash.
-    let (w0, w1) = input.file.window;
+    // The file outside what the clip plays sits on a sunk wash.
     let x = |q: f64| input.time.x(lane.left(), q);
     let file_rect = Rect::from_x_y_ranges(
         x(input.file.from).max(lane.left())..=x(input.file.to).min(lane.right()),
@@ -119,12 +117,12 @@ pub(crate) fn wave(painter: &Painter, lane: Rect, input: &WaveInput<'_>) {
             0.0,
             palette.well.gamma_multiply(theme::OUTSIDE_WASH),
         );
-        let window = Rect::from_x_y_ranges(
-            x(w0).max(file_rect.left())..=x(w1).min(file_rect.right()),
-            lane.y_range(),
-        );
-        if window.width() > 0.0 {
-            painter.rect_filled(window, 0.0, palette.clip_body);
+        for (a, b) in input.file.played.parts() {
+            let (a, b) = (x(a).max(file_rect.left()), x(b).min(file_rect.right()));
+            if b > a {
+                let part = Rect::from_x_y_ranges(a..=b, lane.y_range());
+                painter.rect_filled(part, 0.0, palette.clip_body);
+            }
         }
         // The file's two ends, so where it stops reads in both themes (in
         // the light one the window and the ground past the file are both
@@ -221,8 +219,7 @@ fn peak_columns(
         let (a, b) = (f32::from(lo) / 127.0 * level, f32::from(hi) / 127.0 * level);
         let top = middle - a.max(b) * half;
         let bottom = middle - a.min(b) * half;
-        let inside = middle_q >= file.window.0 && middle_q < file.window.1;
-        let colour = if inside {
+        let colour = if file.played.contains(middle_q) {
             input.look.bright
         } else {
             input.look.dim
@@ -264,14 +261,13 @@ fn sample_lines(
         let level = level_at(input, q, gain);
         let x = input.time.x(lane.left(), q);
         points.push(pos2(x, middle - value(*s) * level * half));
-        let inside = q >= file.window.0 && q < file.window.1;
-        colours.push(if inside {
+        colours.push(if file.played.contains(q) {
             input.look.bright
         } else {
             input.look.dim
         });
     }
-    // One line per run of one colour (the window's edges are the only
+    // One line per run of one colour (the played parts' edges are the only
     // changes), not one shape per pair of samples.
     let mut start = 0;
     while start + 1 < points.len() {
@@ -298,7 +294,7 @@ fn sample_lines(
 }
 
 /// The ruler in `strip`: bar numbers on top with the grid's bar and beat
-/// ticks, the file's time under them, and the clip's window as a band on
+/// ticks, the file's time under them, and what the clip plays as a band on
 /// its bottom edge.
 pub(crate) fn ruler(
     painter: &Painter,
@@ -313,19 +309,18 @@ pub(crate) fn ruler(
     let painter = painter.with_clip_rect(strip.intersect(painter.clip_rect()));
     painter.rect_filled(strip, 0.0, palette.raised);
     let x = |q: f64| time.x(strip.left(), q);
-    // The clip's window, a band along the bottom (the loop brace's place).
-    let (w0, w1) = file.window;
-    painter.rect_filled(
-        Rect::from_min_max(
-            pos2(
-                x(w0).max(strip.left()),
-                strip.bottom() - theme::size::RULER_BAND,
-            ),
-            pos2(x(w1).min(strip.right()).max(x(w0)), strip.bottom()),
-        ),
-        0.0,
-        palette.accent_muted,
-    );
+    // What the clip plays, a band along the bottom (the loop brace's place).
+    for (a, b) in file.played.parts() {
+        let (a, b) = (x(a).max(strip.left()), x(b).min(strip.right()));
+        if b > a {
+            let top = strip.bottom() - theme::size::RULER_BAND;
+            painter.rect_filled(
+                Rect::from_min_max(pos2(a, top), pos2(b, strip.bottom())),
+                0.0,
+                palette.accent_muted,
+            );
+        }
+    }
     let mid = strip.top() + strip.height() / 2.0;
     // Bar numbers every 1, 2, 4… bars, by bar number, so the same bars keep
     // their labels while the view scrolls.

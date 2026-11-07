@@ -13,6 +13,7 @@
 
 mod access;
 mod audio_editor;
+mod audio_editor_handles;
 mod audio_export;
 mod audio_input;
 mod audio_record;

@@ -15,6 +15,9 @@ use eframe::egui::{self, Id};
 
 /// Hover and press feedback.
 pub const FAST: f32 = 0.10;
+/// The fastest a drag scrolls a list or a view, in points a second, at its
+/// very side (`theme::size::EDGE_SCROLL` away it is still).
+pub const EDGE_SCROLL_SPEED: f32 = 900.0;
 /// Popovers, windows, notices, panels.
 pub const BASE: f32 = 0.18;
 /// How long a short note (undo, save, open) stays before fading.

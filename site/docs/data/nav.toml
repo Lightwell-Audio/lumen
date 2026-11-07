@@ -18,6 +18,7 @@ items = [
   { title = "Tracks" },
   { title = "Clips and selection", children = [
     { title = "Look inside an audio clip", page = "guides/clips/look-inside-an-audio-clip.md" },
+    { title = "Trim and fade inside an audio clip", page = "guides/clips/trim-and-fade-inside-an-audio-clip.md" },
   ] },
   { title = "Editing", children = [
     { title = "Split a clip", page = "guides/editing/split-a-clip.md" },
@@ -64,5 +65,5 @@ area = "file"
 items = [
   { title = "Concepts" },
   { title = "Troubleshooting" },
-  { title = "What's new" },
+  { title = "What's new", page = "whats-new.md" },
 ]

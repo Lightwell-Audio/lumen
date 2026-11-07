@@ -5,11 +5,16 @@
 //! editor's gestures, on a view of its own (ADR-0048).
 //!
 //! - `source`: where the file sits on the timeline (pure, tested);
+//! - `handles`: where the grips, fades and gain line are, and what the
+//!   pointer is on (pure, tested);
+//! - `header`: which of the header's layouts fits (pure, tested);
 //! - `paint`: the wave, column by column from the peaks, and samples at
 //!   depth; the ruler.
 //!
 //! What the editor does with the app (`impl App`) is `app::audio_editor`.
 
+pub(crate) mod handles;
+pub(crate) mod header;
 pub(crate) mod paint;
 pub(crate) mod source;
 
@@ -17,6 +22,7 @@ use eframe::egui::Rect;
 use lumen_project::model::Id;
 
 use crate::arrangement::samples::StripReader;
+use crate::arrangement::select::Gesture;
 use crate::note_editor::EditorZoom;
 use crate::timeview::TimeView;
 
@@ -59,6 +65,33 @@ pub(crate) struct AudioEditor {
     pub file: Option<FileCache>,
     /// Samples around the view at the deepest zoom.
     pub samples: Option<SampleCache>,
+    /// A drag of one of the clip's handles or of its content.
+    pub gesture: Option<Gesture>,
+    /// A handle pressed with a right-click, whose menu is open.
+    pub menu_part: Option<handles::Part>,
+    /// A handle to bring into view on the next frame (it took the keyboard,
+    /// or a key moved it).
+    pub reveal: Option<handles::Part>,
+    /// The handle with the keyboard, last frame.
+    pub focused_before: Option<handles::Part>,
+    /// The typed value of a handle (Enter on it).
+    pub popover: Option<Popover>,
+    /// The header's layout, last frame.
+    pub layout: header::Layout,
+    /// The properties column gave its room to the wave.
+    pub folded: bool,
+}
+
+/// A handle's popover: the value being typed.
+pub(crate) struct Popover {
+    pub part: handles::Part,
+    pub text: String,
+    /// What it started as: unchanged, it makes no edit.
+    pub initial: String,
+    /// Why the text was not taken, until it changes.
+    pub error: Option<String>,
+    /// The field has been given the keyboard.
+    pub focused: bool,
 }
 
 /// [`source::WholeFile`] and what it was worked out from.
@@ -86,9 +119,14 @@ pub(crate) struct Drawn {
     /// The wave area.
     pub body: Rect,
     pub time: TimeView,
-    /// The beats the clip plays, and the beats the file covers.
+    /// From the first beat the clip plays to the last, and the beats the
+    /// file covers.
     pub window: (f64, f64),
     pub file: (f64, f64),
     /// The wave was drawn sample by sample.
     pub samples: bool,
+    /// Where the clip's handles were.
+    pub handles: Option<handles::EditorHandles>,
+    /// The beats of the part played first, and of the part after a wrap.
+    pub played: source::Played,
 }
