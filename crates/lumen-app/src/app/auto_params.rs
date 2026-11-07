@@ -73,6 +73,11 @@ impl App {
     /// [`AutoView::resting`]: crate::arrangement::auto_state::AutoView::resting
     pub(crate) fn lane_texts(&mut self, ctx: &egui::Context) {
         use crate::motion::{TEXT_AGAIN, TEXT_EVERY, TEXT_FRAME};
+        let forgotten = self.hosting.texts_forgotten();
+        if self.arrangement.auto.texts_seen != forgotten {
+            self.arrangement.auto.texts_seen = forgotten;
+            self.arrangement.auto.text_asked = None;
+        }
         let auto = &self.arrangement.auto;
         let wanted = auto.resting().and_then(|p| {
             let Target::Device { device, param } = p.target else {

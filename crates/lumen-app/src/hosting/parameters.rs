@@ -83,6 +83,13 @@ impl Hosting {
             .map(|(_, text)| text.as_str())
     }
 
+    /// Counts the times plugins' words for their values were forgotten (a
+    /// plugin named its controls anew): a reader that remembers what it
+    /// asked for forgets that when this changes, and asks again.
+    pub fn texts_forgotten(&self) -> u64 {
+        self.texts_forgotten
+    }
+
     /// The kept answer for the value nearest `value`, to stand for it until
     /// the plugin answers for `value` itself.
     pub fn nearest_text(&self, device: Id, id: u32, value: f64) -> Option<&str> {

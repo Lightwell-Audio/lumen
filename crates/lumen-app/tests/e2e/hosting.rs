@@ -883,11 +883,26 @@ fn a_plugin_that_names_its_parameters_anew_is_read_again() {
     wait_for_state(&mut lumen, PLUGIN, "ready");
     let titles = lumen.app().device_param_titles(PLUGIN);
     assert!(titles.iter().any(|t| t == "Trigger"), "{titles:?}");
+    lumen.app_mut().select_tracks(&[KEYS]);
+    lumen.show_whole_cards();
+    lumen.run_until("a knob in the plugin's words", |lumen| {
+        lumen
+            .harness
+            .query_all_by_label_contains(", parameter: ")
+            .next()
+            .is_some()
+    });
+    assert!(!lumen.harness.query_by_label_contains(" (new)").is_some());
     lumen.app_mut().poke_plugin(PLUGIN, TRIGGER, 1.0);
     lumen.wait_for("the new name", |app| {
         app.device_param_titles(PLUGIN)
             .iter()
             .any(|t| t == "Triggered")
+    });
+    // The knobs did not move, and still read in the patch's new words: the
+    // words kept for their values were forgotten and asked for again.
+    lumen.run_until("the knobs' new words", |lumen| {
+        lumen.harness.query_by_label_contains(" (new)").is_some()
     });
 }
 

@@ -239,6 +239,8 @@ pub(crate) struct AutoView {
     pub texts: BTreeMap<(Id, u32), (f64, String)>,
     /// The last value a plugin was asked to put in words, and when.
     pub text_asked: Option<((Id, u32), f64, std::time::Instant)>,
+    /// `Hosting::texts_forgotten` when `text_asked` was last cleared for it.
+    pub texts_seen: u64,
     /// The lane each track shows, by track.
     pub shown: BTreeMap<Id, Target>,
     /// The points picked, on one lane.

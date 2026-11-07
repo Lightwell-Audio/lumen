@@ -338,8 +338,14 @@ impl IEditControllerTrait for Controller {
         if self.index(id).is_none() {
             return kInvalidArgument;
         }
+        let mut words = self.kind.display(id, value);
+        // Renamed by `titles_changed`: the values read otherwise too, as a
+        // patch's may.
+        if self.retitled.load(Ordering::Relaxed) {
+            words.push_str(" (new)");
+        }
         // SAFETY: the host passes a valid String128.
-        text::copy_wstring(&self.kind.display(id, value), unsafe { &mut *string });
+        text::copy_wstring(&words, unsafe { &mut *string });
         kResultOk
     }
 

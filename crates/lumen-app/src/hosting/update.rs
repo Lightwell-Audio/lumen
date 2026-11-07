@@ -284,7 +284,12 @@ impl Hosting {
             Happened::Values(all) => {
                 let p = &mut t.params;
                 // What the plugin calls its parameters now: a patch may name
-                // its controls anew (`kParamTitlesChanged`).
+                // its controls anew (`kParamTitlesChanged`). Its words for
+                // values and steps may have changed with them: they are
+                // asked for again.
+                if p.forget_texts_if_renamed(&all) {
+                    self.texts_forgotten += 1;
+                }
                 for now in &all {
                     if let Some(known) = p.list.iter_mut().find(|i| i.id == now.id) {
                         known.title.clone_from(&now.title);
@@ -434,6 +439,7 @@ impl Hosting {
                         // is read again, and the card and panel follow.
                         EditKind::Retitled => {
                             if let Some(manager) = self.manager.as_ref() {
+                                p.retitled = true;
                                 manager.refresh(id);
                             }
                         }

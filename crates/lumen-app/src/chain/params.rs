@@ -282,6 +282,12 @@ impl App {
             return text.to_owned();
         }
         let mut asked = self.chain.text_asked.borrow_mut();
+        // A plugin's words were forgotten (it named its controls anew):
+        // what was asked before is asked again.
+        let forgotten = self.hosting.texts_forgotten();
+        if self.chain.texts_seen.replace(forgotten) != forgotten {
+            asked.clear();
+        }
         let key = (device.0, p.id);
         let recent = asked.get(&key).is_some_and(|(v, when)| {
             ((v - value).abs() < 1e-9 && when.elapsed() < TEXT_AGAIN) || when.elapsed() < TEXT_EVERY
