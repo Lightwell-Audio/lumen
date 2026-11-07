@@ -262,7 +262,11 @@ impl Arrangement {
         let Some((at, value)) = spot else {
             return;
         };
-        let text = format!("{}  \u{00B7}  {}", scale::text(target, value), position(at));
+        let text = format!(
+            "{}  \u{00B7}  {}",
+            self.auto.value_text(target, value),
+            position(at)
+        );
         // Above the point, or below it when that would cover the tool strip.
         let y = frame.y(target, value);
         let lift = if y - 14.0 < frame.area().top() {

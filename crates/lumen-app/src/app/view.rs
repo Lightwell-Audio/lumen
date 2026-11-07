@@ -447,6 +447,7 @@ report: {}",
         }
         let pending = self.lanes.pending().len();
         self.lane_names();
+        self.lane_texts(ui.ctx());
         self.arrangement.lane_overlay(
             ui,
             &painter,

@@ -354,3 +354,33 @@ fn a_parameter_can_be_changed_again_once_its_lane_is_switched_off() {
     assert!(up > 0.01, "and another: {up}");
     lumen.key(Modifiers::NONE, Key::Space);
 }
+
+#[test]
+fn a_plugin_lanes_point_reads_in_the_plugins_own_words_when_the_pointer_rests_on_it() {
+    // Half way up the effect's gain is −24 dB in its own words: the lane
+    // used to say "50%" (KNOWN_ISSUES row 51).
+    let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
+    let mut lumen = launch("lane-words", &song, &["Plug"]);
+    wait_for_state(&mut lumen, FX, "ready");
+    let target = Target::Device {
+        device: FX,
+        param: LEVEL,
+    };
+    lumen
+        .app_mut()
+        .give_lane(KEYS, target, lane(&[(0, 0.0), (4, 0.5)]))
+        .unwrap();
+    // As the chip's menu shows it.
+    lumen.app_mut().show_clip_envelope(KEYS, target);
+    lumen.frames(30);
+    let at = super::lane_view::point_pos(&lumen, KEYS, 1);
+    lumen.harness.hover_at(at);
+    lumen.run_until("the plugin's words for the point", |lumen| {
+        lumen
+            .app()
+            .info_line()
+            .is_some_and(|line| line.contains("-24.0"))
+    });
+    let line = lumen.app().info_line().unwrap_or_default();
+    assert!(!line.contains("50%"), "{line}");
+}
