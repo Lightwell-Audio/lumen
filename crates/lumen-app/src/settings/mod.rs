@@ -376,6 +376,19 @@ pub struct Settings {
     /// it did before: an added section with defaults, so older files read
     /// as before (no version change).
     pub quantize: QuantizeChoices,
+    /// Where the pop-out clip editor was last, in points: an added field
+    /// (no version change).
+    pub clip_editor_window: Option<WindowPlace>,
+}
+
+/// A window's place: its outer top-left corner and the size of its inside,
+/// in points.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct WindowPlace {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
 }
 
 /// The quantize popover's settings, as words and fractions: `grid` is a note
@@ -593,6 +606,7 @@ impl Default for Settings {
             setup_done: false,
             browser: Default::default(),
             quantize: QuantizeChoices::default(),
+            clip_editor_window: None,
         }
     }
 }
@@ -920,6 +934,12 @@ mod tests {
                 swing: 0.25,
                 window: 0.5,
             },
+            clip_editor_window: Some(WindowPlace {
+                x: 1920.0,
+                y: -40.5,
+                width: 1200.0,
+                height: 700.0,
+            }),
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings.clone(), None));
