@@ -36,6 +36,8 @@ const KNOWN: &[&str] = &[
     "crates/lumen-app/tests/docs_media/main.rs",
     "crates/lumen-app/tests/docs_media/recorder.rs",
     "crates/lumen-app/tests/e2e/audio_editor_handles.rs",
+    // The bench (ignored) prints frame times and fails only past a second.
+    "crates/lumen-app/tests/e2e/audio_editor_hearing.rs",
     "crates/lumen-app/tests/e2e/clips.rs",
     "crates/lumen-app/tests/e2e/cue.rs",
     "crates/lumen-app/tests/e2e/dropdown.rs",

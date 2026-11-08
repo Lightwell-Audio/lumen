@@ -18,7 +18,7 @@ use super::editing::MenuFor;
 use super::info::{Held, Info, Mouse};
 use crate::App;
 use crate::arrangement::auto_scale as scale;
-use crate::arrangement::auto_state::{Picked, Picks, Tool};
+use crate::arrangement::auto_state::{Hands, Picked, Picks, Tool};
 use crate::arrangement::auto_view::Frame;
 use crate::commands::Command;
 
@@ -229,7 +229,22 @@ impl App {
         p: Pos2,
         modifiers: egui::Modifiers,
     ) {
-        self.arrangement.auto.focus = true;
+        let mut hands = self.arrangement.auto.lend();
+        self.lane_click(&mut hands, track, target, frame, p, modifiers);
+        self.arrangement.auto.restore(hands);
+    }
+
+    /// A click on a lane with `hands`: picks the point under it, or adds one.
+    pub(crate) fn lane_click(
+        &mut self,
+        hands: &mut Hands,
+        track: Id,
+        target: Target,
+        frame: &Frame,
+        p: Pos2,
+        modifiers: egui::Modifiers,
+    ) {
+        hands.focus = true;
         let lane = self.lane_points_of(track, target);
         if let Some(index) = lane.as_ref().and_then(|l| frame.nearest(target, l, p)) {
             let here = Picked {
@@ -238,22 +253,30 @@ impl App {
                 index,
             };
             if modifiers.shift {
-                self.auto_toggle_pick(here);
+                hands.toggle_pick(here);
             } else {
-                self.arrangement.auto.picks = Some(Picks::only(here));
+                hands.picks = Some(Picks::only(here));
             }
             return;
         }
         if modifiers.shift {
             return;
         }
-        let at = self.snapped(frame.ticks_at(p.x), modifiers.alt);
+        let at =
+            frame.lane(self.snapped_at_zoom(frame.shown_at(p.x), modifiers.alt, frame.view.zoom));
         let reach = crate::theme::size::AUTO_SNAP / frame.area().height().max(1.0);
         let height = if modifiers.alt {
             frame.height_at(p.y)
         } else {
             scale::snap_height(target, frame.height_at(p.y), reach).0
         };
-        self.add_auto_point(track, target, at, scale::value(target, height), false);
+        self.add_lane_point(
+            hands,
+            track,
+            target,
+            at,
+            scale::value(target, height),
+            false,
+        );
     }
 }

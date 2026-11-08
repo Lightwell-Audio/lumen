@@ -493,6 +493,408 @@ fn audio_editor_handles() {
     check("audio_editor_handles", started);
 }
 
+/// Opens the Drums clip (bars 2 and 3 of its four-bar file) in the editor on
+/// a 960 x 640 window. Returns the editor's crop and where the pointer rests
+/// between gestures.
+fn open_drums(h: &mut Harness<'static, App>) -> (Rect, eframe::egui::Pos2) {
+    use lumen_core::time::Ticks;
+    h.set_size(eframe::egui::vec2(960.0, 640.0));
+    h.run_steps(10);
+    let id = h.state().project().tracks[0].clips[0].id;
+    h.state_mut().trim_clip_start_to(id, Ticks::quarters(4));
+    h.state_mut()
+        .trim_clip_end_to(id, Ticks::quarters(12), false);
+    h.state_mut().select_clip(id);
+    h.run_steps(4);
+    h.key_press(Key::Enter);
+    h.run_steps(10);
+    let s = h.state().audio_editor_shown().expect("drawn");
+    let editor = Rect::from_min_max(
+        pos2(s.body.left() - 1.0, s.body.top() - 70.0),
+        pos2(h.ctx.content_rect().right(), s.body.bottom() + 1.0),
+    );
+    let rest = pos2(editor.right() - 40.0, editor.top() + 20.0);
+    (editor, rest)
+}
+
+/// The point at beat `q` and `f` of the wave's height, in the open editor.
+fn on_wave(h: &Harness<'static, App>, q: f64, f: f32) -> eframe::egui::Pos2 {
+    let s = h.state().audio_editor_shown().expect("drawn");
+    pos2(
+        s.view.x(s.body.left(), q),
+        s.body.top() + s.body.height() * f,
+    )
+}
+
+/// One undo step.
+fn undo_one(h: &mut Harness<'static, App>) {
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(3);
+}
+
+/// Guides > Clips > Pick part of a clip in its editor: the lead picks a
+/// range on the wave and splits it; a gesture clip each for the range and the
+/// cursor; and a shot with the range marked.
+#[test]
+#[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
+fn audio_editor_range() {
+    let started = Instant::now();
+    for &theme in recorder::themes() {
+        let dir = TempDir::new(&format!("docs-audio-range-{theme}"));
+        let (mut h, device) = song(&dir, theme);
+        let (editor, rest) = open_drums(&mut h);
+
+        // The lead: a range from beat 6 to 9, split at both edges.
+        let mut take = Take::clip(
+            &mut h,
+            device,
+            "audio-editor-range-lead",
+            theme,
+            editor,
+            0.5,
+            rest,
+        );
+        take.hold(&mut h, pace::RESULT / 2);
+        let (from, to) = (on_wave(&h, 6.0, 0.5), on_wave(&h, 9.0, 0.5));
+        take.move_to(&mut h, from);
+        take.press(&mut h);
+        take.move_to(&mut h, to);
+        take.hold(&mut h, 2);
+        take.release(&mut h);
+        take.settle(&mut h);
+        take.keys(&mut h, "Ctrl+E", |h| {
+            h.key_press_modifiers(Modifiers::COMMAND, Key::E);
+            h.run_steps(3);
+        });
+        take.settle(&mut h);
+        assert_eq!(h.state().project().tracks[0].clips.len(), 3, "split twice");
+        take.move_to(&mut h, rest);
+        take.result(&mut h);
+        let device = take.finish();
+        undo_one(&mut h);
+        h.key_press(Key::Escape);
+        h.run_steps(3);
+
+        // The range alone: dragged on the wave, no edit made.
+        let before = h.state().project().clone();
+        let mut take = Take::clip(
+            &mut h,
+            device,
+            "audio-editor-range",
+            theme,
+            editor,
+            0.5,
+            rest,
+        );
+        take.hold(&mut h, pace::RESULT / 2);
+        take.move_to(&mut h, from);
+        take.press(&mut h);
+        take.move_to(&mut h, to);
+        take.hold(&mut h, 2);
+        take.release(&mut h);
+        take.settle(&mut h);
+        assert_eq!(*h.state().project(), before, "a range is not an edit");
+        take.move_to(&mut h, rest);
+        take.result(&mut h);
+        let device = take.finish();
+
+        // The shot, with the range still picked.
+        let s = h.state().audio_editor_shown().expect("drawn");
+        let range = Rect::from_x_y_ranges(from.x..=to.x, s.body.y_range());
+        h.hover_at(rest);
+        still(
+            &mut h,
+            editor,
+            "audio-editor-range",
+            theme,
+            None,
+            &[("Range", range)],
+        );
+        h.key_press(Key::Escape);
+        h.run_steps(3);
+
+        // The cursor: one click on the wave.
+        let mut take = Take::clip(
+            &mut h,
+            device,
+            "audio-editor-cursor",
+            theme,
+            editor,
+            0.5,
+            rest,
+        );
+        take.hold(&mut h, pace::RESULT / 2);
+        let seven = on_wave(&h, 7.0, 0.5);
+        take.move_to(&mut h, seven);
+        take.click(&mut h);
+        take.settle(&mut h);
+        assert!(h.state().audio_editor_cursor().is_some(), "the cursor");
+        take.move_to(&mut h, rest);
+        take.result(&mut h);
+        let _device = take.finish();
+    }
+    check("audio_editor_range", started);
+}
+
+/// Guides > Clips > Draw a clip's envelope: the lead lights Gain and adds
+/// points; a gesture clip each for a point, a drawn stroke and the loop
+/// brace; and a shot with the pills, the envelope and the brace marked.
+#[test]
+#[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
+fn audio_editor_envelopes() {
+    use egui_kittest::kittest::Queryable;
+
+    let started = Instant::now();
+    for &theme in recorder::themes() {
+        let dir = TempDir::new(&format!("docs-audio-envelopes-{theme}"));
+        let (mut h, device) = song(&dir, theme);
+        let (editor, rest) = open_drums(&mut h);
+
+        // The lead: Gain is lit, then three points make a dip.
+        let mut take = Take::clip(
+            &mut h,
+            device,
+            "audio-editor-envelopes-lead",
+            theme,
+            editor,
+            0.5,
+            rest,
+        );
+        take.hold(&mut h, pace::RESULT / 2);
+        let gain_pill = h.get_by_label("Gain envelope").rect().center();
+        take.move_to(&mut h, gain_pill);
+        take.click(&mut h);
+        take.settle(&mut h);
+        for (q, f) in [(5.0, 0.3), (8.0, 0.7), (11.0, 0.3)] {
+            let p = on_wave(&h, q, f);
+            take.move_to(&mut h, p);
+            take.click(&mut h);
+            take.settle(&mut h);
+        }
+        take.move_to(&mut h, rest);
+        take.result(&mut h);
+        let device = take.finish();
+        for _ in 0..3 {
+            undo_one(&mut h);
+        }
+
+        // One point.
+        let mut take = Take::clip(
+            &mut h,
+            device,
+            "audio-editor-envelope-point",
+            theme,
+            editor,
+            0.5,
+            rest,
+        );
+        take.hold(&mut h, pace::RESULT / 2);
+        let p = on_wave(&h, 8.0, 0.6);
+        take.move_to(&mut h, p);
+        take.click(&mut h);
+        take.settle(&mut h);
+        take.move_to(&mut h, rest);
+        take.result(&mut h);
+        let device = take.finish();
+        undo_one(&mut h);
+
+        // A stroke with Draw: B, then drag across.
+        h.hover_at(on_wave(&h, 5.0, 0.3));
+        h.run_steps(2);
+        h.key_press(Key::B);
+        h.run_steps(3);
+        assert!(h.state().audio_editor_draws(), "B takes the pencil");
+        let mut take = Take::clip(
+            &mut h,
+            device,
+            "audio-editor-envelope-draw",
+            theme,
+            editor,
+            0.5,
+            rest,
+        );
+        take.hold(&mut h, pace::RESULT / 2);
+        let (a, b, c) = (
+            on_wave(&h, 5.0, 0.3),
+            on_wave(&h, 8.0, 0.7),
+            on_wave(&h, 11.0, 0.35),
+        );
+        take.move_to(&mut h, a);
+        take.press(&mut h);
+        take.move_to(&mut h, b);
+        take.move_to(&mut h, c);
+        take.hold(&mut h, 2);
+        take.release(&mut h);
+        take.settle(&mut h);
+        take.move_to(&mut h, rest);
+        take.result(&mut h);
+        let device = take.finish();
+        undo_one(&mut h);
+        h.hover_at(on_wave(&h, 5.0, 0.3));
+        h.run_steps(2);
+        h.key_press(Key::B);
+        h.run_steps(3);
+
+        // The loop brace: one click on its band loops the clip.
+        let on_band = |h: &Harness<'static, App>, q: f64| {
+            let s = h.state().audio_editor_shown().expect("drawn");
+            pos2(s.view.x(s.body.left(), q), s.band.center().y)
+        };
+        let mut take = Take::clip(
+            &mut h,
+            device,
+            "audio-editor-loop-brace",
+            theme,
+            editor,
+            0.5,
+            rest,
+        );
+        take.hold(&mut h, pace::RESULT / 2);
+        let p = on_band(&h, 9.0);
+        take.move_to(&mut h, p);
+        take.click(&mut h);
+        take.settle(&mut h);
+        assert_eq!(h.state().undo_label(), Some("Loop audio in clip"));
+        take.move_to(&mut h, rest);
+        take.result(&mut h);
+        let _device = take.finish();
+
+        // The shot: the pills, an envelope drawn, the brace showing.
+        for (q, f) in [(5.0, 0.3), (8.0, 0.7), (11.0, 0.3)] {
+            let p = on_wave(&h, q, f);
+            h.hover_at(p);
+            h.run_steps(2);
+            h.key_press(Key::Escape);
+            h.run_steps(1);
+            h.drag_at(p);
+            h.run_steps(1);
+            h.drop_at(p);
+            h.run_steps(3);
+        }
+        let s = h.state().audio_editor_shown().expect("drawn");
+        let pills = h
+            .get_by_label("Gain envelope")
+            .rect()
+            .union(h.get_by_label("Pan envelope").rect());
+        let curve = Rect::from_x_y_ranges(
+            s.view.x(s.body.left(), 5.0)..=s.view.x(s.body.left(), 11.0),
+            s.body.y_range(),
+        );
+        h.hover_at(rest);
+        still(
+            &mut h,
+            editor,
+            "audio-editor-envelopes",
+            theme,
+            None,
+            &[
+                ("Gain and Pan", pills),
+                ("Envelope", curve),
+                ("Loop brace", s.band),
+            ],
+        );
+    }
+    check("audio_editor_envelopes", started);
+}
+
+/// Guides > Clips > Hear a clip while you edit it: the lead turns Loop clip
+/// on and the playhead goes round the clip; a gesture clip of a drag on the
+/// editor's ruler; and a shot with the toggle and the ruler marked.
+#[test]
+#[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
+fn audio_editor_hearing() {
+    use egui_kittest::kittest::Queryable;
+
+    let started = Instant::now();
+    for &theme in recorder::themes() {
+        let dir = TempDir::new(&format!("docs-audio-hearing-{theme}"));
+        let (mut h, device) = song(&dir, theme);
+        let (editor, rest) = open_drums(&mut h);
+        let on_ruler = |h: &Harness<'static, App>, q: f64| {
+            let s = h.state().audio_editor_shown().expect("drawn");
+            pos2(s.view.x(s.body.left(), q), s.band.top() - 6.0)
+        };
+
+        // The lead: Loop clip on, and the playhead goes round the clip.
+        let mut take = Take::clip(
+            &mut h,
+            device,
+            "audio-editor-hearing-lead",
+            theme,
+            editor,
+            0.5,
+            rest,
+        );
+        take.hold(&mut h, pace::RESULT / 2);
+        let toggle = h.get_by_label("Loop clip").rect().center();
+        take.move_to(&mut h, toggle);
+        take.click(&mut h);
+        take.settle(&mut h);
+        assert!(h.state().clip_loop_played().is_some(), "Loop clip is on");
+        // Play: the playhead goes round the clip, past its end and back.
+        take.keys(&mut h, "Space", |h| h.key_press(Key::Space));
+        hold_until(&mut take, &mut h, 11.0);
+        let before = h.state().playhead();
+        for _ in 0..10 * pace::FPS {
+            if h.state().playhead() < before {
+                break;
+            }
+            take.hold(&mut h, 1);
+        }
+        assert!(h.state().playhead() < before, "the playhead wrapped");
+        take.hold(&mut h, pace::FPS / 2);
+        take.keys(&mut h, "Space", |h| h.key_press(Key::Space));
+        take.move_to(&mut h, rest);
+        take.result(&mut h);
+        let device = take.finish();
+        h.get_by_label("Loop clip").click();
+        h.run_steps(3);
+        assert!(h.state().clip_loop_played().is_none(), "and off again");
+
+        // A drag along the ruler listens as it goes.
+        let mut take = Take::clip(
+            &mut h,
+            device,
+            "audio-editor-scrub",
+            theme,
+            editor,
+            0.5,
+            rest,
+        );
+        take.hold(&mut h, pace::RESULT / 2);
+        let (a, b) = (on_ruler(&h, 5.0), on_ruler(&h, 10.0));
+        take.move_to(&mut h, a);
+        take.press(&mut h);
+        take.move_to(&mut h, b);
+        take.hold(&mut h, 2);
+        take.release(&mut h);
+        take.settle(&mut h);
+        take.move_to(&mut h, rest);
+        take.result(&mut h);
+        let _device = take.finish();
+
+        // The shot: Loop clip lit, the ruler under the playhead.
+        h.get_by_label("Loop clip").click();
+        h.run_steps(3);
+        let s = h.state().audio_editor_shown().expect("drawn");
+        let toggle = h.get_by_label("Loop clip").rect();
+        let ruler = Rect::from_min_max(
+            pos2(s.body.left(), s.band.top() - 18.0),
+            pos2(s.body.right(), s.band.top()),
+        );
+        h.hover_at(rest);
+        still(
+            &mut h,
+            editor,
+            "audio-editor-hearing",
+            theme,
+            None,
+            &[("Loop clip", toggle), ("Ruler", ruler)],
+        );
+    }
+    check("audio_editor_hearing", started);
+}
+
 /// Films frames until the playhead reaches `quarters`, within ten seconds
 /// of video: a song that stopped or stalled fails the scene instead of
 /// filming forever.

@@ -57,3 +57,52 @@ input = "drag the grey part of the file, or Ctrl+Alt+drag anywhere"
 does = "Slides the audio inside the clip, which stays where it is in the song."
 scenario = "the_dimmed_file_and_ctrl_alt_slip_the_audio_and_the_clip_stays"
 clip = "audio-editor-slip"
+
+[[gesture]]
+id = "gesture.audio_editor_range"
+place = "audio editor"
+input = "drag across the wave"
+does = "Picks a range, cut to the part of the clip that is heard before it repeats; Split, Crop, Delete and Join act on it. Hold Alt to place the edges anywhere."
+scenario = "a_drag_on_the_wave_picks_a_range_that_split_crop_delete_and_join_act_on"
+clip = "audio-editor-range"
+
+[[gesture]]
+id = "gesture.audio_editor_cursor"
+place = "audio editor"
+input = "click the wave"
+does = "Puts the edit cursor there, apart from the playhead; Split cuts at it when no range is picked."
+scenario = "a_click_places_the_cursor_and_ctrl_e_splits_there"
+clip = "audio-editor-cursor"
+
+[[gesture]]
+id = "gesture.audio_editor_envelope_point"
+place = "audio editor"
+input = "click the clip's envelope"
+does = "Adds a point to the shown Gain or Pan envelope; drag a point to move it, pick it and press Delete to remove it."
+scenario = "the_pills_show_one_envelope_and_a_click_adds_a_point_in_one_step"
+clip = "audio-editor-envelope-point"
+
+[[gesture]]
+id = "gesture.audio_editor_envelope_draw"
+place = "audio editor"
+input = "press B, then drag across the wave"
+does = "Draws the envelope freehand with the pencil, thinning out the points it does not need; the stroke is one undo step."
+scenario = "draw_lights_gain_and_one_stroke_is_one_undo_step"
+clip = "audio-editor-envelope-draw"
+
+[[gesture]]
+id = "gesture.audio_editor_loop_brace"
+place = "audio editor"
+input = "click the band under the ruler, then drag either end"
+does = "Loops the clip's audio, then sets where the loop starts and ends; each change is one undo step."
+scenario = "a_click_on_the_band_loops_the_clip_and_an_end_drag_is_one_step"
+clip = "audio-editor-loop-brace"
+
+[[gesture]]
+id = "gesture.audio_editor_scrub"
+place = "audio editor"
+input = "click or drag along the editor's ruler"
+does = "A click moves the playhead there; dragging while stopped plays the grid step under the pointer on repeat, and with Alt follows the pointer like tape; dragging while playing jumps along. Follow pauses at the first move."
+scenario = "a_click_on_the_ruler_moves_the_playhead_and_a_drag_pauses_follow"
+clip = "audio-editor-scrub"
+

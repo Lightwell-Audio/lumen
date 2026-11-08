@@ -46,7 +46,13 @@ pub struct Transport {
     pub timeline: Timeline,
     /// A new timeline is waiting to be sent (the queue was full).
     timeline_pending: bool,
+    /// The project's own loop, which export, the loop brace and the rest read.
     pub loop_region: Region,
+    /// A loop the engine plays in its place while a clip is looped in its
+    /// editor (M9.5 S2c, LC A): never saved, never an edit.
+    clip_loop: Option<Region>,
+    /// What the engine was last told to loop.
+    sent_loop: Region,
     /// Text while the position field is being edited.
     editing: Option<String>,
     error: Option<String>,
@@ -145,6 +151,8 @@ impl Transport {
             timeline,
             timeline_pending: false,
             loop_region,
+            clip_loop: None,
+            sent_loop: loop_region,
             editing: None,
             error: None,
             settle_until: None,
@@ -192,7 +200,7 @@ impl Transport {
     pub fn advance_playhead(&mut self, now: f64) {
         let state = self.state();
         let rate = state.sample_rate;
-        let region = self.loop_region;
+        let region = self.played_loop();
         let looped = (region.enabled && region.end > region.start).then(|| {
             (
                 self.timeline.sample_at(region.start, rate),
@@ -419,13 +427,38 @@ impl Transport {
         self.send(Command::EndScrub);
     }
 
+    /// The loop the engine plays: a clip's, while it is looped in its editor
+    /// (M9.5 S2c, LC A), else the project's. Playback, the drawn playhead and
+    /// the disk's read-ahead follow it; export, recording and saving read
+    /// [`Self::loop_region`] and never see it.
+    pub fn played_loop(&self) -> Region {
+        self.clip_loop.unwrap_or(self.loop_region)
+    }
+
+    /// Plays `region` on repeat in place of the project's loop, or goes back
+    /// to the project's with `None`.
+    pub fn set_clip_loop(&mut self, region: Option<Region>) {
+        self.clip_loop = region;
+    }
+
+    /// The loop the engine was last told to play.
+    pub fn sent_loop(&self) -> Region {
+        self.sent_loop
+    }
+
+    /// Whether a clip's loop is what plays.
+    pub fn clip_looping(&self) -> bool {
+        self.clip_loop.is_some()
+    }
+
     /// Plays the project's loop (its brace and switch are document edits,
     /// slice 5c): sends it to the engine when it differs from what plays.
     pub fn follow_loop(&mut self, state: &lumen_project::model::TransportState) {
-        let region = Region::new(state.loop_start, state.loop_end, state.loop_enabled);
-        if region != self.loop_region {
-            self.loop_region = region;
-            self.send(Command::SetLoop(region));
+        self.loop_region = Region::new(state.loop_start, state.loop_end, state.loop_enabled);
+        let played = self.played_loop();
+        if played != self.sent_loop {
+            self.sent_loop = played;
+            self.send(Command::SetLoop(played));
         }
     }
 

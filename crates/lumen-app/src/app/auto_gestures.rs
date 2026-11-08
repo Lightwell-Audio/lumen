@@ -24,7 +24,7 @@ use super::grid::draw_snap_guide;
 use crate::App;
 use crate::arrangement::auto_scale as scale;
 use crate::arrangement::auto_state::{
-    Active, Bending, Boxing, Drawing, Gesture, Moving, Picked, Picks, Tool, Waving,
+    Active, Bending, Boxing, Drawing, Gesture, Hands, Moving, Picked, Picks, Tool, Waving,
 };
 use crate::arrangement::auto_view::{Frame, inserted};
 use crate::arrangement::handles;
@@ -57,9 +57,26 @@ impl App {
     }
 
     /// Adds a point to `track`'s lane for `target` (a new lane if it has
-    /// none) and picks it. `gesture` joins the edit to the drag it starts.
+    /// none) and picks it, on the arrangement's lanes. `gesture` joins the
+    /// edit to the drag it starts.
     pub(super) fn add_auto_point(
         &mut self,
+        track: Id,
+        target: Target,
+        at: Ticks,
+        value: f32,
+        gesture: bool,
+    ) -> Option<Picked> {
+        let mut hands = self.arrangement.auto.lend();
+        let added = self.add_lane_point(&mut hands, track, target, at, value, gesture);
+        self.arrangement.auto.restore(hands);
+        added
+    }
+
+    /// Adds a point and picks it in `hands`.
+    pub(crate) fn add_lane_point(
+        &mut self,
+        hands: &mut Hands,
         track: Id,
         target: Target,
         at: Ticks,
@@ -78,7 +95,7 @@ impl App {
                     target,
                     index,
                 };
-                self.arrangement.auto.picks = Some(Picks::only(here));
+                hands.picks = Some(Picks::only(here));
                 Some(here)
             }
             Err(refused) => {
@@ -88,7 +105,7 @@ impl App {
         }
     }
 
-    /// A press that becomes a drag.
+    /// A press that becomes a drag, on the arrangement's lanes.
     pub(super) fn auto_begin(
         &mut self,
         track: Id,
@@ -97,12 +114,31 @@ impl App {
         origin: Pos2,
         modifiers: Modifiers,
     ) {
-        self.arrangement.auto.focus = true;
+        let mut hands = self.arrangement.auto.lend();
+        self.lane_begin(&mut hands, track, target, frame, origin, modifiers);
+        self.arrangement.auto.restore(hands);
+    }
+
+    /// A press that becomes a drag, with `hands`' tool, picks and gesture.
+    pub(crate) fn lane_begin(
+        &mut self,
+        hands: &mut Hands,
+        track: Id,
+        target: Target,
+        frame: &Frame,
+        origin: Pos2,
+        modifiers: Modifiers,
+    ) {
+        hands.focus = true;
         let lane = self.lane_points_of(track, target);
         let free = modifiers.alt;
-        match self.arrangement.auto.tool {
+        match hands.tool {
             Tool::Pointer => {
-                let picks = self.arrangement.auto.picked_on(track, target).cloned();
+                let picks = hands
+                    .picks
+                    .as_ref()
+                    .filter(|p| p.on(track, target))
+                    .cloned();
                 if let (Some(lane), Some(one)) = (&lane, picks.as_ref().and_then(Picks::single))
                     && let Some(dot) = frame.bend_dot(target, lane, one.index)
                     && dot.distance(origin) <= theme::size::AUTO_GRAB
@@ -112,7 +148,8 @@ impl App {
                         Shape::Curve(curve) => curve.handle(),
                         _ => Curve::LINEAR.handle(),
                     };
-                    self.begin(
+                    Self::begin(
+                        hands,
                         track,
                         target,
                         Gesture::Bend(Bending {
@@ -131,18 +168,19 @@ impl App {
                         index,
                     };
                     if modifiers.shift {
-                        self.auto_toggle_pick(here);
+                        hands.toggle_pick(here);
                         return;
                     }
                     if !picks.as_ref().is_some_and(|p| p.contains(here)) {
-                        self.arrangement.auto.picks = Some(Picks::only(here));
+                        hands.picks = Some(Picks::only(here));
                     }
-                    self.begin_move(frame, here, origin);
+                    self.begin_move(hands, frame, here, origin);
                     return;
                 }
                 if modifiers.shift {
-                    self.arrangement.auto.picks = None;
-                    self.begin(
+                    hands.picks = None;
+                    Self::begin(
+                        hands,
                         track,
                         target,
                         Gesture::Box(Boxing {
@@ -152,18 +190,23 @@ impl App {
                     );
                     return;
                 }
-                let at = self.snapped(frame.ticks_at(origin.x), free);
+                let at = frame.lane(self.snapped_at_zoom(
+                    frame.shown_at(origin.x),
+                    free,
+                    frame.view.zoom,
+                ));
                 let (height, _) =
                     Self::snap_to_rest(target, frame, frame.height_at(origin.y), free);
                 let value = scale::value(target, height);
-                if let Some(here) = self.add_auto_point(track, target, at, value, true) {
-                    self.begin_move(frame, here, origin);
+                if let Some(here) = self.add_lane_point(hands, track, target, at, value, true) {
+                    self.begin_move(hands, frame, here, origin);
                 }
             }
             Tool::Pencil => {
                 let base = lane.unwrap_or_default();
-                self.arrangement.auto.picks = None;
-                self.begin(
+                hands.picks = None;
+                Self::begin(
+                    hands,
                     track,
                     target,
                     Gesture::Draw(Drawing {
@@ -171,17 +214,18 @@ impl App {
                         raw: Vec::new(),
                     }),
                 );
-                self.auto_update(None, origin, frame, modifiers);
+                self.lane_update(hands, None, origin, frame, modifiers);
             }
             Tool::Shape(kind) => {
                 let base = lane.unwrap_or_default();
-                self.arrangement.auto.picks = None;
+                hands.picks = None;
                 let from = self
                     .snapped(frame.ticks_at(origin.x), free)
                     .max(Ticks::ZERO);
                 let (start, _) = Self::snap_to_rest(target, frame, frame.height_at(origin.y), free);
                 let (low, high) = self.grid_cell(from);
-                self.begin(
+                Self::begin(
+                    hands,
                     track,
                     target,
                     Gesture::Wave(Waving {
@@ -198,26 +242,27 @@ impl App {
         }
     }
 
-    fn begin(&mut self, track: Id, target: Target, how: Gesture) {
-        self.arrangement.auto.active = Some(Active { track, target, how });
+    fn begin(hands: &mut Hands, track: Id, target: Target, how: Gesture) {
+        hands.active = Some(Active { track, target, how });
     }
 
     /// Takes hold of the picked points by `here`.
-    fn begin_move(&mut self, frame: &Frame, here: Picked, origin: Pos2) {
+    fn begin_move(&mut self, hands: &mut Hands, frame: &Frame, here: Picked, origin: Pos2) {
         let Some(base) = self.lane_points_of(here.track, here.target) else {
             return;
         };
         let Some(point) = base.points().get(here.index).copied() else {
             return;
         };
-        let picks = self
-            .arrangement
-            .auto
-            .picked_on(here.track, here.target)
+        let picks = hands
+            .picks
+            .as_ref()
+            .filter(|p| p.on(here.track, here.target))
             .map(Picks::list)
             .filter(|l| l.contains(&here.index))
             .unwrap_or_else(|| vec![here.index]);
-        self.begin(
+        Self::begin(
+            hands,
             here.track,
             here.target,
             Gesture::Move(Moving {
@@ -232,24 +277,8 @@ impl App {
         );
     }
 
-    /// Shift on a point adds it to the picks, or takes it from them.
-    pub(super) fn auto_toggle_pick(&mut self, here: Picked) {
-        let auto = &mut self.arrangement.auto;
-        match &mut auto.picks {
-            Some(picks) if picks.on(here.track, here.target) => {
-                if !picks.indices.remove(&here.index) {
-                    picks.indices.insert(here.index);
-                }
-                if picks.indices.is_empty() {
-                    auto.picks = None;
-                }
-            }
-            _ => auto.picks = Some(Picks::only(here)),
-        }
-    }
-
-    /// The gesture under way follows the pointer at `p`. `painter` draws the
-    /// guides when there is one.
+    /// The arrangement's gesture under way follows the pointer at `p`.
+    /// `painter` draws the guides when there is one.
     pub(super) fn auto_update(
         &mut self,
         painter: Option<(&egui::Painter, Rect)>,
@@ -257,15 +286,34 @@ impl App {
         frame: &Frame,
         modifiers: Modifiers,
     ) {
-        let Some(mut active) = self.arrangement.auto.active.take() else {
+        let mut hands = self.arrangement.auto.lend();
+        self.lane_update(&mut hands, painter, p, frame, modifiers);
+        self.arrangement.auto.restore(hands);
+    }
+
+    /// The gesture in `hands` follows the pointer at `p`.
+    pub(crate) fn lane_update(
+        &mut self,
+        hands: &mut Hands,
+        painter: Option<(&egui::Painter, Rect)>,
+        p: Pos2,
+        frame: &Frame,
+        modifiers: Modifiers,
+    ) {
+        let Some(mut active) = hands.active.take() else {
             return;
         };
         let (track, target) = (active.track, active.target);
         let free = modifiers.alt;
         match &mut active.how {
             Gesture::Move(moving) => {
-                let want = moving.anchor_at + (frame.ticks_at(p.x) - moving.press_at);
-                let at = self.snapped(want, free).max(Ticks::ZERO);
+                // Snapped as it is drawn: the editor draws a clip's envelope where it is
+                // heard (M9.5 D20).
+                let want = frame.shown(moving.anchor_at)
+                    + (frame.shown_at(p.x) - frame.shown(moving.press_at));
+                let at = frame
+                    .lane(self.snapped_at_zoom(want, free, frame.view.zoom))
+                    .max(Ticks::ZERO);
                 let height = moving.anchor_height + (frame.height_at(p.y) - moving.press_height);
                 let (height, rested) = Self::snap_to_rest(target, frame, height, free);
                 let by = height - moving.anchor_height;
@@ -304,7 +352,7 @@ impl App {
                         }
                     }
                 }
-                self.arrangement.auto.picks = (!inside.is_empty()).then_some(Picks {
+                hands.picks = (!inside.is_empty()).then_some(Picks {
                     track,
                     target,
                     indices: inside,
@@ -379,17 +427,24 @@ impl App {
                 }
             }
         }
-        self.arrangement.auto.active = Some(active);
+        hands.active = Some(active);
+    }
+
+    /// The release on the arrangement.
+    pub(super) fn auto_finish(&mut self) {
+        let mut hands = self.arrangement.auto.lend();
+        Self::lane_finish(&mut hands);
+        self.arrangement.auto.restore(hands);
     }
 
     /// The release: the gesture is done, and the document already holds it.
-    pub(super) fn auto_finish(&mut self) {
-        let Some(active) = self.arrangement.auto.active.take() else {
+    pub(crate) fn lane_finish(hands: &mut Hands) {
+        let Some(active) = hands.active.take() else {
             return;
         };
         // A stroke and a shape make new points: the old indices mean nothing.
         if matches!(active.how, Gesture::Draw(_) | Gesture::Wave(_)) {
-            self.arrangement.auto.picks = None;
+            hands.picks = None;
         }
     }
 }

@@ -1043,8 +1043,17 @@ The Clip tab uses the shared controls (§5a, ADR-0052).
   chevron; it opens the grid menu; named "Editor grid: 1/8"); the editor's
   own action (Quantize for notes); at the right the editor's view toggles
   (Lane for notes) and Pop out/Dock (icon buttons), keycaps in their
-  tooltips. The audio editor has no tool switch until its envelopes arrive
-  (M9.5 S2b); its parts keep the same places.
+  tooltips. S2c (ADR-0127) adds a Loop clip toggle beside Zero crossings (an
+  icon of a rounded track with an arrow at narrow widths), Loop clip and Pop
+  out/Dock rows in the ⋯ menu, and a Pop out/Dock icon at the right end; a
+  popped-out editor leaves a quiet note in the panel ("The clip editor is in
+  its own window") with a Dock action.
+  tooltips. The audio editor has the tool switch since M9.5 S2b (ADR-0126):
+  Pointer and Draw, then the Gain and Pan pills (`widgets::pill_switch`, one
+  lit at a time, named by their label), the Zero crossings toggle and the
+  grid chip; its parts keep the same places. Under the ruler a loop brace
+  band (the arrangement's loop look: accent at 0.16, edges at 0.6, a 2 pt top
+  bracket) holds the brace's two grips while the clip loops.
 - **Notes:** the GPU boxes (rounded, light top edge, velocity brightness)
   plus egui layers: a two-layer soft shadow beneath (`control_shadow`), a
   2 pt velocity bar on the bottom edge, and a `light::LIT` glow around picked

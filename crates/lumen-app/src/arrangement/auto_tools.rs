@@ -293,14 +293,14 @@ mod tests {
     use crate::timeview::TimeView;
 
     fn frame() -> Frame {
-        Frame {
-            row: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 100.0)),
-            canvas_left: 0.0,
-            view: TimeView {
+        Frame::of_row(
+            Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 100.0)),
+            0.0,
+            TimeView {
                 left: 0.0,
                 zoom: 40.0,
             },
-        }
+        )
     }
 
     fn two(shape: Shape, a: f32, b: f32) -> Lane {

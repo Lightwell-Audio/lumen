@@ -294,3 +294,78 @@ fn a_reversed_clip_has_the_same_peak_read_from_its_twin() {
         "the same stretch played the other way: {forward} against {backward}"
     );
 }
+
+// ---- The audio editor's loop brace, heard through the engine (M9.5 D21) ----
+
+/// The clip of [`document`] looping every `turn` quarters, as the brace sets it.
+fn looped_document(turn: i64) -> (Document, Id) {
+    use lumen_project::edit::clip_loop::LoopEdit;
+    let mut doc = document();
+    let id = doc.project().tracks[0].clips[0].id;
+    let base = doc.project().clone();
+    assert!(doc.set_clip_loop(&base, id, LoopEdit::On, None));
+    let base = doc.project().clone();
+    assert!(doc.set_clip_loop(&base, id, LoopEdit::End(Ticks::quarters(turn)), None));
+    (doc, id)
+}
+
+fn at_bpm(doc: &mut Document, bpm: f64) {
+    doc.apply("tempo", None, |project| {
+        project.tempo = vec![lumen_core::time::TempoPoint {
+            at: Ticks::ZERO,
+            bpm,
+            ramp: false,
+        }];
+    });
+}
+
+#[test]
+fn a_looped_clip_plays_its_first_turn_as_before_and_then_repeats_it() {
+    let (doc, _) = looped_document(2);
+    // Blocks that divide the 48 000-frame turn: the render of even a plain clip
+    // is not the same sample for sample at every block size (333 differs from
+    // 128 from frame 64), which this test is not about.
+    for block in [128, 500] {
+        let plain = left(&render(document().project(), 96_000, block));
+        let heard = left(&render(doc.project(), 96_000, block));
+        // Two quarters at 120 BPM: 48 000 frames a turn.
+        for k in EDGE..48_000 - EDGE {
+            assert_eq!(heard[k], plain[k], "first turn, k {k}, block {block}");
+        }
+        for k in 48_000 + EDGE..96_000 - EDGE {
+            assert_eq!(heard[k], heard[k - 48_000], "repeat, k {k}, block {block}");
+        }
+    }
+}
+
+#[test]
+fn a_looped_clips_turn_follows_a_tempo_change_in_the_output() {
+    let mut slow_plain = document();
+    at_bpm(&mut slow_plain, 90.0);
+    let plain = left(&render(slow_plain.project(), 96_000, 128));
+    let (mut doc, _) = looped_document(2);
+    at_bpm(&mut doc, 90.0);
+    let heard = left(&render(doc.project(), 96_000, 128));
+    // Two quarters at 90 BPM: 64 000 frames a turn.
+    for k in EDGE..64_000 - EDGE {
+        assert_eq!(heard[k], plain[k], "first turn, k {k}");
+    }
+    for k in 64_000 + EDGE..96_000 - EDGE {
+        assert_eq!(heard[k], heard[k - 64_000], "repeat, k {k}");
+    }
+}
+
+#[test]
+fn splitting_a_looped_clip_part_way_through_a_turn_sounds_the_same() {
+    let (mut doc, id) = looped_document(2);
+    let whole = left(&render(doc.project(), 96_000, 128));
+    // Three quarters in: the second part starts half way through a turn.
+    assert_eq!(doc.split_clips(&[id], &[Ticks::quarters(3)]).len(), 2);
+    let parts = left(&render(doc.project(), 96_000, 128));
+    for k in EDGE..72_000 - EDGE {
+        assert_eq!(parts[k], whole[k], "first part, k {k}");
+    }
+    for k in 72_000 + EDGE..96_000 - EDGE {
+        assert_eq!(parts[k], whole[k], "second part, k {k}");
+    }
+}

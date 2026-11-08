@@ -84,32 +84,100 @@ pub(crate) struct Scene<'a> {
 
 /// Where a track's lane is on screen: its row, and the view of time across
 /// it.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct Frame {
     /// The track's whole row.
     pub row: Rect,
     pub canvas_left: f32,
     pub view: TimeView,
+    /// Where values are drawn, when the caller says (the audio editor's wave
+    /// area); otherwise worked out from the row, under the chip.
+    pub values: Option<Rect>,
+    /// How the lane's time is drawn, when it is not drawn as it is (a clip's
+    /// envelope in the audio editor, M9.5 D20).
+    pub clock: Option<std::sync::Arc<EnvelopeClock>>,
+}
+
+/// A clip's envelope drawn where it is heard (M9.5 D20, D21): its points are
+/// ticks from the clock the engine reads them on (`start − loop_phase` for a
+/// looping clip, else its start), and the editor lays the file from the
+/// loop's origin. A point `a` seconds after the clock is drawn `a` seconds
+/// after the origin. The lane's own time is the song's (the clip's start
+/// added, as `Track::lane_view` gives it).
+#[derive(Debug, Clone)]
+pub(crate) struct EnvelopeClock {
+    pub tempo: lumen_core::time::TempoMap,
+    /// The engine's clock for the envelope.
+    pub clock: Ticks,
+    /// The clip's start, which the lane's times are measured from.
+    pub start: Ticks,
+    /// Where the editor shows the file's frame at the clock, in seconds.
+    pub origin_seconds: f64,
+}
+
+impl EnvelopeClock {
+    /// The beat a point at lane time `at` is drawn at.
+    pub fn shown(&self, at: Ticks) -> Ticks {
+        let t = &self.tempo;
+        let heard = t.seconds_at(self.clock + (at - self.start)) - t.seconds_at(self.clock);
+        t.ticks_at_seconds(self.origin_seconds + heard)
+    }
+
+    /// The lane time of a point drawn at beat `q`.
+    pub fn lane(&self, q: Ticks) -> Ticks {
+        let t = &self.tempo;
+        let heard = t.seconds_at(q) - self.origin_seconds;
+        t.ticks_at_seconds(t.seconds_at(self.clock) + heard) - self.clock + self.start
+    }
 }
 
 impl Frame {
+    /// A lane over a track's `row`.
+    pub fn of_row(row: Rect, canvas_left: f32, view: TimeView) -> Self {
+        Self {
+            row,
+            canvas_left,
+            view,
+            values: None,
+            clock: None,
+        }
+    }
+
     /// Where values are drawn: the row under the chip that names the lane
     /// and inside the clips' inset, with room at the bottom so the lowest
     /// point is whole. The chip never covers a point.
     pub fn area(&self) -> Rect {
-        Rect::from_x_y_ranges(
-            self.row.x_range(),
-            self.row.top() + CHIP_TOP + theme::size::CONTROL_SMALL + theme::space::XS
-                ..=self.row.bottom() - INSET - theme::size::AUTO_PAD,
-        )
+        self.values.unwrap_or_else(|| {
+            Rect::from_x_y_ranges(
+                self.row.x_range(),
+                self.row.top() + CHIP_TOP + theme::size::CONTROL_SMALL + theme::space::XS
+                    ..=self.row.bottom() - INSET - theme::size::AUTO_PAD,
+            )
+        })
     }
 
     pub fn x(&self, at: Ticks) -> f32 {
-        self.view.x(self.canvas_left, at.as_quarters())
+        self.view.x(self.canvas_left, self.shown(at).as_quarters())
     }
 
+    /// The lane time under `x`.
     pub fn ticks_at(&self, x: f32) -> Ticks {
+        self.lane(self.shown_at(x))
+    }
+
+    /// The beat drawn at `x`: what the grid snaps.
+    pub fn shown_at(&self, x: f32) -> Ticks {
         ruler::ticks_at(self.view.beat_at(self.canvas_left, x))
+    }
+
+    /// The beat lane time `at` is drawn at.
+    pub fn shown(&self, at: Ticks) -> Ticks {
+        self.clock.as_ref().map_or(at, |c| c.shown(at))
+    }
+
+    /// The lane time drawn at beat `q`.
+    pub fn lane(&self, q: Ticks) -> Ticks {
+        self.clock.as_ref().map_or(q, |c| c.lane(q))
     }
 
     pub fn y(&self, target: Target, value: f32) -> f32 {
@@ -141,7 +209,7 @@ impl Frame {
 /// The line a lane draws across `[left, right]`, as screen points: flat
 /// before the first point and after the last, a straight run, a step or
 /// samples along a curve between. Only the part in view is made.
-pub(super) fn polyline(
+pub(crate) fn polyline(
     frame: &Frame,
     target: Target,
     lane: &Lane,
@@ -240,14 +308,7 @@ impl Arrangement {
             pos2(canvas.left(), top),
             egui::vec2(canvas.width(), row.height),
         );
-        Some((
-            target,
-            Frame {
-                row: rect,
-                canvas_left: canvas.left(),
-                view,
-            },
-        ))
+        Some((target, Frame::of_row(rect, canvas.left(), view)))
     }
 
     /// The lane under `pointer`, if the track there shows one.
@@ -320,11 +381,7 @@ impl Arrangement {
             }
             let zone_painter = painter.with_clip_rect(visible.intersect(painter.clip_rect()));
             let mut painter = zone_painter.clone();
-            let mut frame = Frame {
-                row: rect,
-                canvas_left: canvas.left(),
-                view,
-            };
+            let mut frame = Frame::of_row(rect, canvas.left(), view);
             if target.clip().is_some() {
                 // A clip's envelope is drawn over its clip alone, as much of it
                 // as is in view.
@@ -680,14 +737,14 @@ mod tests {
 
     fn frame() -> Frame {
         // 10 points a beat, the lane 100 points tall and 600 wide, from x 0.
-        Frame {
-            row: Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(600.0, 100.0)),
-            canvas_left: 0.0,
-            view: TimeView {
+        Frame::of_row(
+            Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(600.0, 100.0)),
+            0.0,
+            TimeView {
                 left: 0.0,
                 zoom: 10.0,
             },
-        }
+        )
     }
 
     #[test]

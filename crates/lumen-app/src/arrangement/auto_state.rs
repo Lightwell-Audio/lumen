@@ -219,6 +219,35 @@ pub(crate) enum MapRequest {
     Window,
 }
 
+/// What a lane's gestures change as they go: the gesture, the points picked,
+/// the tool. The arrangement lends its own to them (`AutoView::lend`), and
+/// the audio editor keeps its own (M9.5 D20), so neither disturbs the other.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Hands {
+    pub active: Option<Active>,
+    pub picks: Option<Picks>,
+    pub tool: Tool,
+    /// A press was made in the lane: its keys are live.
+    pub focus: bool,
+}
+
+impl Hands {
+    /// Shift on a point adds it to the picks, or takes it from them.
+    pub fn toggle_pick(&mut self, here: Picked) {
+        match &mut self.picks {
+            Some(picks) if picks.on(here.track, here.target) => {
+                if !picks.indices.remove(&here.index) {
+                    picks.indices.insert(here.index);
+                }
+                if picks.indices.is_empty() {
+                    self.picks = None;
+                }
+            }
+            _ => self.picks = Some(Picks::only(here)),
+        }
+    }
+}
+
 /// What the arrangement knows of the lanes it shows.
 #[derive(Debug, Default)]
 pub(crate) struct AutoView {
@@ -272,6 +301,24 @@ pub(crate) struct AutoView {
 }
 
 impl AutoView {
+    /// The arrangement's gesture state, lent to a lane gesture.
+    pub fn lend(&mut self) -> Hands {
+        Hands {
+            active: self.active.take(),
+            picks: self.picks.take(),
+            tool: self.tool,
+            focus: self.focus,
+        }
+    }
+
+    /// Takes back what [`Self::lend`] lent.
+    pub fn restore(&mut self, hands: Hands) {
+        self.active = hands.active;
+        self.picks = hands.picks;
+        self.tool = hands.tool;
+        self.focus = hands.focus;
+    }
+
     /// What `track` does with the controls that move while it plays.
     pub fn mode_of(&self, track: Id) -> crate::recording::auto_record::Mode {
         self.modes.get(&track).copied().unwrap_or_default()

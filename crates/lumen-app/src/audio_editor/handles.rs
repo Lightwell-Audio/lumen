@@ -85,6 +85,9 @@ pub(crate) struct EditorHandles {
     pub start: f32,
     pub end: f32,
     pub body: Rect,
+    /// The gain line is hidden: the Gain envelope is shown over the wave
+    /// (M9.5 D20).
+    pub gain_hidden: bool,
 }
 
 impl EditorHandles {
@@ -104,7 +107,15 @@ impl EditorHandles {
             start,
             end,
             body,
+            gain_hidden: false,
         })
+    }
+
+    /// The same handles, with the gain line hidden while the Gain envelope
+    /// is shown (`pill`).
+    pub(crate) fn hiding_gain(mut self, pill: Option<lumen_project::envelope::Kind>) -> Self {
+        self.gain_hidden = pill == Some(lumen_project::envelope::Kind::Gain);
+        self
     }
 
     fn roomy(&self) -> bool {
@@ -132,7 +143,8 @@ impl EditorHandles {
             };
             return Some(Part::Trim(edge));
         }
-        on.map(Part::Handle)
+        on.filter(|h| !(self.gain_hidden && *h == Handle::Gain))
+            .map(Part::Handle)
     }
 
     /// What `p` is on, in a file drawn at `time`.
@@ -245,7 +257,7 @@ pub(crate) fn draw(painter: &Painter, h: &EditorHandles, look: Look) {
         },
     );
     if h.roomy() {
-        draw_resting(painter, &h.fades, view, hot_handle);
+        draw_resting(painter, &h.fades, view, hot_handle, h.gain_hidden);
     }
     for (edge, x) in [(Edge::Start, h.start), (Edge::End, h.end)] {
         if view.contains(x) {
@@ -291,7 +303,13 @@ fn draw_grip(painter: &Painter, x: f32, y: Rangef, hot: bool, fixed: bool) {
 /// handles and their bend dots in hairlines and small marks, so what can be
 /// grabbed is plain before the pointer gets there. `hot` lights up as the
 /// arrangement's does.
-fn draw_resting(painter: &Painter, h: &ClipHandles, view: Rangef, hot: Option<Handle>) {
+fn draw_resting(
+    painter: &Painter,
+    h: &ClipHandles,
+    view: Rangef,
+    hot: Option<Handle>,
+    gain_hidden: bool,
+) {
     let palette = theme::p();
     let accent = palette.accent;
     let quiet = palette.text.gamma_multiply(theme::HANDLE_QUIET);
@@ -301,7 +319,7 @@ fn draw_resting(painter: &Painter, h: &ClipHandles, view: Rangef, hot: Option<Ha
         }
     }
     let (x0, x1) = (h.wave.left().max(view.min), h.wave.right().min(view.max));
-    if x1 > x0 {
+    if x1 > x0 && !gain_hidden {
         let line = vec![pos2(x0, h.gain_y()), pos2(x1, h.gain_y())];
         if hot == Some(Handle::Gain) {
             handles::glow_line(painter, line, accent, true);

@@ -24,7 +24,7 @@ pub(crate) mod quantize;
 mod toolbar;
 pub(crate) mod ui;
 pub(crate) mod view;
-mod window;
+pub(crate) mod window;
 
 use eframe::egui;
 use lumen_core::time::Ticks;

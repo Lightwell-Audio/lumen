@@ -33,9 +33,12 @@ impl App {
         // stays open while it runs (it is sealed the frame it ends); so does a
         // lane pass written in parts, and a tap tempo run.
         let tapping = self.tap_run_open(ctx);
+        // A drag in a pop-out editor's window is held by that window's pointer.
+        let popped_down = std::mem::take(&mut self.popped_pointer_down);
         if !self.is_recording()
             && !self.lane_commits.writing()
             && !ctx.input(|i| i.pointer.any_down())
+            && !popped_down
             && !crate::widgets::wheel::adjusting(ctx)
             && !self.hosting.gesture_open()
             && !self.controllers.holding()
@@ -44,6 +47,7 @@ impl App {
         {
             self.document.seal();
         }
+        self.sync_clip_loop();
         self.transport
             .follow_loop(&self.document.project().transport);
         if self.synced != Some(self.document.state()) {

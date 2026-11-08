@@ -342,6 +342,12 @@ impl App {
             rate,
             &inputs,
         );
+        // Loop clip lets go before Record is sent, so the engine never records
+        // across the clip's loop: it is told the project's loop first.
+        self.audio_editor.loop_clip = None;
+        self.sync_clip_loop();
+        self.transport
+            .follow_loop(&self.document.project().transport);
         self.transport.record(beats);
     }
 

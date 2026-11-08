@@ -521,3 +521,63 @@ fn a_point_at_the_start_of_the_song_is_picked_by_a_press_on_the_lane_edge() {
         );
     }
 }
+
+#[test]
+fn a_wavy_stroke_with_pauses_is_one_undo_step_stopped_or_playing() {
+    for playing in [false, true] {
+        let (mut lumen, track) = tone(&format!("lane-wavy-{playing}"));
+        lumen.key(Modifiers::NONE, Key::A);
+        lumen.frames(40);
+        lumen.key(Modifiers::NONE, Key::B);
+        if playing {
+            lumen.key(Modifiers::NONE, Key::Space);
+            lumen.frames(5);
+        }
+        let from = spot(&lumen, track, 2.0, -40.0);
+        lumen.harness.hover_at(from);
+        lumen.harness.drag_at(from);
+        lumen.frames(2);
+        for i in 1..=40 {
+            let beat = 2.0 + i as f64 * 0.2;
+            let db = (-25.0 + 15.0 * ((i as f64) * 0.7).sin()) as f32;
+            lumen.harness.hover_at(spot(&lumen, track, beat, db));
+            lumen.frames(if i % 5 == 0 { 4 } else { 1 });
+        }
+        lumen.harness.drop_at(spot(&lumen, track, 10.0, -20.0));
+        lumen.frames(3);
+        if playing {
+            lumen.key(Modifiers::NONE, Key::Space);
+        }
+        let held = points(&lumen, track, Target::Volume);
+        assert!(held.len() > 4, "{held:?}");
+        lumen.key(Modifiers::COMMAND, Key::Z);
+        assert!(
+            points(&lumen, track, Target::Volume).is_empty(),
+            "playing {playing}: one undo step, left {:?}",
+            points(&lumen, track, Target::Volume)
+        );
+    }
+}
+
+#[test]
+fn a_drag_held_in_a_popped_out_editors_window_stays_one_undo_step() {
+    // The pop-out is its own window with its own pointer: the main window
+    // sees no button down, so the history must be told (a stroke there
+    // undid point by point).
+    let (mut lumen, track) = tone("lane-popped-gesture");
+    for step in 0..4 {
+        lumen.app_mut().hold_popped_pointer();
+        lumen
+            .app_mut()
+            .drag_volume_point(track, step, -20.0 + step as f32);
+        lumen.frames(1);
+    }
+    lumen.frames(3);
+    assert!(!points(&lumen, track, Target::Volume).is_empty());
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert!(
+        points(&lumen, track, Target::Volume).is_empty(),
+        "one undo takes the whole drag: {:?}",
+        points(&lumen, track, Target::Volume)
+    );
+}

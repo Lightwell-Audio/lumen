@@ -11425,3 +11425,203 @@ visibility is saved, MIDI port ids, and switch parameters.
   monitors); the performance baseline from WSL (row kept: no WSL here).
 - `note_editor/window.rs` and `note_editor/quantize.rs` keep their `impl
   App` blocks; they move to `app/` with the editor's next real change.
+
+## ADR-0126 — The audio editor's range, envelopes and loop brace (M9.5 S2b)
+
+**Date:** 2026-11-07. **Branch:** `m9.5-s2b-editor-range`, cut from `main`
+after S2a merged (PR #94). **Status:** Built; MT-CLIP-3 waits for the owner.
+Plan: `docs/milestones/M9.5.md` §9 (owner: every recommendation, 2026-11-06).
+
+**Context.** S2a made a clip's edges, fades, gain and slip editable in the
+Clip tab. What was left of S2's editing was picking part of the clip, placing
+a cut, drawing the clip's envelopes, and looping its audio, all with the same
+guarantees: one undo step, the arrangement's results, mouse and keyboard.
+
+**Choice.**
+
+1. **The range is the track's time range (WD).** A drag on the wave sets the
+   arrangement's own range, cut to the part of the clip that is heard before
+   it repeats (`app/audio_editor/range.rs`), so Split, Crop, Delete and Join
+   run the arrangement's commands. The edit cursor (CU) is the editor's own
+   and is separate from the playhead; Ctrl+E splits at it when no range
+   stands.
+2. **Envelopes share the arrangement's point gestures (D20).** The automation
+   gestures take a `Hands` value (tool, picks, active gesture) instead of
+   reading the arrangement's state, and the automation `Frame` gained a value
+   area and a clock (`EnvelopeClock`) so a point is drawn where it is heard,
+   on a looping or phased clip too. The editor keeps its own `Hands`, so its
+   picks and the arrangement's lanes never mix. B switches Pointer and Draw;
+   Draw with no pill lit lights Gain (DR A); a stroke is thinned and is one
+   undo step.
+3. **The loop brace is one edit (LB, LS).** `edit::clip_loop` and
+   `Document::set_clip_loop` change a clip's loop start and end, refuse what
+   would leave the audio empty or past the file (the five checks of D21), and
+   re-time the envelope points so they stay on the same sound across tempo
+   changes. Exact at the points; between two points a segment that crosses a
+   tempo change can change shape (plan risk 6). The undo steps are named
+   "Loop audio in clip" and "Change audio loop". No format change.
+4. **Zero crossings (ZC A).** `audio_editor/crossing.rs` finds the quietest
+   frame within 5 ms of an edge; dragged trim edges (added after review, see ADR-0127), range edges and the cursor use
+   it unless Alt is held. On a file played from disk the read is asked for
+   while the edge is held; a drag released before it arrives stays on the
+   grid and nothing changes afterwards. The setting is
+   `editing.zero_crossings` (off by default; an added field, no version
+   change).
+5. **Tab stops (D28).** The wave, the envelope (while a pill is lit) and the
+   loop with its two ends are Tab stops (`app/audio_editor/stops.rs`). Their
+   keys are taken before the commands and run while the editor draws, where
+   the file and the envelope's frame are at hand. Esc keeps the keyboard on a
+   stop while it has something to clear.
+6. **Header.** A tool switch, the Gain and Pan pills (`widgets::pill_switch`),
+   the Zero crossings toggle, and the layouts of S2a extended to hold them.
+   Four commands: `view.audio_editor_gain_envelope`,
+   `view.audio_editor_pan_envelope`, `clip.audio_editor_clip_loop` and
+   `edit.audio_editor_zero_crossings`.
+
+**Consequences.**
+- The automation gestures moved onto `Hands`; the arrangement's lane E2E
+  (`lane_edit`, `plugin_lanes`) guards the move, and all of it passes.
+- E2E: `audio_editor_range` (8) and `audio_editor_envelopes` (6); unit tests
+  for the loop edit (11) and the crossing search. The docs scenes
+  `audio_editor_range` and `audio_editor_envelopes` and the guides "Pick part
+  of a clip in its editor" and "Draw a clip's envelope".
+- Found while testing: a test helper that read a clip's raw points drew them
+  one clip-start early; the editor itself uses the lane view (song time) and
+  was right.
+- Not yet checked: the arrangement's drawing of a phased clip's envelope
+  (plan risk 4); S2c.
+
+## ADR-0127 — The audio editor's hearing and window (M9.5 S2c)
+
+**Date:** 2026-11-07. **Branch:** `m9.5-s2b-editor-range` (S2b and S2c are
+built on one branch at the owner's request to finish S2 together).
+**Status:** Built; MT-CLIP-4 waits for the owner. Plan:
+`docs/milestones/M9.5.md` §9 (owner: every recommendation, 2026-11-06).
+
+**Context.** With the handles, range, envelopes and brace in place, the editor
+still could not be listened to: the ruler only placed the playhead, there was
+no way to repeat just the clip being edited, and the editor shared the
+detail panel's space with no way to give it a screen of its own.
+
+**Choice.**
+
+1. **Loop clip (LC A) is an override of what the engine loops, nothing more.**
+   `Transport` keeps the project's loop (`loop_region`, what export, recording
+   and saving read) and an optional `clip_loop`; `played_loop()` is the clip's
+   when set, else the project's, and is what the engine is sent, what the
+   drawn playhead wraps at and what the disk read-ahead keys on. It is not
+   saved and is not an undo step. `app/audio_editor/hearing.rs` works out the
+   part that repeats: one pass of the clip, or one turn of its loop when
+   shorter (so a clip that starts part way through its loop repeats a whole
+   turn), or the picked range cut to the pass. It turns off when another clip
+   opens, the editor closes or recording starts,
+   and it stays off until it is switched on again by hand. Switching it on
+   moves the playhead to the part's start when it is outside, and does not
+   start playback. The command is `view.audio_editor_loop_clip`, with a
+   toggle in the header and a row in its ⋯ menu.
+2. **Scrubbing (D22) is the arrangement's, on the editor's ruler.** A click
+   locates (snapped, Alt for free). A drag while stopped scrubs: the grid
+   step under the pointer on repeat (`ScrubStyle::Loop`), or tape with Alt;
+   while playing it jumps along from step to step. The first move of a drag
+   pauses Follow. What was last sent is kept in `AudioEditor::scrub_sent`, so
+   a still pointer sends nothing.
+3. **The ruler from the keyboard.** The ruler is the first Tab stop of the
+   editor ("Editor ruler, playhead at …"). Left and Right move the playhead by
+   the grid, and with Alt finely. Its pointer area is not focusable
+   (`Sense::CLICK | Sense::DRAG`), so Tab visits it once.
+4. **Pop out (D25) shares the note editor's window.** `Command::PopOutEditor`
+   now toggles `detail.audio_popped` when an audio clip is open. The window
+   code (`app/audio_editor/window.rs`) reuses the note editor's size, place and
+   `place_of`, and remembers the place in the same setting. The window has
+   its own keyboard (handle keys, then commands). The properties column
+   stays in the detail panel, which shows "The clip editor is in its own
+   window" with a Dock action; closing the window docks too.
+
+**Consequences.**
+- E2E `audio_editor_hearing` (8 tests): Loop clip on a plain clip with the
+  project's loop and the history untouched; a picked range; one turn of a
+  looping clip; letting go when another clip opens and when recording starts;
+  the ruler's click and drag with Follow; its keys; Pop out and Dock. Unit
+  test for the loop part. The docs scene `audio_editor_hearing` and the guide
+  "Hear a clip while you edit it".
+- Not covered by a test: that the engine really repeats the part (the engine's
+  loop is tested; this slice only sends it a region), and the second window on
+  a real display (MT-CLIP-4).
+- No format change; the window's place reuses `settings.clip_editor_window`.
+
+**Bench (debug build, the E2E harness, no GPU).** The editor's frame time on
+a one-hour mono 48 kHz file, clip of 7,200 beats, 14 zoom levels from the
+whole hour (0.14 points per beat) to the deepest (192,000):
+
+| zoom (points per beat) | ms per frame |
+|---|---|
+| 0.14 | 3.74 |
+| 2.20 | 3.74 |
+| 35 | 3.68 |
+| 562 | 3.50 |
+| 8,997 | 3.51 |
+| 143,955 | 3.16 |
+| 192,000 | 3.2 |
+
+The numbers are from the harness's frame loop, which does not paint on a GPU,
+so they show that nothing in the editor's own layout or painting code scales
+with the file's length, not what a monitor would show. The GPU frame time of
+a real window waits for MT-CLIP-4. Run it with
+`cargo test -p lumen-app --test e2e editor_frame_time -- --ignored --nocapture`.
+
+**Review round 1 (ADR-0127, `iterate`, reviewer GPT 6.1 Sol, high).** Fixed:
+Delete and the other selection keys no longer reach the arrangement's picked
+points, lanes or paste while the audio editor holds the keyboard; a stopped
+scrub is let go of when its ruler stops being drawn (the panel hidden under
+a held pointer); Loop clip ends when the panel is hidden or on another tab
+with no window of its own; dragged trims settle on a zero crossing (ZC A); the
+ruler, wave and loop-edge keys step by the editor's own zoom (`key_step` takes
+it, since `run_stop_keys` runs with the editor taken out of `App`); a
+right-click inside a standing range keeps it; the hearing test now plays and
+proves the engine wraps inside the pass; the docs lead plays; the Split guide
+says the cursor. **Declined or left:** arrow-key trims still step by the grid
+without a crossing (they run in `audio_handle_keys` outside the draw, where
+the file is not at hand; the guide says so); the envelope's arrow keys ignore
+Alt for time because the arrangement's `auto_nudge` does the same (D28 says
+"as the arrangement's do"); the selection wash and the new icons use literals
+that the arrangement's `selection_look.rs` and the other glyphs already use
+(moving all of them to tokens is a separate cleanup); processed-output
+comparisons through `lanes::engine_clips` for the loop edit (D21) are not
+added in this round.
+
+**Review round 2 (ADR-0127, `iterate`, reviewer GPT 6.1 Sol, high).** Fixed:
+the Loop audio in clip command (the brace's switch) enforced the lock and
+freeze rules only at the click, so the palette changed a locked clip; the
+check is now in `toggle_clip_loop`; starting a take sent Record before the
+engine was told the project's loop, so a block could wrap at the clip's loop
+while the capture expected the project's (`begin_recording` now lets Loop
+clip go and sends the loop first; the E2E checks what the engine was last
+sent the frame the take begins); the pop-out window's keys were only the
+editor's while the pointer was on the wave (`window::its_keyboard`: all of
+the keyboard read for that viewport is the editor's); a scrub ended only by
+the old ruler's `drag_stopped`, so opening another clip under a held pointer
+(a new widget id) left it running (a scrub that its ruler is not dragging
+ends); Loop clip took a range picked on any track (only a range on the
+clip's own track is "picked on it", as `range_in_editor` has it). **Declined
+in part:** D21's processed-output comparisons are added for what the brace
+sets (`clip_flags_render`: the first turn as before and then the repeat,
+the turn under a changed tempo, a looped clip split part way through a
+turn), and not for reverse, envelopes and takes with a loop, which the
+engine-output tests of reverse (`clip_flags_render`) and the lanes tests of
+loops, envelopes and splits already hold separately. **Found, not examined:**
+the render of a plain clip through the test engine is not sample for sample
+the same at every block size (333 against 128 differs from frame 64 on; a
+loop repeats exactly only where the turn is a whole number of blocks); the
+new tests use 128 and 500 for that reason (KNOWN_ISSUES).
+
+**Owner's report after review round 2 (ADR-0127): a drawn stroke undid point
+by point.** Not reproduced in the E2E harness, where a wavy stroke with
+pauses, stopped or playing, on the arrangement's lane (`lane_edit`) and on a
+clip's envelope in the docked editor (`audio_editor_envelopes`), undoes in one
+step; those two tests were added. What is a cause: a drag inside a pop-out
+editor's window is held by *that window's* pointer, and `sync_document` ended
+the open gesture whenever the main window saw no button down, which is every
+frame of such a drag. Both pop-outs (the note editor's and the audio editor's)
+now say it (`App::popped_pointer_down`, read once per frame by
+`sync_document`), and the test fails without it. If the report was from the
+docked editor or the arrangement, the cause is another one and is still open.

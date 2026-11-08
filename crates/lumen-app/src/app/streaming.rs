@@ -59,7 +59,7 @@ impl App {
         let key = SceneKey {
             sent,
             timeline: self.transport.timeline.clone(),
-            looped: self.transport.loop_region,
+            looped: self.transport.played_loop(),
             markers: self
                 .document
                 .project()

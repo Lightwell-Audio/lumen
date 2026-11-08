@@ -13,6 +13,17 @@ The newest work comes first.
 
 ## Audio clip editing
 
+- **Hear a clip while you edit it.** Loop a clip or a picked range, scrub
+  along the editor's ruler, and pop the editor out into its own window. See
+  [Hear a clip while you edit it](@/guides/clips/hear-a-clip-while-you-edit-it.md).
+- **Pick part of a clip and cut it exactly.** Drag across an audio clip's
+  wave in its editor to pick a range, put the edit cursor with a click, and
+  let cuts land on the quietest frame. See
+  [Pick part of a clip in its editor](@/guides/clips/pick-part-of-a-clip-in-its-editor.md).
+- **Draw a clip's envelope, and loop its audio.** Show Gain or Pan in the
+  editor, click or draw points, and set a loop with the brace under the
+  ruler. See
+  [Draw a clip's envelope](@/guides/clips/draw-a-clips-envelope.md).
 - **Trim, fade and shape a clip in its Clip tab.** Drag the clip's grips,
   fades and gain line inside the audio editor, slide the audio within the
   clip, or do all of it from the keyboard. See

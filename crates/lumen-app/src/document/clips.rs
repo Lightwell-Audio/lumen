@@ -138,6 +138,42 @@ impl Document {
         });
     }
 
+    /// Changes `clip`'s loop by `change`, from `base` (the audio editor's
+    /// brace, M9.5 D21): the clip stays where it is and plays the same frames
+    /// up to its first repeat. Nothing happens when the change does not apply.
+    /// Returns whether it did.
+    pub fn set_clip_loop(
+        &mut self,
+        base: &Project,
+        clip: Id,
+        change: edit::clip_loop::LoopEdit,
+        merge: Option<&str>,
+    ) -> bool {
+        use edit::clip_loop::LoopEdit;
+        let tempo = edit::tempo_of(base);
+        let Some(held) = base
+            .tracks
+            .iter()
+            .flat_map(|t| t.clips.iter())
+            .find(|c| c.id == clip)
+        else {
+            return false;
+        };
+        let Some(changed) = edit::clip_loop::set_clip_loop(base, &tempo, held, change) else {
+            return false;
+        };
+        let label = match change {
+            LoopEdit::On => "Loop audio in clip",
+            LoopEdit::Off => "Stop looping audio in clip",
+            LoopEdit::End(_) | LoopEdit::Start(_) => "Change audio loop",
+        };
+        self.history.apply(label, merge, |project| {
+            *project = base.clone();
+            replace_clip(project, clip, |_| changed.clone());
+        });
+        true
+    }
+
     /// Slides `clip`'s content `by` inside it, from `base` (Ctrl+Alt+drag).
     pub fn slip_clip(&mut self, base: &Project, clip: Id, by: Ticks, merge: Option<&str>) {
         self.history.apply("Slip clip", merge, |project| {
