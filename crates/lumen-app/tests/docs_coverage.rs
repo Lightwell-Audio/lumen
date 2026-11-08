@@ -582,6 +582,26 @@ struct Manifest {
     scenes: BTreeMap<String, Published>,
 }
 
+/// The pieces a scene is rendered in, with the seconds each is expected to
+/// take (the scene's, shared out): `test:theme` for a scene that runs in
+/// every theme, `test` for one that runs once (`DOCS_THEME` names the theme
+/// a piece renders; `.github/scripts/docs-media.sh render`).
+fn pieces_of(test: &str, seconds: f64) -> Vec<(String, f64)> {
+    let scene = scenes::SCENES
+        .iter()
+        .find(|s| s.test == test)
+        .unwrap_or_else(|| panic!("{test} is listed in tests/shared/scenes.rs"));
+    if scene.themed() {
+        let share = seconds / scenes::THEMES.len() as f64;
+        scenes::THEMES
+            .iter()
+            .map(|theme| (format!("{test}:{theme}"), share))
+            .collect()
+    } else {
+        vec![(test.to_owned(), seconds)]
+    }
+}
+
 /// Writes the deploy's render plan to `DOCS_PLAN` (a JSON file), against
 /// the published `media/manifest.json` at `DOCS_PLAN_PUBLISHED` (when it is
 /// absent or unreadable, everything renders). `DOCS_PLAN_FULL=true` renders
@@ -628,16 +648,22 @@ fn plan_the_render() {
         render.push((scene.test, before.map_or(60.0, |p| p.seconds)));
         why.insert(scene.test.into(), reason.into());
     }
-    // Longest first, each to the job with the least so far.
-    render.sort_by(|a, b| b.1.total_cmp(&a.1));
-    let mut shards: Vec<(f64, Vec<&str>)> = vec![(0.0, Vec::new()); jobs.min(render.len())];
-    for (test, seconds) in &render {
+    // A scene is rendered in pieces, one for each theme (`test:theme`; the
+    // themes do not depend on each other), so the longest scene is not the
+    // longest job. Longest first, each to the job with the least so far.
+    let mut pieces: Vec<(String, f64)> = render
+        .iter()
+        .flat_map(|(test, seconds)| pieces_of(test, *seconds))
+        .collect();
+    pieces.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let mut shards: Vec<(f64, Vec<&str>)> = vec![(0.0, Vec::new()); jobs.min(pieces.len())];
+    for (piece, seconds) in &pieces {
         let lightest = shards
             .iter_mut()
             .min_by(|a, b| a.0.total_cmp(&b.0))
-            .expect("a job for each scene to render");
+            .expect("a job for each piece to render");
         lightest.0 += seconds;
-        lightest.1.push(test);
+        lightest.1.push(piece);
     }
     let shards: Vec<_> = shards
         .iter()
@@ -657,6 +683,34 @@ fn plan_the_render() {
         serde_json::to_string_pretty(&plan).expect("the plan") + "\n",
     )
     .expect("write the plan");
+}
+
+#[test]
+fn a_themed_scene_is_rendered_in_a_piece_for_each_theme() {
+    let themed = scenes::SCENES
+        .iter()
+        .find(|s| s.themed())
+        .expect("a scene with clips or shots");
+    let pieces = pieces_of(themed.test, 100.0);
+    let names: Vec<&str> = pieces.iter().map(|(n, _)| n.as_str()).collect();
+    let expected: Vec<String> = scenes::THEMES
+        .iter()
+        .map(|t| format!("{}:{t}", themed.test))
+        .collect();
+    assert_eq!(
+        names,
+        expected.iter().map(String::as_str).collect::<Vec<_>>()
+    );
+    assert!((pieces.iter().map(|(_, s)| s).sum::<f64>() - 100.0).abs() < 1e-9);
+    // Walkthroughs run in the dark theme only, whole.
+    let walk = scenes::SCENES
+        .iter()
+        .find(|s| !s.themed())
+        .expect("a scene of walkthroughs");
+    assert_eq!(
+        pieces_of(walk.test, 60.0),
+        vec![(walk.test.to_owned(), 60.0)]
+    );
 }
 
 #[test]

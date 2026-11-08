@@ -1051,6 +1051,11 @@ fn arrangement(h: &Harness<'static, App>) -> Rect {
 /// marked the controls it lists (both also when the scene only checks), and
 /// says how long it took and how big its files are (§6.4).
 fn check(test: &str, started: Instant) {
+    eprintln!(
+        "PHASES {test} ({:.1}s): {}",
+        started.elapsed().as_secs_f32(),
+        recorder::phases()
+    );
     let scene = scenes::SCENES
         .iter()
         .find(|s| s.test == test)

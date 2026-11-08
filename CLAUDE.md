@@ -592,6 +592,14 @@ per slice and move what is no longer current out of it.
   200% is unusable (MT-CLIP-1 step 9, MT-CLIP-2 step 10; KNOWN_ISSUES, top
   row). Still waiting: MT-EXPORT-1's real-time export on the Focusrite and
   MT-PREF-1. Results are in `docs/manual-tests/` and `docs/PROGRESS.md`.
+- **Branch `chore/docs-render-speed`: the docs render aims at 10 minutes**
+  (ADR-0129; owner asked 2026-11-08, after about 30). Frames at rest are
+  reused (`DOCS_VERIFY_REUSE=1` checks them), each of 6 render jobs builds the
+  app and plans on its own (no plan job), a themed scene is rendered as one
+  piece per theme (`DOCS_THEME`), and the page job builds no Rust
+  (`docs-render.yml`, `DOCS_DATA_READY`). The time is an estimate: nothing
+  has run on GitHub, and the `jq` paths of `docs-media.sh` ran nowhere.
+  Look at the first run's times and report them.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
