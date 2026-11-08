@@ -10,8 +10,8 @@ below) and every milestone's report (at the end). Plans and slice lists are in
 M9's slices R0 to R8 are merged (PR #60 to #89; formats v30 to v32). R9, the
 close, is on branch `m9-s9-closeout`: the combined walkthrough (E2E
 `walkthrough_song`, MT-M9-1), the review (`docs/audits/2026-11-03-m9.md`) and
-the report. M7 still waits for the owner (MT-EDIT-2, MT-EDIT-7, MT-UX-2, then
-the approval). Next, before M8 (owner, 2026-11-03): a mini milestone for audio
+the report. M7 still waits for the owner (MT-EDIT-2 passed by ear on 2026-11-07; MT-EDIT-7
+and MT-UX-2 remain, then the approval). Next, before M8 (owner, 2026-11-03): a mini milestone for audio
 clip warping and the audio clip detail panel, M7's planned E7 and E8, to be
 planned and approved first. Details: the table below and `CLAUDE.md` §12.
 
@@ -36,7 +36,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 4.5 | Polish pass (the interface audit's fixes) | ✅ Built 2026-10-10; MT-POL-1 to 6 passed (owner, 2026-10-10 and 2026-10-12); MT-APP-18 has no recorded run | [M4.5](milestones/M4.5.md); audit `docs/audits/2026-10-10-design.md` |
 | 5 | MIDI & Piano Roll | ✅ Signed off 2026-10-26; MT-MIDI-7 to 9 out of scope for now (owner) | [M5](milestones/M5.md) |
 | 6 | VST3 Hosting & Device System | ✅ Signed off 2026-10-26; MT-VST-3 to 7 and the ADR-0069 callback numbers are out of scope for now (owner), so the callback's wait stays on trial | [M6](milestones/M6.md); review `docs/audits/2026-10-18-m6.md` |
-| 7 | Automation, Editing & Render | 🟡 A0 to A8 and E0 to E6 merged (ADR-0081 to 0098; formats v22 to v29); MT-EDIT-2, MT-EDIT-7 and MT-UX-2 and the approval wait; E7 and E8 not started | [M7](milestones/M7.md); reviews `docs/audits/2026-10-22-m7.md`, `docs/audits/2026-10-24-m7b.md` |
+| 7 | Automation, Editing & Render | 🟡 A0 to A8 and E0 to E6 merged (ADR-0081 to 0098; formats v22 to v29); MT-EDIT-2 passed by ear (owner, 2026-11-07); MT-EDIT-7 and MT-UX-2 (agent runs 2026-11-07, steps left open) and the approval wait; E7 and E8 moved to mini milestone 9.5 (2026-11-04) | [M7](milestones/M7.md); reviews `docs/audits/2026-10-22-m7.md`, `docs/audits/2026-10-24-m7b.md` |
 | 9 | Recording, Media, Export & Production Workflow | 🟡 R0 to R8, R1b, R2b, R4b, R7b and R7c merged (PR #60 to #89; ADR-0099 to 0117; formats v30 to v32). R9 (close) on `m9-s9-closeout`. Manual tests passed by the owner on 2026-11-07: MT-M9-1, MT-REC-5, MT-AUDIO-7, MT-FIRSTRUN-1, MT-SYS-1; MT-BROWSE-1 partly (the preview; Places and the Keep Music choice not run). Still waiting: MT-EXPORT-1 (real-device real-time export) and MT-PREF-1 | Before M8 (owner, 2026-10-23). [M9](milestones/M9.md); review `docs/audits/2026-11-03-m9.md` |
 | 9.5 | Audio clip editing and warp (mini milestone) | 🟡 In progress, planned (`docs/milestones/M9.5.md`); every choice made on 2026-11-04 (all recommendations, BS B, TL C, KC C). S0 built (ADR-0120; T waits for the owner's ear), S1 built (ADR-0121; MT-CLIP-1 passed except step 9 at 200%, which fails at the smallest window, see KNOWN_ISSUES); S2 planned in three (§9, owner: every recommendation, 2026-11-06), S2a built (the editor's handles, ADR-0123; MT-CLIP-2 passed by hand and by ear on 2026-11-07 except step 10 at 200%, where the editor header is cut off at the smallest window; the Clip tab's focus ring is also clipped) | Owner, 2026-11-03: before M8. M7's planned E7 (the audio clip editor in the detail panel) and E8 (warp and time-stretch, with the clip's static pitch and the audio pitch envelope), `docs/milestones/M7.md` §5 |
 | D | User documentation on the website | 🟡 Strategy accepted 2026-11-05 (ADR-0119). D0 built on `docs/d0-foundations`: the site, search, generated reference, coverage baseline, the recorder and the Split a clip scenes, CI checks and the deploy, which renders only the scenes that changed (owner: A, USER_DOCS.md §13). Waiting for the owner: the look at the built pages | [Strategy](USER_DOCS.md): slices D0 to D7, then docs per slice, per milestone and later per version |
@@ -159,7 +159,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 |---|---|---|---|
 | Split (playhead, cursor, grid, range edges), click-free | M | 🟡 Built in M7 E0 (ADR-0092): press-aim-release or click with Split, Ctrl+E on clips or a range, snapped with Alt bypass; one undo step, original source phase and fade windows preserved. MT-EDIT-1 passed (owner, 2026-10-23) | 7 |
 | Join / glue MIDI; consolidate audio (rendered) and MIDI (merged), originals kept | M | 🟡 Built for clip selections (M7 E3, ADR-0095): audio is rendered through the clip player into a float WAV (gain, polarity, reverse, fades, crossfades, envelopes, gaps as silence), MIDI is unlooped and merged; one undo step, originals stay in the media pool. Time-range consolidate is not built (KNOWN_ISSUES). MT-EDIT-4 passed (owner) | 7 |
-| Trim, crop, delete, ripple delete, insert silence, cut, copy, paste, duplicate clip and range, loop/unloop, reverse, normalize, nudge, move, rename, recolour, mute, lock | M | 🟡 Trim and loop-extend (6c); move and copy (6a); cut, copy, paste, duplicate, delete, delete time (ripple) and insert time (6b); rename, recolour, mute and lock (6e). Crop, unloop into copies, reverse, normalize and clip nudge are built (M7 E1, ADR-0093; MT-EDIT-2 waits for the owner) | 3, 7 |
+| Trim, crop, delete, ripple delete, insert silence, cut, copy, paste, duplicate clip and range, loop/unloop, reverse, normalize, nudge, move, rename, recolour, mute, lock | M | 🟡 Trim and loop-extend (6c); move and copy (6a); cut, copy, paste, duplicate, delete, delete time (ripple) and insert time (6b); rename, recolour, mute and lock (6e). Crop, unloop into copies, reverse, normalize and clip nudge are built (M7 E1, ADR-0093; MT-EDIT-2 passed by ear, owner, 2026-11-07) | 3, 7 |
 | Bounce in place; render selection to new track | M | 🟡 Built (M7 E4, ADR-0096 and ADR-0097): the track is rendered through the real mixer with plugins in host processes of the bounce's own, to a float WAV, over the range, the selected clips or the whole track, with its effects (devices, fader, pan, lanes) and an automatic tail as chosen; Replace or New track; one undo step; Esc stops. MT-EDIT-5 passed (owner) | 7 |
 | Freeze, unfreeze, flatten | M | 🟡 Built (M7 E5, ADR-0098; format v29): a frozen track plays a rendered file and runs no plugin; read-only with a Frozen badge; Flatten converts it to audio. MT-EDIT-6 passed (owner) | 7 |
 | Select all / none / invert / in track / to start / to end | M | 🟡 Select all (Ctrl+A) and none (Esc) in M3 7d; invert, in track, to start and to end in M7 E1 (ADR-0093) | 3, 7 |
@@ -419,7 +419,7 @@ lane when the playhead is moved while stopped, and a recorded fade leaves 10 to 
 **Editing and render (E0 to E6, built as "M7b", PR #51 to #58).** Tools and split, clip commands, crossfades,
 consolidate, bounce and freeze (ADR-0092 to 0098; formats v26 to v29); the slice list is in
 `docs/milestones/M7.md` §3. E6's audit (`docs/audits/2026-10-24-m7b.md`) is this part's report: the combined
-editing walkthrough, an app-wide UX review and its fixes. MT-EDIT-1 and 3 to 6 passed; MT-EDIT-2 and 7 wait.
+editing walkthrough, an app-wide UX review and its fixes. MT-EDIT-1 to 6 passed (MT-EDIT-2 by ear on 2026-11-07); MT-EDIT-7 waits.
 
 **Shipped** (ADRs 0081 to 0091; formats v22 to v25; no host protocol change).
 - **A0 hear a lane.** `lumen_core::automation` (points, segment shapes, `value_at`, simplification), lanes on a
@@ -480,8 +480,12 @@ and are brought up to date. Each fix has a test that fails without it.
 3. Accuracy of recorded points on a real device and with a real controller is unknown.
 4. Windows is the only system with the owner's results; Linux and macOS have the automated ones.
 
-**Next.** The owner's MT-EDIT-2, MT-EDIT-7 and MT-UX-2, then the approval of M7. E7 and E8 run when the owner
-chooses (`docs/milestones/M7.md` §5).
+**Next.** The owner's MT-EDIT-7 and MT-UX-2, then the approval of M7. Agents drove most of their steps by looking
+on a test device on 2026-11-07 (nothing heard; the last run by Haiku 5.5). What is left for the owner (MT-EDIT-7
+steps 4 and 5 by a real keyboard and step 7 by ear; MT-UX-2 step 5 under varying load, and its compact-card and
+safe-mode checks in the light theme at 150 and 200%, which need a plugin; whether the clip menu scrolling at 150
+and 200% in the smallest window is acceptable; an Esc result that two runs report differently) is in
+`docs/manual-tests/M7.md`. E7 and E8 are now mini milestone 9.5 (`docs/milestones/M9.5.md`), no longer part of M7.
 
 ### Milestone 6 — report (2026-10-19)
 **Status:** Complete; signed off by the owner 2026-10-26. Every slice is built
