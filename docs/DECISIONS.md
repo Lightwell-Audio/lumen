@@ -12300,3 +12300,51 @@ The fixes of round 2 were not reviewed (the run ends at two rounds).
 seven in `document/import.rs` (the decision table, length in beats, the three
 settings, one undo step), two `waves.rs` tests, two warped-render tests for the
 modes. E2E: `follow_tempo` (two) and `audio_record` (a recording, then Never).
+
+## ADR-0133 — Guides are written at the milestone's docs pass, not in every slice
+
+**Date:** 2026-11-08. **Branch:** `docs/defer-guide-media`. **Status:**
+Accepted (owner, 2026-11-08: option A). Amends ADR-0119 (§5.3, §10.1, §10.2,
+§12.1 P of `docs/USER_DOCS.md`). ADR-0132 is on `m9.5-s4c-stretch-modes`.
+
+**Context.** ADR-0119 made the user docs part of every slice's definition of
+done, and `undocumented.txt` only shrank, so a slice that added an action had
+to write its guide page, scene and clips at once. Slices of M9.5 change the
+interface that the earlier slices' scenes drive, so scenes broke and their
+media showed an interface that no longer existed. The S4d preference scene
+(`follow_tempo_preference`) stopped on opening Preferences in the harness
+while the warp controls it belongs next to were still to be designed in S5.
+Media is rendered, not committed, but a fingerprint covers the scene, the
+page and the gesture entry and not the app, so a clip also stays as it was
+until a full render.
+
+**Options.** A: split by what can go stale. The generated reference and the
+coverage test stay per slice; guides, scenes and clips move to the
+milestone's docs pass, owed through a tag. B: decide by area, settled areas
+per slice. C: put a hash of the interface code into every fingerprint, so
+any change renders every scene (about 10 hours). D: keep the rule.
+
+**Decision.** A. A slice may add `id @m<milestone>` to
+`site/docs/data/undocumented.txt` for an action it adds. CI
+(`.github/scripts/undocumented-check.sh`) refuses an untagged addition and
+refuses tagging a line of the backlog. The milestone's docs pass writes the
+pages, removes the tagged lines, runs a full render and adds the tag to
+`site/docs/data/docs_pass.txt`; `docs_coverage` then fails while any line
+still carries it. A slice may still write a page and scene now for a settled
+area, and says so in its report. B's judgement stays with the slice, inside A.
+
+**Consequences.**
+- Slices stop spending time on scenes for moving interfaces; the work is done
+  once per milestone, against the interface that shipped.
+- Between passes the published guides and clips can lag the app; the pages
+  say which build they describe (§10.2). Actions in the generated reference
+  are never behind.
+- A milestone's docs pass can be large. Slice reports list what is owed so the
+  pass can be planned. A deferral cannot be forgotten: the closed-milestone
+  check fails it.
+- A tag cannot be used on the backlog (D1 to D7), so deferral does not hide
+  the existing gaps.
+- Checked here: `docs_coverage` (12 tests, including the parse of the tags
+  and a closed milestone failing), and the check script against an unchanged
+  list, an untagged and a tagged addition, a retagged backlog line, a
+  removal and an id with spaces. Not run: the GitHub step itself.

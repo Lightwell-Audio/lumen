@@ -642,6 +642,20 @@ per slice and move what is no longer current out of it.
   (`docs-render.yml`, `DOCS_DATA_READY`). The time is an estimate: nothing
   has run on GitHub, and the `jq` paths of `docs-media.sh` ran nowhere.
   Look at the first run's times and report them.
+- **Branch `docs/defer-guide-media`: guides are written at the milestone's
+  docs pass, not in every slice** (ADR-0133; owner chose option A,
+  2026-11-08, after UI changes kept breaking earlier slices' scenes and
+  media). This replaces "Every slice now carries its docs" above. A slice
+  keeps the generated reference, the names and tooltips, and the coverage
+  test; for an action it adds with no page it adds `id @m<milestone>` to
+  `site/docs/data/undocumented.txt` (CI refuses an untagged addition and
+  refuses tagging a backlog line). It may still write a page and scene for a
+  settled area. The milestone's docs pass writes the owed pages, removes the
+  tags, runs a full render and adds the milestone to
+  `site/docs/data/docs_pass.txt`, after which `docs_coverage` fails on a
+  leftover tag. Slice reports list what is owed. On the S4c branch the
+  preference is tagged (`pref:edit.follow_tempo @m9.5`); its stashed
+  `follow_tempo_preference` scene is dropped (`git stash list`).
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

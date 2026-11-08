@@ -1,0 +1,5 @@
+# The milestones whose docs pass is done (docs/USER_DOCS.md §10.2, ADR-0133).
+# A milestone's docs pass writes the guides, scenes and gestures that its
+# slices deferred (a line of undocumented.txt tagged `@m9.5`), removes those
+# lines, runs a full render, and then adds the milestone's tag here. From then
+# on docs_coverage fails while any line still carries the tag. One tag a line.

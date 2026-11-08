@@ -123,6 +123,12 @@ details:not([open])>summary.nav-item::after{transform:rotate(-45deg)}
 figcaption{margin-top:var(--space-s);font-size:13.5px;color:var(--text-secondary)}
 .clip-frame{position:relative;border-radius:var(--radius-xl);overflow:hidden;background:var(--canvas);border:var(--stroke-hairline) solid var(--line)}
 .clip-frame video{width:100%;height:auto}
+/* A gesture clip is cropped tight to the part of the app it shows, so its
+   controls would sit on the frame's edge: inset it, and give the picture its
+   own edge. (A lead clip has its own frame, below.) */
+.clip:not(.is-lead) .clip-frame{padding:var(--space-m)}
+.clip:not(.is-lead) .clip-frame video{border-radius:var(--radius-lg);border:var(--stroke-hairline) solid var(--line)}
+.clip:not(.is-lead) .clip-frame .media-missing{border-radius:var(--radius-lg)}
 .clip-toggle{position:absolute;right:var(--space-s);top:var(--space-s);width:30px;height:30px;display:grid;place-items:center;border-radius:50%;border:var(--stroke-hairline) solid var(--line);background:color-mix(in srgb,var(--overlay) 86%,transparent);color:var(--text);cursor:pointer;opacity:0;transition:opacity var(--duration-base) ease}
 .clip-frame:hover .clip-toggle,.clip-toggle:focus-visible,.clip.is-paused .clip-toggle{opacity:1}
 .clip .i-play,.clip.is-paused .i-pause{display:none}
