@@ -189,11 +189,7 @@ impl App {
                     (body.right() - s - CHEVRON - s - (icon_at.x + FILE_ICON / 2.0 + s)).max(0.0);
                 let font = FontId::proportional(theme::size::BODY);
                 let text = if missing { "Missing" } else { name.as_str() };
-                let shown = if missing {
-                    text.to_owned()
-                } else {
-                    widgets::fit(painter, text, font.clone(), room)
-                };
+                let shown = widgets::fit(painter, text, font.clone(), room);
                 let galley = painter.layout_no_wrap(shown, font, ink);
                 painter.galley(
                     pos2(
@@ -284,6 +280,16 @@ impl App {
                 ui.close();
             }
         });
+    }
+
+    /// The words on the File chip: the file's name, or "Missing" when it
+    /// cannot be found.
+    pub(super) fn file_chip_text(&self, media: Id) -> String {
+        if self.clip_file_state(media) == ClipFile::Missing {
+            "Missing".to_owned()
+        } else {
+            self.clip_file_name(media)
+        }
     }
 
     /// The name of the file of `media`, from the library, or from the

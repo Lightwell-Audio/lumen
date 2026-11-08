@@ -275,6 +275,16 @@ impl App {
         };
         let media = *media;
         let palette = *theme::p();
+        // The strip is where the work is while the pointer is over it or a
+        // control in it has the keyboard (D32): Properties focuses Gain.
+        let ctx = ui.ctx().clone();
+        let in_strip = ctx.memory(|m| m.focused()).is_some_and(|id| {
+            ctx.read_response(id)
+                .is_some_and(|r| rect.intersects(r.rect))
+        });
+        if in_strip || ui.rect_contains_pointer(rect) {
+            ed.hovered = true;
+        }
         ui.painter().rect_filled(rect, 0.0, palette.app);
         ui.painter().hline(
             rect.x_range(),
@@ -282,7 +292,8 @@ impl App {
             Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
         let inner = rect.shrink2(vec2(theme::space::M, 0.0));
-        let file_name = self.clip_file_name(media);
+        // The chip shows what it will say: the file's name, or "Missing".
+        let file_name = self.file_chip_text(media);
         let widths = self.strip_widths(ui, inner.width(), clip, &file_name);
         let layout = strip::choose(widths);
         ed.strip = layout;
@@ -311,7 +322,6 @@ impl App {
 
         let tempo = self.transport.timeline.tempo.clone();
         let fixed = self.strip_fixed(clip.id);
-        let ctx = ui.ctx().clone();
         let base = ui.id().with(("audio strip", clip.id.0));
         let focus = std::mem::take(&mut ed.focus_strip);
 
@@ -551,8 +561,11 @@ impl App {
         );
         let enabled = fixed.why().is_none();
         let page_fades = ed.strip_fades;
+        let was_open = Menu::is_open_for(ctx, more.id);
         let mut to_fades = None;
-        Menu::below(&more).show(|ui| {
+        // The menu stays open across its two pages; a Processing row closes it
+        // itself.
+        Menu::below(&more).staying().show(|ui| {
             if page_fades {
                 ui.set_width(CARD_WIDTH);
                 if widgets::menu_item(ui, "Back", None, true).clicked() {
@@ -606,10 +619,17 @@ impl App {
             }
         });
         if let Some(page) = to_fades {
+            // A plain row closes its menu: the page change keeps it open.
             ed.strip_fades = page;
+            Menu::open_for(ctx, more.id);
         }
         if !Menu::is_open_for(ctx, more.id) {
             ed.strip_fades = false;
+            // Closing gives the keyboard back to the button that opened the
+            // menu, unless a click elsewhere has already taken it.
+            if was_open && !ctx.input(|i| i.pointer.any_pressed()) {
+                more.request_focus();
+            }
         }
         more
     }

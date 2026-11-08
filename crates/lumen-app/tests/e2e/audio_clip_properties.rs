@@ -299,59 +299,101 @@ fn a_missing_file_says_so_and_relinks_from_the_editor() {
     );
 }
 
-#[test]
-fn every_control_is_reachable_without_overlap_at_the_smallest_windows() {
-    let (mut lumen, _) = opened("strip-fit");
-    let names = [
-        "Clip gain",
-        "Fade in",
-        "Fade out",
-        "Mute clip",
-        "Lock clip",
-        "Reverse",
-        "Polarity",
-        "Normalize",
-        "More properties",
+/// Every control of the strip that is drawn at the current size, by name,
+/// with its rectangle, and the strip's layout.
+fn strip_controls(lumen: &Lumen) -> (&'static str, Vec<(&'static str, Rect)>) {
+    let layout = shown(lumen).strip;
+    let body = shown(lumen).body;
+    let wanted = [
+        ("Clip chip", "name and color"),
+        ("Gain", "Clip gain: "),
+        ("Mute", "Mute clip"),
+        ("Lock", "Lock clip"),
+        ("Fade in", "Fade in: "),
+        ("Fade out", "Fade out: "),
+        ("Reverse", "Reverse"),
+        ("Polarity", "Polarity"),
+        ("Normalize", "Normalize"),
+        ("More", "More clip properties"),
+        ("File", "File"),
     ];
-    for (width, height) in [(960.0, 540.0), (640.0, 540.0), (480.0, 540.0)] {
-        lumen.harness.set_size(vec2(width, height));
+    let mut found = Vec::new();
+    for (name, label) in wanted {
+        for node in lumen.harness.query_all_by_label_contains(label) {
+            let r = node.rect();
+            // The strip sits above the wave and its ruler.
+            if r.width() > 0.0 && r.bottom() < body.top() && r.top() > body.top() - 130.0 {
+                // The header's own buttons share some words: keep the strip's.
+                if name == "File"
+                    && !node
+                        .accesskit_node()
+                        .label()
+                        .is_some_and(|l| l.starts_with("File"))
+                {
+                    continue;
+                }
+                found.push((name, r));
+            }
+        }
+    }
+    (layout, found)
+}
+
+#[test]
+fn every_control_is_there_and_clear_of_the_others_in_each_layout() {
+    let (mut lumen, _) = opened("strip-fit");
+    let mut seen = std::collections::BTreeSet::new();
+    for width in [1400.0, 1100.0, 960.0, 800.0, 700.0, 640.0, 560.0, 480.0] {
+        lumen.harness.set_size(vec2(width, 540.0));
         lumen.app_mut().set_browser_size(220.0);
         lumen.frames(20);
         let body = shown(&lumen).body;
-        let mut found: Vec<(String, Rect)> = Vec::new();
-        for name in names {
-            for node in lumen.harness.query_all_by_label_contains(name) {
-                let r = node.rect();
-                // The strip sits above the wave.
-                if r.bottom() < body.top() && r.width() > 0.0 {
-                    found.push((name.to_owned(), r));
-                }
-            }
+        let (layout, found) = strip_controls(&lumen);
+        seen.insert(layout);
+        let has = |name: &str| found.iter().any(|(n, _)| *n == name);
+
+        // What each layout draws, and what it folds away.
+        let (fades, processing, menu) = match layout {
+            "full" | "icons" | "dot" => (true, true, false),
+            "fold processing" => (true, false, true),
+            "fold fades" => (false, false, true),
+            other => panic!("a layout the test does not know: {other}"),
+        };
+        for always in ["Gain", "Mute", "Lock", "File", "Clip chip"] {
+            assert!(has(always), "{always} at {width} ({layout}): {found:?}");
         }
+        for (name, drawn) in [
+            ("Fade in", fades),
+            ("Fade out", fades),
+            ("Reverse", processing),
+            ("Polarity", processing),
+            ("Normalize", processing),
+            ("More", menu),
+        ] {
+            assert_eq!(has(name), drawn, "{name} at {width} ({layout}): {found:?}");
+        }
+
         for (i, (a, ra)) in found.iter().enumerate() {
             assert!(
-                ra.right() <= body.right() + 0.5,
-                "{a} is past the editor at {width}: {ra:?}"
+                ra.left() >= body.left() - 1.0 && ra.right() <= body.right() + 0.5,
+                "{a} is outside the editor at {width} ({layout}): {ra:?}, body {body:?}"
             );
             for (b, rb) in &found[i + 1..] {
-                if a == b {
-                    continue;
-                }
                 assert!(
                     !ra.shrink(0.5).intersects(rb.shrink(0.5)),
-                    "{a} and {b} overlap at {width} ({}): {ra:?} {rb:?}",
-                    shown(&lumen).strip
+                    "{a} and {b} overlap at {width} ({layout}): {ra:?} {rb:?}"
                 );
             }
         }
-        let have: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
-        assert!(
-            have.contains(&"Clip gain") || have.contains(&"More properties"),
-            "gain or the menu at {width}: {have:?}"
-        );
         assert!(
             body.height() >= 40.0,
             "the wave keeps its room at {width}: {body:?}"
+        );
+    }
+    for layout in ["full", "fold processing", "fold fades"] {
+        assert!(
+            seen.contains(layout),
+            "the widths reached {layout}, not only {seen:?}"
         );
     }
 }
@@ -368,6 +410,11 @@ fn alt_enter_takes_the_keyboard_to_gain_in_the_editor_and_opens_the_card_elsewhe
     assert!(
         !lumen.shows("Clip name"),
         "no floating card when the strip is where the work is"
+    );
+    assert!(
+        super::access::focused(&lumen).is_some_and(|f| f.starts_with("Clip gain")),
+        "Gain has the keyboard: {:?}",
+        super::access::focused(&lumen)
     );
     // Typing starts a new gain on the focused slider.
     lumen.key(Modifiers::NONE, Key::Enter);
@@ -392,6 +439,38 @@ fn alt_enter_takes_the_keyboard_to_gain_in_the_editor_and_opens_the_card_elsewhe
 }
 
 #[test]
+fn alt_enter_from_a_strip_control_stays_in_the_strip_wherever_the_pointer_is() {
+    let (mut lumen, _) = opened("strip-alt-enter-strip");
+    // Alt+Enter and a Tab put the keyboard on Mute; the pointer then leaves
+    // the editor for the arrangement.
+    let body = shown(&lumen).body;
+    lumen.harness.hover_at(body.center());
+    lumen.frames(3);
+    lumen.key(Modifiers::ALT, Key::Enter);
+    lumen.frames(3);
+    lumen.key(Modifiers::NONE, Key::Tab);
+    lumen.frames(3);
+    lumen.harness.hover_at(vec2(700.0, 120.0).to_pos2());
+    lumen.frames(4);
+    assert!(
+        super::access::focused(&lumen).is_some_and(|f| f.starts_with("Mute clip")),
+        "the keyboard is on Mute: {:?}",
+        super::access::focused(&lumen)
+    );
+    lumen.key(Modifiers::ALT, Key::Enter);
+    lumen.frames(4);
+    assert!(
+        !lumen.shows("Clip name"),
+        "no card: the keyboard is in the strip"
+    );
+    assert!(
+        super::access::focused(&lumen).is_some_and(|f| f.starts_with("Clip gain")),
+        "Gain has the keyboard: {:?}",
+        super::access::focused(&lumen)
+    );
+}
+
+#[test]
 fn lock_is_a_command_for_one_or_several_clips_and_undoes_in_one_step() {
     let (mut lumen, kick, snare) = with_two_clips("strip-lock-command");
     lumen.app_mut().select_clips(&[kick, snare]);
@@ -405,33 +484,101 @@ fn lock_is_a_command_for_one_or_several_clips_and_undoes_in_one_step() {
 }
 
 #[test]
-fn the_strip_is_a_set_of_tab_stops_and_keeps_its_place_through_the_more_menu() {
+fn the_full_strip_is_walked_by_tab_in_order_and_changes_nothing() {
     let (mut lumen, id) = opened("strip-keys");
     let body = shown(&lumen).body;
     lumen.harness.hover_at(body.center());
     lumen.frames(3);
     lumen.key(Modifiers::ALT, Key::Enter);
     lumen.frames(3);
-    let mut seen = Vec::new();
-    for _ in 0..12 {
+    assert_eq!(shown(&lumen).strip, "full", "a wide window");
+    let mut seen: Vec<String> = Vec::new();
+    for _ in 0..14 {
         lumen.key(Modifiers::NONE, Key::Tab);
         lumen.frames(1);
         if let Some(label) = super::access::focused(&lumen) {
             seen.push(label);
         }
     }
-    assert!(
-        seen.iter().any(|l| l.contains("Mute clip")),
-        "Tab reaches Mute: {seen:?}"
-    );
-    assert!(
-        seen.iter()
-            .any(|l| l.contains("Reverse") || l.contains("More")),
-        "Tab reaches the processing controls: {seen:?}"
-    );
-    // The clip is untouched by walking the strip.
+    // The strip's controls, in the order D36 gives them (the Clip chip comes
+    // first, before Gain, which Alt+Enter started on).
+    let order = [
+        "Mute clip",
+        "Lock clip",
+        "Fade in",
+        "Fade in shape",
+        "Fade out",
+        "Fade out shape",
+        "Reverse",
+        "Polarity",
+        "Normalize",
+        "File",
+    ];
+    let mut at = 0;
+    for want in order {
+        let found = seen[at..].iter().position(|l| l.starts_with(want));
+        assert!(
+            found.is_some(),
+            "{want} comes after {:?} in the tab order: {seen:?}",
+            &seen[..at]
+        );
+        at += found.unwrap() + 1;
+    }
     let c = clip(&lumen, id);
-    assert!(!c.reversed && !c.inverted && !c.muted);
+    assert!(!c.reversed && !c.inverted && !c.muted && !c.locked);
+}
+
+#[test]
+fn a_folded_strip_is_used_from_the_more_menu_and_escape_gives_the_keyboard_back() {
+    let (mut lumen, id) = opened("strip-folded");
+    lumen.harness.set_size(vec2(480.0, 540.0));
+    lumen.app_mut().set_browser_size(220.0);
+    lumen.frames(20);
+    assert_eq!(shown(&lumen).strip, "fold fades", "the narrowest window");
+    assert!(!lumen.shows("Reverse"), "Reverse is in the menu");
+
+    // Reverse from the menu: the opened clip, one step.
+    lumen.click("More clip properties");
+    lumen.click("Reverse");
+    assert!(clip(&lumen, id).reversed);
+    assert_eq!(lumen.app().selected_clips(), [id]);
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    assert!(!clip(&lumen, id).reversed, "one undo step");
+
+    // Fades… opens the fades page, whose slider edits the clip.
+    lumen.click("More clip properties");
+    lumen.click("Fades…");
+    assert!(
+        lumen
+            .harness
+            .query_all_by_label_contains("Fade in: ")
+            .next()
+            .is_some(),
+        "the fades page"
+    );
+    type_into(&mut lumen, "Fade in: ", "250");
+    assert_eq!(
+        clip(&lumen, id).fade_in.length,
+        Ticks(Ticks::quarters(1).0 / 2)
+    );
+
+    // Esc closes the menu and the keyboard is on the button that opened it.
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(3);
+    assert!(
+        lumen
+            .harness
+            .query_all_by_label_contains("Fade in: ")
+            .next()
+            .is_none(),
+        "the menu is closed"
+    );
+    assert!(
+        super::access::focused(&lumen).is_some_and(|f| f.starts_with("More clip properties")),
+        "the keyboard is back on the ⋯ button: {:?}",
+        super::access::focused(&lumen)
+    );
 }
 
 #[test]

@@ -181,7 +181,6 @@ impl App {
         let (Some(file), Some(loaded)) = (file, loaded) else {
             // Nothing to zoom: keys pressed now do not wait for a file.
             ed.zooms.clear();
-            ed.hovered = false;
             ed.last = None;
             self.audio_empty_state(ui, Rect::from_min_max(ruler.min, area.max), key, is_loaded);
             return;
@@ -210,7 +209,7 @@ impl App {
             self.transport.follow_paused = true;
         }
         self.audio_follow(ed, body);
-        ed.hovered = over.is_some();
+        ed.hovered |= over.is_some();
         // A handle that took the keyboard or moved by a key comes into view.
         if let Some(part) = ed.reveal.take()
             && let Some(q) = self

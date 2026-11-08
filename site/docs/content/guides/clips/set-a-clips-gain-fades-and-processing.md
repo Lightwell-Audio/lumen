@@ -41,7 +41,7 @@ Open the clip first: double-click it, or select it and press
 - **Fades** {{ callout(n=2) }}: set each fade's length in milliseconds, and
   pick its shape from the list beside it.
 - **Mute** and **Lock**: the **M** button silences the clip, and the padlock
-  fixes it in place. A locked clip keeps its gain, fades and processing as
+  fixes it in place. A locked clip keeps its gain, fades, processing and envelopes as
   they are, but you can still mute it, rename it and unlock it.
 - **Reverse**, **Polarity** and **Normalize** {{ callout(n=3) }}: Reverse
   plays the clip backwards, Polarity turns the wave upside down, and
@@ -73,10 +73,11 @@ window says what was done.
 When the pointer is somewhere else, {{ keys(id="clip.properties") }} opens
 the clip's properties card on the arrangement instead.
 
-Every part of the strip is also in the command palette
-({{ keys(id="view.palette") }}) as "Reverse", "Invert polarity",
-"Normalize", "Lock clip" and "Show the clip's file", and they work on
-several selected clips at once from the arrangement.
+Reverse, Polarity, Normalize, Mute and Lock are also in the command palette
+({{ keys(id="view.palette") }}) as "Reverse", "Invert polarity", "Normalize",
+"Mute clip" and "Lock clip", and from the arrangement they work on every
+selected clip at once. "Show the clip's file" is there too; it shows the
+file of the first selected audio clip.
 
 ## Good to know
 
@@ -85,9 +86,9 @@ several selected clips at once from the arrangement.
   Click it and choose **Relink…** to pick the file that stands in for it.
   Lumen shows the Project media tab while it checks the file, and says
   what it found.
-- On a narrow window the strip folds: the fades and then the processing
-  buttons move into the **⋯** menu, and the clip's name becomes its colour
-  dot. Nothing is lost, and every part keeps its place in the Tab order.
+- On a narrow window the strip folds: Reverse, Polarity and Normalize move
+  into the **⋯** menu first, then the fades (as a **Fades…** row there),
+  and the clip's name becomes its colour dot. Nothing is lost, and every part keeps its place in the Tab order.
 - A clip on a frozen track keeps its marks and values, but nothing in the
   strip changes it until you unfreeze the track.
 
