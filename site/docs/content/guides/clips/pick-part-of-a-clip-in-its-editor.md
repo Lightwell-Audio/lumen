@@ -13,7 +13,7 @@ related = [
   { kind = "Guide", title = "Split a clip" },
   { kind = "Reference", title = "Commands and shortcuts" },
 ]
-prev = "Trim and fade inside an audio clip"
+prev = "Set a clip's gain, fades and processing"
 next = "Draw a clip's envelope"
 
 [taxonomies]

@@ -1,8 +1,8 @@
 //! The audio editor in its own window (M9.5 S2c, D25): the same viewport
 //! code as the note editor's pop-out, with the same remembered place. The
-//! clip's properties stay in the detail panel beside a note that the editor
-//! is in its own window, with a Dock action. Closing the window docks the
-//! editor back.
+//! window holds the header, the properties strip and the editor, so nothing
+//! is left behind; the detail panel keeps a note that the editor is in its
+//! own window, with a Dock action. Closing the window docks the editor back.
 
 use eframe::egui::{self, ViewportBuilder, ViewportClass, ViewportId};
 
@@ -85,9 +85,6 @@ impl App {
         area: egui::Rect,
         id: lumen_project::model::Id,
     ) {
-        // No properties column here: it stays in the panel, so the header
-        // offers it in its menu as it does when the column is folded.
-        self.audio_editor.folded = true;
         let mut ed = std::mem::take(&mut self.audio_editor);
         self.draw_audio_editor(ui, area, id, &mut ed);
         self.audio_editor = ed;

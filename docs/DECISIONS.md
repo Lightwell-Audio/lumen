@@ -11625,3 +11625,84 @@ frame of such a drag. Both pop-outs (the note editor's and the audio editor's)
 now say it (`App::popped_pointer_down`, read once per frame by
 `sync_document`), and the test fails without it. If the report was from the
 docked editor or the arrangement, the cause is another one and is still open.
+
+## ADR-0128 — The audio editor's properties strip and the clip marks (M9.5 S3)
+
+**Date:** 2026-11-08. **Branch:** `m9.5-s3-clip-properties`. **Status:** Built;
+MT-CLIP-5 waits for the owner. Plan: `docs/milestones/M9.5.md` §10 (one review
+round before the build; owner: NC B, PF A, B B, BS B). No format change: every
+field the strip edits already exists.
+
+**Context.** The audio editor kept the clip card's rows in a 296 pt column
+beside the wave. The wave lost the width, and the arrangement's clips said
+nothing about being reversed or inverted (KNOWN_ISSUES, 2026-10-23).
+
+**Choice.**
+
+1. **A 32 pt strip under the shared header replaces the column** (L B). Left to
+   right: the Clip chip (colour dot and name, opening Name and Color; NC B),
+   Gain, Mute and Lock icon toggles, the two fades (length and shape), Reverse,
+   Polarity and Normalize, the ⋯ menu when something folded, and the File chip
+   at the right. `PROPS_WIDTH`, `folds`, the column and the ⋯ menu's "Clip
+   properties" row are gone. No placeholder for warp or transpose: S4 and S6
+   add their groups in the order the plan gives (§10.1).
+2. **The strip edits the opened clip, not the selection (D30).** Gain, fades,
+   Mute and Lock call the card's `Document` methods with `[id]` and the card's
+   merge keys, so a drag is one step and equals the card's edit. A Processing
+   button selects the opened clip alone and then runs the command through
+   `availability` and `run`, so its rules and notes are the keyboard's and the
+   menus'. A locked clip disables Gain, fades and Processing with the reason in
+   the tooltip; Mute and Lock stay live (D31).
+3. **Layouts are chosen like the header's (D33):** a pure `strip::choose` over
+   the widths measured this frame: Full, Icons, Fold Processing, Fold Fades;
+   the File chip shrinks to its icon and Gain loses its label before anything
+   else gives way (`strip::ends`). The clip's name becomes its dot when room is
+   short. The ⋯ menu's Fades… row opens a second page with both fade rows, since
+   a menu row cannot hold a slider.
+4. **Properties (Alt+Enter) belongs to the strip when the editor is where the
+   work is (PF A, D32):** the editor is live (pointer over it, focus in it, or
+   popped out with its keys) and the clip the command names is the opened clip
+   or none is selected. It then focuses Gain (Mute when a lock disables Gain).
+   Anywhere else it opens the floating card, as before.
+5. **Lock and Reveal are commands (D35).** `clip.lock` ("Lock clip", no key)
+   replaces the menu's private path (`context_command`); `clip.reveal_file`
+   ("Show the clip's file") is not offered while the file is missing. Both are at
+   the end of `Command` and `commands::ALL`.
+6. **The File chip (§10.5)** shows the file's name, or "Missing" in the warning
+   colour, and opens its facts (`lanes::file_facts`, the hover card's), Show in
+   file manager (the one function the Project media tab's Reveal uses,
+   `show_in_file_manager`) and, for a missing file, Relink. Relink shows the
+   browser's Project media tab with the file's row selected and then asks for
+   the file as that tab's own Locate does; its answer is also said as a toast
+   (`MediaPool::say_answer`), since a popped-out editor can stand on another
+   monitor. A different-length file's confirmation is said in full.
+7. **Marks on the arrangement's clips (B B, BS B):** `clip_marks::place` decides
+   in points, with no drawing. The marks (a Reverse and a Polarity icon, 9 pt)
+   sit left of the padlock and the take counter and need 28 pt of the name
+   beside them (about four letters); short of that one 5 pt dot, the name
+   shortening before the dot goes; on a clip under 24 pt wide the dot alone,
+   centred; under 10 pt nothing. Hover says what was done in the clip's hover
+   card and its info-line text ("Reversed · Polarity inverted"); there is no
+   per-icon tooltip, since a 9 pt target is not one to aim at. MIDI clips carry
+   none. Warp and transpose add cases to `Marks`.
+8. **One source for the card's rows (D37):** `app/clip_controls.rs` holds the
+   gain slider, the fade slider, the shape dropdown and the fade row; the card
+   and the strip both call them.
+
+**Consequences.** The wave gains 296 pt of width and loses 32 pt of height. The
+E2E `every_control_is_reachable_without_overlap_at_the_smallest_windows` holds
+the wave over 40 pt at three window widths and every control inside the editor
+without overlap. A mark costs one small icon per clip in view, drawn only for
+clips in view. The strip's accessible names: `Clip gain`, `Fade in`,
+`Fade out`, `Mute clip`, `Lock clip`, `Reverse`, `Polarity`, `Normalize`,
+`Clip <name>: name and color`, `File: <name>`, `File missing: <name>`.
+
+**Not done, said plainly.** The plan's 444, 420 and 260 pt widths and the
+lowest panel height at three scales are not tested as such (the manual test
+looks at them), nor is the frame bench with 20,000 clips half reversed (the
+title path adds one pure call per clip). The strip was looked at in both themes
+at 100% and 200% and at 960 × 540; the marks at 100% and 200% dark; 150% of
+the marks and the Narrator pass are the owner's. The docs scene
+`audio_clip_properties` runs its checks here; its media needs ffmpeg and renders
+in CI. The marks' page is a section of the new guide rather than a page of its
+own.

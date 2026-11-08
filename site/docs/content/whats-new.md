@@ -13,6 +13,7 @@ The newest work comes first.
 
 ## Audio clip editing
 
+- **Set a clip's gain, fades and processing in one strip.** The Clip tab keeps its whole width: a strip under the header holds the clip's name and colour, gain, fades, Mute, Lock, Reverse, Polarity and Normalize, and the file's name, with Relink when the file is missing. Reversed and inverted clips carry a small mark on the arrangement. See [Set a clip's gain, fades and processing](@/guides/clips/set-a-clips-gain-fades-and-processing.md).
 - **Hear a clip while you edit it.** Loop a clip or a picked range, scrub
   along the editor's ruler, and pop the editor out into its own window. See
   [Hear a clip while you edit it](@/guides/clips/hear-a-clip-while-you-edit-it.md).

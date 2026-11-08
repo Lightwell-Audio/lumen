@@ -486,7 +486,7 @@ report: {}",
         if let Some(pointer) = hover.hover_pos()
             && !hover.dragged()
             && self.clip_props.pinned().is_none()
-            && let Some(item) = self.arrangement.item_at(
+            && let Some((item, marks)) = self.arrangement.item_at(
                 ui.ctx(),
                 pointer,
                 canvas,
@@ -496,7 +496,9 @@ report: {}",
             )
         {
             let properties = self.keymap.text(Command::ClipProperties);
-            hover.on_hover_ui_at_pointer(|ui| lanes::file_card(ui, item, properties.as_deref()));
+            hover.on_hover_ui_at_pointer(|ui| {
+                lanes::file_card(ui, item, marks.words().as_deref(), properties.as_deref())
+            });
         }
 
         // Dropped files land under the pointer (snapped; Alt places them

@@ -415,11 +415,9 @@ impl App {
                 let enabled = !self.document.project().auto_crossfade;
                 self.document.set_auto_crossfade(enabled);
             }
-            Command::ClipProperties => {
-                if let Some(clip) = self.first_selected_clip() {
-                    self.open_clip_card(clip);
-                }
-            }
+            Command::ClipProperties => self.run_clip_properties(ctx),
+            Command::LockClips => self.toggle_clip_lock(),
+            Command::RevealClipFile => self.reveal_clip_file(),
             Command::AddAudioTrack => self.arrangement.add_track(doc, TrackKind::Audio),
             Command::AddMidiTrack => self.arrangement.add_track(doc, TrackKind::Midi),
             Command::AddReturnTrack => self.arrangement.add_track(doc, TrackKind::Return),

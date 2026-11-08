@@ -2821,6 +2821,37 @@ fn audio_clip_editor() {
     }
 }
 
+/// The marks on clips (M9.5 S3): reversed and inverted, on a wide clip, a
+/// narrow one and a very narrow one.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn clip_marks() {
+    use lumen_core::time::Ticks;
+
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.0), ("dark", 2.0), ("light", 1.5)] {
+        let dir = TempDir::new("shots-clip-marks");
+        let mut h = bare_scaled(&dir, appearance, scale, vec2(1200.0, 700.0));
+        drop_files(&mut h, &dir, 8.0);
+        let clips: Vec<_> = h
+            .state()
+            .project()
+            .tracks
+            .iter()
+            .map(|t| t.clips[0].id)
+            .collect();
+        h.state_mut()
+            .trim_clip_end_to(clips[1], Ticks::quarters(1), false);
+        h.state_mut()
+            .trim_clip_end_to(clips[2], Ticks(Ticks::quarters(1).0 / 8), false);
+        h.state_mut().mark_clips(&clips);
+        h.run_steps(30);
+        save(
+            &mut h,
+            &format!("clip-marks-{appearance}-{}", (scale * 100.0) as u32),
+        );
+    }
+}
+
 /// The audio editor's handles (M9.5 S2a): at rest with a fade in, a fade out
 /// and a gain, with a fade hot under the pointer, with the keyboard on a
 /// handle and its popover open; the header at the widths it must fit.

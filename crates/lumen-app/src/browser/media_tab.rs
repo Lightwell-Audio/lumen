@@ -198,6 +198,7 @@ impl App {
                 self.accept_confirmed();
             } else if no {
                 self.media_pool.confirm = None;
+                self.media_pool.say_answer = false;
             }
             return;
         }
@@ -416,7 +417,7 @@ impl App {
             self.select_clips_of(id);
         }
         if let Some(path) = out.reveal {
-            crate::crash::reveal(&path);
+            self.show_in_file_manager(&path);
         }
         if let Some(id) = out.remove {
             let removed = self.document.remove_unused_media(&[id]);

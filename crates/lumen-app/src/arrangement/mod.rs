@@ -35,6 +35,7 @@ mod auto_tools;
 pub(crate) mod auto_view;
 mod buttons;
 mod clip_look;
+pub(crate) mod clip_marks;
 mod clips;
 pub(crate) mod control_menu;
 mod drop;

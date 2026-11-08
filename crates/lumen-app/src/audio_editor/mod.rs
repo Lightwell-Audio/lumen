@@ -8,6 +8,7 @@
 //! - `handles`: where the grips, fades and gain line are, and what the
 //!   pointer is on (pure, tested);
 //! - `header`: which of the header's layouts fits (pure, tested);
+//! - `strip`: which of the properties strip's layouts fits (pure, tested);
 //! - `paint`: the wave, column by column from the peaks, and samples at
 //!   depth; the ruler.
 //!
@@ -19,6 +20,7 @@ pub(crate) mod handles;
 pub(crate) mod header;
 pub(crate) mod paint;
 pub(crate) mod source;
+pub(crate) mod strip;
 
 use eframe::egui::Rect;
 use lumen_core::time::Ticks;
@@ -85,8 +87,19 @@ pub(crate) struct AudioEditor {
     pub popover: Option<Popover>,
     /// The header's layout, last frame.
     pub layout: header::Layout,
-    /// The properties column gave its room to the wave.
-    pub folded: bool,
+    /// The properties strip's layout, last frame.
+    pub strip: strip::Layout,
+    /// Properties (Alt+Enter) asked for the strip's keyboard: Gain takes it
+    /// on the next frame, or Mute when a lock disables Gain (D32).
+    pub focus_strip: bool,
+    /// The strip's group that had the keyboard last frame, so a fold moves
+    /// the keyboard to the ⋯ button instead of dropping it (D36).
+    pub strip_group: Option<strip::Group>,
+    /// The ⋯ menu shows its Fades page.
+    pub strip_fades: bool,
+    /// The Clip chip's popover was open last frame: closing it applies a
+    /// name that was being typed.
+    pub chip_was_open: bool,
     /// The edit cursor (M9.5 CU A): a beat on the heard stretch. Not saved;
     /// it goes when another clip opens or a range is picked.
     pub cursor: Option<Ticks>,

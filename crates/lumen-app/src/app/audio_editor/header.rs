@@ -145,10 +145,8 @@ impl App {
         let caption = self.audio_caption(clip, file);
         let layout = header::choose(self.header_widths(ui, rect, clip, &caption, ed));
         ed.layout = layout;
-        let folded = ed.folded;
         let shows_views = layout.shows_views();
-        let has_menu = folded || !shows_views;
-        let ctx = ui.ctx().clone();
+        let has_menu = !shows_views;
         let crossings = self.settings.editing.zero_crossings;
         let mut flip_crossings = false;
         let mut flip_loop = false;
@@ -204,15 +202,6 @@ impl App {
                         let label = if popped { "Dock" } else { "Pop out" };
                         if widgets::menu_item(ui, label, keys.as_ref(), true).clicked() {
                             pop = true;
-                            ui.close();
-                        }
-                    }
-                    if folded {
-                        let keys = self.keymap.keys(Command::ClipProperties);
-                        if widgets::menu_item(ui, "Clip properties", keys.as_ref(), true).clicked()
-                        {
-                            self.select_opened_clip(clip.id);
-                            self.run(&ctx, Command::ClipProperties);
                             ui.close();
                         }
                     }
@@ -404,7 +393,6 @@ impl App {
                 + theme::size::CONTROL,
             view_icons: 3.0 * theme::size::CONTROL + 2.0 * theme::space::S,
             more: theme::size::CONTROL,
-            always_more: ed.folded,
         }
     }
 

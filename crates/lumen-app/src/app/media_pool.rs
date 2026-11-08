@@ -89,9 +89,32 @@ pub(crate) struct MediaPool {
     banner_off: Option<u64>,
     /// The last thing that happened, in a sentence, until the next.
     pub(crate) note: Option<String>,
+    /// The Locate under way was asked for from the audio editor's File
+    /// chip: its answer is said as a toast too (M9.5 S3).
+    pub(crate) say_answer: bool,
+    /// The files shown in the file manager. A test reads them instead of
+    /// opening a window (`App::show_in_file_manager`).
+    pub(crate) revealed: Vec<PathBuf>,
 }
 
 impl MediaPool {
+    /// The scan found the file of media `id` gone.
+    pub(crate) fn is_absent(&self, id: Id) -> bool {
+        self.scan.absent.contains(&id)
+    }
+
+    /// A file dialog is open to find the file of media `id`.
+    pub(crate) fn is_locating(&self, id: Id) -> bool {
+        self.locating == Some(id)
+    }
+
+    /// Says `text` in the media tab, and as a toast when the editor asked.
+    fn noted(&mut self, text: String) -> Option<String> {
+        let say = std::mem::take(&mut self.say_answer);
+        self.note = Some(text.clone());
+        say.then_some(text)
+    }
+
     pub(crate) fn rows(&self) -> &[Row] {
         &self.rows
     }
@@ -320,6 +343,8 @@ impl App {
     pub(crate) fn located(&mut self, ctx: &egui::Context, path: Option<PathBuf>) {
         let id = self.media_pool.locating.take();
         let (Some(id), Some(path)) = (id, path) else {
+            // The dialog was cancelled: nothing to say.
+            self.media_pool.say_answer = false;
             return;
         };
         let Some(media) = self
@@ -358,9 +383,20 @@ impl App {
             Verdict::Exact | Verdict::SameAudio => self.relink_media(id, path),
             Verdict::DifferentLength(frames) => {
                 self.media_pool.confirm = Some((id, path, frames));
+                if self.media_pool.say_answer {
+                    self.say(
+                        "That file is not the same length. Choose Use it anyway or Cancel on the Project media tab."
+                            .to_owned(),
+                    );
+                }
             }
             Verdict::Refused(why) => {
-                self.media_pool.note = Some(format!("That file will not do. {why}"));
+                let said = self
+                    .media_pool
+                    .noted(format!("That file will not do. {why}"));
+                if let Some(text) = said {
+                    self.say(text);
+                }
             }
         }
     }
@@ -370,8 +406,13 @@ impl App {
         let name = file_name(&path);
         if self.document.relink(id, path) {
             self.media_pool.confirm = None;
-            self.media_pool.note = Some(format!("Relinked {name}. Save to keep it."));
+            let said = self
+                .media_pool
+                .noted(format!("Relinked {name}. Save to keep it."));
             self.media_pool.selected = Some(id);
+            if let Some(text) = said {
+                self.say(text);
+            }
         }
     }
 
