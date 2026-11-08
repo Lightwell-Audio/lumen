@@ -651,10 +651,12 @@ fn audio_clip_properties() {
         let dir = TempDir::new(&format!("docs-audio-properties-{theme}"));
         let (mut h, device) = song(&dir, theme);
         let (editor, _) = open_drums(&mut h);
-        // The strip sits above the ruler: take the header's room as well.
+        // The strip sits above the ruler: take the header's room as well, from
+        // its top edge down (130 points started inside the tab row and cut its
+        // labels in half).
         let s = h.state().audio_editor_shown().expect("drawn");
         let editor = Rect::from_min_max(
-            pos2(editor.left(), s.body.top() - 130.0),
+            pos2(editor.left(), s.body.top() - 114.0),
             pos2(editor.right(), editor.bottom()),
         );
         let rest = pos2(editor.right() - 40.0, editor.top() + 20.0);
