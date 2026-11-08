@@ -790,11 +790,15 @@ fn load(library: &Library, id: u64) -> Load<impl FnOnce(Ticks, DropInto) -> Impo
     }
 }
 
-/// The hover card for a clip's file; `properties` is the properties
-/// card's shortcut, if it has one.
-pub fn file_card(ui: &mut egui::Ui, item: &Item, properties: Option<&str>) {
+/// The hover card for a clip's file; `marks` says what was done to the clip
+/// (reversed, polarity inverted), and `properties` is the properties card's
+/// shortcut, if it has one.
+pub fn file_card(ui: &mut egui::Ui, item: &Item, marks: Option<&str>, properties: Option<&str>) {
     ui.label(RichText::new(&item.name).strong());
     file_facts(ui, item);
+    if let Some(marks) = marks {
+        ui.label(RichText::new(marks).color(theme::p().text_secondary));
+    }
     // Every gesture on a clip, so none stays hidden (owner, after 6c: slip
     // was not discoverable).
     ui.separator();

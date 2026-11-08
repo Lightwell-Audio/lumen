@@ -54,6 +54,8 @@ pub enum LaneRefusal {
     TooMany,
     /// A point before the start of the song.
     BeforeStart,
+    /// The clip whose envelope it is has its lock on.
+    Locked,
 }
 
 impl LaneRefusal {
@@ -64,6 +66,7 @@ impl LaneRefusal {
             LaneRefusal::NoTarget => "The track has nothing to automate there",
             LaneRefusal::TooMany => "A track holds 256 lanes at most",
             LaneRefusal::BeforeStart => "Automation cannot start before the song does",
+            LaneRefusal::Locked => "The clip is locked: unlock it to change its envelopes",
         }
     }
 }
@@ -216,12 +219,15 @@ impl Document {
         gesture: bool,
     ) -> Result<(), LaneRefusal> {
         let held = super::mixer::find(self.project(), track).ok_or(LaneRefusal::NoTrack)?;
-        let start = held
+        let held_clip = held
             .clips
             .iter()
             .find(|c| c.id == clip)
-            .ok_or(LaneRefusal::NoTarget)?
-            .start;
+            .ok_or(LaneRefusal::NoTarget)?;
+        if held_clip.locked {
+            return Err(LaneRefusal::Locked);
+        }
+        let start = held_clip.start;
         let (low, high) = kind.range();
         let points = lane
             .points()

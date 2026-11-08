@@ -64,6 +64,12 @@ impl App {
         self.chain.presets.revealed.clone()
     }
 
+    /// The files "Show in file manager" opened, oldest first (the audio
+    /// editor's File chip and the Project media tab's Reveal).
+    pub fn revealed_files(&self) -> Vec<PathBuf> {
+        self.media_pool.revealed.clone()
+    }
+
     /// Whether Lumen is in safe mode, and whether it is offering it.
     pub fn safe_mode(&self) -> (bool, bool) {
         (self.safe.on, self.safe.offer)

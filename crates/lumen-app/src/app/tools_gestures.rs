@@ -10,6 +10,7 @@ use super::grid::draw_snap_guide;
 use super::info::{Held, Info, Mouse};
 use super::navigate::ViewStep;
 use crate::App;
+use crate::arrangement::clip_marks::Marks;
 use crate::arrangement::select::{ClipRegion, Edge, Gesture, Hover};
 use crate::commands::Command;
 
@@ -369,6 +370,11 @@ impl App {
             return;
         };
         let name = format!("\u{201C}{}\u{201D}", clip.name);
+        // What was done to it, so the marks on a thin clip are read out.
+        let marked = |what: String| match Marks::of(clip).words() {
+            Some(marks) => format!("{what} \u{00B7} {marks}"),
+            None => what,
+        };
         let slip = modifiers.command && modifiers.alt;
         // The cursor shows what a drag does now; the info line says it all.
         let (cursor, info) = match (hit.edge, hit.region) {
@@ -402,7 +408,7 @@ impl App {
                 } else {
                     CursorIcon::Grab
                 },
-                Info::new(format!("Clip {name}"))
+                Info::new(marked(format!("Clip {name}")))
                     .on(Held::NONE, Mouse::Drag, "move")
                     .on(Held::NONE, Mouse::Click, "go to its start")
                     .on(Held::CTRL, Mouse::Drag, "copy")
@@ -413,7 +419,7 @@ impl App {
             ),
             (None, ClipRegion::Body) => (
                 CursorIcon::Text,
-                Info::new(format!("Clip {name}"))
+                Info::new(marked(format!("Clip {name}")))
                     .on(Held::NONE, Mouse::Drag, "select time")
                     .on(Held::CTRL_SHIFT, Mouse::Drag, "select clips")
                     .key(Command::LoopSelection, "loop the selection"),

@@ -228,9 +228,9 @@ pub struct AudioEditorShown {
     pub played: ((f64, f64), Option<(f64, f64)>),
     /// Where the clip's handles were.
     pub handles: Option<AudioHandlesShown>,
-    /// The header's layout, by name, and whether the column was folded.
+    /// The header's layout, by name, and the properties strip's.
     pub layout: &'static str,
-    pub folded: bool,
+    pub strip: &'static str,
     /// The loop brace's band under the ruler, and its ends while the clip
     /// loops.
     pub band: egui::Rect,
@@ -279,7 +279,13 @@ impl App {
                 gain_y: h.fades.gain_y(),
             }),
             layout,
-            folded: self.audio_editor.folded,
+            strip: match self.audio_editor.strip {
+                crate::audio_editor::strip::Layout::Full => "full",
+                crate::audio_editor::strip::Layout::Icons => "icons",
+                crate::audio_editor::strip::Layout::Dot => "dot",
+                crate::audio_editor::strip::Layout::FoldProcessing => "fold processing",
+                crate::audio_editor::strip::Layout::FoldFades => "fold fades",
+            },
             band: d.band,
             brace: d.brace,
         })

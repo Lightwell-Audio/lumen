@@ -636,6 +636,113 @@ fn audio_editor_range() {
     check("audio_editor_range", started);
 }
 
+/// Guides > Clips > Set a clip's gain, fades and processing: the lead
+/// reverses the clip and inverts its polarity from the strip; a gesture clip
+/// each for the gain slider and the File chip; and a shot with the strip's
+/// parts marked.
+#[test]
+#[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
+fn audio_clip_properties() {
+    use eframe::egui::vec2;
+    use egui_kittest::kittest::Queryable;
+
+    let started = Instant::now();
+    for &theme in recorder::themes() {
+        let dir = TempDir::new(&format!("docs-audio-properties-{theme}"));
+        let (mut h, device) = song(&dir, theme);
+        let (editor, _) = open_drums(&mut h);
+        // The strip sits above the ruler: take the header's room as well.
+        let s = h.state().audio_editor_shown().expect("drawn");
+        let editor = Rect::from_min_max(
+            pos2(editor.left(), s.body.top() - 130.0),
+            pos2(editor.right(), editor.bottom()),
+        );
+        let rest = pos2(editor.right() - 40.0, editor.top() + 20.0);
+        let id = h.state().project().tracks[0].clips[0].id;
+
+        // The lead: Reverse, then Polarity.
+        let mut take = Take::clip(
+            &mut h,
+            device,
+            "audio-clip-properties-lead",
+            theme,
+            editor,
+            0.5,
+            rest,
+        );
+        take.hold(&mut h, pace::RESULT / 2);
+        for name in ["Reverse", "Polarity"] {
+            let at = h.get_by_label(name).rect().center();
+            take.move_to(&mut h, at);
+            take.click(&mut h);
+            take.settle(&mut h);
+        }
+        let c = h.state().project().tracks[0].clips[0].clone();
+        assert!(c.reversed && c.inverted, "both are set");
+        take.move_to(&mut h, rest);
+        take.result(&mut h);
+        let device = take.finish();
+        undo_one(&mut h);
+        undo_one(&mut h);
+
+        // The gain slider, dragged down.
+        let mut take = Take::clip(&mut h, device, "audio-clip-gain", theme, editor, 0.5, rest);
+        take.hold(&mut h, pace::RESULT / 2);
+        let slider = h.get_by_label_contains("Clip gain: ").rect().center();
+        take.move_to(&mut h, slider);
+        take.press(&mut h);
+        take.move_to(&mut h, slider + vec2(-24.0, 0.0));
+        take.hold(&mut h, 2);
+        take.release(&mut h);
+        take.settle(&mut h);
+        assert_eq!(h.state().undo_label(), Some("Clip gain"), "one gain step");
+        take.move_to(&mut h, rest);
+        take.result(&mut h);
+        let device = take.finish();
+        undo_one(&mut h);
+
+        // The File chip, opened.
+        let mut take = Take::clip(&mut h, device, "audio-clip-file", theme, editor, 0.5, rest);
+        take.hold(&mut h, pace::RESULT / 2);
+        let chip = h.get_by_label_contains("File: ").rect().center();
+        take.move_to(&mut h, chip);
+        take.click(&mut h);
+        take.settle(&mut h);
+        assert!(
+            h.query_by_label("Show in file manager").is_some(),
+            "the file's facts"
+        );
+        take.move_to(&mut h, rest);
+        take.result(&mut h);
+        let _device = take.finish();
+        h.key_press(Key::Escape);
+        h.run_steps(3);
+        assert!(h.state().project().tracks[0].clips[0].id == id);
+
+        // The shot, the strip's parts marked.
+        let rect = |h: &Harness<'static, App>, label: &str| h.get_by_label_contains(label).rect();
+        let gain = rect(&h, "Clip gain: ");
+        let fades = rect(&h, "Fade in: ").union(rect(&h, "Fade out: "));
+        let processing = rect(&h, "Reverse").union(rect(&h, "Normalize"));
+        let file = rect(&h, "File: ");
+        h.hover_at(rest);
+        still(
+            &mut h,
+            editor,
+            "audio-clip-properties",
+            theme,
+            None,
+            &[
+                ("Gain", gain),
+                ("Fades", fades),
+                ("Processing", processing),
+                ("File", file),
+            ],
+        );
+    }
+    check("audio_clip_properties", started);
+}
+
 /// Guides > Clips > Draw a clip's envelope: the lead lights Gain and adds
 /// points; a gesture clip each for a point, a drawn stroke and the loop
 /// brace; and a shot with the pills, the envelope and the brace marked.

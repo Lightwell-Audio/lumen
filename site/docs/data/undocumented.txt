@@ -69,9 +69,7 @@ edit.select_to_start
 edit.select_to_end
 
 # Commands: Clip
-clip.mute
 clip.crossfade
-clip.properties
 clip.add_previous
 clip.add_next
 clip.unloop
@@ -79,9 +77,6 @@ clip.nudge_earlier
 clip.nudge_later
 clip.nudge_earlier_fine
 clip.nudge_later_fine
-clip.reverse
-clip.polarity
-clip.normalize
 clip.consolidate
 clip.bounce
 clip.take_next

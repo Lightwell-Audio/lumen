@@ -12,6 +12,7 @@
 //! workflow a slice delivers (DEVELOPMENT.md, "End-to-end tests").
 
 mod access;
+mod audio_clip_properties;
 mod audio_editor;
 mod audio_editor_envelopes;
 mod audio_editor_handles;
@@ -28,6 +29,7 @@ mod bounce;
 mod browser_files;
 mod capture_midi;
 mod chrome;
+mod clip_badges;
 mod clip_commands;
 mod clip_envelopes;
 mod clips;

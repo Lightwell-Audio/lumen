@@ -904,9 +904,20 @@ onto an empty page.
     caption and shortens, the grid chip its word); **More** (the view
     buttons move into a ⋯ icon button's menu); **Least** (the colour bar,
     the grid's icon and ⋯). A control that loses its word keeps it in its
-    tooltip and accessible name. When the properties column would leave the
-    wave under 320 pt (`size::WAVE_LEAST`) it folds, and Clip properties is
-    in the ⋯ menu at every layout;
+    tooltip and accessible name. Under it sits **the properties strip** (M9.5 S3,
+    ADR-0128): 32 pt (`size::EDITOR_STRIP`) on the app's ground with a
+    bottom hairline, left to right the Clip chip (dot and name, opens Name and
+    Color), Gain (`STRIP_GAIN` 104 pt, `STRIP_GAIN_LEAST` 56), Mute and Lock
+    icon toggles, the fades (`STRIP_FADE` 76 and `STRIP_SHAPE` 70 each),
+    Reverse, Polarity and Normalize, ⋯ and the File chip (`STRIP_FILE` 150,
+    shrinking to its icon). It takes the first of four layouts that fit:
+    Full, Icons, Fold Processing, Fold Fades; a control that loses its word
+    keeps it in its tooltip and accessible name; a locked clip dims Gain, the
+    fades and Processing and says why;
+  - **clip marks on the arrangement** (S3): a 9 pt Reverse and a 9 pt
+    Polarity icon at the right end of a clip's title, left of the padlock and
+    the take counter, in the title's own ink; short of room one 5 pt dot,
+    on a clip under 24 pt wide the dot alone, under 10 pt nothing;
   - **the handles** (M9.5 S2a, HS A): always drawn, quiet, and lit in
     `accent` under the pointer, during a drag or with the keyboard. The trim
     grips are 4 × 22 pt tabs (`size::GRIP_WIDTH`, `GRIP_HEIGHT`) in

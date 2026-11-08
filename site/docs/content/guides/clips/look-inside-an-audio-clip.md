@@ -67,6 +67,8 @@ editor" and "Zoom the audio editor to the clip".
 - If the file is missing, the editor says so and offers **Open the media
   pool**, where you can find it again.
 - Looking around changes nothing in the song, so there is nothing to undo.
+- To set the gain, fades, Reverse, Polarity or Normalize, or to find the clip's file, use the strip under the header; see
+  [Set a clip's gain, fades and processing](@/guides/clips/set-a-clips-gain-fades-and-processing.md).
 - To trim, fade, set the gain or slide the audio right here, see
   [Trim and fade inside an audio clip](@/guides/clips/trim-and-fade-inside-an-audio-clip.md).
 

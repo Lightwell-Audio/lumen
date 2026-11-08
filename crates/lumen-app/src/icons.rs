@@ -96,11 +96,17 @@ pub enum Icon {
     Folder,
     /// The Project media tab: a disc.
     Disc,
+    /// Reverse (M9.5 S3): an arrow running back over a short wave.
+    Reverse,
+    /// Polarity inverted (M9.5 S3): a ring with a slash that runs past it.
+    Polarity,
+    /// Normalize (M9.5 S3): a level raised to a ceiling.
+    Normalize,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 43] = [
+    pub const ALL: [Icon; 46] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -144,6 +150,9 @@ impl Icon {
         Icon::Document,
         Icon::Folder,
         Icon::Disc,
+        Icon::Reverse,
+        Icon::Polarity,
+        Icon::Normalize,
     ];
 }
 
@@ -617,6 +626,33 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
         Icon::Disc => vec![
             Shape::circle_stroke(g.p(8.0, 8.0), 5.5 * g.unit, stroke),
             Shape::circle_filled(g.p(8.0, 8.0), 1.5 * g.unit, color),
+        ],
+        Icon::Reverse => vec![
+            // Two short wave bars under an arrow that points back.
+            Shape::line_segment([g.p(13.5, 5.0), g.p(3.5, 5.0)], stroke),
+            Shape::convex_polygon(
+                vec![g.p(2.0, 5.0), g.p(6.0, 2.2), g.p(6.0, 7.8)],
+                color,
+                none,
+            ),
+            Shape::line_segment([g.p(5.0, 10.0), g.p(5.0, 13.5)], stroke),
+            Shape::line_segment([g.p(8.0, 9.0), g.p(8.0, 14.5)], stroke),
+            Shape::line_segment([g.p(11.0, 10.5), g.p(11.0, 13.0)], stroke),
+        ],
+        Icon::Polarity => vec![
+            // The slash runs past the ring, which tells it from the Mute
+            // tool's circle.
+            Shape::circle_stroke(g.p(8.0, 8.0), 4.5 * g.unit, stroke),
+            Shape::line_segment([g.p(3.0, 13.0), g.p(13.0, 3.0)], stroke),
+        ],
+        Icon::Normalize => vec![
+            Shape::line_segment([g.p(2.5, 3.0), g.p(13.5, 3.0)], stroke),
+            Shape::line_segment([g.p(8.0, 13.5), g.p(8.0, 6.5)], stroke),
+            Shape::convex_polygon(
+                vec![g.p(8.0, 4.6), g.p(4.8, 8.4), g.p(11.2, 8.4)],
+                color,
+                none,
+            ),
         ],
         Icon::Window => vec![
             Shape::rect_stroke(

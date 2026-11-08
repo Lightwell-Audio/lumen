@@ -371,9 +371,12 @@ impl App {
                     .any(|t| !t.clips.is_empty()),
                 "There are no clips yet",
             ),
-            Command::ClipProperties | Command::AddPreviousClip | Command::AddNextClip => {
-                need(clip, "Select a clip first")
+            Command::ClipProperties => {
+                need(clip || self.properties_in_strip(ctx), "Select a clip first")
             }
+            Command::AddPreviousClip | Command::AddNextClip => need(clip, "Select a clip first"),
+            Command::LockClips => need(clip, "Select a clip first"),
+            Command::RevealClipFile => self.reveal_clip_file_unavailable(),
             Command::CreateMidiClip => need(
                 self.midi_track_for_new_clip().is_some(),
                 "Select a MIDI track first",

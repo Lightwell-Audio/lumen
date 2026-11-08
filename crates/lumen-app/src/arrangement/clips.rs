@@ -19,6 +19,7 @@ use lumen_project::model::{Clip, ClipContent, Project, TrackKind};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle};
 
 use super::clip_look::{ClipLook, ClipState, clip_box, draw_body, draw_name, item_state, look_of};
+use super::clip_marks::Marks;
 use super::recording_look::{self, Paint, RecordingLook};
 use super::samples::{Geometry, Pixels, Strips};
 use super::waves::{Source, wave_instances};
@@ -81,6 +82,7 @@ pub(super) fn draw_recording_take(painter: &Painter, rect: Rect, lane: Rect, nam
         alpha: 1.0,
         locked: false,
         paint: recording_look::take_paint(theme::p()),
+        marks: Marks::default(),
     };
     draw_body(painter, rect, &look);
     draw_name(painter, rect, lane, &look);
@@ -435,6 +437,7 @@ impl Arrangement {
                             alpha: lanes.shown(id, ctx),
                             locked: false,
                             paint: Paint::default(),
+                            marks: Marks::default(),
                         };
                         draw_body(painter, rect, &look);
                         draw_name(painter, rect, lane, &look);
@@ -467,6 +470,7 @@ impl Arrangement {
                         alpha: shown,
                         locked: false,
                         paint: Paint::default(),
+                        marks: Marks::default(),
                     };
                     draw_body(painter, rect, &look);
                     draw_name(painter, rect, lane, &look);
@@ -615,7 +619,8 @@ impl Arrangement {
         gpu.live_generation += 1;
     }
 
-    /// The file of the audio clip under `pointer`, for the hover card.
+    /// The file of the audio clip under `pointer`, and what was done to the
+    /// clip, for the hover card.
     pub fn item_at<'a>(
         &self,
         ctx: &egui::Context,
@@ -624,7 +629,7 @@ impl Arrangement {
         project: &Project,
         lanes: &'a Lanes,
         time: TimeView,
-    ) -> Option<&'a Item> {
+    ) -> Option<(&'a Item, Marks)> {
         let zone = self.zone_at(ctx, project, pointer.y - canvas.top())?;
         let rows = self.rows(ctx, project, lanes.pending().len());
         let row = rows.iter().filter(|r| r.zone == zone).find(|r| {
@@ -635,9 +640,10 @@ impl Arrangement {
             RowKind::Track(index) => project.tracks[index].clips.iter().find_map(|clip| {
                 let (x0, x1) = span(time, canvas, clip);
                 match &clip.content {
-                    ClipContent::Audio { media, .. } if (x0..=x1).contains(&pointer.x) => {
-                        lanes.library.get(media.0)
-                    }
+                    ClipContent::Audio { media, .. } if (x0..=x1).contains(&pointer.x) => lanes
+                        .library
+                        .get(media.0)
+                        .map(|item| (item, Marks::of(clip))),
                     _ => None,
                 }
             }),
@@ -646,7 +652,7 @@ impl Arrangement {
                 let x0 = time.x(canvas.left(), at.as_quarters());
                 (x0..=x0 + PENDING_WIDTH)
                     .contains(&pointer.x)
-                    .then(|| lanes.library.get(id))
+                    .then(|| lanes.library.get(id).map(|item| (item, Marks::default())))
                     .flatten()
             }
             RowKind::Master => None,

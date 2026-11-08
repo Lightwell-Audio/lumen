@@ -655,10 +655,15 @@ pub mod size {
     pub const BEAT_TICK: f32 = 5.0;
     pub const TIME_TICK: f32 = 6.0;
     pub const SAMPLE_DOT: f32 = 2.0;
-    /// Below this width the audio editor's header buttons take short words.
-    /// The audio editor keeps at least this much wave beside its properties
-    /// column; less and the column folds.
-    pub const WAVE_LEAST: f32 = 320.0;
+    /// The audio editor's properties strip under its header (M9.5 S3): its
+    /// height, the least a gain slider and a fade slider take before they
+    /// fold, and the file chip's widest and narrowest.
+    pub const EDITOR_STRIP: f32 = 32.0;
+    pub const STRIP_GAIN_LEAST: f32 = 56.0;
+    pub const STRIP_GAIN: f32 = 104.0;
+    pub const STRIP_FADE: f32 = 76.0;
+    pub const STRIP_SHAPE: f32 = 70.0;
+    pub const STRIP_FILE: f32 = 150.0;
     /// The tab on an audio editor's trim grip.
     pub const GRIP_WIDTH: f32 = 4.0;
     pub const GRIP_HEIGHT: f32 = 22.0;

@@ -565,9 +565,6 @@ fn the_header_fits_the_smallest_windows_with_every_action_reachable() {
             "the views are in the strip or its menu at {width} ({}): {names:?}",
             s.layout
         );
-        if s.folded {
-            assert!(names.contains(&"More"), "Clip properties is in the menu");
-        }
         for tool in ["Pointer tool", "Draw tool"] {
             assert!(names.contains(&tool), "{tool} at {width}: {names:?}");
         }

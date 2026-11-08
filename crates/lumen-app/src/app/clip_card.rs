@@ -10,14 +10,14 @@ use std::sync::Arc;
 
 use eframe::egui::{self, FontId, Key, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use eframe::egui::{pos2, vec2};
-use lumen_core::fade::FadeShape;
-use lumen_core::time::{TempoMap, Ticks};
+use lumen_core::time::TempoMap;
 use lumen_project::edit::Edge;
 use lumen_project::model::{Clip, ClipContent, Color, Id, Project};
 
+use crate::app::clip_controls::fade_label;
 use crate::arrangement::{TITLE, color_from, color_of};
 use crate::commands::Command;
-use crate::widgets::{self, SliderKind};
+use crate::widgets;
 use crate::{App, lanes, theme};
 
 /// The card's width: its content wraps or truncates inside it.
@@ -28,6 +28,8 @@ const LABEL_WIDTH: f32 = theme::size::LABEL_COLUMN_NARROW;
 const ROW: f32 = theme::size::CONTROL_SMALL;
 /// A colour swatch.
 const SWATCH: f32 = 14.0;
+/// A fade's shape dropdown in the card.
+const FADE_SHAPE: f32 = 76.0;
 /// The narrowest title-bar rename field.
 const RENAME_MIN_WIDTH: f32 = 120.0;
 
@@ -65,32 +67,6 @@ fn find(project: &Project, id: Id) -> Option<(&Arc<Clip>, egui::Color32)> {
     })
 }
 
-/// How long the fade at `edge` of `clip` lasts, in milliseconds.
-fn fade_ms(tempo: &TempoMap, clip: &Clip, edge: Edge) -> f32 {
-    let end = clip.start + clip.length;
-    let (a, b) = match edge {
-        Edge::Start => (clip.start, clip.start + clip.fade_in.length),
-        Edge::End => (end - clip.fade_out.length, end),
-    };
-    ((tempo.seconds_at(b) - tempo.seconds_at(a)) * 1000.0) as f32
-}
-
-/// How long `clip` lasts, in milliseconds.
-fn clip_ms(tempo: &TempoMap, clip: &Clip) -> f32 {
-    let end = clip.start + clip.length;
-    ((tempo.seconds_at(end) - tempo.seconds_at(clip.start)) * 1000.0) as f32
-}
-
-/// The length of a fade at `edge` of `clip` that lasts `ms`.
-fn fade_ticks(tempo: &TempoMap, clip: &Clip, edge: Edge, ms: f32) -> Ticks {
-    let seconds = f64::from(ms.clamp(0.0, clip_ms(tempo, clip))) / 1000.0;
-    let end = clip.start + clip.length;
-    match edge {
-        Edge::Start => tempo.ticks_at_seconds(tempo.seconds_at(clip.start) + seconds) - clip.start,
-        Edge::End => end - tempo.ticks_at_seconds(tempo.seconds_at(end) - seconds),
-    }
-}
-
 /// Where the card goes: right of the clip's part in view, or left of it
 /// when there is no room, kept across the lanes and inside the window
 /// (`screen`), so a short window does not cut it off; at the top centre
@@ -118,7 +94,7 @@ pub(crate) fn card_place(clip: Option<Rect>, canvas: Rect, screen: Rect, size: V
 }
 
 /// One labelled row of the card.
-fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
+pub(crate) fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal(|ui| {
         ui.allocate_ui_with_layout(
             vec2(LABEL_WIDTH, ROW),
@@ -298,7 +274,7 @@ impl App {
     }
 
     /// Locks the selected clips, or unlocks them when all are locked.
-    fn toggle_clip_lock(&mut self) {
+    pub(crate) fn toggle_clip_lock(&mut self) {
         let ids: Vec<Id> = self.arrangement.clips.iter().copied().collect();
         let project = self.document.project();
         let all = ids
@@ -311,6 +287,24 @@ impl App {
     pub(crate) fn start_clip_rename(&mut self, id: Id) {
         if let Some((clip, _)) = find(self.document.project(), id) {
             self.clip_props.renaming = Some((id, clip.name.clone()));
+        }
+    }
+
+    /// The next Name field drawn (the card's, the editor's Clip chip's) takes
+    /// the keyboard.
+    pub(crate) fn clip_props_focus_name(&mut self) {
+        self.clip_props.name = None;
+        self.clip_props.focus_name = true;
+    }
+
+    /// The popover that held the name field closed: a name that was being
+    /// typed is applied, unless the closing was an Esc (`cancelled`).
+    pub(crate) fn apply_pending_clip_name(&mut self, clip: &Clip, cancelled: bool) {
+        if let Some(name) = self.clip_props.name.take()
+            && !cancelled
+            && name != clip.name
+        {
+            self.document.rename_clip(clip.id, &name);
         }
     }
 
@@ -367,10 +361,7 @@ impl App {
         });
         ui.separator();
         self.context_command(ui, Command::MuteClips, &mute);
-        if widgets::menu_item(ui, &lock, None, true).clicked() {
-            self.toggle_clip_lock();
-            ui.close();
-        }
+        self.context_command(ui, Command::LockClips, &lock);
         // The sound of audio clips: none of these is listed for MIDI.
         let audio = self.selection_has_audio();
         if audio {
@@ -516,7 +507,7 @@ impl App {
                     .stroke(Stroke::new(theme::stroke::HAIRLINE, palette.accent))
                     .show(ui, |ui| {
                         ui.set_width(CARD_WIDTH);
-                        close = self.card_contents(ui, &clip, track, &tempo, false);
+                        close = self.card_contents(ui, &clip, track, &tempo);
                     });
             });
         self.clip_props.size = Some(shown.response.rect.size());
@@ -529,42 +520,24 @@ impl App {
         }
     }
 
-    /// The card's rows for clip `id`, without its title row: the Clip
-    /// tab's properties column (DP1). False when the clip is gone.
-    pub(crate) fn docked_clip_props(&mut self, ui: &mut egui::Ui, id: Id) -> bool {
-        let project = self.document.project();
-        let (Some((clip, track)), Ok(tempo)) =
-            (find(project, id), TempoMap::new(project.tempo.clone()))
-        else {
-            return false;
-        };
-        let clip = Arc::clone(clip);
-        self.card_contents(ui, &clip, track, &tempo, true);
-        true
-    }
-
-    /// What the card shows; true when its close button was clicked.
-    /// `docked` is the Clip tab's column: no title row, and fields of
-    /// their own, apart from a card open at the same time.
-    fn card_contents(
+    /// The card's Name and Color rows, which the audio editor's Clip chip
+    /// shows too (M9.5 S3, D37). `place` tells the two apart: it is part of
+    /// the name field's id. `focus` puts the keyboard in the name field.
+    pub(crate) fn name_and_color_rows(
         &mut self,
         ui: &mut egui::Ui,
         clip: &Clip,
         track: egui::Color32,
-        tempo: &TempoMap,
-        docked: bool,
-    ) -> bool {
-        let palette = *theme::p();
+        place: &'static str,
+    ) {
         let id = clip.id;
-        let close = !docked && widgets::title_row(ui, "Clip", true);
-
         row(ui, "Name", |ui| {
             let props = &mut self.clip_props;
             let text = props.name.get_or_insert_with(|| clip.name.clone());
             let cancel = ui.input(|i| i.key_pressed(Key::Escape));
             let response = ui.add(
                 egui::TextEdit::singleline(text)
-                    .id(egui::Id::new(("clip card name", id, docked)))
+                    .id(egui::Id::new(("clip card name", id, place)))
                     .desired_width(ui.available_width()),
             );
             response.widget_info(|| {
@@ -590,69 +563,33 @@ impl App {
                 self.document.recolor_clips(&[id], color);
             }
         });
+    }
 
-        if let ClipContent::Audio { gain_db, media, .. } = &clip.content {
+    /// What the card shows; true when its close button was clicked.
+    fn card_contents(
+        &mut self,
+        ui: &mut egui::Ui,
+        clip: &Clip,
+        track: egui::Color32,
+        tempo: &TempoMap,
+    ) -> bool {
+        let palette = *theme::p();
+        let id = clip.id;
+        let close = widgets::title_row(ui, "Clip", true);
+        self.name_and_color_rows(ui, clip, track, "card");
+
+        if let ClipContent::Audio { media, .. } = &clip.content {
             ui.add_enabled_ui(!clip.locked, |ui| {
                 row(ui, "Gain", |ui| {
                     let (rect, _) =
                         ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::hover());
-                    let db = widgets::value_slider(
-                        ui,
-                        rect,
-                        egui::Id::new(("clip card gain", id, docked)),
-                        *gain_db,
-                        SliderKind::ClipGain,
-                        "Clip gain",
-                        theme::controls(false),
-                    );
-                    if (db - gain_db).abs() > 1e-4 {
-                        self.document.set_clip_gain(&[id], db, Some("card gain"));
-                    }
+                    self.clip_gain_slider(ui, rect, clip, egui::Id::new(("clip card gain", id)));
                 });
-                for (edge, label, fade) in [
-                    (Edge::Start, "Fade in", &clip.fade_in),
-                    (Edge::End, "Fade out", &clip.fade_out),
-                ] {
+                for edge in [Edge::Start, Edge::End] {
+                    let label = fade_label(edge);
                     row(ui, label, |ui| {
-                        let combo = 76.0;
-                        let width = ui.available_width() - combo - ui.spacing().item_spacing.x;
-                        let (rect, _) = ui.allocate_exact_size(vec2(width, ROW), Sense::hover());
-                        let ms = fade_ms(tempo, clip, edge);
-                        let max_ms = clip_ms(tempo, clip);
-                        let set = widgets::value_slider(
-                            ui,
-                            rect,
-                            egui::Id::new(("clip card fade", id, label, docked)),
-                            ms,
-                            SliderKind::Millis { max_ms },
-                            label,
-                            theme::controls(false),
-                        );
-                        if (set - ms).abs() > 0.05 {
-                            let length = fade_ticks(tempo, clip, edge, set);
-                            self.document
-                                .set_fade_length(id, edge, length, Some("card fade"));
-                        }
-                        let now = FadeShape::of(&fade.curve);
-                        let names: Vec<&str> =
-                            FadeShape::ALL.iter().map(|shape| shape.name()).collect();
-                        let chosen =
-                            now.and_then(|now| FadeShape::ALL.iter().position(|s| *s == now));
-                        let shown = now.map_or("Custom", FadeShape::name);
-                        let name = format!("{label} shape");
-                        if let Some(i) = widgets::Dropdown::new(&name, shown, combo).show(
-                            ui,
-                            egui::Id::new(("clip card shape", id, label, docked)),
-                            &names,
-                            chosen,
-                        ) {
-                            self.document.set_fade_curve(
-                                &[id],
-                                edge,
-                                FadeShape::ALL[i].curve(),
-                                None,
-                            );
-                        }
+                        let ids = (egui::Id::new(("clip card fade", id, label)), FADE_SHAPE);
+                        self.clip_fade_row(ui, (clip, tempo), edge, ids);
                     });
                 }
             });
@@ -722,47 +659,6 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lumen_core::fade::Fade;
-
-    fn clip(start: i64, quarters: i64) -> Clip {
-        Clip {
-            id: Id(1),
-            name: "Kick".into(),
-            start: Ticks::quarters(start),
-            length: Ticks::quarters(quarters),
-            muted: false,
-            color: None,
-            locked: false,
-            crossfade: false,
-            fade_in: Fade::default(),
-            fade_out: Fade::default(),
-            loop_length: None,
-            loop_phase: Default::default(),
-            envelopes: Default::default(),
-            audio_phase_seconds: 0.0,
-            reversed: false,
-            inverted: false,
-            takes: None,
-            content: ClipContent::midi(),
-        }
-    }
-
-    #[test]
-    fn fade_lengths_read_and_set_in_milliseconds() {
-        // 120 BPM: a quarter is 500 ms.
-        let tempo = TempoMap::constant(120.0).expect("a tempo");
-        let mut c = clip(4, 8);
-        assert_eq!(clip_ms(&tempo, &c), 4000.0);
-        c.fade_in.length = fade_ticks(&tempo, &c, Edge::Start, 250.0);
-        c.fade_out.length = fade_ticks(&tempo, &c, Edge::End, 1000.0);
-        assert_eq!(c.fade_in.length, Ticks(Ticks::quarters(1).0 / 2));
-        assert_eq!(c.fade_out.length, Ticks::quarters(2));
-        assert!((fade_ms(&tempo, &c, Edge::Start) - 250.0).abs() < 0.01);
-        assert!((fade_ms(&tempo, &c, Edge::End) - 1000.0).abs() < 0.01);
-        // Never longer than the clip.
-        assert_eq!(fade_ticks(&tempo, &c, Edge::End, 1e9), c.length);
-    }
-
     #[test]
     fn the_card_sits_beside_its_clip_inside_the_lanes() {
         let canvas = Rect::from_min_size(pos2(200.0, 100.0), vec2(800.0, 400.0));

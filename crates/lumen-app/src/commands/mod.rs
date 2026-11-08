@@ -276,6 +276,8 @@ pub(crate) enum Command {
     AudioEditorPanEnvelope,
     AudioEditorClipLoop,
     AudioEditorLoopClip,
+    LockClips,
+    RevealClipFile,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -639,6 +641,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AudioEditorPanEnvelope, "view.audio_editor_pan_envelope", "Show the clip's pan envelope", Area::View, &[], "Shows the opened audio clip's pan envelope over its wave in the audio editor, to add, move and draw its points. Again hides it."),
     info(Command::AudioEditorClipLoop, "clip.audio_editor_clip_loop", "Loop audio in clip", Area::Clip, &[], "Loops the opened audio clip's audio, or stops it looping. What plays up to the first repeat stays the same; the brace under the editor's ruler sets the loop's ends."),
     info(Command::AudioEditorLoopClip, "view.audio_editor_loop_clip", "Loop clip", Area::View, &[], "Plays the opened audio clip, or the range picked on it, on repeat while you edit it, with the other tracks heard. The song's own loop is not changed and nothing is saved. Again stops it."),
+    info(Command::LockClips, "clip.lock", "Lock clip", Area::Clip, &[], "Locks the selected clips so they cannot be moved, trimmed, faded or deleted, or unlocks them when all are locked. A locked clip can still be muted, renamed and recolored."),
+    info(Command::RevealClipFile, "clip.reveal_file", "Show the clip's file", Area::Clip, &[], "Shows the audio file of the selected clip in the file manager. The file itself is not changed. It is not offered while the file is missing; relink it first."),
 ];
 
 const fn info(
@@ -702,7 +706,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::AudioEditorLoopClip as usize + 1,
+            Command::RevealClipFile as usize + 1,
             ALL.len(),
             "a command is missing"
         );

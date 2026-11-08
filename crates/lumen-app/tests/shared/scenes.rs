@@ -115,6 +115,20 @@ pub const SCENES: &[Scene] = &[
         callouts: &[("audio-editor-range", &["Range"])],
     },
     Scene {
+        test: "audio_clip_properties",
+        clips: &[
+            "audio-clip-properties-lead",
+            "audio-clip-gain",
+            "audio-clip-file",
+        ],
+        shots: &["audio-clip-properties"],
+        walks: &[],
+        callouts: &[(
+            "audio-clip-properties",
+            &["Gain", "Fades", "Processing", "File"],
+        )],
+    },
+    Scene {
         test: "audio_editor_envelopes",
         clips: &[
             "audio-editor-envelopes-lead",

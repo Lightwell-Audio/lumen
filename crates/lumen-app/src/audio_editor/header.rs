@@ -63,9 +63,6 @@ pub(crate) struct Widths {
     pub view_icons: f32,
     /// The ⋯ button.
     pub more: f32,
-    /// The ⋯ button is there in every layout: the properties column is
-    /// folded, and Clip properties lives in it.
-    pub always_more: bool,
 }
 
 /// How much room the left parts and the right parts keep between them, and
@@ -76,27 +73,22 @@ const RIGHT_GAP: f32 = theme::space::S;
 /// The first layout that fits. [`Layout::Least`] is taken when none does:
 /// nothing is left out of it, as the menu holds the rest.
 pub(crate) fn choose(w: Widths) -> Layout {
-    let more = if w.always_more {
-        w.more + RIGHT_GAP
-    } else {
-        0.0
-    };
     let left = |parts: &[f32]| parts.iter().sum::<f32>() + LEFT_GAP * (parts.len() - 1) as f32;
     let pills = w.pills + RIGHT_GAP;
     let fits = |left: f32, right: f32| left + LEFT_GAP + right <= w.room;
     if fits(
         left(&[w.title, w.tools, w.grid, w.toggles_words]),
-        pills + w.view_words + more,
+        pills + w.view_words,
     ) {
         Layout::Words
     } else if fits(
         left(&[w.title, w.tools, w.grid, w.toggles_icons]),
-        pills + w.view_icons + more,
+        pills + w.view_icons,
     ) {
         Layout::Icons
     } else if fits(
         left(&[w.title_short, w.tools_icons, w.grid_value, w.toggles_icons]),
-        pills + w.view_icons + more,
+        pills + w.view_icons,
     ) {
         Layout::Compact
     } else if fits(
@@ -107,11 +99,6 @@ pub(crate) fn choose(w: Widths) -> Layout {
     } else {
         Layout::Least
     }
-}
-
-/// Whether the properties column folds: it would leave the wave too little.
-pub(crate) fn folds(area: f32, column: f32) -> bool {
-    area - column < theme::size::WAVE_LEAST
 }
 
 #[cfg(test)]
@@ -135,7 +122,6 @@ mod tests {
             view_words: 180.0,
             view_icons: 56.0,
             more: 24.0,
-            always_more: false,
         }
     }
 
@@ -158,27 +144,9 @@ mod tests {
     }
 
     #[test]
-    fn a_folded_column_keeps_the_menu_in_every_layout() {
-        let plain = widths(936.0);
-        let folded = Widths {
-            always_more: true,
-            ..plain
-        };
-        assert_eq!(choose(plain), Layout::Words);
-        assert_eq!(choose(folded), Layout::Icons, "the menu takes room");
-    }
-
-    #[test]
     fn only_the_least_layout_moves_the_pills_into_the_menu() {
         assert!(Layout::More.shows_pills() && !Layout::More.shows_views());
         assert!(!Layout::Least.shows_pills());
         assert!(Layout::Compact.shows_views());
-    }
-
-    #[test]
-    fn the_column_folds_when_it_would_leave_too_little_wave() {
-        assert!(!folds(1_000.0, 296.0));
-        assert!(folds(444.0, 296.0));
-        assert!(folds(260.0, 296.0));
     }
 }

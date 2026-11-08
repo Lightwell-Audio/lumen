@@ -532,6 +532,29 @@ impl App {
         self.arrangement.clips = std::iter::once(id).collect();
     }
 
+    /// Selects exactly these clips, as a marquee would.
+    pub fn select_clips(&mut self, ids: &[Id]) {
+        self.arrangement.selected.clear();
+        self.arrangement.clips = ids.iter().copied().collect();
+    }
+
+    /// Reverses and inverts the polarity of these clips, as the two
+    /// commands do (for the clip marks' screenshots).
+    pub fn mark_clips(&mut self, ids: &[Id]) {
+        self.document.reverse_clips(ids);
+        self.document.invert_clips(ids);
+    }
+
+    /// The audio clip the Clip tab has open, if any.
+    pub fn opened_audio_clip(&self) -> Option<Id> {
+        self.detail_audio_clip()
+    }
+
+    /// Sets a clip's gain as the properties card does (one undo step).
+    pub fn set_clip_gain_like_the_card(&mut self, clip: Id, db: f32) {
+        self.document.set_clip_gain(&[clip], db, Some("card gain"));
+    }
+
     /// Trims the end of a clip to `to`, as dragging its right edge would;
     /// with `looping` the clip repeats to fill the new length.
     pub fn trim_clip_end_to(&mut self, clip: Id, to: lumen_core::time::Ticks, looping: bool) {

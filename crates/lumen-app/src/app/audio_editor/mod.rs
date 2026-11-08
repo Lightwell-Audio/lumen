@@ -1,6 +1,5 @@
-//! The audio clip editor in the Clip tab (M9.5 S1): the clip card's rows in
-//! a column at the left (until S3 moves them into the strip, the owner's L
-//! B), and at the right the clip editors' shared header over the editor: a
+//! The audio clip editor in the Clip tab (M9.5 S1): the clip editors' shared
+//! header, the properties strip under it (S3, `strip`), then the editor: a
 //! ruler of bars and file time, and the clip's whole file with the part it
 //! plays bright. The drawing is `audio_editor::paint`; the mapping
 //! `audio_editor::source`; the handles are `gestures` (the pointer) and `keys`
@@ -14,6 +13,8 @@ mod hearing;
 pub(crate) mod keys;
 mod range;
 pub(crate) mod stops;
+mod strip;
+mod strip_chips;
 mod view;
 mod window;
 
@@ -32,7 +33,6 @@ use crate::app::clip_header::HEADER;
 use crate::arrangement::{self, waves};
 use crate::audio_editor::brace::RULER;
 use crate::audio_editor::handles::{self as handle_marks, EditorHandles};
-use crate::audio_editor::header::folds;
 use crate::audio_editor::paint::{self, SAMPLES_BELOW, SPLIT_FROM, Samples, WaveInput, WaveLook};
 use crate::audio_editor::source::{self, WholeFile};
 use crate::audio_editor::{AudioEditor, Drawn, Fit};
@@ -42,9 +42,6 @@ use crate::timeview::TimeView;
 use crate::widgets::{self, raised};
 use crate::{App, theme};
 
-/// The properties column at the left: the clip card's rows, with its
-/// padding.
-const PROPS_WIDTH: f32 = crate::app::clip_card::CARD_WIDTH + 2.0 * theme::space::M;
 /// The editor needs at least this much wave area to be drawn.
 const MIN_BODY: f32 = 24.0;
 /// The most samples read for one frame's drawing (a screen's width at
@@ -59,53 +56,16 @@ struct Loaded {
 }
 
 impl App {
-    /// An opened audio clip: its properties beside the editor.
+    /// An opened audio clip: its editor, with the header and the properties
+    /// strip over it.
     pub(crate) fn audio_clip_view(&mut self, ui: &mut Ui, area: Rect, clip: Id) {
-        // Too narrow for both, the wave has the room: Clip properties is
-        // then in the header's menu (M9.5 D24).
-        let folded = folds(area.width(), PROPS_WIDTH);
-        self.audio_editor.folded = folded;
-        if folded {
-            if self.detail.audio_popped {
-                self.popped_note(ui, area);
-                return;
-            }
-            let mut ed = std::mem::take(&mut self.audio_editor);
-            self.draw_audio_editor(ui, area, clip, &mut ed);
-            self.audio_editor = ed;
+        if self.detail.audio_popped {
+            self.popped_note(ui, area);
             return;
         }
-        let palette = *theme::p();
-        let column =
-            Rect::from_min_size(area.min, vec2(PROPS_WIDTH.min(area.width()), area.height()));
-        ui.painter().rect_filled(column, 0.0, palette.app);
-        ui.painter().vline(
-            column.right() - theme::stroke::HAIRLINE / 2.0,
-            column.y_range(),
-            egui::Stroke::new(theme::stroke::HAIRLINE, palette.border),
-        );
-        let mut props = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(column.shrink(theme::space::M))
-                .layout(egui::Layout::top_down(egui::Align::Min)),
-        );
-        egui::ScrollArea::vertical()
-            .id_salt("docked clip properties")
-            .auto_shrink([false, false])
-            .show(&mut props, |ui| {
-                ui.set_width(crate::app::clip_card::CARD_WIDTH.min(ui.available_width()));
-                self.docked_clip_props(ui, clip);
-            });
-        let editor = Rect::from_min_max(pos2(column.right(), area.top()), area.max);
-        if editor.width() > 2.0 * theme::space::L {
-            if self.detail.audio_popped {
-                self.popped_note(ui, editor);
-                return;
-            }
-            let mut ed = std::mem::take(&mut self.audio_editor);
-            self.draw_audio_editor(ui, editor, clip, &mut ed);
-            self.audio_editor = ed;
-        }
+        let mut ed = std::mem::take(&mut self.audio_editor);
+        self.draw_audio_editor(ui, area, clip, &mut ed);
+        self.audio_editor = ed;
     }
 
     /// The note that stands where the editor was while it is in its own
@@ -174,9 +134,13 @@ impl App {
         let file = loaded.as_ref().and_then(|l| self.file_of(&clip, l, ed));
 
         let header = Rect::from_min_size(area.min, vec2(area.width(), HEADER));
-        let ruler = Rect::from_min_max(
+        let strip = Rect::from_min_size(
             pos2(area.left(), header.bottom()),
-            pos2(area.right(), header.bottom() + RULER),
+            vec2(area.width(), theme::size::EDITOR_STRIP),
+        );
+        let ruler = Rect::from_min_max(
+            pos2(area.left(), strip.bottom()),
+            pos2(area.right(), strip.bottom() + RULER),
         );
         let (scale, band) = self::brace::split_ruler(ruler);
         let body = Rect::from_min_max(pos2(area.left(), ruler.bottom()), area.max);
@@ -212,11 +176,11 @@ impl App {
             }
         }
         self.audio_header(ui, header, (&clip, colour), file.as_ref(), ed);
+        self.audio_strip(ui, strip, (&clip, colour), ed);
         let is_loaded = loaded.is_some();
         let (Some(file), Some(loaded)) = (file, loaded) else {
             // Nothing to zoom: keys pressed now do not wait for a file.
             ed.zooms.clear();
-            ed.hovered = false;
             ed.last = None;
             self.audio_empty_state(ui, Rect::from_min_max(ruler.min, area.max), key, is_loaded);
             return;
@@ -245,7 +209,7 @@ impl App {
             self.transport.follow_paused = true;
         }
         self.audio_follow(ed, body);
-        ed.hovered = over.is_some();
+        ed.hovered |= over.is_some();
         // A handle that took the keyboard or moved by a key comes into view.
         if let Some(part) = ed.reveal.take()
             && let Some(q) = self

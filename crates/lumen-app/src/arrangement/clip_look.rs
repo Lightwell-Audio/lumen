@@ -6,6 +6,7 @@ use eframe::egui::{self, Align2, Color32, FontId, Painter, Rect, Stroke, pos2, v
 use lumen_project::model::{Clip, ClipContent};
 use lumen_render::{BoxInstance, beats, rgba};
 
+use super::clip_marks::{self, DOT, GAP, MARK, Marks, Placed};
 use super::recording_look::Paint;
 use super::{TITLE, clip_color};
 use crate::lanes::Lanes;
@@ -57,6 +58,8 @@ pub(super) struct ClipLook<'a> {
     pub(super) locked: bool,
     /// What a recording gives the clip (3-A): none for a clip not recording.
     pub(super) paint: Paint,
+    /// What was done to the clip that its name does not say (M9.5 S3).
+    pub(super) marks: Marks,
 }
 
 /// A project clip's look on `track`, before dimming for its track.
@@ -88,6 +91,7 @@ pub(super) fn look_of<'a>(
         // A frozen track's clips cannot change, so they show the padlock too.
         locked: clip.locked || track.frozen.is_some(),
         paint,
+        marks: Marks::of(clip),
     }
 }
 
@@ -249,6 +253,29 @@ pub(super) fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLo
         );
         room.max.x = right - width - 4.0;
     }
+    // The marks sit left of the padlock and the counter, which keep their
+    // places; the name has what is left (`clip_marks::place`).
+    let y = title.center().y;
+    let placed = clip_marks::place(visible.width(), room.max.x - text_left, look.marks.count());
+    match placed {
+        Placed::Alone => {
+            painter.circle_filled(pos2(visible.center().x, y), DOT / 2.0, ink);
+            return;
+        }
+        Placed::Marks(width) => {
+            let mut x = room.max.x - width;
+            for mark in look.marks.list() {
+                let at = Rect::from_center_size(pos2(x + MARK / 2.0, y), vec2(MARK, MARK));
+                painter.extend(icons::shapes(mark.icon(), at, ink));
+                x += MARK + GAP;
+            }
+        }
+        Placed::Dot => {
+            painter.circle_filled(pos2(room.max.x - DOT / 2.0, y), DOT / 2.0, ink);
+        }
+        Placed::Nothing => {}
+    }
+    room.max.x -= placed.takes();
     painter.with_clip_rect(room).text(
         pos2(text_left, title.center().y),
         Align2::LEFT_CENTER,
