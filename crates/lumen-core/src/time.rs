@@ -194,13 +194,23 @@ impl TempoMap {
 
     /// The tick nearest to `seconds`.
     pub fn ticks_at_seconds(&self, seconds: f64) -> Ticks {
-        Ticks(self.ticks_f64_at_seconds(seconds).round() as i64)
+        let (point, ticks) = self.run_at_seconds(seconds);
+        point + Ticks(ticks.round() as i64)
     }
 
     /// The position of `seconds` in ticks, between ticks: what warped audio
     /// reads its map at, so a frame is not moved by rounding to a tick
     /// (a tick is a fraction of a sample at any tempo the map allows).
     pub fn ticks_f64_at_seconds(&self, seconds: f64) -> f64 {
+        let (point, ticks) = self.run_at_seconds(seconds);
+        point.0 as f64 + ticks
+    }
+
+    /// The tempo point `seconds` falls after, and the ticks from it. The
+    /// whole-tick rounding stays in the caller so [`Self::ticks_at_seconds`]
+    /// does the arithmetic it always did (the performance gate counts it).
+    #[inline(always)]
+    fn run_at_seconds(&self, seconds: f64) -> (Ticks, f64) {
         let i = self
             .seconds
             .partition_point(|&s| s <= seconds)
@@ -211,9 +221,8 @@ impl TempoMap {
         } else {
             (seconds - self.seconds[i]) * point.bpm / 60.0 * PPQ as f64
         };
-        point.at.0 as f64 + ticks
+        (point.at, ticks)
     }
-
     /// The tick nearest to the start of `sample`.
     pub fn ticks_at_sample(&self, sample: i64, sample_rate: u32) -> Ticks {
         self.ticks_at_seconds(sample as f64 / f64::from(sample_rate))
