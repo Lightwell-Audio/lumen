@@ -73,6 +73,7 @@ pub fn apply(project: &mut Project, takes: &[Take], fresh: &mut impl FnMut() -> 
             reversed: false,
             inverted: false,
             takes: None,
+            warp: None,
             content: ClipContent::Audio {
                 media: take.media.id,
                 offset: 0,
@@ -86,6 +87,7 @@ pub fn apply(project: &mut Project, takes: &[Take], fresh: &mut impl FnMut() -> 
                 .map(|&offset| Pass::Audio {
                     offset,
                     audio_phase_seconds: 0.0,
+                    warp: None,
                 })
                 .collect::<Vec<_>>();
             let active = take.active.min(passes.len() - 1);
@@ -213,7 +215,8 @@ mod tests {
             takes.other(0),
             Some(&Pass::Audio {
                 offset: 0,
-                audio_phase_seconds: 0.0
+                audio_phase_seconds: 0.0,
+                warp: None,
             })
         );
         assert!(crate::validate(&p).is_ok());

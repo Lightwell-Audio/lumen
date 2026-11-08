@@ -198,6 +198,7 @@ mod tests {
             inverted: false,
             envelopes: Default::default(),
             takes: None,
+            warp: None,
             content: ClipContent::Audio {
                 media: Id(media),
                 offset: 0,

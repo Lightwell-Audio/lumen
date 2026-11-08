@@ -4,7 +4,7 @@
 //! worker); this module says which stretch that is and what gain a peak
 //! asks for.
 
-use lumen_core::time::TempoMap;
+use lumen_core::time::{TempoMap, Ticks};
 
 use crate::edit::tempo_of;
 use crate::model::{Clip, ClipContent, Id, Project};
@@ -39,10 +39,13 @@ pub fn window(clip: &Clip, rate: f64, tempo: &TempoMap) -> Option<Window> {
         }
         None => (clip.start, clip.start + clip.length),
     };
-    Some(Window {
-        from: *offset as f64 / rate + clip.audio_phase_seconds,
-        span: tempo.seconds_at(end) - tempo.seconds_at(begin),
-    })
+    let from = *offset as f64 / rate + clip.audio_phase_seconds;
+    // A warped clip plays the file at the map's pace, not the tempo's.
+    let span = match &clip.warp {
+        Some(warp) => warp.source_at(end - begin) - warp.source_at(Ticks::ZERO),
+        None => tempo.seconds_at(end) - tempo.seconds_at(begin),
+    };
+    Some(Window { from, span })
 }
 
 /// What a scan reads for a clip: which file (its reversed twin when
@@ -157,6 +160,24 @@ mod tests {
         assert!((w.span - 2.0).abs() < 1e-9);
     }
 
+    #[test]
+    fn a_warped_clip_is_measured_over_the_stretch_its_map_plays() {
+        let mut project = song();
+        let t = Arc::make_mut(&mut project.tracks[0]);
+        let c = Arc::make_mut(&mut t.clips[0]);
+        c.length = q(4);
+        // One second of the file over four quarters, which are two seconds of
+        // song at 120 BPM: the map runs at half speed.
+        let mut warp = crate::model::Warp::new(120.0, 0.0);
+        warp.markers = vec![
+            lumen_core::warp::Marker::new(0.0, Ticks::ZERO),
+            lumen_core::warp::Marker::new(1.0, q(4)),
+        ];
+        c.warp = Some(warp);
+        let rate = f64::from(project.media[0].sample_rate);
+        let w = window(&clip(&project), rate, &tempo_of(&project)).unwrap();
+        assert!((w.span - 1.0).abs() < 1e-9, "{}", w.span);
+    }
     #[test]
     fn a_loop_is_one_repeat_of_the_loop_and_a_phase_moves_nothing() {
         let mut project = song();

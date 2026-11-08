@@ -1,5 +1,16 @@
 # Lumen — Architecture
 
+**M9.5 S4a Warp in the model (2026-11-08, ADR-0130, format v33).**
+`lumen-core::warp`: `Marker { source, at }`, the map's arithmetic (`source_at`,
+`tick_at_source`, `shift`, `mirror`; ratio limits 25% to 400%, at most 4096
+markers), pure. `lumen-project::model::warp`: `Warp` and `WarpMode`, and
+`Clip::warp` / `Pass::Audio::warp`. `lumen-project::edit::warp`: `enable`,
+`disable`, `set`, `set_markers`, and the helpers every audio edit uses
+(`anchor` keeps `offset` and `audio_phase_seconds` at the map's second at tick
+0; `shift_passes` moves a clip's other takes); `edit::warped_loop` is the loop
+brace of a warped clip. `lumen-app::document::warp`: the `Document` methods
+(one undo step each). The engine plays nothing warped until S4b.
+
 **M9 R6 Playing audio from disk (2026-10-28, ADR-0109, format unchanged at
 v32).** `lumen-engine::stream`: `PagePool` (fixed pages, the audio thread's
 grace-period count), `StreamAudio` (a file's page table; `ClipAudio::Stream`),

@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Clip, ClipContent, ClipEvent, Note};
+use super::{Clip, ClipContent, ClipEvent, Note, Warp};
 
 /// The passes a clip keeps.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -46,6 +46,10 @@ pub enum Pass {
         offset: i64,
         #[serde(default, skip_serializing_if = "is_zero")]
         audio_phase_seconds: f64,
+        /// The pass's own warp (format v33): each take keeps its own map,
+        /// since the same seconds of the file play at other ticks.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        warp: Option<Warp>,
     },
     /// The notes and events of the pass, relative to the clip's start.
     Midi {
@@ -66,6 +70,7 @@ impl Pass {
             ClipContent::Audio { offset, .. } => Some(Pass::Audio {
                 offset: *offset,
                 audio_phase_seconds: clip.audio_phase_seconds,
+                warp: clip.warp.clone(),
             }),
             ClipContent::Midi { notes, events } => Some(Pass::Midi {
                 notes: notes.clone(),
@@ -91,11 +96,13 @@ impl Pass {
                 Pass::Audio {
                     offset,
                     audio_phase_seconds,
+                    warp,
                 },
                 ClipContent::Audio { offset: own, .. },
             ) => {
                 *own = offset;
                 clip.audio_phase_seconds = audio_phase_seconds;
+                clip.warp = warp;
                 true
             }
             (

@@ -64,6 +64,11 @@ pub struct Clip {
     /// content is the pass it plays. Written only when there are some.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub takes: Option<Takes>,
+    /// Makes an audio clip follow the song's tempo (format v33). A clip
+    /// without it plays its file at the speed it was made. Written only when
+    /// set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warp: Option<Warp>,
     pub content: ClipContent,
 }
 

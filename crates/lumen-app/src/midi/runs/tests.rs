@@ -27,6 +27,7 @@ fn clip(id: u64, start: i64, length: i64, notes: Vec<Note>) -> Arc<Clip> {
         reversed: false,
         inverted: false,
         takes: None,
+        warp: None,
         content: ClipContent::Midi {
             notes,
             events: Vec::new(),
@@ -358,6 +359,7 @@ fn a_huge_looping_clip_stays_constant_size_during_a_narrow_replace() {
         reversed: false,
         inverted: false,
         takes: None,
+        warp: None,
         content: ClipContent::Midi {
             notes: vec![Note::new(Ticks::ZERO, Ticks(1), 60, 100)],
             events: Vec::new(),

@@ -136,6 +136,11 @@ fn hidden(tempo: &TempoMap, source: &Media, clip: &Clip) -> Ticks {
     let ClipContent::Audio { offset, .. } = clip.content else {
         return Ticks::ZERO;
     };
+    if let Some(warp) = &clip.warp {
+        // The map says where the file's first second plays: before the start
+        // by that much, or at or after it, with nothing hidden.
+        return Ticks::ZERO - warp.first_tick().min(Ticks::ZERO);
+    }
     let origin = offset as f64 / f64::from(source.sample_rate.max(1)) + clip.audio_phase_seconds;
     clip.start - tempo.ticks_at_seconds((tempo.seconds_at(clip.start) - origin).max(0.0))
 }
@@ -237,7 +242,14 @@ pub(crate) fn played(project: &Project) -> HashMap<Id, Played> {
                 let begins = tempo.seconds_at(c.start);
                 c.start = c.start - d;
                 c.length = c.length + d;
-                c.audio_phase_seconds -= begins - tempo.seconds_at(c.start);
+                if let Some(warp) = c.warp.as_mut() {
+                    // The map follows the earlier start; the file position
+                    // there is read off it.
+                    warp.shift(d);
+                    lumen_project::edit::warp::anchor(project, c);
+                } else {
+                    c.audio_phase_seconds -= begins - tempo.seconds_at(c.start);
+                }
                 c.envelopes.shift(d);
             }
         }
@@ -275,11 +287,18 @@ fn resolve(
         left_offset as f64 / f64::from(source.sample_rate.max(1)) + left.audio_phase_seconds;
     let right_origin =
         offset as f64 / f64::from(incoming.sample_rate.max(1)) + clip.audio_phase_seconds;
+    // Two warped clips carry on when the second's map is the first's seen
+    // from its own start; one warped and one not never do.
+    let same_flow = match (&left.warp, &clip.warp) {
+        (None, None) => (left_origin + duration - right_origin).abs() < 1e-7,
+        (Some(a), Some(b)) => a.continues(b, clip.start - left.start),
+        _ => false,
+    };
     let contiguous = left.loop_length.is_none()
         && clip.loop_length.is_none()
         && left_media == media
         && left.reversed == clip.reversed
-        && (left_origin + duration - right_origin).abs() < 1e-7;
+        && same_flow;
     if explicit {
         // The crossfade runs over the audio the incoming clip keeps before
         // its start, so it needs some, and a clip that does not loop.
@@ -313,14 +332,27 @@ fn resolve(
     {
         return None;
     }
-    let available =
-        source.frames as f64 / f64::from(source.sample_rate.max(1)) - (left_origin + duration);
-    if available <= 0.0 {
-        return None;
-    }
+    let file_seconds = source.frames as f64 / f64::from(source.sample_rate.max(1));
     let begins = tempo.seconds_at(clip.start);
     let wanted = tempo.ticks_at_seconds(begins + 0.005) - clip.start;
-    let tail = tempo.ticks_at_seconds(begins + available) - clip.start;
+    let tail = match &left.warp {
+        // Song time the map takes to run out of file past the clip's end:
+        // fast spans use the file up faster than the tempo says.
+        Some(warp) => {
+            let tail = warp.last_tick(file_seconds) - left.length;
+            if tail <= Ticks::ZERO {
+                return None;
+            }
+            tail
+        }
+        None => {
+            let available = file_seconds - (left_origin + duration);
+            if available <= 0.0 {
+                return None;
+            }
+            tempo.ticks_at_seconds(begins + available) - clip.start
+        }
+    };
     let length = wanted.min(tail).min(clip.length);
     (length > Ticks::ZERO).then_some(Crossing {
         left: left.id,
@@ -524,6 +556,42 @@ mod tests {
     }
 
     #[test]
+    fn a_warped_clips_tail_is_what_its_map_leaves_in_the_file_not_the_tempo() {
+        use lumen_project::model::Warp;
+        let mut p = pair();
+        p.auto_crossfade = true;
+        let id = p.tracks[0].id;
+        // The left clip (two beats, one second at 120 BPM) ends 4 ms of file
+        // from the file's end, which its map then spends at four times the
+        // speed: 1 ms of song, 2,822 ticks, and not the 4 ms the tempo says.
+        let two = Ticks::quarters(2);
+        let mut warp = Warp::new(120.0, 6.996);
+        warp.markers = vec![
+            lumen_core::warp::Marker::new(6.996, Ticks::ZERO),
+            lumen_core::warp::Marker::new(7.996, two),
+            lumen_core::warp::Marker::new(8.0, two + Ticks(2_822)),
+        ];
+        Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]).warp = Some(warp);
+        let right = p.tracks[0].clips[1].clone();
+        let found = crossing(&p, id, &right).unwrap();
+        assert_eq!(found.zone, Zone::After);
+        assert!(
+            found.fade.length > Ticks::ZERO && found.fade.length <= Ticks(2_822),
+            "{:?}",
+            found.fade.length
+        );
+        // A map that has used the file up leaves nothing to blend over.
+        let mut spent = Warp::new(120.0, 7.0);
+        spent.markers = vec![lumen_core::warp::Marker::new(7.0, Ticks::ZERO)];
+        spent
+            .markers
+            .push(lumen_core::warp::Marker::new(8.0, Ticks::quarters(1)));
+        Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]).warp = Some(spent);
+        let right = p.tracks[0].clips[1].clone();
+        assert!(crossing(&p, id, &right).is_none());
+    }
+
+    #[test]
     fn an_automatic_crossfade_blends_five_ms_over_the_left_clips_tail() {
         let mut p = pair();
         p.auto_crossfade = true;
@@ -560,5 +628,66 @@ mod tests {
         p.media.iter_mut().find(|m| m.id == media).unwrap().frames = 48_000;
         let right = p.tracks[0].clips[1].clone();
         assert!(crossing(&p, id, &right).is_none(), "no audio past the end");
+    }
+
+    /// Warps `left` and `right` of [`pair`] at the file's own tempo, so the
+    /// maps say what the plain clips did.
+    fn warped_pair(p: &mut Project) {
+        for index in [0, 1] {
+            let clip = (*p.tracks[0].clips[index]).clone();
+            let warped = lumen_project::edit::warp::enable(p, &clip, 120.0).unwrap();
+            Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[index]).warp = warped.warp;
+        }
+    }
+
+    #[test]
+    fn warped_clips_cross_over_the_audio_their_map_keeps_before_the_start() {
+        let mut p = pair();
+        warped_pair(&mut p);
+        by_hand(&mut p, Ticks::quarters(4));
+        let id = p.tracks[0].id;
+        // Half a beat of the file lies before the right clip's start.
+        let right = p.tracks[0].clips[1].clone();
+        let found = crossing(&p, id, &right).unwrap();
+        assert_eq!(found.fade.length, Ticks(Ticks::quarters(1).0 / 2));
+        assert!(!found.seamless, "unrelated sound");
+        // The incoming clip is brought in earlier: its map moves with it.
+        let heard = &played(&p)[&right.id].clip;
+        let (was, now) = (right.warp.as_ref().unwrap(), heard.warp.as_ref().unwrap());
+        assert!((now.source_at(Ticks::ZERO) - (was.source_at(Ticks::ZERO) - 0.25)).abs() < 1e-9);
+        assert!((now.source_at(found.fade.length) - was.source_at(Ticks::ZERO)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_split_of_a_warped_clip_is_seamless_and_a_warped_next_to_a_plain_one_is_not() {
+        let mut p = pair();
+        let id = p.tracks[0].id;
+        // One warped clip, split in two at beat 2: the maps carry on.
+        let left = (*p.tracks[0].clips[0]).clone();
+        let mut whole = left.clone();
+        whole.length = Ticks::quarters(4);
+        let whole = lumen_project::edit::warp::enable(&p, &whole, 120.0).unwrap();
+        Arc::make_mut(&mut p.tracks[0]).clips = vec![Arc::new(whole.clone())];
+        let mut next = 1_000;
+        let mut fresh = || {
+            next += 1;
+            Id(next)
+        };
+        let parts = lumen_project::edit::split::clips(
+            &mut p,
+            &[whole.id],
+            &[Ticks::quarters(2)],
+            &mut fresh,
+        );
+        assert_eq!(parts.len(), 2);
+        let right = Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[1]);
+        right.crossfade = true;
+        right.fade_in.length = Ticks(Ticks::quarters(1).0 / 4);
+        let right = p.tracks[0].clips[1].clone();
+        assert!(crossing(&p, id, &right).unwrap().seamless);
+        // A plain clip beside a warped one is a join of different sound.
+        Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[1]).warp = None;
+        let right = p.tracks[0].clips[1].clone();
+        assert!(!crossing(&p, id, &right).is_some_and(|c| c.seamless));
     }
 }

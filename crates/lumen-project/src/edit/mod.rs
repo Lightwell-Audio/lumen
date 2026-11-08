@@ -44,6 +44,8 @@ pub mod seams;
 pub mod split;
 pub mod takes;
 pub mod velocity;
+pub mod warp;
+mod warped_loop;
 mod windows;
 
 pub use clipboard::{
@@ -184,7 +186,12 @@ pub fn trim(
                 let origin = (clip.start - clip.loop_phase).max(Ticks::ZERO);
                 start = start.max(origin);
             }
-            if let Some((rate, _, offset)) = audio
+            if clip.loop_length.is_none()
+                && let Some(first) = warp::first_tick(clip)
+            {
+                // Not before the file's first frame, where any pass's map puts it.
+                start = start.max(clip.start + first);
+            } else if let Some((rate, _, offset)) = audio
                 && clip.loop_length.is_none()
             {
                 // Not before the file's first frame. `audio_phase_seconds`
@@ -209,6 +216,15 @@ pub fn trim(
                 c.loop_phase = Ticks(clip.loop_phase.0.saturating_add(moved.0));
             } else {
                 c.envelopes.shift(Ticks::ZERO - moved);
+                // The map is measured from the start, which moved.
+                if let Some(warp) = &mut c.warp {
+                    warp.shift(Ticks::ZERO - moved);
+                }
+                warp::shift_passes(
+                    &mut c,
+                    Ticks::ZERO - moved,
+                    audio.map(|(rate, _, _)| f64::from(rate)),
+                );
                 match &mut c.content {
                     ClipContent::Audio { .. } => {
                         let (source_rate, _, offset) =
@@ -238,6 +254,14 @@ pub fn trim(
                 c.loop_length = Some(clip.length);
             }
             if c.loop_length.is_none()
+                && c.warp.is_some()
+                && let Some(total) = warp::file_seconds(project, clip)
+                && let Some(last) = warp::last_tick(&c, total)
+            {
+                // Not past the file's last frame, where any pass's map puts it.
+                let latest = clip.start + last;
+                new_end = new_end.min(latest.max(clip.start + MIN_LENGTH));
+            } else if c.loop_length.is_none()
                 && let Some((rate, frames, offset)) = audio
             {
                 // Not past the file's last frame.
@@ -260,6 +284,7 @@ pub fn trim(
             }
         }
     }
+    warp::anchor(project, &mut c);
     let visible_length = content_length(&c).min(c.length);
     if let ClipContent::Midi { notes, .. } = &mut c.content {
         for note in notes {
@@ -296,6 +321,14 @@ pub fn slip(project: &Project, tempo: &TempoMap, clip: &Clip, by: Ticks) -> Clip
     let mut c = clip.clone();
     if clip.takes.is_some() && by != Ticks::ZERO {
         takes::slipped(project, tempo, clip, &mut c, by);
+    }
+    if let Some(warp) = &mut c.warp {
+        // The audio slides under the window: the map moves with it.
+        if by != Ticks::ZERO {
+            warp.shift(warp::slip_limit(project, clip, by));
+            warp::anchor(project, &mut c);
+        }
+        return c;
     }
     match &mut c.content {
         ClipContent::Audio { offset, .. } => {
@@ -489,6 +522,7 @@ mod tests {
                 inverted: false,
                 envelopes: Default::default(),
                 takes: None,
+                warp: None,
                 content: ClipContent::Audio {
                     media: Id(900),
                     offset: 1_000,

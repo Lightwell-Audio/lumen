@@ -103,6 +103,7 @@ pub fn add_dense_midi(project: &mut lumen_project::model::Project) {
         reversed: false,
         inverted: false,
         takes: None,
+        warp: None,
         content: ClipContent::Midi {
             notes,
             events: Vec::new(),

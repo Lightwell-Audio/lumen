@@ -166,6 +166,7 @@ pub fn apply(project: &mut Project, baked: &[Baked], fresh: &mut impl FnMut() ->
             reversed: false,
             inverted: false,
             takes: None,
+            warp: None,
             content: ClipContent::Audio {
                 media: media.id,
                 offset: 0,

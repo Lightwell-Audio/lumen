@@ -102,9 +102,12 @@ pub fn advance(
     };
     for other in &mut takes.others {
         match &mut other.pass {
+            // A warped pass follows its map, which `warp::shift_passes` moves.
+            Pass::Audio { warp: Some(_), .. } => {}
             Pass::Audio {
                 offset,
                 audio_phase_seconds,
+                ..
             } => {
                 *audio_phase_seconds += seconds;
                 if let Some(rate) = rate {
@@ -248,6 +251,7 @@ mod tests {
         Pass::Audio {
             offset,
             audio_phase_seconds: 0.0,
+            warp: None,
         }
     }
 

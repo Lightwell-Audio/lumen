@@ -776,6 +776,7 @@ mod tests {
             reversed: false,
             inverted: false,
             takes: None,
+            warp: None,
             content: ClipContent::Midi {
                 notes: vec![Note::new(q(1) + Ticks(77), q(1), 60, 100)],
                 events: Vec::new(),

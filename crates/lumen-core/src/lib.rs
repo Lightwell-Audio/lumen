@@ -10,3 +10,4 @@ pub mod midi;
 pub mod pan;
 pub mod product;
 pub mod time;
+pub mod warp;
