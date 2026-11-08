@@ -567,9 +567,22 @@ per slice and move what is no longer current out of it.
   step each, and no command until S5 gives warp a control. Tell the owner:
   split keeps the whole marker list on both halves and warp off drops the map
   (both deviate from the plan, ADR-0130); Join's render, bounce, freeze and
-  export play a warped clip unstretched until S4b. **S4b to S4d wait for the
-  owner:** chunk length and jump behaviour (S0's E result) and the stretch
+  export played a warped clip unstretched until S4b (done). **S4c and S4d wait for the
+  owner:** the stretch
   library T. Not run here: the WSL perf gate and the macOS cross-target clippy.
+- **Branch `m9.5-s4b-repitch`: M9.5 S4b is built** (ADR-0131; no format
+  change; owner chose 2 s chunks with a short first chunk, 2026-11-08). A
+  warped clip now follows the tempo in Repitch, in playback and in every
+  render. Nothing in the interface turns warp on before S5, so tests drive it
+  (`Document::warp_clips`) and **nothing has been heard**. Tell the owner: a
+  stateless windowed-sinc (`lumen-media/src/repitch.rs`) replaces rubato, so
+  the chunk length no longer matters; the disk thread renders the pages (no
+  stretch thread); a warped clip is a computed stream (`media/warped/`; frame k is timeline sample k, the pieces of a split share it, a loop is unlooped into real clips first) read by
+  playback and renders alike; live warped playback needs "Play audio from
+  disk" (renders always warp); an edit made while playing is held up to 2 s
+  until its audio is ready. Not run here: the WSL perf gate, the macOS
+  cross-target clippy; `warped_64` is S4c's. Waits for the owner: the stretch
+  library T for S4c.
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);

@@ -1,5 +1,18 @@
 # Lumen — Architecture
 
+**M9.5 S4b Repitch (2026-11-08, ADR-0131, no format change).**
+`lumen-media::repitch`: `Renderer`, a stateless windowed-sinc (Kaiser, 16
+taps each side) that reads a `Source` at `position(frame)`, so every frame
+depends on its own index only. `lumen-core`: `warp::source_at_f64` and
+`TempoMap::ticks_f64_at_seconds` (the map without rounding to a tick).
+`lumen-app::media::warped`: `Warped` (a warp map over a file, in a registry
+in `media/streams.rs` under a stream id), `WarpedStreams` (the cache keyed by
+what a stream depends on) and `Rendering` (a stream opened for reading);
+`Readers::read` renders such a stream's pages (frame k = timeline sample k; a split's pieces share a stream, a loop is unlooped into real clips first), so the disk thread and every
+render read the same bits. `lanes::engine_clips_with` hands the engine an
+ordinary streamed clip; `Lanes` holds a new list back while playing until the
+next quarter second of its warped pages is resident (`HOLD_LIMIT` 2 s).
+
 **M9.5 S4a Warp in the model (2026-11-08, ADR-0130, format v33).**
 `lumen-core::warp`: `Marker { source, at }`, the map's arithmetic (`source_at`,
 `tick_at_source`, `shift`, `mirror`; ratio limits 25% to 400%, at most 4096
@@ -9,7 +22,7 @@ markers), pure. `lumen-project::model::warp`: `Warp` and `WarpMode`, and
 (`anchor` keeps `offset` and `audio_phase_seconds` at the map's second at tick
 0; `shift_passes` moves a clip's other takes); `edit::warped_loop` is the loop
 brace of a warped clip. `lumen-app::document::warp`: the `Document` methods
-(one undo step each). The engine plays nothing warped until S4b.
+(one undo step each). Since S4b the engine plays a warped clip (Repitch).
 
 **M9 R6 Playing audio from disk (2026-10-28, ADR-0109, format unchanged at
 v32).** `lumen-engine::stream`: `PagePool` (fixed pages, the audio thread's

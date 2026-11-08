@@ -88,6 +88,28 @@ pub fn source_at(markers: &[Marker], original_bpm: f64, at: Ticks) -> f64 {
     a.source + (b.source - a.source) * along
 }
 
+/// [`source_at`] for a position between ticks (`at` in ticks, fractional):
+/// what the renderer reads at every frame, which a whole tick would move by up
+/// to half a tick (a fraction of a sample, but enough to hear as roughness on
+/// a high note). Equal to [`source_at`] on a whole tick.
+pub fn source_at_f64(markers: &[Marker], original_bpm: f64, at: f64) -> f64 {
+    let outside = seconds_per_tick(original_bpm);
+    let (Some(first), Some(last)) = (markers.first(), markers.last()) else {
+        return at * outside;
+    };
+    if at <= first.at.0 as f64 {
+        return first.source - (first.at.0 as f64 - at) * outside;
+    }
+    if at >= last.at.0 as f64 {
+        return last.source + (at - last.at.0 as f64) * outside;
+    }
+    // The span `at` falls in: the last marker at or before it.
+    let after = markers.partition_point(|m| m.at.0 as f64 <= at);
+    let (a, b) = (markers[after - 1], markers[after]);
+    let along = (at - a.at.0 as f64) / (b.at.0 - a.at.0) as f64;
+    a.source + (b.source - a.source) * along
+}
+
 /// The tick at which second `source` of the file plays, to the nearest tick.
 pub fn tick_at_source(markers: &[Marker], original_bpm: f64, source: f64) -> Ticks {
     let outside = seconds_per_tick(original_bpm);
@@ -156,6 +178,30 @@ mod tests {
         // 60 BPM: a second a beat.
         assert!((source_at(&map(), 60.0, q(5)) - 3.0).abs() < 1e-12);
         assert!((source_at(&map(), 60.0, q(1)) - 0.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn the_fractional_map_agrees_on_whole_ticks_and_runs_between_them() {
+        for bpm in [60.0, 120.0, 187.5] {
+            for t in [
+                -3 * PPQ,
+                0,
+                PPQ / 3,
+                q(2).0,
+                q(3).0 + 17,
+                q(4).0,
+                q(9).0 + 1,
+            ] {
+                let whole = source_at(&map(), bpm, Ticks(t));
+                let fractional = source_at_f64(&map(), bpm, t as f64);
+                assert!((whole - fractional).abs() < 1e-9, "{bpm} BPM, tick {t}");
+            }
+        }
+        // Half a tick along a span is half a tick's seconds along.
+        let a = source_at_f64(&map(), 120.0, q(3).0 as f64);
+        let b = source_at_f64(&map(), 120.0, q(3).0 as f64 + 0.5);
+        assert!(b > a && b - a < 1e-6);
+        assert!((source_at_f64(&[], 120.0, q(4).0 as f64) - 2.0).abs() < 1e-12);
     }
 
     #[test]

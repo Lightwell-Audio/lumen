@@ -17,8 +17,12 @@ use lumen_engine::{Clip, ClipAudio, OfflineLoader, PAGE, PagePool, StreamAudio};
 use lumen_media::MediaError;
 use lumen_media::stream::Reader;
 
+use super::warped::{Origin, Rendering, Warped};
+
 static NEXT: AtomicU64 = AtomicU64::new(1);
 static FILES: LazyLock<Mutex<HashMap<u64, PathBuf>>> = LazyLock::new(Default::default);
+/// Streams that are computed, not read (warped clips, M9.5 S4b), by id.
+static WARPED: LazyLock<Mutex<HashMap<u64, Arc<Warped>>>> = LazyLock::new(Default::default);
 
 /// Pages of a render's own pool: 8 MB, which a render reuses as it goes.
 const RENDER_PAGES: u32 = 256;
@@ -34,9 +38,28 @@ pub fn register(path: PathBuf) -> u64 {
     id
 }
 
-/// Forgets a file no longer played. Readers already open keep reading.
+/// Registers a stream computed from other streams or audio, returning its new
+/// id.
+pub fn register_warped(warped: Arc<Warped>) -> u64 {
+    let id = NEXT.fetch_add(1, Ordering::Relaxed);
+    warped_streams().insert(id, warped);
+    id
+}
+
+fn warped_streams() -> std::sync::MutexGuard<'static, HashMap<u64, Arc<Warped>>> {
+    WARPED.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The warped stream registered as `id`.
+pub fn warped(id: u64) -> Option<Arc<Warped>> {
+    warped_streams().get(&id).cloned()
+}
+
+/// Forgets a file or a warped stream no longer played. Readers already open
+/// keep reading.
 pub fn forget(id: u64) {
     files().remove(&id);
+    warped_streams().remove(&id);
 }
 
 /// The stream files registered now: those playing, which the cache keeps.
@@ -53,9 +76,18 @@ pub fn path(id: u64) -> Option<PathBuf> {
 #[derive(Default)]
 pub struct Readers {
     open: HashMap<u64, Reader>,
-    /// Paths fixed when the readers were made ([`Readers::fixed`]), else the
-    /// registry is asked.
-    paths: Option<HashMap<u64, PathBuf>>,
+    /// Warped streams being rendered (M9.5 S4b), by id.
+    rendering: HashMap<u64, Rendering>,
+    /// Paths and warped streams fixed when the readers were made
+    /// ([`Readers::fixed`]), else the registry is asked.
+    fixed: Option<Fixed>,
+}
+
+/// What [`Readers::fixed`] keeps of the registry.
+#[derive(Default)]
+struct Fixed {
+    paths: HashMap<u64, PathBuf>,
+    warped: HashMap<u64, Arc<Warped>>,
 }
 
 impl Readers {
@@ -63,14 +95,57 @@ impl Readers {
     /// later (another rate) still reads for a render already under way.
     pub fn fixed(ids: impl IntoIterator<Item = u64>) -> Self {
         let files = files();
-        let paths = ids
-            .into_iter()
-            .filter_map(|id| Some((id, files.get(&id)?.clone())))
-            .collect();
-        Self {
-            open: HashMap::new(),
-            paths: Some(paths),
+        let streams = warped_streams();
+        let mut fixed = Fixed::default();
+        for id in ids {
+            if let Some(path) = files.get(&id) {
+                fixed.paths.insert(id, path.clone());
+            }
+            if let Some(warped) = streams.get(&id) {
+                // The file a warped stream plays is fixed with it.
+                if let Origin::File(inner) = &warped.origin
+                    && let Some(path) = files.get(inner)
+                {
+                    fixed.paths.insert(*inner, path.clone());
+                }
+                fixed.warped.insert(id, Arc::clone(warped));
+            }
         }
+        Self {
+            fixed: Some(fixed),
+            ..Self::default()
+        }
+    }
+
+    /// The path of stream file `id`.
+    fn path_of(&self, id: u64) -> Option<PathBuf> {
+        match &self.fixed {
+            Some(fixed) => fixed.paths.get(&id).cloned(),
+            None => path(id),
+        }
+    }
+
+    /// The warped stream `id`, if it is one.
+    fn warped_of(&self, id: u64) -> Option<Arc<Warped>> {
+        match &self.fixed {
+            Some(fixed) => fixed.warped.get(&id).cloned(),
+            None => warped(id),
+        }
+    }
+
+    /// Opens the rendering of warped stream `warped`.
+    fn open_rendering(&self, warped: Arc<Warped>) -> Result<Rendering, MediaError> {
+        let file = match &warped.origin {
+            Origin::Memory(_) => None,
+            Origin::File(inner) => {
+                let path = self
+                    .path_of(*inner)
+                    .ok_or_else(|| MediaError::Io(format!("no stream file for media {inner}")))?;
+                Some(Reader::open(&path)?)
+            }
+        };
+        Rendering::new(warped, file)
+            .ok_or_else(|| MediaError::Io("a warped stream has no audio to play".into()))
     }
 
     /// Reads `audio` from frame `from` into `left` and, for a file of two
@@ -84,12 +159,13 @@ impl Readers {
         right: &mut [f32],
     ) -> Result<usize, MediaError> {
         let id = audio.id();
+        if let Some(warped) = self.rendering_of(id)? {
+            return warped.read(from, left, right);
+        }
         if !self.open.contains_key(&id) {
-            let path = match &self.paths {
-                Some(paths) => paths.get(&id).cloned(),
-                None => path(id),
-            }
-            .ok_or_else(|| MediaError::Io(format!("no stream file for media {id}")))?;
+            let path = self
+                .path_of(id)
+                .ok_or_else(|| MediaError::Io(format!("no stream file for media {id}")))?;
             self.open.insert(id, Reader::open(&path)?);
         }
         let reader = self.open.get_mut(&id).expect("opened above");
@@ -100,9 +176,24 @@ impl Readers {
         }
     }
 
+    /// The rendering of `id`, opened now if it is a warped stream not yet
+    /// open; `None` for a plain file.
+    fn rendering_of(&mut self, id: u64) -> Result<Option<&mut Rendering>, MediaError> {
+        if !self.rendering.contains_key(&id) {
+            let Some(warped) = self.warped_of(id) else {
+                return Ok(None);
+            };
+            let rendering = self.open_rendering(warped)?;
+            self.rendering.insert(id, rendering);
+        }
+        Ok(self.rendering.get_mut(&id))
+    }
+
     /// Closes the files not among `streams`.
     pub fn keep(&mut self, streams: &[StreamAudio]) {
         self.open
+            .retain(|id, _| streams.iter().any(|s| s.id() == *id));
+        self.rendering
             .retain(|id, _| streams.iter().any(|s| s.id() == *id));
     }
 }
@@ -133,30 +224,83 @@ pub fn read_all(audio: &ClipAudio) -> Result<Vec<Vec<f32>>, MediaError> {
 /// stream loads a missing page on the thread that plays it, which must
 /// never be the audio thread. Blocks on the disk.
 pub fn in_memory(clips: Vec<Clip>) -> Result<Vec<Clip>, String> {
-    let mut read: HashMap<u64, Arc<ClipAudio>> = HashMap::new();
+    // A warped stream is the whole song up to its last clip: only the frames
+    // its clips play are read. The clips of a stream that overlap or touch
+    // share one copy; clips far apart each get a copy of their own.
+    let mut windows: HashMap<u64, Vec<(i64, i64)>> = HashMap::new();
+    for clip in &clips {
+        if let ClipAudio::Stream(stream) = &*clip.audio
+            && warped(stream.id()).is_some()
+        {
+            let from = clip.offset.max(0);
+            windows
+                .entry(stream.id())
+                .or_default()
+                .push((from, from + clip.length.max(0)));
+        }
+    }
+    for list in windows.values_mut() {
+        list.sort_unstable();
+        let mut merged: Vec<(i64, i64)> = Vec::with_capacity(list.len());
+        for &(from, to) in list.iter() {
+            match merged.last_mut() {
+                Some(last) if from <= last.1 => last.1 = last.1.max(to),
+                _ => merged.push((from, to)),
+            }
+        }
+        *list = merged;
+    }
+    // Each copy read once, by the stream and where it begins.
+    let mut read: HashMap<(u64, i64), Arc<ClipAudio>> = HashMap::new();
     clips
         .into_iter()
         .map(|mut clip| {
             if let ClipAudio::Stream(stream) = &*clip.audio {
-                let audio = match read.get(&stream.id()) {
+                let window = windows.get(&stream.id()).and_then(|list| {
+                    let from = clip.offset.max(0);
+                    list.iter().find(|w| w.0 <= from && from <= w.1).copied()
+                });
+                let skipped = window.map_or(0, |w| w.0);
+                let audio = match read.get(&(stream.id(), skipped)) {
                     Some(audio) => Arc::clone(audio),
                     None => {
-                        let channels = read_all(&clip.audio).map_err(|why| {
+                        let channels = read_window(stream, window).map_err(|why| {
                             format!("An audio file could not be read from disk ({why})")
                         })?;
                         let audio = Arc::new(ClipAudio::Memory {
                             sample_rate: stream.sample_rate(),
                             channels,
                         });
-                        read.insert(stream.id(), Arc::clone(&audio));
+                        read.insert((stream.id(), skipped), Arc::clone(&audio));
                         audio
                     }
                 };
                 clip.audio = audio;
+                clip.offset -= skipped;
             }
             Ok(clip)
         })
         .collect()
+}
+
+/// The frames `window` of `stream` (all of it when `None`), every channel it
+/// plays. Blocks.
+fn read_window(
+    stream: &StreamAudio,
+    window: Option<(i64, i64)>,
+) -> Result<Vec<Vec<f32>>, MediaError> {
+    let Some((from, to)) = window else {
+        return read_all(&ClipAudio::Stream(stream.clone()));
+    };
+    let frames = (to - from).max(0) as usize;
+    let mut left = vec![0.0; frames];
+    let mut right = vec![0.0; if stream.channels() == 2 { frames } else { 0 }];
+    Readers::default().read(stream, from as u64, &mut left, &mut right)?;
+    Ok(if stream.channels() == 2 {
+        vec![left, right]
+    } else {
+        vec![left]
+    })
 }
 
 /// What an offline render could not read from disk, shared by its loader

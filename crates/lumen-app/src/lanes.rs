@@ -17,6 +17,7 @@ use lumen_engine::{Clip, ClipAudio, ClipsHandle, MidiHandle, MixerHandle};
 use lumen_project::model::{ClipContent, Id, Project};
 
 use crate::document::{Document, DropInto, Imported};
+use crate::media::warped::WarpedStreams;
 use crate::media::{self, Item, Library, State};
 use crate::theme;
 
@@ -37,6 +38,9 @@ pub struct Handles<'a> {
     /// The plugin devices' hosts, for the instruments in the MIDI tracks.
     pub hosting: &'a mut crate::hosting::Hosting,
 }
+
+/// The longest a list waits for a warped clip's audio to be prepared.
+const HOLD_LIMIT: std::time::Duration = std::time::Duration::from_secs(2);
 
 #[derive(Default)]
 pub struct Lanes {
@@ -61,6 +65,18 @@ pub struct Lanes {
     /// The streamed clips of the list last sent, and a count of the lists
     /// sent, for the disk thread's scene (M9 slice R6).
     streamed: (u64, Vec<Clip>),
+    /// The streamed clips of the list sent, and the warped ones of lists
+    /// held back; `streamed` is the two together.
+    sent_streams: Vec<Clip>,
+    waiting: Vec<Clip>,
+    /// The playhead while the transport plays, and when the list was first
+    /// held back for a warped clip's audio.
+    playhead: Option<i64>,
+    held_since: Option<std::time::Instant>,
+    /// The streams warped clips play as (M9.5 S4b), made in the pool of the
+    /// streaming that was on when they were. Behind a lock because the lists
+    /// built for a render are built from `&self`.
+    warped: std::sync::Mutex<Option<WarpedStreams>>,
     /// The audio tracks being recorded over that the clip list was built
     /// with, so it is built again when a take begins or ends.
     masked: Vec<crate::midi::play::Replacing>,
@@ -95,20 +111,94 @@ pub struct Lanes {
     rate: u32,
 }
 
+/// `project` with each warped looping clip replaced by the clips it unloops
+/// into (`edit::clip_ops::unloop`, which gives each repeat its own map, its
+/// own envelope and its own start). The pieces get ids made from the clip's,
+/// the same every time, so a level glides across lists as it does for any
+/// clip. Borrowed when nothing in it is a warped loop.
+fn unlooped_warps(project: &Project) -> std::borrow::Cow<'_, Project> {
+    use std::borrow::Cow;
+    let loops: Vec<Id> = project
+        .tracks
+        .iter()
+        .flat_map(|track| &track.clips)
+        .filter(|clip| clip.warp.is_some() && clip.loop_length.is_some())
+        .map(|clip| clip.id)
+        .collect();
+    if loops.is_empty() {
+        return Cow::Borrowed(project);
+    }
+    let mut copy = project.clone();
+    // Locked clips are left whole by the edit; this copy is never saved.
+    for track in &mut copy.tracks {
+        if track
+            .clips
+            .iter()
+            .any(|clip| loops.contains(&clip.id) && clip.locked)
+        {
+            for clip in &mut std::sync::Arc::make_mut(track).clips {
+                if loops.contains(&clip.id) {
+                    std::sync::Arc::make_mut(clip).locked = false;
+                }
+            }
+        }
+    }
+    for id in loops {
+        let mut made = 0_u64;
+        let mut fresh = || {
+            made += 1;
+            Id((1 << 63) | ((id.0 & 0x7FFF_FFFF_FFFF) << 16) | made)
+        };
+        lumen_project::edit::clip_ops::unloop(&mut copy, &[id], &mut fresh);
+    }
+    Cow::Owned(copy)
+}
 /// What the engine plays (audit M4: the model-to-engine translation, kept
 /// pure so it is tested): every audio clip whose audio is loaded (`audio`
 /// gives the audio at the device rate and the file's own rate), for the
 /// shorter of the clip and the file, at its clip gain, on its track. The
 /// track's level, pan, mute and solo are in the routing (`routing.rs`).
+#[cfg(test)]
 pub fn engine_clips(
     project: &Project,
     rate: u32,
     audio: impl Fn(Id) -> Option<(std::sync::Arc<lumen_engine::ClipAudio>, u32)>,
 ) -> Vec<Clip> {
+    engine_clips_with(project, rate, audio, &mut |_| None)
+}
+
+/// [`engine_clips`] with the warped clips (M9.5 S4b) played through
+/// `warped`, which gives the stream a warped clip plays as. A warped clip it
+/// gives none for plays as if it were not warped.
+pub fn engine_clips_with(
+    project: &Project,
+    rate: u32,
+    audio: impl Fn(Id) -> Option<(std::sync::Arc<lumen_engine::ClipAudio>, u32)>,
+    warped: &mut dyn FnMut(&crate::media::warped::Request<'_>) -> Option<std::sync::Arc<ClipAudio>>,
+) -> Vec<Clip> {
+    // A warped loop plays as the real clips it unloops into, each following
+    // the tempo from its own start and edge-faded as any clip is; a loop too
+    // long to unloop plays unwarped.
+    let unlooped = unlooped_warps(project);
+    let project = &*unlooped;
     let tempo = lumen_core::time::TempoMap::new(project.tempo.clone()).ok();
     let mut list = Vec::new();
     // Crossfades are clips that overlap, as `crossfades::played` has them.
     let played = crate::crossfades::played(project);
+    // The last sample any clip reaches: every warped stream is as long as
+    // the song (rounded up), so the pieces of a clip share one.
+    let reach = tempo.as_ref().map_or(0, |tempo| {
+        let end = project
+            .tracks
+            .iter()
+            .flat_map(|track| &track.clips)
+            .map(|model| {
+                let clip = played.get(&model.id).map_or(&**model, |p| &p.clip);
+                clip.start + clip.length
+            })
+            .max();
+        end.map_or(0, |end| tempo.sample_at(end, rate))
+    });
     for track in &project.tracks {
         for model in &track.clips {
             let (clip, blend) = played
@@ -140,13 +230,41 @@ pub fn engine_clips(
             } else {
                 clip.start
             };
-            let offset = tempo.as_ref().map_or(base_offset, |tempo| {
-                let timeline_sample = tempo.sample_at(source_origin, rate);
-                let source_anchor = ((tempo.seconds_at(source_origin) - clip.audio_phase_seconds)
-                    * f64::from(rate))
-                .round() as i64;
-                base_offset + timeline_sample - source_anchor
-            });
+            // A warped clip plays a stream of its own, computed from its map
+            // (S4b): frame `k` of it is timeline sample `k`, so the clip's
+            // offset is its start sample, and its pieces share the stream.
+            let start_sample = tempo.as_ref().map(|t| t.sample_at(clip.start, rate));
+            let warped_audio = clip
+                .warp
+                .as_ref()
+                .zip(tempo.as_ref())
+                .filter(|_| clip.loop_length.is_none() && start_sample.is_some_and(|s| s >= 0))
+                .and_then(|(warp, tempo)| {
+                    warped(&crate::media::warped::Request {
+                        warp,
+                        source: &samples,
+                        tempo,
+                        rate,
+                        origin: source_origin,
+                        reach,
+                    })
+                });
+            let (samples, streamed_warp) = match warped_audio {
+                Some(stream) => (stream, true),
+                None => (samples, false),
+            };
+            let offset = if streamed_warp {
+                start_sample.unwrap_or(0)
+            } else {
+                tempo.as_ref().map_or(base_offset, |tempo| {
+                    let timeline_sample = tempo.sample_at(source_origin, rate);
+                    let source_anchor = ((tempo.seconds_at(source_origin)
+                        - clip.audio_phase_seconds)
+                        * f64::from(rate))
+                    .round() as i64;
+                    base_offset + timeline_sample - source_anchor
+                })
+            };
             // Frames between two musical positions at the device rate.
             let frames = |a: Ticks, b: Ticks| {
                 tempo
@@ -490,6 +608,12 @@ impl Lanes {
             // A frozen track plays its file (M7b E5), not its clips.
             let sounding = lumen_project::edit::freeze::played(doc.project());
             let list = self.engine_clips(&without_replaced(sounding, &masked), rate);
+            // A warped clip an edit just made is not played until its first
+            // moments are prepared (below), so the old one plays on.
+            if self.hold_for_warps(&list, doc.project(), rate) {
+                self.dirty = true;
+                return;
+            }
             let streamed: Vec<Clip> = list
                 .iter()
                 .filter(|c| matches!(&*c.audio, ClipAudio::Stream(_)))
@@ -497,11 +621,100 @@ impl Lanes {
                 .collect();
             self.dirty = clips.set(list).is_err();
             if !self.dirty {
-                self.streamed = (self.streamed.0 + 1, streamed);
+                self.forget_unplayed_warps(&streamed);
+                self.sent_streams = streamed;
+                self.waiting.clear();
+                self.publish_streamed();
             }
             self.built = Some(doc.state());
             self.masked = masked;
         }
+    }
+
+    /// Tells the lanes where the playhead is while the transport plays
+    /// (`None` when stopped), for [`Lanes::send_clips`] to hold back a clip
+    /// whose audio is not prepared yet.
+    pub fn set_playhead(&mut self, sample: Option<i64>) {
+        self.playhead = sample;
+    }
+
+    /// Makes the hold in force look `by` older (a test seam).
+    #[cfg(test)]
+    pub(crate) fn age_hold(&mut self, by: std::time::Duration) {
+        self.held_since = self.held_since.map(|since| since - by);
+    }
+
+    /// The streams of the clips sent and those waiting, for the disk
+    /// thread's scene: it prepares the waiting ones first.
+    fn publish_streamed(&mut self) {
+        let mut all = self.sent_streams.clone();
+        all.extend(self.waiting.iter().cloned());
+        self.streamed = (self.streamed.0 + 1, all);
+    }
+
+    /// Whether `list` waits: while playing, a warped stream that the engine
+    /// does not play yet and whose next quarter second is not all in memory
+    /// holds the whole list back, so an edit made during playback is heard
+    /// when its audio is ready and the old one plays on until then (M9.5 §2 E,
+    /// "an edit made while playing"). The clips waiting are told to the disk
+    /// thread. Never holds longer than [`HOLD_LIMIT`]: a disk thread that does
+    /// not answer plays the edit anyway, with the dip a late page gives.
+    pub(crate) fn hold_for_warps(&mut self, list: &[Clip], project: &Project, rate: u32) -> bool {
+        let waiting = self.warps_not_ready(list, project, rate);
+        if waiting.is_empty() {
+            self.held_since = None;
+            return false;
+        }
+        let since = *self.held_since.get_or_insert_with(std::time::Instant::now);
+        if since.elapsed() > HOLD_LIMIT {
+            self.held_since = None;
+            return false;
+        }
+        // A clip is the same waiting clip only with the same stream: a second
+        // edit makes another stream, which the disk thread must be told of.
+        let ids = |clips: &[Clip]| -> Vec<(u64, Option<u64>)> {
+            clips
+                .iter()
+                .map(|c| (c.id, c.audio.stream().map(|s| s.id())))
+                .collect()
+        };
+        if ids(&waiting) != ids(&self.waiting) {
+            self.waiting = waiting;
+            self.publish_streamed();
+        }
+        true
+    }
+
+    /// The clips of `list` that play a warped stream not played yet, whose
+    /// audio from the playhead on is not all in memory.
+    fn warps_not_ready(&self, list: &[Clip], project: &Project, rate: u32) -> Vec<Clip> {
+        let Some(at) = self.playhead else {
+            return Vec::new();
+        };
+        let Ok(tempo) = lumen_core::time::TempoMap::new(project.tempo.clone()) else {
+            return Vec::new();
+        };
+        let playing = |id: u64| {
+            self.sent_streams
+                .iter()
+                .any(|c| c.audio.stream().is_some_and(|s| s.id() == id))
+        };
+        list.iter()
+            .filter(|clip| {
+                let Some(stream) = clip.audio.stream() else {
+                    return false;
+                };
+                if playing(stream.id()) || media::streams::warped(stream.id()).is_none() {
+                    return false;
+                }
+                let start = tempo.sample_at(clip.start, rate);
+                let ahead = at..at + i64::from(rate / 4);
+                !lumen_engine::for_each_page(clip, start, ahead, stream.frames(), &mut |page| {
+                    stream.resident(page)
+                })
+            })
+            .cloned()
+            .collect()
     }
 
     /// Applies finished loads (adding them to the project), loads media the
@@ -674,16 +887,69 @@ impl Lanes {
 
     /// What the engine plays, from the files that are loaded.
     pub(crate) fn engine_clips(&self, project: &Project, rate: u32) -> Vec<Clip> {
-        engine_clips(project, rate, |media| {
-            let item = self.library.get(media.0)?;
-            let State::Ready(audio) = &item.state else {
-                return None;
-            };
-            Some((
-                audio.clone(),
-                item.info.sample_rate.unwrap_or(audio.sample_rate()),
-            ))
+        // Warped clips play from streams in the live pool, so they need
+        // "Play audio from disk" (the default); without it they play as if
+        // they were not warped.
+        let mut warped = self.warped.lock().unwrap_or_else(|p| p.into_inner());
+        let pool = self.library.streaming().map(|s| s.pool());
+        if warped
+            .as_ref()
+            .is_some_and(|w| pool.is_none_or(|p| !std::sync::Arc::ptr_eq(w.pool(), p)))
+        {
+            *warped = None;
+        }
+        if warped.is_none() {
+            *warped = pool.map(WarpedStreams::new);
+        }
+        self.clips_with(project, rate, &mut |request| {
+            warped.as_mut()?.stream(request)
         })
+    }
+
+    /// What a render plays: the clips, with the warped ones as streams of
+    /// their own that the render reads (M9.5 S4b). They live as long as the
+    /// returned [`WarpedStreams`], which the render keeps until it is done. A
+    /// render needs no "Play audio from disk": it loads the pages itself.
+    pub(crate) fn render_clips(&self, project: &Project, rate: u32) -> (Vec<Clip>, WarpedStreams) {
+        let mut warped = WarpedStreams::new(&lumen_engine::PagePool::new(1));
+        let clips = self.clips_with(project, rate, &mut |request| warped.stream(request));
+        (clips, warped)
+    }
+
+    fn clips_with(
+        &self,
+        project: &Project,
+        rate: u32,
+        warped: &mut dyn FnMut(&media::warped::Request<'_>) -> Option<std::sync::Arc<ClipAudio>>,
+    ) -> Vec<Clip> {
+        engine_clips_with(
+            project,
+            rate,
+            |media| {
+                let item = self.library.get(media.0)?;
+                let State::Ready(audio) = &item.state else {
+                    return None;
+                };
+                Some((
+                    audio.clone(),
+                    item.info.sample_rate.unwrap_or(audio.sample_rate()),
+                ))
+            },
+            warped,
+        )
+    }
+
+    /// Forgets the warped streams the engine no longer plays, after it was
+    /// sent `sent`.
+    fn forget_unplayed_warps(&self, sent: &[Clip]) {
+        let mut warped = self.warped.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(warped) = warped.as_mut() {
+            let playing = sent
+                .iter()
+                .filter_map(|c| c.audio.stream().map(|s| s.id()))
+                .collect();
+            warped.retain(&playing);
+        }
     }
 
     /// The panel for loads in progress (with Cancel), failures (with

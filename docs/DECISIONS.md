@@ -11912,3 +11912,175 @@ the report in the PR).
   strict now, like the limits (`markers_within_a_microsecond_of_the_file_edges_are_still_refused`).
 - The S4a row and this ADR overstated the property tests: corrected above and
   in `docs/milestones/M9.5.md`; normalize has a unit test with a half-speed map.
+
+
+## ADR-0131 — Repitch: the first warped sound (M9.5 S4b)
+
+**Date:** 2026-11-08. **Branch:** `m9.5-s4b-repitch`. **Status:** Built; no
+format change. Nothing in the interface turns warp on yet (S5 and S4d give it
+a control), so there is no manual test and no docs page: tests drive it
+through `Document::warp_clips`. Nothing was verified by listening.
+
+**Context.** A warped clip must follow the tempo, with the pitch moving like
+tape (Repitch), in playback and in every render (Join, bounce, freeze, export)
+with the same bits. The plan (§3, D3 to D5) called for rubato with a ratio per
+chunk and a stretch thread; the owner chose 2 s chunks with a short first
+chunk (2026-11-08). S4b leaves the stretch library T, Melodic and Full mix to
+S4c.
+
+**Choice.**
+
+1. **A stateless windowed-sinc, not rubato** (`lumen-media/src/repitch.rs`).
+   Every output frame is a Kaiser-windowed sinc (16 taps each side, beta 9, a
+   512-phase table with linear interpolation) read at `position(k)`, the file's
+   frame for output frame `k`. The position is sampled on a 16-frame grid and
+   linearly interpolated, and the kernel is widened by the speed above 1 so a
+   fast clip is filtered before it folds back. A frame that lands on a whole
+   source frame at unity speed (within 1e-7) is copied, so a warp at the file's
+   own tempo is bit-exact (D3). **A frame depends only on its own index**, so
+   the bits are the same for any chunk, jump or block size; this makes the
+   owner's chunk-length choice moot for Repitch (there is no state to carry or
+   prime), and the "short first chunk" is replaced by the hold-back below.
+   Deviation from the plan (rubato carries filter state between chunks, which
+   would make a jump differ from a straight run).
+2. **The map in time.** `lumen_core::warp::source_at_f64` is `source_at` for
+   fractional ticks, and `TempoMap::ticks_f64_at_seconds` is the tempo map's
+   inverse without the rounding; `ticks_at_seconds` is that, rounded.
+   `Warped::position(k)` turns stream frame `k` into timeline seconds,
+   then ticks from the stream's **anchor** (the tick of the sample nearest the
+   anchor tick, so a clip at its file's tempo lands on the file's own frames
+   as a plain clip does, even when its start is between two samples), then
+   the file's second, then a frame.
+3. **A warped clip is a computed stream.** `media/warped/` keeps an
+   `Arc<Warped>` (the file, the markers measured from the anchor, the original
+   tempo, the tempo map, the anchor, the frame count) in a
+   registry in `media/streams.rs`, under a stream id. `Readers::read` renders
+   the pages of such an id (`Rendering`), so the disk thread (playback) and
+   the `OfflineLoader` (every render) read through the same code. **Frame `k`
+   of a stream is timeline sample `k`**, and the stream is as long as the song
+   (the last sample any clip reaches, rounded up to a power of two, at least
+   2^20), so the engine plays it as an ordinary streamed clip whose `offset`
+   is the clip's start sample (`lanes::engine_clips_with`) and nothing in the
+   engine changes. The line from timeline to file does not know the clip: the
+   anchor is the first marker's place in the song, and the markers are measured from it, so **the
+   pieces a split leaves have the same stream (one `Arc`, contiguous
+   offsets) and the engine hears no seam between them** (round 1 of the
+   review found the first design, a stream per clip, dipped at every split).
+   **A loop is played as the real clips it unloops into**
+   (`lanes::unlooped_warps`, before the engine list is built): a warped
+   clip with a loop is expanded by `clip_ops::unloop` on a copy of the project
+   (locked clips unlocked in the copy; the first piece keeps the clip's id, the
+   others get ids derived from it, stable between lists), so every repeat is
+   an ordinary non-loop warped clip with its own anchor, follows the tempo from
+   its own start, is bit-exact at unity even off the sample grid, repeats its
+   envelopes, and meets the next repeat as any two abutting clips do (the
+   engine's equal-power crossfade over its 5 ms overlap). The engine is given
+   no loop for a warped clip. A loop of more than 1,024 repeats is not
+   expanded and plays unwarped. The disk thread does the rendering
+   (the pool has one writer); there is no separate stretch thread. Deviation
+   from D4.
+4. **Streams are cached by what they depend on** (`WarpedStreams`, key =
+   source identity, rate, frame count, anchor, original tempo,
+   markers from the anchor, tempo points). An edit that changes none of that
+   (gain, fades, another track, a split) finds its stream and the pages already
+   made; one that does makes a new stream. `retain` forgets the streams the
+   engine is not playing after a list is sent. The streams of a render are held
+   by an `Arc<WarpedStreams>` that the render's job keeps (`Job::_warps`), so
+   a real-time export still finds them when its own thread reads them
+   (`in_memory`); the registry forgets them when the last holder lets go. A
+   real-time export reads each stream once and only the frames its clips play
+   (`in_memory` windows a warped stream and moves the clips' offsets).
+5. **Hold-back while playing.** When an edit creates a new warped stream during
+   playback, `Lanes` holds the whole new list until the next quarter second of
+   its pages is resident (`warps_not_ready`), so the old clip plays on rather
+   than silence; the hold is capped at `HOLD_LIMIT` (2 s). The held clips are
+   still published to the disk thread's scene so it prepares them, and a
+   second edit during the hold (a new stream for the same clip) is published
+   again.
+6. **Renders do not depend on "Play audio from disk".** `Lanes::render_clips`
+   and the export's `Again` build warped streams in a private tiny pool; they
+   always warp. Live playback with the switch off has no pool, so a warped clip
+   plays unwarped (below).
+
+**Limitations (also in `docs/KNOWN_ISSUES.md`).**
+
+- Live playback of a warped clip needs "Play audio from disk"; with it off the
+  clip plays unwarped. A file at another rate than the device is not warped.
+- Moving or editing a warped clip's map during playback re-renders it and is
+  held up to 2 s, so a drag during playback lags.
+- The mode (other than Repitch) and the transpose are stored and played as
+  Repitch until S4c and S6.
+- A stream is as long as the song rounded up to a power of two (at least 2^20
+  frames), one table entry per page: a song that grows past a power of two
+  makes every warped stream new, so an edit at that moment is held like any
+  other (up to 2 s).
+- Unity bit-exactness relies on the position landing within 1e-7 frames of a
+  whole frame; the error grows with the position (about 1e-8 frames after
+  half an hour), so past some hours a clip at its own tempo is the file to
+  within interpolation error rather than bit for bit.
+- A memory source is keyed by its `Arc` address; the cache holds the `Arc`, so
+  the address cannot be reused while the key lives.
+
+**Consequences.** `lumen-media` gains `repitch`; `lumen-core` two small
+functions; `lumen-app` gains `media/warped/` and the `Lanes` hold-back state,
+and `lib.rs` tells `Lanes` the heard playhead each frame. 7 tests in
+`repitch/tests.rs` (identity copy, pitch ratios, bit-equal pieces over a kink,
+anti-aliasing, edges, mono, kernel zeros) and 26 in `media/warped/tests.rs`
+(bit-exact unity, also off the sample grid, speed, page independence across a
+ramp and markers, the cache, refusals, a stream file warped from disk, engine
+renders at any block size, a loop, every repeat of a loop (also off the grid) across a tempo
+step, a tempo change, a split that shares its stream and plays on without a dip,
+a real-time export reading only the frames played, and three hold-back tests),
+and one in `export/render_audio.rs` (a job that holds the streams reads them
+after the render is gone).
+
+**Not verified.** No listening. The performance gate (WSL) and the macOS
+cross-target clippy are not run on this machine; the `warped_64` bench is S4c's
+and not written, and the pool's size (96 MB) is unchanged and unmeasured with
+many warped clips.
+
+**Review round 1 (GPT 6.1 Sol, high; 5 findings, all fixed).**
+
+- *Blocking:* a looping warped clip repeated one period's samples, so it
+  stopped following the tempo after its first period. Round 1 wrapped the
+  stream in ticks; round 2 replaced that with unlooping (below). `every_repeat_of_a_loop_follows_the_tempo` fails with the old
+  design.
+- *Major:* a real-time export lost the stream registrations before its own
+  thread read them (`RenderAudio`'s warps were dropped at the end of the
+  launch). The job now holds them (`Job::_warps`); the test fails without it.
+- *Major:* splitting a warped clip made two streams, so the engine's seam
+  rule faded both edges (a dip to near silence at every split). The pieces
+  share one stream now (item 3).
+- *Major:* the stream was aligned to the exact origin tick, not the sample, so
+  a warp at the file's own tempo was not the file's frames when the clip began
+  between two samples (4,096 of 4,096 samples differed at 123 BPM). Aligned to
+  the anchor's sample now.
+- *Major:* a second edit during the hold-back kept the first edit's stream in
+  the disk thread's scene (clips compared by id). Compared with the stream.
+
+**Review round 2 (GPT 6.1 Sol, high; 5 findings, all fixed).**
+
+- *Major:* a loop wrapped in ticks was still one clip with one anchor, so a
+  later repeat was not bit-exact at unity off the sample grid, lost the
+  engine's per-repeat fade, and repeated no envelope. A looping warped clip is
+  now unlooped into real clips before the engine list is built (item 3);
+  `every_repeat_of_a_loop_off_the_sample_grid_is_the_file_bit_for_bit_away_from_its_joins`
+  and `each_repeat_of_a_warped_loop_is_crossfaded_like_abutting_clips` cover it.
+  The repeats join as abutting clips do (equal-power, 5 ms), which on a
+  constant shows as a bump of 3 dB mid-overlap, not the dip of an edge fade; a
+  loop of more than 1,024 repeats plays unwarped.
+- *Major:* the export's `Again::clips` returned the cached clips without the
+  offline loader, so a second render read nothing from the warped streams. It
+  wraps them in `streams::offline` on both paths; a test covers a render at
+  another rate.
+- *Major:* a real-time export's `in_memory` merged two far-apart windows of
+  one stream into one big read. Windows that do not touch stay separate
+  (`a_real_time_export_keeps_pieces_far_apart_in_a_stream_apart`).
+- The report's other two findings were smaller points on the same loop and
+  export paths; they were fixed with the three above, and a split through a
+  repeat is covered by
+  `a_split_through_a_repeat_of_a_warped_loop_plays_on_without_a_dip`.
+
+Round 2's fixes were not reviewed again (two rounds were asked for). Not
+tested: a warped loop with a gain envelope (the unlooping copies and shifts
+envelopes, which `clip_ops` tests), and a loop over 1,024 repeats.

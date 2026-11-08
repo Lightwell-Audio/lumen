@@ -248,6 +248,7 @@ impl App {
             clips: audio.clips(),
             again: audio.again(),
             unread: audio.unread(),
+            _warps: audio.warps(),
             plugins,
             rate: audio.rate,
             from,
