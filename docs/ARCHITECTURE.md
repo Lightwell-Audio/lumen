@@ -1,6 +1,6 @@
 # Lumen — Architecture
 
-**M9.5 S4a Warp in the model (2026-11-08, ADR-0129, format v33).**
+**M9.5 S4a Warp in the model (2026-11-08, ADR-0130, format v33).**
 `lumen-core::warp`: `Marker { source, at }`, the map's arithmetic (`source_at`,
 `tick_at_source`, `shift`, `mirror`; ratio limits 25% to 400%, at most 4096
 markers), pure. `lumen-project::model::warp`: `Warp` and `WarpMode`, and

@@ -54,8 +54,11 @@ the build stops when such a page or anchor does not exist. A plain
 - `.github/workflows/docs.yml`, on pull requests that touch the site or the
   app: `docs_coverage` and the name tests, every scene once in the dark
   theme without writing anything (no `DOCS_MEDIA`), the media (the scenes
-  the branch changed are rendered, the others fetched from the published
-  site; `.github/scripts/docs-media.sh`), and the build, which stops at a
+  the branch changed are rendered in parallel jobs and kept by fingerprint,
+  so the next push renders only what it changed; the others are fetched
+  from the published site; `.github/workflows/docs-render.yml` and
+  `.github/scripts/docs-media.sh`; each job plans and renders its share,
+  and the job that builds the pages needs no Rust), and the build, which stops at a
   wrong shortcode, missing alt text, an unknown key or a broken internal
   link. The built pages, with the landing page and the media, are kept as
   the run's `docs-site` artifact: unzip it and serve the folder with

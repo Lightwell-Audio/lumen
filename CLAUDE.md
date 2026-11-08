@@ -558,7 +558,7 @@ per slice and move what is no longer current out of it.
   4 (how the arrangement draws a phased clip's envelope). Next: S3 onwards in
   `docs/milestones/M9.5.md`.
 - **Branch `m9.5-s3-clip-properties`: M9.5 S3 is built** (ADR-0128; owner: NC B, PF A, B B, BS B). The audio editor's column is gone; a 32 pt strip under the header holds the Clip chip, Gain, Mute, Lock, the fades, Reverse, Polarity, Normalize, the ⋯ menu and the File chip (facts, Show in file manager, Relink). It edits the opened clip; Alt+Enter focuses it when the editor is where the work is. Arrangement clips carry marks for Reverse and Polarity (`arrangement/clip_marks.rs`, pure). New commands `clip.lock` and `clip.reveal_file`; no format change. E2E `audio_clip_properties`, `clip_badges`; docs scene `audio_clip_properties`; guide Set a clip's gain, fades and processing. MT-CLIP-5 waits. Not tested as planned: 444/420/260 pt widths, the lowest panel height at three scales, the 20,000-clip bench (ADR-0128). Next: S4 (warp).
-- **Branch `m9.5-s4a-warp-model`: M9.5 S4a is built** (ADR-0129; format v33;
+- **Branch `m9.5-s4a-warp-model`: M9.5 S4a is built** (ADR-0130; format v33;
   nothing is heard or reachable). `Clip::warp` (and each take pass's) holds the
   mode, original tempo, markers and transpose; `lumen_core::warp` is the map's
   arithmetic; every audio-clip edit keeps the map true and `offset` /
@@ -566,7 +566,7 @@ per slice and move what is no longer current out of it.
   by `crates/lumen-project/tests/warp.rs`. `Document` has the edits, one undo
   step each, and no command until S5 gives warp a control. Tell the owner:
   split keeps the whole marker list on both halves and warp off drops the map
-  (both deviate from the plan, ADR-0129); Join's render, bounce, freeze and
+  (both deviate from the plan, ADR-0130); Join's render, bounce, freeze and
   export play a warped clip unstretched until S4b. **S4b to S4d wait for the
   owner:** chunk length and jump behaviour (S0's E result) and the stretch
   library T. Not run here: the WSL perf gate and the macOS cross-target clippy.
@@ -604,6 +604,14 @@ per slice and move what is no longer current out of it.
   200% is unusable (MT-CLIP-1 step 9, MT-CLIP-2 step 10; KNOWN_ISSUES, top
   row). Still waiting: MT-EXPORT-1's real-time export on the Focusrite and
   MT-PREF-1. Results are in `docs/manual-tests/` and `docs/PROGRESS.md`.
+- **Branch `chore/docs-render-speed`: the docs render aims at 10 minutes**
+  (ADR-0129; owner asked 2026-11-08, after about 30). Frames at rest are
+  reused (`DOCS_VERIFY_REUSE=1` checks them), each of 6 render jobs builds the
+  app and plans on its own (no plan job), a themed scene is rendered as one
+  piece per theme (`DOCS_THEME`), and the page job builds no Rust
+  (`docs-render.yml`, `DOCS_DATA_READY`). The time is an estimate: nothing
+  has run on GitHub, and the `jq` paths of `docs-media.sh` ran nowhere.
+  Look at the first run's times and report them.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

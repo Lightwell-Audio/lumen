@@ -11707,7 +11707,66 @@ the marks and the Narrator pass are the owner's. The docs scene
 in CI. The marks' page is a section of the new guide rather than a page of its
 own.
 
-## ADR-0129 — Warp in the model (M9.5 S4a, format v33)
+## ADR-0129 — The docs render in under ten minutes
+
+**Date:** 2026-11-08. **Branch:** `chore/docs-render-speed`. **Status:** Built;
+the workflow's wall-clock time is an estimate until a run on GitHub (see
+Consequences). Owner: "It needs to be under 10 minutes". No format change.
+
+**Context.** A pull request that touched the docs, or the Site deploy, took
+about 30 minutes. The scenes (nine, about 1900 s serial on CI) were rendered
+one after the other in a single job, each frame drawn by the software GPU
+(about 0.3 to 0.4 s a frame; the rest of the per-frame work, crop, hash and
+write, is under 10% of it). The earlier sharding attempt (`chore/docs-ci-faster`,
+never merged) still left a plan job, a build in every stage and one scene of
+about 466 s that bounded the whole run.
+
+**Choice.**
+
+1. **A frame the app did not ask to change is not drawn again.** In a hold
+   (the recorder waiting while the picture is still) a frame reuses the
+   previous picture when the app asked for no immediate repaint after this
+   frame and the one before (`ViewportOutput.repaint_delay` non-zero) and it
+   is not the hold's first frame. About 37% of all frames are reused; the
+   first frame of a hold, the pointer moves, clicks and keys always render.
+   The hover event is sent only on a hold's first frame, because one every
+   frame kept the app asking for repaints. `DOCS_VERIFY_REUSE=1` renders every
+   frame anyway and compares it with the reused one: all nine scenes checked
+   (each theme piece of the longest, `audio_editor_handles`, too) show zero
+   mismatches, and the frames are identical, so no clip
+   changes.
+2. **The plan is made inside each render job.** There is no planning job: each
+   of six jobs builds the app once, makes the same plan from the same
+   published manifest and renders its share. The callers' `docs-media.sh plans`
+   fails the run, with a message to rerun it, when two jobs disagree (a deploy
+   landing mid-run changes the manifest).
+3. **A themed scene is two pieces.** A scene with clips or shots is rendered
+   as `<test>:dark` and `<test>:light` in jobs of their own (`DOCS_THEME`), so
+   the longest unit is half of the longest scene. Their folders together hold
+   what the scene writes; the seconds are summed per scene.
+4. **The last render job also exports the pages' data** (commands, settings;
+   `DOCS_DATA_READY=1` tells `build.sh` to skip it) and saves the Rust cache.
+   The job that builds the pages needs no Rust and no apt packages: it
+   installs Zola, gathers the artifacts and builds.
+5. **One workflow serves both callers.** `docs-render.yml` (reusable) is
+   called by `docs.yml` (pull requests) and `pages.yml` (deploy); six jobs by
+   default, eight on a manual run.
+
+**Consequences.**
+
+- Estimated on CI: render job about 8 minutes (set-up 1, build 2.5, render 3.5,
+  upload 0.3) and the page job about 2: about 10 minutes, borderline. The first
+  run of this branch renders every scene (the recorder changed) and may have a
+  cold Rust cache. Nothing here has run on GitHub; the `jq` paths (plan
+  selection, keep, gather) were not run locally (no `jq`), and ffmpeg was
+  stubbed in the local render tests.
+- Walkthroughs with sound (`hearing`, `split_while_playing`) reuse few frames.
+- If this is still too slow: more jobs (eight), splitting the heaviest scenes,
+  a larger runner, or a `debug = 0` profile for the docs build.
+- `song.rs` waits for both imported clips before it goes on; it panicked on a
+  loaded machine before (`clips[0]`).
+
+## ADR-0130 — Warp in the model (M9.5 S4a, format v33)
 
 **Date:** 2026-11-08. **Branch:** `m9.5-s4a-warp-model`. **Status:** Built; the
 slice plays nothing warped and has no control, so it has no manual test and no
