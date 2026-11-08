@@ -34,6 +34,9 @@ pub struct Job {
     pub protected: Vec<PathBuf>,
     /// What the clips could not read from disk; an export with a hole fails.
     pub unread: Unread,
+    /// The warped streams the clips play, held until the job is done (a
+    /// real-time export reads them again on its own thread).
+    pub _warps: Option<Arc<crate::media::warped::WarpedStreams>>,
 }
 
 fn safe_name(name: &str) -> String {

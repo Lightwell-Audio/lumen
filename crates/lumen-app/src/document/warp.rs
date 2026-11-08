@@ -1,10 +1,9 @@
 //! Warp (M9.5 slice S4a): the document's edits of a clip's warp. Each is one
 //! undo step; one that changes nothing adds none; a locked clip is left as it
-//! is. There is no control for them yet (the warp editor is S5), and the
-//! engine does not play a warp until S4b: these keep the model true and
-//! undoable so that what comes after has something to stand on.
+//! is. There is no control for them yet (the warp editor is S5); since S4b
+//! the engine plays a warped clip in Repitch (ADR-0131), so a test hears them.
 
-// Nothing calls these until S4b and S5 give warp a control; a test does. The
+// Nothing calls these until S5 gives warp a control; a test does. The
 // expectation fails the build the day something does, so it gets removed.
 #![cfg_attr(not(test), expect(dead_code, reason = "no control for warp until S5"))]
 
@@ -56,7 +55,8 @@ fn each(
 
 impl Document {
     /// Turns warp on for the selected audio clips, for files made at
-    /// `original_bpm`. Nothing is stretched: each clip plays as it did.
+    /// `original_bpm`. A clip at the file's own tempo plays as it did; any other
+    /// tempo plays it faster or slower, the pitch moving with it (Repitch).
     pub fn warp_clips(&mut self, ids: &[Id], original_bpm: f64) -> Warped {
         let mut out = Warped::default();
         self.history.apply("Warp clips", None, |project| {

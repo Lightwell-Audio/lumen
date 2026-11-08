@@ -18,8 +18,9 @@ use lumen_engine::{Clip, ClipAudio};
 use lumen_media::MediaError;
 use lumen_project::model::{self, ClipContent, Id, Project};
 
-use crate::lanes::{Lanes, engine_clips};
+use crate::lanes::{Lanes, engine_clips_with};
 use crate::media::streams::Unread;
+use crate::media::warped::WarpedStreams;
 use crate::media::{mirror, reversed_key};
 
 /// One file a render plays, and which of its forms: as it is, and mirrored.
@@ -38,6 +39,11 @@ pub struct Again {
     /// The result, kept for the next job of the same render (a bounce of
     /// several tracks reads each file once).
     made: Mutex<Option<Vec<Clip>>>,
+    /// The streams the warped clips of `made` play as (M9.5 S4b), forgotten
+    /// with the render.
+    warped: Mutex<WarpedStreams>,
+    /// What the clips could not read from disk, shared with the render.
+    unread: Unread,
 }
 
 impl Again {
@@ -47,7 +53,11 @@ impl Again {
     pub fn clips(&self, cancel: &AtomicBool) -> Result<Option<Vec<Clip>>, String> {
         let mut made = self.made.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(clips) = &*made {
-            return Ok(Some(clips.clone()));
+            // A stream plays through a loader of the job's own.
+            return Ok(Some(crate::media::streams::offline(
+                clips.clone(),
+                &self.unread,
+            )));
         }
         let mut audio: HashMap<u64, (Arc<ClipAudio>, u32)> = HashMap::new();
         for file in &self.files {
@@ -64,9 +74,15 @@ impl Again {
                 Err(why) => return Err(why),
             }
         }
-        let clips = engine_clips(&self.project, self.rate, |key| audio.get(&key.0).cloned());
+        let mut warped = self.warped.lock().unwrap_or_else(PoisonError::into_inner);
+        let clips = engine_clips_with(
+            &self.project,
+            self.rate,
+            |key| audio.get(&key.0).cloned(),
+            &mut |request| warped.stream(request),
+        );
         *made = Some(clips.clone());
-        Ok(Some(clips))
+        Ok(Some(crate::media::streams::offline(clips, &self.unread)))
     }
 
     /// One file at the project's rate, with the rate it was made at.
@@ -110,6 +126,9 @@ pub struct RenderAudio {
     again: Option<Arc<Again>>,
     /// What the render could not read from disk, for every job.
     unread: Unread,
+    /// The streams the warped clips of `loaded` play as, kept until the
+    /// render is done.
+    warps: Option<Arc<WarpedStreams>>,
 }
 
 impl RenderAudio {
@@ -120,13 +139,16 @@ impl RenderAudio {
         project: &Project,
         wanted: impl IntoIterator<Item = &'a model::Clip>,
     ) -> Self {
-        Self::build(
+        let (clips, warps) = lanes.render_clips(project, lanes.rate());
+        let mut audio = Self::build(
             project,
             lanes.rate(),
-            lanes.engine_clips(project, lanes.rate()),
+            clips,
             |media| lanes.file_of(media),
             wanted,
-        )
+        );
+        audio.warps = Some(Arc::new(warps));
+        audio
     }
 
     /// For every clip of `tracks`: what a bounce or a freeze plays.
@@ -153,6 +175,7 @@ impl RenderAudio {
         wanted: impl IntoIterator<Item = &'a model::Clip>,
     ) -> Self {
         let rate = project.sample_rate;
+        let unread = Unread::default();
         let again = (rate != device_rate).then(|| {
             let mut files: Vec<File> = Vec::new();
             for clip in wanted {
@@ -177,13 +200,16 @@ impl RenderAudio {
                 rate,
                 files,
                 made: Mutex::new(None),
+                warped: Mutex::new(WarpedStreams::new(&lumen_engine::PagePool::new(1))),
+                unread: unread.clone(),
             })
         });
         Self {
             rate,
             loaded,
             again,
-            unread: Unread::default(),
+            unread,
+            warps: None,
         }
     }
 
@@ -211,6 +237,13 @@ impl RenderAudio {
         self.unread.clone()
     }
 
+    /// The warped streams the clips play, for a job to hold until it is done:
+    /// they are forgotten when the last holder lets go, and a real-time export
+    /// reads them again on its own thread, after this render is dropped.
+    pub fn warps(&self) -> Option<Arc<WarpedStreams>> {
+        self.warps.clone()
+    }
+
     /// What the worker makes the clips with, when the rates differ.
     pub fn again(&self) -> Option<Arc<Again>> {
         self.again.clone()
@@ -222,6 +255,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
+    use crate::lanes::engine_clips;
     use lumen_core::time::Ticks;
     use lumen_media::wav::{Sample, Spec, Writer};
     use lumen_project::model::{Clip as ModelClip, Color, Track, TrackKind};
@@ -359,6 +393,33 @@ mod tests {
             (made[0].start, made[0].offset, made[0].length),
             (direct[0].start, direct[0].offset, direct[0].length)
         );
+    }
+
+    #[test]
+    fn another_rate_makes_the_warped_clips_streams_with_a_loader_of_the_jobs_own() {
+        let dir = TempDir::new("render-audio-again-warped");
+        let file = dir.path().join("tone.wav");
+        write(&file, 48_000);
+        let mut clip = model_clip(1, 9, false);
+        clip.warp = Some(lumen_project::model::Warp::new(100.0, 0.0));
+        let project = project_at(44_100, vec![clip.clone()]);
+        let loaded = playing(&project, &file, 9, 48_000, 48_000);
+
+        let audio = RenderAudio::build(&project, 48_000, loaded, |_| Some(file.clone()), [&clip]);
+        let again = audio.again().expect("the rates differ");
+        let made = again
+            .clips(&AtomicBool::new(false))
+            .unwrap()
+            .expect("not cancelled");
+        let stream = made[0].audio.stream().expect("a warped clip is a stream");
+        assert!(
+            stream.is_offline(),
+            "the render loads its pages itself; with no loader it would be silent"
+        );
+        // And what it loads is the tone, not silence.
+        let heard = crate::media::streams::in_memory(made).unwrap();
+        let wave = &heard[0].audio.memory().unwrap()[0];
+        assert!(wave.iter().any(|v| v.abs() > 0.1));
     }
 
     /// Joins the clip `1` of `project` as a render does, with the audio
@@ -526,5 +587,52 @@ mod tests {
             .clips(&AtomicBool::new(true))
             .unwrap();
         assert!(made.is_none());
+    }
+
+    #[test]
+    fn a_job_that_holds_the_warped_streams_can_still_read_them_after_the_render_is_gone() {
+        use lumen_engine::{ClipAudio, PagePool};
+        use lumen_project::model::Warp;
+        let source = Arc::new(ClipAudio::Memory {
+            sample_rate: 48_000,
+            channels: vec![vec![0.25; 100_000]; 2],
+        });
+        let tempo = lumen_core::time::TempoMap::constant(120.0).unwrap();
+        let warp = Warp::new(120.0, 0.0);
+        let mut warps = WarpedStreams::new(&PagePool::new(1));
+        let stream = warps
+            .stream(&crate::media::warped::Request {
+                warp: &warp,
+                source: &source,
+                tempo: &tempo,
+                rate: 48_000,
+                origin: Ticks::ZERO,
+                reach: 48_000,
+            })
+            .unwrap();
+        let clip = Clip {
+            id: 1,
+            track: 1,
+            start: Ticks::ZERO,
+            offset: 0,
+            length: 48_000,
+            gain: 1.0,
+            audio: stream,
+            shape: Default::default(),
+            envelope: Default::default(),
+        };
+        let mut audio =
+            RenderAudio::build(&crate::empty_project(), 48_000, vec![clip], |_| None, []);
+        audio.warps = Some(Arc::new(warps));
+        // What a job takes: its clips and the streams' keeper.
+        let keeper = audio.warps();
+        let clips = audio.clips();
+        drop(audio);
+        let read = crate::media::streams::in_memory(clips.clone()).unwrap();
+        assert_eq!(read[0].audio.memory().unwrap()[0].len(), 48_000);
+        // Without the keeper the streams are gone with the render, which is
+        // what a real-time export once met.
+        drop(keeper);
+        assert!(crate::media::streams::in_memory(clips).is_err());
     }
 }

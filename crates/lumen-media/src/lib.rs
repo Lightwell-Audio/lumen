@@ -12,6 +12,7 @@
 
 pub mod export;
 mod peaks;
+pub mod repitch;
 pub mod stream;
 pub mod take;
 pub mod wav;

@@ -18,6 +18,7 @@ use lumen_media::{MediaError, Peaks};
 pub mod streaming;
 pub mod streams;
 mod twins;
+pub mod warped;
 pub use twins::{mirror, reversed_key};
 
 /// What the user sees about a file: from its name and size at once, the

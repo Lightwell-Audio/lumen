@@ -655,6 +655,9 @@ impl eframe::App for App {
         self.update_streaming();
         let cue = self.cue();
         let inputs = self.listen_inputs();
+        let heard = self.transport.audio.engine.transport_reader().read();
+        self.lanes
+            .set_playhead(heard.playing.then_some(heard.sample));
         self.lanes.update(
             rate,
             &ctx,
