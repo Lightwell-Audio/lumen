@@ -32,10 +32,14 @@ The owner's requirements (2026-11-05), as testable rules:
    sidebar in three clicks or fewer, and from the search box by its name, by
    its shortcut, or by a common synonym.
 4. **A quick start and a recipes section.**
-5. **The docs follow the work.** Every slice adds or updates the pages for
-   what it delivers, in the same branch. Each milestone closes with its docs
-   complete. Once every current milestone is finished and a versioning
-   strategy exists, the docs move to one set per version (§10.3).
+5. **The docs follow the work, once the work has settled.** A slice's
+   branch carries what cannot go stale: the generated reference, the
+   coverage test, the tagged line that says what it owes. The guides, scenes
+   and clips for what it delivers are written when the milestone's interface
+   has settled, at its docs pass (§10.1, ADR-0133). Each milestone closes
+   with its docs complete. Once every current milestone is finished and a
+   versioning strategy exists, the docs move to one set per version
+   (§10.3).
 
 Two more rules follow from Lumen's own principles:
 
@@ -305,11 +309,24 @@ names an E2E scenario that exists.
 
 On the first day almost nothing is documented, so the test starts with a
 **baseline file of known gaps** (`site/docs/data/undocumented.txt`). The
-rule is that the file **only shrinks**: an id not in the inventory fails,
-and an id in it that is now documented must be taken out. So a slice that
-adds a command, a setting or a gesture without a page fails CI from the
-first day, while the backlog is cleared in the order of §11. The docs are
-complete when the file is empty.
+backlog in it **only shrinks**: an id not in the inventory fails, and an id
+in it that is now documented must be taken out. The backlog is cleared in the
+order of §11. The docs are complete when the file is empty.
+
+A slice that adds a command, a setting or a gesture has two ways to pass:
+write its page (and scene) now, or **defer it to its milestone's docs pass**
+(ADR-0133) by adding `id @m9.5` to the file, with the number of its
+milestone. The tag is the only way to add a line:
+
+- CI refuses a new line with no tag, and refuses tagging a line of the
+  backlog (`.github/scripts/undocumented-check.sh`, a step of `docs.yml`).
+  Deferral is for what a slice adds, not a way out of the backlog.
+- The milestone's docs pass (§10.2) writes the pages, takes the tagged lines
+  out, and then adds the tag to `site/docs/data/docs_pass.txt`. From then on
+  `docs_coverage` fails while any line still carries it, so a deferral
+  cannot be forgotten.
+- Ids can hold spaces (`menu:Open recent`); the tag is what follows the last
+  ` @`.
 
 ## 6. Show, don't tell: videos, screenshots and examples
 
@@ -694,25 +711,56 @@ from the stylesheet once the choice was made.
 
 ### 10.1 Per slice (now)
 
-Every slice's definition of done gains one line: **its user docs are on the
-branch**. In practice:
+Changed 2026-11-08 (owner: option A, ADR-0133). The guides, scenes and clips
+used to ride with every slice. A slice changes the interface it builds on, so
+the next slice broke the last one's scenes and its media showed an interface
+that no longer existed. The work is now split by what can go stale.
 
-1. **The slice plan names its docs**: the pages it adds or changes, the
-   recipes it makes possible, and the clips and shots it needs. This is a short
-   "Docs" list in the slice's section of `docs/milestones/M<n>.md`.
-2. **The branch carries them**: pages, scenes, gesture entries, and one
-   line in What's new under the milestone.
-3. **CI proves it**: `docs_coverage` fails if a new command, setting,
-   control or gesture has no page; the scenes fail if a changed interface
-   breaks a page's steps.
-4. **The slice report says what was documented**, beside what was
-   verified.
+Every slice's definition of done gains one line: **its docs are written, or
+owed with a tag**. In practice:
+
+1. **The slice plan names its docs**: the pages it will need, the recipes it
+   makes possible, and the clips and shots. This is a short "Docs" list in
+   the slice's section of `docs/milestones/M<n>.md`, marked *deferred to the
+   docs pass* unless the slice says otherwise.
+2. **What the slice carries.** The generated reference is free: a command, a
+   setting or a control appears in it with no work. The names, tooltips and
+   command descriptions are part of the slice. For every new action that
+   has no page, the slice adds `id @m<milestone>` to `undocumented.txt`
+   (§5.3).
+3. **What the slice may write now.** A page and scene for an area whose
+   interface is settled (the arrangement, the mixer, the transport) and
+   whose slice completes a gesture set. The slice decides, and says which in
+   its report. A scene that will not run yet is not worth a day: tag the
+   action and move on.
+4. **CI proves what it can.** `docs_coverage` fails if an action has neither
+   a page nor a line, and the tag check (§5.3) fails an untagged addition;
+   the scenes that exist fail if a changed interface breaks a page's steps.
+5. **The slice report says what is owed**, beside what was verified: the
+   tagged ids, with the page each will need.
 
 A bug fix or a chore updates any page it makes wrong, and adds no What's
-new line unless users would notice.
+new line unless users would notice. What's new gets its lines at the docs
+pass, from the slices' reports.
+
+**Media can be stale between passes.** Media is never committed: the deploy
+renders a scene when its page, scene or gesture changed (§13). A change to the
+app alone does not change a fingerprint, so a published clip can show the
+interface of an earlier slice until the milestone's full render. Every page
+already says which build it describes (§10.2). The docs pass is where the
+pictures are made current.
 
 ### 10.2 Per milestone (now)
 
+- **The docs pass writes what the slices deferred.** Every line of
+  `undocumented.txt` tagged with the milestone gets its guide page, scenes,
+  lead clip, gesture clips and screenshot, now that the milestone's
+  interface has settled. The tagged lines are taken out as the pages land.
+- **A full render** runs by hand (§13), so every published picture shows the
+  milestone as built.
+- **The milestone is closed in the list**: its tag is added to
+  `site/docs/data/docs_pass.txt`. `docs_coverage` then fails while any line
+  still carries it.
 - The milestone's What's new section is finished: one paragraph of what
   the milestone gives users, and its slices' lines.
 - The milestone review (`lumen-review`) gains a docs pass: read the
@@ -745,8 +793,8 @@ release work). Then:
 - **What's new becomes release notes**: the per-slice lines of an
   unreleased version are gathered into that version's notes when it is
   tagged.
-- The per-slice rule (§10.1) does not change: slices still document on
-  their branch, and their pages land in `dev` until the next release.
+- The per-slice rule (§10.1) does not change: slices still owe their docs,
+  and the pages the docs pass writes land in `dev` until the next release.
 
 Nothing in §10.1 or §10.2 has to be rebuilt for the switch: the same pages
 and scenes are built once per tag instead of once for `main`.
@@ -841,6 +889,7 @@ what is covered.
 | **H. Help inside Lumen** | **A**: later, as its own slice after D2: "Learn more" in the palette's detail strip and F1 "Help for this", by stable ids, pitched with specimens. |
 | **T. When the backlog is written** | **A**: D0 before milestone 9.5, D1 to D7 alongside it. |
 | **R. Render time** | **A**: render only what changed; a full render by hand at each milestone's docs pass (§13). |
+| **P. When a slice's guides are written** (2026-11-08) | **A**: the generated reference and the coverage test stay per slice; guides, scenes and clips move to the milestone's docs pass, owed through a milestone tag in `undocumented.txt` (§5.3, §10.1, ADR-0133). |
 
 ### 12.2 Why Zola (the comparison behind G)
 
@@ -895,10 +944,17 @@ weakest on 1 to 3.
 ## 13. Risks and what cannot be checked
 
 - **Scene upkeep.** Scenes that drive the interface break when it changes.
-  That is intended (a broken scene is a stale page), but it costs time in
+  That is intended (a broken scene is a stale page), but it cost time in
   slices that change much of the interface. Mitigation: scenes go through
   accessible names and commands, the same way the E2E tests do, never
-  through coordinates.
+  through coordinates; and since 2026-11-08 a slice writes its scenes only
+  when its area has settled, otherwise at the milestone's docs pass (§10.1,
+  ADR-0133).
+- **A deferral can be forgotten, and a pass can be big.** The tag and the
+  closed-milestone check make a forgotten page fail CI at the pass, not
+  silently. A milestone with many deferrals makes a large pass (D-slice
+  sized), so the slice report lists what is owed as it goes, and the pass is
+  planned from that list.
 - **Rendering on CI.** The deploy renders on Linux with a software Vulkan
   driver. Text and colour are close to Windows but not identical, and some
   Windows-only panels (the ASIO driver choice) show test devices. The

@@ -8,8 +8,12 @@
 //! recipe or quick-start page lists its id under `[taxonomies] actions`.
 //!
 //! Until the docs are complete, the actions not yet documented are listed
-//! in `site/docs/data/undocumented.txt`, and that list only shrinks: a new
-//! action needs a page, and a documented one must leave the list.
+//! in `site/docs/data/undocumented.txt`, and the backlog only shrinks: a
+//! documented action must leave the list. A slice that finishes before the
+//! interface around it has settled may add an action with the tag of its
+//! milestone (`transport.follow @m9.5`, ADR-0133); the milestone's docs
+//! pass writes the page and removes the line, and cannot close
+//! (`site/docs/data/docs_pass.txt`) while a line carries its tag.
 //!
 //! The pages are checked too: a guide opens with a lead clip, a recipe or
 //! the quick start has a walkthrough video, every task page has a
@@ -248,14 +252,139 @@ fn documented(pages: &[Page]) -> BTreeSet<String> {
         .collect()
 }
 
-fn baseline() -> Vec<String> {
+/// One line of `undocumented.txt`: an action id, and the milestone whose
+/// docs pass owes its page (`@m9.5`) when the slice deferred it (ADR-0133).
+/// A line with no tag is the backlog of USER_DOCS.md §11, which only shrinks.
+#[derive(Debug, PartialEq)]
+struct Entry {
+    id: String,
+    owed_by: Option<String>,
+}
+
+/// Reads one line; `None` for a blank line or a comment. A malformed tag is
+/// kept in `owed_by` so that the tag test names it.
+fn parse_entry(line: &str) -> Option<Entry> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') {
+        return None;
+    }
+    // An id can hold spaces (`menu:Open recent`), so the tag is what follows
+    // the last ` @`.
+    Some(match line.rsplit_once(" @") {
+        Some((id, tag)) => Entry {
+            id: id.trim_end().to_owned(),
+            owed_by: Some(tag.trim().to_owned()),
+        },
+        None => Entry {
+            id: line.to_owned(),
+            owed_by: None,
+        },
+    })
+}
+
+/// A milestone tag: `m` and a number, with an optional `.` and number
+/// (`m9`, `m9.5`).
+fn is_milestone(tag: &str) -> bool {
+    let Some(rest) = tag.strip_prefix('m') else {
+        return false;
+    };
+    let number = |p: &str| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit());
+    match rest.split_once('.') {
+        Some((major, minor)) => number(major) && number(minor),
+        None => number(rest),
+    }
+}
+
+fn entries() -> Vec<Entry> {
     fs::read_to_string(site().join("data/undocumented.txt"))
         .expect("undocumented.txt reads")
+        .lines()
+        .filter_map(parse_entry)
+        .collect()
+}
+
+fn baseline() -> Vec<String> {
+    entries().into_iter().map(|e| e.id).collect()
+}
+
+/// The milestones whose docs pass is done (`data/docs_pass.txt`).
+fn closed_milestones() -> Vec<String> {
+    fs::read_to_string(site().join("data/docs_pass.txt"))
+        .expect("docs_pass.txt reads")
         .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .map(str::to_owned)
         .collect()
+}
+
+#[test]
+fn the_list_reads_its_tags() {
+    assert_eq!(parse_entry("# a comment"), None);
+    assert_eq!(parse_entry("   "), None);
+    assert_eq!(
+        parse_entry("transport.play_stop"),
+        Some(Entry {
+            id: "transport.play_stop".into(),
+            owed_by: None
+        })
+    );
+    assert_eq!(
+        parse_entry("pref:editing.follow_tempo @m9.5"),
+        Some(Entry {
+            id: "pref:editing.follow_tempo".into(),
+            owed_by: Some("m9.5".into())
+        })
+    );
+    assert_eq!(
+        parse_entry("menu:Open recent @m9.5"),
+        Some(Entry {
+            id: "menu:Open recent".into(),
+            owed_by: Some("m9.5".into())
+        })
+    );
+    assert_eq!(
+        parse_entry("menu:Open recent"),
+        Some(Entry {
+            id: "menu:Open recent".into(),
+            owed_by: None
+        })
+    );
+    for good in ["m9", "m9.5", "m10", "m10.25"] {
+        assert!(is_milestone(good), "{good}");
+    }
+    for bad in ["", "9.5", "m", "m9.", "m.5", "m9.5.1", "milestone9", "M9"] {
+        assert!(!is_milestone(bad), "{bad}");
+    }
+}
+
+#[test]
+fn a_deferred_page_is_owed_by_an_open_milestone() {
+    let closed = closed_milestones();
+    let mut problems = Vec::new();
+    for tag in &closed {
+        if !is_milestone(tag) {
+            problems.push(format!(
+                "docs_pass.txt lists {tag}, which is no milestone tag"
+            ));
+        }
+    }
+    for entry in entries() {
+        let Some(tag) = &entry.owed_by else { continue };
+        if !is_milestone(tag) {
+            problems.push(format!(
+                "undocumented.txt tags {} with {tag:?}: write @m<milestone>, as @m9.5",
+                entry.id
+            ));
+        } else if closed.contains(tag) {
+            problems.push(format!(
+                "{} is still owed by {tag}, whose docs pass is closed: write its page \
+                 and take it out of undocumented.txt",
+                entry.id
+            ));
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
 #[test]
@@ -295,7 +424,8 @@ fn every_action_is_documented_or_in_the_shrinking_list() {
         if !documented.contains(id) && !listed.contains(id) {
             problems.push(format!(
                 "the {kind} {id} has no page: list it in the actions of the guide that \
-                 explains it (undocumented.txt only shrinks)"
+                 explains it, or defer it with its milestone's tag in undocumented.txt \
+                 (`{id} @m<milestone>`, USER_DOCS.md §10.1)"
             ));
         }
     }

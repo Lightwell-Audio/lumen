@@ -1,7 +1,9 @@
-# The actions with no page yet (docs/USER_DOCS.md §5.3). This list only
-# shrinks: docs_coverage fails when an action is in neither a page's
-# actions nor this list, and when a documented action is still here. The
-# docs are complete when it is empty. One id a line; # starts a comment.
+# The actions with no page yet (docs/USER_DOCS.md §5.3). The backlog (a line
+# with just an id) only shrinks: docs_coverage fails when an action is in
+# neither a page's actions nor this list, and when a documented action is
+# still here. A slice may defer a page to its milestone's docs pass by adding
+# `id @m9.5` (ADR-0133); that line leaves with the pass. One id a line; #
+# starts a comment.
 
 # Commands: Transport
 transport.play_stop
