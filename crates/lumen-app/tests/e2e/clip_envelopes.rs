@@ -96,6 +96,51 @@ fn a_click_over_the_clip_adds_a_point_and_it_is_kept_from_the_clips_start() {
 }
 
 #[test]
+fn a_locked_clip_keeps_its_envelope_and_unlocking_lets_it_be_drawn_again() {
+    let (mut lumen, _) = tone("env-locked");
+    let (track, _) = picked(&mut lumen);
+    lumen.key(Modifiers::NONE, Key::E);
+    lumen.frames(40);
+    let at = spot(&lumen, track, 3.0, -20.0);
+    click_at(&mut lumen, at);
+    assert_eq!(envelope(&lumen, Kind::Gain).len(), 1, "one point to keep");
+    let before = envelope(&lumen, Kind::Gain);
+
+    super::lane_view::run_command(&mut lumen, "Lock clip");
+    assert!(lumen.app().project().tracks[0].clips[0].locked);
+    // A click adds nothing, a drag over the point moves nothing, and Delete
+    // takes nothing away.
+    let elsewhere = spot(&lumen, track, 5.0, -10.0);
+    click_at(&mut lumen, elsewhere);
+    assert_eq!(
+        envelope(&lumen, Kind::Gain),
+        before,
+        "a click adds no point"
+    );
+    let from = point_pos(&lumen, track, 0);
+    let to = spot(&lumen, track, 6.0, -5.0);
+    lumen.drag(from, to, Modifiers::NONE);
+    lumen.frames(5);
+    assert_eq!(
+        envelope(&lumen, Kind::Gain),
+        before,
+        "a drag moves no point"
+    );
+    lumen.key(Modifiers::NONE, Key::Delete);
+    lumen.frames(3);
+    assert_eq!(
+        envelope(&lumen, Kind::Gain),
+        before,
+        "Delete takes none away"
+    );
+
+    super::lane_view::run_command(&mut lumen, "Lock clip");
+    assert!(!lumen.app().project().tracks[0].clips[0].locked);
+    click_at(&mut lumen, elsewhere);
+    assert_eq!(envelope(&lumen, Kind::Gain).len(), 2, "unlocked, it draws");
+}
+
+#[test]
 fn a_click_beside_the_clip_is_not_the_envelopes() {
     let (mut lumen, _) = tone("env-beside");
     let (track, clip) = picked(&mut lumen);
