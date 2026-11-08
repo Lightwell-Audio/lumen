@@ -6,13 +6,7 @@ use super::{in_window, shift_events, shift_notes};
 
 /// The part of `clip` inside `[a, b)`, or `None` if they do not meet. It
 /// keeps `clip`'s id; give it a new one if both parts stay.
-pub fn slice(
-    _project: &Project,
-    tempo: &TempoMap,
-    clip: &Clip,
-    a: Ticks,
-    b: Ticks,
-) -> Option<Clip> {
+pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Ticks) -> Option<Clip> {
     let start = clip.start.max(a);
     let end = (clip.start + clip.length).min(b);
     if start >= end {
@@ -42,6 +36,19 @@ pub fn slice(
                 // Keep the integer media anchor unchanged. The app converts
                 // this source-time phase at the active device rate.
             }
+            if cut > Ticks::ZERO && !looping {
+                // A warped clip's map is measured from its start: the cut
+                // moves the start, so the markers move back with it.
+                if let Some(warp) = &mut part.warp {
+                    warp.shift(Ticks::ZERO - cut);
+                }
+                super::warp::shift_passes(
+                    &mut part,
+                    Ticks::ZERO - cut,
+                    super::audio_of(project, clip).map(|(rate, _, _)| f64::from(rate)),
+                );
+            }
+            super::warp::anchor(project, &mut part);
         }
         ClipContent::Midi { notes, events } => {
             if !looping {

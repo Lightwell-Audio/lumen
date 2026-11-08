@@ -164,6 +164,7 @@ impl Document {
                     reversed: false,
                     inverted: false,
                     takes: None,
+                    warp: None,
                     content: ClipContent::Audio {
                         media: file.media,
                         offset: 0,

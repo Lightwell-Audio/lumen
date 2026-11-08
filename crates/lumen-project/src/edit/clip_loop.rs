@@ -103,6 +103,9 @@ fn file_time(project: &Project, clip: &Clip) -> Option<FileTime> {
 
 /// The limits of `clip`'s brace, if it is an audio clip that loops.
 pub fn loop_limits(project: &Project, tempo: &TempoMap, clip: &Clip) -> Option<LoopLimits> {
+    if clip.warp.is_some() {
+        return super::warped_loop::limits(project, clip);
+    }
     let turn = turn(tempo, clip)?;
     let file = file_time(project, clip)?;
     // The file's first frame sits `file.at` seconds before the origin.
@@ -132,6 +135,9 @@ pub fn set_clip_loop(
 ) -> Option<Clip> {
     if !matches!(clip.content, ClipContent::Audio { .. }) {
         return None;
+    }
+    if clip.warp.is_some() {
+        return super::warped_loop::set(project, clip, edit);
     }
     let file = file_time(project, clip)?;
     let rate = audio_of(project, clip).map(|(rate, _, _)| f64::from(rate.max(1)));

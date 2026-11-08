@@ -622,6 +622,7 @@ mod tests {
                     reversed: false,
                     inverted: false,
                     takes: None,
+                    warp: None,
                     content: ClipContent::midi(),
                 }));
             }

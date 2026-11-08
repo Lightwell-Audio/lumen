@@ -11706,3 +11706,150 @@ the marks and the Narrator pass are the owner's. The docs scene
 `audio_clip_properties` runs its checks here; its media needs ffmpeg and renders
 in CI. The marks' page is a section of the new guide rather than a page of its
 own.
+
+## ADR-0129 — Warp in the model (M9.5 S4a, format v33)
+
+**Date:** 2026-11-08. **Branch:** `m9.5-s4a-warp-model`. **Status:** Built; the
+slice plays nothing warped and has no control, so it has no manual test and no
+docs page (nothing a person can do yet). S4b to S4d wait on the owner: S4b's
+chunk length and jump behaviour (`docs/milestones/M9.5.md` §3, the S0 trial's E
+result) and S4c's library choice T.
+
+**Context.** Warp is stored on the clip and every audio-clip edit has to keep
+it true before anything can be heard from it (plan risk 1). The plan's field
+table (§4) says how; this ADR records what the table left open.
+
+**Choice.**
+
+1. **The model.** `Clip::warp: Option<Warp>` (`#[serde(default,
+   skip_serializing_if = "Option::is_none")]`; a clip with no warp writes
+   nothing, so a project without warp is byte-identical apart from the
+   version). `Warp { mode, original_bpm, markers, transpose_cents }`;
+   `WarpMode` is Repitch (the default), Rhythmic, Melodic or Full mix; only the
+   last three transpose. A marker is `{ source: f64 seconds, at: Ticks }`
+   (D1), in `lumen_core::warp` with the map's arithmetic (`source_at`,
+   `tick_at_source`, `shift`, `mirror`, ratio limits 25% to 400%, at most 4096
+   markers). Outside the markers the original tempo applies. A warp with no
+   markers is not allowed: turning warp on puts one marker at tick 0 on the
+   second the clip plays there, so at the file's tempo the clip plays as it did.
+   `Pass::Audio` gains `warp` (each take keeps its own map; turning warp on or
+   off and every setting go to all passes). `validate` refuses warp on a MIDI
+   clip and a map that is empty, out of order, not finite, out of the song or
+   the file, or has a transpose beyond 48 semitones, and the same for a take's.
+   The migration `v32_to_v33` changes nothing (no clip is warped); the golden
+   fixture `tests/fixtures/v33/golden.lumen` is frozen.
+2. **While a clip is warped, the map is the position.** `offset` and
+   `audio_phase_seconds` are not read for position by anything that will play
+   a warped clip; each edit keeps them equal to the map's second at tick 0
+   (`edit::warp::anchor`, clamped at 0), so turning warp off leaves the clip
+   where the map had it and the unwarped code paths (D2) are untouched.
+3. **How each edit keeps the map true** (`lumen-project/src/edit/`,
+   property-tested in `tests/warp.rs`: random warped clips, looped or not,
+   check the second of the file heard at random ticks against what the edit
+   promises, and `validate` after each):
+   - **Split:** the map's ticks are from the clip's content origin, so a
+     non-looping right half shifts its markers by the cut; a looping one leaves
+     them, because the origin did not move. **The full marker list stays on
+     both halves** (the plan said to add a marker at the seam on both sides;
+     a marker is a point on the map, the seam is already on the line between
+     two markers, and dormant markers beyond the window cost nothing and are
+     what makes split then Join exact). Deviation from §4's split row.
+   - **Trim start** shifts the markers by the distance moved on a non-looping
+     clip and stops at the file's first second (`start + tick_at_source(0)`);
+     **trim end** stops at the file's end. **Slip** adds the same ticks to every
+     marker, held to what keeps the window inside the file (a looping clip's
+     window is the loop period).
+   - **Reverse** mirrors the map about the middle of the clip's stretch (D6,
+     `lumen_core::warp::mirror`); twice returns the clip to within 1e-9 of a
+     second. **Unloop** gives each piece the map seen from its own start.
+     **The loop brace** (`set_clip_loop`, `edit/warped_loop.rs`) moves the
+     content origin, so the map shifts the other way and the envelopes keep their
+     absolute ticks. **Normalize** measures the span the map reads.
+   - **Join** is a proof by re-slicing: pieces join only when slicing the
+     result gives the pieces back, which for warped pieces means the same
+     dormant source seconds (within `PHASE_SLACK`). **Takes:** `advance`
+     (recording over a pass) skips warped passes; they are shifted with the
+     clip (`warp::shift_passes`).
+   - **Crossfades** (`lumen-app/src/crossfades.rs`): the hidden audio of a
+     warped clip is read off its map (`-tick_at_source(0)`), the incoming clip's
+     map follows its earlier start, and two clips are seamless when
+     `Warp::continues` says so; a warped and a plain clip never are. The plan's
+     "extended at its first span's ratio" is superseded by D1: before the first
+     marker the original tempo applies, which is the same line.
+4. **Document methods** (`document/warp.rs`): `warp_clips`, `unwarp_clips`,
+   `set_warp` (mode, original tempo, transpose) and `set_warp_markers`, each one
+   undo step, none when nothing changes, locked clips left alone. **Warp off
+   drops the map** (the clip plays on from the second the map put at its
+   clock, tick 0, which is where `offset` and `audio_phase_seconds` already
+   are: for a looping clip with a phase that is the loop's own start, not the
+   clip's), so
+   switching it back on starts again from one marker; a remembered map would
+   need a field that is saved though unused. Deviation to confirm. No `Command`
+   is added: there is no control to reach it from before S4b/S5, and the
+   command coverage test fails a command with no control.
+5. **Nothing is heard, and nothing renders warped.** The engine, Join's
+   render, bounce, freeze and export read `offset` and `audio_phase_seconds`,
+   which the anchor keeps at the map's first second, so a warped clip plays
+   unstretched until S4b teaches the renderer; they agree with each other, so
+   offline equals real time. D9's Join-by-render of warped pieces that do not
+   meet is S4b's, with the renderer. The transpose is stored and not heard
+   until S6.
+
+**Consequences.** 47 files gained `warp: None` in `Clip` literals. An old
+Lumen opening a v33 file refuses it as newer (the format rule); a v33 file with
+no warped clip is otherwise the same. `lumen-project` tests: 20 in
+`tests/warp.rs` (the property tests run 300 random cases each: split then Join,
+trim start and end, slip, reverse and reverse twice, unloop, the loop brace,
+warp off, and trim and brace on clips with a stored take), the unit tests
+beside each edit (normalize and takes among them), the migration test;
+`lumen-app`: example tests of the crossfades and the `Document` edits (the
+crossfades have no property test).
+
+**Not verified.** No sound is involved, so no listening; the perf gate (WSL
+scripts) and the macOS cross-target clippy are not run on this machine (see
+the report in the PR).
+
+**Review round 1 (GPT 6.1 Sol, high; 8 findings, 7 fixed in part or whole).**
+
+- A transpose beyond `i32` took `abs()` into an overflow: the range is now a
+  `contains` test (tests `a_transpose_that_overflows_is_refused_not_a_panic`).
+- The file limits of trims, slip and the brace used the nearest tick, which
+  can land half a tick (under a microsecond) outside the file. `Warp::first_tick`
+  and `last_tick` round the safe way; every limit uses them.
+- A slip of a looping clip was held to `−last` rather than to the loop's
+  period; the limits are now `span − last` and `−first`, `span` being the period
+  for a loop (`slip_stops_at_the_files_edges` runs looping clips, with no
+  tolerance).
+- Changing the original tempo moves the second the map puts at tick 0; `set`
+  now takes the project, re-anchors the clip and every stored pass, and refuses a
+  change that would play a window past its file. `set_markers` refuses the same
+  (a start outside the file, or an end outside it for a clip that did not run
+  past it already). A clip that overhangs its file when warp is turned on is
+  not made worse and not blocked.
+- The automatic crossfade's tail of a warped clip is what its map leaves in
+  the file (`last_tick − length`), not the tempo's seconds.
+- **Not changed, with reasons.** Warp off for a phased loop keeps the
+  second at the clock rather than at the clip's start: finding 4 asks for the
+  second under the start, which needs the tempo map to turn `loop_phase` into
+  seconds as the unwarped path does, and for an unstretched map both are the
+  same second; the loop keeping its own first second is the better one for a
+  loop. Now said in item 4 and tested (`warp_off_keeps_the_anchor_of_a_phased_loop`).
+  The "last bit" wording of reverse-twice was too strong and is corrected above.
+  The loop-brace property now counts the positions it compares (over 2,000
+  required). Every property test but warp off asserts the anchor invariant.
+
+**Review round 2 (GPT 6.1 Sol, high; 4 findings, all fixed; not re-reviewed).**
+
+- A new original tempo checked only the playing pass's window, though it
+  changes every stored pass's map: `set` now checks every pass and refuses the
+  whole edit (`a_new_original_tempo_is_refused_when_a_stored_take_would_leave_the_file`).
+- Trims and the loop brace shift every stored pass's map with the playing
+  one's but were limited by the playing one alone. `edit::warp::first_tick` and
+  `last_tick` give the tightest limit over all passes, and the trim and brace
+  use them (`a_trim_or_a_brace_edit_keeps_every_take_inside_its_file`, which
+  fails with the playing pass's limit alone). Slip needs no change: each pass
+  slips on its own, within its own file (`takes::slipped`).
+- `FRAME_SLACK` (frames) was used as a tolerance in seconds. The check is
+  strict now, like the limits (`markers_within_a_microsecond_of_the_file_edges_are_still_refused`).
+- The S4a row and this ADR overstated the property tests: corrected above and
+  in `docs/milestones/M9.5.md`; normalize has a unit test with a half-speed map.

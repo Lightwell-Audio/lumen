@@ -37,6 +37,7 @@ fn clip(id: u64, content: ClipContent) -> Clip {
         inverted: false,
         envelopes: Default::default(),
         takes: None,
+        warp: None,
         content,
     }
 }
@@ -45,6 +46,7 @@ fn audio_pass(offset: i64) -> Pass {
     Pass::Audio {
         offset,
         audio_phase_seconds: 0.0,
+        warp: None,
     }
 }
 
@@ -76,6 +78,7 @@ fn golden_v31_expected() -> Project {
                 pass: Pass::Audio {
                     offset: 0,
                     audio_phase_seconds: 0.5,
+                    warp: None,
                 },
             },
         ],
@@ -196,6 +199,7 @@ fn a_pass_of_the_wrong_kind_or_before_its_file_is_refused() {
             t.others[0].pass = Pass::Audio {
                 offset: 0,
                 audio_phase_seconds: f64::NAN,
+                warp: None,
             }
         })
         .is_err()

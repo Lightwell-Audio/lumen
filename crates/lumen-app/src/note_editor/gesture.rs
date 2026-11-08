@@ -244,6 +244,7 @@ mod tests {
             reversed: false,
             inverted: false,
             takes: None,
+            warp: None,
             content: lumen_project::model::ClipContent::midi(),
         })
     }

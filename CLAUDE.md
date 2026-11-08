@@ -558,6 +558,18 @@ per slice and move what is no longer current out of it.
   4 (how the arrangement draws a phased clip's envelope). Next: S3 onwards in
   `docs/milestones/M9.5.md`.
 - **Branch `m9.5-s3-clip-properties`: M9.5 S3 is built** (ADR-0128; owner: NC B, PF A, B B, BS B). The audio editor's column is gone; a 32 pt strip under the header holds the Clip chip, Gain, Mute, Lock, the fades, Reverse, Polarity, Normalize, the ⋯ menu and the File chip (facts, Show in file manager, Relink). It edits the opened clip; Alt+Enter focuses it when the editor is where the work is. Arrangement clips carry marks for Reverse and Polarity (`arrangement/clip_marks.rs`, pure). New commands `clip.lock` and `clip.reveal_file`; no format change. E2E `audio_clip_properties`, `clip_badges`; docs scene `audio_clip_properties`; guide Set a clip's gain, fades and processing. MT-CLIP-5 waits. Not tested as planned: 444/420/260 pt widths, the lowest panel height at three scales, the 20,000-clip bench (ADR-0128). Next: S4 (warp).
+- **Branch `m9.5-s4a-warp-model`: M9.5 S4a is built** (ADR-0129; format v33;
+  nothing is heard or reachable). `Clip::warp` (and each take pass's) holds the
+  mode, original tempo, markers and transpose; `lumen_core::warp` is the map's
+  arithmetic; every audio-clip edit keeps the map true and `offset` /
+  `audio_phase_seconds` at its second at tick 0 (`edit::warp::anchor`), proven
+  by `crates/lumen-project/tests/warp.rs`. `Document` has the edits, one undo
+  step each, and no command until S5 gives warp a control. Tell the owner:
+  split keeps the whole marker list on both halves and warp off drops the map
+  (both deviate from the plan, ADR-0129); Join's render, bounce, freeze and
+  export play a warped clip unstretched until S4b. **S4b to S4d wait for the
+  owner:** chunk length and jump behaviour (S0's E result) and the stretch
+  library T. Not run here: the WSL perf gate and the macOS cross-target clippy.
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);

@@ -42,6 +42,7 @@ fn golden_v28_expected() -> Project {
         inverted: false,
         envelopes: Default::default(),
         takes: None,
+        warp: None,
         content: ClipContent::Audio {
             media: Id(2_802),
             offset: 0,
@@ -110,6 +111,7 @@ fn a_midi_clip_cannot_request_a_crossfade() {
         inverted: false,
         envelopes: Default::default(),
         takes: None,
+        warp: None,
         content: ClipContent::midi(),
     })];
     let project = project_of("Invalid", vec![track]);
@@ -138,6 +140,7 @@ fn audio_clip(id: u64, start: i64, length: i64, crossfade: bool) -> Arc<Clip> {
         inverted: false,
         envelopes: Default::default(),
         takes: None,
+        warp: None,
         content: ClipContent::Audio {
             media: Id(1),
             offset: 0,

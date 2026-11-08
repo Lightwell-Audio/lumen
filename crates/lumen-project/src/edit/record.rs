@@ -238,6 +238,7 @@ fn new_clip(id: Id, start: Ticks, length: Ticks, content: Content) -> Clip {
         inverted: false,
         envelopes: Default::default(),
         takes: None,
+        warp: None,
         content: ClipContent::Midi { notes, events },
     }
 }

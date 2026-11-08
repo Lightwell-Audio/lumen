@@ -25,11 +25,13 @@ mod clip;
 mod device;
 mod takes;
 mod track;
+mod warp;
 
 pub use clip::*;
 pub use device::*;
 pub use takes::*;
 pub use track::*;
+pub use warp::*;
 
 /// Stable identity of an object within a project. Written as 16 hex digits
 /// so tools that read numbers as doubles (JavaScript) cannot corrupt it.

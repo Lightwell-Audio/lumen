@@ -61,6 +61,7 @@ fn clip(
         reversed: false,
         inverted: false,
         takes: None,
+        warp: None,
         content: ClipContent::Midi { notes, events },
     })
 }

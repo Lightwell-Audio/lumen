@@ -444,6 +444,7 @@ mod tests {
             reversed: false,
             inverted: false,
             takes: None,
+            warp: None,
             content: ClipContent::Audio {
                 media: Id(9),
                 offset: 0,

@@ -187,6 +187,7 @@ fn project_with_old_clip() -> Project {
         reversed: false,
         inverted: false,
         takes: None,
+        warp: None,
         content: ClipContent::Audio {
             media: Id(900),
             offset: 0,

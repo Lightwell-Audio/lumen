@@ -76,6 +76,7 @@ impl Document {
                     reversed: false,
                     inverted: false,
                     takes: None,
+                    warp: None,
                     content: ClipContent::midi(),
                 }));
                 t.clips.sort_by_key(|c| c.start);

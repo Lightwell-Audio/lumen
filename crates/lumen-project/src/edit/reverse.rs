@@ -30,9 +30,6 @@ pub struct Flipped {
     pub refused: usize,
 }
 
-/// Source frames two positions may differ by and still be one frame.
-const FRAME_SLACK: f64 = 1e-6;
-
 /// Frames a mirrored clip may begin before the file and be taken to begin at
 /// it (rounding in the tempo map).
 const REACH: f64 = 1.5;
@@ -103,11 +100,17 @@ fn mirrored(clip: &Clip, file: &Media, tempo: &TempoMap) -> Option<Clip> {
         return None;
     }
     let to = to.max(0.0);
-    let (new_offset, phase) = anchor(to, rate);
+    let (new_offset, phase) = super::warp::split_seconds(to, rate);
     let mut out = clip.clone();
     // The other passes were measured in the file as it was.
     out.takes = None;
     out.reversed = !clip.reversed;
+    if let Some(warp) = &mut out.warp {
+        // The map turns about the middle of the stretch that plays, so the
+        // clip stays in time (D6).
+        let sum = clip.loop_length.unwrap_or(clip.length);
+        lumen_core::warp::mirror(&mut warp.markers, sum, total);
+    }
     out.audio_phase_seconds = phase;
     if let ClipContent::Audio { offset, .. } = &mut out.content {
         *offset = new_offset;
@@ -116,19 +119,6 @@ fn mirrored(clip: &Clip, file: &Media, tempo: &TempoMap) -> Option<Clip> {
         out.loop_phase = Ticks((-(clip.loop_phase.0 + clip.length.0)).rem_euclid(period.0));
     }
     Some(out)
-}
-
-/// Splits source seconds into the whole frame the media offset holds and the
-/// remainder `audio_phase_seconds` holds, with a position on a frame kept
-/// exactly on it.
-fn anchor(seconds: f64, rate: f64) -> (i64, f64) {
-    let frames = seconds * rate;
-    let nearest = frames.round();
-    if (frames - nearest).abs() < FRAME_SLACK {
-        return (nearest as i64, 0.0);
-    }
-    let whole = frames.floor();
-    (whole as i64, seconds - whole / rate)
 }
 
 #[cfg(test)]

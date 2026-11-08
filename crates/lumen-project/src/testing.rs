@@ -142,6 +142,7 @@ pub fn synthetic(
                         inverted: false,
                         envelopes: Default::default(),
                         takes: None,
+                        warp: None,
                         content: match source {
                             Some(media) => ClipContent::Audio {
                                 media,
@@ -271,6 +272,7 @@ pub fn midi_track(
         inverted: false,
         envelopes: Default::default(),
         takes: None,
+        warp: None,
         content: ClipContent::Midi { notes, events },
     })];
     track

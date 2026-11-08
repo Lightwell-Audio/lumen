@@ -50,6 +50,7 @@ fn golden_v25_expected() -> Project {
         inverted: false,
         envelopes: Default::default(),
         takes: None,
+        warp: None,
         content: ClipContent::Audio {
             media: Id(1002),
             offset: 0,

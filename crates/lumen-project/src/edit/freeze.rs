@@ -283,6 +283,7 @@ fn frozen_clip(frozen: &Frozen, name: &str) -> Clip {
         inverted: false,
         envelopes: Default::default(),
         takes: None,
+        warp: None,
         content: ClipContent::Audio {
             media: frozen.media,
             offset: 0,

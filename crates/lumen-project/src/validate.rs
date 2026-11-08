@@ -340,6 +340,12 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 _ => {}
             }
             crate::envelope::check(clip).map_err(|e| format!("{}: {e}", at()))?;
+            if let Some(warp) = &clip.warp {
+                if !matches!(clip.content, ClipContent::Audio { .. }) {
+                    return Err(format!("{}: warp on MIDI clip", at()));
+                }
+                warp.check().map_err(|e| format!("{}: warp: {e}", at()))?;
+            }
             match &clip.content {
                 ClipContent::Audio {
                     media: id,
@@ -453,9 +459,14 @@ fn clip_takes(clip: &Clip, takes: &Takes, project: &Project) -> Result<(), Strin
                 Pass::Audio {
                     offset,
                     audio_phase_seconds,
+                    warp,
                 },
                 ClipContent::Audio { media, .. },
             ) => {
+                if let Some(warp) = warp {
+                    warp.check()
+                        .map_err(|e| format!("take {}: warp: {e}", other.take + 1))?;
+                }
                 let rate = project
                     .media
                     .iter()

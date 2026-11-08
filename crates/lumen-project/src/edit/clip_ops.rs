@@ -105,14 +105,31 @@ fn seamless(project: &Project, tempo: &TempoMap, left: &Clip, next: &Clip) -> Op
 fn cuts_back(project: &Project, tempo: &TempoMap, joined: &Clip, left: &Clip, next: &Clip) -> bool {
     let (a, b) = (left.start, next.start);
     let end = next.start + next.length;
+    // Where in its file a clip's window begins, in seconds.
+    let begins = |c: &Clip| match super::audio_of(project, c) {
+        Some((rate, _, offset)) => offset as f64 / f64::from(rate) + c.audio_phase_seconds,
+        None => 0.0,
+    };
     let same = |cut: Option<Clip>, want: &Clip| {
         cut.is_some_and(|mut cut| {
-            let phase = (cut.audio_phase_seconds - want.audio_phase_seconds).abs();
+            let apart = if want.warp.is_some() {
+                // A warped clip holds its place as an offset and a phase that
+                // two routes to the same second may split differently.
+                (begins(&cut) - begins(want)).abs()
+            } else {
+                (cut.audio_phase_seconds - want.audio_phase_seconds).abs()
+            };
             cut.id = want.id;
             cut.name = want.name.clone();
             cut.color = want.color;
             cut.audio_phase_seconds = want.audio_phase_seconds;
-            phase <= PHASE_SLACK && cut == *want
+            if want.warp.is_some()
+                && let (ClipContent::Audio { offset: a, .. }, ClipContent::Audio { offset: b, .. }) =
+                    (&mut cut.content, &want.content)
+            {
+                *a = *b;
+            }
+            apart <= PHASE_SLACK && cut == *want
         })
     };
     same(slice(project, tempo, joined, a, b), left)
@@ -176,6 +193,7 @@ fn merge_midi(first: &Clip, second: &Clip) -> Option<Clip> {
         loop_phase: Ticks::ZERO,
         envelopes: Default::default(),
         takes: None,
+        warp: None,
         content: ClipContent::Midi { notes, events },
         ..first.clone()
     })
@@ -325,6 +343,12 @@ fn unlooped(
                     - tempo.seconds_at(from - in_loop);
                 piece.envelopes = clip.envelopes.clone();
                 piece.envelopes.shift(Ticks::ZERO - in_loop);
+                // The map covers one turn from the loop's origin; the piece's
+                // clock is its own start, which is that far into the turn.
+                if let Some(warp) = &mut piece.warp {
+                    warp.shift(Ticks::ZERO - Ticks(in_loop.0.rem_euclid(period.0)));
+                }
+                super::warp::anchor(project, &mut piece);
             }
             ClipContent::Midi { .. } => {
                 let (a, b) = (from - clip.start, to - clip.start);
@@ -404,6 +428,7 @@ mod tests {
                     .map(|k| Pass::Audio {
                         offset: offset + k * 1_000,
                         audio_phase_seconds: 0.25 * k as f64,
+                        warp: None,
                     })
                     .collect(),
                 ClipContent::Midi { .. } => (1..=2)

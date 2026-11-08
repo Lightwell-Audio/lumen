@@ -56,6 +56,7 @@ fn golden_v1_expected() -> Project {
         inverted: false,
         envelopes: Default::default(),
         takes: None,
+        warp: None,
         content: ClipContent::Audio {
             media: Id(0x30),
             offset: 0,
@@ -95,6 +96,7 @@ fn golden_v1_expected() -> Project {
         inverted: false,
         envelopes: Default::default(),
         takes: None,
+        warp: None,
         content: ClipContent::Midi {
             notes: vec![
                 Note::new(Ticks::ZERO, Ticks(PPQ / 4), 36, 100),

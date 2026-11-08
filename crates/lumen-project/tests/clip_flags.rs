@@ -36,6 +36,7 @@ fn clip(content: ClipContent) -> Clip {
         inverted: false,
         envelopes: Default::default(),
         takes: None,
+        warp: None,
         content,
     }
 }

@@ -587,6 +587,7 @@ mod tests {
             reversed: false,
             inverted: false,
             takes: None,
+            warp: None,
             content: ClipContent::Audio {
                 media: Id(2),
                 offset: 0,
@@ -739,6 +740,7 @@ mod tests {
             reversed: false,
             inverted: false,
             takes: None,
+            warp: None,
             content: ClipContent::Audio {
                 media: Id(2),
                 offset: 0,

@@ -434,6 +434,7 @@ mod tests {
                         inverted: false,
                         envelopes: Default::default(),
                         takes: None,
+                        warp: None,
                         content: ClipContent::midi(),
                     });
                     Arc::make_mut(&mut project.tracks[i]).clips.push(clip);
