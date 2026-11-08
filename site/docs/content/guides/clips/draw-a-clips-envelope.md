@@ -58,8 +58,9 @@ step to undo. Press the same key again to go back to the pointer.
 
 The brace {{ callout(n=3) }} under the editor's ruler loops the clip. Click
 its band to loop the audio the clip plays now, then drag either end of the
-brace to set where the loop starts and ends. Click the band again, or use
-{{ keys(id="clip.audio_editor_clip_loop") }}, to stop looping.
+brace to set where the loop starts and ends. Click the band again, or choose
+**Loop audio in clip** in the command palette ({{ keys(id="view.palette") }}),
+to stop looping.
 {{ clip(id="audio-editor-loop-brace", focus="50%", alt="A click on the band under the ruler loops the clip and the brace shows its two ends.") }}
 
 What the clip plays up to the first repeat stays the same. Envelope points
