@@ -43,6 +43,29 @@ This file records the components whose licences need specific action.
 - **Recorded:** M5 slice 7 (ADR-0062), with a `cargo-deny` exception in
   `deny.toml`, as the Unlicense is not on the general allow list.
 
+## Time-stretch and pitch-shift library, and its FFT (vendored C++ source)
+
+- **Components:** a header-only time-stretch and pitch-shift library
+  (version 1.3.2, upstream tag 1.4.0), and the header-only FFT and STFT
+  library it uses. Both are vendored as source in
+  `crates/lumen-media/vendor/`, compiled by `crates/lumen-media/build.rs`
+  through a thin binding of our own (`src/stretch/shim.cpp`). The Rust wrapper
+  crate is not used.
+- **Licence:** MIT, for each. Copyright (c) 2022 Geraint Luff / Signalsmith
+  Audio Ltd. for the stretch library, and Copyright (c) 2025 Signalsmith Audio
+  for the FFT library. Each licence text is kept beside its source
+  (`vendor/signalsmith-stretch/LICENSE.txt`,
+  `vendor/signalsmith-linear/LICENSE.txt`).
+- **Source code:** <https://github.com/Signalsmith-Audio/signalsmith-stretch>
+  and <https://github.com/Signalsmith-Audio/linear>. The pinned versions and
+  any change made here (one patched line, with its patch file) are listed in
+  `crates/lumen-media/vendor/VENDORED.md`.
+- **Compliance:** the licence notices ship with the distribution notices
+  (M10). The licence sets no other condition. Not checked: patents, and any
+  terms on the authors' names.
+- **Recorded:** M9.5 S4c, ADR-0132; the owner chose it (T = C, 2026-11-08,
+  ADR-0120).
+
 ## Typefaces: Inter, Unbounded and Martian Mono
 
 - **Files:** `crates/lumen-app/assets/fonts/Inter.ttf` (Inter, by Rasmus

@@ -8,7 +8,8 @@ use lumen_engine::{
     ClipAudio, Command, Destination, NodeSpec, PAGE, PagePool, Routing, StreamAudio, Timeline,
     clip_player, engine, mixer,
 };
-use lumen_project::model::{Id, Project, Warp};
+use lumen_project::edit::warp::Change;
+use lumen_project::model::{Id, Project, Warp, WarpMode};
 
 use super::{Request, WarpedStreams};
 use crate::document::{Document, DropInto, Imported};
@@ -287,6 +288,7 @@ fn project_at(made_at: f64, tempo: Vec<TempoPoint>, looped: bool, start: Ticks) 
         channels: 2,
         frames: FRAMES as u64,
         size_bytes: 0,
+        tempo: None,
         at: start,
         into: DropInto::NewTracks {
             before: None,
@@ -711,4 +713,63 @@ fn a_real_time_export_keeps_pieces_far_apart_in_a_stream_apart() {
     assert_eq!(held[0].audio.frames() as i64, near.length);
     assert_eq!(held[1].audio.frames(), 1_000, "not the 900,000 between");
     assert_eq!((held[0].offset, held[1].offset), (0, 0));
+}
+
+/// The amplitude of the sine at `cycles` per frame in `x`, under a Hann window.
+fn amplitude(x: &[f32], cycles: f64) -> f64 {
+    let n = x.len() as f64;
+    let (mut re, mut im, mut window) = (0.0, 0.0, 0.0);
+    for (i, v) in x.iter().enumerate() {
+        let w = 0.5 - 0.5 * (std::f64::consts::TAU * i as f64 / n).cos();
+        let phase = std::f64::consts::TAU * cycles * i as f64;
+        re += w * f64::from(*v) * phase.cos();
+        im += w * f64::from(*v) * phase.sin();
+        window += w;
+    }
+    2.0 * re.hypot(im) / window
+}
+
+fn with_mode(mut doc: Document, mode: WarpMode) -> Document {
+    let id = doc.project().tracks[0].clips[0].id;
+    assert_eq!(doc.set_warp(&[id], &Change::Mode(mode)).changed, 1);
+    doc
+}
+
+#[test]
+fn melodic_and_full_mix_follow_the_tempo_and_leave_the_pitch_alone() {
+    for mode in [WarpMode::Melodic, WarpMode::FullMix] {
+        // Made at 100 BPM, in a 120 BPM song: 1.2 times the speed. Repitch
+        // would raise the tone from 0.02 cycles a frame to 0.024.
+        let doc = with_mode(project(100.0, step(120.0), false), mode);
+        let out = render(doc.project(), 96_000, 256, true);
+        let heard = &out[10_000..60_000];
+        let (kept, raised) = (amplitude(heard, TONE), amplitude(heard, TONE * 1.2));
+        assert!(kept > 0.8 && raised < 0.05, "{mode:?}: {kept} and {raised}");
+        // Offline equals real time at any block size.
+        assert_eq!(out, render(doc.project(), 96_000, 1_000, true), "{mode:?}");
+    }
+}
+
+#[test]
+fn the_mode_makes_another_stream_and_rhythmic_is_repitch_until_it_has_its_own() {
+    let source = file();
+    let tempo = constant(120.0);
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let mut ids = Vec::new();
+    for mode in [
+        WarpMode::Repitch,
+        WarpMode::Rhythmic,
+        WarpMode::Melodic,
+        WarpMode::FullMix,
+    ] {
+        let mut warp = Warp::new(100.0, 0.0);
+        warp.mode = mode;
+        let stream = warps
+            .stream(&request(&warp, &source, &tempo, 96_000))
+            .unwrap();
+        ids.push(stream.stream().unwrap().id());
+    }
+    assert_eq!(ids[0], ids[1], "Rhythmic plays as Repitch");
+    assert!(ids[2] != ids[0] && ids[3] != ids[0] && ids[2] != ids[3]);
+    assert_eq!(warps.len(), 3);
 }

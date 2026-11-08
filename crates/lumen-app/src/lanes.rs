@@ -1047,6 +1047,7 @@ fn load(library: &Library, id: u64) -> Load<impl FnOnce(Ticks, DropInto) -> Impo
                 channels: item.info.channels.unwrap_or(2) as u16,
                 frames,
                 size_bytes: item.info.size_bytes,
+                tempo: item.info.tempo,
                 at,
                 into,
             })
@@ -1230,6 +1231,7 @@ mod tests {
                 channels: 2,
                 frames: 96_000,
                 size_bytes: 0,
+                tempo: None,
                 at: Ticks::ZERO,
                 into: DropInto::NewTracks {
                     before: None,

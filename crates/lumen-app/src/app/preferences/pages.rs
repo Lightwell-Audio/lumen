@@ -11,6 +11,7 @@ use lumen_engine::{ClickSound, MetronomeSettings};
 use lumen_project::model::Monitor;
 
 use crate::commands::Command;
+use crate::document::FollowTempo;
 use crate::icons::{self, Icon};
 use crate::preferences::{self, Marks, Page, audio};
 use crate::recording::record_settings::CountIn;
@@ -302,6 +303,34 @@ impl App {
                         i.checked_sub(1).map(|i| Preset::ALL[i].id().to_owned());
                 }
             });
+        });
+        section(ui, "New audio clips");
+        marks.row(ui, "edit.follow_tempo", |ui| {
+            row(ui, "Follow tempo", |ui| {
+                let modes = [
+                    widgets::Choice::new(FollowTempo::Loops, "Loops")
+                        .named("New audio clips: follow the tempo for loops")
+                        .tip("Recordings, and files that say they are loops, follow the song's tempo"),
+                    widgets::Choice::new(FollowTempo::Always, "Always")
+                        .named("New audio clips: always follow the tempo")
+                        .tip("Every new clip follows the song's tempo"),
+                    widgets::Choice::new(FollowTempo::Never, "Never")
+                        .named("New audio clips: never follow the tempo")
+                        .tip("New clips play at their own speed until you turn warp on"),
+                ];
+                let chosen = self.settings.editing.follow_tempo;
+                if let Some(picked) =
+                    widgets::segmented(ui, ui.id().with("follow tempo"), chosen, &modes)
+                {
+                    self.settings.editing.follow_tempo = picked;
+                }
+            });
+        });
+        row(ui, "", |ui| {
+            hint(
+                ui,
+                "A clip that follows the tempo is stretched when the song's tempo is not the one it was made at. Used for the next clip made",
+            );
         });
         if self.settings.editing != before {
             self.settings_changed = Some(Instant::now());

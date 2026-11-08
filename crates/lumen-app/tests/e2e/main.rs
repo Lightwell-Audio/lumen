@@ -53,6 +53,7 @@ mod editors;
 mod fades;
 mod files;
 mod first_run;
+mod follow_tempo;
 mod freeze;
 mod grid;
 mod groups;

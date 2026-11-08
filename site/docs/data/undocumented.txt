@@ -302,6 +302,7 @@ pref:edit.autosave
 pref:edit.lock_envelopes
 pref:edit.new_audio_monitor
 pref:edit.new_midi_instrument
+pref:edit.follow_tempo
 
 # Preferences: Mixing
 pref:mix.additive_solo

@@ -806,3 +806,62 @@ fn a_saved_take_lets_its_note_go() {
     lumen.wait_for("the save", |app| !app.is_dirty() && !app.is_busy());
     lumen.run_until("the note to go", |_| notes() == 0);
 }
+
+/// M9.5 S4d (the owner's W A): a clip recorded in Lumen follows the song's
+/// tempo from the start, made at the tempo it was played to, so it sounds
+/// as it was played until the tempo changes. "Follow the tempo" on the
+/// Editing page says whether the next one does.
+#[test]
+fn a_recorded_clip_follows_the_tempo_unless_the_setting_says_never() {
+    use lumen_project::model::WarpMode;
+
+    let (mut lumen, _turn) = launch("follow-tempo", &project(), |l| l);
+    record(&mut lumen, 9_600);
+    let clips = clips_of(&lumen, VOX);
+    let warp = clips[0]
+        .warp
+        .as_ref()
+        .expect("a recording follows the tempo");
+    assert_eq!(
+        (warp.mode, warp.original_bpm, warp.markers.len()),
+        (WarpMode::FullMix, 120.0, 1),
+        "made at the song's 120, with nothing to pin at a steady tempo"
+    );
+    assert_eq!(lumen.app().undo_label(), Some("Record"), "still one step");
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert!(clips_of(&lumen, VOX).is_empty());
+
+    lumen.open_preferences("Editing");
+    assert!(
+        lumen.is_on("New audio clips: follow the tempo for loops"),
+        "Loops is the default"
+    );
+    lumen.click("New audio clips: never follow the tempo");
+    lumen.frames(2);
+    assert!(lumen.is_on("New audio clips: never follow the tempo"));
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(30);
+    // Arming is still on; record again.
+    lumen.key(Modifiers::NONE, Key::F9);
+    lumen.wait_for("the recording to begin", |app| {
+        app.recording() && app.is_playing()
+    });
+    lumen.wait_for("frames to be written", |app| {
+        app.audio_take_frames(VOX).is_some_and(|f| f >= 9_600)
+    });
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("the clip", |app| {
+        !app.recording()
+            && !app.audio_takes_placing()
+            && app
+                .project()
+                .tracks
+                .iter()
+                .find(|t| t.id == VOX)
+                .is_some_and(|t| !t.clips.is_empty())
+    });
+    assert!(
+        clips_of(&lumen, VOX)[0].warp.is_none(),
+        "Never leaves a recording at its own speed"
+    );
+}

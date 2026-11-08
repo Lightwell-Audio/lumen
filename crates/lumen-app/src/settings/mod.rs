@@ -500,6 +500,9 @@ pub struct Editing {
     /// 5 ms (M9.5 S2b, the owner's ZC A: off by default; an added field).
     #[serde(skip_serializing_if = "is_false")]
     pub zero_crossings: bool,
+    /// Whether new audio clips follow the song's tempo (M9.5 S4d, the
+    /// owner's W A: loops and recordings by default; an added field).
+    pub follow_tempo: crate::document::FollowTempo,
 }
 
 impl Editing {
@@ -521,6 +524,7 @@ impl Default for Editing {
             autosave_seconds: crate::autosave::DELAY.as_secs(),
             new_tracks: NewTracks::default(),
             zero_crossings: false,
+            follow_tempo: Default::default(),
         }
     }
 }
@@ -900,6 +904,7 @@ mod tests {
                     midi_instrument: None,
                 },
                 zero_crossings: true,
+                follow_tempo: crate::document::FollowTempo::Always,
             },
             bounce: BounceChoices {
                 replace: true,

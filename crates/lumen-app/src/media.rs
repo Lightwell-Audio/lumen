@@ -34,6 +34,15 @@ pub struct FileInfo {
     pub seconds: Option<f64>,
     /// Length in the file's own frames.
     pub frames: Option<u64>,
+    /// The tempo the file says it was made at: its loop tag or BPM tag, or a
+    /// BPM in its name (M9.5 S4d). Read with the file, so `None` until then.
+    pub tempo: Option<lumen_media::tempo::FileTempo>,
+}
+
+/// The tempo `path` states (M9.5 S4d): its own tag first, then a BPM in its
+/// name. Reads the file's header, so for a worker.
+fn stated_tempo(path: &Path) -> Option<lumen_media::tempo::FileTempo> {
+    lumen_media::tempo::stated(path)
 }
 
 /// Every file extension Lumen imports, for file dialogs' filters.
@@ -104,6 +113,8 @@ struct Done {
     /// The file's size on disk, read here rather than on the UI thread
     /// (M4 review L8: a stat on a network path can stall a frame).
     size_bytes: u64,
+    /// The tempo the file states (M9.5 S4d).
+    tempo: Option<lumen_media::tempo::FileTempo>,
     result: Result<streaming::Loaded, MediaError>,
     peaks: Option<Peaks>,
 }
@@ -318,6 +329,7 @@ impl Library {
                     }
                 };
                 let size_bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
+                let tempo = stated_tempo(&path);
                 let started = std::time::Instant::now();
                 // A long file plays from disk when streaming is on (M B).
                 let header = cache
@@ -355,6 +367,7 @@ impl Library {
                     stream,
                     source,
                     size_bytes,
+                    tempo,
                     result,
                     peaks,
                 });
@@ -385,6 +398,7 @@ impl Library {
             item.job = None;
             item.streamed = Some(done.stream);
             item.info.size_bytes = done.size_bytes;
+            item.info.tempo = done.tempo;
             if let Some((rate, channels, frames, seconds)) = done.source {
                 item.info.sample_rate = Some(rate);
                 item.info.channels = Some(channels);

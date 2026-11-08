@@ -17,7 +17,7 @@ use lumen_core::warp::Marker;
 use lumen_engine::{ClipAudio, PagePool, StreamAudio};
 use lumen_project::model::Warp;
 
-use super::{Origin, Warped};
+use super::{Engine, Origin, Warped};
 use crate::media::streams;
 
 /// What a warped clip is played from: everything the stream depends on.
@@ -85,14 +85,16 @@ impl WarpedStreams {
             ClipAudio::Memory { .. } => Origin::Memory(Arc::clone(request.source)),
         };
         let frames = shape.frames;
-        let warped = Arc::new(Warped::new(
+        let mut warped = Warped::new(
             origin,
             channels,
             request.rate,
             (shape.markers, request.warp.original_bpm),
             request.tempo.clone(),
             (shape.anchor, frames),
-        ));
+        );
+        warped.engine = Engine::of(request.warp.mode);
+        let warped = Arc::new(warped);
         let id = streams::register_warped(warped);
         let stream = StreamAudio::new(&self.pool, id, request.rate, channels as u16, frames);
         let audio = Arc::new(ClipAudio::Stream(stream));
@@ -164,10 +166,12 @@ impl Shape {
     }
 }
 
-/// Hashes everything a stream's frames depend on. The mode and the transpose
-/// are left out: until S4c and S6 every mode plays as Repitch.
+/// Hashes everything a stream's frames depend on. The engine the mode plays
+/// with is in it (Rhythmic and Repitch share one); the transpose is left out
+/// until S6 plays it.
 fn key(request: &Request<'_>, shape: &Shape) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
+    Engine::of(request.warp.mode).hash(&mut hasher);
     match &**request.source {
         ClipAudio::Stream(stream) => (0_u8, stream.id()).hash(&mut hasher),
         // The audio itself, not a copy of it: the same Arc is the same audio.

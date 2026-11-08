@@ -14,7 +14,9 @@ pub mod export;
 mod peaks;
 pub mod repitch;
 pub mod stream;
+pub mod stretch;
 pub mod take;
+pub mod tempo;
 pub mod wav;
 
 pub use peaks::{

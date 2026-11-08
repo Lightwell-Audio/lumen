@@ -10756,9 +10756,9 @@ fake device (all measured or proven in D0).
 ## ADR-0120 — The time-stretch trial (M9.5 S0)
 
 **Date:** 2026-11-04. **Branch:** `m9.5-s0-stretch-trial`, cut from
-`m9.5-plan` (the plan is not merged yet). **Status:** Proposed. The library
-(choice T) waits for the owner's ear; E A is confirmed by these measurements,
-subject to the seam listening below.
+`m9.5-plan` (the plan is not merged yet). **Status:** Accepted for T, the
+library: C, by the owner on 2026-11-08 (see "Owner decision" at the end). E A
+is confirmed by these measurements, subject to the seam listening below.
 
 **Context.** `docs/milestones/M9.5.md` (§2, T and E) asks for the time-stretch
 library to be chosen by ear and by measurement, and for E (stretching prepared
@@ -10908,6 +10908,42 @@ ADR-0013 exception if it is not MIT) and its notice to
 **Not verified here:** the measurements on Windows or on the owner's machine;
 D's streaming API; behaviour of any candidate with a changing ratio
 (tempo ramps), which S4b tests with the chosen one.
+
+**Owner decision, T = C (2026-11-08).** The owner chose C on the
+measurements and the licence, without listening to the pack (the owner asked
+for the options and for the licence and upstream health to be checked first).
+**Status: Accepted** for T. Checked on 2026-11-08 with `gh` and the crates.io
+API (not reproduced):
+
+- **Licence.** The upstream stretch library, its FFT and STFT dependency
+  (`Signalsmith-Audio/linear`) and the Rust wrapper crate are each MIT, with
+  their licence files read. No ADR-0013 exception. Three notices go in
+  `THIRD_PARTY_NOTICES.md` when the code is added (Signalsmith Audio Ltd for
+  the stretch library and for Linear, and the wrapper's author if the wrapper
+  is used). Not checked: patents, and any terms on the name.
+- **Upstream health.** Pushed 2026-10-22, tags to 1.4.0, 579 stars, one
+  author (111 of about 115 commits), a support promise to 2030-01-01
+  (`SUPPORT.txt`). Fourteen issues are open, with no maintainer reply on the
+  five detailed reports. The Rust wrapper is small (14 stars, one author) and
+  its last release, 0.1.3, is from 2025-09-18, with two later commits on
+  its `main`.
+- **Open reports that matter.** #35: with a rate within about ±0.12 to
+  0.25% of 1 (a loop a fraction of a BPM off the project) the previous block
+  is read one sample off the hop, which loses high frequencies and moves the
+  pitch a few cents. #31 to #33: transposed partials land sharp by several
+  cents (S6). #34: formant compensation is off by up to 7 dB (not planned).
+  The reporters' fixes are in the issues.
+
+**Consequences of T = C.** (1) The code is vendored at a pinned upstream
+tag, with Linear, behind a thin FFI layer in `lumen-media`, not the wrapper
+crate, so a fix can be applied here without waiting for a release. (2) A C++
+compiler is now needed on all three CI platforms; the only C++ built today is
+`vswhom-sys`, a Windows build-time helper. (3) S4c tests ratios 0.998, 1.001,
+1.002 and 1.05 for pitch and high-band level against a straight render, and
+applies the #35 fix if they fail. (4) If those fail even then, the fallback is
+a Rust port of the algorithm in `lumen-media`, behind the same interface, which
+the stateless chunk renderer of S4b makes a swap. The licence notice, the
+pinned tag and the fixes applied are recorded here when S4c is built.
 
 ## ADR-0121 — The audio editor's canvas and the shared clip header (M9.5 S1)
 
@@ -12084,3 +12120,183 @@ many warped clips.
 Round 2's fixes were not reviewed again (two rounds were asked for). Not
 tested: a warped loop with a gain envelope (the unlooping copies and shifts
 envelopes, which `clip_ops` tests), and a loop over 1,024 repeats.
+
+## ADR-0132 — Stretch modes and follow tempo (M9.5 S4c and S4d)
+
+**Date:** 2026-11-08. **Branch:** `m9.5-s4c-stretch-modes`. **Status:** Built;
+no format change. Nothing was verified by listening (MT-WARP-1 waits for the
+owner's ear). Run here: the unit, property and E2E tests, and the bench below.
+Not run: the WSL performance gate (the gate's scenarios are unchanged, so
+`perf/baseline.json` is too), the macOS cross-target clippy, and the docs media
+on a GPU.
+
+**Context.** S4b played a warped clip in Repitch. The owner chose T = C
+(ADR-0120): the stretch library's algorithm, MIT, vendored. S4c puts Melodic
+and Full mix on it inside S4b's renderer; S4d makes new clips follow the tempo
+by default (the owner's W A).
+
+**Choice (S4c).**
+
+1. **Vendored, behind a thin binding.** `crates/lumen-media/vendor/` holds the
+   header-only stretch library (header 1.3.2, upstream tag 1.4.0) and its FFT
+   library, with one patched line (patch 0001, below; `VENDORED.md`). `build.rs`
+   compiles `src/stretch/shim.cpp` with the `cc` crate (C++14, optimisation 2,
+   `-fno-fast-math`, `-ffp-contract=off`), which keeps the arithmetic as
+   written (the same bits between platforms are not claimed: the maths library
+   differs, and only one build was run); the stretcher is seeded. The shim is a C interface with every call inside
+   try/catch; `stretch/mod.rs` is the safe `Stretcher` (checked shapes, at most
+   two channels). A C++ compiler is now needed on every CI platform. The notice
+   is in `THIRD_PARTY_NOTICES.md`. The Rust wrapper crate is not used.
+2. **Two presets.** Melodic uses the library's cheaper preset (0.1 s block,
+   0.04 s interval, no split) and Full mix its default (0.12 s, 0.03 s).
+   `Engine::of(mode)` (`media/warped/mod.rs`) maps Repitch and Rhythmic to
+   Repitch, Melodic to `Preset::Light` and Full mix to `Preset::Full`. The
+   mapping is **untuned by ear**. The provider's key hashes the engine, so a
+   mode change makes a new stream; the transpose is still left out of it until
+   S6.
+3. **A deterministic chunk renderer** (`stretch/chunks.rs`). The library is
+   stateful, and S4b's contract is that a frame depends only on its index. So
+   output is cut on a fixed grid of `CHUNK` = 98,304 frames (24 pages of
+   4,096); each chunk is a fresh `reset()` run, started a pre-roll earlier
+   (the block times (1 + 0.5/speed), plus two hops and the output latency,
+   rounded up to whole hops; speed clamped to 0.25 to 4), one hop per call.
+   Block *j* is fed the input `round(position(a_j + L_out)) + L_in`, which
+   aligns the output with the map to within 64 frames (the test's tolerance).
+   Each chunk's last `FADE` = 2,048 frames crossfade (raised cosine) into the
+   next chunk's render of the same frames, because two independently phased
+   runs differ at a seam by a click (found at a step of 1.02). **Unity is
+   decided span by span (D3, `Unity` in `chunks.rs`):** every run of grid steps
+   whose positions are within 1e-7 of whole file frames at unity speed is a
+   span of plain copy. A chunk (with the `FADE` before it) wholly inside one is
+   a copy and never reaches the stretcher, so a clip at its own tempo is
+   bit-exact as in Repitch. In a chunk that also holds a change of speed the
+   stretcher still runs, but the frames at least `FADE` inside the span are
+   overwritten with the file, and the `FADE` frames at either edge blend from
+   the stretch into it (raised cosine), so the hand-over has no click. Same bits
+   for pages, whole renders, jumps and block sizes (`stretch/tests.rs`, plus two
+   in `media/warped/tests.rs`).
+   **Patch 0001 (upstream #35).** ADR-0120 said to test rates just off 1 and
+   patch if they failed. 0.998, 1.001, 1.002 and 1.05 passed, but review round
+   1's high-band test (4, 9 and 15 kHz partials) found the defect at 0.9999 and
+   1.0001: the library skips re-analysing the previous block when it is within
+   one sample of an interval back, which it is not, and the 15 kHz partial came
+   out at 15% of its level (9 kHz 55%, 4 kHz 89%). The one-line fix, which
+   re-analyses unless exactly one interval back, is
+   `vendor/patches/0001-reanalyse-previous-block-off-by-one.patch`, and the
+   test now holds every partial within 10% at 0.97, 0.998, 0.9999, 1.0001, 1.002
+   and 1.03 in both presets. It costs one more analysis per block for rates
+   within about 0.1% of 1.
+4. **Cost.** `cargo bench -p lumen-media --bench warped` (release, this
+   development machine, noisy): a second of one stereo track takes 6.7 ms in
+   Repitch, 13.8 ms median in Melodic (7.6 to 19.6) and 21.1 ms in Full mix
+   (11.8 to 30.2); `warped_64` (64 tracks) 0.9 s median Melodic (0.5 to 1.2),
+   1.4 s Full mix (0.8 to 1.9). One disk thread keeps up with about 30 to 45
+   stretched stereo tracks, not 64 (KNOWN_ISSUES). The audio callback is
+   unchanged (it reads pages as for any streamed clip), so `engine_streamed_64`
+   and the performance baseline do not move. A render pool across cores is the
+   fix, as each chunk is independent.
+
+**Choice (S4d).**
+
+1. **The preference** is Preferences › Editing › "Follow tempo": *Loops*
+   (default), *Always*, *Never* (`FollowTempo`, `settings::Editing`, an added
+   field, no settings version change). The row's label is "Follow tempo": the
+   longer "Follow the tempo" widened the window by one pixel on that page
+   (`every_page_keeps_the_window_width…`). `Document` is told each frame.
+2. **Imported files** (`document/import.rs`, `FollowTempo::imported`, pure and
+   tested). *Loops*: the file states a tempo (the WAV loop chunk, a BPM tag, or
+   a number beside "bpm" in its name, `lumen-media::tempo`, read on the media
+   loader's worker with the file), is not marked a one-shot, and is 1 to 128
+   beats long at that tempo (1 to 32 bars of four). *Always*: every file, made
+   at its stated tempo or else the song's where it lands. *Never*: none. A
+   clip that follows is as long in beats as the file is at its tempo, is made
+   at it (`edit::warp::enable`) and starts in **Full mix**. Detection from the
+   audio, and "a whole number of bars from 1 to 32" without a tag, is S5a.
+3. **Recorded takes** (`edit::warp::as_recorded`, called from
+   `audio_take::apply` when `Take::follow` is set by `record_audio_takes`):
+   under *Loops* and *Always* the clip is made at the song's tempo where it
+   starts, so it plays as it was recorded; a step or a ramp inside the take
+   gets a marker at each tempo point, and every sixteenth (or a 512th of the
+   clip, if longer) along a ramp, at most 1,024 in all, pinning the second of
+   the file recorded then to the tick it was played at (D8). The clip's end is
+   pinned too when it holds a change, for past the last marker a map plays at
+   its original tempo (round 1 finding 2). Each pass of a loop recording gets
+   the same. All of it is in the one "Record" undo step.
+4. **The arrangement draws a warped clip by its map** (`arrangement/waves.rs`
+   `warped_waves`): cut at the markers and at each repeat of a loop, each piece
+   a straight run of the file. Without it a clip made at 90 BPM in a 120 BPM
+   song would show the file's wave unstretched against its length. The audio
+   editor still does not (KNOWN_ISSUES; S5b).
+
+**Deviations from the plan.** The docs page for S4d is not written: warp has
+no control on a clip before S5, so a guide to following the tempo has nothing
+to show beyond one setting; `pref:edit.follow_tempo` is in
+`site/docs/data/undocumented.txt` (the list grew by one, against its rule) until
+S5's guide. The plan's S4c said to apply the upstream rate fix if the near-1
+ratios failed: the first tests passed and review round 1's found the failure,
+so patch 0001 is applied. The `warped_64` figure is wall-clock (divan), not
+instruction counts, so it is not in the performance gate.
+
+**Consequences.** Every recording is now a warped clip by default, made at the
+song's tempo. At that tempo it is the file bit for bit (a plain copy), but it
+is a computed stream: playback needs "Play audio from disk" (the default) and
+an edit to it while playing may be held up to 2 s (ADR-0131).
+
+**Review round 1** (GPT 6.1 Sol, high effort; 1 blocking, 4 major, 1 minor; all
+fixed).
+
+1. *Blocking, fixed.* The tail of a plain-copy chunk, what the seam before it
+   crossfades into, read the file `FADE` frames too late (from the chunk's
+   start, not from `FADE` before it), so a clip at its own tempo longer than
+   98,304 frames was not the file at the seams. Now it reads the right frames;
+   `a_copy_of_the_file_is_the_file_across_every_seam` compares three seams
+   frame by frame, stereo and mono, whole and in pages.
+2. *Major, fixed.* After its last marker a map plays at the clip's original
+   tempo, so a recording that changed tempo played its last stretch wrongly
+   (120 BPM then 60 from beat 2: beat 4 read second 2, not 3). `as_recorded`
+   pins the end of such a clip; the test reads the map at beats 3 and 4.
+3. *Major, fixed.* Unity was decided per chunk (D3 says per span). It is now per
+   span (see Choice 3); `an_unchanged_span_beside_a_change_in_one_chunk_is_the_file`
+   shows the frames inside the span equal to the file, the change after it
+   stretched, no click at the hand-over, and the same bits for pages and jumps.
+   A chunk that holds a change still runs the stretcher over all of it (it is
+   sequential), so the cost of a clip at its tempo is nil only in the chunks
+   wholly inside it.
+4. *Major, fixed.* A WAV loop tag that calls the file a one-shot lost the flag
+   when its own tempo was unusable and the name had one. `tempo::stated`
+   keeps the flag whichever source gives the tempo (`media.rs` uses it).
+5. *Major, fixed, and it found a real defect.* The required high-band check at
+   rates just off 1 was missing; it failed at 0.9999 and 1.0001 (see patch
+   0001 under Choice 3).
+6. *Minor, fixed.* The claim of identical bits on every platform is dropped
+   from this ADR, `VENDORED.md` and `build.rs`: only repeats within a build are
+   tested.
+
+**Review round 2** (GPT 6.1 Sol, high effort; 2 major, 2 minor; all fixed). It
+confirmed round 1's six fixes and patch 0001 (the 10% tolerance clearly catches
+the documented loss; it does not establish general sound quality).
+
+1. *Major, fixed.* The end pin of round 1 was made only when the take had a
+   sampled marker of its own, so a take wholly inside one step of a ramp (a
+   eighth of a beat at the start of a one-beat ramp) got none and played at the original
+   tempo (173 frames out at 48 kHz). `tempo_varies` decides from the points and
+   the ramps, not from the marker list; test
+   `a_short_take_inside_a_ramp_still_has_its_end_pinned`.
+2. *Major, fixed.* `warped_waves` walked every turn of a loop from its origin
+   to the clip's start, on the UI thread, to find the first repeat: a clip split
+   far into a loop (a large `loop_phase`) could take billions of steps. It jumps
+   to the first turn after the start by division; test
+   `a_warped_loop_far_into_its_turns_is_drawn_without_walking_them` (a phase of
+   four billion beats, under 2 s, which the walk would not meet).
+3. *Minor, fixed.* MT-WARP-1 step 3 reset the tempo to 120 for the "no
+   processing" check, but the file was made at 100: it now resets to 100 for it.
+4. *Minor, fixed.* The S4b row of KNOWN_ISSUES still said the other modes play
+   as Repitch and that there was no `warped_64` bench.
+
+The fixes of round 2 were not reviewed (the run ends at two rounds).
+
+**Tests.** `lumen-media`: 12 stretch tests, 2 tempo tests. `lumen-project`: four
+`audio_take` tests (steady, none, a step, a ramp with passes). `lumen-app`:
+seven in `document/import.rs` (the decision table, length in beats, the three
+settings, one undo step), two `waves.rs` tests, two warped-render tests for the
+modes. E2E: `follow_tempo` (two) and `audio_record` (a recording, then Never).

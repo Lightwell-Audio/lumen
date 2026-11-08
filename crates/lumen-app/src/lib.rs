@@ -617,6 +617,8 @@ impl eframe::App for App {
             .set_lock_envelopes(self.settings.editing.lock_envelopes);
         self.document
             .set_new_tracks(self.settings.editing.new_tracks.for_document());
+        self.document
+            .set_follow_tempo(self.settings.editing.follow_tempo);
         if let Some(autosave) = self.autosave.as_mut() {
             autosave.set_interval(self.settings.editing.autosave());
         }

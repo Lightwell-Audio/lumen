@@ -5,10 +5,59 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use lumen_core::time::Ticks;
-use lumen_project::model::{Clip, ClipContent, Id, Media, Project, Track, TrackKind};
+use lumen_core::time::{PPQ, Ticks};
+use lumen_media::tempo::FileTempo;
+use lumen_project::edit::warp;
+use lumen_project::model::{Clip, ClipContent, Id, Media, Project, Track, TrackKind, WarpMode};
+use serde::{Deserialize, Serialize};
 
 use super::{Document, clips, seconds_at, ticks_at_seconds, track_color};
+
+/// Whether new audio clips follow the song's tempo (M9.5 S4d, the owner's
+/// choice W A): the "New audio clips" preference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FollowTempo {
+    /// A clip recorded in Lumen, and an imported file that says it is a loop
+    /// (a tempo in its tags or its name, not a one-shot, of 1 to 32 bars).
+    /// Anything else plays at its own speed.
+    #[default]
+    Loops,
+    /// Every new clip.
+    Always,
+    /// No new clip: warp is on only when the user turns it on.
+    Never,
+}
+
+/// How a new clip that follows the tempo is stretched until the user chooses
+/// (the mode that keeps pitch, and works on any material).
+pub const FOLLOW_MODE: WarpMode = WarpMode::FullMix;
+
+/// The longest a file may be to count as a loop: 32 bars of four beats.
+const LONGEST_LOOP_BEATS: f64 = 128.0;
+
+impl FollowTempo {
+    /// How a clip recorded in Lumen is stretched; `None` leaves it unwarped.
+    /// It was played to the song's tempo, so it is made at it.
+    pub fn recorded(self) -> Option<WarpMode> {
+        (self != Self::Never).then_some(FOLLOW_MODE)
+    }
+
+    /// The tempo an imported file of `seconds` was made at, when its clip
+    /// follows the song: its own when it states one, else (under *Always*) the
+    /// song's, `song_bpm`.
+    pub fn imported(self, stated: Option<FileTempo>, seconds: f64, song_bpm: f64) -> Option<f64> {
+        match (self, stated) {
+            (Self::Never, _) => None,
+            (Self::Always, stated) => Some(stated.map_or(song_bpm, |t| t.bpm)),
+            (Self::Loops, Some(t)) => {
+                let beats = seconds * t.bpm / 60.0;
+                (!t.one_shot && (1.0..=LONGEST_LOOP_BEATS).contains(&beats)).then_some(t.bpm)
+            }
+            (Self::Loops, None) => None,
+        }
+    }
+}
 
 /// An audio file that finished loading, ready to become a track.
 #[derive(Debug, Clone)]
@@ -21,6 +70,8 @@ pub struct Imported {
     pub channels: u16,
     pub frames: u64,
     pub size_bytes: u64,
+    /// The tempo the file states (a tag or its name), read with the file.
+    pub tempo: Option<FileTempo>,
     /// Where the clip starts.
     pub at: Ticks,
     /// Where it goes (slice 6e).
@@ -117,6 +168,7 @@ impl Document {
         }
         let next = &mut self.next_id;
         let new_tracks = self.new_tracks;
+        let follow = self.follow_tempo;
         self.history.apply(&label, None, |project| {
             let mut placed = Vec::new();
             let mut next_at: HashMap<Id, Ticks> = HashMap::new();
@@ -136,7 +188,14 @@ impl Document {
                 };
                 let start_seconds = seconds_at(project, at);
                 let seconds = file.frames as f64 / f64::from(file.sample_rate.max(1));
-                let end = ticks_at_seconds(project, start_seconds + seconds);
+                let song_bpm = lumen_core::time::bpm_at(&project.tempo, at);
+                // A clip that follows the tempo is as long in beats as the
+                // file is at its own tempo; any other as long as it plays.
+                let made_at = follow.imported(file.tempo, seconds, song_bpm);
+                let end = match made_at {
+                    Some(bpm) => at + Ticks((seconds * bpm / 60.0 * PPQ as f64).round() as i64),
+                    None => ticks_at_seconds(project, start_seconds + seconds),
+                };
                 project.media.push(Media {
                     id: file.media,
                     path: file.path.to_string_lossy().into_owned(),
@@ -146,7 +205,7 @@ impl Document {
                     sample_rate: file.sample_rate,
                     size_bytes: file.size_bytes,
                 });
-                let new_clip = Arc::new(Clip {
+                let mut new_clip = Clip {
                     id: clip,
                     name: file.name.clone(),
                     start: at,
@@ -170,7 +229,16 @@ impl Document {
                         offset: 0,
                         gain_db: 0.0,
                     },
-                });
+                };
+                if let Some(bpm) = made_at
+                    && let Ok(mut warped) = warp::enable(project, &new_clip, bpm)
+                {
+                    if let Some(on) = warped.warp.as_mut() {
+                        on.mode = FOLLOW_MODE;
+                    }
+                    new_clip = warped;
+                }
+                let new_clip = Arc::new(new_clip);
                 if let Some(i) = target {
                     let t = Arc::make_mut(&mut project.tracks[i]);
                     next_at.insert(t.id, at + new_clip.length);
@@ -374,5 +442,104 @@ mod tests {
             (Some(drums), Some(drums))
         );
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+    }
+
+    fn stated(bpm: f64) -> Option<FileTempo> {
+        Some(FileTempo {
+            bpm,
+            one_shot: false,
+        })
+    }
+
+    #[test]
+    fn a_file_follows_the_tempo_by_the_preference_and_what_it_says_about_itself() {
+        let one_shot = Some(FileTempo {
+            bpm: 120.0,
+            one_shot: true,
+        });
+        // (preference, what the file states, seconds, the answer); 120 BPM
+        // is two beats a second.
+        for (follow, file, seconds, want) in [
+            (FollowTempo::Loops, stated(90.0), 4.0, Some(90.0)),
+            (FollowTempo::Loops, None, 4.0, None),
+            (FollowTempo::Loops, one_shot, 4.0, None),
+            // Under a beat is a hit; over 32 bars is a song.
+            (FollowTempo::Loops, stated(120.0), 0.4, None),
+            (FollowTempo::Loops, stated(120.0), 0.5, Some(120.0)),
+            (FollowTempo::Loops, stated(120.0), 64.0, Some(120.0)),
+            (FollowTempo::Loops, stated(120.0), 64.5, None),
+            (FollowTempo::Always, stated(90.0), 600.0, Some(90.0)),
+            (FollowTempo::Always, one_shot, 0.1, Some(120.0)),
+            (FollowTempo::Always, None, 4.0, Some(100.0)),
+            (FollowTempo::Never, stated(90.0), 4.0, None),
+        ] {
+            assert_eq!(
+                follow.imported(file, seconds, 100.0),
+                want,
+                "{follow:?} {file:?} {seconds}"
+            );
+        }
+        assert_eq!(FollowTempo::Loops.recorded(), Some(FOLLOW_MODE));
+        assert_eq!(FollowTempo::Always.recorded(), Some(FOLLOW_MODE));
+        assert_eq!(FollowTempo::Never.recorded(), None);
+    }
+
+    fn imported_with(follow: FollowTempo, tempo: Option<FileTempo>) -> Document {
+        let mut doc = Document::new(crate::empty_project());
+        doc.set_follow_tempo(follow);
+        let id = doc.fresh_id();
+        // Two seconds of audio.
+        doc.import(vec![Imported {
+            tempo,
+            ..file(id, "Loop", Ticks::ZERO)
+        }]);
+        doc
+    }
+
+    fn the_clip(doc: &Document) -> Arc<Clip> {
+        Arc::clone(&doc.project().tracks[0].clips[0])
+    }
+
+    #[test]
+    fn a_loop_is_as_long_in_beats_as_its_own_tempo_and_follows_the_song() {
+        let doc = imported_with(FollowTempo::Loops, stated(90.0));
+        let clip = the_clip(&doc);
+        // Two seconds at 90 BPM are three beats, whatever the song's tempo.
+        assert_eq!(clip.length, Ticks::quarters(3));
+        let warp = clip.warp.as_ref().expect("a loop follows");
+        assert_eq!((warp.mode, warp.original_bpm), (FOLLOW_MODE, 90.0));
+        assert_eq!(warp.markers.len(), 1);
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+    }
+
+    #[test]
+    fn a_file_that_does_not_follow_plays_at_its_own_speed() {
+        for (follow, tempo) in [
+            (FollowTempo::Never, stated(90.0)),
+            (FollowTempo::Loops, None),
+        ] {
+            let doc = imported_with(follow, tempo);
+            let clip = the_clip(&doc);
+            assert!(clip.warp.is_none(), "{follow:?}");
+            // Two seconds at the song's 120 BPM are four beats.
+            assert_eq!(clip.length, Ticks::quarters(4));
+        }
+    }
+
+    #[test]
+    fn always_makes_a_file_without_a_tempo_at_the_songs_tempo() {
+        let doc = imported_with(FollowTempo::Always, None);
+        let clip = the_clip(&doc);
+        let warp = clip.warp.as_ref().expect("always follows");
+        assert_eq!(warp.original_bpm, 120.0);
+        assert_eq!(clip.length, Ticks::quarters(4));
+    }
+
+    #[test]
+    fn importing_a_loop_is_one_undo_step() {
+        let mut doc = imported_with(FollowTempo::Loops, stated(90.0));
+        assert!(doc.undo().is_some());
+        assert!(doc.project().tracks.is_empty());
+        assert!(doc.undo().is_none());
     }
 }

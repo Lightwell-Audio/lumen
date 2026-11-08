@@ -652,6 +652,7 @@ mod tests {
                 channels: 2,
                 frames: 4_800,
                 size_bytes: std::fs::metadata(path).map_or(0, |m| m.len()),
+                tempo: None,
                 at: Ticks::ZERO,
                 into: crate::document::DropInto::NewTracks {
                     before: None,

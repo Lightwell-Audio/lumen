@@ -463,6 +463,7 @@ mod tests {
             channels: 2,
             frames: 48_000,
             size_bytes: 192_044,
+            tempo: None,
             at: Ticks::ZERO,
             into: crate::document::DropInto::NewTracks {
                 before: None,

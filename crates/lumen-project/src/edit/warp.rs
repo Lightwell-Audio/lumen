@@ -13,7 +13,7 @@
 //! so code that does not read the map yet still finds the clip starting in
 //! the right place, and turning warp off leaves the clip playing from there.
 
-use lumen_core::time::Ticks;
+use lumen_core::time::{RAMP_STEP, TempoPoint, Ticks, bpm_at};
 use lumen_core::warp::Marker;
 
 use crate::model::{Clip, ClipContent, Pass, Project, Warp, WarpMode};
@@ -187,6 +187,98 @@ pub fn enable(project: &Project, clip: &Clip, original_bpm: f64) -> Result<Clip,
         }
     }
     out.warp = Some(warp);
+    Ok(out)
+}
+
+/// The ticks, from the start of a clip of `length`, at which the song's tempo
+/// changes inside it, with a tick every `step` along a ramp (a ramp is a
+/// curve, and a marker only draws a straight line between two points). In
+/// time order, never tick 0, at most [`MOST_RECORDED_MARKERS`].
+fn tempo_ticks(points: &[TempoPoint], start: Ticks, length: Ticks) -> Vec<Ticks> {
+    let end = start + length;
+    let step = RAMP_STEP.max(Ticks(length.0 / 512));
+    let mut found = Vec::new();
+    for (i, point) in points.iter().enumerate() {
+        if point.at > start && point.at < end {
+            found.push(point.at - start);
+        }
+        let Some(next) = points.get(i + 1).filter(|_| point.ramp) else {
+            continue;
+        };
+        let mut at = point.at + step;
+        while at < next.at && at < end {
+            if at > start {
+                found.push(at - start);
+            }
+            at = at + step;
+        }
+    }
+    found.sort();
+    found.dedup();
+    if found.len() > MOST_RECORDED_MARKERS {
+        let every = found.len().div_ceil(MOST_RECORDED_MARKERS);
+        found = found.into_iter().step_by(every).collect();
+    }
+    found
+}
+
+/// Whether the song's tempo is not one number over `start..start + length`:
+/// a point inside it, or a ramp that crosses any of it. A take wholly inside
+/// one step of the ramp's sampling has no point of its own and still varies.
+fn tempo_varies(points: &[TempoPoint], start: Ticks, length: Ticks) -> bool {
+    let end = start + length;
+    points.iter().enumerate().any(|(i, point)| {
+        if point.at > start && point.at < end {
+            return true;
+        }
+        points.get(i + 1).is_some_and(|next| {
+            point.ramp && point.at < end && next.at > start && point.bpm != next.bpm
+        })
+    })
+}
+
+/// The most markers a take gets for the song's tempo changes: well under
+/// [`lumen_core::warp::MAX_MARKERS`], which a person may still add to.
+const MOST_RECORDED_MARKERS: usize = 1_024;
+
+/// `clip`, just recorded, with warp on so that it keeps playing as it was
+/// played (M9.5 S4d, D8): the file's tempo is the song's where the clip
+/// starts, and a tempo change inside the clip (a step, or a ramp) gets a marker
+/// that pins the second of the file recorded then to the tick it was recorded
+/// at, and so does the clip's end. At a steady tempo that is the one marker
+/// [`enable`] makes. Editing the
+/// song's tempo later makes the clip follow it. Every pass of a loop
+/// recording gets the same.
+pub fn as_recorded(project: &Project, clip: &Clip, mode: WarpMode) -> Result<Clip, Refused> {
+    let tempo = super::tempo_of(project);
+    let mut out = enable(project, clip, bpm_at(&project.tempo, clip.start))?;
+    let ticks = tempo_ticks(&project.tempo, clip.start, clip.length);
+    let varies = tempo_varies(&project.tempo, clip.start, clip.length);
+    let origin = tempo.seconds_at(clip.start);
+    let fill = |warp: &mut Warp| {
+        warp.mode = mode;
+        let base = warp.markers[0].source;
+        // Past the last marker a clip plays at its original tempo, so a clip
+        // that changes tempo is also pinned at its end: the last stretch of
+        // it is then followed too (review round 1).
+        let end = varies.then_some(clip.length);
+        warp.markers.extend(
+            ticks
+                .iter()
+                .copied()
+                .chain(end)
+                .map(|at| Marker::new(base + tempo.seconds_at(clip.start + at) - origin, at)),
+        );
+    };
+    let passes = out.takes.iter_mut().flat_map(|t| t.others.iter_mut());
+    let others = passes.filter_map(|o| match &mut o.pass {
+        Pass::Audio { warp, .. } => warp.as_mut(),
+        Pass::Midi { .. } => None,
+    });
+    for warp in out.warp.iter_mut().chain(others) {
+        fill(warp);
+        warp.check().map_err(|_| Refused::Setting)?;
+    }
     Ok(out)
 }
 
