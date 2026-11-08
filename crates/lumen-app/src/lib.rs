@@ -132,6 +132,10 @@ pub struct App {
     synced: Option<u64>,
     /// The undo history window is open.
     show_history: bool,
+    /// A pointer button was down in a pop-out editor's window on the last frame it
+    /// drew: its pointer is not the main window's, so the history reads it here to
+    /// know a drag is still open.
+    popped_pointer_down: bool,
     /// The tap tempo run (M9 R7).
     tap: app::tap_tempo::TapRun,
     /// Track headers, heights, folding and selection (M3 slice 4).
@@ -827,6 +831,7 @@ impl eframe::App for App {
             self.detail_content(ui, content);
         }
         self.note_editor_window(&ctx);
+        self.audio_editor_window(&ctx);
         // Windows that closed fade out (M4.5).
         widgets::paint_gone(&ctx);
         self.typing = ctx.text_edit_focused();

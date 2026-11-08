@@ -36,6 +36,8 @@ pub(crate) struct DetailState {
     /// The audio clip opened in the Clip tab; an opened MIDI clip is the
     /// note editor's.
     opened_audio: Option<Id>,
+    /// The audio editor is in its own window (M9.5 S2c, D25).
+    pub(crate) audio_popped: bool,
     /// The opened clip went while the panel had the keyboard: the Devices
     /// tab takes it next frame.
     focus_devices: bool,

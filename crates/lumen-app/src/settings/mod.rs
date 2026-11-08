@@ -496,6 +496,10 @@ pub struct Editing {
     pub autosave_seconds: u64,
     /// What new tracks start with (M9 R7; an added field).
     pub new_tracks: NewTracks,
+    /// The audio editor moves a cut edge to the nearest quiet frame within
+    /// 5 ms (M9.5 S2b, the owner's ZC A: off by default; an added field).
+    #[serde(skip_serializing_if = "is_false")]
+    pub zero_crossings: bool,
 }
 
 impl Editing {
@@ -516,6 +520,7 @@ impl Default for Editing {
             undo_steps: lumen_project::history::DEFAULT_LIMIT,
             autosave_seconds: crate::autosave::DELAY.as_secs(),
             new_tracks: NewTracks::default(),
+            zero_crossings: false,
         }
     }
 }
@@ -894,6 +899,7 @@ mod tests {
                     audio_monitor: Monitor::In,
                     midi_instrument: None,
                 },
+                zero_crossings: true,
             },
             bounce: BounceChoices {
                 replace: true,

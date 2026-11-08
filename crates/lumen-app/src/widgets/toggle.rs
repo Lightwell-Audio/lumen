@@ -413,6 +413,23 @@ pub fn segmented_tool<T: PartialEq + Copy>(
     )
 }
 
+/// The width [`segmented_tool`] takes for `choices`, outside a menu.
+pub fn segmented_tool_width<T>(ui: &Ui, choices: &[Choice<'_, T>]) -> f32 {
+    let font = FontId::proportional(theme::size::BODY);
+    let pieces: f32 = choices
+        .iter()
+        .map(|c| {
+            let words = ui
+                .painter()
+                .layout_no_wrap(c.label.to_owned(), font.clone(), egui::Color32::PLACEHOLDER)
+                .size()
+                .x;
+            words + icon_room(c) + 2.0 * TOOL_PAD
+        })
+        .sum();
+    pieces + 2.0 * theme::space::XXS
+}
+
 /// How a [`segmented_with`] row looks.
 #[derive(Debug, Clone, Copy, Default)]
 struct Look {
@@ -594,6 +611,16 @@ fn segmented_with<T: PartialEq + Copy>(
         }
     }
     picked
+}
+
+/// The width [`toggle_button`] takes for `label`.
+pub fn toggle_button_width(ui: &Ui, label: &str) -> f32 {
+    let galley = ui.painter().layout_no_wrap(
+        label.to_owned(),
+        FontId::proportional(theme::size::BODY),
+        egui::Color32::PLACEHOLDER,
+    );
+    galley.size().x + 2.0 * theme::space::S
 }
 
 /// A button that stays lit while `on` (Browser, Detail): raised like every

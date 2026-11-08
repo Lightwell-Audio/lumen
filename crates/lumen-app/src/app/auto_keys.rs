@@ -19,8 +19,8 @@ use crate::arrangement::auto_view::without;
 
 /// How far an arrow moves a picked point's value, as a share of the lane's
 /// height, and with the fine modifier.
-const VALUE_STEP: f32 = 0.02;
-const VALUE_STEP_FINE: f32 = 0.005;
+pub(crate) const VALUE_STEP: f32 = 0.02;
+pub(crate) const VALUE_STEP_FINE: f32 = 0.005;
 
 /// The value `track`'s own control holds for `target` now: where a lane
 /// that is just starting should begin, so adding a point does not jump.

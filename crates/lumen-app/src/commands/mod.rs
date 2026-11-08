@@ -271,6 +271,11 @@ pub(crate) enum Command {
     AudioEditorWholeFile,
     SlipClipEarlier,
     SlipClipLater,
+    AudioEditorZeroCrossings,
+    AudioEditorGainEnvelope,
+    AudioEditorPanEnvelope,
+    AudioEditorClipLoop,
+    AudioEditorLoopClip,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -629,6 +634,11 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AudioEditorWholeFile, "view.audio_editor_whole_file", "Show the whole file in the audio editor", Area::View, &[], "Shows the opened audio clip's whole file in the Clip tab's editor, with the part the clip plays bright."),
     info(Command::SlipClipEarlier, "edit.slip_clip_earlier", "Slide the audio earlier in its clip", Area::Edit, &[ctrl_alt(Key::ArrowLeft)], "Slides the opened audio clip's audio one grid step earlier inside the clip, which stays where it is. Its key works while the audio editor is in use."),
     info(Command::SlipClipLater, "edit.slip_clip_later", "Slide the audio later in its clip", Area::Edit, &[ctrl_alt(Key::ArrowRight)], "Slides the opened audio clip's audio one grid step later inside the clip, which stays where it is. Its key works while the audio editor is in use."),
+    info(Command::AudioEditorZeroCrossings, "edit.audio_editor_zero_crossings", "Zero crossings", Area::Edit, &[], "In the audio editor, moves a trim, range or cursor edge within 5 ms to where the audio is nearest silence, so a cut jumps less. Alt places an edge freely."),
+    info(Command::AudioEditorGainEnvelope, "view.audio_editor_gain_envelope", "Show the clip's gain envelope", Area::View, &[], "Shows the opened audio clip's gain envelope over its wave in the audio editor, to add, move and draw its points. Again hides it."),
+    info(Command::AudioEditorPanEnvelope, "view.audio_editor_pan_envelope", "Show the clip's pan envelope", Area::View, &[], "Shows the opened audio clip's pan envelope over its wave in the audio editor, to add, move and draw its points. Again hides it."),
+    info(Command::AudioEditorClipLoop, "clip.audio_editor_clip_loop", "Loop audio in clip", Area::Clip, &[], "Loops the opened audio clip's audio, or stops it looping. What plays up to the first repeat stays the same; the brace under the editor's ruler sets the loop's ends."),
+    info(Command::AudioEditorLoopClip, "view.audio_editor_loop_clip", "Loop clip", Area::View, &[], "Plays the opened audio clip, or the range picked on it, on repeat while you edit it, with the other tracks heard. The song's own loop is not changed and nothing is saved. Again stops it."),
 ];
 
 const fn info(
@@ -692,7 +702,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::SlipClipLater as usize + 1,
+            Command::AudioEditorLoopClip as usize + 1,
             ALL.len(),
             "a command is missing"
         );

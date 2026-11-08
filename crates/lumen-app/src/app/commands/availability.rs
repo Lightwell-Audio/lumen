@@ -257,7 +257,10 @@ impl App {
                     || locator
                     || notes
                     || self.arrangement.auto.picks.is_some()
-                    || self.note_editor.gesture.is_some())
+                    || self.note_editor.gesture.is_some()
+                    || (self.audio_editor_live(ctx)
+                        && (self.audio_editor.cursor.is_some()
+                            || self.audio_editor.hands.picks.is_some())))
                     && !egui::Popup::is_any_open(ctx)
                     && !self.window_open(),
                 "Nothing is selected",
@@ -380,8 +383,11 @@ impl App {
             }
             Command::ShowClip => need(self.opened_clip().is_some(), "Open a clip first"),
             Command::DrawTool => Ok(()),
-            Command::PopOutEditor
-            | Command::Quantize
+            Command::PopOutEditor => need(
+                self.note_editor.clip.is_some() || self.detail_audio_clip().is_some(),
+                "Open a clip first",
+            ),
+            Command::Quantize
             | Command::QuantizeOptions
             | Command::HumanizeNotes
             | Command::FixedLengthNotes
@@ -390,7 +396,9 @@ impl App {
                 need(self.note_editor.clip.is_some(), "Open a MIDI clip first")
             }
             Command::SplitNotes => need(
-                (self.notes_are_picked() && self.split_point().is_some()) || clips,
+                (self.notes_are_picked() && self.split_point().is_some())
+                    || clips
+                    || (self.audio_editor.cursor.is_some() && self.detail_audio_clip().is_some()),
                 if self.notes_are_picked() {
                     "Move the playhead into the clip, or point at the clip editor"
                 } else {
@@ -629,7 +637,12 @@ impl App {
             Command::AudioEditorZoomToClip
             | Command::AudioEditorWholeFile
             | Command::SlipClipEarlier
-            | Command::SlipClipLater => need(
+            | Command::SlipClipLater
+            | Command::AudioEditorZeroCrossings
+            | Command::AudioEditorGainEnvelope
+            | Command::AudioEditorPanEnvelope
+            | Command::AudioEditorClipLoop
+            | Command::AudioEditorLoopClip => need(
                 self.detail_audio_clip().is_some(),
                 "Open an audio clip first (double-click it)",
             ),

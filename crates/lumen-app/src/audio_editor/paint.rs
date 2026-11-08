@@ -24,8 +24,6 @@ pub(crate) const SAMPLES_BELOW: f64 = 4.0;
 const DOTS_FROM: f64 = 6.0;
 /// The wave splits into left over right from this height (points).
 pub(crate) const SPLIT_FROM: f32 = theme::size::WAVE_SPLIT;
-/// The ruler: bar numbers on top, file time under them.
-pub(crate) const RULER: f32 = theme::size::CLIP_RULER;
 
 /// How the wave looks.
 #[derive(Debug, Clone, Copy)]
@@ -294,8 +292,7 @@ fn sample_lines(
 }
 
 /// The ruler in `strip`: bar numbers on top with the grid's bar and beat
-/// ticks, the file's time under them, and what the clip plays as a band on
-/// its bottom edge.
+/// ticks, the file's time under them. The loop brace's band is under it.
 pub(crate) fn ruler(
     painter: &Painter,
     strip: Rect,
@@ -309,18 +306,6 @@ pub(crate) fn ruler(
     let painter = painter.with_clip_rect(strip.intersect(painter.clip_rect()));
     painter.rect_filled(strip, 0.0, palette.raised);
     let x = |q: f64| time.x(strip.left(), q);
-    // What the clip plays, a band along the bottom (the loop brace's place).
-    for (a, b) in file.played.parts() {
-        let (a, b) = (x(a).max(strip.left()), x(b).min(strip.right()));
-        if b > a {
-            let top = strip.bottom() - theme::size::RULER_BAND;
-            painter.rect_filled(
-                Rect::from_min_max(pos2(a, top), pos2(b, strip.bottom())),
-                0.0,
-                palette.accent_muted,
-            );
-        }
-    }
     let mid = strip.top() + strip.height() / 2.0;
     // Bar numbers every 1, 2, 4… bars, by bar number, so the same bars keep
     // their labels while the view scrolls.
@@ -432,7 +417,7 @@ fn beat_and_gain(file: &WholeFile, frame: f64) -> Option<(f64, f32)> {
 }
 
 /// The beat where device-rate `frame` of the file plays.
-fn beat_of_frame(file: &WholeFile, frame: f64) -> Option<f64> {
+pub(crate) fn beat_of_frame(file: &WholeFile, frame: f64) -> Option<f64> {
     beat_and_gain(file, frame).map(|(q, _)| q)
 }
 

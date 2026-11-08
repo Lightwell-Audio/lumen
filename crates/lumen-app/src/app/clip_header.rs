@@ -204,22 +204,49 @@ impl HeaderStrip {
     /// Draw key is in Draw's tooltip, not in the control (KC C). `tips` say
     /// what each tool does in this editor. Returns the tool picked.
     pub fn tools(&mut self, app: &App, tool: Tool, tips: [&str; 2]) -> Option<Tool> {
+        self.tools_with(app, tool, tips, true)
+    }
+
+    /// [`Self::tools`], with its words or as icons alone (`words` false);
+    /// the names and tooltips stay.
+    pub fn tools_with(
+        &mut self,
+        app: &App,
+        tool: Tool,
+        tips: [&str; 2],
+        words: bool,
+    ) -> Option<Tool> {
         let draw_keys = app.keymap.keys(Command::DrawTool);
-        let choices = [
-            Choice::new(Tool::Pointer, "Pointer")
-                .icon(glyphs::pointer)
-                .named("Pointer tool")
-                .tip(tips[0]),
-            Choice::new(Tool::Draw, "Draw")
-                .icon(glyphs::pencil)
-                .keys(draw_keys.as_ref())
-                .named("Draw tool")
-                .tip(tips[1]),
-        ];
+        let choices = tool_choices(tips, draw_keys.as_ref(), words);
         let lit = (tool == Tool::Draw).then_some(Tone::Accent);
         let id = self.row.id().with("editor tool");
         widgets::segmented_tool(&mut self.row, id, tool, &choices, lit)
     }
+
+    /// The tool switch's width, with its words or without.
+    pub fn tools_width(ui: &Ui, words: bool) -> f32 {
+        widgets::segmented_tool_width(ui, &tool_choices(["", ""], None, words))
+    }
+}
+
+/// The tool switch's two choices.
+fn tool_choices<'a>(
+    tips: [&'a str; 2],
+    draw_keys: Option<&'a widgets::Keys>,
+    words: bool,
+) -> [Choice<'a, Tool>; 2] {
+    let word = |w: &'a str| if words { w } else { "" };
+    [
+        Choice::new(Tool::Pointer, word("Pointer"))
+            .icon(glyphs::pointer)
+            .named("Pointer tool")
+            .tip(tips[0]),
+        Choice::new(Tool::Draw, word("Draw"))
+            .icon(glyphs::pencil)
+            .keys(draw_keys)
+            .named("Draw tool")
+            .tip(tips[1]),
+    ]
 }
 
 impl App {

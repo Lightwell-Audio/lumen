@@ -57,6 +57,16 @@ pub fn pill_toggle(ui: &mut Ui, id: Id, label: &str, on: bool, tip: &str) -> boo
     toggle_with(ui, id, (label, on, tip), PILL)
 }
 
+/// A pill that shows or hides something (the audio editor's Gain and Pan
+/// envelopes), named `name`. The caller adds the tooltip with its keys.
+pub fn pill_switch(ui: &mut Ui, id: Id, label: &str, name: &str, on: bool) -> Response {
+    let response = pill_body(ui, id, label, Some(on), PILL);
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, name)
+    });
+    response
+}
+
 /// [`pill_toggle`] as a browser chip (8 pt side room). Named
 /// "<label> filter".
 pub fn chip_toggle(ui: &mut Ui, id: Id, label: &str, on: bool, tip: &str) -> bool {

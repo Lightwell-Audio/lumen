@@ -242,6 +242,17 @@ struct Worker {
 }
 
 impl StripReader {
+    /// A read was asked for and its answer has not arrived yet.
+    pub(crate) fn waiting(&self) -> bool {
+        self.worker.as_ref().is_some_and(|w| {
+            w.asked.is_some()
+                && w.done
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .is_none()
+        })
+    }
+
     /// `count` samples of `audio` from frame `first`: at once for audio in
     /// memory; for a file played from disk once the worker has read them
     /// (`None` until then, and `ctx` is woken when they are there).

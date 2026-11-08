@@ -14,7 +14,7 @@ related = [
   { kind = "Reference", title = "Commands and shortcuts" },
 ]
 prev = "Look inside an audio clip"
-next = "Split a clip"
+next = "Pick part of a clip in its editor"
 
 [taxonomies]
 actions = ["edit.slip_clip_earlier", "edit.slip_clip_later", "gesture.audio_editor_trim", "gesture.audio_editor_fade", "gesture.audio_editor_fade_bend", "gesture.audio_editor_gain", "gesture.audio_editor_slip"]

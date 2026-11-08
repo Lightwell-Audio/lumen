@@ -54,6 +54,14 @@ moving the playhead.
    anywhere.
 3. Press <kbd>Esc</kbd> to go back to the pointer.
 
+## In the audio editor
+
+When an audio clip is open in its editor and you have clicked its wave to put
+the edit cursor there, {{ keys(id="midi.split_notes") }} cuts the clip at the
+cursor rather than at the playhead. With a range picked on the wave, it cuts
+at both edges. See
+[Pick part of a clip in its editor](@/guides/clips/pick-part-of-a-clip-in-its-editor.md).
+
 ## On a time range
 
 Drag across a clip below its name bar, or across empty lanes, to select a

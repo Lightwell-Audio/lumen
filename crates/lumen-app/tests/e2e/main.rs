@@ -13,7 +13,10 @@
 
 mod access;
 mod audio_editor;
+mod audio_editor_envelopes;
 mod audio_editor_handles;
+mod audio_editor_hearing;
+mod audio_editor_range;
 mod audio_export;
 mod audio_input;
 mod audio_record;
@@ -414,6 +417,26 @@ impl Lumen {
             self.frames(1);
         }
         self.frames(2);
+    }
+
+    /// Clicks at `p` with `modifiers` held.
+    pub fn click_at(&mut self, p: egui::Pos2, modifiers: Modifiers) {
+        self.harness.event(egui::Event::ModifiersChanged(modifiers));
+        self.harness.hover_at(p);
+        self.frames(1);
+        for pressed in [true, false] {
+            self.harness.event(egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers,
+            });
+            self.frames(1);
+        }
+        self.frames(2);
+        self.harness
+            .event(egui::Event::ModifiersChanged(Modifiers::NONE));
+        self.frames(1);
     }
 
     /// Clicks twice at `p`, quickly, after a pause (so it is not counted

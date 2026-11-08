@@ -84,6 +84,9 @@ impl App {
         {
             return;
         }
+        if self.detail_audio_clip().is_some() {
+            self.audio_stop_keys(ctx);
+        }
         let (Some(part), Some(id)) = (focused_stop(ctx), self.detail_audio_clip()) else {
             return;
         };
@@ -142,11 +145,10 @@ impl App {
     }
 
     /// The grid line next to `t` in `direction`, or a fine step from it.
-    fn key_step(&self, t: Ticks, direction: i64, fine: bool) -> Ticks {
+    pub(super) fn key_step(&self, zoom: f64, t: Ticks, direction: i64, fine: bool) -> Ticks {
         if fine {
             return t + Ticks(FINE.0 * direction);
         }
-        let zoom = self.audio_editor.time.zoom;
         if direction > 0 {
             return self.grid_cell_at_zoom(t, zoom).1;
         }
@@ -167,7 +169,7 @@ impl App {
             Edge::Start => clip.start,
             Edge::End => clip.start + clip.length,
         };
-        let to = self.key_step(side, direction, fine);
+        let to = self.key_step(self.audio_editor.time.zoom, side, direction, fine);
         let base = self.document.project().clone();
         self.document.trim_clip(&base, id, edge, to, false, None);
     }
@@ -205,7 +207,7 @@ impl App {
             return;
         };
         let now = self.fade_handle_at(&clip, edge);
-        let at = self.key_step(now, direction, fine);
+        let at = self.key_step(self.audio_editor.time.zoom, now, direction, fine);
         let from = self.fade_begins(id, edge);
         self.fade_to(id, edge, from, at, None);
     }
@@ -319,7 +321,12 @@ impl App {
     ) -> Option<(Part, Response)> {
         let clip = self.shown_clip(id)?;
         let mut focused = None;
-        for part in STOPS {
+        // The gain line has no stop while the Gain envelope hides it.
+        let gain = Part::Handle(crate::arrangement::handles::Handle::Gain);
+        for part in STOPS
+            .into_iter()
+            .filter(|p| !(handles.gain_hidden && *p == gain))
+        {
             let rect = handles.stop_rect(part);
             let response = ui.interact(rect, stop_id(part), Sense::focusable_noninteractive());
             let name = self.stop_name(&clip, part);

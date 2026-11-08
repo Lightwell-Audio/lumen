@@ -365,6 +365,15 @@ impl App {
             .map(|r| (r.start, r.end, r.tracks.clone()))
     }
 
+    /// Picks a time range over `tracks`, as a drag in the arrangement would.
+    pub fn pick_time_range(&mut self, start: Ticks, end: Ticks, tracks: &[Id]) {
+        self.arrangement.range = Some(crate::arrangement::select::TimeRange {
+            start,
+            end,
+            tracks: tracks.to_vec(),
+        });
+    }
+
     /// The info line's lit action ("Ctrl+drag to copy"): the first that
     /// the keys held now do; none while no key is held.
     pub fn info_lit(&self, ctx: &egui::Context) -> Option<String> {
@@ -504,6 +513,17 @@ impl App {
     /// Selects these tracks, as clicking their headers would.
     pub fn select_tracks(&mut self, ids: &[Id]) {
         self.arrangement.selected = ids.to_vec();
+    }
+
+    /// Selects every clip on track `index`, as a marquee over them would.
+    pub fn select_all_clips_on_track(&mut self, index: usize) {
+        self.arrangement.selected.clear();
+        self.arrangement.range = None;
+        self.arrangement.clips = self.document.project().tracks[index]
+            .clips
+            .iter()
+            .map(|c| c.id)
+            .collect();
     }
 
     /// Selects this one clip, as clicking it would.

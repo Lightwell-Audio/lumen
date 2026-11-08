@@ -1,8 +1,9 @@
 //! What the pointer does on the audio editor's wave (M9.5 S2a): trims,
 //! fades, the gain line and slip, as the arrangement's own edits
 //! (`app::handles`, M9.5 D10) on the editor's view. A press on a handle wins
-//! over the wave; Ctrl+Alt slips anywhere; the dimmed file slips; the bright
-//! part has no drag until the range arrives in S2b.
+//! over the wave; Ctrl+Alt slips anywhere; the dimmed file slips; a drag on
+//! the bright part picks a range and a click there places the edit cursor
+//! (S2b, `range`).
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -28,6 +29,10 @@ pub(super) struct WaveArea<'a> {
     pub file: &'a WholeFile,
     pub limits: Limits,
     pub rate: u32,
+    /// The file's audio and its media key (a reversed twin's when reversed):
+    /// what zero crossings read.
+    pub audio: &'a lumen_engine::ClipAudio,
+    pub key: u64,
 }
 
 impl App {
@@ -75,23 +80,44 @@ impl App {
     }
 
     /// The wave's pointer work, before anything is drawn: drags start,
-    /// continue and end here, and the right-click menu opens. Returns what the
-    /// pointer is on.
+    /// continue and end here, a click places the edit cursor, and the
+    /// right-click menu opens. `taken`: the envelope took this press. Returns
+    /// what the pointer is on.
     pub(super) fn audio_wave_pointer(
         &mut self,
         response: &Response,
         id: Id,
         area: &WaveArea<'_>,
         ed: &mut AudioEditor,
+        taken: bool,
     ) -> Option<WaveHit> {
         let ctx = response.ctx.clone();
         let clip = self.shown_clip(id)?;
-        let handles = EditorHandles::of(&clip, area.body, ed.time)?;
-        if response.drag_started_by(PointerButton::Primary)
+        let handles = EditorHandles::of(&clip, area.body, ed.time)?.hiding_gain(ed.pill);
+        if !taken
+            && response.drag_started_by(PointerButton::Primary)
             && let Some(origin) = ctx.input(|i| i.pointer.press_origin())
         {
             let modifiers = ctx.input(|i| i.modifiers);
-            ed.gesture = self.start_wave_gesture(&clip, &handles, origin, modifiers, area, ed.time);
+            let slip = modifiers.command && modifiers.alt;
+            ed.gesture = match handles.hit(origin, area.file, ed.time) {
+                // The part played: a range from here (M9.5 WD A).
+                WaveHit::Played if !slip => self.start_wave_range(id, origin, area, ed),
+                _ => self.start_wave_gesture(&clip, &handles, origin, modifiers, area, ed.time),
+            };
+        }
+        if !taken
+            && response.clicked()
+            && let Some(p) = response.interact_pointer_pos()
+        {
+            match handles.hit(p, area.file, ed.time) {
+                WaveHit::Played => self.place_wave_cursor(&ctx, id, p, area, ed),
+                WaveHit::Part(_) => {}
+                _ => {
+                    ed.cursor = None;
+                    ed.anchor = None;
+                }
+            }
         }
         if let Some(gesture) = ed.gesture.take()
             && ctx.input(|i| i.pointer.primary_down())
@@ -105,7 +131,8 @@ impl App {
         // The handles as they are now: a gesture above may have moved them.
         let handles = self
             .shown_clip(id)
-            .and_then(|c| EditorHandles::of(&c, area.body, ed.time))?;
+            .and_then(|c| EditorHandles::of(&c, area.body, ed.time))?
+            .hiding_gain(ed.pill);
         let hit = pointer.map(|p| handles.hit(p, area.file, ed.time));
         if response.double_clicked()
             && let Some(WaveHit::Part(Part::Handle(handle))) = hit
@@ -115,7 +142,12 @@ impl App {
             self.reset_clip_handle(id, handle);
         }
         if response.secondary_clicked() {
-            if !self.arrangement.clips.contains(&id) {
+            // A range under the pointer stays: the menu then acts on it.
+            let in_range = response.interact_pointer_pos().is_some_and(|p| {
+                self.range_in_editor(id, area.file)
+                    .is_some_and(|(a, b)| (a..b).contains(&ed.time.beat_at(area.body.left(), p.x)))
+            });
+            if !in_range && !self.arrangement.clips.contains(&id) {
                 self.select_opened_clip(id);
             }
             self.menu_for = crate::app::editing::MenuFor::Clips;
@@ -186,7 +218,10 @@ impl App {
         area: &WaveArea<'_>,
         ed: &mut AudioEditor,
     ) -> Option<Gesture> {
-        if matches!(gesture, Gesture::Trim { .. } | Gesture::Fade { .. }) {
+        if matches!(
+            gesture,
+            Gesture::Trim { .. } | Gesture::Fade { .. } | Gesture::Range { .. }
+        ) {
             let dt = ctx.input(|i| i.stable_dt);
             let from = ctx.input(|i| i.pointer.press_origin()).map_or(p.x, |o| o.x);
             let pull = handles::edge_scroll(p.x, from, area.body.x_range(), dt);
@@ -215,7 +250,7 @@ impl App {
                 grab,
             } => {
                 let free = ctx.input(|i| i.modifiers.alt);
-                self.step_trim(
+                self.step_audio_trim(
                     ctx,
                     &overlay,
                     &TrimStep {
@@ -227,6 +262,7 @@ impl App {
                     },
                     p,
                     (frame, free),
+                    (area, ed),
                 );
                 Some(Gesture::Trim {
                     base,
@@ -240,11 +276,51 @@ impl App {
                 self.step_slip(ctx, &base, clip, at, p, frame);
                 Some(Gesture::Slip { base, clip, at })
             }
+            Gesture::Range { at, track } => {
+                self.step_wave_range(ctx, &overlay, (at, track), p, area, ed);
+                Some(Gesture::Range { at, track })
+            }
             handle @ (Gesture::Fade { .. } | Gesture::Bend { .. } | Gesture::Gain { .. }) => self
                 .continue_handle_gesture(ctx, handle, p, frame, &overlay)
                 .map(|step| step.gesture),
             other => Some(other),
         }
+    }
+
+    /// One frame of a trim: the arrangement's own step, except that the
+    /// edge then settles on a zero crossing when that is on (M9.5 ZC A).
+    fn step_audio_trim(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        step: &TrimStep<'_>,
+        p: Pos2,
+        (frame, free): (GestureFrame, bool),
+        (area, ed): (&WaveArea<'_>, &mut AudioEditor),
+    ) {
+        let at = frame.ticks_at(p.x) + step.grab;
+        let snapped = self.snapped_at_zoom(at, free, frame.view.zoom);
+        let (to, _) = self.crossing_at(ctx, ed, area, snapped, free);
+        self.document.trim_clip(
+            step.base,
+            step.clip,
+            step.edge,
+            to,
+            step.looping,
+            Some("clip trim"),
+        );
+        if let Some(c) = self.clip(step.clip) {
+            let side = match step.edge {
+                Edge::Start => c.start,
+                Edge::End => c.start + c.length,
+            };
+            crate::app::grid::draw_snap_guide(painter, frame.x(side), frame.lane);
+        }
+        ctx.set_cursor_icon(if step.looping {
+            CursorIcon::ResizeEast
+        } else {
+            CursorIcon::ResizeHorizontal
+        });
     }
 
     /// The cursor and the info line over the wave (M9.5 D18).
@@ -304,11 +380,9 @@ impl App {
                     .on(Held::NONE, Mouse::RightClick, "clip menu")
             }
             Some(WaveHit::Played) => Info::new(place)
-                .on(
-                    Held::NONE,
-                    Mouse::Drag,
-                    "a grip to trim, a corner to fade, the line for gain",
-                )
+                .on(Held::NONE, Mouse::Click, "place the edit cursor")
+                .on(Held::NONE, Mouse::Drag, "pick a range")
+                .on(Held::ALT, Mouse::Drag, "ignore the grid")
                 .on(Held::CTRL_ALT, Mouse::Drag, "slide the audio in the clip")
                 .on(Held::NONE, Mouse::RightClick, "clip menu"),
             _ => Info::new(place)

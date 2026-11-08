@@ -47,13 +47,14 @@ pub use keys::{
 };
 pub use menu::Menu;
 pub(crate) use menu::note_change;
-pub use pills::{Pill, chip_button, chip_toggle, pill_button, pill_tabs, pill_toggle};
+pub use pills::{Pill, chip_button, chip_toggle, pill_button, pill_switch, pill_tabs, pill_toggle};
 pub use scroll_bar::{Axis, ScrollBar, scroll_bar};
 pub use signature::{parse as parse_signature, time_signature};
 pub use slider::*;
 pub use toggle::{
     Choice, SWITCH_WIDTH, Tab, TabsLayout, choice_row, menu_caption, menu_header, segmented,
-    segmented_full, segmented_tool, switch, switch_noted, tab_divider, tabs_with, toggle_button,
+    segmented_full, segmented_tool, segmented_tool_width, switch, switch_noted, tab_divider,
+    tabs_with, toggle_button, toggle_button_width,
 };
 
 /// `text` as it is when it fits `width`, else cut to fit.

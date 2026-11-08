@@ -159,6 +159,12 @@ impl App {
         }
     }
 
+    /// [`Self::grid_cell_at`] as the audio editor's own zoom sets it.
+    pub fn audio_editor_grid_cell_at(&self, t: Ticks) -> Option<(Ticks, Ticks)> {
+        let zoom = self.audio_editor.last.as_ref()?.time.zoom;
+        Some(self.grid_cell_at_zoom(t, zoom))
+    }
+
     /// The grid step that `t` falls in now (`[start, end)`).
     pub fn grid_cell_at(&self, t: Ticks) -> (Ticks, Ticks) {
         self.grid_cell(t)
@@ -225,6 +231,10 @@ pub struct AudioEditorShown {
     /// The header's layout, by name, and whether the column was folded.
     pub layout: &'static str,
     pub folded: bool,
+    /// The loop brace's band under the ruler, and its ends while the clip
+    /// loops.
+    pub band: egui::Rect,
+    pub brace: Option<(f32, f32)>,
 }
 
 /// Where the audio editor's handles were last frame.
@@ -270,6 +280,8 @@ impl App {
             }),
             layout,
             folded: self.audio_editor.folded,
+            band: d.band,
+            brace: d.brace,
         })
     }
 
@@ -284,6 +296,31 @@ impl App {
         self.audio_editor.file.as_ref()?.file.frame_at(q)
     }
 
+    /// The loop the engine was last told to play: start, end, enabled.
+    pub fn engine_loop_sent(&self) -> (Ticks, Ticks, bool) {
+        let r = self.transport.sent_loop();
+        (r.start, r.end, r.enabled)
+    }
+
+    /// What Loop clip repeats, if it is on: start and end in the song. The
+    /// project's own loop (`engine_loop`) is not this.
+    pub fn clip_loop_played(&self) -> Option<(Ticks, Ticks)> {
+        self.transport
+            .clip_looping()
+            .then(|| self.transport.played_loop())
+            .map(|r| (r.start, r.end))
+    }
+
+    /// Whether the audio editor's ruler is scrubbing.
+    pub fn audio_editor_scrubbing(&self) -> bool {
+        self.audio_editor.scrub_sent.is_some()
+    }
+
+    /// Whether the audio editor is in its own window.
+    pub fn audio_editor_popped(&self) -> bool {
+        self.detail.audio_popped
+    }
+
     /// Lets Follow run again, as Play or the transport's Follow button does.
     pub fn resume_follow(&mut self) {
         self.transport.follow_paused = false;
@@ -294,8 +331,119 @@ impl App {
         self.transport.locate(at);
     }
 
+    /// The audio editor's edit cursor, if it has one.
+    pub fn audio_editor_cursor(&self) -> Option<Ticks> {
+        self.audio_editor.cursor
+    }
+
+    /// The envelope the audio editor shows: "gain", "pan" or none.
+    pub fn audio_editor_envelope(&self) -> Option<&'static str> {
+        self.audio_editor.pill.map(|k| match k {
+            lumen_project::envelope::Kind::Gain => "gain",
+            lumen_project::envelope::Kind::Pan => "pan",
+        })
+    }
+
+    /// The audio editor's tool is Draw.
+    pub fn audio_editor_draws(&self) -> bool {
+        self.audio_editor.tool == crate::note_editor::Tool::Draw
+    }
+
+    /// The envelope points picked in the audio editor.
+    pub fn audio_editor_picked(&self) -> Vec<usize> {
+        self.audio_editor
+            .hands
+            .picks
+            .as_ref()
+            .map(|p| p.indices.iter().copied().collect())
+            .unwrap_or_default()
+    }
+
+    /// The points picked in the arrangement's automation lanes.
+    pub fn arrangement_lane_picked(&self) -> Vec<usize> {
+        self.arrangement
+            .auto
+            .picks
+            .as_ref()
+            .map(|p| p.indices.iter().copied().collect())
+            .unwrap_or_default()
+    }
+
+    /// Where the audio editor draws the shown envelope's point `index`, and
+    /// the y of `value` on it.
+    pub fn audio_envelope_point(&self, index: usize) -> Option<egui::Pos2> {
+        let (_, frame, target) = self.audio_envelope_frame()?;
+        let last = self.audio_editor.last.as_ref()?;
+        let track = self
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.clips.iter().any(|c| c.id == last.clip))?;
+        let view = track.lane_view(target)?;
+        let point = view.lane.points().get(index)?;
+        Some(frame.pos(target, point))
+    }
+
+    /// The y the audio editor draws `value` of the shown envelope at.
+    pub fn audio_envelope_y(&self, value: f32) -> Option<f32> {
+        let (_, frame, target) = self.audio_envelope_frame()?;
+        Some(frame.y(target, value))
+    }
+
+    fn audio_envelope_frame(
+        &self,
+    ) -> Option<(
+        lumen_project::model::Clip,
+        crate::arrangement::auto_view::Frame,
+        lumen_project::automation::Target,
+    )> {
+        let last = self.audio_editor.last.as_ref()?;
+        let kind = self.audio_editor.pill?;
+        let clip = self.shown_clip(last.clip)?;
+        let frame = self.envelope_frame(&clip, last.body, last.time);
+        Some((
+            clip,
+            frame,
+            lumen_project::automation::Target::envelope(last.clip, kind),
+        ))
+    }
+
+    /// A read for zero crossings was asked for and has not answered yet.
+    pub fn audio_crossings_waiting(&self) -> bool {
+        self.audio_editor.crossings.reader.waiting()
+    }
+
+    /// Turns Zero crossings on or off, as its header toggle does.
+    pub fn set_zero_crossings(&mut self, on: bool) {
+        self.settings.editing.zero_crossings = on;
+    }
+
+    /// The audio editor's stop with the keyboard that is not a handle, by
+    /// name ("wave", "envelope", "loop", "loop start", "loop end").
+    pub fn audio_stop_focused(&self, ctx: &egui::Context) -> Option<&'static str> {
+        crate::app::audio_editor::stops::focused(ctx).map(|stop| stop.key())
+    }
+
     /// The audio editor's handle with the keyboard, by name ("fade in").
     pub fn audio_handle_focused(&self, ctx: &egui::Context) -> Option<&'static str> {
         crate::app::audio_editor::keys::focused_stop(ctx).map(|part| part.key())
+    }
+}
+
+impl App {
+    /// Says a button is down in a pop-out editor's window, as that window's
+    /// frame does: the history keeps a gesture open while it is.
+    pub fn hold_popped_pointer(&mut self) {
+        self.popped_pointer_down = true;
+    }
+
+    /// One drag step on `track`'s volume lane: a lane of one point at beat
+    /// `at` and `db`, merged into the gesture in progress.
+    pub fn drag_volume_point(&mut self, track: lumen_project::model::Id, at: i64, db: f32) {
+        use lumen_core::automation::{Lane, Point};
+        let lane = Lane::new(vec![Point::new(Ticks::quarters(at), db)]).expect("a lane");
+        let _ =
+            self.document
+                .set_lane(track, lumen_project::automation::Target::Volume, lane, true);
     }
 }

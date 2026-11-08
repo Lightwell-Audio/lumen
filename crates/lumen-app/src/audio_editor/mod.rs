@@ -13,13 +13,20 @@
 //!
 //! What the editor does with the app (`impl App`) is `app::audio_editor`.
 
+pub(crate) mod brace;
+pub(crate) mod crossing;
 pub(crate) mod handles;
 pub(crate) mod header;
 pub(crate) mod paint;
 pub(crate) mod source;
 
 use eframe::egui::Rect;
+use lumen_core::time::Ticks;
+use lumen_project::envelope::Kind;
 use lumen_project::model::Id;
+
+use crate::arrangement::auto_state::Hands;
+use crate::note_editor::Tool;
 
 use crate::arrangement::samples::StripReader;
 use crate::arrangement::select::Gesture;
@@ -80,6 +87,114 @@ pub(crate) struct AudioEditor {
     pub layout: header::Layout,
     /// The properties column gave its room to the wave.
     pub folded: bool,
+    /// The edit cursor (M9.5 CU A): a beat on the heard stretch. Not saved;
+    /// it goes when another clip opens or a range is picked.
+    pub cursor: Option<Ticks>,
+    /// Where a range picked from the keyboard is anchored (D28).
+    pub anchor: Option<Ticks>,
+    /// The tool in hand: Pointer, or Draw for the envelope.
+    pub tool: Tool,
+    /// The envelope shown over the wave (the pills, DR A).
+    pub pill: Option<Kind>,
+    /// The envelope's gesture, picks and keyboard focus: the editor's
+    /// own, so the arrangement's lanes keep theirs (D20).
+    pub hands: Hands,
+    /// The envelope point under the pointer.
+    pub hover_point: Option<usize>,
+    /// A drag of the brace's end: which, and the project it began on.
+    pub brace: Option<BraceDrag>,
+    /// The brace part under the pointer, last frame.
+    pub brace_hover: Option<brace::BracePart>,
+    /// Why the brace's start stopped (LS A), while it holds there.
+    pub brace_note: Option<&'static str>,
+    /// The clip Loop clip repeats, while it is on (M9.5 S2c, LC A).
+    pub loop_clip: Option<lumen_project::model::Id>,
+    /// What the ruler's scrub last sent to the engine: where, and how.
+    pub scrub_sent: Option<(lumen_core::time::Ticks, lumen_engine::ScrubStyle)>,
+    /// Whether the ruler was drawn since the last frame began, so a scrub
+    /// whose ruler went away can be let go of.
+    pub scrub_drawn: bool,
+    /// Where the pop-out window opened, taken once as it opens.
+    pub window_at: Option<crate::settings::WindowPlace>,
+    /// Frames read for zero crossings (D23).
+    pub crossings: Crossings,
+    /// An edge landed on a crossing this frame: its guide lights.
+    pub crossed: bool,
+    /// The pointer is over the envelope, which says what it does.
+    pub envelope_hover: bool,
+    /// Keys taken for the wave, envelope and loop stops, for the next frame.
+    pub keys: Vec<(
+        crate::app::audio_editor::stops::Stop,
+        eframe::egui::Key,
+        eframe::egui::Modifiers,
+    )>,
+}
+
+impl AudioEditor {
+    /// Lights a pill, or puts it out: one envelope at a time. Without an
+    /// envelope the pencil has nothing to draw, so Pointer comes back.
+    pub(crate) fn toggle_pill(&mut self, kind: Kind) {
+        self.pill = if self.pill == Some(kind) {
+            None
+        } else {
+            Some(kind)
+        };
+        self.hands.picks = None;
+        self.hover_point = None;
+        if self.pill.is_none() {
+            self.tool = Tool::Pointer;
+        }
+    }
+
+    /// Chooses `tool`. Draw with no pill lit lights Gain, so the pencil
+    /// always works (DR A).
+    pub(crate) fn choose_tool(&mut self, tool: Tool) {
+        self.tool = tool;
+        if tool == Tool::Draw && self.pill.is_none() {
+            self.pill = Some(Kind::Gain);
+        }
+    }
+
+    /// B in the editor: Pointer and Draw.
+    pub(crate) fn toggle_draw(&mut self) {
+        self.choose_tool(match self.tool {
+            Tool::Pointer => Tool::Draw,
+            Tool::Draw => Tool::Pointer,
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn draw_lights_gain_and_putting_the_pill_out_brings_the_pointer_back() {
+        let mut ed = AudioEditor::default();
+        ed.toggle_draw();
+        assert_eq!((ed.tool, ed.pill), (Tool::Draw, Some(Kind::Gain)));
+        ed.toggle_pill(Kind::Pan);
+        assert_eq!((ed.tool, ed.pill), (Tool::Draw, Some(Kind::Pan)));
+        ed.toggle_pill(Kind::Pan);
+        assert_eq!((ed.tool, ed.pill), (Tool::Pointer, None));
+    }
+}
+
+/// A drag of one of the brace's ends.
+#[derive(Debug, Clone)]
+pub(crate) struct BraceDrag {
+    pub part: brace::BracePart,
+    pub base: std::sync::Arc<lumen_project::model::Project>,
+    /// How far the end was from the pointer when it was picked up.
+    pub grab: Ticks,
+}
+
+/// The zero-crossing reads: their own reader, so a display read and a
+/// crossing read do not replace each other, and the last frames read.
+#[derive(Default)]
+pub(crate) struct Crossings {
+    pub reader: StripReader,
+    pub last: Option<SampleCache>,
 }
 
 /// A handle's popover: the value being typed.
@@ -129,4 +244,7 @@ pub(crate) struct Drawn {
     pub handles: Option<handles::EditorHandles>,
     /// The beats of the part played first, and of the part after a wrap.
     pub played: source::Played,
+    /// The loop brace's band, and its ends while the clip loops.
+    pub band: Rect,
+    pub brace: Option<(f32, f32)>,
 }

@@ -103,6 +103,39 @@ pub const SCENES: &[Scene] = &[
             &["Trim grip", "Fade handle", "Gain line"],
         )],
     },
+    Scene {
+        test: "audio_editor_range",
+        clips: &[
+            "audio-editor-range-lead",
+            "audio-editor-range",
+            "audio-editor-cursor",
+        ],
+        shots: &["audio-editor-range"],
+        walks: &[],
+        callouts: &[("audio-editor-range", &["Range"])],
+    },
+    Scene {
+        test: "audio_editor_envelopes",
+        clips: &[
+            "audio-editor-envelopes-lead",
+            "audio-editor-envelope-point",
+            "audio-editor-envelope-draw",
+            "audio-editor-loop-brace",
+        ],
+        shots: &["audio-editor-envelopes"],
+        walks: &[],
+        callouts: &[(
+            "audio-editor-envelopes",
+            &["Gain and Pan", "Envelope", "Loop brace"],
+        )],
+    },
+    Scene {
+        test: "audio_editor_hearing",
+        clips: &["audio-editor-hearing-lead", "audio-editor-scrub"],
+        shots: &["audio-editor-hearing"],
+        walks: &[],
+        callouts: &[("audio-editor-hearing", &["Loop clip", "Ruler"])],
+    },
 ];
 
 /// Whether a scene writes the clip `name`.

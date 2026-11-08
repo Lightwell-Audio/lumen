@@ -633,18 +633,24 @@ pub mod size {
     pub const SUBJECT_BAR: f32 = 3.0;
     /// The widest a tab's note (a clip's name after "Clip") is drawn.
     pub const TAB_NOTE: f32 = 140.0;
-    /// The audio editor's ruler (bar numbers over the file's time), and the
-    /// least room between two bar numbers before only every second, fourth…
-    /// shows.
-    pub const CLIP_RULER: f32 = 30.0;
+    /// The audio editor's ruler with its loop brace band (M9.5 LB A): the
+    /// band is its bottom `BRACE_BAND` points; a brace end's grab reach; the
+    /// clip start's flag on the band; the edit cursor's cap.
+    pub const EDITOR_RULER: f32 = 37.0;
+    pub const BRACE_BAND: f32 = 10.0;
+    pub const BRACE_GRAB: f32 = 6.0;
+    pub const BRACE_FLAG: f32 = 5.0;
+    pub const CURSOR_CAP: f32 = 4.0;
+    /// The least room between two of the audio editor's bar numbers before
+    /// only every second, fourth… shows.
     pub const BAR_NUMBER_ROOM: f32 = 32.0;
     /// The least room between two of the audio editor's time labels.
     pub const TIME_LABEL_ROOM: f32 = 64.0;
     /// From this height the audio editor draws a stereo file's left over its
     /// right.
     pub const WAVE_SPLIT: f32 = 96.0;
-    /// The audio editor's ruler: the clip's window band along its bottom,
-    /// a beat tick and a time tick, and the dot on each sample at depth.
+    /// The audio editor's ruler: the room under its time labels, a beat
+    /// tick and a time tick, and the dot on each sample at depth.
     pub const RULER_BAND: f32 = 3.0;
     pub const BEAT_TICK: f32 = 5.0;
     pub const TIME_TICK: f32 = 6.0;

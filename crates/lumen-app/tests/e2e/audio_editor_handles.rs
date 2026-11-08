@@ -17,11 +17,11 @@ use super::{Lumen, midi_play, wav};
 
 /// Lumen with a two-second file (four beats at 120 BPM) dropped in, its
 /// clip trimmed to beats 1 to 3 and opened in the Clip tab.
-fn opened(name: &str) -> (Lumen, Id) {
+pub(super) fn opened(name: &str) -> (Lumen, Id) {
     opened_with(Lumen::start(name), 2.0, (1, 3))
 }
 
-fn opened_with(mut lumen: Lumen, seconds: f32, (from, to): (i64, i64)) -> (Lumen, Id) {
+pub(super) fn opened_with(mut lumen: Lumen, seconds: f32, (from, to): (i64, i64)) -> (Lumen, Id) {
     let file = wav(&lumen.dir().join("kick.wav"), seconds);
     lumen.drop_files(&[file]);
     lumen.frames(40);
@@ -39,7 +39,7 @@ fn opened_with(mut lumen: Lumen, seconds: f32, (from, to): (i64, i64)) -> (Lumen
 }
 
 /// Opens `clip` in the Clip tab and waits for its handles.
-fn open(lumen: &mut Lumen, clip: Id) {
+pub(super) fn open(lumen: &mut Lumen, clip: Id) {
     // A click on the clip takes the keyboard from any handle; Enter on one
     // would open its popover instead.
     lumen.harness.ctx.memory_mut(|m| {
@@ -57,18 +57,18 @@ fn open(lumen: &mut Lumen, clip: Id) {
     lumen.frames(3);
 }
 
-fn shown(lumen: &Lumen) -> lumen_app::testing::AudioEditorShown {
+pub(super) fn shown(lumen: &Lumen) -> lumen_app::testing::AudioEditorShown {
     lumen
         .app()
         .audio_editor_shown()
         .expect("the editor is drawn")
 }
 
-fn handles(lumen: &Lumen) -> lumen_app::testing::AudioHandlesShown {
+pub(super) fn handles(lumen: &Lumen) -> lumen_app::testing::AudioHandlesShown {
     shown(lumen).handles.expect("the clip shows its handles")
 }
 
-fn clip(lumen: &Lumen, id: Id) -> Clip {
+pub(super) fn clip(lumen: &Lumen, id: Id) -> Clip {
     lumen
         .app()
         .project()
@@ -88,7 +88,7 @@ fn gain(lumen: &Lumen, id: Id) -> f32 {
 }
 
 /// The x of beat `q` in the editor.
-fn x_of(lumen: &Lumen, q: f64) -> f32 {
+pub(super) fn x_of(lumen: &Lumen, q: f64) -> f32 {
     let s = shown(lumen);
     s.view.x(s.body.left(), q)
 }
@@ -362,7 +362,7 @@ fn the_handles_stay_quick_at_the_deepest_zoom() {
 }
 
 /// Presses F6 until the detail panel has the keyboard, wherever it is now.
-fn to_the_detail_panel(lumen: &mut Lumen) {
+pub(super) fn to_the_detail_panel(lumen: &mut Lumen) {
     let ctx = lumen.harness.ctx.clone();
     for _ in 0..4 {
         if lumen.app().focused_pane(&ctx).as_deref() == Some("Detail") {
@@ -503,14 +503,24 @@ fn a_looped_clip_split_at_a_later_repeat_draws_the_frame_it_plays() {
 /// the strip.
 fn header_controls(lumen: &Lumen) -> Vec<(String, Rect)> {
     let body = shown(lumen).body;
-    let named = ["Clip kick", "Zoom to clip", "Whole file", "More"]
-        .into_iter()
-        .flat_map(|name| {
-            lumen
-                .harness
-                .query_all_by_label(name)
-                .map(move |n| (name.to_owned(), n.rect()))
-        });
+    let named = [
+        "Clip kick",
+        "Zoom to clip",
+        "Whole file",
+        "More",
+        "Pointer tool",
+        "Draw tool",
+        "Gain envelope",
+        "Pan envelope",
+        "Zero crossings",
+    ]
+    .into_iter()
+    .flat_map(|name| {
+        lumen
+            .harness
+            .query_all_by_label(name)
+            .map(move |n| (name.to_owned(), n.rect()))
+    });
     let grid = lumen
         .harness
         .get_all_by(|n| n.label().is_some_and(|l| l.starts_with("Editor grid:")))
@@ -558,6 +568,15 @@ fn the_header_fits_the_smallest_windows_with_every_action_reachable() {
         if s.folded {
             assert!(names.contains(&"More"), "Clip properties is in the menu");
         }
+        for tool in ["Pointer tool", "Draw tool"] {
+            assert!(names.contains(&tool), "{tool} at {width}: {names:?}");
+        }
+        for part in ["Gain envelope", "Pan envelope", "Zero crossings"] {
+            assert!(
+                names.contains(&part) || names.contains(&"More"),
+                "{part} is in the strip or its menu at {width}: {names:?}"
+            );
+        }
         // Every part is also a command, so the palette finds it.
         midi_play::palette(&mut lumen, "Zoom the audio editor to the clip");
         lumen.frames(2);
@@ -570,6 +589,7 @@ fn the_header_fits_the_smallest_windows_with_every_action_reachable() {
     if names.iter().any(|n| n == "More") && !names.iter().any(|n| n == "Whole file") {
         lumen.click("More");
         assert!(lumen.shows("Whole file"), "the menu lists the views");
+        assert!(lumen.shows("Zero crossings"), "and Zero crossings");
         lumen.key(Modifiers::NONE, Key::Escape);
     }
 }

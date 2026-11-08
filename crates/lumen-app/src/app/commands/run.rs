@@ -37,6 +37,25 @@ impl App {
         let auto_draw = self.auto_chosen().is_some();
         let note_keys = self.note_keys();
         let audio_keys = !note_keys && self.audio_editor_live(ctx);
+        let audio_points = audio_keys && self.audio_envelope_picked();
+        // The audio editor holding the keyboard takes the keys from the
+        // arrangement's picked points and lanes: a Delete means the editor's
+        // range or point, whatever stands picked above.
+        let auto_point = auto_point && !audio_keys;
+        let song_point = song_point && !audio_keys;
+        let lane_points = lane_points && !audio_keys;
+        let auto_lane = auto_lane && !audio_keys;
+        let auto_paste = auto_paste && !audio_keys;
+        let audio_open = self.detail_audio_clip().is_some();
+        let audio_split = if audio_keys && self.arrangement.range.is_none() {
+            self.audio_editor.cursor.zip(self.detail_audio_clip())
+        } else {
+            None
+        };
+        if command == Command::Deselect && audio_keys && self.audio_editor_deselect() {
+            ctx.request_repaint();
+            return;
+        }
         if command == Command::Deselect && self.note_editor.cancel_gesture() {
             self.end_audition();
             ctx.request_repaint();
@@ -138,6 +157,10 @@ impl App {
             Command::Paste if auto_paste => self.auto_paste(),
             Command::Duplicate if auto_point && !notes => self.auto_duplicate(),
             Command::SelectAll if auto_lane => self.auto_select_all(),
+            Command::DrawTool if audio_keys => self.audio_editor_toggle_draw(),
+            Command::Delete if audio_points => {
+                self.audio_envelope_delete();
+            }
             Command::DrawTool if auto_draw && !note_keys => {
                 self.auto_toggle_draw();
             }
@@ -317,12 +340,21 @@ impl App {
                     self.note_op(NoteOp::Split(at));
                 }
             }
+            // The audio editor's cursor, when it has one and no range is picked
+            // (M9.5 CU A).
+            Command::SplitNotes if let Some((at, id)) = audio_split => {
+                self.arrangement.clips = std::collections::BTreeSet::from([id]);
+                self.split_at(at);
+            }
             Command::SplitNotes => self.split_at(self.transport.position()),
             Command::CreateMidiClip => self.create_midi_clip_here(),
             Command::OpenClipEditor => {
                 if let Some(clip) = self.first_selected_clip() {
                     self.open_clip(clip);
                 }
+            }
+            Command::PopOutEditor if audio_open => {
+                self.detail.audio_popped = !self.detail.audio_popped;
             }
             Command::PopOutEditor => self.note_editor.popped = !self.note_editor.popped,
             Command::DrawTool => {
@@ -559,6 +591,25 @@ impl App {
             }
             Command::SlipClipEarlier => self.slip_opened_clip(-1),
             Command::SlipClipLater => self.slip_opened_clip(1),
+            Command::AudioEditorZeroCrossings => {
+                let editing = &mut self.settings.editing;
+                editing.zero_crossings = !editing.zero_crossings;
+                self.settings_changed = Some(std::time::Instant::now());
+            }
+            Command::AudioEditorGainEnvelope => {
+                self.audio_editor_pill(lumen_project::envelope::Kind::Gain);
+                self.show_detail_tab(crate::app::detail::DetailTab::Clip);
+            }
+            Command::AudioEditorPanEnvelope => {
+                self.audio_editor_pill(lumen_project::envelope::Kind::Pan);
+                self.show_detail_tab(crate::app::detail::DetailTab::Clip);
+            }
+            Command::AudioEditorClipLoop => {
+                if let Some(clip) = self.detail_audio_clip().and_then(|id| self.shown_clip(id)) {
+                    self.toggle_clip_loop(&clip);
+                }
+            }
+            Command::AudioEditorLoopClip => self.toggle_loop_clip(),
             Command::AddSampleFolder => {
                 self.show_browser_tab(crate::browser::Tab::Samples);
                 self.pick_sample_folder(ctx);

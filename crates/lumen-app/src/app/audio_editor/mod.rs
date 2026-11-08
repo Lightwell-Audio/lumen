@@ -6,9 +6,16 @@
 //! `audio_editor::source`; the handles are `gestures` (the pointer) and `keys`
 //! (the keyboard) here, with `audio_editor::handles` for where they are.
 
+mod brace;
+mod envelope;
 mod gestures;
 mod header;
+mod hearing;
 pub(crate) mod keys;
+mod range;
+pub(crate) mod stops;
+mod view;
+mod window;
 
 use std::sync::Arc;
 
@@ -20,21 +27,18 @@ use lumen_project::model::{Clip, ClipContent, Id};
 use lumen_project::routing::all_tracks;
 
 use self::gestures::WaveArea;
+use self::view::{audio_wheel, audio_zoom_keys, fitted, ticks_at};
 use crate::app::clip_header::HEADER;
-use crate::app::info::{Held, Info, Mouse};
-use crate::app::navigate::KEY_ZOOM;
 use crate::arrangement::{self, waves};
+use crate::audio_editor::brace::RULER;
 use crate::audio_editor::handles::{self as handle_marks, EditorHandles};
 use crate::audio_editor::header::folds;
-use crate::audio_editor::paint::{
-    self, RULER, SAMPLES_BELOW, SPLIT_FROM, Samples, WaveInput, WaveLook,
-};
+use crate::audio_editor::paint::{self, SAMPLES_BELOW, SPLIT_FROM, Samples, WaveInput, WaveLook};
 use crate::audio_editor::source::{self, WholeFile};
 use crate::audio_editor::{AudioEditor, Drawn, Fit};
 use crate::commands::Command;
 use crate::media::State;
-use crate::note_editor::EditorZoom;
-use crate::timeview::{Limits, TimeView};
+use crate::timeview::TimeView;
 use crate::widgets::{self, raised};
 use crate::{App, theme};
 
@@ -46,8 +50,6 @@ const MIN_BODY: f32 = 24.0;
 /// The most samples read for one frame's drawing (a screen's width at
 /// 8 points a sample on a wide display).
 const MOST_SAMPLES: i64 = 16_384;
-/// Room kept past the file's ends when fitting it (a fraction of its span).
-const FIT_ROOM: f64 = 0.02;
 
 /// A loaded file: what its wave needs.
 struct Loaded {
@@ -64,6 +66,10 @@ impl App {
         let folded = folds(area.width(), PROPS_WIDTH);
         self.audio_editor.folded = folded;
         if folded {
+            if self.detail.audio_popped {
+                self.popped_note(ui, area);
+                return;
+            }
             let mut ed = std::mem::take(&mut self.audio_editor);
             self.draw_audio_editor(ui, area, clip, &mut ed);
             self.audio_editor = ed;
@@ -92,9 +98,32 @@ impl App {
             });
         let editor = Rect::from_min_max(pos2(column.right(), area.top()), area.max);
         if editor.width() > 2.0 * theme::space::L {
+            if self.detail.audio_popped {
+                self.popped_note(ui, editor);
+                return;
+            }
             let mut ed = std::mem::take(&mut self.audio_editor);
             self.draw_audio_editor(ui, editor, clip, &mut ed);
             self.audio_editor = ed;
+        }
+    }
+
+    /// The note that stands where the editor was while it is in its own
+    /// window, with the way to dock it back.
+    fn popped_note(&mut self, ui: &mut Ui, rect: Rect) {
+        let state = widgets::EmptyState {
+            icon: None,
+            icon_size: theme::space::L,
+            title: "The clip editor is in its own window",
+            hint: "Close that window, or dock it here",
+            action: Some(widgets::EmptyAction {
+                label: "Dock editor",
+                keys: None,
+                tip: "Put the editor back in the detail panel",
+            }),
+        };
+        if widgets::empty_state(ui, rect, &state) {
+            self.detail.audio_popped = false;
         }
     }
 
@@ -149,7 +178,15 @@ impl App {
             pos2(area.left(), header.bottom()),
             pos2(area.right(), header.bottom() + RULER),
         );
+        let (scale, band) = self::brace::split_ruler(ruler);
         let body = Rect::from_min_max(pos2(area.left(), ruler.bottom()), area.max);
+        // Another clip opened: what was picked in the last one goes.
+        if ed.framed_for != Some(clip.id) {
+            ed.cursor = None;
+            ed.anchor = None;
+            ed.hands.picks = None;
+            ed.keys.clear();
+        }
         if let Some(file) = &file {
             // Opening a clip frames it with nothing to go back to: the view
             // before belongs to another clip, or to this one opened before.
@@ -233,7 +270,7 @@ impl App {
                 format!("Audio editor: {}", clip.name),
             )
         });
-        let ruler_response = ui.interact(ruler, base.with("ruler"), Sense::click_and_drag());
+        let ruler_response = ui.interact(scale, base.with("ruler"), Sense::CLICK | Sense::DRAG);
         ruler_response.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Other,
@@ -241,33 +278,42 @@ impl App {
                 "Editor ruler: click to move the playhead",
             )
         });
-        // Stopped, a drag moves the playhead with the pointer; playing, it
-        // moves it where the drag ends, so playback is not sent to a new
-        // place every frame.
-        let playing = self.transport.state().playing;
-        let moved = ruler_response.clicked()
-            || ruler_response.drag_stopped()
-            || (!playing && (ruler_response.dragged() || ruler_response.drag_started()));
-        if moved && let Some(p) = ruler_response.interact_pointer_pos() {
-            let free = ctx.input(|i| i.modifiers.alt);
-            let at = self.snapped_at_zoom(ticks_at(ed.time, body.left(), p.x), free, ed.time.zoom);
-            self.transport.locate(at.max(Ticks::ZERO));
-            self.transport.follow_paused = true;
-        }
+        self.editor_scrub(&ctx, &ruler_response, ed, body.left());
+
+        let band_response = ui.interact(band, base.with("brace"), Sense::CLICK | Sense::DRAG);
 
         // The pointer's edits, then the clip and file as they left them, so
-        // what is drawn is never a frame behind the hand.
-        let hit = self.audio_wave_pointer(
-            &wave_response,
-            id,
-            &WaveArea {
-                body,
-                file: &file,
-                limits,
-                rate,
-            },
-            ed,
-        );
+        // what is drawn is never a frame behind the hand: the brace, the
+        // envelope, then the wave.
+        let area_now = WaveArea {
+            body,
+            file: &file,
+            limits,
+            rate,
+            audio: &loaded.audio,
+            key: key.unwrap_or(0),
+        };
+        let brace_now = crate::audio_editor::brace::Brace::of(&clip, &file, ed.time, band);
+        self.brace_pointer(&band_response, &clip, &brace_now, &area_now, ed);
+        let taken = match self
+            .shown_clip(id)
+            .and_then(|c| EditorHandles::of(&c, body, ed.time))
+        {
+            Some(handles) => {
+                let frame = self.envelope_frame(&clip, body, ed.time);
+                let handles = handles.hiding_gain(ed.pill);
+                self.envelope_pointer(&wave_response, &clip, (&frame, &handles), &area_now, ed)
+            }
+            None => false,
+        };
+        let hit = self.audio_wave_pointer(&wave_response, id, &area_now, ed, taken);
+        // The stops' keys, with the file and the envelope at hand.
+        if !ed.keys.is_empty()
+            && let Some(now) = self.shown_clip(id)
+        {
+            let frame = self.envelope_frame(&now, body, ed.time);
+            self.run_stop_keys(&ctx, &now, (&area_now, &frame), ed);
+        }
         let (clip, file) = match self.opened_clip_look(id) {
             Some((now, _)) if !Arc::ptr_eq(&now, &clip) => {
                 let file = self.file_of(&now, &loaded, ed).unwrap_or(file);
@@ -337,11 +383,31 @@ impl App {
             samples,
         };
         paint::wave(&painter, body, &input);
-        paint::ruler(&painter, ruler, ed.time, &lines, meter, &file, rate);
-        // Each handle's Tab stop, then the handles over the wave.
-        let handles = self
-            .shown_clip(id)
-            .and_then(|c| EditorHandles::of(&c, body, ed.time));
+        paint::ruler(&painter, scale, ed.time, &lines, meter, &file, rate);
+        // The wave's Tab stop, then the envelope and the range over the
+        // wave, each handle's stop and the handles, then the envelope's and
+        // the loop's stops and the brace.
+        let ruler_stop = self.ruler_stop(ui, scale);
+        let wave_stop = self.wave_stop(ui, body, &clip, ed);
+        let shown = self.shown_clip(id);
+        if let Some(shown) = &shown {
+            let frame = self.envelope_frame(shown, body, ed.time);
+            self.paint_envelope(&painter, shown, &frame, &file, ed);
+        }
+        let cursor = ed
+            .cursor
+            .filter(|_| self.range_in_editor(id, &file).is_none());
+        self.paint_range_and_cursor(&painter, (body, scale.top()), ed.time, id, &file, cursor);
+        if let Some(response) = &ruler_stop {
+            raised::focus_ring(&painter, response, scale.shrink(raised::FOCUS_OUTSET));
+        }
+        if let Some(response) = &wave_stop {
+            raised::focus_ring(&painter, response, body.shrink(raised::FOCUS_OUTSET));
+        }
+        let handles = shown
+            .as_ref()
+            .and_then(|c| EditorHandles::of(c, body, ed.time))
+            .map(|h| h.hiding_gain(ed.pill));
         if let Some(handles) = &handles {
             let stop = self.audio_stops(ui, id, handles, ed);
             let hot = Self::audio_hot_part(ed, hit, stop.as_ref().map(|(part, _)| *part));
@@ -359,6 +425,17 @@ impl App {
                 raised::focus_ring(&inside, response, handles.stop_rect(*part));
             }
         }
+        let brace = crate::audio_editor::brace::Brace::of(&clip, &file, ed.time, band);
+        let later = self.later_stops(ui, &clip, (body, &brace), ed);
+        let brace_ring = match &later {
+            Some((stops::Stop::Envelope, response)) => {
+                raised::focus_ring(&painter, response, body.shrink(raised::FOCUS_OUTSET));
+                None
+            }
+            Some((stop, response)) => Some((stops::brace_part(*stop), response)),
+            None => None,
+        };
+        self.paint_brace(&painter, &brace, ed, brace_ring);
         self.paint_editor_playhead(&painter, ed.time, body, ruler.top());
         ed.last = Some(Drawn {
             clip: clip.id,
@@ -369,6 +446,8 @@ impl App {
             samples: drew_samples,
             handles,
             played: file.played,
+            band,
+            brace: brace.ends,
         });
         if let Some(p) = pointer.filter(|p| (body.contains(*p) || ruler.contains(*p)) && on_top(*p))
             && !egui::Popup::is_any_open(&ctx)
@@ -378,10 +457,18 @@ impl App {
                 file: &file,
                 limits,
                 rate,
+                audio: &loaded.audio,
+                key: key.unwrap_or(0),
             };
-            if ruler.contains(p) {
+            if scale.contains(p) {
                 self.audio_ruler_info(&file, ed.time, body, p, rate);
-            } else if ed.gesture.is_none() {
+            } else if ed.gesture.is_none()
+                && ed.hands.active.is_none()
+                && !ed.envelope_hover
+                && ed.brace.is_none()
+                && ed.brace_hover.is_none()
+                && !band.contains(p)
+            {
                 self.audio_wave_info(&ctx, id, hit, p, &area, ed.time);
             }
         }
@@ -526,69 +613,15 @@ impl App {
         }
     }
 
-    /// How far the editor zooms and scrolls: out to the whole file (or the
-    /// song, if longer) with room after it, in to the arrangement's deepest.
-    fn file_limits(&self, file: &WholeFile, width: f32) -> Limits {
-        let song = self.zoom_limits_at(width, file.played.first.0);
-        let end = (file.to + (file.to - file.from) * 0.1).max(song.end);
-        Limits {
-            min: (f64::from(width) / end).min(song.max),
-            end,
-            ..song
-        }
-    }
-
-    /// The view follows the playhead while playing, as the arrangement's
-    /// does (`navigate::follow_view`: Page turns a page at the right edge,
-    /// Continuous scrolls under a playhead that stays in place), unless
-    /// looking around paused it.
-    fn audio_follow(&self, ed: &mut AudioEditor, body: Rect) {
-        if !self.transport.state().playing || self.transport.follow_paused {
-            return;
-        }
-        let head = self.transport.playhead().as_quarters();
-        if let Some(view) = crate::app::navigate::follow_view(
-            ed.time,
-            self.transport.follow,
-            head,
-            f64::from(body.width()),
-        ) {
-            ed.time = view;
-        }
-    }
-
-    /// What the info line says over the ruler.
-    fn audio_ruler_info(
-        &mut self,
-        file: &WholeFile,
-        time: TimeView,
-        body: Rect,
-        p: Pos2,
-        rate: u32,
-    ) {
-        let q = time.beat_at(body.left(), p.x);
-        let place = file.frame_at(q).map_or_else(
-            || "Outside the file".to_owned(),
-            |frame| {
-                format!(
-                    "File {}",
-                    paint::seconds_text(frame / f64::from(rate.max(1)), 0.001)
-                )
-            },
-        );
-        self.set_info(
-            Info::new(format!("Editor ruler \u{00B7} {place}"))
-                .on(Held::NONE, Mouse::Click, "move the playhead here")
-                .on(Held::ALT, Mouse::Click, "ignore the grid"),
-        );
-    }
-
-    /// The editor's keys are live: the pointer is over it, or the detail
-    /// panel has the keyboard on the Clip tab of an audio clip.
+    /// The editor's keys are live: the pointer is over it, the detail panel
+    /// has the keyboard on the Clip tab of an audio clip, or the keys are
+    /// read for the editor's own window (all of its keyboard is the editor's).
     pub(crate) fn audio_editor_live(&self, ctx: &egui::Context) -> bool {
         self.detail_audio_clip().is_some()
-            && (self.audio_editor.hovered_before
+            && (window::its_keyboard(self.detail.audio_popped, ctx.viewport_id())
+                || self.audio_editor.hovered_before
                 || keys::focused_stop(ctx).is_some()
+                || stops::focused(ctx).is_some()
                 || (self.show_detail
                     && self.detail_tab == crate::app::detail::DetailTab::Clip
                     && crate::app::panes::focused(ctx) == Some(crate::app::panes::Pane::Detail)))
@@ -599,6 +632,18 @@ impl App {
         let ed = &mut self.audio_editor;
         ed.hovered_before = ed.hovered;
         ed.hovered = false;
+        // A scrub whose ruler stopped being drawn (the panel was hidden under
+        // the held pointer) never sees its release: let go of it here.
+        if ed.scrub_sent.is_some() {
+            if ed.scrub_drawn {
+                ed.scrub_drawn = false;
+            } else {
+                ed.scrub_sent = None;
+                if !self.transport.state().playing {
+                    self.transport.end_scrub();
+                }
+            }
+        }
     }
 
     /// The playhead through an editor's ruler and body, as the arrangement
@@ -645,119 +690,5 @@ impl App {
                 egui::Stroke::NONE,
             ));
         }
-    }
-}
-
-/// The tick at `x` of a view whose left edge is at `origin`.
-fn ticks_at(time: TimeView, origin: f32, x: f32) -> Ticks {
-    Ticks((time.beat_at(origin, x) * lumen_core::time::PPQ as f64).round() as i64)
-}
-
-/// The view for `fit` across `width` points.
-fn fitted(file: &WholeFile, fit: Fit, width: f32, limits: Limits) -> TimeView {
-    let (from, to) = match fit {
-        Fit::Clip | Fit::Back => file.played.extent(),
-        Fit::File => (file.from, file.to),
-    };
-    let room = (to - from) * FIT_ROOM;
-    let span = (to - from + 2.0 * room).max(f64::EPSILON);
-    let zoom = (f64::from(width) / span).clamp(limits.min, limits.max);
-    TimeView {
-        left: (from - room).max(0.0),
-        zoom,
-    }
-}
-
-/// The zoom keys: around the pointer over the wave, else the playhead when
-/// it is in view, else the middle.
-fn audio_zoom_keys(
-    ed: &mut AudioEditor,
-    body: Rect,
-    pointer: Option<Pos2>,
-    playhead: f64,
-    limits: Limits,
-) -> bool {
-    if ed.zooms.is_empty() {
-        return false;
-    }
-    let anchor = pointer.filter(|p| body.contains(*p)).map_or_else(
-        || {
-            let x = ed.time.x(body.left(), playhead);
-            if body.x_range().contains(x) {
-                x
-            } else {
-                body.center().x
-            }
-        },
-        |p| p.x,
-    );
-    for zoom in ed.zooms.drain(..) {
-        let factor = match zoom {
-            EditorZoom::In => KEY_ZOOM,
-            EditorZoom::Out => 1.0 / KEY_ZOOM,
-        };
-        ed.time = ed.time.zoomed(anchor - body.left(), factor, limits);
-    }
-    true
-}
-
-/// The wheel over the editor: Ctrl+wheel (or a pinch) zooms around the
-/// pointer, the wheel or a sideways swipe scrolls time. The view is the
-/// editor's own: the arrangement does not move.
-fn audio_wheel(
-    ctx: &egui::Context,
-    over: Option<Pos2>,
-    body: Rect,
-    time: &mut TimeView,
-    limits: Limits,
-) -> bool {
-    let Some(pointer) = over else {
-        return false;
-    };
-    let (delta, zoom) = ctx.input(|i| (i.smooth_scroll_delta, i.zoom_delta()));
-    if zoom != 1.0 {
-        *time = time.zoomed(pointer.x - body.left(), f64::from(zoom), limits);
-        return true;
-    }
-    let scroll = if delta.x != 0.0 { delta.x } else { delta.y };
-    if scroll != 0.0 {
-        *time = time.scrolled(scroll, limits);
-        return true;
-    }
-    false
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::audio_editor::source::Played;
-
-    fn file(window: (f64, f64), from: f64, to: f64) -> WholeFile {
-        WholeFile {
-            spans: Vec::new(),
-            from,
-            to,
-            loop_window: window,
-            played: Played {
-                first: window,
-                second: None,
-            },
-            heard: window,
-        }
-    }
-
-    fn limits() -> Limits {
-        Limits::new(1_000.0, 1_000.0, 24_000.0)
-    }
-
-    #[test]
-    fn zoom_to_clip_frames_the_window_and_whole_file_the_file() {
-        let f = file((8.0, 12.0), 6.0, 26.0);
-        let clip = fitted(&f, Fit::Clip, 1_000.0, limits());
-        assert!(clip.x(0.0, 8.0) > 0.0 && clip.x(0.0, 12.0) < 1_000.0);
-        assert!(clip.x(0.0, 8.0) < 30.0, "{}", clip.x(0.0, 8.0));
-        let whole = fitted(&f, Fit::File, 1_000.0, limits());
-        assert!(whole.x(0.0, 6.0) >= 0.0 && whole.x(0.0, 26.0) <= 1_000.0);
-        assert!(whole.zoom < clip.zoom);
     }
 }

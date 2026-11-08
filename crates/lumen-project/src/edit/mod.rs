@@ -22,6 +22,7 @@ pub mod audio_take;
 pub mod automation;
 pub mod bounce;
 pub mod carry;
+pub mod clip_loop;
 pub mod clip_ops;
 mod clipboard;
 pub mod consolidate;

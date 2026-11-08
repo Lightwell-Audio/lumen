@@ -10,9 +10,9 @@ use crate::canvas::Surface;
 use crate::settings::WindowPlace;
 
 /// The window's first size, in points.
-const SIZE: egui::Vec2 = egui::vec2(960.0, 560.0);
+pub(crate) const SIZE: egui::Vec2 = egui::vec2(960.0, 560.0);
 /// The smallest it goes.
-const MIN_SIZE: egui::Vec2 = egui::vec2(480.0, 280.0);
+pub(crate) const MIN_SIZE: egui::Vec2 = egui::vec2(480.0, 280.0);
 
 impl App {
     /// Shows the pop-out window while the editor is popped out. Call once
@@ -65,6 +65,9 @@ impl App {
                     let area = ui.max_rect();
                     self.note_editor_surface(ui, area, Surface::Window);
                 });
+                // A drag here is this window's pointer, not the main one's:
+                // the history keeps the gesture open while it is down.
+                self.popped_pointer_down |= ctx.input(|i| i.pointer.any_down());
                 let focused = ui.ctx().input(|i| i.viewport().focused.unwrap_or(false));
                 self.note_editor.window_focused = focused;
                 let place = ui.ctx().input(|i| place_of(i.viewport()));
@@ -84,7 +87,7 @@ impl App {
 
 /// Where the window opens: its last place when there is one that is a
 /// place, else the first size where the system puts it (`x` is NaN).
-fn opening_place(saved: Option<WindowPlace>) -> WindowPlace {
+pub(crate) fn opening_place(saved: Option<WindowPlace>) -> WindowPlace {
     saved
         .filter(|p| {
             [p.x, p.y, p.width, p.height].iter().all(|v| v.is_finite())
@@ -103,7 +106,7 @@ fn opening_place(saved: Option<WindowPlace>) -> WindowPlace {
 
 /// The place of a window as the system reports it, unless it is minimized
 /// (a minimized window has no place worth keeping) or not known yet.
-fn place_of(info: &egui::ViewportInfo) -> Option<WindowPlace> {
+pub(crate) fn place_of(info: &egui::ViewportInfo) -> Option<WindowPlace> {
     if info.minimized == Some(true) {
         return None;
     }

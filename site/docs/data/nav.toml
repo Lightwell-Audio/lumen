@@ -19,6 +19,9 @@ items = [
   { title = "Clips and selection", children = [
     { title = "Look inside an audio clip", page = "guides/clips/look-inside-an-audio-clip.md" },
     { title = "Trim and fade inside an audio clip", page = "guides/clips/trim-and-fade-inside-an-audio-clip.md" },
+    { title = "Pick part of a clip in its editor", page = "guides/clips/pick-part-of-a-clip-in-its-editor.md" },
+    { title = "Draw a clip's envelope", page = "guides/clips/draw-a-clips-envelope.md" },
+    { title = "Hear a clip while you edit it", page = "guides/clips/hear-a-clip-while-you-edit-it.md" },
   ] },
   { title = "Editing", children = [
     { title = "Split a clip", page = "guides/editing/split-a-clip.md" },

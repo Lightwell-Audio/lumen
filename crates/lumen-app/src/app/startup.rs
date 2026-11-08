@@ -191,6 +191,7 @@ impl App {
             document,
             synced: None,
             show_history: false,
+            popped_pointer_down: false,
             tap: Default::default(),
             arrangement,
             recorder: Default::default(),

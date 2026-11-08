@@ -544,6 +544,19 @@ per slice and move what is no longer current out of it.
   audio clip (scene `audio_editor_handles`; `Take::finish` now hands the
   test device back for a scene's next take). MT-CLIP-2 waits. Next: S2b
   (range, cursor, envelopes, the loop brace).
+- **Branch `m9.5-s2b-editor-range`: M9.5 S2b and S2c are built** (ADR-0126,
+  ADR-0127; owner asked 2026-11-07 to finish all of S2 on one branch). S2b:
+  the range and edit cursor on the wave, the Gain and Pan envelopes on the
+  arrangement's point gestures (`Hands`), the loop brace, zero crossings, the
+  wave, envelope and loop as Tab stops. S2c: Loop clip (an override of the
+  engine's loop, `Transport::played_loop`; export, recording and saving read
+  the project's), scrub and arrow keys on the editor ruler, Pop out sharing
+  the note editor's window code, and the one-hour bench (numbers in
+  ADR-0127). Guides: Pick part of a clip in its editor, Draw a clip's
+  envelope, Hear a clip while you edit it. MT-CLIP-3 and MT-CLIP-4 wait.
+  Not checked: Zola's build (CI), the docs media rendered on a GPU, plan risk
+  4 (how the arrangement draws a phased clip's envelope). Next: S3 onwards in
+  `docs/milestones/M9.5.md`.
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);
