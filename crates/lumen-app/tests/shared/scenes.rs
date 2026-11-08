@@ -25,6 +25,13 @@ pub struct Scene {
 }
 
 impl Scene {
+    /// Whether the scene runs once for each theme (its clips and
+    /// screenshots are made in both). A scene of walkthroughs only runs in
+    /// the dark theme, once.
+    pub fn themed(&self) -> bool {
+        !self.clips.is_empty() || !self.shots.is_empty()
+    }
+
     /// The files the scene writes when it runs in `themes`: what
     /// `docs_media` checks it wrote, and what the deploy fetches from the
     /// published site for a scene it does not render again.

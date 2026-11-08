@@ -55,6 +55,13 @@ fn open(dir: &TempDir, launch: Launch, appearance: &str) -> Harness<'static, App
         .into_iter()
         .map(|p| std::sync::Arc::new(Dropped(p)) as eframe::egui::DroppedFileHandle)
         .collect();
+    // The files are imported on workers, which a busy machine keeps waiting
+    // (the pictures are drawn on its processors): a step count is not a wait.
+    lumen_testkit::wait_until("the two clips imported", || {
+        h.run_steps(1);
+        let tracks = &h.state().project().tracks;
+        tracks.len() >= 2 && tracks.iter().all(|t| !t.clips.is_empty())
+    });
     h.run_steps(60);
     if h.state().browser_shown() {
         command(&mut h, "Show or hide the browser");

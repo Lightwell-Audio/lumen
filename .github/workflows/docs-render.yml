@@ -1,0 +1,192 @@
+name: Docs render
+
+# Plans which docs scenes need rendering and renders them in parallel jobs
+# (docs/USER_DOCS.md §13). Called by the Site workflow (pages.yml, the
+# deploy) and by the Docs workflow (docs.yml, the pull-request check), so a
+# pull request renders as the deploy does: shared among jobs, and with each
+# scene's media kept by its fingerprint. A scene rendered once for a given
+# set of sources is not rendered again by the next push to the branch, or
+# by a later run that can read its cache.
+#
+# There is no job that plans alone: it would be one more build of the app
+# on the way to the pictures. Every render job builds the app once (the
+# build the plan and the scenes share), makes the same plan from the same
+# published manifest, and renders its own share of it; the callers check
+# that the jobs agreed (`docs-media.sh plans`). The last render job (the
+# plan gives the longest scenes to the first) also exports the data the
+# pages are made from (the commands, the settings) and saves the Rust
+# cache, so the job that builds the pages needs no Rust at all.
+#
+# Leaves three kinds of artifact for the caller: `plan-<n>` (each job's
+# plan), `docs-data` and `scenes-<n>` (each job's rendered scenes). The
+# caller gathers them with `docs-media.sh plans` and `gather`.
+on:
+  workflow_call:
+    inputs:
+      full:
+        description: "Render every scene again, ignoring what was kept"
+        type: boolean
+        default: false
+      jobs:
+        description: "How many jobs share the render"
+        type: number
+        default: 6
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  shards:
+    name: shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      list: ${{ steps.list.outputs.list }}
+      last: ${{ steps.list.outputs.last }}
+    steps:
+      - id: list
+        env:
+          JOBS: ${{ inputs.jobs }}
+        run: |
+          echo "list=$(seq 0 $((JOBS - 1)) | jq -sc .)" >> "$GITHUB_OUTPUT"
+          echo "last=$((JOBS - 1))" >> "$GITHUB_OUTPUT"
+
+  render:
+    name: render ${{ matrix.index }}
+    needs: shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        index: ${{ fromJSON(needs.shards.outputs.list) }}
+    steps:
+      - uses: actions/checkout@v5
+      # The encoded clips and the rendered scenes live outside target/,
+      # which the Rust cache cleans. (The runner context is not available in
+      # a workflow's env.)
+      - name: Where the clips and scenes are kept
+        run: |
+          echo "DOCS_MEDIA_CACHE=$RUNNER_TEMP/docs-media-cache" >> "$GITHUB_ENV"
+          echo "DOCS_SCENE_CACHE=$RUNNER_TEMP/docs-scene-cache" >> "$GITHUB_ENV"
+      # lavapipe (mesa-vulkan-drivers) renders the app; ffmpeg encodes its
+      # clips. Neither ships with Lumen.
+      - name: Install Linux system libraries and ffmpeg
+        run: |
+          bash .github/scripts/retry.sh sudo apt-get update
+          bash .github/scripts/retry.sh sudo apt-get install -y libxkbcommon-dev \
+            libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libasound2-dev libfontconfig1-dev mesa-vulkan-drivers ffmpeg
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: bash .github/scripts/retry.sh rustup toolchain install
+      # All the jobs build the same thing, so one saves it: the others would
+      # upload the same cache while the run waits for them.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docs
+          save-if: ${{ matrix.index == fromJSON(needs.shards.outputs.last) }}
+      # Against what the published site was made from; with none yet (the
+      # first deploy, or Pages was reset), every scene renders. Every job
+      # makes the whole plan and keeps its own share of it.
+      - id: plan
+        name: Plan the render
+        env:
+          FULL: ${{ inputs.full }}
+          JOBS: ${{ inputs.jobs }}
+          INDEX: ${{ matrix.index }}
+        run: |
+          owner=${GITHUB_REPOSITORY%%/*}
+          published="https://${owner,,}.github.io/${GITHUB_REPOSITORY#*/}/docs/media"
+          plan="$RUNNER_TEMP/plan/plan.json"
+          bash .github/scripts/docs-media.sh plan "$published" "$plan" "$FULL" "$JOBS"
+          tests=$(jq -r --argjson i "$INDEX" \
+            '(.shards[] | select(.index == $i) | .tests) // ""' "$plan")
+          echo "tests=$tests" >> "$GITHUB_OUTPUT"
+          echo "generation=$(jq -r '.generation[0:12]' "$plan")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plan-${{ matrix.index }}
+          path: ${{ runner.temp }}/plan
+          retention-days: 1
+      # What the pages are made from, once: the app's commands, settings and
+      # controls. The job that builds the pages has no Rust.
+      - name: Export the pages' data
+        if: ${{ matrix.index == fromJSON(needs.shards.outputs.last) }}
+        run: |
+          cp docs/design-system/lumen-tokens.json site/docs/data/tokens.json
+          DOCS_DATA=site/docs/data cargo test -q --locked -p lumen-app --test docs_data -- --ignored
+      - uses: actions/upload-artifact@v4
+        if: ${{ matrix.index == fromJSON(needs.shards.outputs.last) }}
+        with:
+          name: docs-data
+          path: site/docs/data
+          retention-days: 1
+      # Encoded clips by the hash of what went into them: a scene rendered
+      # again for a page edit draws the same frames and encodes nothing.
+      # Each job saves its own entry and starts from its latest one.
+      - name: Restore the encoded clips
+        if: ${{ steps.plan.outputs.tests != '' }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/docs-media-cache
+          key: docs-media-${{ matrix.index }}-${{ github.run_id }}
+          restore-keys: |
+            docs-media-${{ matrix.index }}-
+            docs-media-
+      # The scenes themselves, by fingerprint: a scene whose sources have
+      # not changed since it was last rendered here (the previous push to
+      # this branch, or a run on main) is taken as it was, frames and all.
+      # One entry holds the whole set of the last run, whichever job drew
+      # each scene, and is saved by the caller's last job, which has them
+      # all (`docs-media.sh keep`). The key's generation changes with each
+      # full render, so scenes kept before one are never taken after it. A
+      # full render does not read it.
+      - name: Restore the rendered scenes
+        if: ${{ steps.plan.outputs.tests != '' && !inputs.full }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/docs-scene-cache
+          key: docs-scenes-${{ steps.plan.outputs.generation }}-restore
+          restore-keys: |
+            docs-scenes-${{ steps.plan.outputs.generation }}-
+      # Each scene into its own folder, so the deploy knows which files are
+      # whose, with how long it took (the next full render shares the work
+      # out by it).
+      - name: Render this job's scenes
+        if: ${{ steps.plan.outputs.tests != '' }}
+        env:
+          TESTS: ${{ steps.plan.outputs.tests }}
+          DOCS_SCENE_CACHE_READ: ${{ inputs.full && '0' || '1' }}
+        run: |
+          touch "$RUNNER_TEMP/render-started"
+          export DOCS_PLAN_JSON="$RUNNER_TEMP/plan/plan.json"
+          export DOCS_RENDERED_MARK="$RUNNER_TEMP/rendered"
+          # shellcheck disable=SC2086 # the tests are words
+          bash .github/scripts/docs-media.sh render "$RUNNER_TEMP/scenes" $TESTS
+      # Entries no scene used this run belong to clips that changed or are
+      # gone; dropping them keeps the cache to one set of clips.
+      - name: Drop unused encoded clips
+        if: ${{ steps.plan.outputs.tests != '' }}
+        run: |
+          # Only after a run that drew frames: one that reused every scene
+          # marked no encoded clip as used.
+          if [ -e "$RUNNER_TEMP/rendered" ]; then
+            for entry in "$DOCS_MEDIA_CACHE"/*/; do
+              [ -e "$entry" ] || continue
+              if [ ! "${entry}used" -nt "$RUNNER_TEMP/render-started" ]; then
+                rm -rf "$entry"
+              fi
+            done
+          fi
+          mkdir -p "$DOCS_MEDIA_CACHE"
+          du -sh "$DOCS_MEDIA_CACHE" "$RUNNER_TEMP/scenes"
+      - uses: actions/upload-artifact@v4
+        if: ${{ steps.plan.outputs.tests != '' }}
+        with:
+          name: scenes-${{ matrix.index }}
+          path: ${{ runner.temp }}/scenes
+          if-no-files-found: error
+          retention-days: 1

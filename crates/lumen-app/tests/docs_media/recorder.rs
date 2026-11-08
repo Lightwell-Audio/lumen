@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use eframe::egui::{CursorIcon, Event, Modifiers, PointerButton, Pos2, Rect};
+use eframe::egui::{CursorIcon, Event, Modifiers, PointerButton, Pos2, Rect, ViewportId};
 use egui_kittest::Harness;
 use lumen_app::App;
 use lumen_app::testing::InputDeviceTurn;
@@ -36,6 +36,37 @@ const RATE: usize = 48_000;
 const BLOCK: u64 = 128;
 /// Changes when the encoding changes, so cached clips are made again.
 const RECORDER_VERSION: u64 = 1;
+
+thread_local! {
+    /// Where the scene's time went, by phase, for [`phases`].
+    static PHASES: RefCell<BTreeMap<&'static str, (Duration, u64)>> = RefCell::default();
+}
+
+/// Runs `f`, adding its time to `phase`.
+pub fn timed<T>(phase: &'static str, f: impl FnOnce() -> T) -> T {
+    let started = Instant::now();
+    let out = f();
+    PHASES.with(|p| {
+        let mut p = p.borrow_mut();
+        let phase = p.entry(phase).or_default();
+        phase.0 += started.elapsed();
+        phase.1 += 1;
+    });
+    out
+}
+
+/// The phases so far, longest first with how many times each ran, in one
+/// line, and starts again.
+pub fn phases() -> String {
+    PHASES.with(|p| {
+        let mut all: Vec<_> = std::mem::take(&mut *p.borrow_mut()).into_iter().collect();
+        all.sort_by_key(|(_, (d, _))| std::cmp::Reverse(*d));
+        all.iter()
+            .map(|(n, (d, c))| format!("{n} {:.1}s/{c}", d.as_secs_f32()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    })
+}
 
 /// Human pacing, in one place as the app's motion is in `motion.rs`
 /// (§6.3). In video frames.
@@ -59,6 +90,22 @@ pub mod pace {
     pub const READ: usize = 45;
 }
 
+/// Whether the app, after the frame it just drew, asked to be drawn again
+/// soon (an animation, a sound playing, work arriving). When it did not, the
+/// next frame is the same unless something is sent to it.
+fn at_rest(h: &Harness<'static, App>) -> bool {
+    h.output()
+        .viewport_output
+        .get(&ViewportId::ROOT)
+        .is_some_and(|v| !v.repaint_delay.is_zero())
+}
+
+/// `DOCS_VERIFY_REUSE` set: draw the frames that would be reused, and count
+/// the ones that came out different (the scene's phases say how many).
+fn verifying() -> bool {
+    std::env::var_os("DOCS_VERIFY_REUSE").is_some()
+}
+
 /// Whether the scenes make media (`DOCS_MEDIA` is set) or only check.
 pub fn rendering() -> bool {
     std::env::var_os("DOCS_MEDIA").is_some()
@@ -66,11 +113,18 @@ pub fn rendering() -> bool {
 
 /// The themes the scenes run in: both when they make media, as every
 /// screenshot and loop is made in both; Lumen's default when they check.
+/// `DOCS_THEME` (`dark` or `light`) makes the media of that theme only: the
+/// deploy renders each theme of a scene in a job of its own, and the two
+/// folders together are what both themes would have written.
 pub fn themes() -> &'static [&'static str] {
-    if rendering() {
-        crate::scenes::THEMES
-    } else {
-        &["dark"]
+    if !rendering() {
+        return &["dark"];
+    }
+    match std::env::var("DOCS_THEME").as_deref() {
+        Ok("dark") => &["dark"],
+        Ok("light") => &["light"],
+        Ok(other) => panic!("DOCS_THEME is dark or light, not {other:?}"),
+        Err(_) => crate::scenes::THEMES,
     }
 }
 
@@ -188,6 +242,11 @@ pub struct Take {
     last: Vec<u8>,
     clock: Clock,
     sound: Option<Sound>,
+    /// The last frame as the app drew it (no pointer), for [`Take::picture`]
+    /// to reuse while the app is at rest.
+    base: Option<image::RgbaImage>,
+    /// Whether the app asked for no repaint after the previous frame.
+    idle: bool,
 }
 
 /// The test device, run a video frame's time for each frame and not at all
@@ -350,27 +409,35 @@ impl Take {
             last: Vec::new(),
             clock,
             sound,
+            base: None,
+            idle: false,
         }
     }
 
     /// One frame: the test device plays the frame's time, then the app
     /// draws it.
-    fn frame(&mut self, h: &mut Harness<'static, App>) {
-        let played = self.clock.tick(h, self.frames);
+    ///
+    /// `quiet` is a frame in which nothing was sent to the app, and nothing
+    /// was done to it since the last frame (the rest of a hold).
+    fn frame(&mut self, h: &mut Harness<'static, App>, quiet: bool) {
+        let played = timed("device", || self.clock.tick(h, self.frames));
         if let Some(sound) = &mut self.sound {
             sound.track.extend(played);
         }
-        h.run_steps(STEPS_PER_FRAME);
+        timed("steps", || h.run_steps(STEPS_PER_FRAME));
         self.icon = h.output().platform_output.cursor_icon;
         if self.raw.is_some() {
-            let image = self.picture(h);
+            let image = self.picture(h, quiet);
             self.size = (image.width(), image.height());
-            self.hash.write(image.as_raw());
+            timed("hash", || self.hash.write(image.as_raw()));
             if let Some(raw) = &mut self.raw {
-                raw.write_all(image.as_raw()).expect("write a frame");
+                timed("write", || {
+                    raw.write_all(image.as_raw()).expect("write a frame")
+                });
             }
-            self.last = image.into_raw();
+            timed("keep", || self.last = image.into_raw());
         }
+        self.idle = at_rest(h);
         self.since_click = self.since_click.map(|n| n + 1);
         if let Some(sound) = &mut self.sound {
             let app = h.state();
@@ -383,24 +450,51 @@ impl Take {
 
     /// The frame as the reader sees it: the pointer and its click ring
     /// drawn in, cut to the crop.
-    fn picture(&self, h: &mut Harness<'static, App>) -> image::RgbaImage {
-        let mut image = h.render().expect("render");
+    fn picture(&mut self, h: &mut Harness<'static, App>, quiet: bool) -> image::RgbaImage {
+        // Rendering is the cost of a clip (the GPU is a software one, so
+        // that the pictures are the same everywhere). A frame in which
+        // nothing was sent to the app, after one in which it asked for no
+        // repaint, and asking for none now, is the frame before it:
+        // DOCS_VERIFY_REUSE draws it anyway and says if that was not so.
+        let rest = quiet && self.idle && at_rest(h) && self.base.is_some();
+        let mut image = match (&self.base, rest && !verifying()) {
+            (Some(base), true) => {
+                timed("reuse", || ());
+                base.clone()
+            }
+            _ => {
+                let drawn = timed("render", || h.render().expect("render"));
+                if rest {
+                    let same = self.base.as_ref() == Some(&drawn);
+                    timed(if same { "verified" } else { "MISMATCH" }, || ());
+                }
+                self.base = Some(drawn.clone());
+                drawn
+            }
+        };
         let ring = self
             .since_click
             .map(|n| n as f32 / pace::RING as f32)
             .filter(|t| *t <= 1.0);
-        pointer::draw(&mut image, self.icon, self.at, SCALE, ring.unwrap_or(0.0));
-        if let Some(t) = ring {
-            pointer::ring(&mut image, self.at, SCALE, t);
-        }
-        cut(&image, self.crop)
+        timed("pointer", || {
+            pointer::draw(&mut image, self.icon, self.at, SCALE, ring.unwrap_or(0.0));
+            if let Some(t) = ring {
+                pointer::ring(&mut image, self.at, SCALE, t);
+            }
+        });
+        timed("cut", || cut(&image, self.crop))
     }
 
     /// Holds still for `frames`.
     pub fn hold(&mut self, h: &mut Harness<'static, App>, frames: usize) {
-        for _ in 0..frames {
-            h.hover_at(self.at);
-            self.frame(h);
+        for i in 0..frames {
+            // The first frame sends the pointer's place (and follows
+            // whatever the scene did to the app since the last frame); the
+            // others send nothing, and may be the frame before them.
+            if i == 0 {
+                h.hover_at(self.at);
+            }
+            self.frame(h, i > 0);
         }
     }
 
@@ -424,7 +518,7 @@ impl Take {
             let t = i as f32 / frames as f32;
             self.at = from + (to - from) * (t * t * (3.0 - 2.0 * t));
             h.hover_at(self.at);
-            self.frame(h);
+            self.frame(h, false);
         }
     }
 
@@ -435,7 +529,7 @@ impl Take {
             pressed,
             modifiers,
         });
-        self.frame(h);
+        self.frame(h, false);
     }
 
     /// Presses the button where the pointer is (the start of a drag).
@@ -466,7 +560,7 @@ impl Take {
         let from = self.frames;
         self.hold(h, pace::KEYS_LEAD);
         press(h);
-        self.frame(h);
+        self.frame(h, false);
         self.keycaps.push((label.into(), from, from + pace::KEYS));
     }
 
@@ -794,6 +888,10 @@ fn ffmpeg_version() -> String {
 }
 
 fn ffmpeg(args: &[String], out: &Path, feed: impl FnOnce(&mut std::process::ChildStdin)) {
+    timed("ffmpeg", || ffmpeg_run(args, out, feed));
+}
+
+fn ffmpeg_run(args: &[String], out: &Path, feed: impl FnOnce(&mut std::process::ChildStdin)) {
     let mut child = Command::new("ffmpeg")
         .args(["-hide_banner", "-loglevel", "error", "-y"])
         .args(args)

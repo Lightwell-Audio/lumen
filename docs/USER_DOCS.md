@@ -564,8 +564,8 @@ These run in `.github/workflows/docs.yml` (D0) on every pull request that
 touches `site/` or the app, since CI skips changes to Markdown alone. The
 scenes check runs each scene once in the dark theme and writes nothing
 (no `DOCS_MEDIA`); Zola's build checks internal links and their anchors.
-The built pages, without media and with the landing page beside them,
-are kept as the run's `docs-site` artifact for the owner to look at
+The built pages, with their media (§13) and the landing page beside
+them, are kept as the run's `docs-site` artifact for the owner to look at
 before merging. They are built for `http://localhost:8123/docs`: unzip
 the artifact and serve the folder on that port (`site/docs/README.md`).
 
@@ -922,7 +922,8 @@ weakest on 1 to 3.
   hours on one runner, where today's three scenes take 5 minutes. The
   cache saves encoding, not rendering: a frame has to be drawn before it
   can be compared. Only 11% of a walkthrough's frames repeat the one
-  before (38 of 332), so skipping still frames would save little. The
+  before (38 of 332), so skipping still frames would save little there;
+  the silent clips are another matter (see "Frames at rest", below). The
   choices were:
   - **A. Render when the docs change (chosen).** The deploy renders
     only the scenes whose page or scene changed in the push, and reuses
@@ -957,9 +958,63 @@ weakest on 1 to 3.
     change to the app that the pictures should show at once.
   - The run's summary lists each scene: rendered and why, or reused and
     the commit it shows.
-  - Not checked before the merge: the workflow only runs on `main`, so the
-    first deploy is its first run (it renders everything, as there is no
-    manifest yet).
+  - **The pull-request check renders as the deploy does** (2026-11-08;
+    `.github/workflows/docs-render.yml`, called by `pages.yml` and
+    `docs.yml`). It used to render its scenes one after another in a
+    single job: the five audio-editor scenes alone took about 22 minutes,
+    and the check 37. The plan and the render are now one reusable
+    workflow, so a pull request shares its scenes among 6 jobs, beside the
+    checks. The final job, still named `docs`, builds the pages from the
+    media.
+  - **The app is built once on the way** (ADR-0129). There is no job
+    that plans alone: every render job builds the app, makes the same plan
+    from the same published manifest and renders its own share of it, so
+    the plan does not sit in front of the render. The last job also exports the
+    data the pages are made from (the commands, the settings), so the job
+    that builds the pages has no Rust. The jobs' plans are compared
+    (`docs-media.sh plans`): if a deploy landed between two jobs'
+    fetches, they differ, the run fails with that message and is run
+    again.
+  - **Frames at rest are not drawn again** (ADR-0129). Drawing a frame is
+    the cost of a clip (the software renderer is slow by design: the same
+    pictures everywhere). A frame of a hold after the first, in which the
+    app asked for no immediate repaint after this frame and the one before,
+    is the frame before it, so the recorder keeps that picture and draws
+    the pointer on it. `DOCS_VERIFY_REUSE=1` draws those frames anyway and
+    counts the ones that came out different (the scene's last line, `PHASES`,
+    says `verified` or `MISMATCH`); the numbers are in ADR-0129.
+  - **A scene with two themes is two pieces.** A scene with clips or shots
+    is planned as `<test>:dark` and `<test>:light` (`DOCS_THEME` selects the
+    one a job draws), each a unit of half the scene's time, so the longest
+    scene no longer bounds the run. The folders of its pieces together hold
+    what the scene writes, and their seconds are added up for the manifest.
+  - **The target is ten minutes** (owner, 2026-11-08) from the push to the
+    built pages: 6 jobs, each about 8 minutes (set-up, one build, its share of
+    the render), then the page job. This is an estimate until a run on
+    GitHub has measured it; if it comes out longer, the levers are more jobs,
+    splitting the heaviest scenes, and a larger runner (ADR-0129).
+  - **Rendered scenes are kept by fingerprint.** The last job of a run
+    (the deploy, or the check's `docs` job) saves every scene it rendered
+    or reused into one cache entry (`docs-media.sh keep`), before it builds
+    the pages, so a build that fails does not lose the render. Each render
+    job restores the latest entry (`docs-media.sh render`,
+    `DOCS_SCENE_CACHE`): a scene whose fingerprint is there is copied, not
+    drawn again, whichever job drew it last time, so the next push to the
+    branch renders only the scenes it changed. The entry holds only the
+    plan's render list, so it never grows.
+  - **A full render starts a new generation.** The manifest carries a
+    `generation` (a hash unique to the last full render run; `0` before
+    one), and the cache's key starts with it. A full render does not read the cache,
+    and entries kept before it are never found afterwards, so a pull
+    request cannot bring back pictures from before the milestone's
+    refresh.
+  - **Who can read the cache.** A pull request run reads its own caches
+    and `main`'s; `main` cannot read a pull request's. After a merge, the
+    first deploy still renders what the branch's pages added (in parallel,
+    as before), and saves them for every pull request after it.
+  - A scene taken from the cache is listed in the manifest with the commit
+    of the run that reused it, not the one that drew it; the fingerprint,
+    not the commit, decides what is reused.
 - **Size of the backlog.** About 250 commands, 45 settings and an unknown
   number of gestures. Eight slices (D0 to D7) is an estimate, revised after
   D2.
