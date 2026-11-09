@@ -493,12 +493,23 @@ fn audio_editor_handles() {
     check("audio_editor_handles", started);
 }
 
+/// The window width at which the audio editor's strip shows every group,
+/// Processing with its words and the Warp chip included.
+const STRIP_WIDTH: f32 = 1180.0;
+
 /// Opens the Drums clip (bars 2 and 3 of its four-bar file) in the editor on
 /// a 960 x 640 window. Returns the editor's crop and where the pointer rests
 /// between gestures.
 fn open_drums(h: &mut Harness<'static, App>) -> (Rect, eframe::egui::Pos2) {
+    open_drums_in(h, 960.0)
+}
+
+/// [`open_drums`] in a window `width` points wide. The strip folds its groups
+/// into the ⋯ menu as the width shrinks, so a scene that shows every button
+/// asks for the room (the Warp chip of S5a took 960 to fold Processing).
+fn open_drums_in(h: &mut Harness<'static, App>, width: f32) -> (Rect, eframe::egui::Pos2) {
     use lumen_core::time::Ticks;
-    h.set_size(eframe::egui::vec2(960.0, 640.0));
+    h.set_size(eframe::egui::vec2(width, 640.0));
     h.run_steps(10);
     let id = h.state().project().tracks[0].clips[0].id;
     h.state_mut().trim_clip_start_to(id, Ticks::quarters(4));
@@ -650,7 +661,7 @@ fn audio_clip_properties() {
     for &theme in recorder::themes() {
         let dir = TempDir::new(&format!("docs-audio-properties-{theme}"));
         let (mut h, device) = song(&dir, theme);
-        let (editor, _) = open_drums(&mut h);
+        let (editor, _) = open_drums_in(&mut h, STRIP_WIDTH);
         // The strip sits above the ruler: take the header's room as well, from
         // its top edge down (130 points started inside the tab row and cut its
         // labels in half).

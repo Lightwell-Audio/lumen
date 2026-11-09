@@ -12457,7 +12457,10 @@ with a bar.
     pitched with S5b. The audio editor's whole-file extent was also computed as
     if the clip were unwarped (the wave ran past the file's end by the
     stretch); `audio_editor::source::whole_file` now takes the file's first and
-    last second from the warp map (three unit tests).
+    last second from the warp map (three unit tests). The Warp chip's room
+    folded Processing into the ⋯ menu at the docs' 960 pt window, which broke
+    the `audio_clip_properties` scene (CI "docs checks"); that scene now opens
+    its editor in a 1180 pt window (`open_drums_in`), the others stay at 960.
 
 **Consequences and deviations.**
 - ×2, ÷2 and a typed tempo are refused, with a notice, when the clip would
