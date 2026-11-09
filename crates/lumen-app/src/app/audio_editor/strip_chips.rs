@@ -25,7 +25,7 @@ const FILE_ICON: f32 = 13.0;
 pub(super) const CHIP_NAME: f32 = 120.0;
 
 /// A chevron pointing down, centred on `c`.
-fn chevron(painter: &egui::Painter, c: egui::Pos2, ink: Color32) {
+pub(super) fn chevron(painter: &egui::Painter, c: egui::Pos2, ink: Color32) {
     let stroke = egui::Stroke::new(1.5, ink);
     painter.line_segment([c + vec2(-3.0, -1.5), c + vec2(0.0, 1.5)], stroke);
     painter.line_segment([c + vec2(0.0, 1.5), c + vec2(3.0, -1.5)], stroke);

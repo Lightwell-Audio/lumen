@@ -31,6 +31,11 @@ impl App {
         self.settings_changed = Some(std::time::Instant::now());
     }
 
+    /// Whether "Play audio from disk" is on.
+    pub fn plays_from_disk(&self) -> bool {
+        self.settings.playback.from_disk
+    }
+
     /// The loaded files by name, and whether each plays from disk.
     pub fn media_from_disk(&self) -> Vec<(String, bool)> {
         self.lanes

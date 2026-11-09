@@ -237,6 +237,28 @@ pub struct AudioEditorShown {
     pub brace: Option<(f32, f32)>,
 }
 
+/// What detection has found for the audio editor's file (M9.5 S5a).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DetectionShown {
+    /// A worker is reading the file.
+    pub working: bool,
+    /// The reading failed.
+    pub failed: bool,
+    /// The findings are in.
+    pub ready: bool,
+    /// The tempo found, if there is one.
+    pub tempo: Option<f64>,
+    /// How many transients the sensitivity offers.
+    pub transients: usize,
+    /// The sensitivity, 0 to 100.
+    pub sensitivity: u8,
+    /// The file key the findings are for (the reversed twin's for a
+    /// reversed clip).
+    pub file: Option<u64>,
+    /// Where the first transient on offer is, in seconds of the file shown.
+    pub first: Option<f64>,
+}
+
 /// Where the audio editor's handles were last frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AudioHandlesShown {
@@ -284,11 +306,40 @@ impl App {
                 crate::audio_editor::strip::Layout::Icons => "icons",
                 crate::audio_editor::strip::Layout::Dot => "dot",
                 crate::audio_editor::strip::Layout::FoldProcessing => "fold processing",
+                crate::audio_editor::strip::Layout::FoldWarp => "fold warp",
                 crate::audio_editor::strip::Layout::FoldFades => "fold fades",
             },
             band: d.band,
             brace: d.brace,
         })
+    }
+
+    /// How many imported files are waiting to be listened to for a loop's
+    /// tempo, or are being.
+    pub fn follow_listening(&self) -> usize {
+        self.follow_jobs.busy()
+    }
+
+    /// What detection has found for the opened clip's file.
+    pub fn audio_detection(&self) -> DetectionShown {
+        use crate::audio_editor::detect::State;
+        let detect = &self.audio_editor.detect;
+        let found = match &detect.state {
+            State::Ready(a) => Some(a),
+            _ => None,
+        };
+        DetectionShown {
+            working: matches!(detect.state, State::Working(_)),
+            failed: matches!(detect.state, State::Failed(_)),
+            ready: found.is_some(),
+            tempo: found.and_then(|a| a.tempo).map(|t| t.bpm),
+            transients: found.map_or(0, |a| a.transients_at(detect.sensitivity).count()),
+            sensitivity: detect.sensitivity,
+            file: detect.media,
+            first: found
+                .and_then(|a| a.transients_at(detect.sensitivity).next())
+                .map(|t| t.seconds),
+        }
     }
 
     /// Whether Follow is paused, as a scroll or an editor drag pauses it.

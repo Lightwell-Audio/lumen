@@ -10,6 +10,7 @@
 //! the disk and can take seconds. It takes a cancel flag and reports
 //! progress.
 
+pub mod detect;
 pub mod export;
 mod peaks;
 pub mod repitch;

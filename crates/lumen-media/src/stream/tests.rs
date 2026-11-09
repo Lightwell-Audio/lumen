@@ -570,6 +570,73 @@ fn peaks_are_kept_and_a_changed_file_scans_again() {
 }
 
 #[test]
+fn an_analysis_is_kept_and_a_changed_file_is_scanned_again() {
+    let dir = folder("kept-analysis");
+    let source = dir.join("source.wav");
+    // Four clicks a second apart, then the same file with them moved.
+    let clicks = |at: [usize; 4]| {
+        let mut samples = vec![0.0_f32; 48_000 * 5];
+        for start in at {
+            for i in 0..1_000 {
+                samples[start + i] = 0.8 * (-(i as f32) / 200.0).exp() * (i as f32 * 0.9).sin();
+            }
+        }
+        samples
+    };
+    write_wav(
+        &source,
+        48_000,
+        Sample::F32,
+        &[clicks([4_800, 52_800, 100_800, 148_800])],
+    );
+    let cache = Cache::new(dir.join("cache")).fresh_for(Duration::ZERO);
+    let cancel = AtomicBool::new(false);
+    let first = cache
+        .analysis(&source, &cancel, &mut |_| {})
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.transients.len(), 4);
+    // Kept: found again with no scan, even when a scan would be cancelled.
+    cancel.store(true, Ordering::Relaxed);
+    assert_eq!(
+        cache.analysis(&source, &cancel, &mut |_| {}).unwrap(),
+        Some(first.clone())
+    );
+    assert!(
+        cache
+            .analysis(&dir.join("missing.wav"), &cancel, &mut |_| {})
+            .is_err()
+    );
+    cancel.store(false, Ordering::Relaxed);
+    write_wav(
+        &source,
+        48_000,
+        Sample::F32,
+        &[clicks([9_600, 57_600, 105_600, 153_600])],
+    );
+    let second = cache
+        .analysis(&source, &cancel, &mut |_| {})
+        .unwrap()
+        .unwrap();
+    assert_ne!(second, first);
+    assert!((second.transients[0].seconds - 0.2).abs() < 0.005);
+    // The cache counts it; a clear that keeps the playing file keeps its
+    // analysis (and drops the one of the file as it was).
+    let both = cache.size();
+    cache.clear(std::slice::from_ref(&source));
+    let kept = cache.size();
+    assert!(kept > 0 && kept < both, "{kept} of {both}");
+    assert_eq!(
+        cache
+            .analysis(&source, &AtomicBool::new(true), &mut |_| {})
+            .unwrap(),
+        Some(second)
+    );
+    cache.clear(&[]);
+    assert_eq!(cache.size(), 0);
+}
+
+#[test]
 fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
     let dir = folder("trim");
     let cache = Cache::new(dir.join("cache")).fresh_for(Duration::ZERO);

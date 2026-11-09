@@ -278,6 +278,11 @@ pub(crate) enum Command {
     AudioEditorLoopClip,
     LockClips,
     RevealClipFile,
+    WarpClips,
+    WarpFromHere,
+    SetTempoFromClip,
+    DoubleClipTempo,
+    HalveClipTempo,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -643,6 +648,11 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AudioEditorLoopClip, "view.audio_editor_loop_clip", "Loop clip", Area::View, &[], "Plays the opened audio clip, or the range picked on it, on repeat while you edit it, with the other tracks heard. The song's own loop is not changed and nothing is saved. Again stops it."),
     info(Command::LockClips, "clip.lock", "Lock clip", Area::Clip, &[], "Locks the selected clips so they cannot be moved, trimmed, faded or deleted, or unlocks them when all are locked. A locked clip can still be muted, renamed and recolored."),
     info(Command::RevealClipFile, "clip.reveal_file", "Show the clip's file", Area::Clip, &[], "Shows the audio file of the selected clip in the file manager. The file itself is not changed. It is not offered while the file is missing; relink it first."),
+    info(Command::WarpClips, "clip.warp", "Warp clip", Area::Clip, &[], "Makes the selected audio clips follow the song's tempo, or lets them play at their own speed again when all are warped. A clip starts from the tempo its file states or detection finds, else the song's."),
+    info(Command::WarpFromHere, "clip.warp_from_here", "Warp from here", Area::Clip, &[], "Makes the sound at the edit cursor (the playhead when there is none) the clip's downbeat: it moves to the nearest bar line, onto a detected transient beside it. The clip is warped first if it is not."),
+    info(Command::SetTempoFromClip, "clip.set_tempo_from_clip", "Set project tempo from clip", Area::Clip, &[], "Sets the song's tempo, where the selected warped clip starts, to the tempo its file was made at, so the song follows the loop instead of the loop following the song."),
+    info(Command::DoubleClipTempo, "clip.warp_tempo_double", "Double the clip's tempo", Area::Clip, &[], "Doubles the tempo the selected warped clips' files were made at, to correct a detection that found half of it. The clip then plays half as fast."),
+    info(Command::HalveClipTempo, "clip.warp_tempo_halve", "Halve the clip's tempo", Area::Clip, &[], "Halves the tempo the selected warped clips' files were made at, to correct a detection that found double. The clip then plays twice as fast."),
 ];
 
 const fn info(
@@ -706,7 +716,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::RevealClipFile as usize + 1,
+            Command::HalveClipTempo as usize + 1,
             ALL.len(),
             "a command is missing"
         );

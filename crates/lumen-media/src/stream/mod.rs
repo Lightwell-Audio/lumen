@@ -217,6 +217,25 @@ pub fn peaks(
     Ok(Some(growing.finish()))
 }
 
+/// Transients and tempo of the stream file `path`, read in blocks
+/// ([`crate::detect`]). `progress` gets 0 to 1; `None` if `cancel` was set.
+pub fn analysis(
+    path: &Path,
+    cancel: &std::sync::atomic::AtomicBool,
+    progress: &mut dyn FnMut(f32),
+) -> Result<Option<crate::detect::Analysis>, MediaError> {
+    let mut reader = Reader::open(path)?;
+    let layout = *reader.layout();
+    crate::detect::analyse(
+        |from, out| reader.read(from, out),
+        layout.sample_rate,
+        layout.frames,
+        layout.played(),
+        cancel,
+        progress,
+    )
+}
+
 /// Fills `buf` from `offset` without moving a shared cursor.
 fn read_at(file: &File, buf: &mut [u8], offset: u64) -> Result<(), MediaError> {
     #[cfg(unix)]

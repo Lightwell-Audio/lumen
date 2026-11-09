@@ -317,6 +317,8 @@ pub struct App {
     note_editor: note_editor::NoteEditor,
     /// The audio clip editor in the Clip tab (M9.5 S1).
     audio_editor: audio_editor::AudioEditor,
+    /// Imported files being listened to for a loop's tempo (M9.5 S5a).
+    follow_jobs: app::follow_detect::Jobs,
     /// Full panel sizes, for sliding (kept while the panels are open).
     browser_size: f32,
     detail_size: f32,
@@ -673,6 +675,7 @@ impl eframe::App for App {
             &cue,
             &inputs,
         );
+        self.drive_follow_detection(&ctx);
         self.sync_document(&ctx);
         let meters_moving = self.update_meters(&ctx);
         let inputs_watched = self.update_inputs(&ctx);

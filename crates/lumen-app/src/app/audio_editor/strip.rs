@@ -17,6 +17,7 @@ use lumen_project::edit::Edge;
 use lumen_project::model::{Clip, ClipContent, Id};
 
 use super::strip_chips::{clip_chip_widths, file_chip_width, text_width};
+use super::warp::{chip_text, chip_width};
 use crate::App;
 use crate::app::clip_card::{CARD_WIDTH, row as card_row};
 use crate::app::clip_controls::fade_label;
@@ -159,14 +160,14 @@ fn group<R>(row: &mut Ui, name: &'static str, add: impl FnOnce(&mut Ui) -> R) ->
 }
 
 /// Why the opened clip's gain, fades and processing cannot be changed.
-enum Fixed {
+pub(super) enum Fixed {
     No,
     Locked,
     Frozen(String),
 }
 
 impl Fixed {
-    fn why(&self) -> Option<String> {
+    pub(super) fn why(&self) -> Option<String> {
         match self {
             Self::No => None,
             Self::Locked => Some("Locked: unlock it to change gain and fades".to_owned()),
@@ -179,7 +180,7 @@ impl Fixed {
 
 impl App {
     /// Why the clip `id` cannot be edited now.
-    fn strip_fixed(&self, id: Id) -> Fixed {
+    pub(super) fn strip_fixed(&self, id: Id) -> Fixed {
         for track in &self.document.project().tracks {
             if let Some(clip) = track.clips.iter().find(|c| c.id == id) {
                 if track.frozen.is_some() {
@@ -259,6 +260,7 @@ impl App {
             processing_icons: 3.0 * theme::size::CONTROL + 2.0 * s,
             more: theme::size::CONTROL,
             file: file_chip_width(ui, file),
+            warp: chip_width(ui, &chip_text(clip)),
         }
     }
 
@@ -304,10 +306,22 @@ impl App {
             inner.right_bottom(),
         )
         .shrink2(vec2(0.0, (inner.height() - theme::size::CONTROL) / 2.0));
+        // The Warp chip stands beside it, to its left, until the narrowest
+        // layouts fold it into the ⋯ menu.
+        let warp_rect = layout.shows_warp().then(|| {
+            Rect::from_min_max(
+                egui::pos2(
+                    file_rect.left() - strip::GROUP_GAP - widths.warp,
+                    file_rect.top(),
+                ),
+                egui::pos2(file_rect.left() - strip::GROUP_GAP, file_rect.bottom()),
+            )
+        });
         let row_room = Rect::from_min_max(
             inner.min,
             egui::pos2(
-                (file_rect.left() - strip::GROUP_GAP).max(inner.left()),
+                (warp_rect.map_or(file_rect.left(), |r| r.left()) - strip::GROUP_GAP)
+                    .max(inner.left()),
                 inner.bottom(),
             ),
         );
@@ -361,7 +375,6 @@ impl App {
                 }
             });
         }
-        ed.strip_group = now;
         let mut file_ui = ui.new_child(
             UiBuilder::new()
                 .id_salt("audio strip file")
@@ -369,6 +382,18 @@ impl App {
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
         self.file_chip(&mut file_ui, file_rect, media);
+        if let Some(warp_rect) = warp_rect {
+            let mut warp_ui = ui.new_child(
+                UiBuilder::new()
+                    .id_salt("audio strip warp")
+                    .max_rect(warp_rect)
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            );
+            if self.warp_chip(&mut warp_ui, warp_rect, clip, ed) {
+                now = Some(Group::Warp);
+            }
+        }
+        ed.strip_group = now;
     }
 
     /// Gain: its label (when there is room) and slider.
@@ -561,8 +586,10 @@ impl App {
         );
         let enabled = fixed.why().is_none();
         let page_fades = ed.strip_fades;
+        let page_warp = ed.strip_warp;
         let was_open = Menu::is_open_for(ctx, more.id);
         let mut to_fades = None;
+        let mut to_warp = None;
         // The menu stays open across its two pages; a Processing row closes it
         // itself.
         Menu::below(&more).staying().show(|ui| {
@@ -589,6 +616,15 @@ impl App {
                 }
                 return;
             }
+            if page_warp {
+                ui.set_width(CARD_WIDTH);
+                if widgets::menu_item(ui, "Back", None, true).clicked() {
+                    to_warp = Some(false);
+                }
+                ui.separator();
+                self.warp_popover(ui, clip, ed);
+                return;
+            }
             if !layout.shows_processing() {
                 for p in Processing::ALL {
                     let keys = self.keymap.keys(p.command());
@@ -609,8 +645,16 @@ impl App {
                     }
                 }
             }
-            if !layout.shows_fades() {
+            if !layout.shows_warp() {
                 if !layout.shows_processing() {
+                    ui.separator();
+                }
+                if widgets::menu_item(ui, "Warp\u{2026}", None, true).clicked() {
+                    to_warp = Some(true);
+                }
+            }
+            if !layout.shows_fades() {
+                if !layout.shows_processing() || !layout.shows_warp() {
                     ui.separator();
                 }
                 if widgets::menu_item(ui, "Fades\u{2026}", None, true).clicked() {
@@ -623,8 +667,13 @@ impl App {
             ed.strip_fades = page;
             Menu::open_for(ctx, more.id);
         }
+        if let Some(page) = to_warp {
+            ed.strip_warp = page;
+            Menu::open_for(ctx, more.id);
+        }
         if !Menu::is_open_for(ctx, more.id) {
             ed.strip_fades = false;
+            ed.strip_warp = false;
             // Closing gives the keyboard back to the button that opened the
             // menu, unless a click elsewhere has already taken it.
             if was_open && !ctx.input(|i| i.pointer.any_pressed()) {

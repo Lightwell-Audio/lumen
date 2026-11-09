@@ -19,7 +19,7 @@ pub mod streaming;
 pub mod streams;
 mod twins;
 pub mod warped;
-pub use twins::{mirror, reversed_key};
+pub use twins::{media_of, mirror, reversed_key};
 
 /// What the user sees about a file: from its name and size at once, the
 /// rest when it has been decoded.

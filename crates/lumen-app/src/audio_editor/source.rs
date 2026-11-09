@@ -73,6 +73,16 @@ impl WholeFile {
         self.spans.get(i).filter(|s| s.start <= q)
     }
 
+    /// The beat at which device-rate `frame` of the file is drawn: the
+    /// inverse of [`WholeFile::frame_at`]. `None` outside the file.
+    pub fn beat_of_frame(&self, frame: f64) -> Option<f64> {
+        self.spans.iter().find_map(|s| {
+            let frames = (s.end - s.start) * s.frames_per_beat;
+            (frame >= s.first_frame && frame < s.first_frame + frames)
+                .then(|| s.start + (frame - s.first_frame) / s.frames_per_beat)
+        })
+    }
+
     /// The device-rate frame of the file at beat `q` (clamped to the span
     /// it falls in), if the file is there.
     pub fn frame_at(&self, q: f64) -> Option<f64> {
@@ -149,29 +159,54 @@ pub(crate) fn whole_file(
             (window, played, heard)
         }
     };
-    // The frame the clip plays at its origin: the first wave of a copy that
-    // starts there and does not loop.
-    let mut probe = plain(clip);
-    probe.start = origin;
-    probe.length = Ticks(PPQ);
-    let at_origin = waves::spans_of(&probe, tempo, rate, source)
-        .first()?
-        .first_frame;
-    // Frame 0 of the file is that many frames before the origin.
-    let origin_sample = tempo.sample_at(origin, rate);
-    let first_sample = (origin_sample as f64 - at_origin).round() as i64;
-    let last_sample = first_sample + frames as i64;
-    let from = tempo.ticks_at_sample(first_sample.max(0), rate);
-    let to = tempo.ticks_at_sample(last_sample.max(0), rate);
-    if to <= from {
-        return None;
-    }
-    // A copy of the clip from the file's first frame to its last, playing
-    // the same frames at the same times: its start moves earlier, so its
-    // phase moves by the seconds between.
-    let mut whole = plain(clip);
-    whole.audio_phase_seconds =
-        clip.audio_phase_seconds - (tempo.seconds_at(origin) - tempo.seconds_at(from));
+    let (from, to, mut whole) = match &clip.warp {
+        Some(warp) => {
+            // A warped clip's map ties the file to music time, so the file's
+            // first and last second sit where the map puts them, whatever the
+            // tempo: no samples are involved. The map's ticks count from the
+            // origin, so a copy that starts at the file's first second takes
+            // its markers moved to count from there.
+            let seconds = frames as f64 / f64::from(rate.max(1));
+            let at = |second: f64| {
+                origin + lumen_core::warp::tick_at_source(&warp.markers, warp.original_bpm, second)
+            };
+            let (from, to) = (at(0.0).max(Ticks::ZERO), at(seconds).max(Ticks::ZERO));
+            if to <= from {
+                return None;
+            }
+            let mut whole = plain(clip);
+            if let Some(map) = whole.warp.as_mut() {
+                lumen_core::warp::shift(&mut map.markers, origin - from);
+            }
+            (from, to, whole)
+        }
+        None => {
+            // The frame the clip plays at its origin: the first wave of a
+            // copy that starts there and does not loop.
+            let mut probe = plain(clip);
+            probe.start = origin;
+            probe.length = Ticks(PPQ);
+            let at_origin = waves::spans_of(&probe, tempo, rate, source)
+                .first()?
+                .first_frame;
+            // Frame 0 of the file is that many frames before the origin.
+            let origin_sample = tempo.sample_at(origin, rate);
+            let first_sample = (origin_sample as f64 - at_origin).round() as i64;
+            let last_sample = first_sample + frames as i64;
+            let from = tempo.ticks_at_sample(first_sample.max(0), rate);
+            let to = tempo.ticks_at_sample(last_sample.max(0), rate);
+            if to <= from {
+                return None;
+            }
+            // A copy of the clip from the file's first frame to its last,
+            // playing the same frames at the same times: its start moves
+            // earlier, so its phase moves by the seconds between.
+            let mut whole = plain(clip);
+            whole.audio_phase_seconds =
+                clip.audio_phase_seconds - (tempo.seconds_at(origin) - tempo.seconds_at(from));
+            (from, to, whole)
+        }
+    };
     whole.start = from;
     whole.length = to - from;
     let spans = waves::spans_of(&whole, tempo, rate, source);
@@ -250,6 +285,84 @@ mod tests {
             channels: 2,
             native_rate: RATE,
         })
+    }
+
+    #[test]
+    fn a_warped_clip_shows_the_file_at_the_speed_the_map_plays_it() {
+        // A 90 BPM file in a 120 BPM song: a beat of the song is 32,000
+        // frames of the file, from the clip's first frame.
+        let mut clip = clip(4, 8, 0);
+        clip.warp = Some(lumen_project::model::Warp::new(90.0, 0.0));
+        let file = whole_file(&clip, &tempo(120.0), RATE, 480_000, source).expect("the file");
+        let a = file.frame_at(4.0).expect("at the start");
+        let b = file.frame_at(5.0).expect("a beat on");
+        assert!(a.abs() < 1.0, "{a}");
+        assert!((b - a - 32_000.0).abs() < 1.0, "{}", b - a);
+        assert!((file.to - 4.0 - 15.0).abs() < 1e-6, "{}", file.to);
+    }
+
+    #[test]
+    fn a_trimmed_warped_clip_shows_its_file_around_the_part_it_plays() {
+        // The clip starts at beat 8 and plays from second 3 of a 90 BPM
+        // file: beats before it hold the three seconds (4.5 beats) of the
+        // file ahead of it, and the song's tempo changing does not move them.
+        let map = TempoMap::new(vec![
+            TempoPoint {
+                at: Ticks::ZERO,
+                bpm: 120.0,
+                ramp: false,
+            },
+            TempoPoint {
+                at: Ticks::quarters(10),
+                bpm: 60.0,
+                ramp: false,
+            },
+        ])
+        .expect("a tempo map");
+        let mut clip = clip(8, 4, 144_000);
+        clip.warp = Some(lumen_project::model::Warp::new(90.0, 3.0));
+        let file = whole_file(&clip, &map, RATE, 480_000, source).expect("the file");
+        assert!((file.from - 3.5).abs() < 1e-3, "{}", file.from);
+        assert!((file.to - 18.5).abs() < 1e-3, "{}", file.to);
+        let start = file.frame_at(8.0).expect("the clip's start");
+        assert!((start - 144_000.0).abs() < 1.0, "{start}");
+        let beat = file.frame_at(9.0).expect("a beat on") - start;
+        assert!((beat - 32_000.0).abs() < 1.0, "{beat}");
+        let after = file.frame_at(13.0).expect("after the tempo change") - start;
+        assert!((after - 5.0 * 32_000.0).abs() < 1.0, "{after}");
+    }
+
+    #[test]
+    fn a_marker_changes_the_speed_the_editor_draws_after_it() {
+        use lumen_core::warp::Marker;
+        // A 60 BPM file: a second of it in the first two beats, then its own
+        // tempo again (a beat a second).
+        let mut warp = lumen_project::model::Warp::new(60.0, 0.0);
+        warp.markers.push(Marker::new(1.0, Ticks::quarters(2)));
+        let mut clip = clip(4, 8, 0);
+        clip.warp = Some(warp);
+        let file = whole_file(&clip, &tempo(120.0), RATE, 480_000, source).expect("the file");
+        let at = |beat: f64| file.frame_at(beat).expect("in the file");
+        assert!((at(5.0) - 24_000.0).abs() < 1.0);
+        assert!((at(6.0) - 48_000.0).abs() < 1.0);
+        assert!((at(7.0) - 96_000.0).abs() < 1.0);
+        assert!((file.to - (6.0 + 9.0)).abs() < 1e-3, "{}", file.to);
+    }
+
+    #[test]
+    fn a_frame_of_the_file_is_drawn_where_the_beat_for_it_is() {
+        let clip = clip(8, 4, 48_000);
+        let file = whole_file(&clip, &tempo(120.0), RATE, 480_000, source).expect("the file");
+        // Frame 48,000 is the clip's start; a beat is 24,000 frames.
+        assert!((file.beat_of_frame(48_000.0).unwrap() - 8.0).abs() < 1e-9);
+        assert!((file.beat_of_frame(0.0).unwrap() - 6.0).abs() < 1e-9);
+        assert!((file.beat_of_frame(60_000.0).unwrap() - 8.5).abs() < 1e-9);
+        for frame in [0.0, 123_456.0, 479_999.0] {
+            let beat = file.beat_of_frame(frame).unwrap();
+            assert!((file.frame_at(beat).unwrap() - frame).abs() < 1e-6);
+        }
+        assert_eq!(file.beat_of_frame(-1.0), None);
+        assert_eq!(file.beat_of_frame(480_000.0), None, "past the last frame");
     }
 
     #[test]

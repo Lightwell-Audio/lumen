@@ -51,6 +51,9 @@ pub const FADE_FRAME: std::time::Duration = std::time::Duration::from_millis(16)
 pub const MENU_LEAVE_DELAY: f64 = 0.4;
 /// How long a scroll bar stays after the last scroll or approach (seconds).
 pub const SCROLL_BAR_LINGER: f64 = 0.8;
+/// The frame interval while a worker reports its progress in words or a
+/// bar (a file being listened to): ten a second is smooth enough to read.
+pub const PROGRESS_FRAME: std::time::Duration = std::time::Duration::from_millis(100);
 /// A state read again after it changed while being read.
 pub const RECHECK: std::time::Duration = std::time::Duration::from_millis(50);
 /// Once a second: the age of a sound that Reload would use.

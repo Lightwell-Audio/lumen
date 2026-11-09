@@ -15,7 +15,8 @@
 //!
 //! Waveform peaks are kept here too, for every stream file (a converted
 //! copy or a source that streams as it is), so a file opened again shows
-//! its waveform without being read whole ([`Cache::peaks`]).
+//! its waveform without being read whole ([`Cache::peaks`]). So are its
+//! transients and tempo ([`Cache::analysis`], `.beats`).
 //!
 //! The folder has a size limit ([`LIMIT`] unless set); [`Cache::trim`]
 //! clears the entries used longest ago, never one that is playing. An entry
@@ -25,7 +26,7 @@
 //! The folder can be one the user chose (M9 R7), so the cache never touches
 //! a file it did not make: [`Cache::trim`], [`Cache::clear`] and
 //! [`Cache::size`] act only in a folder marked by a [`MARKER`] file, and only
-//! on names of the form `<16 hex digits>-<rate>.wav`, `.key` or `.peaks`. The
+//! on names of the form `<16 hex digits>-<rate>.wav`, `.key`, `.peaks` or `.beats`. The
 //! cache marks a folder only when it is new or holds nothing but such names
 //! (an older cache, made before the mark): a folder with anything else in it
 //! is used, but never counted or cleared.
@@ -42,6 +43,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::{Layout, convert, layout};
+use crate::detect::Analysis;
 use crate::wav::{Sample, Spec, Writer};
 use crate::{MediaError, Peaks};
 
@@ -79,7 +81,7 @@ pub fn is_cache_file(name: &str) -> bool {
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
         && !rate.is_empty()
         && rate.bytes().all(|b| b.is_ascii_digit())
-        && (matches!(extension, "wav" | "key" | "peaks")
+        && (matches!(extension, "wav" | "key" | "peaks" | "beats")
             || Small::ALL.iter().any(|k| k.extension() == extension))
 }
 
@@ -152,6 +154,15 @@ impl Key {
     /// The key of the waveform peaks of the same file.
     fn peaks(mut self) -> Self {
         self.text.push_str("peaks\n");
+        self
+    }
+
+    /// The key of the transients and tempo of the same file.
+    fn analysis(mut self) -> Self {
+        self.text.push_str(
+            "analysis 1
+",
+        );
         self
     }
 
@@ -450,6 +461,39 @@ impl Cache {
         Ok(Some(peaks))
     }
 
+    /// The transients and tempo of the stream file `stream` (M9.5 S5a, D5):
+    /// read from the cache when they are there for the file as it is now,
+    /// else found by reading the file in blocks and kept for next time (slow:
+    /// call on a background thread). `None` if `cancel` was set.
+    pub fn analysis(
+        &self,
+        stream: &Path,
+        cancel: &AtomicBool,
+        progress: &mut dyn FnMut(f32),
+    ) -> Result<Option<Analysis>, MediaError> {
+        let rate = layout(stream)?.map_or(0, |l| l.sample_rate);
+        let key = Key::of(stream, rate)?.analysis();
+        let file = self.dir.join(format!("{}.beats", key.stem()));
+        if let Ok(bytes) = fs::read(&file)
+            && let Some(found) = bytes
+                .strip_prefix(key.text.as_bytes())
+                .and_then(Analysis::from_bytes)
+        {
+            used(&file);
+            progress(1.0);
+            return Ok(Some(found));
+        }
+        let Some(found) = super::analysis(stream, cancel, progress)? else {
+            return Ok(None);
+        };
+        let mut bytes = key.text.into_bytes();
+        bytes.extend(found.to_bytes());
+        if self.ready().is_ok() {
+            let _ = crate::write_new(&file, &bytes);
+        }
+        Ok(Some(found))
+    }
+
     /// Trims the folder to its limit ([`Cache::set_limit`]); see
     /// [`Cache::trim`].
     pub fn trim_to_limit(&self, keep: &[PathBuf]) -> u64 {
@@ -569,7 +613,7 @@ impl Cache {
     }
 
     /// The entries that belong to the stream file `path`: its own, when it
-    /// is a copy in this folder, and its peaks.
+    /// is a copy in this folder, and its peaks and analysis.
     fn stems_of(&self, path: &Path) -> Vec<String> {
         let mut stems = Vec::new();
         if path.parent() == Some(self.dir.as_path())
@@ -581,7 +625,8 @@ impl Cache {
         if let Ok(Some(found)) = layout(path)
             && let Ok(key) = Key::of(path, found.sample_rate)
         {
-            stems.push(key.peaks().stem());
+            stems.push(key.clone().peaks().stem());
+            stems.push(key.analysis().stem());
         }
         stems
     }

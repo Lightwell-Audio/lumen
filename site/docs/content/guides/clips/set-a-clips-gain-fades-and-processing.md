@@ -27,7 +27,7 @@ under the Clip tab's header: its gain, its two fades, Mute and Lock, and
 Reverse, Polarity and Normalize. They always act on the clip that is open,
 even if you have since selected another one on the arrangement.
 
-{{ shot(id="audio-clip-properties", focus="30%", alt="The strip under the Clip tab's header, with the clip's name at the left, then Gain, Mute and Lock, the two fades, Reverse, Polarity and Normalize, and the file's name at the right", callouts=["Gain", "Fades", "Processing", "File"]) }}
+{{ shot(id="audio-clip-properties", focus="30%", alt="The strip under the Clip tab's header, with the clip's name at the left, then Gain, Mute and Lock, the two fades, Reverse, Polarity and Normalize, and at the right the file's name and the Warp chip", callouts=["Gain", "Fades", "Processing", "File"]) }}
 
 ## With the mouse
 

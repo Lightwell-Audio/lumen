@@ -5,10 +5,11 @@
 //! Left to right the strip holds the Clip chip, Gain, Mute and Lock, the
 //! fades, Reverse, Polarity and Normalize, and at the right the File chip.
 //! When the row is too narrow its groups give way in the owner's order (L B):
-//! Processing first, then the Fades. Gain, Mute, Lock and the File chip never
-//! fold; the Clip chip shrinks to its dot. A group that a later slice adds
-//! (warp, transpose) goes before the fades in the order and folds after
-//! Processing and before the Fades.
+//! Processing first, then the Warp chip (S5a, which sits beside the File
+//! chip), then the Fades. Gain, Mute, Lock and the File chip never fold; the
+//! Clip chip shrinks to its dot. A group that a later slice adds (transpose)
+//! goes before the fades in the order and folds after Warp and before the
+//! Fades.
 
 use crate::theme;
 
@@ -24,6 +25,8 @@ pub(crate) enum Layout {
     Dot,
     /// Processing is in the ⋯ menu.
     FoldProcessing,
+    /// The Warp chip is in the ⋯ menu as well (S5a).
+    FoldWarp,
     /// The Fades are in the ⋯ menu as well.
     FoldFades,
 }
@@ -32,6 +35,7 @@ pub(crate) enum Layout {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Group {
     Processing,
+    Warp,
     Fades,
 }
 
@@ -40,6 +44,7 @@ impl Layout {
     pub(crate) fn shows(self, group: Group) -> bool {
         match group {
             Group::Processing => self.shows_processing(),
+            Group::Warp => self.shows_warp(),
             Group::Fades => self.shows_fades(),
         }
     }
@@ -54,6 +59,11 @@ impl Layout {
         matches!(self, Self::Full | Self::Icons | Self::Dot)
     }
 
+    /// The Warp chip is in the row, beside the File chip.
+    pub(crate) fn shows_warp(self) -> bool {
+        !matches!(self, Self::FoldWarp | Self::FoldFades)
+    }
+
     /// Processing's buttons carry their words.
     pub(crate) fn words(self) -> bool {
         self == Self::Full
@@ -66,7 +76,10 @@ impl Layout {
 
     /// The ⋯ menu is in the row.
     pub(crate) fn has_menu(self) -> bool {
-        matches!(self, Self::FoldProcessing | Self::FoldFades)
+        matches!(
+            self,
+            Self::FoldProcessing | Self::FoldWarp | Self::FoldFades
+        )
     }
 }
 
@@ -93,6 +106,9 @@ pub(crate) struct Widths {
     pub more: f32,
     /// The File chip at the least it is drawn (its icon and a few letters).
     pub file: f32,
+    /// The Warp chip (S5a), which has the right end beside the File chip and
+    /// never folds: it is where the clip's tempo is set.
+    pub warp: f32,
 }
 
 /// The gap between the strip's groups.
@@ -112,14 +128,16 @@ pub(crate) fn choose(w: Widths) -> Layout {
         parts.extend_from_slice(extra);
         parts
     };
-    if fits(&with(&[w.chip, w.fades, w.processing_words])) {
+    if fits(&with(&[w.chip, w.fades, w.processing_words, w.warp])) {
         Layout::Full
-    } else if fits(&with(&[w.chip, w.fades, w.processing_icons])) {
+    } else if fits(&with(&[w.chip, w.fades, w.processing_icons, w.warp])) {
         Layout::Icons
-    } else if fits(&with(&[w.chip_dot, w.fades, w.processing_icons])) {
+    } else if fits(&with(&[w.chip_dot, w.fades, w.processing_icons, w.warp])) {
         Layout::Dot
-    } else if fits(&with(&[w.chip_dot, w.fades, w.more])) {
+    } else if fits(&with(&[w.chip_dot, w.fades, w.more, w.warp])) {
         Layout::FoldProcessing
+    } else if fits(&with(&[w.chip_dot, w.fades, w.more])) {
+        Layout::FoldWarp
     } else {
         Layout::FoldFades
     }
@@ -187,12 +205,13 @@ mod tests {
             processing_icons: 84.0,
             more: 24.0,
             file: 90.0,
+            warp: 70.0,
         }
     }
 
     #[test]
     fn the_widest_layout_that_fits_is_taken() {
-        let full = 120.0 + 150.0 + 52.0 + 260.0 + 220.0 + 90.0 + 5.0 * GROUP_GAP;
+        let full = 120.0 + 150.0 + 52.0 + 260.0 + 220.0 + 90.0 + 70.0 + 6.0 * GROUP_GAP;
         assert_eq!(choose(widths(full)), Layout::Full);
         assert_eq!(choose(widths(full - 1.0)), Layout::Icons);
         let icons = full - 220.0 + 84.0;
@@ -203,7 +222,10 @@ mod tests {
         assert_eq!(choose(widths(dot - 1.0)), Layout::FoldProcessing);
         let fold = dot - 84.0 + 24.0;
         assert_eq!(choose(widths(fold)), Layout::FoldProcessing);
-        assert_eq!(choose(widths(fold - 1.0)), Layout::FoldFades);
+        assert_eq!(choose(widths(fold - 1.0)), Layout::FoldWarp);
+        let warp = fold - 70.0 - GROUP_GAP;
+        assert_eq!(choose(widths(warp)), Layout::FoldWarp);
+        assert_eq!(choose(widths(warp - 1.0)), Layout::FoldFades);
         assert_eq!(choose(widths(0.0)), Layout::FoldFades);
     }
 
@@ -240,7 +262,7 @@ mod tests {
     #[test]
     fn processing_folds_before_the_fades_and_gain_never_folds() {
         let mut seen = Vec::new();
-        for room in (0..1000).rev() {
+        for room in (0..1200).rev() {
             let layout = choose(widths(room as f32));
             if seen.last() != Some(&layout) {
                 seen.push(layout);
@@ -254,12 +276,16 @@ mod tests {
                 Layout::Icons,
                 Layout::Dot,
                 Layout::FoldProcessing,
+                Layout::FoldWarp,
                 Layout::FoldFades
             ]
         );
         for layout in seen {
             // Whatever the layout, the menu holds exactly what the row lacks.
             assert_eq!(layout.has_menu(), !layout.shows_processing());
+            // The Warp chip is in the row wherever Processing is, and in one
+            // narrower layout too.
+            assert!(layout.shows_warp() || !layout.shows_processing());
         }
     }
 }

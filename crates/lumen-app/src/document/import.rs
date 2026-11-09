@@ -59,6 +59,25 @@ impl FollowTempo {
     }
 }
 
+/// The longest file listened to for a loop's tempo, in seconds: 32 bars of
+/// four beats at the slowest tempo that counts as a loop's (60 BPM), and a
+/// little over. A longer file cannot be a loop of 1 to 32 bars at 60 BPM or
+/// more, so it is not read.
+const LONGEST_LISTENED: f64 = 130.0;
+
+/// An imported clip that plays at its own speed because its file states no
+/// tempo, while the app listens to the file for a loop's (M9.5 S5a, W A:
+/// "confident detection of a file that lasts a whole number of bars").
+#[derive(Debug, Clone, PartialEq)]
+pub struct Awaiting {
+    pub clip: Id,
+    pub media: Id,
+    /// The clip's length as imported; a clip edited since is left alone.
+    pub length: Ticks,
+    /// How long the file plays.
+    pub seconds: f64,
+}
+
 /// An audio file that finished loading, ready to become a track.
 #[derive(Debug, Clone)]
 pub struct Imported {
@@ -161,6 +180,7 @@ impl Document {
             many => format!("Import {} files", many.len()),
         };
         let mut additions = Vec::new();
+        let mut waiting = Vec::new();
         for file in files {
             let (track, clip) = (self.fresh_id(), self.fresh_id());
             self.media_files.insert(file.media, file.path.clone());
@@ -238,6 +258,18 @@ impl Document {
                     }
                     new_clip = warped;
                 }
+                if made_at.is_none()
+                    && follow == FollowTempo::Loops
+                    && file.tempo.is_none()
+                    && (1.0..=LONGEST_LISTENED).contains(&seconds)
+                {
+                    waiting.push(Awaiting {
+                        clip,
+                        media: file.media,
+                        length: new_clip.length,
+                        seconds,
+                    });
+                }
                 let new_clip = Arc::new(new_clip);
                 if let Some(i) = target {
                     let t = Arc::make_mut(&mut project.tracks[i]);
@@ -274,7 +306,72 @@ impl Document {
             lumen_project::groups::normalize(&mut project.tracks);
             lumen_project::edit::overwrite(project, &placed, &mut clips::fresh_ids(next));
         });
+        self.awaiting_follow.extend(waiting);
     }
+
+    /// The imported clips waiting to be listened to, taken once.
+    pub fn take_awaiting_follow(&mut self) -> Vec<Awaiting> {
+        std::mem::take(&mut self.awaiting_follow)
+    }
+
+    /// The app has listened to `wait`'s file and found a loop of `beats`
+    /// beats at `bpm`: the clip follows the song's tempo, as one undo step.
+    /// A clip changed since it was imported (trimmed, moved into a take set,
+    /// locked, warped, reversed, looped, slipped, given envelopes), one that
+    /// is gone, and one that would then run into the next clip are left as
+    /// they are. Returns whether the clip now follows.
+    pub fn follow_detected(&mut self, wait: &Awaiting, bpm: f64) -> bool {
+        let mut done = false;
+        self.history
+            .apply("Follow the song's tempo", None, |project| {
+                done = follow_clip(project, wait, bpm);
+            });
+        done
+    }
+}
+
+/// [`Document::follow_detected`] on a project; true when it changed the clip.
+fn follow_clip(project: &mut Project, wait: &Awaiting, bpm: f64) -> bool {
+    let Some((t, i)) = project.tracks.iter().enumerate().find_map(|(t, track)| {
+        let i = track.clips.iter().position(|c| c.id == wait.clip)?;
+        Some((t, i))
+    }) else {
+        return false;
+    };
+    let clip = &project.tracks[t].clips[i];
+    let untouched = matches!(
+        clip.content,
+        ClipContent::Audio { media, offset: 0, .. } if media == wait.media
+    ) && clip.length == wait.length
+        && !clip.locked
+        && clip.warp.is_none()
+        && clip.takes.is_none()
+        && !clip.reversed
+        && clip.loop_length.is_none()
+        && clip.audio_phase_seconds == 0.0
+        && clip.envelopes == Default::default();
+    if !untouched {
+        return false;
+    }
+    let length = Ticks((wait.seconds * bpm / 60.0 * PPQ as f64).round() as i64).max(Ticks(1));
+    let end = clip.start + length;
+    let runs_into_another = project.tracks[t]
+        .clips
+        .iter()
+        .any(|c| c.id != clip.id && c.start < end && c.start + c.length > clip.start);
+    if runs_into_another {
+        return false;
+    }
+    let mut next = (**clip).clone();
+    next.length = length;
+    let Ok(mut warped) = warp::enable(project, &next, bpm) else {
+        return false;
+    };
+    if let Some(on) = warped.warp.as_mut() {
+        on.mode = FOLLOW_MODE;
+    }
+    Arc::make_mut(&mut project.tracks[t]).clips[i] = Arc::new(warped);
+    true
 }
 
 #[cfg(test)]
@@ -541,5 +638,135 @@ mod tests {
         assert!(doc.undo().is_some());
         assert!(doc.project().tracks.is_empty());
         assert!(doc.undo().is_none());
+    }
+
+    fn waiting(follow: FollowTempo, tempo: Option<FileTempo>, frames: u64) -> Vec<Awaiting> {
+        let mut doc = Document::new(crate::empty_project());
+        doc.set_follow_tempo(follow);
+        let id = doc.fresh_id();
+        doc.import(vec![Imported {
+            tempo,
+            frames,
+            ..file(id, "Loop", Ticks::ZERO)
+        }]);
+        doc.take_awaiting_follow()
+    }
+
+    #[test]
+    fn only_a_file_that_states_no_tempo_waits_to_be_listened_to_under_loops() {
+        let two_seconds = 96_000;
+        let waits = waiting(FollowTempo::Loops, None, two_seconds);
+        assert_eq!(waits.len(), 1);
+        assert_eq!(
+            (waits[0].length, waits[0].seconds),
+            (Ticks::quarters(4), 2.0)
+        );
+        for (follow, tempo, frames) in [
+            (FollowTempo::Never, None, two_seconds),
+            (FollowTempo::Always, None, two_seconds),
+            (FollowTempo::Loops, stated(90.0), two_seconds),
+            // A hit is not a loop, and a song is longer than 32 bars.
+            (FollowTempo::Loops, None, 24_000),
+            (FollowTempo::Loops, None, 48_000 * 131),
+        ] {
+            assert!(
+                waiting(follow, tempo, frames).is_empty(),
+                "{follow:?} {tempo:?} {frames}"
+            );
+        }
+        let mut doc = Document::new(crate::empty_project());
+        let id = doc.fresh_id();
+        doc.import(vec![file(id, "Loop", Ticks::ZERO)]);
+        assert_eq!(doc.take_awaiting_follow().len(), 1);
+        assert!(doc.take_awaiting_follow().is_empty(), "taken once");
+    }
+
+    fn listened() -> (Document, Awaiting) {
+        let mut doc = Document::new(crate::empty_project());
+        let id = doc.fresh_id();
+        doc.import(vec![file(id, "Loop", Ticks::ZERO)]);
+        let wait = doc.take_awaiting_follow().remove(0);
+        (doc, wait)
+    }
+
+    #[test]
+    fn a_loop_found_in_the_file_makes_its_clip_follow_the_song_in_one_undo_step() {
+        let (mut doc, wait) = listened();
+        assert!(doc.follow_detected(&wait, 90.0));
+        let clip = the_clip(&doc);
+        // Two seconds at 90 BPM are three beats, as when the file says so.
+        assert_eq!(clip.length, Ticks::quarters(3));
+        let warp = clip.warp.as_ref().expect("it follows");
+        assert_eq!((warp.mode, warp.original_bpm), (FOLLOW_MODE, 90.0));
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+        assert!(doc.undo().is_some());
+        let plain = the_clip(&doc);
+        assert!(plain.warp.is_none());
+        assert_eq!(plain.length, Ticks::quarters(4), "at its own speed again");
+        assert_eq!(doc.project().tracks.len(), 1, "the import stays");
+    }
+
+    #[test]
+    fn a_clip_changed_since_the_import_is_left_alone() {
+        let id = |doc: &Document| the_clip(doc).id;
+        // Locked.
+        let (mut doc, wait) = listened();
+        let clip = id(&doc);
+        doc.set_clips_locked(&[clip], true);
+        assert!(!doc.follow_detected(&wait, 90.0));
+        // Warped by hand.
+        let (mut doc, wait) = listened();
+        let clip = id(&doc);
+        doc.warp_clips(&[clip], 120.0);
+        assert!(!doc.follow_detected(&wait, 90.0));
+        // Trimmed.
+        let (mut doc, wait) = listened();
+        let base = doc.project().clone();
+        let clip = id(&doc);
+        doc.trim_clip(
+            &base,
+            clip,
+            lumen_project::edit::Edge::End,
+            Ticks::quarters(2),
+            false,
+            None,
+        );
+        assert!(!doc.follow_detected(&wait, 90.0));
+        // Gone.
+        let (mut doc, wait) = listened();
+        let track = doc.project().tracks[0].id;
+        doc.delete_tracks(&[track]);
+        assert!(!doc.follow_detected(&wait, 90.0));
+        // Not the clip of the file that was listened to.
+        let (mut doc, mut wait) = listened();
+        wait.media = Id(wait.media.0 + 1);
+        assert!(!doc.follow_detected(&wait, 90.0));
+        assert!(doc.undo().is_some(), "only the import is on the history");
+        assert!(doc.project().tracks.is_empty());
+    }
+
+    #[test]
+    fn a_loop_that_would_run_into_the_next_clip_is_left_alone() {
+        let mut doc = Document::new(crate::empty_project());
+        let track = doc.add_track(TrackKind::Audio, None);
+        let (a, b) = (doc.fresh_id(), doc.fresh_id());
+        let on = DropInto::Track(track);
+        doc.import(vec![
+            Imported {
+                into: on,
+                ..file(a, "One", Ticks::ZERO)
+            },
+            Imported {
+                into: on,
+                ..file(b, "Two", Ticks::ZERO)
+            },
+        ]);
+        let waits = doc.take_awaiting_follow();
+        assert_eq!(waits.len(), 2);
+        // The first is four beats and the second follows it. At 60 BPM it
+        // would be two beats shorter than at 120 BPM, which fits; at 240 BPM
+        // eight beats would run into the second.
+        assert!(!doc.follow_detected(&waits[0], 240.0));
+        assert!(doc.follow_detected(&waits[0], 60.0));
     }
 }

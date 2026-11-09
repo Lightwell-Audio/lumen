@@ -7,6 +7,7 @@
 //! - `source`: where the file sits on the timeline (pure, tested);
 //! - `handles`: where the grips, fades and gain line are, and what the
 //!   pointer is on (pure, tested);
+//! - `detect`: the transients and tempo of the file, on a worker (S5a);
 //! - `header`: which of the header's layouts fits (pure, tested);
 //! - `strip`: which of the properties strip's layouts fits (pure, tested);
 //! - `paint`: the wave, column by column from the peaks, and samples at
@@ -16,6 +17,7 @@
 
 pub(crate) mod brace;
 pub(crate) mod crossing;
+pub(crate) mod detect;
 pub(crate) mod handles;
 pub(crate) mod header;
 pub(crate) mod paint;
@@ -74,6 +76,8 @@ pub(crate) struct AudioEditor {
     pub file: Option<FileCache>,
     /// Samples around the view at the deepest zoom.
     pub samples: Option<SampleCache>,
+    /// The transients and tempo of the opened clip's file (S5a).
+    pub detect: detect::Detection,
     /// A drag of one of the clip's handles or of its content.
     pub gesture: Option<Gesture>,
     /// A handle pressed with a right-click, whose menu is open.
@@ -97,6 +101,8 @@ pub(crate) struct AudioEditor {
     pub strip_group: Option<strip::Group>,
     /// The ⋯ menu shows its Fades page.
     pub strip_fades: bool,
+    /// The ⋯ menu is on its Warp page (S5a).
+    pub strip_warp: bool,
     /// The Clip chip's popover was open last frame: closing it applies a
     /// name that was being typed.
     pub chip_was_open: bool,

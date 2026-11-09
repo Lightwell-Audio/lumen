@@ -442,6 +442,7 @@ impl App {
         self.document
             .set_undo_limit(self.settings.editing.undo_steps);
         self.lanes = lanes::Lanes::default();
+        self.follow_jobs = Default::default();
         self.arrangement = arrangement::Arrangement::default();
         self.chain.folded.clear();
         self.chain.shown.clear();

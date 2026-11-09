@@ -600,6 +600,33 @@ per slice and move what is no longer current out of it.
   S5b; the docs page for the preference waits for S5 (it is in
   `undocumented.txt`). Not run here: the WSL perf gate and the macOS
   cross-target clippy. Next: S5a.
+- **Branch `m9.5-s5a-detection`: M9.5 S5a is built** (ADR-0134; no format
+  change; MT-WARP-2 waits for the owner). `lumen_media::detect` finds
+  transients and a tempo (kept as `.beats` in the cache beside the peaks); the
+  audio editor draws the transients faintly and the strip gains a Warp chip
+  beside the File chip, folding into the ⋯ menu after Processing
+  (`app/audio_editor/warp.rs`; its commands are
+  `app/clip_warp.rs`): the switch, mode, tempo field (`SliderKind::Bpm`), ×2
+  and ÷2, the detected tempo with Use, the sensitivity, Set project tempo from
+  clip and Warp from here, each one undo step. Five commands, no keys, tagged
+  `@m9.5` in `undocumented.txt`. **Tell the owner:** ×2, ÷2 and a typed tempo
+  are refused when the clip would then play past the end of its file; the
+  sensitivity is not saved; nothing was heard on real music; Rhythmic still
+  plays as Repitch. Not run here: the WSL perf gate and the macOS
+  cross-target clippy. Next: S5b (markers, the Rhythmic slicer).
+  Two review rounds by GPT 6.1 Sol (high) changed it: detection follows a
+  reversed clip's twin; Warp from here reads the heard second before warp is
+  on and uses the edit cursor only for the open clip; the last partial hop is
+  read; and an untagged file of whole bars (1 to 32, under 130 s) follows the
+  song after import, as the plan's W A says (`app/follow_detect.rs`,
+  `Document::follow_detected`, one more undo step; ADR-0134 items 8 to 10).
+  A second round changed loop repeats in Warp from here, tempo detection of
+  one-bar loops under 2 s, and the chip width (item 11). **Tell the owner
+  (found by them, item 12):** a settings file with `"from_disk": false` plays
+  warped clips as recorded while the arrangement draws them stretched; the
+  Warp popover now says so and has a button to turn it on, and the audio
+  editor's wave of a warped clip now follows the map. A warped clip still
+  depends on "Play audio from disk"; making it not is pitched with S5b.
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);
