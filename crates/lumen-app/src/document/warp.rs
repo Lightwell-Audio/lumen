@@ -1,14 +1,11 @@
 //! Warp (M9.5 slice S4a): the document's edits of a clip's warp. Each is one
 //! undo step; one that changes nothing adds none; a locked clip is left as it
-//! is. There is no control for them yet (the warp editor is S5); since S4b
-//! the engine plays a warped clip in Repitch (ADR-0131), so a test hears them.
-
-// Nothing calls these until S5 gives warp a control; a test does. The
-// expectation fails the build the day something does, so it gets removed.
-#![cfg_attr(not(test), expect(dead_code, reason = "no control for warp until S5"))]
+//! is. The audio editor's Warp chip (S5a) is their control; the engine plays
+//! a warped clip in Repitch or a stretch mode (ADR-0131, ADR-0132).
 
 use std::sync::Arc;
 
+#[cfg(test)]
 use lumen_core::warp::Marker;
 use lumen_project::edit::warp::{self as edit, Change, Refused};
 use lumen_project::model::{Clip, Id, Project};
@@ -57,10 +54,17 @@ impl Document {
     /// Turns warp on for the selected audio clips, for files made at
     /// `original_bpm`. A clip at the file's own tempo plays as it did; any other
     /// tempo plays it faster or slower, the pitch moving with it (Repitch).
+    #[cfg(test)]
     pub fn warp_clips(&mut self, ids: &[Id], original_bpm: f64) -> Warped {
+        self.warp_clips_by(ids, &|_| original_bpm)
+    }
+
+    /// [`Document::warp_clips`] with the tempo each clip's file was made at
+    /// chosen by `original_bpm` (clips of different files differ).
+    pub fn warp_clips_by(&mut self, ids: &[Id], original_bpm: &dyn Fn(&Clip) -> f64) -> Warped {
         let mut out = Warped::default();
         self.history.apply("Warp clips", None, |project| {
-            out = each(project, ids, &|p, c| edit::enable(p, c, original_bpm));
+            out = each(project, ids, &|p, c| edit::enable(p, c, original_bpm(c)));
         });
         out
     }
@@ -90,8 +94,48 @@ impl Document {
         out
     }
 
-    /// Replaces a warped clip's markers (the warp editor's drag, from S5).
+    /// Multiplies the tempo each selected warped clip's file was made at by
+    /// `factor` (2 and ½ correct a detection that found half or double), as
+    /// one step.
+    pub fn scale_warp_tempo(&mut self, ids: &[Id], factor: f64) -> Warped {
+        let label = if factor > 1.0 {
+            "Double clip tempo"
+        } else {
+            "Halve clip tempo"
+        };
+        let mut out = Warped::default();
+        self.history.apply(label, None, |project| {
+            out = each(project, ids, &|p, c| {
+                let bpm = c.warp.as_ref().ok_or(Refused::Unchanged)?.original_bpm;
+                edit::set(p, c, &Change::OriginalBpm(bpm * factor))
+            });
+        });
+        out
+    }
+
+    /// "Warp from here": moves the audio that plays at `here` to the bar line
+    /// `bar` in `ids`' first clip, warping it first (for a file made at
+    /// `original_bpm`) if it is not, as one step. `snap` may move the second
+    /// heard at `here` to a transient beside it.
+    pub fn warp_from_here(
+        &mut self,
+        id: Id,
+        original_bpm: f64,
+        (here, bar): (lumen_core::time::Ticks, lumen_core::time::Ticks),
+        snap: &dyn Fn(f64) -> Option<f64>,
+    ) -> Warped {
+        let mut out = Warped::default();
+        self.history.apply("Warp from here", None, |project| {
+            out = each(project, &[id], &|p, c| {
+                edit::from_here(p, c, original_bpm, (here, bar), snap)
+            });
+        });
+        out
+    }
+
+    /// Replaces a warped clip's markers (the warp editor's drag, from S5b).
     /// Returns whether the clip changed.
+    #[cfg(test)]
     pub fn set_warp_markers(&mut self, id: Id, markers: Vec<Marker>) -> bool {
         let mut out = Warped::default();
         self.history.apply("Edit warp markers", None, |project| {

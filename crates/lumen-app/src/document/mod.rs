@@ -49,7 +49,7 @@ pub use automation::LaneRefusal;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use devices::{Refusal, Slot, find_device, name_of as device_name};
 pub use groups::Place;
-pub use import::{DropInto, FollowTempo, Imported, Places, import_place};
+pub use import::{Awaiting, DropInto, FollowTempo, Imported, Places, import_place};
 pub use lanes::{Drag, Line, Shift};
 pub use midi_clips::NewClip;
 pub use mixer::Refused;
@@ -104,6 +104,9 @@ pub struct Document {
     /// Whether new audio clips follow the song's tempo (the New audio clips
     /// preference, M9.5 S4d). Set by the app each frame.
     follow_tempo: FollowTempo,
+    /// Imported clips whose file states no tempo, waiting for the app to
+    /// listen to the file (M9.5 S5a): [`Document::take_awaiting_follow`].
+    awaiting_follow: Vec<import::Awaiting>,
 }
 
 /// What a new track starts with: an audio track's monitoring, and the
@@ -169,6 +172,7 @@ impl Document {
             open_inputs: 0,
             new_tracks: NewTracks::default(),
             follow_tempo: FollowTempo::default(),
+            awaiting_follow: Vec::new(),
         }
     }
 

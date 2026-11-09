@@ -12348,3 +12348,151 @@ area, and says so in its report. B's judgement stays with the slice, inside A.
   and a closed milestone failing), and the check script against an unchanged
   list, an untagged and a tagged addition, a retagged backlog line, a
   removal and an id with spaces. Not run: the GitHub step itself.
+
+## ADR-0134 — Detection and the Warp chip (M9.5 S5a)
+
+**Date:** 2026-11-08. **Branch:** `m9.5-s5a-detection`. **Status:** Built;
+MT-WARP-2 waits for the owner. No format change (v33). Follows ADR-0130 to
+ADR-0132 (warp in the model, Repitch, the stretch modes); the milestone plan
+is `docs/milestones/M9.5.md` (S5a).
+
+**Context.** Warp had a model and a sound (S4a to S4d) and no control. S5a
+gives it one: the audio editor learns where sounds start and what tempo a
+file has, and the strip gets a Warp chip to turn warp on from that tempo, to
+correct it, to set the song's tempo from the clip and to line a sound up
+with a bar.
+
+**Decisions.**
+1. *The analysis* (`lumen_media::detect`, pure, tested on synthetic audio).
+   Stereo is averaged to one channel; the level of the first difference is
+   taken every 5 ms; a *rise* is a hop's level above the previous two hops.
+   A transient is the highest rise within ±30 ms and at least 3 dB, placed on
+   the sample inside the hop; its strength is the rise over 30 dB. The
+   sensitivity (0 to 100) only chooses a strength threshold
+   (`0.1 + 0.8 × (1 − s/100)`), so changing it never re-reads the file. The
+   tempo is the best autocorrelation of the rise over 60 to 200 BPM, scored
+   with a comb of the multiples 1, 2 and 4 and a mild prior around 120, then
+   refined by a parabola. It reads the first 120 s. A tempo within 1.2% of a
+   whole number of beats in the file's length is snapped to it and called a
+   loop when that is 1 to 32 bars of four beats (`Tempo::is_loop`, the exact
+   tempo of a cut loop). Confidence under 0.4 is offered as "not sure" and is
+   never used to start warp; under 0.15 there is no tempo.
+2. *Where it is kept.* A `.beats` file (magic `LMNB`, version 1) in the
+   cache beside the peaks, keyed by the stream file and the rate
+   (`Key::analysis`), so opening the file again finds it. It is a cache
+   kind: Clear, the size limit and `stems_of` treat it as the peaks.
+   `stems_of` keeps the analysis of files that are playing.
+3. *Where it runs.* One worker thread per request
+   (`audio_editor::detect`), cancelled when its job is dropped; it prepares
+   the stream file (progress 0 to 50%) and scans it (50 to 100%). It starts
+   when the opened clip's file is Ready, restarts for another media or a
+   relinked path, and a failure is shown with words and "Try again".
+4. *The edits* are `Document` methods, one undo step each:
+   `scale_warp_tempo` (×2 and ÷2 of the tempo the file was made at),
+   `warp_from_here`, and the existing `warp_clips_by` and `set_warp`. Set
+   project tempo from clip is `set_tempo_at(clip.start, original_bpm)` and is
+   refused while a track is frozen (ADR-0098). Warp from here (edit
+   `warp::from_here`) takes the sound heard at the edit cursor (else the
+   playhead), snaps it to a transient within 50 ms, slides every marker so it
+   plays at the nearest bar line, and warps the clip first when it is not.
+5. *The commands* (end of `Command`, no default keys): Warp clip, Warp from
+   here, Set project tempo from clip, Double clip tempo, Halve clip tempo.
+   They act on the selected audio clips (the opened one when none is
+   selected). The chip's popover acts on the opened clip, as Gain does, and
+   selects it first.
+6. *The chip* sits beside the File chip (`Widths::warp`) and, in the two
+   narrowest layouts, folds into the ⋯ menu as a "Warp…" page after
+   Processing and before the Fades (a new layout, `FoldWarp`; at 480 points
+   with the browser open the chip did not fit beside the controls that never
+   fold). It says "Warp" or "Warp 93.0", in the accent when on. Its popover holds the
+   switch, the mode, the tempo field (`SliderKind::Bpm`, 20 to 999), ×2 and
+   ÷2, what was found with "Use", the sensitivity with the count, Set project
+   tempo from clip and Warp from here. Everything is disabled with its reason
+   when the clip is locked or its track frozen.
+7. *Transients on the wave:* a faint accent hairline for each, stronger for
+   a stronger one, only those in view (found by bisection).
+8. *Detection follows what is played* (review round 1). Findings are filed
+   under the file key (`audio_editor::detect::file_key`): the media, or its
+   reversed twin for a reversed clip. The worker reverses the stream file
+   (`Cache::reversed`, cached) before it reads it, so the lines on the wave,
+   the snap of Warp from here and the tempo are those of the audio the editor
+   draws and plays.
+9. *Warp from here reads the heard second first.* A clip that is not warped
+   plays its file at its own speed, so the second heard at the cursor is read
+   from the clip and the song's tempo map before warp is turned on; the new
+   map (made at the file's tempo) would play the file elsewhere whenever that
+   differs from the song's. The cursor belongs to the clip the editor has
+   open: for any other selected clip the command uses the playhead.
+10. *A loop of whole bars follows the song on import* (review round 1, the
+    plan's W A: "confident detection of a file that lasts a whole number of
+    bars"). A file that states no tempo comes in at its own speed, as before,
+    and under *Loops* (not *Always* or *Never*) its length is 1 to 130 s, so
+    `Document::import` queues it (`Awaiting`). Each frame the app starts a
+    worker for a queued file that is ready (`app::follow_detect`, the same
+    analysis and cache as the editor's), and when the tempo is confident and
+    `is_loop`, `Document::follow_detected` makes the clip follow the song as
+    one more undo step ("Follow the song's tempo", with a note that says so).
+    It leaves a clip that is gone, locked, warped, reversed, looped, slipped,
+    in a take set, given envelopes, trimmed since, or that would then run into
+    the next clip. Opening another project drops the queue.
+11. *Round 2.* Warp from here in a looping clip reads the cursor and the bar
+    inside one turn of the loop (`within`), so a later repeat aligns the sound
+    that repeats. Tempo detection no longer asks for two periods of the
+    slowest tempo: a beat is tried up to half the file, so a one-bar loop of
+    under two seconds (140 and 160 BPM, the common case) gets its tempo and
+    reaches the import's follow. The Warp chip's width is its text rounded up
+    plus one point, so the label is not cut to "Wa…". The E2E harness plays
+    with "Play audio from disk" off, which plays a warped clip unwarped, so a
+    test that listens to warp says `playing_from_disk()`.
+12. *Found by the owner after round 2 (2026-11-08): the wave moved, the sound
+    did not.* Their settings file kept `"from_disk": false` from before ADR-0109
+    made it the default, so warped clips played as recorded while the
+    arrangement drew them stretched. The Warp popover now says so when warp is
+    on and the setting is off, with a button that turns it on (the setting is
+    never changed without a click). E2E
+    `without_disk_playback_a_warped_clip_is_heard_unwarped_until_it_is_turned_on`
+    plays the same clip both ways (0.6 s between clicks, then 0.5 s). Still
+    open: a warped clip should not depend on the switch at all (live warped
+    playback without the disk thread, or a notice outside the popover); to be
+    pitched with S5b. The audio editor's whole-file extent was also computed as
+    if the clip were unwarped (the wave ran past the file's end by the
+    stretch); `audio_editor::source::whole_file` now takes the file's first and
+    last second from the warp map (three unit tests).
+
+**Consequences and deviations.**
+- ×2, ÷2 and a typed tempo are refused, with a notice, when the clip would
+  then play past the end of its file (`may_become`). A clip trimmed to fit
+  the file at the new tempo takes them.
+- The sensitivity is the editor's session state; it is not saved and starts
+  at 50 again.
+- Rhythmic is still Repitch (S5b); the popover says so.
+- A loop found after import is a second undo step (undo once to play it at
+  its own speed; undo twice removes the import), because the file is read
+  after the clip exists. A file longer than 130 s is not read.
+- The final partial hop of a file is read as it stands, so a sound in the
+  last few milliseconds is found.
+- ×2 makes the clip play at half speed and ÷2 at double (the file is taken
+  as made at twice the tempo and is stretched to twice the length); the
+  command help and MT-WARP-2 now say so, and an E2E checks the speed.
+- The cache gains a kind, so older versions of Lumen that read a newer cache
+  folder would treat `.beats` as unknown and leave it.
+- Detection reads the whole file once per new file (the first 120 s for the
+  tempo, all of it for transients); a one-hour file costs one pass of the
+  disk thread's reader, off the UI thread.
+
+**Verification.** Unit: `lumen-media` `detect` (9: positions to 3 ms, tempos
+at 90, 120 and 140, an exact loop, silence and a held tone, sensitivity,
+block-size independence, stereo, byte round trip and damage, cancel), the
+cache (analysis kept, a changed file scanned again), `edit::warp` (10, three
+new), the editor's `in_view`, `start_bpm`, the strip layout, `beat_of_frame`.
+E2E `tests/e2e/warp_chip.rs` (9): detection of a click track, warp from the
+tempo found, ×2 and ÷2 (and the speed they give) and Set project tempo and
+warp off each undone in one step, Warp from here from a cursor, a locked
+clip, the narrowest window, a reversed clip listened to as it plays, Warp
+from here on a clip other than the open one, and an untagged loop following
+the song after import (and not under Never). `lumen-project` `edit::warp`
+tests Warp from here at differing tempos, a later cursor and a tempo change;
+`document::import` tests the queue, the edit and each stale case. Not verified:
+anything by ear or on a real loop (MT-WARP-2); the docs scene and page (owed,
+`@m9.5`); WSL perf gate and macOS cross-target clippy; the strip at 200%
+scale and the lowest panel height.

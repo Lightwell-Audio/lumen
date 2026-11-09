@@ -35,7 +35,8 @@ pub use crate::audio::{
     BLOCKED_INPUT, InputDeviceTurn, TEST_BLOCKED_INPUT_DRIVER, TEST_DRIVER, TEST_HOLDS_DRIVER,
     TEST_LATE_DRIVER, TEST_REFUSES_DRIVER, TEST_SLOW_DRIVER, input_device, input_device_turn,
 };
-pub use editor::{AudioEditorShown, AudioHandlesShown, PianoRollDemo};
+pub use crate::media::reversed_key;
+pub use editor::{AudioEditorShown, AudioHandlesShown, DetectionShown, PianoRollDemo};
 
 /// A note edit for tests (`App::edit_notes`).
 #[derive(Debug, Clone, Copy)]

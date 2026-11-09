@@ -377,6 +377,10 @@ impl App {
             Command::AddPreviousClip | Command::AddNextClip => need(clip, "Select a clip first"),
             Command::LockClips => need(clip, "Select a clip first"),
             Command::RevealClipFile => self.reveal_clip_file_unavailable(),
+            Command::WarpClips | Command::WarpFromHere => self.warp_unavailable(),
+            Command::SetTempoFromClip | Command::DoubleClipTempo | Command::HalveClipTempo => {
+                self.warped_unavailable()
+            }
             Command::CreateMidiClip => need(
                 self.midi_track_for_new_clip().is_some(),
                 "Select a MIDI track first",

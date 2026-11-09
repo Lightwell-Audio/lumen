@@ -30,6 +30,9 @@ pub enum SliderKind {
     /// from `min_ms` to `max_ms`; resets to 0 (a MIDI clock's delay, M5
     /// slice 7).
     Offset { min_ms: f32, max_ms: f32 },
+    /// A tempo, 20 to 999 BPM, filled from the left; resets to 120 (the
+    /// tempo a clip's file was made at, M9.5 S5a).
+    Bpm,
 }
 
 impl SliderKind {
@@ -37,6 +40,7 @@ impl SliderKind {
     pub fn reset(self) -> f32 {
         match self {
             SliderKind::Percent { default } => default,
+            SliderKind::Bpm => 120.0,
             _ => 0.0,
         }
     }
@@ -50,6 +54,7 @@ impl SliderKind {
             SliderKind::Trim => (-24.0, 24.0),
             SliderKind::Percent { .. } => (0.0, 1.0),
             SliderKind::Offset { min_ms, max_ms } => (min_ms, max_ms),
+            SliderKind::Bpm => (20.0, 999.0),
         }
     }
 
@@ -61,7 +66,7 @@ impl SliderKind {
             SliderKind::Percent { .. } => 0.05,
             SliderKind::Pan => 0.05,
             SliderKind::Millis { max_ms } => (max_ms / 100.0).max(1.0),
-            SliderKind::Offset { .. } => 1.0,
+            SliderKind::Offset { .. } | SliderKind::Bpm => 1.0,
         }
     }
 
@@ -70,6 +75,7 @@ impl SliderKind {
             SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => db_text(value),
             SliderKind::Percent { .. } => format!("{:.0}%", value * 100.0),
             SliderKind::Pan => pan_text(value),
+            SliderKind::Bpm => format!("{value:.1} BPM"),
             SliderKind::Millis { .. } => ms_text(value),
             SliderKind::Offset { .. } => match value.round() as i32 {
                 0 => "0 ms".to_owned(),
@@ -92,6 +98,12 @@ impl SliderKind {
                 .parse::<f32>()
                 .ok()
                 .map(|p| p / 100.0),
+            SliderKind::Bpm => text
+                .trim_end_matches("BPM")
+                .trim()
+                .replace(',', ".")
+                .parse()
+                .ok(),
             SliderKind::Offset { .. } => text
                 .trim_end_matches("MS")
                 .trim()
@@ -247,6 +259,9 @@ pub fn value_slider_styled(
             SliderKind::Offset { .. } => {
                 "Delay: drag or wheel (Shift for fine), double-click for none, or click and type"
             }
+            SliderKind::Bpm => {
+                "Tempo: drag or wheel (Shift for fine), double-click for 120, or click and type"
+            }
         });
     response.widget_info(|| {
         egui::WidgetInfo::slider(
@@ -354,6 +369,7 @@ pub fn value_slider_styled(
         | SliderKind::ClipGain
         | SliderKind::Millis { .. }
         | SliderKind::Percent { .. }
+        | SliderKind::Bpm
         | SliderKind::Offset { .. } => {
             let x = x_at(out);
             if comet {

@@ -16,6 +16,7 @@ pub(crate) mod stops;
 mod strip;
 mod strip_chips;
 mod view;
+mod warp;
 mod window;
 
 use std::sync::Arc;
@@ -24,7 +25,7 @@ use eframe::egui::{self, Pos2, Rect, Sense, Ui, pos2, vec2};
 use lumen_core::time::Ticks;
 use lumen_engine::ClipAudio;
 use lumen_media::Peaks;
-use lumen_project::model::{Clip, ClipContent, Id};
+use lumen_project::model::{Clip, Id};
 use lumen_project::routing::all_tracks;
 
 use self::gestures::WaveArea;
@@ -111,25 +112,13 @@ impl App {
             })
     }
 
-    /// The key of the file `clip` plays (its reversed twin when reversed).
-    fn file_key(clip: &Clip) -> Option<u64> {
-        let ClipContent::Audio { media, .. } = &clip.content else {
-            return None;
-        };
-        Some(if clip.reversed {
-            crate::media::reversed_key(media.0)
-        } else {
-            media.0
-        })
-    }
-
     fn draw_audio_editor(&mut self, ui: &mut Ui, area: Rect, id: Id, ed: &mut AudioEditor) {
         let ctx = ui.ctx().clone();
         let Some((clip, colour)) = self.opened_clip_look(id) else {
             return;
         };
         let rate = self.lanes.rate();
-        let key = Self::file_key(&clip);
+        let key = crate::audio_editor::detect::file_key(&clip);
         let loaded = key.and_then(|key| self.loaded(key));
         let file = loaded.as_ref().and_then(|l| self.file_of(&clip, l, ed));
 
@@ -175,6 +164,7 @@ impl App {
                 self.transport.follow_paused = true;
             }
         }
+        self.drive_detection(&ctx, &clip, ed);
         self.audio_header(ui, header, (&clip, colour), file.as_ref(), ed);
         self.audio_strip(ui, strip, (&clip, colour), ed);
         let is_loaded = loaded.is_some();
@@ -347,6 +337,17 @@ impl App {
             samples,
         };
         paint::wave(&painter, body, &input);
+        if let Some(key) = crate::audio_editor::detect::file_key(&clip)
+            && let Some(found) = ed.detect.analysis(key)
+        {
+            Self::paint_transients(
+                &painter,
+                body,
+                &file,
+                (ed.time, rate),
+                (found, ed.detect.sensitivity),
+            );
+        }
         paint::ruler(&painter, scale, ed.time, &lines, meter, &file, rate);
         // The wave's Tab stop, then the envelope and the range over the
         // wave, each handle's stop and the handles, then the envelope's and

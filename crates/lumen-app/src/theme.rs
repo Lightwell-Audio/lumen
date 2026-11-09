@@ -633,6 +633,11 @@ pub mod size {
     pub const SUBJECT_BAR: f32 = 3.0;
     /// The widest a tab's note (a clip's name after "Clip") is drawn.
     pub const TAB_NOTE: f32 = 140.0;
+    /// The Warp popover's controls (M9.5 S5a): the mode dropdown, the tempo
+    /// field and the sensitivity slider.
+    pub const WARP_MODE: f32 = 120.0;
+    pub const WARP_FIELD: f32 = 88.0;
+    pub const WARP_SLIDER: f32 = 112.0;
     /// The audio editor's ruler with its loop brace band (M9.5 LB A): the
     /// band is its bottom `BRACE_BAND` points; a brace end's grab reach; the
     /// clip start's flag on the band; the edit cursor's cap.

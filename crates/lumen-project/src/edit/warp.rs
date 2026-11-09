@@ -406,6 +406,73 @@ fn may_become(project: &Project, clip: &Clip, before: &Warp, after: &Warp) -> bo
     inside(after.source_at(Ticks::ZERO)) && (ends_after || !ends_before)
 }
 
+/// The clock a clip's map counts from (the content origin): the start of a
+/// clip that does not loop, `start − loop_phase` for one that does.
+pub fn origin(clip: &Clip) -> Ticks {
+    if clip.loop_length.is_some_and(|p| p > Ticks::ZERO) {
+        clip.start - clip.loop_phase
+    } else {
+        clip.start
+    }
+}
+
+/// "Warp from here" (M9.5 S5a): `clip` with the audio that plays at `here`
+/// moved to play at `bar` (a bar line, absolute ticks), the rest of the map
+/// keeping its shape. The audio is slid under the clip, as a slip does, so the
+/// stretch between markers is unchanged. `snap` may move the second heard at
+/// `here` to the transient beside it. A clip that is not warped is warped
+/// first, for a file made at `original_bpm`, in the same edit.
+pub fn from_here(
+    project: &Project,
+    clip: &Clip,
+    original_bpm: f64,
+    (here, bar): (Ticks, Ticks),
+    snap: &dyn Fn(f64) -> Option<f64>,
+) -> Result<Clip, Refused> {
+    let origin = origin(clip);
+    // A looping clip repeats one turn of its map, so a place in a later
+    // repeat is the same place in the first (round 2).
+    let within = |at: Ticks| {
+        if clip.loop_length.is_some_and(|p| p > Ticks::ZERO) {
+            Ticks((at - origin).0.rem_euclid(window(clip).0))
+        } else {
+            at - origin
+        }
+    };
+    let (here_in, bar_in) = (within(here), within(bar));
+    // The second heard at `here` before anything changes. A clip that is not
+    // warped plays its file at its own speed from the second at its clock, so
+    // that is read through the song's tempo, not through the map it is about
+    // to get (which follows the song at `original_bpm` and so plays the file
+    // elsewhere whenever the two differ).
+    let heard = match &clip.warp {
+        Some(warp) => warp.source_at(here_in),
+        None => {
+            let (rate, _, offset) = audio_of(project, clip).ok_or(Refused::NotAudio)?;
+            let tempo = super::tempo_of(project);
+            offset as f64 / f64::from(rate)
+                + clip.audio_phase_seconds
+                + tempo.seconds_at(origin + here_in)
+                - tempo.seconds_at(origin)
+        }
+    };
+    let on = if clip.warp.is_some() {
+        clip.clone()
+    } else {
+        enable(project, clip, original_bpm)?
+    };
+    let warp = on.warp.as_ref().ok_or(Refused::Unchanged)?;
+    let source = snap(heard).unwrap_or(heard);
+    let now = lumen_core::warp::tick_at_source(&warp.markers, warp.original_bpm, source);
+    let mut markers = warp.markers.clone();
+    lumen_core::warp::shift(&mut markers, bar_in - now);
+    match set_markers(project, &on, markers) {
+        // Already there: turning warp on was the whole edit.
+        Err(Refused::Unchanged) if on != *clip => Ok(on),
+        other => other,
+    }
+}
+
 /// The stretch of the map a clip plays: one turn of a loop, or the clip.
 pub(super) fn window(clip: &Clip) -> Ticks {
     clip.loop_length
@@ -417,6 +484,8 @@ pub(super) fn window(clip: &Clip) -> Ticks {
 mod tests {
     use super::*;
     use crate::edit::tests::{q, song};
+    use lumen_core::time::PPQ;
+    use std::sync::Arc;
 
     #[test]
     fn splitting_seconds_keeps_a_frame_exactly() {
@@ -540,5 +609,144 @@ mod tests {
         assert!((other.markers[0].source - 2.0).abs() < 1e-9);
         let off = disable(&warped).unwrap();
         assert_eq!(off, clip);
+    }
+
+    #[test]
+    fn warp_from_here_puts_the_heard_audio_on_the_bar_and_keeps_the_stretch() {
+        let project = song();
+        let clip = (*project.tracks[0].clips[0]).clone();
+        // The clip starts at beat 4; a second in (beat 6) is heard.
+        let (here, bar) = (q(6), q(4));
+        let none = |_: f64| None;
+        let moved = from_here(&project, &clip, 120.0, (here, bar), &none).unwrap();
+        let warp = moved.warp.as_ref().expect("warp is on");
+        let heard = 1_000.0 / 48_000.0 + 1.0;
+        assert!((warp.source_at(bar - origin(&moved)) - heard).abs() < 1e-6);
+        // The same stretch as before: half a second a beat at 120 BPM.
+        let span = warp.source_at(q(2)) - warp.source_at(Ticks::ZERO);
+        assert!((span - 1.0).abs() < 1e-9);
+        // The clip's window and the media offset follow.
+        assert_eq!(moved.start, clip.start);
+        assert!(matches!(
+            moved.content,
+            ClipContent::Audio { offset: 49_000, .. }
+        ));
+        // A transient beside the heard second is what lands on the bar.
+        let snap = |s: f64| ((s - heard).abs() < 1e-6).then_some(heard + 0.01);
+        let snapped = from_here(&project, &clip, 120.0, (here, bar), &snap).unwrap();
+        let warp = snapped.warp.as_ref().unwrap();
+        assert!((warp.source_at(Ticks::ZERO) - (heard + 0.01)).abs() < 1e-6);
+        // What now plays on the bar is already there: nothing to do.
+        assert_eq!(
+            from_here(&project, &moved, 120.0, (bar, bar), &none),
+            Err(Refused::Unchanged)
+        );
+    }
+
+    #[test]
+    fn warp_from_here_warps_a_clip_that_is_not_and_refuses_what_leaves_the_file() {
+        let project = song();
+        let clip = (*project.tracks[0].clips[0]).clone();
+        let none = |_: f64| None;
+        // Already on the bar: turning warp on is all it does.
+        let on = from_here(&project, &clip, 100.0, (q(4), q(4)), &none).unwrap();
+        assert_eq!(on, enable(&project, &clip, 100.0).unwrap());
+        // Two seconds later would start the window before the file.
+        assert_eq!(
+            from_here(&project, &clip, 120.0, (q(4), q(8)), &none),
+            Err(Refused::Setting)
+        );
+        let mut midi = clip;
+        midi.content = ClipContent::midi();
+        assert_eq!(
+            from_here(&project, &midi, 120.0, (q(4), q(4)), &none),
+            Err(Refused::NotAudio)
+        );
+    }
+
+    #[test]
+    fn warp_from_here_aligns_the_sound_heard_when_the_file_tempo_differs() {
+        // Review round 1: the second heard was read through the new map, which
+        // plays the file at its own tempo, so a file made at 100 BPM in a
+        // 120 BPM song aligned the wrong sound.
+        let project = song();
+        let clip = (*project.tracks[0].clips[0]).clone();
+        let none = |_: f64| None;
+        let base = 1_000.0 / 48_000.0;
+        for (here, bar) in [(q(6), q(4)), (q(8), q(5)), (q(5), q(4))] {
+            let moved = from_here(&project, &clip, 100.0, (here, bar), &none).unwrap();
+            let warp = moved.warp.as_ref().expect("warp is on");
+            // The unwarped clip plays half a second a beat from its start.
+            let heard = base + (here - clip.start).0 as f64 / PPQ as f64 * 0.5;
+            let landed = warp.source_at(bar - origin(&moved));
+            assert!(
+                (landed - heard).abs() < 1e-6,
+                "{landed} on the bar, {heard} heard at {here:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn warp_from_here_reads_the_second_heard_through_a_tempo_change() {
+        let mut project = song();
+        // 120 BPM to beat 5, then 60: a beat takes a second from there.
+        project.tempo = vec![
+            TempoPoint::step(Ticks::ZERO, 120.0),
+            TempoPoint::step(q(5), 60.0),
+        ];
+        let clip = (*project.tracks[0].clips[0]).clone();
+        let none = |_: f64| None;
+        let (here, bar) = (q(7), q(4));
+        let moved = from_here(&project, &clip, 120.0, (here, bar), &none).unwrap();
+        let warp = moved.warp.as_ref().expect("warp is on");
+        // Beat 4 to 5 is half a second, beat 5 to 7 is two: 2.5 s in.
+        let heard = 1_000.0 / 48_000.0 + 2.5;
+        assert!((warp.source_at(bar - origin(&moved)) - heard).abs() < 1e-6);
+    }
+
+    #[test]
+    fn warp_from_here_in_a_later_repeat_aligns_the_sound_that_repeats() {
+        // Review round 2: a cursor in the second or third turn of a loop was
+        // read as a place far past the first turn's map.
+        let mut project = song();
+        let mut clip = (*project.tracks[0].clips[0]).clone();
+        // A four-beat turn, repeated over the clip's eight beats.
+        clip.loop_length = Some(q(4));
+        clip.loop_phase = Ticks::ZERO;
+        project.tracks[0] = Arc::new(crate::model::Track {
+            clips: vec![Arc::new(clip.clone())],
+            ..(*project.tracks[0]).clone()
+        });
+        let none = |_: f64| None;
+        let base = 1_000.0 / 48_000.0;
+        // Beat 5 of the song is beat 1 of the clip's first turn, 0.5 s in.
+        let want = base + 0.5;
+        let bar = clip.start;
+        let mut seen = Vec::new();
+        for turn in 0..2 {
+            let here = clip.start + q(1) + q(4 * turn);
+            let moved = from_here(&project, &clip, 100.0, (here, bar), &none).unwrap();
+            let warp = moved.warp.as_ref().expect("warp is on");
+            seen.push(warp.source_at(Ticks::ZERO));
+        }
+        assert!((seen[0] - want).abs() < 1e-6, "{seen:?}");
+        assert!((seen[1] - want).abs() < 1e-6, "{seen:?}");
+        // A loop phase moves the clock the turns count from.
+        let mut phased = clip.clone();
+        phased.loop_phase = q(1);
+        let (here, bar) = (phased.start + q(6), phased.start + q(1));
+        let moved = from_here(&project, &phased, 100.0, (here, bar), &none).unwrap();
+        let again = from_here(&project, &phased, 100.0, (here + q(4), bar), &none).unwrap();
+        assert_eq!(moved.warp, again.warp, "a turn later is the same place");
+    }
+
+    #[test]
+    fn a_looped_clips_origin_is_its_loop_clock() {
+        let project = song();
+        let mut clip = (*project.tracks[0].clips[0]).clone();
+        assert_eq!(origin(&clip), clip.start);
+        clip.loop_length = Some(q(2));
+        clip.loop_phase = q(1);
+        assert_eq!(origin(&clip), clip.start - q(1));
     }
 }
