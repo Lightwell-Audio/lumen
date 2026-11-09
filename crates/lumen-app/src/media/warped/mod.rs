@@ -30,6 +30,8 @@ use std::sync::Arc;
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_core::warp::{self, Marker};
 use lumen_engine::ClipAudio;
+use lumen_media::stretch::Preset;
+use lumen_project::model::WarpMode;
 
 /// Where a warped stream reads the file it plays.
 #[derive(Clone)]
@@ -40,10 +42,33 @@ pub enum Origin {
     File(u64),
 }
 
+/// How a warped stream turns the file into the song's frames (the warp
+/// mode, as far as it is heard).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Engine {
+    /// The file read faster or slower, its pitch following (S4b).
+    Repitch,
+    /// The file stretched without changing its pitch (S4c).
+    Stretch(Preset),
+}
+
+impl Engine {
+    /// The engine a mode plays with. Rhythmic is Lumen's own slicer, which
+    /// comes with S5b: until then it plays as Repitch, as it did before.
+    pub fn of(mode: WarpMode) -> Self {
+        match mode {
+            WarpMode::Repitch | WarpMode::Rhythmic => Engine::Repitch,
+            WarpMode::Melodic => Engine::Stretch(Preset::Light),
+            WarpMode::FullMix => Engine::Stretch(Preset::Full),
+        }
+    }
+}
+
 /// What a warped stream is made from: the file, the map and the tempo it
 /// plays against. Everything its frames depend on.
 pub struct Warped {
     pub origin: Origin,
+    pub engine: Engine,
     /// Channels played, one or two.
     pub channels: usize,
     /// The rate of file and stream.
@@ -75,6 +100,7 @@ impl Warped {
         let anchor_ticks = tempo.ticks_f64_at_seconds(anchor_sample as f64 / f64::from(rate));
         Self {
             origin,
+            engine: Engine::Repitch,
             channels,
             rate,
             markers,

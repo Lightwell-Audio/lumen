@@ -563,6 +563,7 @@ impl App {
                     length: lead_to - lead_from,
                     passes: Vec::new(),
                     active: 0,
+                    follow: None,
                 });
             }
             takes.push(Take {
@@ -573,6 +574,7 @@ impl App {
                 length: to - from,
                 passes,
                 active,
+                follow: None,
             });
         }
         if !takes.is_empty() {

@@ -10,9 +10,9 @@ use std::sync::Arc;
 
 use lumen_core::time::Ticks;
 
-use crate::model::{Clip, ClipContent, Id, Media, Pass, Project, Track, TrackKind};
+use crate::model::{Clip, ClipContent, Id, Media, Pass, Project, Track, TrackKind, WarpMode};
 
-use super::{overwrite, takes};
+use super::{overwrite, takes, warp};
 
 /// A recorded file to put on a track.
 #[derive(Debug, Clone, PartialEq)]
@@ -31,6 +31,9 @@ pub struct Take {
     pub passes: Vec<i64>,
     /// The pass the clip plays, an index into `passes`.
     pub active: usize,
+    /// Whether the clip follows the song's tempo (M9.5 S4d), and how it is
+    /// stretched: it plays as it was recorded, then follows later changes.
+    pub follow: Option<WarpMode>,
 }
 
 /// What [`apply`] did.
@@ -93,10 +96,15 @@ pub fn apply(project: &mut Project, takes: &[Take], fresh: &mut impl FnMut() -> 
             let active = take.active.min(passes.len() - 1);
             takes::with_passes(&mut clip, passes, active);
         }
-        let clip = Arc::new(clip);
         if !project.media.iter().any(|m| m.id == take.media.id) {
             project.media.push(take.media.clone());
         }
+        if let Some(mode) = take.follow
+            && let Ok(warped) = warp::as_recorded(project, &clip, mode)
+        {
+            clip = warped;
+        }
+        let clip = Arc::new(clip);
         let end = clip.start + clip.length;
         let blocked = project.tracks[at]
             .clips
@@ -138,6 +146,7 @@ pub(super) fn put_on_new_track(project: &mut Project, at: usize, id: Id, clip: A
 mod tests {
     use super::*;
     use crate::edit::tests::{clips, ids, q, song};
+    use lumen_core::warp::Marker;
 
     fn file(id: u64) -> Media {
         Media {
@@ -160,7 +169,138 @@ mod tests {
             length: q(length),
             passes: Vec::new(),
             active: 0,
+            follow: None,
         }
+    }
+
+    fn the_clip(p: &Project, track: usize) -> Arc<Clip> {
+        Arc::clone(p.tracks[track].clips.last().expect("a clip"))
+    }
+
+    #[test]
+    fn a_take_that_follows_the_tempo_is_made_at_the_songs_tempo() {
+        let mut p = song();
+        let mut t = take(&p, 2, 0, 4);
+        t.follow = Some(WarpMode::FullMix);
+        apply(&mut p, &[t], &mut ids());
+        let clip = the_clip(&p, 2);
+        let warp = clip.warp.as_ref().expect("warp on");
+        assert_eq!((warp.mode, warp.original_bpm), (WarpMode::FullMix, 120.0));
+        assert_eq!(warp.markers.len(), 1, "a steady tempo needs one marker");
+        assert!(matches!(clip.content, ClipContent::Audio { offset: 0, .. }));
+        assert!(crate::validate(&p).is_ok());
+    }
+
+    #[test]
+    fn a_take_that_does_not_follow_is_unwarped() {
+        let mut p = song();
+        let t = take(&p, 2, 0, 4);
+        apply(&mut p, &[t], &mut ids());
+        assert!(the_clip(&p, 2).warp.is_none());
+    }
+
+    #[test]
+    fn a_tempo_change_inside_a_take_gets_a_marker_that_keeps_it_as_recorded() {
+        let mut p = song();
+        p.tempo.push(lumen_core::time::TempoPoint::step(q(2), 60.0));
+        p.tempo
+            .push(lumen_core::time::TempoPoint::step(q(100), 90.0));
+        let mut t = take(&p, 2, 0, 4);
+        t.follow = Some(WarpMode::FullMix);
+        apply(&mut p, &[t], &mut ids());
+        let warp = the_clip(&p, 2).warp.clone().expect("warp on");
+        // Two quarters at 120 BPM are a second of the file, and two at 60 are
+        // two more; the point at 100 is past the clip and gets nothing. The
+        // end of the clip is pinned too, or its last stretch would play at the
+        // original tempo.
+        assert_eq!(
+            warp.markers,
+            [
+                Marker::new(0.0, q(0)),
+                Marker::new(1.0, q(2)),
+                Marker::new(3.0, q(4))
+            ]
+        );
+        let at_end = lumen_core::warp::source_at(&warp.markers, warp.original_bpm, q(4));
+        assert!((at_end - 3.0).abs() < 1e-9, "the end plays second {at_end}");
+        let third = lumen_core::warp::source_at(&warp.markers, warp.original_bpm, q(3));
+        assert!(
+            (third - 2.0).abs() < 1e-9,
+            "beat three plays second {third}"
+        );
+        // The song is at 120 where the clip starts.
+        assert_eq!(warp.original_bpm, 120.0);
+        assert!(crate::validate(&p).is_ok());
+    }
+
+    #[test]
+    fn a_tempo_ramp_inside_a_take_is_followed_closely_and_passes_get_the_same() {
+        let mut p = song();
+        p.tempo[0].ramp = true;
+        p.tempo.push(lumen_core::time::TempoPoint::step(q(4), 60.0));
+        let mut t = take(&p, 2, 0, 4);
+        t.follow = Some(WarpMode::FullMix);
+        t.passes = vec![0, 96_000];
+        t.active = 1;
+        apply(&mut p, &[t], &mut ids());
+        let clip = the_clip(&p, 2);
+        let warp = clip.warp.as_ref().expect("warp on");
+        assert!(warp.markers.len() > 4, "a marker every few ticks");
+        assert!(lumen_core::warp::is_sound(&warp.markers));
+        let tempo = crate::edit::tempo_of(&p);
+        for m in &warp.markers {
+            let second = warp.markers[0].source + tempo.seconds_at(m.at);
+            assert!((m.source - second).abs() < 1e-9, "{m:?} against {second}");
+        }
+        let other = clip
+            .takes
+            .as_ref()
+            .and_then(|t| t.other(0))
+            .expect("a pass");
+        let Pass::Audio {
+            warp: Some(other), ..
+        } = other
+        else {
+            panic!("the pass follows too");
+        };
+        assert_eq!(other.markers.len(), warp.markers.len());
+        // The first pass starts at the file's first frame, the active at 2 s.
+        assert_eq!(other.markers[0].source, 0.0);
+        assert_eq!(warp.markers[0].source, 2.0);
+        assert!(crate::validate(&p).is_ok());
+    }
+
+    /// A take shorter than the ramp's sampling step has no tempo point of its
+    /// own, yet its end must still be pinned (review round 2): past its last
+    /// marker a map plays at the original tempo.
+    #[test]
+    fn a_short_take_inside_a_ramp_still_has_its_end_pinned() {
+        let mut p = song();
+        p.tempo[0].ramp = true;
+        p.tempo
+            .push(lumen_core::time::TempoPoint::step(q(1), 240.0));
+        let mut t = take(&p, 2, 0, 1);
+        t.length = lumen_core::time::Ticks(lumen_core::time::PPQ / 8);
+        t.follow = Some(WarpMode::FullMix);
+        apply(&mut p, &[t], &mut ids());
+        let clip = the_clip(&p, 2);
+        let warp = clip.warp.as_ref().expect("warp on");
+        let tempo = crate::edit::tempo_of(&p);
+        let end = lumen_core::time::Ticks(lumen_core::time::PPQ / 8);
+        assert_eq!(warp.markers.last().map(|m| m.at), Some(end));
+        let want = tempo.seconds_at(end);
+        let got = lumen_core::warp::source_at(&warp.markers, warp.original_bpm, end);
+        assert!((got - want).abs() < 1e-9, "the end plays {got}, not {want}");
+        // A take clear of the ramp is still the one marker.
+        let mut p = song();
+        p.tempo[0].ramp = true;
+        p.tempo
+            .push(lumen_core::time::TempoPoint::step(q(1), 240.0));
+        let mut t = take(&p, 2, 8, 2);
+        t.follow = Some(WarpMode::FullMix);
+        apply(&mut p, &[t], &mut ids());
+        let clip = the_clip(&p, 2);
+        assert_eq!(clip.warp.as_ref().expect("warp").markers.len(), 1);
     }
 
     #[test]

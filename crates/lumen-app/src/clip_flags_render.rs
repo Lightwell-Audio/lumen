@@ -51,6 +51,7 @@ fn document() -> Document {
         channels: 2,
         frames: FRAMES as u64,
         size_bytes: 0,
+        tempo: None,
         at: Ticks::ZERO,
         into: DropInto::NewTracks {
             before: None,

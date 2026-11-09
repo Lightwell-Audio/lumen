@@ -871,6 +871,7 @@ mod tests {
             channels,
             frames: 48_000,
             size_bytes: 192_044,
+            tempo: None,
             at: lumen_core::time::Ticks::ZERO,
             into: crate::document::DropInto::Track(id),
         }]);

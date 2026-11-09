@@ -6,16 +6,23 @@ use std::sync::Arc;
 
 use lumen_engine::ClipAudio;
 use lumen_media::MediaError;
-use lumen_media::repitch::{Renderer, Source};
+use lumen_media::repitch::{self, Source};
 use lumen_media::stream::Reader;
+use lumen_media::stretch::{Chunks, Stretcher};
 
-use super::Warped;
+use super::{Engine, Warped};
 
 /// A warped stream opened for reading.
 pub(in crate::media) struct Rendering {
     warped: Arc<Warped>,
     renderer: Renderer,
     input: Input,
+}
+
+/// What turns the file into the stream's frames.
+enum Renderer {
+    Repitch(repitch::Renderer),
+    Stretch(Box<Chunks>),
 }
 
 enum Input {
@@ -43,9 +50,17 @@ impl Rendering {
             }
             (super::Origin::File(_), None) => return None,
         };
+        let renderer = match warped.engine {
+            Engine::Stretch(preset) => Stretcher::new(warped.channels, warped.rate, preset)
+                .map(|s| Renderer::Stretch(Box::new(Chunks::new(s))))
+                // A stretcher that cannot be made plays the stream as
+                // Repitch: something to hear rather than a hole.
+                .unwrap_or_else(|_| Renderer::Repitch(repitch::Renderer::new())),
+            Engine::Repitch => Renderer::Repitch(repitch::Renderer::new()),
+        };
         Some(Self {
             warped,
-            renderer: Renderer::new(),
+            renderer,
             input,
         })
     }
@@ -66,13 +81,15 @@ impl Rendering {
         } else {
             &mut right[..0]
         };
-        self.renderer.render(
-            &mut self.input,
-            &|k| warped.position(k),
-            from as i64,
-            left,
-            right,
-        )?;
+        let position = |k| warped.position(k);
+        match &mut self.renderer {
+            Renderer::Repitch(r) => {
+                r.render(&mut self.input, &position, from as i64, left, right)?
+            }
+            Renderer::Stretch(c) => {
+                c.render(&mut self.input, &position, from as i64, left, right)?
+            }
+        }
         Ok(warped.frames.saturating_sub(from).min(n as u64) as usize)
     }
 }

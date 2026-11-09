@@ -154,6 +154,10 @@ fn clip_waves(
     let Some(source) = source(key) else {
         return;
     };
+    if clip.warp.is_some() {
+        warped_waves(waves, rate, shown, key, &source);
+        return;
+    }
     // The file offset in the device-rate frames the peaks index.
     let base = (*offset as f64 * f64::from(rate) / f64::from(source.native_rate.max(1))) as i64;
     let origin = if clip.loop_length.is_some() {
@@ -274,6 +278,135 @@ fn clip_waves(
     }
 }
 
+/// The waves of a warped clip (M9.5 S4d). The map ties the file to music
+/// time, not to the tempo, so the clip is cut where the map has a marker (and
+/// at each repeat of a loop), and each piece is a straight run of the file:
+/// from the second the map puts at its start to the one it puts at its end.
+fn warped_waves(waves: &mut Vec<Wave>, rate: u32, shown: &Shown<'_>, key: u64, source: &Source) {
+    let Shown {
+        model,
+        clip,
+        blend,
+        row,
+        color,
+    } = *shown;
+    let Some(warp) = &clip.warp else {
+        return;
+    };
+    let [r, g, b, a] = color.to_srgba_unmultiplied();
+    let ClipContent::Audio { gain_db, .. } = &clip.content else {
+        return;
+    };
+    let period = clip.loop_length.filter(|p| *p > Ticks::ZERO);
+    let origin = if period.is_some() {
+        clip.start - clip.loop_phase
+    } else {
+        clip.start
+    };
+    let (start, end) = (clip.start, clip.start + clip.length);
+    let mut cuts: Vec<Ticks> = Vec::new();
+    // A marker inside one turn of the map cuts every repeat of it.
+    let turns = |cuts: &mut Vec<Ticks>, within: Ticks| {
+        let mut at = origin + within;
+        match period {
+            Some(period) => {
+                if at <= start {
+                    // A clip split or trimmed far into a loop starts many
+                    // turns after its origin: jump to the first turn in view
+                    // rather than walking the turns before it.
+                    at = at + Ticks((start - at).0 / period.0 * period.0 + period.0);
+                }
+                while at < end && cuts.len() < MAX_REPEATS {
+                    if at > start {
+                        cuts.push(at);
+                    }
+                    at = at + period;
+                }
+            }
+            None if at > start && at < end => cuts.push(at),
+            None => {}
+        }
+    };
+    for marker in warp.markers.iter().take(MAX_REPEATS) {
+        let within = match period {
+            Some(period) => Ticks(marker.at.0.rem_euclid(period.0)),
+            None => marker.at,
+        };
+        turns(&mut cuts, within);
+    }
+    if period.is_some() {
+        turns(&mut cuts, Ticks::ZERO);
+    }
+    cuts.push(end);
+    cuts.sort_unstable();
+    cuts.dedup();
+    let gain = 10f32.powf(gain_db / 20.0) * if clip.inverted { -1.0 } else { 1.0 };
+    let (curve_in, curve_out) = (clip.fade_in.curve.into(), clip.fade_out.curve.into());
+    let fade_start = start - clip.fade_in.offset;
+    let fade_end = end + clip.fade_out.offset;
+    let (curve_in, fade_in) = if model.crossfade && !blend {
+        (curve_in, [beats(start.as_quarters()); 2])
+    } else {
+        (
+            curve_in,
+            [
+                beats(fade_start.as_quarters()),
+                beats((fade_start + clip.fade_in.span.max(clip.fade_in.length)).as_quarters()),
+            ],
+        )
+    };
+    let fade_out = [
+        beats((fade_end - clip.fade_out.span.max(clip.fade_out.length)).as_quarters()),
+        beats(fade_end.as_quarters()),
+    ];
+    let device_rate = f64::from(rate);
+    let mut from = start;
+    for to in cuts {
+        let length = (to - from).as_quarters();
+        if length <= 0.0 {
+            continue;
+        }
+        // The map's own clock: from the origin, and for a loop from the
+        // start of the turn the piece is in.
+        let local = |at: Ticks| match period {
+            Some(period) => (at - origin).0.rem_euclid(period.0) as f64,
+            None => (at - origin).0 as f64,
+        };
+        let begins = local(from);
+        let ends = begins + (to - from).0 as f64;
+        let first = lumen_core::warp::source_at_f64(&warp.markers, warp.original_bpm, begins);
+        let last = lumen_core::warp::source_at_f64(&warp.markers, warp.original_bpm, ends);
+        let first_frame = first * device_rate;
+        let frames = (last - first) * device_rate;
+        waves.push(Wave {
+            instance: WaveInstance {
+                start: beats(from.as_quarters()),
+                end: beats(to.as_quarters()),
+                row,
+                slot: source.slot,
+                first_frame: first_frame as f32,
+                frames_per_beat: (frames / length) as f32,
+                color: rgba(r, g, b, a),
+                channels: source.channels,
+                gain,
+                curve_in,
+                curve_out,
+                fade_in,
+                fade_out,
+            },
+            geometry: Geometry {
+                media: key,
+                row,
+                start: from.as_quarters(),
+                first_frame,
+                frames_per_beat: frames / length,
+                frames,
+            },
+        });
+        from = to;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,6 +485,66 @@ mod tests {
         );
         assert_eq!(w.first_frame, 48_000.0);
         assert_eq!(w.frames_per_beat, 24_000.0);
+    }
+
+    fn warped(mut project: Project, warp: lumen_project::model::Warp) -> Project {
+        let track = Arc::make_mut(&mut project.tracks[0]);
+        Arc::make_mut(&mut track.clips[0]).warp = Some(warp);
+        project
+    }
+
+    #[test]
+    fn a_warped_clip_draws_the_file_at_the_speed_the_map_plays_it() {
+        // A 90 BPM file in a 120 BPM song: a beat of the song is two thirds
+        // of a second of the file, 32,000 frames, not the 24,000 of a beat.
+        // A tempo change inside the clip does not cut it: the file follows
+        // the beats.
+        let tempo = vec![bpm(0, 120.0), bpm(6, 60.0)];
+        let p = warped(
+            project(tempo, 0),
+            lumen_project::model::Warp::new(90.0, 0.0),
+        );
+        let waves = waves(&p, 48_000);
+        assert_eq!(waves.len(), 1);
+        assert_eq!((waves[0].start, waves[0].end), ([4.0, 0.0], [8.0, 0.0]));
+        assert_eq!(waves[0].first_frame, 0.0);
+        assert_eq!(waves[0].frames_per_beat, 32_000.0);
+    }
+
+    #[test]
+    fn a_warped_clip_is_cut_at_its_markers_and_each_piece_has_its_own_speed() {
+        use lumen_core::warp::Marker;
+        let mut warp = lumen_project::model::Warp::new(60.0, 0.0);
+        // A second of the file in the first two beats (48,000 frames in
+        // two beats), then the original tempo of 60 BPM: 48,000 a beat.
+        warp.markers.push(Marker::new(1.0, Ticks::quarters(2)));
+        let p = warped(project(vec![bpm(0, 120.0)], 0), warp);
+        let waves = waves(&p, 48_000);
+        let seen: Vec<_> = waves
+            .iter()
+            .map(|w| (w.start[0], w.first_frame, w.frames_per_beat))
+            .collect();
+        assert_eq!(seen, [(4.0, 0.0, 24_000.0), (6.0, 48_000.0, 48_000.0)]);
+    }
+
+    /// Review round 2: a warped loop trimmed far into its repeats keeps a huge
+    /// phase; drawing it must not walk every turn before the clip.
+    #[test]
+    fn a_warped_loop_far_into_its_turns_is_drawn_without_walking_them() {
+        use lumen_core::warp::Marker;
+        let mut warp = lumen_project::model::Warp::new(120.0, 0.0);
+        warp.markers.push(Marker::new(0.25, Ticks::quarters(1)));
+        let mut p = warped(project(vec![bpm(0, 120.0)], 0), warp);
+        let clip = Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]);
+        clip.loop_length = Some(Ticks::quarters(2));
+        // Two billion turns in: the clip starts at beat 4 of a loop whose
+        // origin is 4 billion beats back.
+        clip.loop_phase = Ticks::quarters(4_000_000_000);
+        let began = std::time::Instant::now();
+        let waves = waves(&p, 48_000);
+        assert!(began.elapsed().as_secs() < 2, "it walked the turns");
+        assert!(!waves.is_empty() && waves.len() <= 64);
+        assert_eq!(waves[0].start[0], 4.0);
     }
 
     #[test]

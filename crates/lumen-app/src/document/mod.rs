@@ -49,7 +49,7 @@ pub use automation::LaneRefusal;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use devices::{Refusal, Slot, find_device, name_of as device_name};
 pub use groups::Place;
-pub use import::{DropInto, Imported, Places, import_place};
+pub use import::{DropInto, FollowTempo, Imported, Places, import_place};
 pub use lanes::{Drag, Line, Shift};
 pub use midi_clips::NewClip;
 pub use mixer::Refused;
@@ -101,6 +101,9 @@ pub struct Document {
     /// What new tracks start with (the New tracks preferences, M9 R7). Set
     /// by the app each frame.
     new_tracks: NewTracks,
+    /// Whether new audio clips follow the song's tempo (the New audio clips
+    /// preference, M9.5 S4d). Set by the app each frame.
+    follow_tempo: FollowTempo,
 }
 
 /// What a new track starts with: an audio track's monitoring, and the
@@ -165,6 +168,7 @@ impl Document {
             lock_envelopes: false,
             open_inputs: 0,
             new_tracks: NewTracks::default(),
+            follow_tempo: FollowTempo::default(),
         }
     }
 
@@ -181,6 +185,11 @@ impl Document {
     /// What new tracks start with.
     pub fn set_new_tracks(&mut self, new_tracks: NewTracks) {
         self.new_tracks = new_tracks;
+    }
+
+    /// Whether new audio clips (imported or recorded) follow the song's tempo.
+    pub fn set_follow_tempo(&mut self, follow: FollowTempo) {
+        self.follow_tempo = follow;
     }
 
     /// Keeps at most `steps` undo steps. Set on a document just made or
@@ -869,6 +878,7 @@ mod tests {
             channels: 2,
             frames: 96_000,
             size_bytes: 384_044,
+            tempo: None,
             at,
             into: DropInto::NewTracks {
                 before: None,

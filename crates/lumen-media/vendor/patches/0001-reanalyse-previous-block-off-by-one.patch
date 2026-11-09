@@ -1,0 +1,29 @@
+LUMEN PATCH 0001: the previous block is read one sample off the hop.
+
+Upstream report: #35 of the stretch library's repository. When the input
+interval of a block is within one sample of the default interval (a rate
+within about a tenth of a percent of 1), the library keeps the previous
+block's analysis as if it were exactly one interval back. It is not, and the
+phase error grows with frequency: the high band loses level (a 15 kHz partial
+at a rate of 1.0001 came out at 15% of its level before this patch).
+
+The fix analyses the previous block again unless it is exactly one interval
+back. Cost: one more analysis per block for rates in that narrow band.
+
+Applied in place in vendor/signalsmith-stretch/signalsmith-stretch.h (the
+line carries the marker "LUMEN PATCH 0001"). Covered by
+stretch::tests::high_partials_keep_their_level_and_pitch_just_off_unity.
+Drop this patch when an upstream release carries the fix.
+
+--- a/signalsmith-stretch/signalsmith-stretch.h
++++ b/signalsmith-stretch/signalsmith-stretch.h
+@@ -300,7 +300,7 @@
+ 					blockProcess.newSpectrum = didSeek || (inputInterval > 0);
+ 					blockProcess.mappedFrequencies = customFreqMap || freqMultiplier != 1;
+ 					if (blockProcess.newSpectrum) {
+ 						// make sure the previous input is the correct distance in the past (give or take 1 sample)
+-						blockProcess.reanalysePrev = didSeek || std::abs(inputInterval - int(stft.defaultInterval())) > 1;
++						blockProcess.reanalysePrev = didSeek || inputInterval != int(stft.defaultInterval()); // LUMEN PATCH 0001 (upstream #35): was `std::abs(inputInterval - int(stft.defaultInterval())) > 1`
+ 						if (blockProcess.reanalysePrev) blockProcess.steps += stft.analyseSteps() + 1;
+
+ 						// analyse a new input

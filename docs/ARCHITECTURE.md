@@ -1,5 +1,19 @@
 # Lumen — Architecture
 
+**M9.5 S4c and S4d Stretch modes and follow tempo (2026-11-08, ADR-0132, no
+format change).** `lumen-media::stretch`: `Stretcher` (a safe wrapper of the
+vendored C++ stretch library through `shim.cpp`, built by `build.rs`; sources
+in `vendor/`) and `Chunks` (the chunk renderer: a fixed 98,304-frame grid, each
+chunk a fresh run from a pre-roll, a 2,048-frame crossfade at each seam, a plain
+copy where the map is unity). `lumen-media::tempo`: the tempo a file states
+(WAV loop tag, BPM tag, BPM in the name). `lumen-app::media::warped`: `Engine`
+(`Engine::of(mode)`: Repitch, or Stretch with a `Preset`) chooses the
+renderer of `Rendering`; the stream key hashes it. `lumen-project::edit::warp::as_recorded`
+makes a recorded take follow the tempo (markers at the song's tempo changes);
+`Document::set_follow_tempo` and `document::FollowTempo` hold the preference
+(`settings::Editing::follow_tempo`), used by `Document::import` and
+`record_audio_takes`. `arrangement/waves.rs` draws a warped clip by its map.
+
 **M9.5 S4b Repitch (2026-11-08, ADR-0131, no format change).**
 `lumen-media::repitch`: `Renderer`, a stateless windowed-sinc (Kaiser, 16
 taps each side) that reads a `Source` at `position(frame)`, so every frame

@@ -18,10 +18,19 @@ impl Document {
             self.media_files
                 .insert(take.media.id, PathBuf::from(&take.media.path));
         }
+        // The preference decides whether the clips follow the tempo (S4d).
+        let follow = self.follow_tempo.recorded();
+        let takes: Vec<Take> = takes
+            .iter()
+            .map(|take| Take {
+                follow,
+                ..take.clone()
+            })
+            .collect();
         let mut placed = Placed::default();
         let next = &mut self.next_id;
         let changed = self.history.apply("Record", None, |project| {
-            placed = audio_take::apply(project, takes, &mut fresh_ids(next));
+            placed = audio_take::apply(project, &takes, &mut fresh_ids(next));
         });
         if changed { placed } else { Placed::default() }
     }
@@ -63,6 +72,7 @@ mod tests {
             length: Ticks::quarters(2),
             passes: Vec::new(),
             active: 0,
+            follow: None,
         }
     }
 

@@ -254,6 +254,12 @@ pub const ROWS: &[Row] = &[
         "default track synth preset poly keys bass pluck pad none",
     ),
     row(
+        "edit.follow_tempo",
+        Page::Editing,
+        "New audio clips: follow the tempo",
+        "warp loops recordings imported stretch bpm song tempo always never",
+    ),
+    row(
         "mix.additive_solo",
         Page::Mixing,
         "Additive solo",

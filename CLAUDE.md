@@ -567,9 +567,8 @@ per slice and move what is no longer current out of it.
   step each, and no command until S5 gives warp a control. Tell the owner:
   split keeps the whole marker list on both halves and warp off drops the map
   (both deviate from the plan, ADR-0130); Join's render, bounce, freeze and
-  export played a warped clip unstretched until S4b (done). **S4c and S4d wait for the
-  owner:** the stretch
-  library T. Not run here: the WSL perf gate and the macOS cross-target clippy.
+  export played a warped clip unstretched until S4b (done). Not run here: the WSL
+  perf gate and the macOS cross-target clippy.
 - **Branch `m9.5-s4b-repitch`: M9.5 S4b is built** (ADR-0131; no format
   change; owner chose 2 s chunks with a short first chunk, 2026-11-08). A
   warped clip now follows the tempo in Repitch, in playback and in every
@@ -581,8 +580,26 @@ per slice and move what is no longer current out of it.
   playback and renders alike; live warped playback needs "Play audio from
   disk" (renders always warp); an edit made while playing is held up to 2 s
   until its audio is ready. Not run here: the WSL perf gate, the macOS
-  cross-target clippy; `warped_64` is S4c's. Waits for the owner: the stretch
-  library T for S4c.
+  cross-target clippy.
+- **Branch `m9.5-s4c-stretch-modes`: M9.5 S4c and S4d are built** (ADR-0132;
+  no format change; owner chose T = C, the stretch library, 2026-11-08).
+  S4c: Melodic and Full mix play through the vendored stretch library
+  (`lumen-media/vendor/`, `VENDORED.md`; `stretch/` is the binding and the
+  chunk renderer, bit-identical for any pages, jumps and block sizes; unity is
+  decided span by span; one patched line, `vendor/patches/0001`, fixes the
+  library's loss of high frequencies at rates within 0.1% of 1; two review
+  rounds are in ADR-0132), inside
+  S4b's renderer; Rhythmic still plays as Repitch (S5b). S4d: Preferences ›
+  Editing › "Follow tempo" (Loops default, Always, Never): a recording follows
+  the song's tempo (D8 markers at tempo changes), an imported file follows
+  when its tags or a BPM in its name say it is a loop (`lumen-media/tempo.rs`).
+  The arrangement draws a warped clip's wave at the map's speed. **Tell the
+  owner:** the modes were never heard (MT-WARP-1 waits); one disk thread
+  stretches about 30 stereo tracks in real time (bench `warped_64`, ADR-0132
+  and KNOWN_ISSUES); the audio editor still draws a warped wave unwarped until
+  S5b; the docs page for the preference waits for S5 (it is in
+  `undocumented.txt`). Not run here: the WSL perf gate and the macOS
+  cross-target clippy. Next: S5a.
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);
@@ -625,6 +642,20 @@ per slice and move what is no longer current out of it.
   (`docs-render.yml`, `DOCS_DATA_READY`). The time is an estimate: nothing
   has run on GitHub, and the `jq` paths of `docs-media.sh` ran nowhere.
   Look at the first run's times and report them.
+- **Branch `docs/defer-guide-media`: guides are written at the milestone's
+  docs pass, not in every slice** (ADR-0133; owner chose option A,
+  2026-11-08, after UI changes kept breaking earlier slices' scenes and
+  media). This replaces "Every slice now carries its docs" above. A slice
+  keeps the generated reference, the names and tooltips, and the coverage
+  test; for an action it adds with no page it adds `id @m<milestone>` to
+  `site/docs/data/undocumented.txt` (CI refuses an untagged addition and
+  refuses tagging a backlog line). It may still write a page and scene for a
+  settled area. The milestone's docs pass writes the owed pages, removes the
+  tags, runs a full render and adds the milestone to
+  `site/docs/data/docs_pass.txt`, after which `docs_coverage` fails on a
+  leftover tag. Slice reports list what is owed. On the S4c branch the
+  preference is tagged (`pref:edit.follow_tempo @m9.5`); its stashed
+  `follow_tempo_preference` scene is dropped (`git stash list`).
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

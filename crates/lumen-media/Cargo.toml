@@ -12,5 +12,17 @@ symphonia.workspace = true
 rubato.workspace = true
 flacenc.workspace = true
 
+[build-dependencies]
+# Compiles the vendored time-stretch library (ADR-0132). Already in the tree
+# through the Windows resource step.
+cc = "1"
+
+[dev-dependencies]
+divan.workspace = true
+
+[[bench]]
+name = "warped"
+harness = false
+
 [lints]
 workspace = true

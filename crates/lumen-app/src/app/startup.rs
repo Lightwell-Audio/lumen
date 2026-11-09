@@ -26,6 +26,7 @@ impl App {
         });
         document.set_undo_limit(saved.editing.undo_steps);
         document.set_new_tracks(saved.editing.new_tracks.for_document());
+        document.set_follow_tempo(saved.editing.follow_tempo);
         let mut arrangement = arrangement::Arrangement::default();
         if launch.bench_lanes {
             for track in &document.project().tracks {
