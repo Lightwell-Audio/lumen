@@ -201,6 +201,8 @@ fn an_envelope_that_cannot_work_is_refused_with_a_reason() {
     assert!(why.contains("outside"), "{why}");
     let why = refused(&|c| c.envelopes.set(Kind::Pan, lane(&[(0, 2.0)])));
     assert!(why.contains("outside"), "{why}");
+    let why = refused(&|c| c.envelopes.set(Kind::Pitch, lane(&[(0, 60.0)])));
+    assert!(why.contains("outside") && why.contains("Pitch"), "{why}");
     let why = refused(&|c| {
         c.content = ClipContent::midi();
     });

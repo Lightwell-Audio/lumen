@@ -52,6 +52,7 @@ fn request<'a>(
         rate: RATE,
         origin: Ticks::ZERO,
         reach: frames,
+        pitch: None,
     }
 }
 
@@ -731,7 +732,7 @@ fn amplitude(x: &[f32], cycles: f64) -> f64 {
 
 fn with_mode(mut doc: Document, mode: WarpMode) -> Document {
     let id = doc.project().tracks[0].clips[0].id;
-    assert_eq!(doc.set_warp(&[id], &Change::Mode(mode)).changed, 1);
+    assert_eq!(doc.set_warp(&[id], &Change::Mode(mode), None).changed, 1);
     doc
 }
 
@@ -915,4 +916,247 @@ fn a_reader_that_must_not_wait_is_told_so_until_the_scan_is_done() {
     // The same bits as a reader that waits for the scan itself.
     let waited = read(&stream, 0, got.min(PAGE));
     assert_eq!(left[..got.min(PAGE)], waited[..]);
+}
+
+// ---------------------------------------------------------------- pitch (S6)
+
+fn pitch_lane(
+    points: &[(i64, f32, lumen_core::automation::Shape)],
+) -> lumen_core::automation::Lane {
+    lumen_core::automation::Lane::new(
+        points
+            .iter()
+            .map(|&(quarters, value, shape)| {
+                lumen_core::automation::Point::new(Ticks::quarters(quarters), value)
+                    .with_shape(shape)
+            })
+            .collect(),
+    )
+    .unwrap()
+}
+
+fn set_pitch_envelope(doc: &mut Document, lane: lumen_core::automation::Lane) {
+    doc.apply("pitch", None, |project| {
+        let clip = Arc::make_mut(&mut Arc::make_mut(&mut project.tracks[0]).clips[0]);
+        clip.envelopes
+            .set(lumen_project::envelope::Kind::Pitch, lane);
+    });
+}
+
+/// A transpose raises what is heard in the stretch modes (an octave doubles
+/// the tone) and is refused where it cannot be played (Repitch).
+#[test]
+fn a_transpose_moves_the_heard_pitch_in_the_stretch_modes() {
+    for mode in [WarpMode::Melodic, WarpMode::FullMix] {
+        let mut doc = with_mode(project(100.0, step(120.0), false), mode);
+        let id = doc.project().tracks[0].clips[0].id;
+        assert_eq!(
+            doc.set_warp(&[id], &Change::Transpose(1_200), None).changed,
+            1
+        );
+        let out = render(doc.project(), 96_000, 256, true);
+        let heard = &out[10_000..60_000];
+        let (old, octave) = (amplitude(heard, TONE), amplitude(heard, TONE * 2.0));
+        assert!(octave > 0.5 && old < 0.05, "{mode:?}: {old} and {octave}");
+        // Offline equals real time at any block size.
+        assert_eq!(out, render(doc.project(), 96_000, 1_000, true), "{mode:?}");
+    }
+    let mut doc = project(100.0, step(120.0), false);
+    let id = doc.project().tracks[0].clips[0].id;
+    assert_eq!(
+        doc.set_warp(&[id], &Change::Transpose(1_200), None).refused,
+        1
+    );
+}
+
+/// Rhythmic transposes like a sampler: a hit is read at twice the rate an
+/// octave up, so it begins half as far into its slice and is over in half the
+/// time, while the next hit still comes where the song puts it.
+#[test]
+fn rhythmic_plays_a_transposed_hit_like_a_sampler() {
+    let source = bursts();
+    let tempo = constant(120.0);
+    let mut warp = rhythmic(120.0);
+    warp.transpose_cents = 1_200;
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let stream = warps
+        .stream(&request(&warp, &source, &tempo, 192_000))
+        .unwrap();
+    let played = read(&stream, 0, 96_000);
+    let energy = |a: usize, b: usize| {
+        (played[a..b].iter().map(|v| v * v).sum::<f32>() / (b - a) as f32).sqrt()
+    };
+    for burst in 1..4_usize {
+        let slice = burst * 24_000;
+        // The hit starts 2,400 frames into its slice and lasts 4,800; at twice
+        // the rate that is 1,200 and 2,400.
+        assert!(
+            energy(slice + 1_500, slice + 3_300) > 0.1,
+            "hit {burst} sounds"
+        );
+        assert!(
+            energy(slice + 4_500, slice + 12_000) < 0.01,
+            "and is over by the time the file's own hit would be half done"
+        );
+    }
+    // Without the transpose the hit is still sounding there.
+    let mut plain = rhythmic(120.0);
+    plain.transpose_cents = 0;
+    let stream = warps
+        .stream(&request(&plain, &source, &tempo, 192_000))
+        .unwrap();
+    let at_pace = read(&stream, 0, 96_000);
+    let e = (at_pace[24_000 + 4_500..24_000 + 6_500]
+        .iter()
+        .map(|v| v * v)
+        .sum::<f32>()
+        / 2_000.0)
+        .sqrt();
+    assert!(e > 0.05, "{e}");
+}
+
+/// A pitch envelope is heard as it moves: nothing before its step, an octave
+/// after it. The stream is told at every hop, so the change lands where the
+/// envelope puts it.
+#[test]
+fn a_pitch_envelope_moves_the_pitch_where_it_says() {
+    use lumen_core::automation::Shape;
+    let source = file();
+    let tempo = constant(120.0);
+    let mut warp = Warp::new(120.0, 0.0);
+    warp.mode = WarpMode::Melodic;
+    // Nothing for two beats (48,000 frames), then an octave up.
+    let lane = pitch_lane(&[(0, 0.0, Shape::Step), (2, 12.0, Shape::Linear)]);
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let stream = warps
+        .stream(&Request {
+            pitch: Some(&lane),
+            ..request(&warp, &source, &tempo, 192_000)
+        })
+        .unwrap();
+    let before = read(&stream, 8_000, 32_000);
+    let after = read(&stream, 60_000, 30_000);
+    assert!(amplitude(&before, TONE) > 0.8, "unchanged before the step");
+    assert!(amplitude(&after, TONE * 2.0) > 0.5, "an octave after it");
+    assert!(
+        amplitude(&after, TONE) < 0.1,
+        "and nothing at the old pitch"
+    );
+}
+
+/// The pitch is part of what a stream is made from: another envelope is
+/// another stream, the same one finds its own, and Repitch has none.
+#[test]
+fn a_pitch_envelope_is_a_stream_of_its_own_only_where_it_is_played() {
+    use lumen_core::automation::Shape;
+    let source = file();
+    let tempo = constant(120.0);
+    let a = pitch_lane(&[(0, 2.0, Shape::Linear)]);
+    let b = pitch_lane(&[(0, 3.0, Shape::Linear)]);
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let mut id_of = |mode: WarpMode, lane: Option<&lumen_core::automation::Lane>| {
+        let mut warp = Warp::new(100.0, 0.0);
+        warp.mode = mode;
+        warps
+            .stream(&Request {
+                pitch: lane,
+                ..request(&warp, &source, &tempo, 96_000)
+            })
+            .unwrap()
+            .stream()
+            .unwrap()
+            .id()
+    };
+    let none = id_of(WarpMode::Melodic, None);
+    let with_a = id_of(WarpMode::Melodic, Some(&a));
+    assert_ne!(with_a, none, "an envelope is a stream of its own");
+    assert_ne!(
+        id_of(WarpMode::Melodic, Some(&b)),
+        with_a,
+        "another is another"
+    );
+    assert_eq!(
+        id_of(WarpMode::Melodic, Some(&a)),
+        with_a,
+        "the same finds its own"
+    );
+    let repitch = id_of(WarpMode::Repitch, None);
+    assert_eq!(
+        id_of(WarpMode::Repitch, Some(&a)),
+        repitch,
+        "Repitch has no pitch"
+    );
+}
+
+/// The pieces of a split clip with a pitch envelope still share one stream,
+/// and hear the pitch of the clip they came from: the same sound as before the
+/// split, with no seam at the cut.
+#[test]
+fn the_pieces_of_a_split_clip_share_its_pitch_curve() {
+    use lumen_core::automation::Shape;
+    let lane = pitch_lane(&[(0, 0.0, Shape::Linear), (4, 7.0, Shape::Linear)]);
+    let make = |split: bool| {
+        let mut doc = with_mode(project(100.0, step(120.0), false), WarpMode::FullMix);
+        set_pitch_envelope(&mut doc, lane.clone());
+        let id = doc.project().tracks[0].clips[0].id;
+        if split {
+            doc.split_clips(&[id], &[Ticks::quarters(2)]);
+        }
+        doc
+    };
+    let (whole, split) = (make(false), make(true));
+    let source = file();
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let list = engine_clips_with(
+        split.project(),
+        RATE,
+        |_| Some((Arc::clone(&source), RATE)),
+        &mut |request| warps.stream(request),
+    );
+    assert_eq!(list.len(), 2);
+    assert!(Arc::ptr_eq(&list[0].audio, &list[1].audio), "one stream");
+    assert_eq!(warps.len(), 1);
+    // Away from the clips' fades, the pieces play what the whole clip does.
+    let (a, b) = (
+        render(whole.project(), 96_000, 256, true),
+        render(split.project(), 96_000, 256, true),
+    );
+    let worst = a[6_000..90_000]
+        .iter()
+        .zip(&b[6_000..90_000])
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(worst < 2.0e-3, "the split changes the sound by {worst}");
+}
+
+/// Two clips of one file laid over one another, one with an envelope and one
+/// without, do not share a pitch curve: each plays its own.
+#[test]
+fn layered_clips_with_different_envelopes_keep_their_own_pitch() {
+    use lumen_core::automation::Shape;
+    let lane = pitch_lane(&[(0, 5.0, Shape::Step), (2, 7.0, Shape::Step)]);
+    let mut doc = with_mode(project(100.0, step(120.0), false), WarpMode::FullMix);
+    doc.apply("layer", None, |project| {
+        let mut track = (*project.tracks[0]).clone();
+        track.id = Id(project.tracks.iter().map(|t| t.id.0).max().unwrap() + 100);
+        let mut clip = (*track.clips[0]).clone();
+        clip.id = Id(clip.id.0 + 100);
+        track.clips = vec![Arc::new(clip)];
+        project.tracks.push(Arc::new(track));
+    });
+    set_pitch_envelope(&mut doc, lane);
+    let source = file();
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let list = engine_clips_with(
+        doc.project(),
+        RATE,
+        |_| Some((Arc::clone(&source), RATE)),
+        &mut |request| warps.stream(request),
+    );
+    assert_eq!(list.len(), 2);
+    assert!(
+        !Arc::ptr_eq(&list[0].audio, &list[1].audio),
+        "the clip with an envelope is not played by the curve of the other, nor the other by its"
+    );
+    assert_eq!(warps.len(), 2);
 }

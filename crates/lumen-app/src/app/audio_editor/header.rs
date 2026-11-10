@@ -49,8 +49,8 @@ const ZERO_CROSSINGS: &str = "Zero crossings";
 /// The Loop clip toggle's word.
 const LOOP_CLIP: &str = "Loop clip";
 
-/// The envelope pills, Gain then Pan (`Kind::ALL`'s order).
-const PILLS: [EnvelopePill; 2] = [
+/// The envelope pills, Gain, Pan then Pitch (`Kind::ALL`'s order).
+const PILLS: [EnvelopePill; 3] = [
     EnvelopePill {
         label: "Gain",
         name: "Gain envelope",
@@ -64,6 +64,13 @@ const PILLS: [EnvelopePill; 2] = [
         menu: "Pan envelope",
         command: Command::AudioEditorPanEnvelope,
         tip: "Show the clip's pan envelope over the wave",
+    },
+    EnvelopePill {
+        label: "Pitch",
+        name: "Pitch envelope",
+        menu: "Pitch envelope",
+        command: Command::AudioEditorPitchEnvelope,
+        tip: "Show the clip's pitch envelope over the wave, heard while the clip is warped in Melodic, Full mix or Rhythmic",
     },
 ];
 
@@ -80,6 +87,7 @@ fn pill_of(kind: Kind) -> &'static EnvelopePill {
     match kind {
         Kind::Gain => &PILLS[0],
         Kind::Pan => &PILLS[1],
+        Kind::Pitch => &PILLS[2],
     }
 }
 
@@ -252,7 +260,7 @@ impl App {
                 }
             }
             if layout.shows_pills() {
-                // Right to left: Pan, then Gain at its left.
+                // Right to left: Pitch, Pan, then Gain at its left.
                 for kind in Kind::ALL.into_iter().rev() {
                     let pill = pill_of(kind);
                     let on = ed.pill == Some(kind);
@@ -384,7 +392,8 @@ impl App {
                 + theme::space::S
                 + widgets::toggle_button_width(ui, LOOP_CLIP),
             toggles_icons: 2.0 * theme::size::CONTROL + theme::space::S,
-            pills: pill(PILLS[0].label) + theme::space::S + pill(PILLS[1].label),
+            pills: PILLS.iter().map(|p| pill(p.label)).sum::<f32>()
+                + (PILLS.len() - 1) as f32 * theme::space::S,
             // Pop out is an icon at every width.
             view_words: word(VIEWS[0].label)
                 + theme::space::S

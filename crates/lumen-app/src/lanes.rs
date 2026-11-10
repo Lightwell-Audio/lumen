@@ -17,7 +17,7 @@ use lumen_engine::{Clip, ClipAudio, ClipsHandle, MidiHandle, MixerHandle};
 use lumen_project::model::{ClipContent, Id, Project};
 
 use crate::document::{Document, DropInto, Imported};
-use crate::media::warped::WarpedStreams;
+use crate::media::warped::{Identity, Part, WarpedStreams, merge_pitch};
 use crate::media::{self, Item, Library, State};
 use crate::theme;
 
@@ -185,6 +185,8 @@ pub fn engine_clips_with(
     let mut list = Vec::new();
     // Crossfades are clips that overlap, as `crossfades::played` has them.
     let played = crate::crossfades::played(project);
+    // The pitch each stream plays at: its clips' envelopes as one curve (S6).
+    let pitch = pitch_curves(project, &played);
     // The last sample any clip reaches: every warped stream is as long as
     // the song (rounded up), so the pieces of a clip share one.
     let reach = tempo.as_ref().map_or(0, |tempo| {
@@ -247,6 +249,7 @@ pub fn engine_clips_with(
                         rate,
                         origin: source_origin,
                         reach,
+                        pitch: pitch.of(clip.id),
                     })
                 });
             let (samples, streamed_warp) = match warped_audio {
@@ -336,6 +339,98 @@ pub fn engine_clips_with(
     list
 }
 
+/// What the clips of a song play their pitch with (M9.5 S6): the curve of
+/// each stream with an envelope, and the stream each clip is in.
+#[derive(Default)]
+struct PitchPlan {
+    /// The curve of each stream, in semitones in song ticks.
+    curves: HashMap<Identity, lumen_core::automation::Lane>,
+    /// The stream of each clip that is warped and can be transposed.
+    streams: HashMap<Id, Identity>,
+}
+
+impl PitchPlan {
+    /// The pitch curve of `clip`'s stream, if it has one.
+    fn of(&self, clip: Id) -> Option<&lumen_core::automation::Lane> {
+        self.curves.get(self.streams.get(&clip)?)
+    }
+}
+
+/// The pitch envelope of each stream, in semitones in song ticks (M9.5 S6).
+/// Clips that play one file along one map share a stream (the pieces a split
+/// leaves), and a stream has one pitch, so the curve is built from the
+/// envelopes of all of them (`media::warped::merge_pitch`). Clips layered on
+/// one another (they overlap in the song) with envelopes that differ cannot
+/// share a curve: each of those has a stream of its own. Only streams with
+/// an envelope have a curve.
+fn pitch_curves(project: &Project, played: &HashMap<Id, crate::crossfades::Played>) -> PitchPlan {
+    // Each clip with the track it is on: a crossfade's two pieces are on one.
+    let mut groups: HashMap<Identity, Vec<(Id, usize, Part<'_>)>> = HashMap::new();
+    for (track_at, track) in project.tracks.iter().enumerate() {
+        for model in &track.clips {
+            let clip = played.get(&model.id).map_or(&**model, |p| &p.clip);
+            let (Some(warp), ClipContent::Audio { media, .. }) = (&clip.warp, &clip.content) else {
+                continue;
+            };
+            // A warped loop plays as the clips it unloops into; the rest play
+            // from their own start.
+            if clip.loop_length.is_some() || !warp.mode.transposes() {
+                continue;
+            }
+            let key = if clip.reversed {
+                Id(crate::media::reversed_key(media.0))
+            } else {
+                *media
+            };
+            groups
+                .entry(Identity::of(warp, key, clip.start))
+                .or_default()
+                .push((clip.id, track_at, Part::of(clip)));
+        }
+    }
+    let mut plan = PitchPlan::default();
+    for (identity, parts) in groups {
+        // The clips laid over another of the line with another envelope. A
+        // crossfade is two pieces of one line that overlap on purpose.
+        let mut layered: std::collections::HashSet<Id> = std::collections::HashSet::new();
+        for (i, (x, track_x, a)) in parts.iter().enumerate() {
+            for (y, track_y, b) in &parts[i + 1..] {
+                let crossfade =
+                    track_x == track_y && played.contains_key(x) && played.contains_key(y);
+                if a.start < b.start + b.length
+                    && b.start < a.start + a.length
+                    && (a.lane != b.lane || a.start != b.start)
+                    && !crossfade
+                {
+                    layered.insert(*x);
+                    layered.insert(*y);
+                }
+            }
+        }
+        let (alone, shared): (Vec<_>, Vec<_>) = parts
+            .into_iter()
+            .partition(|(id, _, _)| layered.contains(id));
+        for (id, _, part) in alone {
+            let own = identity.alone(id);
+            plan.streams.insert(id, own);
+            if let Some(lane) = merge_pitch(std::slice::from_ref(&part)) {
+                plan.curves.insert(own, lane);
+            }
+        }
+        let parts: Vec<_> = shared
+            .into_iter()
+            .map(|(id, _, part)| {
+                plan.streams.insert(id, identity);
+                part
+            })
+            .collect();
+        if let Some(lane) = merge_pitch(&parts) {
+            plan.curves.insert(identity, lane);
+        }
+    }
+    plan
+}
+
 /// The media ids of the files a reversed clip plays, each once.
 fn reversed_media(project: &Project) -> Vec<u64> {
     let mut wanted: Vec<u64> = project
@@ -408,7 +503,9 @@ fn envelope_of(
     rate: u32,
     channels: usize,
 ) -> lumen_engine::ClipEnvelope {
-    let Some(tempo) = tempo.filter(|_| !clip.envelopes.is_empty()) else {
+    // The pitch envelope is not the engine's: it is in the clip's stream.
+    let has_gain_or_pan = clip.envelopes.gain.is_some() || clip.envelopes.pan.is_some();
+    let Some(tempo) = tempo.filter(|_| has_gain_or_pan) else {
         return Default::default();
     };
     let origin = if clip.loop_length.is_some() {

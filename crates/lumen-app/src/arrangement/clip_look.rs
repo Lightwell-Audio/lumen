@@ -256,18 +256,32 @@ pub(super) fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLo
     // The marks sit left of the padlock and the counter, which keep their
     // places; the name has what is left (`clip_marks::place`).
     let y = title.center().y;
-    let placed = clip_marks::place(visible.width(), room.max.x - text_left, look.marks.count());
+    let caption = FontId::proportional(theme::size::CAPTION);
+    let marks_width = look.marks.width(|text| {
+        painter
+            .layout_no_wrap(text.to_owned(), caption.clone(), ink)
+            .size()
+            .x
+    });
+    let placed = clip_marks::place(visible.width(), room.max.x - text_left, marks_width);
     match placed {
         Placed::Alone => {
             painter.circle_filled(pos2(visible.center().x, y), DOT / 2.0, ink);
             return;
         }
         Placed::Marks(width) => {
-            let mut x = room.max.x - width;
+            let mut x = (room.max.x - width).round();
             for mark in look.marks.list() {
-                let at = Rect::from_center_size(pos2(x + MARK / 2.0, y), vec2(MARK, MARK));
-                painter.extend(icons::shapes(mark.icon(), at, ink));
-                x += MARK + GAP;
+                if let Some(icon) = mark.icon() {
+                    let at = Rect::from_center_size(pos2(x + MARK / 2.0, y), vec2(MARK, MARK));
+                    painter.extend(icons::shapes(icon, at, ink));
+                    x += MARK + GAP;
+                } else if let Some(text) = mark.text() {
+                    let galley = painter.layout_no_wrap(text, caption.clone(), ink);
+                    let width = galley.size().x;
+                    painter.galley(pos2(x, (y - galley.size().y / 2.0).round()), galley, ink);
+                    x += width + GAP;
+                }
             }
         }
         Placed::Dot => {

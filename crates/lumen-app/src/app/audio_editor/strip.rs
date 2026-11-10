@@ -16,6 +16,7 @@ use lumen_core::time::TempoMap;
 use lumen_project::edit::Edge;
 use lumen_project::model::{Clip, ClipContent, Id};
 
+use super::pitch::{chip_text as pitch_text, chip_width as pitch_width};
 use super::strip_chips::{clip_chip_widths, file_chip_width, text_width};
 use super::warp::{chip_text, chip_width};
 use crate::App;
@@ -261,6 +262,7 @@ impl App {
             more: theme::size::CONTROL,
             file: file_chip_width(ui, file),
             warp: chip_width(ui, &chip_text(clip)),
+            pitch: pitch_width(ui, &pitch_text(clip)),
         }
     }
 
@@ -317,10 +319,22 @@ impl App {
                 egui::pos2(file_rect.left() - strip::GROUP_GAP, file_rect.bottom()),
             )
         });
+        // The Pitch chip is to the Warp chip's left, or beside the File chip
+        // when Warp has folded; it folds last of the two (S6).
+        let pitch_rect = layout.shows_pitch().then(|| {
+            let right = warp_rect.map_or(file_rect.left(), |r| r.left()) - strip::GROUP_GAP;
+            Rect::from_min_max(
+                egui::pos2(right - widths.pitch, file_rect.top()),
+                egui::pos2(right, file_rect.bottom()),
+            )
+        });
         let row_room = Rect::from_min_max(
             inner.min,
             egui::pos2(
-                (warp_rect.map_or(file_rect.left(), |r| r.left()) - strip::GROUP_GAP)
+                (pitch_rect
+                    .or(warp_rect)
+                    .map_or(file_rect.left(), |r| r.left())
+                    - strip::GROUP_GAP)
                     .max(inner.left()),
                 inner.bottom(),
             ),
@@ -375,13 +389,17 @@ impl App {
                 }
             });
         }
-        let mut file_ui = ui.new_child(
-            UiBuilder::new()
-                .id_salt("audio strip file")
-                .max_rect(file_rect)
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-        );
-        self.file_chip(&mut file_ui, file_rect, media);
+        if let Some(pitch_rect) = pitch_rect {
+            let mut pitch_ui = ui.new_child(
+                UiBuilder::new()
+                    .id_salt("audio strip pitch")
+                    .max_rect(pitch_rect)
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            );
+            if self.pitch_chip(&mut pitch_ui, pitch_rect, clip, ed) {
+                now = Some(Group::Pitch);
+            }
+        }
         if let Some(warp_rect) = warp_rect {
             let mut warp_ui = ui.new_child(
                 UiBuilder::new()
@@ -393,6 +411,13 @@ impl App {
                 now = Some(Group::Warp);
             }
         }
+        let mut file_ui = ui.new_child(
+            UiBuilder::new()
+                .id_salt("audio strip file")
+                .max_rect(file_rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        self.file_chip(&mut file_ui, file_rect, media);
         ed.strip_group = now;
     }
 
@@ -587,9 +612,11 @@ impl App {
         let enabled = fixed.why().is_none();
         let page_fades = ed.strip_fades;
         let page_warp = ed.strip_warp;
+        let page_pitch = ed.strip_pitch;
         let was_open = Menu::is_open_for(ctx, more.id);
         let mut to_fades = None;
         let mut to_warp = None;
+        let mut to_pitch = None;
         // The menu stays open across its two pages; a Processing row closes it
         // itself.
         Menu::below(&more).staying().show(|ui| {
@@ -625,6 +652,15 @@ impl App {
                 self.warp_popover(ui, clip, ed);
                 return;
             }
+            if page_pitch {
+                ui.set_width(CARD_WIDTH);
+                if widgets::menu_item(ui, "Back", None, true).clicked() {
+                    to_pitch = Some(false);
+                }
+                ui.separator();
+                self.pitch_popover(ui, clip, ed);
+                return;
+            }
             if !layout.shows_processing() {
                 for p in Processing::ALL {
                     let keys = self.keymap.keys(p.command());
@@ -653,8 +689,16 @@ impl App {
                     to_warp = Some(true);
                 }
             }
-            if !layout.shows_fades() {
+            if !layout.shows_pitch() {
                 if !layout.shows_processing() || !layout.shows_warp() {
+                    ui.separator();
+                }
+                if widgets::menu_item(ui, "Pitch\u{2026}", None, true).clicked() {
+                    to_pitch = Some(true);
+                }
+            }
+            if !layout.shows_fades() {
+                if !layout.shows_processing() || !layout.shows_warp() || !layout.shows_pitch() {
                     ui.separator();
                 }
                 if widgets::menu_item(ui, "Fades\u{2026}", None, true).clicked() {
@@ -671,9 +715,14 @@ impl App {
             ed.strip_warp = page;
             Menu::open_for(ctx, more.id);
         }
+        if let Some(page) = to_pitch {
+            ed.strip_pitch = page;
+            Menu::open_for(ctx, more.id);
+        }
         if !Menu::is_open_for(ctx, more.id) {
             ed.strip_fades = false;
             ed.strip_warp = false;
+            ed.strip_pitch = false;
             // Closing gives the keyboard back to the button that opened the
             // menu, unless a click elsewhere has already taken it.
             if was_open && !ctx.input(|i| i.pointer.any_pressed()) {

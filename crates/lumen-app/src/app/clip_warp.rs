@@ -174,12 +174,64 @@ impl App {
 
     /// Sets the tempo of `clip`'s file, from the control in the popover.
     pub(crate) fn set_clip_tempo(&mut self, clip: Id, bpm: f64) {
-        let done = self.document.set_warp(&[clip], &Change::OriginalBpm(bpm));
+        let done = self
+            .document
+            .set_warp(&[clip], &Change::OriginalBpm(bpm), None);
         if done.changed == 0 && done.refused > 0 {
             self.say(
                 "That tempo is out of range, or would play past the end of the clip's file"
                     .to_owned(),
             );
+        }
+    }
+
+    /// Sets a warped clip's transpose in cents (M9.5 S6). A drag of the
+    /// control is one undo step. A mode that cannot transpose, or a value out
+    /// of range, is refused and said so.
+    pub(crate) fn set_clip_transpose(&mut self, clip: Id, cents: i32) {
+        let done =
+            self.document
+                .set_warp(&[clip], &Change::Transpose(cents), Some("warp transpose"));
+        if done.changed == 0 && done.refused > 0 {
+            self.say("That transpose is out of range".to_owned());
+        }
+    }
+
+    /// Why Transpose clip up and down cannot run: they need a warped audio
+    /// clip in a mode that transposes.
+    pub(crate) fn transpose_unavailable(&self) -> Result<(), &'static str> {
+        let targets = self.warp_targets();
+        if targets.is_empty() {
+            return Err("Select an audio clip first");
+        }
+        if targets.iter().all(|c| c.warp.is_none()) {
+            return Err("Warp the clip first");
+        }
+        if !targets
+            .iter()
+            .filter_map(|c| c.warp.as_ref())
+            .any(|w| w.mode.transposes())
+        {
+            return Err("Repitch plays at the tempo's pitch: pick Melodic, Full mix or Rhythmic");
+        }
+        Ok(())
+    }
+
+    /// Transpose clip up or down: moves the selected warped clips by
+    /// `semitones` (in the modes that transpose; the others are left).
+    pub(crate) fn transpose_clips_command(&mut self, semitones: i32) {
+        let ids: Vec<Id> = self
+            .warp_targets()
+            .iter()
+            .filter(|c| c.warp.as_ref().is_some_and(|w| w.mode.transposes()))
+            .map(|c| c.id)
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        let done = self.document.transpose_warp(&ids, semitones * 100);
+        if done.changed == 0 {
+            self.say("That is as far as a clip can be transposed".to_owned());
         }
     }
 

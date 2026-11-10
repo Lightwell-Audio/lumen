@@ -23,7 +23,7 @@ fn gain_of(c: &Clip) -> f32 {
 }
 
 /// Types `text` into the field named `label` and presses Enter.
-fn type_into(lumen: &mut Lumen, label: &str, text: &str) {
+pub(super) fn type_into(lumen: &mut Lumen, label: &str, text: &str) {
     lumen.harness.get_by_label_contains(label).click();
     lumen.frames(2);
     lumen.key(Modifiers::COMMAND, Key::A);
@@ -316,6 +316,7 @@ fn strip_controls(lumen: &Lumen) -> (&'static str, Vec<(&'static str, Rect)>) {
         ("Normalize", "Normalize"),
         ("More", "More clip properties"),
         ("Warp", "Warp: "),
+        ("Pitch", "Pitch: "),
         ("File", "File"),
     ];
     let mut found = Vec::new();
@@ -344,8 +345,9 @@ fn strip_controls(lumen: &Lumen) -> (&'static str, Vec<(&'static str, Rect)>) {
 fn every_control_is_there_and_clear_of_the_others_in_each_layout() {
     let (mut lumen, _) = opened("strip-fit");
     let mut seen = std::collections::BTreeSet::new();
-    // Every 20 points from wide to narrow, so no layout is stepped over.
-    for width in (0..47).map(|i| 1400.0 - 20.0 * i as f32) {
+    // Every 20 points from wide to narrow, so no layout is stepped over. The
+    // Pitch chip (S6) made the widest layout wider: it is reached from 1,700.
+    for width in (0..62).map(|i| 1700.0 - 20.0 * i as f32) {
         lumen.harness.set_size(vec2(width, 540.0));
         lumen.app_mut().set_browser_size(220.0);
         lumen.frames(20);
@@ -355,11 +357,12 @@ fn every_control_is_there_and_clear_of_the_others_in_each_layout() {
         let has = |name: &str| found.iter().any(|(n, _)| *n == name);
 
         // What each layout draws, and what it folds away.
-        let (fades, processing, menu, warp) = match layout {
-            "full" | "icons" | "dot" => (true, true, false, true),
-            "fold processing" => (true, false, true, true),
-            "fold warp" => (true, false, true, false),
-            "fold fades" => (false, false, true, false),
+        let (fades, processing, menu, warp, pitch) = match layout {
+            "full" | "icons" | "dot" => (true, true, false, true, true),
+            "fold processing" => (true, false, true, true, true),
+            "fold warp" => (true, false, true, false, true),
+            "fold pitch" => (true, false, true, false, false),
+            "fold fades" => (false, false, true, false, false),
             other => panic!("a layout the test does not know: {other}"),
         };
         for always in ["Gain", "Mute", "Lock", "File", "Clip chip"] {
@@ -373,6 +376,7 @@ fn every_control_is_there_and_clear_of_the_others_in_each_layout() {
             ("Normalize", processing),
             ("More", menu),
             ("Warp", warp),
+            ("Pitch", pitch),
         ] {
             assert_eq!(has(name), drawn, "{name} at {width} ({layout}): {found:?}");
         }
@@ -394,7 +398,13 @@ fn every_control_is_there_and_clear_of_the_others_in_each_layout() {
             "the wave keeps its room at {width}: {body:?}"
         );
     }
-    for layout in ["full", "fold processing", "fold warp", "fold fades"] {
+    for layout in [
+        "full",
+        "fold processing",
+        "fold warp",
+        "fold pitch",
+        "fold fades",
+    ] {
         assert!(
             seen.contains(layout),
             "the widths reached {layout}, not only {seen:?}"

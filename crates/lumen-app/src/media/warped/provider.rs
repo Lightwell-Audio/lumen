@@ -12,12 +12,13 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use lumen_core::automation::Lane;
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_core::warp::Marker;
 use lumen_engine::{ClipAudio, PagePool, StreamAudio};
 use lumen_project::model::Warp;
 
-use super::{Engine, Origin, Warped};
+use super::{Engine, Origin, Pitch, Warped};
 use crate::media::streams;
 
 /// What a warped clip is played from: everything the stream depends on.
@@ -33,6 +34,9 @@ pub struct Request<'a> {
     /// as long as the song, rounded up, so that the pieces of one clip share
     /// it, and so does every other clip of the file.
     pub reach: i64,
+    /// The pitch envelope of the clips that share this stream, in semitones
+    /// in song ticks (`pitch::merge`). Heard only in a mode that transposes.
+    pub pitch: Option<&'a Lane>,
 }
 
 /// The shortest a stream is: about 22 seconds at 48 kHz.
@@ -79,7 +83,8 @@ impl WarpedStreams {
             return None;
         }
         let shape = Shape::of(request);
-        let key = key(request, &shape);
+        let pitch = Pitch::of(request.warp, request.pitch);
+        let key = key(request, &shape, &pitch);
         if let Some(made) = self.made.get(&key) {
             return Some(Arc::clone(&made.audio));
         }
@@ -97,7 +102,8 @@ impl WarpedStreams {
             request.tempo.clone(),
             (shape.anchor, frames),
         );
-        warped.engine = Engine::of(request.warp.mode);
+        warped.engine = Engine::of(request.warp.mode, &pitch);
+        warped.pitch = pitch;
         if warped.engine == Engine::Slices {
             let scan = self.scans.entry(source_key(request.source)).or_default();
             warped.scan = Arc::clone(scan);
@@ -187,12 +193,12 @@ fn source_key(source: &Arc<ClipAudio>) -> u64 {
     hasher.finish()
 }
 
-/// Hashes everything a stream's frames depend on. The engine the mode plays
-/// with is in it; the transpose is left out
-/// until S6 plays it.
-fn key(request: &Request<'_>, shape: &Shape) -> u64 {
+/// Hashes everything a stream's frames depend on: the engine the mode plays
+/// with, and the pitch (the transpose and the envelope's points).
+fn key(request: &Request<'_>, shape: &Shape, pitch: &Pitch) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
-    Engine::of(request.warp.mode).hash(&mut hasher);
+    Engine::of(request.warp.mode, pitch).hash(&mut hasher);
+    pitch.hash_into(&mut hasher);
     source_key(request.source).hash(&mut hasher);
     request.rate.hash(&mut hasher);
     shape.frames.hash(&mut hasher);

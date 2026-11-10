@@ -11,6 +11,7 @@ mod gestures;
 mod header;
 mod hearing;
 pub(crate) mod keys;
+mod pitch;
 mod range;
 pub(crate) mod stops;
 mod strip;

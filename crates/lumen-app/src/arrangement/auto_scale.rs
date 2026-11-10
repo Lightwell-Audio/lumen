@@ -6,7 +6,10 @@
 //! Levels (volume and sends) put silence on the lane's floor, the bottom
 //! `SILENCE_BAND` of it, and −60 dB to +6 dB above that in a straight line,
 //! as the volume slider does. Trim, pan and plugin parameters run in a
-//! straight line across their whole range. Mute has two heights.
+//! straight line across their whole range. Mute has two heights. A pitch runs
+//! in a straight line across two octaves either way (the range is four, but a
+//! lane of that height would put a semitone under a pixel), with a resting
+//! place at nothing and at each octave.
 
 use lumen_core::automation::FLOOR_DB;
 use lumen_project::automation::Target;
@@ -20,6 +23,9 @@ const SILENCE_BAND: f32 = 0.04;
 /// Where the volume slider's own scale starts, in dB.
 const LEVEL_LOW: f32 = -60.0;
 const LEVEL_HIGH: f32 = 6.0;
+/// How many semitones a pitch lane shows either way. A point can hold more
+/// (the envelope reaches four octaves), and is drawn at the lane's edge.
+const PITCH_VIEW: f32 = 24.0;
 
 /// The slider that shows `target`'s values, if one fits.
 fn slider(target: Target) -> Option<SliderKind> {
@@ -27,6 +33,7 @@ fn slider(target: Target) -> Option<SliderKind> {
         Target::Volume | Target::Send { .. } => Some(SliderKind::Volume),
         Target::Trim => Some(SliderKind::Trim),
         Target::Pan => Some(SliderKind::Pan),
+        Target::ClipPitch { .. } => Some(SliderKind::Semitones),
         _ => None,
     }
 }
@@ -43,6 +50,7 @@ pub(crate) fn fraction(target: Target, value: f32) -> f32 {
                 SILENCE_BAND * (v - FLOOR_DB) / (LEVEL_LOW - FLOOR_DB)
             }
         }
+        Target::ClipPitch { .. } => ((value + PITCH_VIEW) / (2.0 * PITCH_VIEW)).clamp(0.0, 1.0),
         _ => {
             let (low, high) = target.range();
             ((value - low) / (high - low)).clamp(0.0, 1.0)
@@ -75,6 +83,7 @@ pub(crate) fn value(target: Target, fraction: f32) -> f32 {
                 0.0
             }
         }
+        Target::ClipPitch { .. } => -PITCH_VIEW + 2.0 * PITCH_VIEW * f,
         _ => {
             let (low, high) = target.range();
             low + (high - low) * f
@@ -92,6 +101,7 @@ fn detents(target: Target) -> Vec<f32> {
         Target::Trim => &[-24.0, 0.0, 24.0],
         Target::Pan => &[-1.0, 0.0, 1.0],
         Target::Device { .. } => &[0.0, 0.5, 1.0],
+        Target::ClipPitch { .. } => &[-PITCH_VIEW, -12.0, 0.0, 12.0, PITCH_VIEW],
         _ => &[],
     };
     values.iter().map(|&v| fraction(target, v)).collect()
@@ -140,7 +150,7 @@ pub(crate) fn name(project: &Project, target: Target) -> String {
             );
             format!("{plugin} \u{00B7} parameter {param}")
         }
-        Target::ClipGain { clip } | Target::ClipPan { clip } => {
+        Target::ClipGain { clip } | Target::ClipPan { clip } | Target::ClipPitch { clip } => {
             let kind = target
                 .clip()
                 .map_or("Clip envelope", |(_, kind)| kind.name());

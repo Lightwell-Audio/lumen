@@ -11,13 +11,12 @@
 //! ready, runs on a worker and is kept in the cache; this module starts it,
 //! takes its answer each frame, and says what it found.
 
-use eframe::egui::{self, FontId, Rect, RichText, Sense, Ui, pos2, vec2};
-use eframe::emath::GuiRounding as _;
+use eframe::egui::{self, FontId, Rect, RichText, Sense, Ui, vec2};
 use lumen_media::detect::{Analysis, CONFIDENT};
 use lumen_project::edit::warp::Change;
 use lumen_project::model::{Clip, ClipContent, WarpMode};
 
-use super::strip_chips::{CHEVRON, text_width};
+use super::strip_chips::{CHEVRON, popover_chip, text_width};
 use crate::app::clip_card::{CARD_WIDTH, row as card_row};
 use crate::app::clip_file::ClipFile;
 use crate::app::clip_warp::Found;
@@ -146,57 +145,21 @@ impl App {
         clip: &Clip,
         ed: &mut AudioEditor,
     ) -> bool {
-        let palette = *theme::p();
-        let warped = clip.warp.is_some();
-        let text = chip_text(clip);
-        let response = ui.interact(
+        let state = match &clip.warp {
+            Some(warp) => format!(
+                "Warp: on, {} at {:.1} BPM",
+                mode_name(warp.mode),
+                warp.original_bpm
+            ),
+            None => "Warp: off".to_owned(),
+        };
+        let response = popover_chip(
+            ui,
             rect,
             ui.id().with(("audio strip warp", clip.id.0)),
-            Sense::click(),
+            &chip_text(clip),
+            (clip.warp.is_some(), state),
         );
-        response.widget_info(|| {
-            let state = match &clip.warp {
-                Some(warp) => format!(
-                    "Warp: on, {} at {:.1} BPM",
-                    mode_name(warp.mode),
-                    warp.original_bpm
-                ),
-                None => "Warp: off".to_owned(),
-            };
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, state)
-        });
-        if ui.is_rect_visible(rect) {
-            let face = raised::face_of(ui, &response);
-            let rect = rect.round_to_pixels(ui.pixels_per_point());
-            let body = raised::paint(
-                ui.painter(),
-                rect,
-                theme::radius::for_height(rect.height()),
-                &face,
-            );
-            let mid = body.center().y.round();
-            let painter = ui.painter();
-            let ink = if warped { palette.accent } else { face.text() };
-            let s = theme::space::S;
-            let room = (body.width() - 3.0 * s - CHEVRON).max(0.0);
-            let font = FontId::proportional(theme::size::BODY);
-            let shown = widgets::fit(painter, &text, font.clone(), room);
-            let galley = painter.layout_no_wrap(shown, font, ink);
-            painter.galley(
-                pos2(
-                    (body.left() + s).round(),
-                    mid - (galley.size().y / 2.0).round(),
-                ),
-                galley,
-                ink,
-            );
-            super::strip_chips::chevron(
-                painter,
-                pos2((body.right() - s - CHEVRON / 2.0).round(), mid),
-                palette.text_hint,
-            );
-            raised::focus_ring(painter, &response, rect);
-        }
         let response = widgets::tip(
             response,
             "Warp",
@@ -253,7 +216,7 @@ impl App {
                     .show(ui, base.with("mode"), &names, chosen)
                 {
                     self.document
-                        .set_warp(&[clip.id], &Change::Mode(WarpMode::ALL[i]));
+                        .set_warp(&[clip.id], &Change::Mode(WarpMode::ALL[i]), None);
                 }
             });
             card_row(ui, "Tempo", |ui| {

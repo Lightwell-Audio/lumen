@@ -35,9 +35,10 @@ fn control_value(track: &Track, target: Target) -> f32 {
             .iter()
             .find(|s| s.to == to)
             .map_or(0.0, |s| s.level.0),
-        Target::Device { .. } | Target::ClipGain { .. } | Target::ClipPan { .. } => {
-            target.default_value()
-        }
+        Target::Device { .. }
+        | Target::ClipGain { .. }
+        | Target::ClipPan { .. }
+        | Target::ClipPitch { .. } => target.default_value(),
     }
 }
 

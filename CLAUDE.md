@@ -651,6 +651,25 @@ per slice and move what is no longer current out of it.
   One review round by GPT 6.1 Sol (high), fixed. The ignored E2E
   `look_at_the_strip` renders it (`SHOTS`, `LOOK_SCALE`). Not looked at:
   light at 150/200%, split or looped clips.
+- **Branch `m9.5-s6-pitch`: M9.5 S6, pitch, is built** (ADR-0137; format v34;
+  the session's designated `claude/dazzling-johnson-1c3710` holds a discarded
+  first attempt, for the owner to delete). A
+  static transpose and a pitch envelope, in every mode but Repitch: the
+  envelope is a third clip envelope (`envelope::Kind::Pitch`, semitones), the
+  stretch library is told the shift before every hop of a pitched stream, and
+  Rhythmic reads each slice at the pitch's rate like a sampler. A stream has
+  one pitch, merged from every clip that shares it (`media/warped/pitch.rs`),
+  so a split's pieces keep one stream. The Pitch chip sits beside Warp and
+  folds after it (`Layout::FoldPitch`), with a Pitch pill, a lane of two
+  octaves, three commands (tagged `@m9.5`) and the "+2" mark on the clip.
+  MT-PITCH-1 waits for the owner's ear. **Tell the owner:** a pure tone
+  shifted an octave is roughened (energy at the target 54 to 56% in Full mix, 5%
+  in the cheaper preset down an octave), not made quieter, so a pitched Melodic
+  clip plays with the Full preset (KNOWN_ISSUES); the envelope follows the sound
+  by a hop (about 21 ms), not by the sample; Rhythmic is a sampler (a higher hit
+  is shorter); the clip mark shows the transpose, not an envelope. Not run
+  here: the WSL perf gate, the macOS cross-target clippy, the pitched cost in
+  `warped_64`, the strip and mark at 150% and 200%. Next: S7 (the close).
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);

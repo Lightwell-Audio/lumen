@@ -608,6 +608,7 @@ mod tests {
                 rate: 48_000,
                 origin: Ticks::ZERO,
                 reach: 48_000,
+                pitch: None,
             })
             .unwrap();
         let clip = Clip {

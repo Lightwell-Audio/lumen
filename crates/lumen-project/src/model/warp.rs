@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 pub const MAX_TRANSPOSE_CENTS: i32 = 4_800;
 
 /// How a warped clip is stretched (M9.5 §2 M).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WarpMode {
     /// Speed follows the tempo and the pitch moves with it, like tape.

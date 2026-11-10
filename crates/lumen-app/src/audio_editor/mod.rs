@@ -104,6 +104,8 @@ pub(crate) struct AudioEditor {
     pub strip_fades: bool,
     /// The ⋯ menu is on its Warp page (S5a).
     pub strip_warp: bool,
+    /// The ⋯ menu is on its Pitch page (S6).
+    pub strip_pitch: bool,
     /// The Clip chip's popover was open last frame: closing it applies a
     /// name that was being typed.
     pub chip_was_open: bool,

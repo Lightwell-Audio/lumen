@@ -33,6 +33,10 @@ pub enum SliderKind {
     /// A tempo, 20 to 999 BPM, filled from the left; resets to 120 (the
     /// tempo a clip's file was made at, M9.5 S5a).
     Bpm,
+    /// A pitch shift in semitones, −48 to +48, filled from the centre; resets
+    /// to none (a clip's transpose and pitch envelope, M9.5 S6). Typed values
+    /// keep cents.
+    Semitones,
 }
 
 impl SliderKind {
@@ -55,6 +59,7 @@ impl SliderKind {
             SliderKind::Percent { .. } => (0.0, 1.0),
             SliderKind::Offset { min_ms, max_ms } => (min_ms, max_ms),
             SliderKind::Bpm => (20.0, 999.0),
+            SliderKind::Semitones => (-48.0, 48.0),
         }
     }
 
@@ -66,7 +71,7 @@ impl SliderKind {
             SliderKind::Percent { .. } => 0.05,
             SliderKind::Pan => 0.05,
             SliderKind::Millis { max_ms } => (max_ms / 100.0).max(1.0),
-            SliderKind::Offset { .. } | SliderKind::Bpm => 1.0,
+            SliderKind::Offset { .. } | SliderKind::Bpm | SliderKind::Semitones => 1.0,
         }
     }
 
@@ -76,6 +81,7 @@ impl SliderKind {
             SliderKind::Percent { .. } => format!("{:.0}%", value * 100.0),
             SliderKind::Pan => pan_text(value),
             SliderKind::Bpm => format!("{value:.1} BPM"),
+            SliderKind::Semitones => semitones_text(value),
             SliderKind::Millis { .. } => ms_text(value),
             SliderKind::Offset { .. } => match value.round() as i32 {
                 0 => "0 ms".to_owned(),
@@ -100,6 +106,12 @@ impl SliderKind {
                 .map(|p| p / 100.0),
             SliderKind::Bpm => text
                 .trim_end_matches("BPM")
+                .trim()
+                .replace(',', ".")
+                .parse()
+                .ok(),
+            SliderKind::Semitones => text
+                .trim_end_matches("ST")
                 .trim()
                 .replace(',', ".")
                 .parse()
@@ -262,6 +274,9 @@ pub fn value_slider_styled(
             SliderKind::Bpm => {
                 "Tempo: drag or wheel (Shift for fine), double-click for 120, or click and type"
             }
+            SliderKind::Semitones => {
+                "Transpose: drag or wheel (Shift for fine), double-click for none, or click and type 2 or -1.5"
+            }
         });
     response.widget_info(|| {
         egui::WidgetInfo::slider(
@@ -387,7 +402,7 @@ pub fn value_slider_styled(
                 draw_handle(p, x, rect.shrink2(vec2(0.0, 3.0)).y_range(), text_rect);
             }
         }
-        SliderKind::Pan | SliderKind::Trim => {
+        SliderKind::Pan | SliderKind::Trim | SliderKind::Semitones => {
             let center = rect.center().x;
             let x = x_at(out);
             // Grey at the centre, the accent at the edges (owner request).
@@ -575,6 +590,37 @@ pub fn value_field(
     );
     raised::focus_ring(p, &response, rect);
     out
+}
+
+/// A pitch shift in words: "+2 st", "−2.5 st", "0 st". Cents show after the
+/// point when there are some, with no trailing zeros.
+fn semitones_text(value: f32) -> String {
+    if value.abs() < 0.005 {
+        return "0 st".to_owned();
+    }
+    let sign = if value < 0.0 { "\u{2212}" } else { "+" };
+    let digits = format!("{:.2}", value.abs());
+    let digits = digits.trim_end_matches('0').trim_end_matches('.');
+    format!("{sign}{digits} st")
+}
+
+#[cfg(test)]
+mod semitone_tests {
+    use super::*;
+
+    #[test]
+    fn a_pitch_shift_reads_in_semitones_and_cents() {
+        assert_eq!(semitones_text(0.0), "0 st");
+        assert_eq!(semitones_text(2.0), "+2 st");
+        assert_eq!(semitones_text(2.5), "+2.5 st");
+        assert_eq!(semitones_text(-0.25), "\u{2212}0.25 st");
+        assert_eq!(semitones_text(-12.0), "\u{2212}12 st");
+        assert_eq!(SliderKind::Semitones.reset(), 0.0);
+        assert_eq!(SliderKind::Semitones.range(), (-48.0, 48.0));
+        assert_eq!(SliderKind::Semitones.parse("-1.5 st"), Some(-1.5));
+        assert_eq!(SliderKind::Semitones.parse("2"), Some(2.0));
+        assert_eq!(SliderKind::Semitones.parse("loud"), None);
+    }
 }
 
 #[cfg(test)]

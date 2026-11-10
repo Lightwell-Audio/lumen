@@ -425,6 +425,8 @@ impl App {
             Command::HalveClipTempo => self.scale_clip_tempo(0.5),
             Command::AddWarpMarker => self.add_warp_marker_command(),
             Command::ClearWarpMarkers => self.clear_warp_markers_command(),
+            Command::TransposeClipUp => self.transpose_clips_command(1),
+            Command::TransposeClipDown => self.transpose_clips_command(-1),
             Command::AddAudioTrack => self.arrangement.add_track(doc, TrackKind::Audio),
             Command::AddMidiTrack => self.arrangement.add_track(doc, TrackKind::Midi),
             Command::AddReturnTrack => self.arrangement.add_track(doc, TrackKind::Return),
@@ -607,6 +609,10 @@ impl App {
             }
             Command::AudioEditorPanEnvelope => {
                 self.audio_editor_pill(lumen_project::envelope::Kind::Pan);
+                self.show_detail_tab(crate::app::detail::DetailTab::Clip);
+            }
+            Command::AudioEditorPitchEnvelope => {
+                self.audio_editor_pill(lumen_project::envelope::Kind::Pitch);
                 self.show_detail_tab(crate::app::detail::DetailTab::Clip);
             }
             Command::AudioEditorClipLoop => {

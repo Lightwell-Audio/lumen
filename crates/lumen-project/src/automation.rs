@@ -36,6 +36,8 @@ pub enum Target {
     ClipGain { clip: Id },
     /// The pan envelope of the audio clip `clip`, −1 to +1.
     ClipPan { clip: Id },
+    /// The pitch envelope of the audio clip `clip`, in semitones (M9.5 S6).
+    ClipPitch { clip: Id },
 }
 
 impl Target {
@@ -47,6 +49,7 @@ impl Target {
             }
             Target::Trim => (-TRIM_RANGE_DB, TRIM_RANGE_DB),
             Target::Pan | Target::ClipPan { .. } => (-1.0, 1.0),
+            Target::ClipPitch { .. } => crate::envelope::Kind::Pitch.range(),
             Target::Mute | Target::Device { .. } => (0.0, 1.0),
         }
     }
@@ -75,6 +78,7 @@ impl Target {
         match self {
             Target::ClipGain { .. } => Target::Volume,
             Target::ClipPan { .. } => Target::Pan,
+            // Semitones have no fader or pan to borrow a scale from.
             other => other,
         }
     }
@@ -84,6 +88,7 @@ impl Target {
         match self {
             Target::ClipGain { clip } => Some((clip, crate::envelope::Kind::Gain)),
             Target::ClipPan { clip } => Some((clip, crate::envelope::Kind::Pan)),
+            Target::ClipPitch { clip } => Some((clip, crate::envelope::Kind::Pitch)),
             _ => None,
         }
     }
@@ -93,6 +98,7 @@ impl Target {
         match kind {
             crate::envelope::Kind::Gain => Target::ClipGain { clip },
             crate::envelope::Kind::Pan => Target::ClipPan { clip },
+            crate::envelope::Kind::Pitch => Target::ClipPitch { clip },
         }
     }
 
@@ -131,7 +137,7 @@ pub fn own_value(track: &Track, target: Target) -> f32 {
             .and_then(|d| d.params.get(&param))
             .map_or_else(|| target.default_value(), |&v| v as f32),
         // An envelope has no control of its own: it rests at nothing.
-        Target::ClipGain { .. } | Target::ClipPan { .. } => 0.0,
+        Target::ClipGain { .. } | Target::ClipPan { .. } | Target::ClipPitch { .. } => 0.0,
     }
 }
 
@@ -199,9 +205,11 @@ impl Track {
             Target::Volume | Target::Pan | Target::Trim | Target::Mute => true,
             Target::Send { to } => self.sends.iter().any(|s| s.to == to),
             Target::Device { device, .. } => self.devices.iter().any(|d| d.id == device),
-            Target::ClipGain { clip } | Target::ClipPan { clip } => self.clips.iter().any(|c| {
-                c.id == clip && matches!(c.content, crate::model::ClipContent::Audio { .. })
-            }),
+            Target::ClipGain { clip } | Target::ClipPan { clip } | Target::ClipPitch { clip } => {
+                self.clips.iter().any(|c| {
+                    c.id == clip && matches!(c.content, crate::model::ClipContent::Audio { .. })
+                })
+            }
         }
     }
 

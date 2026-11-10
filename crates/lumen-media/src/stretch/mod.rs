@@ -45,6 +45,7 @@ unsafe extern "C" {
     fn lumen_stretch_interval(s: *const Raw) -> i32;
     fn lumen_stretch_input_latency(s: *const Raw) -> i32;
     fn lumen_stretch_output_latency(s: *const Raw) -> i32;
+    fn lumen_stretch_set_transpose(s: *mut Raw, semitones: f32) -> i32;
     fn lumen_stretch_reset(s: *mut Raw) -> i32;
     fn lumen_stretch_process(
         s: *mut Raw,
@@ -137,6 +138,17 @@ impl Stretcher {
     /// frames.
     pub fn output_latency(&self) -> usize {
         self.output_latency
+    }
+
+    /// Shifts the pitch of what it plays by `cents` (S6), without changing the
+    /// speed. A stream that is pitched sets this before every hop, so its
+    /// frames do not depend on what the stretcher played before; one that is
+    /// not never calls it, and keeps the library's own settings.
+    pub fn set_transpose(&mut self, cents: f64) -> Result<(), MediaError> {
+        // SAFETY: `raw` is live, and we hold the only reference.
+        let code =
+            unsafe { lumen_stretch_set_transpose(self.raw.as_ptr(), (cents / 100.0) as f32) };
+        status(code)
     }
 
     /// Forgets everything it has heard.

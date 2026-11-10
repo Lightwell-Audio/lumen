@@ -1,0 +1,147 @@
+{
+  "format": "lumen-project",
+  "version": 34,
+  "generator": "Lumen 0.0.1",
+  "project": {
+    "name": "Golden v34",
+    "sample_rate": 48000,
+    "tempo": [
+      {
+        "at": 0,
+        "bpm": 120.0
+      }
+    ],
+    "meter": [
+      {
+        "at": 0,
+        "meter": {
+          "numerator": 4,
+          "denominator": 4
+        }
+      }
+    ],
+    "tracks": [
+      {
+        "id": "0000000000000ce4",
+        "name": "Loop",
+        "kind": "audio",
+        "color": "#4F81BD",
+        "gain_db": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [],
+        "clips": [
+          {
+            "id": "0000000000000d49",
+            "name": "c3401",
+            "start": 5644800,
+            "length": 11289600,
+            "muted": false,
+            "envelopes": {
+              "pitch": [
+                {
+                  "at": 0,
+                  "value": 0.0
+                },
+                {
+                  "at": 2822400,
+                  "value": 7.0,
+                  "shape": {
+                    "curve": [0.33333334, 0.33333334, 0.6666667, 0.6666667]
+                  }
+                },
+                {
+                  "at": 5644800,
+                  "value": -12.5,
+                  "shape": "step"
+                },
+                {
+                  "at": 8467200,
+                  "value": 0.0
+                }
+              ]
+            },
+            "warp": {
+              "mode": "full_mix",
+              "original_bpm": 92.0,
+              "markers": [
+                {
+                  "source": 2.0,
+                  "at": 0
+                },
+                {
+                  "source": 4.5,
+                  "at": 5644800
+                }
+              ],
+              "transpose_cents": 200
+            },
+            "content": {
+              "type": "audio",
+              "media": "0000000000000384",
+              "offset": 96000,
+              "gain_db": 0.0
+            }
+          }
+        ]
+      }
+    ],
+    "master": {
+      "id": "00000000000003e7",
+      "name": "Master",
+      "kind": "master",
+      "color": "#8A8F99",
+      "gain_db": 0.0,
+      "pan": 0.0,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "devices": [],
+      "clips": []
+    },
+    "pan_law": "constant_power",
+    "media": [
+      {
+        "id": "0000000000000384",
+        "path": "loop.wav",
+        "frames": 5760000,
+        "channels": 2,
+        "sample_rate": 48000,
+        "size_bytes": 0
+      }
+    ],
+    "markers": [],
+    "transport": {
+      "loop_start": 0,
+      "loop_end": 22579200,
+      "loop_enabled": false,
+      "punch_in": false,
+      "punch_out": false
+    },
+    "view": {
+      "left_beat": 0.0,
+      "px_per_beat": 24.0,
+      "browser_open": true,
+      "detail_open": true,
+      "browser_size": 220.0,
+      "detail_size": 220.0,
+      "top": 0.0,
+      "track_heights": {},
+      "expanded": [],
+      "grid": {
+        "fixed": false,
+        "width": "narrow",
+        "size": {
+          "note": 16
+        },
+        "feel": "straight",
+        "snap": true
+      },
+      "collapsed": [],
+      "header_width": 204.0,
+      "returns_folded": false
+    }
+  }
+}

@@ -92,13 +92,21 @@ impl Rendering {
             &mut right[..0]
         };
         let position = |k| warped.position(k);
+        // A stream with a pitch is told its shift at every hop; one without
+        // never is (Repitch has none, whatever the clip holds).
+        let cents = |k| warped.cents_at(k);
+        let pitch: Option<&dyn Fn(i64) -> f64> = warped.pitch.is_set().then_some(&cents);
         match &mut self.renderer {
             Renderer::Repitch(r) => {
                 r.render(&mut self.input, &position, from as i64, left, right)?
             }
-            Renderer::Stretch(c) => {
-                c.render(&mut self.input, &position, from as i64, left, right)?
-            }
+            Renderer::Stretch(c) => c.render(
+                &mut self.input,
+                (&position, pitch),
+                from as i64,
+                left,
+                right,
+            )?,
             Renderer::Slices(s) => {
                 let starts = if self.polling {
                     Warped::slice_starts_polled(&warped)?
@@ -107,7 +115,7 @@ impl Rendering {
                 };
                 s.render(
                     &mut self.input,
-                    (&position, starts),
+                    (&position, starts, pitch),
                     from as i64,
                     left,
                     right,

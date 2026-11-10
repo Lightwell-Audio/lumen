@@ -95,7 +95,7 @@ fn stretch_one_track(bencher: divan::Bencher<'_, '_>, preset: Preset) {
         // A second at a time through the file, ten seconds round.
         at = (at + SECOND as i64) % (3 * CHUNK);
         chunks
-            .render(&mut source, &position, at, &mut l, &mut r)
+            .render(&mut source, (&position, None), at, &mut l, &mut r)
             .unwrap();
         black_box((&l, &r));
     });
@@ -115,7 +115,7 @@ fn warped_64(bencher: divan::Bencher<'_, '_>, preset: Preset) {
         at = (at + SECOND as i64) % (3 * CHUNK);
         for chunks in &mut tracks {
             chunks
-                .render(&mut source, &position, at, &mut l, &mut r)
+                .render(&mut source, (&position, None), at, &mut l, &mut r)
                 .unwrap();
         }
         black_box((&l, &r));

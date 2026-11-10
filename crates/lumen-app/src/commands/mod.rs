@@ -285,6 +285,9 @@ pub(crate) enum Command {
     HalveClipTempo,
     AddWarpMarker,
     ClearWarpMarkers,
+    AudioEditorPitchEnvelope,
+    TransposeClipUp,
+    TransposeClipDown,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -657,6 +660,9 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::HalveClipTempo, "clip.warp_tempo_halve", "Halve the clip's tempo", Area::Clip, &[], "Halves the tempo the selected warped clips' files were made at, to correct a detection that found double. The clip then plays twice as fast."),
     info(Command::AddWarpMarker, "clip.warp_marker_add", "Add warp marker", Area::Clip, &[], "Adds a warp marker to the opened warped audio clip at the edit cursor (the playhead when there is none), on the sound that plays there, so nothing changes until it is moved."),
     info(Command::ClearWarpMarkers, "clip.warp_markers_clear", "Remove all warp markers", Area::Clip, &[], "Takes every warp marker but one from the opened warped audio clip, so it plays at its file's tempo throughout. The clip's start stays where it is."),
+    info(Command::AudioEditorPitchEnvelope, "view.audio_editor_pitch_envelope", "Show the clip's pitch envelope", Area::View, &[], "Shows the opened audio clip's pitch envelope over its wave in the audio editor, to add, move and draw its points in semitones. It is heard while the clip is warped in Melodic, Full mix or Rhythmic. Again hides it."),
+    info(Command::TransposeClipUp, "clip.transpose_up", "Transpose clip up a semitone", Area::Clip, &[], "Raises the selected warped audio clips by a semitone, in Melodic, Full mix or Rhythmic. Repitch is left as it is: its pitch follows the tempo. It stops at four octaves."),
+    info(Command::TransposeClipDown, "clip.transpose_down", "Transpose clip down a semitone", Area::Clip, &[], "Lowers the selected warped audio clips by a semitone, in Melodic, Full mix or Rhythmic. Repitch is left as it is: its pitch follows the tempo. It stops at four octaves."),
 ];
 
 const fn info(
@@ -720,7 +726,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::ClearWarpMarkers as usize + 1,
+            Command::TransposeClipDown as usize + 1,
             ALL.len(),
             "a command is missing"
         );

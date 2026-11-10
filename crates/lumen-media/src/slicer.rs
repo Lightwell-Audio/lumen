@@ -17,10 +17,18 @@
 //!
 //! A span at the file's own speed is a copy of the file (slices follow each
 //! other without a seam), as D3 asks.
+//!
+//! **Pitch (S6).** A transposed Rhythmic clip plays each slice as a sampler
+//! plays a hit: the slice still starts where the map puts it, but its frames
+//! are read at a rate that follows the pitch, so a hit rises and shortens
+//! together and keeps its attack (a pitch shift of the hit itself would smear
+//! it). The rate may change along the slice (a pitch envelope). Where the file
+//! is read at each output frame is worked out on a grid from the slice's own
+//! first frame, so it still depends only on the slice and the frame.
 
 use crate::MediaError;
 use crate::detect::Detector;
-use crate::repitch::Source;
+use crate::repitch::{self, GRID, OfFrame, Source};
 
 /// Frames over which the end of a cut-off or early-ending slice fades out.
 pub const FADE: i64 = 192;
@@ -123,6 +131,89 @@ pub fn scan(source: &mut dyn Source, rate: u32) -> Result<Vec<f64>, MediaError> 
 #[derive(Default)]
 pub struct Slicer {
     window: [Vec<f32>; 2],
+    /// Reads a slice at its pitch's rate, made when the first one is.
+    sampler: Option<Box<repitch::Renderer>>,
+    /// Where the slice last played at a pitch reads the file.
+    reads: Option<Reads>,
+}
+
+/// The most the pitch is shifted either way, in cents: four octaves.
+const MOST_CENTS: f64 = 4_800.0;
+
+/// Where one slice, played at a pitch, reads the file: the file frame, from
+/// the slice's first, at every [`GRID`] output frames from the slice's start.
+struct Reads {
+    from: i64,
+    at: i64,
+    /// `grid[g]` is the file frame (counted from the slice's first) read at
+    /// output frame `g * GRID` of the slice.
+    grid: Vec<f64>,
+    /// The file frames read per output frame at the last grid point.
+    rate: f64,
+}
+
+impl Reads {
+    fn new(s: &Slice, pitch: &dyn Fn(i64) -> f64) -> Self {
+        Self {
+            from: s.from,
+            at: s.at,
+            grid: vec![0.0],
+            rate: rate_at(pitch, s.at),
+        }
+    }
+
+    /// Works the grid out as far as output frame `limit` of the slice, or as
+    /// far as the slice's `len` file frames go if that is sooner.
+    fn extend(&mut self, pitch: &dyn Fn(i64) -> f64, limit: i64, len: i64) {
+        while ((self.grid.len() as i64 - 1) * GRID) < limit
+            && self.grid.last().is_none_or(|&last| last < len as f64)
+        {
+            let g = self.grid.len() as i64;
+            let next = rate_at(pitch, self.at.saturating_add(g * GRID));
+            let last = self.grid[self.grid.len() - 1];
+            self.grid
+                .push(last + GRID as f64 * 0.5 * (self.rate + next));
+            self.rate = next;
+        }
+    }
+
+    /// The file frame, counted from the slice's first, read at output frame
+    /// `o` of the slice (a multiple of [`GRID`] for the sampler, but any frame
+    /// is answered, along the last rate past the end of the grid).
+    fn position(&self, o: i64) -> f64 {
+        let g = o.div_euclid(GRID);
+        let along = o.rem_euclid(GRID) as f64 / GRID as f64;
+        let last = self.grid.len() as i64 - 1;
+        if g >= last {
+            return self.grid[last as usize] + (o - last * GRID) as f64 * self.rate;
+        }
+        let (a, b) = (self.grid[g.max(0) as usize], self.grid[(g + 1) as usize]);
+        a + (b - a) * along
+    }
+
+    /// The output frame at which the file's `len` frames are used up, if the
+    /// grid has reached it.
+    fn length(&self, len: i64) -> Option<i64> {
+        let g = self.grid.iter().position(|&p| p >= len as f64)?;
+        if g == 0 {
+            return Some(0);
+        }
+        let (a, b) = (self.grid[g - 1], self.grid[g]);
+        let within = ((len as f64 - a) / (b - a) * GRID as f64).ceil() as i64;
+        Some((g as i64 - 1) * GRID + within.clamp(1, GRID))
+    }
+}
+
+/// File frames read per output frame at output frame `k` for a shift of
+/// `pitch(k)` cents.
+fn rate_at(pitch: &dyn Fn(i64) -> f64, k: i64) -> f64 {
+    let cents = pitch(k);
+    let cents = if cents.is_finite() {
+        cents.clamp(-MOST_CENTS, MOST_CENTS)
+    } else {
+        0.0
+    };
+    (cents / 1_200.0).exp2()
 }
 
 /// The part of the song one slice plays.
@@ -147,11 +238,13 @@ impl Slicer {
     /// `right` alone). `position(k)` is the frame of the file, fractional,
     /// that plays at output frame `k`: it must not run backwards and must
     /// depend on nothing but `k`. `starts` are the slices' first frames
-    /// ([`starts`]).
+    /// ([`starts`]). `pitch`, when there is one, gives the shift of the pitch
+    /// in cents at output frame `k` (a function of `k` alone): each slice is
+    /// then read at the rate that shift makes, as the module says.
     pub fn render(
         &mut self,
         source: &mut dyn Source,
-        (position, starts): (&dyn Fn(i64) -> f64, &[i64]),
+        (position, starts, pitch): (OfFrame<'_>, &[i64], Option<OfFrame<'_>>),
         first: i64,
         left: &mut [f32],
         right: &mut [f32],
@@ -196,7 +289,14 @@ impl Slicer {
             if s.at >= end {
                 break;
             }
-            self.play(source, &s, frames, (first, end), (left, right), stereo)?;
+            self.play(
+                source,
+                (&s, pitch),
+                frames,
+                (first, end),
+                (left, right),
+                stereo,
+            )?;
             j += 1;
         }
         Ok(())
@@ -206,47 +306,81 @@ impl Slicer {
     fn play(
         &mut self,
         source: &mut dyn Source,
-        s: &Slice,
+        (s, pitch): (&Slice, Option<&dyn Fn(i64) -> f64>),
         frames: i64,
         (first, end): (i64, i64),
         (left, right): (&mut [f32], &mut [f32]),
         stereo: bool,
     ) -> Result<(), MediaError> {
+        let room = s.next.saturating_sub(s.at);
+        // How many output frames the slice lasts: its own frames at the
+        // file's pitch, and at another the frames until its file frames are
+        // used up (unknown, `i64::MAX`, until the grid reaches that far: only
+        // the part the run plays, and the fade after it, is worked out).
+        let long = match pitch {
+            None => s.len,
+            Some(pitch) => {
+                let reach = (end - s.at).max(0).min(room.saturating_add(FADE));
+                let limit = reach.saturating_add(FADE + 2 * GRID);
+                let reads = match &mut self.reads {
+                    Some(r) if r.from == s.from && r.at == s.at => r,
+                    slot => slot.insert(Reads::new(s, pitch)),
+                };
+                reads.extend(pitch, limit, s.len);
+                reads.length(s.len).unwrap_or(i64::MAX)
+            }
+        };
         // The slice's own frames that play: all of them, unless the next
         // slice arrives first (then the rest fades under it).
-        let room = s.next.saturating_sub(s.at);
-        let cut = room < s.len;
-        let gap = !cut && s.next != i64::MAX && room > s.len;
-        let sounding = if cut { room + FADE } else { s.len };
+        let cut = room < long;
+        let gap = !cut && s.next != i64::MAX && room > long;
+        let sounding = if cut { room.saturating_add(FADE) } else { long };
         let fade_from = if cut {
             room
         } else if gap {
-            (s.len - FADE).max(0)
+            (long - FADE).max(0)
         } else {
             i64::MAX
         };
         let fade_len = if cut {
             FADE
         } else {
-            s.len - fade_from.min(s.len)
+            long.saturating_sub(fade_from.min(long))
         };
         // The run's part of it, as offsets into the slice.
         let o0 = first.saturating_sub(s.at).max(0);
-        let o1 = end.saturating_sub(s.at).min(sounding).min(frames - s.from);
+        let reach = end.saturating_sub(s.at).min(sounding);
+        let o1 = if pitch.is_some() {
+            reach
+        } else {
+            reach.min(frames - s.from)
+        };
         if o0 >= o1 {
             return Ok(());
         }
         let count = (o1 - o0) as usize;
         let out0 = (s.at + o0 - first) as usize;
-        let [a, b] = &mut self.window;
+        let Self {
+            window: [a, b],
+            sampler,
+            reads,
+        } = self;
         a.clear();
         a.resize(count, 0.0);
         b.clear();
         b.resize(count, 0.0);
-        if stereo {
-            source.read((s.from + o0) as u64, &mut [&mut a[..], &mut b[..]])?;
-        } else {
-            source.read((s.from + o0) as u64, &mut [&mut a[..]])?;
+        match (pitch, reads.as_ref()) {
+            (Some(_), Some(reads)) => {
+                // Read at the pitch's rate, band-limited, from where the
+                // slice's own first frame is.
+                let sampler = sampler.get_or_insert_with(Default::default);
+                let from = s.from as f64;
+                let position = |o: i64| from + reads.position(o);
+                let right = if stereo { &mut b[..] } else { &mut b[..0] };
+                sampler.render(source, &position, o0, &mut a[..], right)?;
+            }
+            _ if stereo => source.read((s.from + o0) as u64, &mut [&mut a[..], &mut b[..]])?,
+            _ => source.read((s.from + o0) as u64, &mut [&mut a[..]])?,
         }
         for i in 0..count {
             let o = o0 + i as i64;
