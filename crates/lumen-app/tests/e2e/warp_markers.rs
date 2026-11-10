@@ -112,6 +112,55 @@ fn dragging_the_ghost_makes_a_marker_and_moves_it_as_one_undo_step() {
     );
 }
 
+/// Where marker `index` plays on the timeline, and the grid line it is on
+/// (`None` when it is between lines).
+fn on_a_line(lumen: &Lumen, id: Id, index: usize) -> (Ticks, bool) {
+    let c = clip(lumen, id);
+    let t = c.start + markers(lumen, id)[index].at;
+    let (line, _) = lumen.app().audio_editor_grid_cell_at(t).expect("a grid");
+    (t, line == t)
+}
+
+#[test]
+fn a_dragged_marker_lands_on_a_grid_line() {
+    let (mut lumen, id) = warped_editor("warp-snap");
+    let from = on_strip(&lumen, 2.0);
+    for dx in [37.0, 61.0, 83.0, 107.0] {
+        lumen.drag(from, Pos2::new(from.x + dx, from.y), Modifiers::NONE);
+        let (t, on) = on_a_line(&lumen, id, 1);
+        assert!(on, "a drag of {dx} points left the marker at {t:?}");
+        lumen.key(Modifiers::COMMAND, Key::Z);
+        lumen.frames(3);
+    }
+}
+
+#[test]
+fn a_marker_goes_to_the_line_the_pointer_is_on_however_it_was_grabbed() {
+    let (mut lumen, id) = warped_editor("warp-snap-pointer");
+    lumen.double_click(on_strip(&lumen, 2.0));
+    let (strip, flags) = lumen.app().audio_warp_strip().unwrap();
+    let y = strip.center().y;
+    // Grabbed 5 points off its centre, then the pointer is put on beat 3.
+    lumen.drag(
+        Pos2::new(flags[1] + 5.0, y),
+        Pos2::new(x_of(&lumen, 3.0), y),
+        Modifiers::NONE,
+    );
+    let c = clip(&lumen, id);
+    assert_eq!(
+        c.start + markers(&lumen, id)[1].at,
+        c.start + Ticks::quarters(3)
+    );
+}
+
+#[test]
+fn a_marker_made_by_a_click_lands_on_a_grid_line() {
+    let (mut lumen, id) = warped_editor("warp-snap-click");
+    lumen.double_click(on_strip(&lumen, 2.3));
+    let (t, on) = on_a_line(&lumen, id, 1);
+    assert!(on, "a double-click left the marker at {t:?}");
+}
+
 #[test]
 fn a_marker_stops_at_a_quarter_and_at_four_times_the_speed() {
     let (mut lumen, id) = warped_editor("warp-limit");

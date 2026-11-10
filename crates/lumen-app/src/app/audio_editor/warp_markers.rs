@@ -115,6 +115,37 @@ impl App {
             .map(|c| &**c)
     }
 
+    /// Whether a pointer gesture on the strip goes to grid lines now: the
+    /// grid snaps and Alt is not held.
+    fn snaps_here(&self, ctx: &egui::Context) -> bool {
+        self.grid.snap && !ctx.input(|i| i.modifiers.alt)
+    }
+
+    /// The ghost `g` where it would be made: one that is not on a transient
+    /// sits on the grid line nearest the pointer, so a click makes a marker
+    /// on the line it is beside. A ghost on a transient stays on its hit.
+    fn ghost_on_the_grid(
+        &self,
+        ctx: &egui::Context,
+        g: Ghost,
+        (area, left): (&WaveArea<'_>, f32),
+        ed: &AudioEditor,
+    ) -> Ghost {
+        if g.on_transient || !self.snaps_here(ctx) {
+            return g;
+        }
+        let line = self.snapped_at_zoom(ticks_of(ed.time.beat_at(left, g.x)), false, ed.time.zoom);
+        let beat = line.0 as f64 / lumen_core::time::PPQ as f64;
+        let Some(frame) = area.file.frame_at(beat) else {
+            return g;
+        };
+        Ghost {
+            x: ed.time.x(left, beat),
+            source: frame / f64::from(area.rate.max(1)),
+            ..g
+        }
+    }
+
     /// The warp strip's pointer work: hover (a marker, or the ghost), a drag
     /// that moves a marker or makes one, double-click, and the right-click
     /// menu.
@@ -144,7 +175,8 @@ impl App {
             && self.opened_clip_takes_edits(clip.id)
         {
             let shift = ctx.input(|i| i.modifiers.shift);
-            let ghost = ghost_at(press.x, ed);
+            let ghost =
+                ghost_at(press.x, ed).map(|g| self.ghost_on_the_grid(&ctx, g, (area, left), ed));
             if let Some(drag) =
                 self.start_marker_drag((clip, strip), (press, shift), ghost, area, ed)
             {
@@ -169,7 +201,9 @@ impl App {
         let pointer = response.hover_pos();
         ed.markers.hover = pointer.and_then(|p| match strip.hit(p) {
             Some(i) => Some(StripHover::Marker(i)),
-            None => ghost_at(p.x, ed).map(StripHover::Ghost),
+            None => ghost_at(p.x, ed)
+                .map(|g| self.ghost_on_the_grid(&ctx, g, (area, left), ed))
+                .map(StripHover::Ghost),
         });
         if response.double_clicked() && self.opened_clip_takes_edits(clip.id) {
             match ed.markers.hover {
@@ -324,6 +358,7 @@ impl App {
         let Some(held) = Self::clip_in(&drag.base, clip.id) else {
             return;
         };
+        let mut on_line = None;
         let change = match drag.slide {
             Some(slide) => {
                 let now = ed.time.beat_at(left, p.x);
@@ -333,9 +368,18 @@ impl App {
                 }
             }
             None => {
-                let free = ctx.input(|i| i.modifiers.alt);
-                let under = ticks_of(ed.time.beat_at(left, p.x)) + drag.grab;
-                let target = self.snapped_at_zoom(under, free, ed.time.zoom);
+                // On the grid the marker goes to the line nearest the pointer
+                // (the owner, 2026-11-09: it did not snap "as expected" when
+                // the marker was grabbed a few points off its centre); with
+                // Alt, or snapping off, it keeps its grip and moves freely.
+                let pointer = ticks_of(ed.time.beat_at(left, p.x));
+                let target = if self.snaps_here(ctx) {
+                    let line = self.snapped_at_zoom(pointer, false, ed.time.zoom);
+                    on_line = Some(line);
+                    line
+                } else {
+                    pointer + drag.grab
+                };
                 MarkerEdit::Move {
                     index: drag.index,
                     to: target - origin(held),
@@ -373,6 +417,12 @@ impl App {
                 pos2(area.body.left(), area.body.top() - theme::size::WARP_STRIP),
                 area.body.max,
             )));
+        if let Some(line) = on_line {
+            let x = ed
+                .time
+                .x(left, line.0 as f64 / lumen_core::time::PPQ as f64);
+            crate::app::grid::draw_snap_guide(&overlay, x, area.body);
+        }
         if let Some(words) = words {
             let text = match ed.markers.held {
                 Some(_) => format!("{words} \u{00B7} limit"),

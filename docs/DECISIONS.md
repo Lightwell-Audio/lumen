@@ -12653,3 +12653,20 @@ D's stretch band were offered and not chosen.
 200%, light at 100% (before the review's fixes; dark at 150% and 200% after);
 the theme contrast test; E2E `warp_markers` and the suite. Not looked at:
 light at 150% and 200%, a split or looped clip, the arrangement's own clips.
+
+5. *Snapping the pointer's line (owner, 2026-11-09: "it doesn't snap to grid
+   like expected").* A drag kept the pointer's offset from the marker and
+   snapped the marker's own place, so a marker grabbed a few points off its
+   centre went to a line beside the one the pointer was on, and a marker made
+   by a click was not snapped at all. Now, with the grid snapping and Alt not
+   held, a dragged marker goes to the grid line nearest the **pointer** and the
+   usual snap guide is drawn there; a ghost that is not on a transient sits on
+   the nearest line, so a click or a press makes the marker on it; a ghost on a
+   transient stays on its hit (pinning the hit, then dragging it to a line, is
+   the way to put a hit on the grid). With Alt or snapping off the marker
+   keeps its grip and moves freely. The slide (Shift) and the keyboard are
+   unchanged. E2E: `a_dragged_marker_lands_on_a_grid_line`,
+   `a_marker_goes_to_the_line_the_pointer_is_on_however_it_was_grabbed`,
+   `a_marker_made_by_a_click_lands_on_a_grid_line`. Not reviewed by a
+   subagent.
+
