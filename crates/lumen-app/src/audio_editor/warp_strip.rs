@@ -1,5 +1,6 @@
 //! The warp strip (M9.5 S5b, the owner's P A): a thin strip between the audio
-//! editor's ruler and its wave where a warped clip's markers are flags. The
+//! editor's ruler and its wave where a warped clip's markers are notches
+//! (rounded pins pointing at their place) and its transients small triangles. The
 //! strip is where markers are grabbed, so they never share the wave with the
 //! trim, fade and gain handles. Hovering the strip offers a ghost marker at
 //! the nearest transient, or at the pointer when none is near (G B); pressing
@@ -193,7 +194,7 @@ mod tests {
     }
 
     fn strip_rect() -> Rect {
-        Rect::from_min_max(pos2(0.0, 37.0), pos2(1_000.0, 51.0))
+        Rect::from_min_max(pos2(0.0, 37.0), pos2(1_000.0, 37.0 + STRIP))
     }
 
     fn clip(markers: &[(f64, i64)]) -> Clip {

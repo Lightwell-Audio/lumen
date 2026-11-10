@@ -322,6 +322,11 @@ impl App {
         let lines = self.grid.lines(meter, from, to, ed.time.zoom);
         let palette = theme::p();
         painter.rect_filled(body, 0.0, palette.canvas);
+        // The same lines again over the clip's body, where the wave draws.
+        let over_clip: Vec<(f32, lumen_core::grid::Level)> = lines
+            .iter()
+            .map(|l| (ed.time.x(body.left(), l.at.as_quarters()), l.level))
+            .collect();
         for line in &lines {
             let x = ed.time.x(body.left(), line.at.as_quarters());
             let ink = match line.level {
@@ -373,18 +378,33 @@ impl App {
             look,
             split: loaded.source.channels > 1 && body.height() >= SPLIT_FROM,
             samples,
+            grid: &over_clip,
         };
         paint::wave(&painter, body, &input);
+        if let Some(strip) = &strip {
+            Self::paint_strip_ground(&painter, strip.rect);
+        }
         if let Some(key) = crate::audio_editor::detect::file_key(&clip)
             && let Some(found) = ed.detect.analysis(key)
         {
-            Self::paint_transients(
-                &painter,
-                body,
-                &file,
-                (ed.time, rate),
-                (found, ed.detect.sensitivity),
-            );
+            // A warped clip shows them as triangles in its strip; one that
+            // is not has no strip and shows them as faint lines on the wave.
+            match &strip {
+                Some(strip) => Self::paint_transient_ticks(
+                    &painter,
+                    strip,
+                    &file,
+                    (ed.time, rate),
+                    (found, ed.detect.sensitivity),
+                ),
+                None => Self::paint_transients(
+                    &painter,
+                    body,
+                    &file,
+                    (ed.time, rate),
+                    (found, ed.detect.sensitivity),
+                ),
+            }
         }
         paint::ruler(&painter, scale, ed.time, &lines, meter, &file, rate);
         // The wave's Tab stop, then the envelope and the range over the

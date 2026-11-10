@@ -438,12 +438,18 @@ impl App {
             }
         });
         let count = analysis.transients_at(ed.detect.sensitivity).count();
+        // A warped clip shows them in its strip, one that is not on the wave.
+        let place = if clip.warp.is_some() {
+            "in the strip"
+        } else {
+            "on the wave"
+        };
         widgets::hint(
             ui,
             &match count {
                 0 => "No transients at this sensitivity".to_owned(),
-                1 => "1 transient shown on the wave".to_owned(),
-                n => format!("{n} transients shown on the wave"),
+                1 => format!("1 transient shown {place}"),
+                n => format!("{n} transients shown {place}"),
             },
         );
     }

@@ -12599,3 +12599,43 @@ frames independent of reads, one scan for many streams, a polling reader);
 (5); E2E `warp_markers.rs` (10). Not verified: anything by ear; the ticks and
 strip at 100, 150 and 200% in both themes; the WSL perf gate and macOS
 cross-target clippy.
+
+## ADR-0136 — Notches, transient triangles and the grid under the wave (M9.5 S5b follow-up)
+
+**Date:** 2026-11-09. **Branch:** `m9.5-s5b-warp-markers`. **Status:** Built.
+No format change. Owner's choices (rendered specimens, 2026-11-09): strip B,
+white notches, grid G2.
+
+**Context.** The owner looked at S5b against another DAW's warp strip and
+asked for two tiers (small marks where sounds start, larger marks to grab
+and warp) and for the grid behind the audio clip, which was missing: the
+editor drew the arrangement's grid and then filled the clip's played part
+with an opaque body colour over it.
+
+**Decisions.**
+1. *Notches, not flags.* A warp marker is a rounded pin centred on its
+   place and pointing down at it (`paint_notch`, 9 x 12 pt), white
+   (`text`), with a hairline pole through the strip and the wave. Under the
+   pointer it takes a rim and a thicker pole; touched, picked or focused it
+   is the accent. The ghost is an outlined, faintly filled notch. The grab
+   reach and focus ring are unchanged (`WARP_GRAB`).
+2. *Transients are small triangles in the strip* (6 x 5 pt, `text_secondary`
+   at a strength-scaled alpha), always drawn for a warped clip, only those in
+   view; one under a marker is left out. A clip that is not warped has no
+   strip, so it keeps the faint accent lines on the wave. The strip is 18 pt
+   (was 14). The Warp popover's count says "in the strip" or "on the wave".
+3. *The grid over the clip body.* `paint::wave` draws the grid's lines (the
+   caller passes their x and level) after the played parts' body fill and
+   before the wave, only over the played parts; the file's dimmed outside
+   keeps the canvas grid beneath its wash. New tokens `clip_grid_bar`,
+   `clip_grid_beat`, `clip_grid_sub` (a wash of white in the dark theme,
+   black in the light: 20/10/4.3% and 18/9/4%); the contrast test keeps each
+   visible on `clip_body`. The lines are the arrangement's (the grid chip,
+   zoom thinning).
+
+**Not done.** G3's alternate bar bands, C's speed labels on the notches and
+D's stretch band were offered and not chosen.
+
+**Verification.** Rendered in both themes at 100% (a throwaway test, not
+kept); the theme contrast test; E2E `warp_markers` and the suite. Not
+looked at: 150% and 200%, the arrangement's own clips.

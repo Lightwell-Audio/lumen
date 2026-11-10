@@ -153,6 +153,7 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `grid_bar` | `#343842` | `#D9DCE1` | Bar lines |
 | `grid_beat` | `#262930` | `#ECEEF1` | Beat lines |
 | `grid_sub` | `#212329` | `#F3F4F6` | Grid lines between beats |
+| `clip_grid_bar`, `clip_grid_beat`, `clip_grid_sub` | white at 20%, 10%, 4.3% | black at 18%, 9%, 4% | The grid over an audio clip's body, under its wave (the audio editor; a contrast test keeps them visible on `clip_body`) |
 | `start_marker` | `#C8CCD4` | `#6B717C` | Where Play starts |
 | `lane` | `#1B1D22` | `#F6F7F8` | Arrangement lanes behind clips |
 | `header` | `#1E2126` | `#ECEEF1` | Track header column |

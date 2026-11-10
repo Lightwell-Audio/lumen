@@ -61,9 +61,9 @@ fn only_a_warped_clip_has_a_strip_and_it_sits_between_the_ruler_and_the_wave() {
     lumen.frames(4);
     let (strip, flags) = lumen.app().audio_warp_strip().expect("warped");
     let after = shown(&lumen).body;
-    assert_eq!(strip.height(), 14.0);
+    assert_eq!(strip.height(), 18.0);
     assert_eq!(strip.bottom(), after.top(), "the wave starts under it");
-    assert!((after.top() - before.top() - 14.0).abs() < 0.01);
+    assert!((after.top() - before.top() - 18.0).abs() < 0.01);
     assert_eq!(flags.len(), 1, "a warped clip starts with its one marker");
 }
 

@@ -51,6 +51,9 @@ pub(crate) struct WaveInput<'a> {
     /// Left over right (a stereo file with room for two).
     pub split: bool,
     pub samples: Option<Samples<'a>>,
+    /// The grid's lines as x and level, drawn over the clip's body under the
+    /// wave (the body would otherwise cover the grid).
+    pub grid: &'a [(f32, lumen_core::grid::Level)],
 }
 
 /// The frames under the view in `lane`: first and last (device rate),
@@ -120,6 +123,20 @@ pub(crate) fn wave(painter: &Painter, lane: Rect, input: &WaveInput<'_>) {
             if b > a {
                 let part = Rect::from_x_y_ranges(a..=b, lane.y_range());
                 painter.rect_filled(part, 0.0, palette.clip_body);
+                for (gx, level) in input.grid {
+                    if (a..=b).contains(gx) {
+                        let ink = match level {
+                            Level::Bar => palette.clip_grid_bar,
+                            Level::Beat => palette.clip_grid_beat,
+                            Level::Sub => palette.clip_grid_sub,
+                        };
+                        painter.vline(
+                            *gx,
+                            lane.y_range(),
+                            Stroke::new(theme::stroke::HAIRLINE, ink),
+                        );
+                    }
+                }
             }
         }
         // The file's two ends, so where it stops reads in both themes (in
