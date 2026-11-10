@@ -76,6 +76,30 @@ pub(crate) struct Detection {
     pub state: State,
     /// 0 to 100: which transients are offered (the Sensitivity control).
     pub sensitivity: u8,
+    /// The Warp popover is open: set while it draws and taken by the wave's
+    /// painter, so a clip that is not warped shows its transients on the
+    /// wave only while the Sensitivity control is in reach.
+    pub previewing: bool,
+}
+
+/// Where the transients are drawn for a clip: in its warp strip when it is
+/// warped; on the wave, faintly, for a clip that is not, only while the Warp
+/// popover is open (its Sensitivity control previews them); nowhere else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Shown {
+    Strip,
+    Wave,
+    Nowhere,
+}
+
+impl Shown {
+    pub(crate) fn of(warped: bool, previewing: bool) -> Self {
+        match (warped, previewing) {
+            (true, _) => Self::Strip,
+            (false, true) => Self::Wave,
+            (false, false) => Self::Nowhere,
+        }
+    }
 }
 
 impl Default for Detection {
@@ -85,6 +109,7 @@ impl Default for Detection {
             path: None,
             state: State::Idle,
             sensitivity: DEFAULT_SENSITIVITY,
+            previewing: false,
         }
     }
 }
@@ -248,6 +273,14 @@ mod tests {
 
     fn wait(detection: &mut Detection) {
         lumen_testkit::wait_until("detection answers", || detection.poll());
+    }
+
+    #[test]
+    fn a_clip_that_is_not_warped_shows_its_transients_only_while_previewing() {
+        assert_eq!(Shown::of(true, false), Shown::Strip);
+        assert_eq!(Shown::of(true, true), Shown::Strip);
+        assert_eq!(Shown::of(false, true), Shown::Wave);
+        assert_eq!(Shown::of(false, false), Shown::Nowhere);
     }
 
     #[test]

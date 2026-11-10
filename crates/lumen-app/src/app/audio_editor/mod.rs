@@ -384,26 +384,37 @@ impl App {
         if let Some(strip) = &strip {
             Self::paint_strip_ground(&painter, strip.rect);
         }
+        let previewing = std::mem::take(&mut ed.detect.previewing);
         if let Some(key) = crate::audio_editor::detect::file_key(&clip)
             && let Some(found) = ed.detect.analysis(key)
         {
             // A warped clip shows them as triangles in its strip; one that
-            // is not has no strip and shows them as faint lines on the wave.
-            match &strip {
-                Some(strip) => Self::paint_transient_ticks(
-                    &painter,
-                    strip,
-                    &file,
-                    (ed.time, rate),
-                    (found, ed.detect.sensitivity),
-                ),
-                None => Self::paint_transients(
-                    &painter,
-                    body,
-                    &file,
-                    (ed.time, rate),
-                    (found, ed.detect.sensitivity),
-                ),
+            // is not shows them as faint lines on the wave only while the
+            // Warp popover is open.
+            let at = (ed.time, rate);
+            match (
+                crate::audio_editor::detect::Shown::of(strip.is_some(), previewing),
+                &strip,
+            ) {
+                (crate::audio_editor::detect::Shown::Strip, Some(strip)) => {
+                    Self::paint_transient_ticks(
+                        &painter,
+                        strip,
+                        &file,
+                        at,
+                        (found, ed.detect.sensitivity),
+                    );
+                }
+                (crate::audio_editor::detect::Shown::Wave, _) => {
+                    Self::paint_transients(
+                        &painter,
+                        body,
+                        &file,
+                        at,
+                        (found, ed.detect.sensitivity),
+                    );
+                }
+                _ => {}
             }
         }
         paint::ruler(&painter, scale, ed.time, &lines, meter, &file, rate);

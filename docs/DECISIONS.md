@@ -12622,8 +12622,10 @@ with an opaque body colour over it.
 2. *Transients are small triangles in the strip* (6 x 5 pt, `text_secondary`
    at a strength-scaled alpha), always drawn for a warped clip, only those in
    view; one under a marker is left out. A clip that is not warped has no
-   strip, so it keeps the faint accent lines on the wave. The strip is 18 pt
-   (was 14). The Warp popover's count says "in the strip" or "on the wave".
+   strip and draws no transients, except as faint accent lines on the wave
+   while its Warp popover is open, so the Sensitivity control previews them
+   (`detect::Shown`; owner's choice, 2026-11-09, after asking why the lines
+   were there). The strip is 18 pt (was 14). The Warp popover's count says "in the strip" or "on the wave".
 3. *The grid over the clip body.* `paint::wave` draws the grid's lines (the
    caller passes their x and level) after the played parts' body fill and
    before the wave, only over the played parts; the file's dimmed outside

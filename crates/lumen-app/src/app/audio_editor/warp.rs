@@ -212,6 +212,8 @@ impl App {
 
     /// What the Warp chip opens.
     pub(super) fn warp_popover(&mut self, ui: &mut Ui, clip: &Clip, ed: &mut AudioEditor) {
+        // The wave shows a clip's transients for as long as this is open.
+        ed.detect.previewing = true;
         let palette = *theme::p();
         let ctx = ui.ctx().clone();
         let found = Self::editor_found(ed, clip);
@@ -438,7 +440,8 @@ impl App {
             }
         });
         let count = analysis.transients_at(ed.detect.sensitivity).count();
-        // A warped clip shows them in its strip, one that is not on the wave.
+        // A warped clip shows them in its strip; one that is not, on the wave
+        // while this is open.
         let place = if clip.warp.is_some() {
             "in the strip"
         } else {
