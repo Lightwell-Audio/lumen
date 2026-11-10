@@ -149,6 +149,113 @@ pub fn mirror(markers: &mut [Marker], sum: Ticks, total: f64) {
     markers.reverse();
 }
 
+/// The marker that pins tick `at` to the audio that plays there now: adding
+/// it changes nothing that is heard.
+pub fn marker_at(markers: &[Marker], original_bpm: f64, at: Ticks) -> Marker {
+    Marker::new(source_at(markers, original_bpm, at), at)
+}
+
+/// The marker that pins second `source` of the file (a transient) to the tick
+/// where it plays now, to the nearest tick.
+pub fn marker_on(markers: &[Marker], original_bpm: f64, source: f64) -> Marker {
+    Marker::new(source, tick_at_source(markers, original_bpm, source))
+}
+
+/// `markers` with `marker` put in its place in time, and its index. `None`
+/// when the list is full or the result is not a map (a marker is at that tick
+/// or on that second already).
+pub fn with_marker(markers: &[Marker], marker: Marker) -> Option<(Vec<Marker>, usize)> {
+    if markers.len() >= MAX_MARKERS {
+        return None;
+    }
+    let index = markers.partition_point(|m| m.at < marker.at);
+    let mut out = markers.to_vec();
+    out.insert(index, marker);
+    is_sound(&out).then_some((out, index))
+}
+
+/// `markers` without the one at `index`. `None` for the only marker (a map
+/// keeps one) or an index that is not there.
+pub fn without_marker(markers: &[Marker], index: usize) -> Option<Vec<Marker>> {
+    if markers.len() < 2 || index >= markers.len() {
+        return None;
+    }
+    let mut out = markers.to_vec();
+    out.remove(index);
+    Some(out)
+}
+
+/// How fast the spans before and after marker `index` play against the
+/// original tempo ([`ratio`]); `None` on a side with no marker.
+pub fn ratios_beside(
+    markers: &[Marker],
+    original_bpm: f64,
+    index: usize,
+) -> (Option<f64>, Option<f64>) {
+    let Some(&m) = markers.get(index) else {
+        return (None, None);
+    };
+    let before = index
+        .checked_sub(1)
+        .and_then(|i| markers.get(i))
+        .map(|a| ratio(*a, m, original_bpm));
+    let after = markers.get(index + 1).map(|b| ratio(m, *b, original_bpm));
+    (before, after)
+}
+
+/// As far as a marker is taken from where it stands on a side with no
+/// neighbour: far past any song, and small enough to add to a tick.
+const FREE: i64 = 1 << 50;
+
+/// A span this much of a tick past a limit is on it: the arithmetic of a
+/// span that sits exactly on a limit may land a hair either side.
+const SLACK: f64 = 1e-6;
+
+/// The ticks marker `index` may be moved between, so that the spans beside it
+/// stay between [`MIN_RATIO`] and [`MAX_RATIO`] and it stays between its
+/// neighbours. Where it stands is always allowed.
+pub fn tick_limits(markers: &[Marker], original_bpm: f64, index: usize) -> (Ticks, Ticks) {
+    let Some(&m) = markers.get(index) else {
+        return (Ticks::ZERO, Ticks::ZERO);
+    };
+    let per_tick = seconds_per_tick(original_bpm);
+    let (mut low, mut high) = (m.at.0 - FREE, m.at.0 + FREE);
+    if let Some(a) = index.checked_sub(1).and_then(|i| markers.get(i)) {
+        // The span before holds `m.source − a.source` seconds: it is
+        // shortest at the fastest ratio and longest at the slowest.
+        let ticks = (m.source - a.source) / per_tick;
+        low = low.max(a.at.0 + ((ticks / MAX_RATIO - SLACK).ceil() as i64).max(1));
+        high = high.min(a.at.0 + (ticks / MIN_RATIO + SLACK).floor() as i64);
+    }
+    if let Some(b) = markers.get(index + 1) {
+        let ticks = (b.source - m.source) / per_tick;
+        low = low.max(b.at.0 - (ticks / MIN_RATIO + SLACK).floor() as i64);
+        high = high.min(b.at.0 - ((ticks / MAX_RATIO - SLACK).ceil() as i64).max(1));
+    }
+    (Ticks(low.min(m.at.0)), Ticks(high.max(m.at.0)))
+}
+
+/// The seconds of the file marker `index` may be slid between (the audio
+/// moved under it), by the same rule as [`tick_limits`].
+pub fn source_limits(markers: &[Marker], original_bpm: f64, index: usize) -> (f64, f64) {
+    let Some(&m) = markers.get(index) else {
+        return (0.0, 0.0);
+    };
+    let per_tick = seconds_per_tick(original_bpm);
+    let (mut low, mut high) = (f64::NEG_INFINITY, f64::INFINITY);
+    if let Some(a) = index.checked_sub(1).and_then(|i| markers.get(i)) {
+        let seconds = (m.at.0 - a.at.0) as f64 * per_tick;
+        low = low.max(a.source + seconds * MIN_RATIO);
+        high = high.min(a.source + seconds * MAX_RATIO);
+    }
+    if let Some(b) = markers.get(index + 1) {
+        let seconds = (b.at.0 - m.at.0) as f64 * per_tick;
+        low = low.max(b.source - seconds * MAX_RATIO);
+        high = high.min(b.source - seconds * MIN_RATIO);
+    }
+    (low.min(m.source), high.max(m.source))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,6 +367,89 @@ mod tests {
         assert_eq!(markers[1], Marker::new(9.0, q(6)));
         mirror(&mut markers, q(8), 10.0);
         assert_eq!(markers, map());
+    }
+
+    #[test]
+    fn a_marker_added_where_the_audio_plays_changes_nothing_heard() {
+        let before = map();
+        for at in [q(1), q(3), q(6)] {
+            let (after, index) =
+                with_marker(&before, marker_at(&before, 120.0, at)).expect("a free tick");
+            assert_eq!(after[index].at, at);
+            assert!(is_sound(&after));
+            for t in [-PPQ, 0, PPQ / 2, 2 * PPQ + 7, 5 * PPQ, 9 * PPQ] {
+                let (was, now) = (
+                    source_at(&before, 120.0, Ticks(t)),
+                    source_at(&after, 120.0, Ticks(t)),
+                );
+                assert!((was - now).abs() < 1e-9, "tick {t} with a marker at {at:?}");
+            }
+        }
+        // On a second of the file: at the tick it plays.
+        let on = marker_on(&before, 120.0, 1.5);
+        assert_eq!(on, Marker::new(1.5, q(3)));
+        // A tick that has a marker takes no other.
+        assert!(with_marker(&before, marker_at(&before, 120.0, q(2))).is_none());
+    }
+
+    #[test]
+    fn the_only_marker_stays_and_another_goes() {
+        assert!(without_marker(&map()[..1], 0).is_none());
+        assert!(without_marker(&map(), 2).is_none());
+        assert_eq!(without_marker(&map(), 0), Some(vec![map()[1]]));
+    }
+
+    #[test]
+    fn a_marker_moves_between_a_quarter_and_four_times_the_speed() {
+        // Three markers a beat apart, each pinning half a second on: the file
+        // plays as made at 120 BPM.
+        let three = [
+            Marker::new(0.0, q(0)),
+            Marker::new(0.5, q(1)),
+            Marker::new(1.0, q(2)),
+        ];
+        assert_eq!(ratios_beside(&three, 120.0, 1), (Some(1.0), Some(1.0)));
+        let (low, high) = tick_limits(&three, 120.0, 1);
+        // Before it, half a second fits a quarter of a beat at 400%; after
+        // it, the same half second must not be squeezed under a quarter beat.
+        assert_eq!(low, Ticks(PPQ / 4));
+        assert_eq!(high, Ticks(2 * PPQ - PPQ / 4));
+        for at in [low, high] {
+            let mut moved = three;
+            moved[1].at = at;
+            assert!(is_sound(&moved));
+            let (before, after) = ratios_beside(&moved, 120.0, 1);
+            for r in [before, after].into_iter().flatten() {
+                assert!((MIN_RATIO - 1e-9..=MAX_RATIO + 1e-9).contains(&r), "{r}");
+            }
+        }
+        // The last marker has no span after it: it is held on one side only.
+        let (low, high) = tick_limits(&three, 120.0, 2);
+        assert_eq!(low, Ticks(PPQ + PPQ / 4));
+        assert_eq!(high, Ticks(PPQ + 4 * PPQ));
+        // A lone marker goes anywhere.
+        let (low, high) = tick_limits(&three[..1], 120.0, 0);
+        assert!(low < q(-1_000) && high > q(1_000));
+    }
+
+    #[test]
+    fn audio_slides_under_a_marker_within_the_same_speeds() {
+        let three = [
+            Marker::new(0.0, q(0)),
+            Marker::new(0.5, q(1)),
+            Marker::new(1.0, q(2)),
+        ];
+        let (low, high) = source_limits(&three, 120.0, 1);
+        // A beat is half a second: before it at least an eighth of a second
+        // (25%), after it at least an eighth too.
+        assert!((low - 0.125).abs() < 1e-12, "{low}");
+        assert!((high - 0.875).abs() < 1e-12, "{high}");
+        // A span already past the limit still allows where the marker is.
+        let fast = [Marker::new(0.0, q(0)), Marker::new(5.0, q(1))];
+        let (low, high) = source_limits(&fast, 120.0, 1);
+        assert!(low <= 5.0 && high >= 5.0);
+        let (low, high) = tick_limits(&fast, 120.0, 1);
+        assert!(low <= q(1) && high >= q(1));
     }
 
     #[test]

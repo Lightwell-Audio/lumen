@@ -23,6 +23,7 @@ pub(crate) mod header;
 pub(crate) mod paint;
 pub(crate) mod source;
 pub(crate) mod strip;
+pub(crate) mod warp_strip;
 
 use eframe::egui::Rect;
 use lumen_core::time::Ticks;
@@ -141,6 +142,8 @@ pub(crate) struct AudioEditor {
     pub crossed: bool,
     /// The pointer is over the envelope, which says what it does.
     pub envelope_hover: bool,
+    /// The warp strip's pointer, keys and focus (M9.5 S5b).
+    pub markers: WarpEditor,
     /// Keys taken for the wave, envelope and loop stops, for the next frame.
     pub keys: Vec<(
         crate::app::audio_editor::stops::Stop,
@@ -197,6 +200,64 @@ mod tests {
         ed.toggle_pill(Kind::Pan);
         assert_eq!((ed.tool, ed.pill), (Tool::Pointer, None));
     }
+}
+
+/// What the pointer is on in the warp strip.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum StripHover {
+    Marker(usize),
+    Ghost(warp_strip::Ghost),
+}
+
+/// A drag of one warp marker: the project it began on (the drag redoes its
+/// edit from there each frame, so it is one undo step), how far the marker
+/// was from the pointer when it was picked up, and for a slide where the
+/// audio under it started.
+#[derive(Debug, Clone)]
+pub(crate) struct MarkerDrag {
+    pub index: usize,
+    pub base: std::sync::Arc<lumen_project::model::Project>,
+    pub grab: Ticks,
+    pub slide: Option<Slide>,
+}
+
+/// A slide: the second the marker pinned, the beat the pointer pressed at,
+/// and the seconds of the file in a beat there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Slide {
+    pub source: f64,
+    pub beat: f64,
+    pub per_beat: f64,
+}
+
+/// The warp strip's state between frames (not saved).
+#[derive(Default)]
+pub(crate) struct WarpEditor {
+    pub hover: Option<StripHover>,
+    pub drag: Option<MarkerDrag>,
+    /// The strip and the x of each marker's flag, as drawn last (tests).
+    pub drawn: Option<warp_strip::WarpStrip>,
+    /// The marker last picked or moved: its hairline is lit.
+    pub picked: Option<usize>,
+    /// The marker a right-click opened its menu on.
+    pub menu: Option<usize>,
+    /// The markers' Tab stops, drawn last frame, in time order.
+    pub ids: Vec<eframe::egui::Id>,
+    /// Keys taken for the focused marker, for the next frame.
+    pub keys: Vec<(usize, eframe::egui::Key, eframe::egui::Modifiers)>,
+    /// A marker to bring into view on the next frame.
+    pub reveal: Option<usize>,
+    /// A marker to give the keyboard on the next frame (one just added, or the
+    /// one before a deleted marker).
+    pub focus_next: Option<usize>,
+    /// The marker stop that has the keyboard, set while the stops are made
+    /// and taken by the drawing of the strip in the same frame.
+    pub ring: Option<(usize, eframe::egui::Response)>,
+    /// The marker with the keyboard, last frame.
+    pub focused_before: Option<usize>,
+    /// The drag stopped at a speed limit (or the clip's start would leave its
+    /// file), and what it says.
+    pub held: Option<&'static str>,
 }
 
 /// A drag of one of the brace's ends.

@@ -22,6 +22,8 @@ use plan::{Horizon, Position, Scene, Want};
 
 /// How long the thread sleeps when it has nothing to read.
 const IDLE: Duration = Duration::from_millis(10);
+/// The wait before asking again for pages that were not ready.
+const RETRY: Duration = Duration::from_millis(20);
 /// How long it reads before it plans again, so a jump is followed at once.
 const ROUND: Duration = Duration::from_millis(5);
 /// How long it waits when the pool is full of pages the audio thread may be
@@ -274,6 +276,7 @@ impl Worker {
             self.writer.evict(short);
         }
         let started = Instant::now();
+        let mut waiting = false;
         for want in missing {
             if self.writer.make_room() == 0 {
                 self.busy += started.elapsed();
@@ -299,6 +302,12 @@ impl Worker {
                         &self.right[..frames],
                     );
                 }
+                Err(MediaError::NotReady) => {
+                    // Waiting on background work (a Rhythmic clip's file is
+                    // being read for its transients): not a failure. Left
+                    // out for now, and asked for again shortly.
+                    waiting = true;
+                }
                 Err(_) => {
                     // Left out: the clip stays silent there, and the app
                     // shows the file as missing when it next checks.
@@ -311,7 +320,7 @@ impl Worker {
             }
         }
         self.busy += started.elapsed();
-        Duration::ZERO
+        if waiting { RETRY } else { Duration::ZERO }
     }
 
     fn report(&mut self) {

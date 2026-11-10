@@ -17,6 +17,7 @@ mod strip;
 mod strip_chips;
 mod view;
 mod warp;
+pub(crate) mod warp_markers;
 mod window;
 
 use std::sync::Arc;
@@ -36,7 +37,8 @@ use crate::audio_editor::brace::RULER;
 use crate::audio_editor::handles::{self as handle_marks, EditorHandles};
 use crate::audio_editor::paint::{self, SAMPLES_BELOW, SPLIT_FROM, Samples, WaveInput, WaveLook};
 use crate::audio_editor::source::{self, WholeFile};
-use crate::audio_editor::{AudioEditor, Drawn, Fit};
+use crate::audio_editor::warp_strip::{self, WarpStrip};
+use crate::audio_editor::{AudioEditor, Drawn, Fit, WarpEditor};
 use crate::commands::Command;
 use crate::media::State;
 use crate::timeview::TimeView;
@@ -132,13 +134,23 @@ impl App {
             pos2(area.right(), strip.bottom() + RULER),
         );
         let (scale, band) = self::brace::split_ruler(ruler);
-        let body = Rect::from_min_max(pos2(area.left(), ruler.bottom()), area.max);
+        // A warped clip has its markers' strip between the ruler and the wave
+        // (S5b, P A).
+        let strip_rect = warp_strip::rect_under(ruler, &clip);
+        let body = Rect::from_min_max(
+            pos2(
+                area.left(),
+                strip_rect.map_or(ruler.bottom(), |r| r.bottom()),
+            ),
+            area.max,
+        );
         // Another clip opened: what was picked in the last one goes.
         if ed.framed_for != Some(clip.id) {
             ed.cursor = None;
             ed.anchor = None;
             ed.hands.picks = None;
             ed.keys.clear();
+            ed.markers = WarpEditor::default();
         }
         if let Some(file) = &file {
             // Opening a clip frames it with nothing to go back to: the view
@@ -249,6 +261,22 @@ impl App {
         };
         let brace_now = crate::audio_editor::brace::Brace::of(&clip, &file, ed.time, band);
         self.brace_pointer(&band_response, &clip, &brace_now, &area_now, ed);
+        if let Some(rect) = strip_rect {
+            let strip_now = WarpStrip::of(&clip, &file, (rate, ed.time), rect);
+            let response = ui.interact(rect, base.with("warp strip"), Sense::CLICK | Sense::DRAG);
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Other,
+                    true,
+                    "Warp strip: double-click to add a warp marker",
+                )
+            });
+            self.warp_strip_pointer(&response, &clip, &strip_now, &area_now, ed);
+        } else {
+            ed.markers.ids.clear();
+            ed.markers.drag = None;
+            ed.markers.hover = None;
+        }
         let taken = match self
             .shown_clip(id)
             .and_then(|c| EditorHandles::of(&c, body, ed.time))
@@ -268,6 +296,11 @@ impl App {
             let frame = self.envelope_frame(&now, body, ed.time);
             self.run_stop_keys(&ctx, &now, (&area_now, &frame), ed);
         }
+        if !ed.markers.keys.is_empty()
+            && let Some(now) = self.shown_clip(id)
+        {
+            self.run_marker_keys(&now, ed);
+        }
         let (clip, file) = match self.opened_clip_look(id) {
             Some((now, _)) if !Arc::ptr_eq(&now, &clip) => {
                 let file = self.file_of(&now, &loaded, ed).unwrap_or(file);
@@ -275,6 +308,11 @@ impl App {
             }
             _ => (clip, file),
         };
+        // The markers as the edits left them.
+        let strip = strip_rect.map(|rect| WarpStrip::of(&clip, &file, (rate, ed.time), rect));
+        if let Some(strip) = &strip {
+            self.reveal_marker(strip, limits, ed);
+        }
 
         // What to draw.
         let painter = ui.painter().clone();
@@ -284,6 +322,11 @@ impl App {
         let lines = self.grid.lines(meter, from, to, ed.time.zoom);
         let palette = theme::p();
         painter.rect_filled(body, 0.0, palette.canvas);
+        // The same lines again over the clip's body, where the wave draws.
+        let over_clip: Vec<(f32, lumen_core::grid::Level)> = lines
+            .iter()
+            .map(|l| (ed.time.x(body.left(), l.at.as_quarters()), l.level))
+            .collect();
         for line in &lines {
             let x = ed.time.x(body.left(), line.at.as_quarters());
             let ink = match line.level {
@@ -335,18 +378,44 @@ impl App {
             look,
             split: loaded.source.channels > 1 && body.height() >= SPLIT_FROM,
             samples,
+            grid: &over_clip,
         };
         paint::wave(&painter, body, &input);
+        if let Some(strip) = &strip {
+            Self::paint_strip_ground(&painter, strip.rect);
+        }
+        let previewing = std::mem::take(&mut ed.detect.previewing);
         if let Some(key) = crate::audio_editor::detect::file_key(&clip)
             && let Some(found) = ed.detect.analysis(key)
         {
-            Self::paint_transients(
-                &painter,
-                body,
-                &file,
-                (ed.time, rate),
-                (found, ed.detect.sensitivity),
-            );
+            // A warped clip shows them as triangles in its strip; one that
+            // is not shows them as faint lines on the wave only while the
+            // Warp popover is open.
+            let at = (ed.time, rate);
+            match (
+                crate::audio_editor::detect::Shown::of(strip.is_some(), previewing),
+                &strip,
+            ) {
+                (crate::audio_editor::detect::Shown::Strip, Some(strip)) => {
+                    Self::paint_transient_ticks(
+                        &painter,
+                        strip,
+                        &file,
+                        at,
+                        (found, ed.detect.sensitivity),
+                    );
+                }
+                (crate::audio_editor::detect::Shown::Wave, _) => {
+                    Self::paint_transients(
+                        &painter,
+                        body,
+                        &file,
+                        at,
+                        (found, ed.detect.sensitivity),
+                    );
+                }
+                _ => {}
+            }
         }
         paint::ruler(&painter, scale, ed.time, &lines, meter, &file, rate);
         // The wave's Tab stop, then the envelope and the range over the
@@ -374,7 +443,7 @@ impl App {
             .and_then(|c| EditorHandles::of(c, body, ed.time))
             .map(|h| h.hiding_gain(ed.pill));
         if let Some(handles) = &handles {
-            let stop = self.audio_stops(ui, id, handles, ed);
+            let stop = self.audio_stops(ui, id, handles, strip.as_ref(), ed);
             let hot = Self::audio_hot_part(ed, hit, stop.as_ref().map(|(part, _)| *part));
             let inside = painter.with_clip_rect(body.intersect(painter.clip_rect()));
             handle_marks::draw(
@@ -390,6 +459,10 @@ impl App {
                 raised::focus_ring(&inside, response, handles.stop_rect(*part));
             }
         }
+        if let Some(strip) = &strip {
+            let ring = ed.markers.ring.take();
+            self.paint_warp_strip(&painter, strip, body, ed, ring.as_ref());
+        }
         let brace = crate::audio_editor::brace::Brace::of(&clip, &file, ed.time, band);
         let later = self.later_stops(ui, &clip, (body, &brace), ed);
         let brace_ring = match &later {
@@ -402,6 +475,7 @@ impl App {
         };
         self.paint_brace(&painter, &brace, ed, brace_ring);
         self.paint_editor_playhead(&painter, ed.time, body, ruler.top());
+        ed.markers.drawn = strip;
         ed.last = Some(Drawn {
             clip: clip.id,
             body,
@@ -587,6 +661,7 @@ impl App {
                 || self.audio_editor.hovered_before
                 || keys::focused_stop(ctx).is_some()
                 || stops::focused(ctx).is_some()
+                || warp_markers::focused(ctx, &self.audio_editor.markers.ids).is_some()
                 || (self.show_detail
                     && self.detail_tab == crate::app::detail::DetailTab::Clip
                     && crate::app::panes::focused(ctx) == Some(crate::app::panes::Pane::Detail)))

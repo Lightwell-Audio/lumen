@@ -48,7 +48,7 @@ impl Streaming {
         slow: Option<Duration>,
     ) -> Self {
         let pool = PagePool::new(POOL_PAGES);
-        let readers = Readers::default();
+        let readers = Readers::polling();
         let pages: Box<dyn Pages> = match slow {
             Some(wait) => Box::new(Slow { readers, wait }),
             None => Box::new(readers),

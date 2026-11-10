@@ -310,6 +310,8 @@ clip.warp_from_here @m9.5
 clip.set_tempo_from_clip @m9.5
 clip.warp_tempo_double @m9.5
 clip.warp_tempo_halve @m9.5
+clip.warp_marker_add @m9.5
+clip.warp_markers_clear @m9.5
 
 # Preferences: Mixing
 pref:mix.additive_solo

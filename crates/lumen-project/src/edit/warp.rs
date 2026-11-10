@@ -416,6 +416,17 @@ pub fn origin(clip: &Clip) -> Ticks {
     }
 }
 
+/// The tick, in the clock the map counts (see [`origin`]), at which the
+/// timeline tick `at` plays: a looping clip repeats one turn of its map, so a
+/// place in a later repeat is the same place in the first.
+pub fn within(clip: &Clip, at: Ticks) -> Ticks {
+    if clip.loop_length.is_some_and(|p| p > Ticks::ZERO) {
+        Ticks((at - origin(clip)).0.rem_euclid(window(clip).0))
+    } else {
+        at - origin(clip)
+    }
+}
+
 /// "Warp from here" (M9.5 S5a): `clip` with the audio that plays at `here`
 /// moved to play at `bar` (a bar line, absolute ticks), the rest of the map
 /// keeping its shape. The audio is slid under the clip, as a slip does, so the
@@ -432,14 +443,7 @@ pub fn from_here(
     let origin = origin(clip);
     // A looping clip repeats one turn of its map, so a place in a later
     // repeat is the same place in the first (round 2).
-    let within = |at: Ticks| {
-        if clip.loop_length.is_some_and(|p| p > Ticks::ZERO) {
-            Ticks((at - origin).0.rem_euclid(window(clip).0))
-        } else {
-            at - origin
-        }
-    };
-    let (here_in, bar_in) = (within(here), within(bar));
+    let (here_in, bar_in) = (within(clip, here), within(clip, bar));
     // The second heard at `here` before anything changes. A clip that is not
     // warped plays its file at its own speed from the second at its clock, so
     // that is read through the song's tempo, not through the map it is about
@@ -748,5 +752,23 @@ mod tests {
         clip.loop_length = Some(q(2));
         clip.loop_phase = q(1);
         assert_eq!(origin(&clip), clip.start - q(1));
+    }
+
+    #[test]
+    fn a_place_in_a_later_turn_of_a_loop_is_the_same_place_in_the_first() {
+        let project = song();
+        let mut clip = (*project.tracks[0].clips[0]).clone();
+        assert_eq!(
+            within(&clip, clip.start + q(3)),
+            q(3),
+            "no loop: from the start"
+        );
+        clip.loop_length = Some(q(4));
+        clip.loop_phase = q(1);
+        // The clock starts a beat before the clip; a turn is four beats.
+        assert_eq!(within(&clip, clip.start + q(1)), q(2));
+        assert_eq!(within(&clip, clip.start + q(7)), q(0));
+        assert_eq!(within(&clip, clip.start + q(10)), q(3));
+        assert_eq!(within(&clip, clip.start - q(2)), q(3), "and before it");
     }
 }

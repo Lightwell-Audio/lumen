@@ -41,6 +41,12 @@ pub struct Palette {
     pub grid_beat: Color32,
     /// Grid lines between beats (M3 slice 5a).
     pub grid_sub: Color32,
+    /// The grid drawn over an audio clip's body, under its wave (the audio
+    /// editor): bar, beat and between-beat lines, a wash of the ink that
+    /// reads on the clip body in each theme, so they sit on any body.
+    pub clip_grid_bar: Color32,
+    pub clip_grid_beat: Color32,
+    pub clip_grid_sub: Color32,
     /// The start marker (where Play starts): neutral, so it never reads as
     /// the playhead.
     pub start_marker: Color32,
@@ -132,6 +138,9 @@ pub const DARK: Palette = Palette {
     grid_bar: Color32::from_rgb(0x34, 0x38, 0x42),
     grid_beat: Color32::from_rgb(0x26, 0x29, 0x30),
     grid_sub: Color32::from_rgb(0x21, 0x23, 0x29),
+    clip_grid_bar: Color32::from_rgba_premultiplied(0x33, 0x33, 0x33, 0x33),
+    clip_grid_beat: Color32::from_rgba_premultiplied(0x1A, 0x1A, 0x1A, 0x1A),
+    clip_grid_sub: Color32::from_rgba_premultiplied(0x0B, 0x0B, 0x0B, 0x0B),
     start_marker: Color32::from_rgb(0xC8, 0xCC, 0xD4),
     lane: Color32::from_rgb(0x1B, 0x1D, 0x22),
     header: Color32::from_rgb(0x1E, 0x21, 0x26),
@@ -191,6 +200,9 @@ pub const LIGHT: Palette = Palette {
     grid_bar: Color32::from_rgb(0xD9, 0xDC, 0xE1),
     grid_beat: Color32::from_rgb(0xEC, 0xEE, 0xF1),
     grid_sub: Color32::from_rgb(0xF3, 0xF4, 0xF6),
+    clip_grid_bar: Color32::from_black_alpha(0x2E),
+    clip_grid_beat: Color32::from_black_alpha(0x17),
+    clip_grid_sub: Color32::from_black_alpha(0x0A),
     start_marker: Color32::from_rgb(0x6B, 0x71, 0x7C),
     lane: Color32::from_rgb(0xF6, 0xF7, 0xF8),
     header: Color32::from_rgb(0xEC, 0xEE, 0xF1),
@@ -402,6 +414,16 @@ pub const CLIP_EDGE: f32 = 0.6;
 /// `text_hint` at this strength, on a `well` wash at `OUTSIDE_WASH`.
 pub const WAVE_OUTSIDE: f32 = 0.55;
 pub const OUTSIDE_WASH: f32 = 0.7;
+/// The audio editor's warp strip (M9.5 S5b): a marker's pole at rest and
+/// when lit; the ghost notch's fill, and its ink when it is not on a
+/// transient; a transient triangle's strength at 0 and what a full-strength
+/// transient adds.
+pub const WARP_POLE: f32 = 0.45;
+pub const WARP_POLE_LIT: f32 = 0.8;
+pub const WARP_GHOST_FILL: f32 = 0.15;
+pub const WARP_GHOST_FREE: f32 = 0.6;
+pub const WARP_TICK_BASE: f32 = 0.45;
+pub const WARP_TICK_GAIN: f32 = 0.4;
 /// The audio editor's handles at rest: `text` at this strength. They stay
 /// out of the wave's way and are still plain to find (M9.5 HS A).
 pub const HANDLE_QUIET: f32 = 0.55;
@@ -646,6 +668,24 @@ pub mod size {
     pub const BRACE_GRAB: f32 = 6.0;
     pub const BRACE_FLAG: f32 = 5.0;
     pub const CURSOR_CAP: f32 = 4.0;
+    /// The audio editor's warp strip between its ruler and the wave (M9.5
+    /// S5b, P A): its height, a marker's grab reach, how near a transient
+    /// the ghost marker lands, the notch's size (a rounded pin pointing at
+    /// its place) and a transient's small triangle.
+    pub const WARP_STRIP: f32 = 18.0;
+    pub const WARP_GRAB: f32 = 6.0;
+    pub const WARP_NEAR: f32 = 12.0;
+    pub const WARP_NOTCH_W: f32 = 9.0;
+    pub const WARP_NOTCH_H: f32 = 12.0;
+    /// The notch's gap under the strip's top, the radius of its top
+    /// corners and how far its point tapers.
+    pub const WARP_NOTCH_INSET: f32 = 2.0;
+    pub const WARP_NOTCH_RADIUS: f32 = 2.5;
+    pub const WARP_NOTCH_TAPER: f32 = 4.5;
+    pub const WARP_TICK_W: f32 = 6.0;
+    pub const WARP_TICK_H: f32 = 5.0;
+    /// The gap between a transient's triangle and the strip's floor.
+    pub const WARP_TICK_FLOOR: f32 = 3.0;
     /// The least room between two of the audio editor's bar numbers before
     /// only every second, fourth… shows.
     pub const BAR_NUMBER_ROOM: f32 = 32.0;
@@ -1021,6 +1061,33 @@ mod tests {
     fn clip_names_read_on_every_clip_colour() {
         for color in CLIP_COLORS.into_iter().chain([CLIP_MUTED]) {
             assert!(contrast(CLIP_TEXT, color) >= 3.0, "{color:?}");
+        }
+    }
+
+    #[test]
+    fn the_grid_over_a_clip_body_shows_in_both_themes() {
+        // The wash laid over the body, as the painter blends it.
+        fn over(wash: Color32, body: Color32) -> Color32 {
+            let a = f32::from(wash.a()) / 255.0;
+            let mix = |w: u8, b: u8| {
+                // `wash` is premultiplied, so its colour is already scaled.
+                (f32::from(w) + f32::from(b) * (1.0 - a)).round().min(255.0) as u8
+            };
+            Color32::from_rgb(
+                mix(wash.r(), body.r()),
+                mix(wash.g(), body.g()),
+                mix(wash.b(), body.b()),
+            )
+        }
+        for (name, c) in [("dark", DARK), ("light", LIGHT)] {
+            for (wash, least) in [
+                (c.clip_grid_bar, 1.3),
+                (c.clip_grid_beat, 1.15),
+                (c.clip_grid_sub, 1.05),
+            ] {
+                let ratio = contrast(over(wash, c.clip_body), c.clip_body);
+                assert!(ratio >= least, "{name} {wash:?}: {ratio}");
+            }
         }
     }
 

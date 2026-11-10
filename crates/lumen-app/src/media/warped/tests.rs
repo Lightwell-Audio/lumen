@@ -751,7 +751,7 @@ fn melodic_and_full_mix_follow_the_tempo_and_leave_the_pitch_alone() {
 }
 
 #[test]
-fn the_mode_makes_another_stream_and_rhythmic_is_repitch_until_it_has_its_own() {
+fn every_mode_makes_a_stream_of_its_own() {
     let source = file();
     let tempo = constant(120.0);
     let mut warps = WarpedStreams::new(&PagePool::new(1));
@@ -769,7 +769,150 @@ fn the_mode_makes_another_stream_and_rhythmic_is_repitch_until_it_has_its_own() 
             .unwrap();
         ids.push(stream.stream().unwrap().id());
     }
-    assert_eq!(ids[0], ids[1], "Rhythmic plays as Repitch");
-    assert!(ids[2] != ids[0] && ids[3] != ids[0] && ids[2] != ids[3]);
-    assert_eq!(warps.len(), 3);
+    for (i, a) in ids.iter().enumerate() {
+        for b in &ids[i + 1..] {
+            assert_ne!(a, b, "four modes, four streams");
+        }
+    }
+    assert_eq!(warps.len(), 4);
+}
+
+/// Four decaying noise bursts, half a second apart, in both channels.
+fn bursts() -> Arc<ClipAudio> {
+    let mut left = vec![0.0_f32; 4 * 24_000 + 24_000];
+    let mut seed = 12_345_u32;
+    for burst in 0..4 {
+        for i in 0..4_800 {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let noise = (seed >> 8) as f32 / (1 << 24) as f32 * 2.0 - 1.0;
+            left[burst * 24_000 + 2_400 + i] = noise * (1.0 - i as f32 / 4_800.0);
+        }
+    }
+    let right = left.iter().map(|v| v * 0.5).collect();
+    Arc::new(ClipAudio::Memory {
+        sample_rate: RATE,
+        channels: vec![left, right],
+    })
+}
+
+fn rhythmic(made_at: f64) -> Warp {
+    let mut warp = Warp::new(made_at, 0.0);
+    warp.mode = WarpMode::Rhythmic;
+    warp
+}
+
+#[test]
+fn rhythmic_at_the_files_own_tempo_is_the_file_bit_for_bit() {
+    let source = bursts();
+    let tempo = constant(120.0);
+    let warp = rhythmic(120.0);
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let stream = warps
+        .stream(&request(&warp, &source, &tempo, 192_000))
+        .unwrap();
+    let file = source.memory().unwrap();
+    assert_eq!(read(&stream, 0, 100_000), file[0][..100_000]);
+}
+
+#[test]
+fn rhythmic_plays_each_hit_at_the_files_speed_and_places_it_by_the_song() {
+    // Made at 100 BPM, played at 120: every hit comes 1.2 times sooner, and
+    // sounds as it was recorded (a stretch or a repitch would change it).
+    let source = bursts();
+    let tempo = constant(120.0);
+    let warp = rhythmic(100.0);
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let stream = warps
+        .stream(&request(&warp, &source, &tempo, 192_000))
+        .unwrap();
+    let file = source.memory().unwrap();
+    let played = read(&stream, 0, 96_000);
+    for burst in 1..4_usize {
+        // Inside the hit, well past its first frames and before its end.
+        let hit = burst * 24_000 + 2_400;
+        let out = (hit as f64 / 1.2) as usize + 400;
+        let want = &played[out..out + 800];
+        // The file's frame it comes from: a noise value is found nowhere
+        // else, and the 800 frames that follow are the file's own.
+        let from = (hit..hit + 4_000)
+            .find(|&f| file[0][f] == want[0])
+            .unwrap_or_else(|| panic!("hit {burst} is not the file's noise"));
+        assert_eq!(want, &file[0][from..from + 800], "hit {burst}");
+        // And it comes where the song puts it, within a few milliseconds.
+        let placed = out as f64 - (from - hit) as f64;
+        assert!((placed - hit as f64 / 1.2).abs() < 300.0, "hit {burst}");
+    }
+}
+
+#[test]
+fn rhythmic_frames_do_not_depend_on_what_was_read_before() {
+    let source = bursts();
+    let tempo = constant(120.0);
+    let mut warp = rhythmic(95.0);
+    warp.markers.push(Marker::new(0.9, Ticks::quarters(2)));
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let stream = warps
+        .stream(&request(&warp, &source, &tempo, 192_000))
+        .unwrap();
+    let whole = read(&stream, 0, 120_000);
+    for from in [PAGE + 1, 5 * PAGE, 9 * PAGE + 4_000, 20 * PAGE] {
+        assert_eq!(
+            read(&stream, from, 3_000),
+            whole[from..from + 3_000],
+            "from {from}"
+        );
+    }
+}
+
+#[test]
+fn a_file_is_scanned_once_for_all_the_streams_an_edit_makes() {
+    let source = bursts();
+    let tempo = constant(120.0);
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let mut scans = Vec::new();
+    for marker in [None, Some(Marker::new(0.9, Ticks::quarters(2)))] {
+        let mut warp = rhythmic(95.0);
+        warp.markers.extend(marker);
+        let stream = warps
+            .stream(&request(&warp, &source, &tempo, 192_000))
+            .unwrap();
+        // Reading makes the scan.
+        read(&stream, 0, 1_000);
+        let id = stream.stream().unwrap().id();
+        scans.push(streams::warped(id).unwrap());
+    }
+    assert!(!Arc::ptr_eq(&scans[0], &scans[1]), "two streams");
+    assert!(
+        Arc::ptr_eq(&scans[0].scan, &scans[1].scan),
+        "one scan of the file"
+    );
+    // A marker cuts the file where it pins, a transient or not.
+    let starts = scans[1].slice_starts_for_test();
+    assert!(starts.contains(&((0.9 * f64::from(RATE)).round() as i64)));
+}
+
+#[test]
+fn a_reader_that_must_not_wait_is_told_so_until_the_scan_is_done() {
+    let source = bursts();
+    let tempo = constant(120.0);
+    let warp = rhythmic(95.0);
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let stream = warps
+        .stream(&request(&warp, &source, &tempo, 192_000))
+        .unwrap();
+    let id = stream.stream().unwrap();
+    let mut polling = Readers::polling();
+    let (mut left, mut right) = (vec![0.0; PAGE], vec![0.0; PAGE]);
+    // The first ask starts the scan; until it is done the answer is "not
+    // ready", which is no failure.
+    let got = lumen_testkit::wait_for("the scan to finish", || {
+        match polling.read(id, 0, &mut left, &mut right) {
+            Err(lumen_media::MediaError::NotReady) => None,
+            other => Some(other),
+        }
+    })
+    .expect("the page, once the file has been read");
+    // The same bits as a reader that waits for the scan itself.
+    let waited = read(&stream, 0, got.min(PAGE));
+    assert_eq!(left[..got.min(PAGE)], waited[..]);
 }

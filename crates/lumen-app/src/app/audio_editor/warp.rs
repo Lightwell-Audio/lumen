@@ -212,6 +212,8 @@ impl App {
 
     /// What the Warp chip opens.
     pub(super) fn warp_popover(&mut self, ui: &mut Ui, clip: &Clip, ed: &mut AudioEditor) {
+        // The wave shows a clip's transients for as long as this is open.
+        ed.detect.previewing = true;
         let palette = *theme::p();
         let ctx = ui.ctx().clone();
         let found = Self::editor_found(ed, clip);
@@ -292,9 +294,6 @@ impl App {
                 }
             });
         });
-        if matches!(warp.as_ref().map(|w| w.mode), Some(WarpMode::Rhythmic)) {
-            widgets::hint(ui, "Rhythmic plays as Repitch until its slicing arrives");
-        }
         if warped && !self.settings.playback.from_disk {
             // A warped clip is played from a stream the disk thread prepares,
             // so with "Play audio from disk" off the wave is drawn warped and
@@ -441,12 +440,19 @@ impl App {
             }
         });
         let count = analysis.transients_at(ed.detect.sensitivity).count();
+        // A warped clip shows them in its strip; one that is not, on the wave
+        // while this is open.
+        let place = if clip.warp.is_some() {
+            "in the strip"
+        } else {
+            "on the wave"
+        };
         widgets::hint(
             ui,
             &match count {
                 0 => "No transients at this sensitivity".to_owned(),
-                1 => "1 transient shown on the wave".to_owned(),
-                n => format!("{n} transients shown on the wave"),
+                1 => format!("1 transient shown {place}"),
+                n => format!("{n} transients shown {place}"),
             },
         );
     }

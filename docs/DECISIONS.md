@@ -12499,3 +12499,174 @@ tests Warp from here at differing tempos, a later cursor and a tempo change;
 anything by ear or on a real loop (MT-WARP-2); the docs scene and page (owed,
 `@m9.5`); WSL perf gate and macOS cross-target clippy; the strip at 200%
 scale and the lowest panel height.
+
+
+## ADR-0135 — Warp markers and the Rhythmic slicer (M9.5 S5b)
+
+**Date:** 2026-11-09. **Branch:** `m9.5-s5b-warp-markers`. **Status:** Built;
+MT-WARP-3 waits for the owner. No format change (v33: the markers are in
+`Warp` since ADR-0130). Follows ADR-0130 to ADR-0134; the milestone plan is
+`docs/milestones/M9.5.md` (S5b).
+
+**Context.** Warp had a model, a sound and a Warp chip (S4, S5a) but no way
+to say where a sound belongs, and Rhythmic still played as Repitch. S5b adds
+the markers, draws them on the arrangement's clip and gives Rhythmic its own
+engine.
+
+**Decisions.**
+1. *Marker edits* (`lumen_core::warp`, `lumen_project::edit::warp_markers`):
+   `MarkerEdit::{Add, AddOn, Move, Slide, Remove, Clear}`. A span between two
+   markers (or a marker and the clip's end) may play at 25% to 400%; an edit
+   that would break it is refused with the reason. `Move` changes where a
+   source second plays; `Slide` changes which source second plays at a place.
+   One `Document` method, `edit_warp_marker(&base, id, change, merge)`, redoes
+   a drag from the clip as it began, so a drag is one undo step.
+2. *The warp strip* (`audio_editor/warp_strip.rs`, `app/audio_editor/warp_markers.rs`):
+   a ghost marker at the nearest transient under the pointer; drag to make
+   and move, Shift to slide, Alt to leave the grid, double-click to add or
+   delete; a span chip with the speed; Tab stops with accessible names;
+   Left and Right move a marker by the grid, Alt finely, Shift and Shift+Alt
+   slide it, Delete removes it. Commands (end of `Command`, no keys): Add warp
+   marker, Remove all warp markers; both `@m9.5` in `undocumented.txt`.
+3. *Markers on the arrangement* (`arrangement/warp_ticks.rs`, pure): a short
+   tick under the clip's title bar at each marker, from 40 points a beat, at
+   least 8 points apart, at most 256 per clip (4,096 turns of a loop). A
+   looping clip repeats the ticks of one turn. Only what is in view is made.
+4. *Loops.* A looping clip repeats one turn of its map, so a place in a later
+   turn is the same place in the first (`edit::warp::within`); Add warp marker
+   and Warp from here use it.
+5. *A drag that returns to where it began leaves no step* (`History`: a
+   gesture whose project equals the one it began on is dropped, redo kept as
+   it was), and the clip the drag restores is replaced alone, so an edit made
+   elsewhere while a drag went on is kept.
+6. *The Rhythmic slicer* (`lumen_media::slicer`, M = A). The file is cut at
+   its transients (the S5a detector at sensitivity 50, each channel scanned on
+   its own and the hits joined) and at every marker's source place (always).
+   A transient closer than 1,024 frames to a start beside it is not a start of
+   its own. Each slice **starts at the output frame where the map first plays
+   its first file frame** and then plays as a whole-frame copy at the file's
+   own speed and pitch; nothing is stretched. Where the song runs faster the
+   next slice arrives first and the rest fades over 192 frames under the new
+   attack; where it runs slower the slice ends with a fade of up to 192 frames
+   and silence follows until the next. A span at the file's own speed is a bit
+   copy (D3), including the last slice, which ends where the map reaches the
+   end of the file. Like Repitch, every output frame depends only on the map
+   and the file (a gallop and bisection finds where a slice starts, to a
+   tolerance of 10^-6 of a frame), so playback and export agree and the bits
+   do not depend on pages, jumps or block sizes.
+7. *Where the scan runs.* Slice starts come from one scan per source file,
+   shared by every stream an edit makes (`SliceScan`, kept in the provider by
+   the file's key and dropped with its last stream). A render scans in place.
+   The disk thread's reader never waits: the first ask starts the scan on a
+   worker thread (`lumen slice scan`) and answers `MediaError::NotReady` until
+   it is done; the disk loop leaves such pages out without marking them
+   broken and asks again after 20 ms. A scan that fails is an error, kept
+   nowhere, so the next ask tries again.
+
+**Review.** Four rounds by GPT 6.1 Sol (high), two for the markers and the
+ticks and two for the slicer. They changed: ticks in loops and a drag that
+returns to its start (round 1); a drag that replaced the whole project, and
+the keyboard slide (round 2); every sounding fade, markers as mandatory cuts,
+one scan per file, saturating arithmetic at the ends of the number line
+(slicer round 1); the non-blocking scan, the last slice's fade (slicer round
+2). **Declined, with the reason:** a span at the file's own speed between two
+slice starts is not a copy after a tempo change inside a slice. Slices are
+placed at their starts and play on at the file's own speed, so a tempo change
+during a slice does not re-time its tail; re-timing it would make the slice
+a stretch, which is what Rhythmic avoids. The last round's fixes were not
+reviewed again.
+
+**Consequences and deviations.**
+- Rhythmic no longer plays as Repitch; the popover's hint is gone. The mode
+  was never heard by ear (MT-WARP-3).
+- A Rhythmic clip's first play of a file is silent until its scan is done
+  (a few hundred milliseconds for a short loop; a pass of one worker's reader
+  for a long file). Renders wait for the scan instead.
+- Slowed down far enough, a slice leaves audible silence by design.
+- A Rhythmic clip still needs "Play audio from disk" like every warped clip
+  (ADR-0134 item 12); making that not so remains to be pitched.
+- The ticks are unit-tested and covered by the clip's E2E but were not
+  looked at in both themes at 100, 150 and 200%.
+
+**Verification.** `lumen-core` and `lumen-project` marker tests (limits, each
+edit, loops, a drag that returns); `History` test for the dropped gesture;
+`lumen-media` `slicer` (13: copy through slices, slower, faster, any way of
+asking, stereo, starts, markers, tolerance, many times faster, the ends of
+the number line, scanning, opposite-polarity stereo, the last slice's fade);
+`media::warped` (Rhythmic copy at the file's tempo, hits placed by the song,
+frames independent of reads, one scan for many streams, a polling reader);
+`disk` (a page not ready is asked for again and is no failure); `warp_ticks`
+(5); E2E `warp_markers.rs` (10). Not verified: anything by ear; the ticks and
+strip at 100, 150 and 200% in both themes; the WSL perf gate and macOS
+cross-target clippy.
+
+## ADR-0136 — Notches, transient triangles and the grid under the wave (M9.5 S5b follow-up)
+
+**Date:** 2026-11-09. **Branch:** `m9.5-s5b-warp-markers`. **Status:** Built.
+No format change. Owner's choices (rendered specimens, 2026-11-09): strip B,
+white notches, grid G2.
+
+**Context.** The owner looked at S5b against another DAW's warp strip and
+asked for two tiers (small marks where sounds start, larger marks to grab
+and warp) and for the grid behind the audio clip, which was missing: the
+editor drew the arrangement's grid and then filled the clip's played part
+with an opaque body colour over it.
+
+**Decisions.**
+1. *Notches, not flags.* A warp marker is a rounded pin centred on its
+   place and pointing down at it (`paint_notch`, 9 x 12 pt), white
+   (`text`), with a hairline pole through the strip and the wave. Under the
+   pointer it takes a rim and a thicker pole; touched, picked or focused it
+   is the accent. The ghost is an outlined, faintly filled notch. The grab
+   reach and focus ring are unchanged (`WARP_GRAB`).
+2. *Transients are small triangles in the strip* (6 x 5 pt, `text_secondary`
+   at a strength-scaled alpha), always drawn for a warped clip, only those in
+   view; one under a marker is left out. A clip that is not warped has no
+   strip and draws no transients, except as faint accent lines on the wave
+   while its Warp popover is open, so the Sensitivity control previews them
+   (`detect::Shown`; owner's choice, 2026-11-09, after asking why the lines
+   were there). The strip is 18 pt (was 14). The Warp popover's count says "in the strip" or "on the wave".
+3. *The grid over the clip body.* `paint::wave` draws the grid's lines (the
+   caller passes their x and level) after the played parts' body fill and
+   before the wave, only over the played parts; the file's dimmed outside
+   keeps the canvas grid beneath its wash. New tokens `clip_grid_bar`,
+   `clip_grid_beat`, `clip_grid_sub` (a wash of white in the dark theme,
+   black in the light: 20/10/4.3% and 18/9/4%); the contrast test keeps each
+   visible on `clip_body`. The lines are the arrangement's (the grid chip,
+   zoom thinning).
+
+**Not done.** G3's alternate bar bands, C's speed labels on the notches and
+D's stretch band were offered and not chosen.
+
+4. *Review (gpt-6.1-sol, high, one round).* Fixed: the focus ring round a
+   notch was clipped to the strip (it is now drawn with the editor's painter
+   round `WarpStrip::notch_rect`); the painter's literals are tokens
+   (`WARP_NOTCH_*`, `WARP_TICK_FLOOR`, `WARP_POLE*`, `WARP_GHOST_*`,
+   `WARP_TICK_*`); the notch's tip, its pole and the hairline through the
+   wave share one snapped x and one stroke (hover thickens both); a
+   transient under a marker is found by bisection, not a scan. Rendering
+   coverage: the ignored E2E `look_at_the_strip` is kept (`SHOTS`,
+   `LOOK_SCALE`); a pixel check was not added because the suite runs without
+   a GPU on CI. The last round's fixes were not reviewed again.
+
+**Verification.** Rendered with `look_at_the_strip`: dark at 100%, 150% and
+200%, light at 100% (before the review's fixes; dark at 150% and 200% after);
+the theme contrast test; E2E `warp_markers` and the suite. Not looked at:
+light at 150% and 200%, a split or looped clip, the arrangement's own clips.
+
+5. *Snapping the pointer's line (owner, 2026-11-09: "it doesn't snap to grid
+   like expected").* A drag kept the pointer's offset from the marker and
+   snapped the marker's own place, so a marker grabbed a few points off its
+   centre went to a line beside the one the pointer was on, and a marker made
+   by a click was not snapped at all. Now, with the grid snapping and Alt not
+   held, a dragged marker goes to the grid line nearest the **pointer** and the
+   usual snap guide is drawn there; a ghost that is not on a transient sits on
+   the nearest line, so a click or a press makes the marker on it; a ghost on a
+   transient stays on its hit (pinning the hit, then dragging it to a line, is
+   the way to put a hit on the grid). With Alt or snapping off the marker
+   keeps its grip and moves freely. The slide (Shift) and the keyboard are
+   unchanged. E2E: `a_dragged_marker_lands_on_a_grid_line`,
+   `a_marker_goes_to_the_line_the_pointer_is_on_however_it_was_grabbed`,
+   `a_marker_made_by_a_click_lands_on_a_grid_line`. Not reviewed by a
+   subagent.
+

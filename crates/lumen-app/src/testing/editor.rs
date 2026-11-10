@@ -314,6 +314,18 @@ impl App {
         })
     }
 
+    /// Puts the audio editor's edit cursor at `at`.
+    pub fn set_audio_cursor(&mut self, at: Ticks) {
+        self.audio_editor.cursor = Some(at);
+    }
+
+    /// Where the audio editor's warp strip and its markers' flags were drawn
+    /// last frame: `None` for a clip that is not warped (M9.5 S5b).
+    pub fn audio_warp_strip(&self) -> Option<(egui::Rect, Vec<f32>)> {
+        let strip = self.audio_editor.markers.drawn.as_ref()?;
+        Some((strip.rect, strip.flags.clone()))
+    }
+
     /// How many imported files are waiting to be listened to for a loop's
     /// tempo, or are being.
     pub fn follow_listening(&self) -> usize {

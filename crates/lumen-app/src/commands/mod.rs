@@ -283,6 +283,8 @@ pub(crate) enum Command {
     SetTempoFromClip,
     DoubleClipTempo,
     HalveClipTempo,
+    AddWarpMarker,
+    ClearWarpMarkers,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -653,6 +655,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::SetTempoFromClip, "clip.set_tempo_from_clip", "Set project tempo from clip", Area::Clip, &[], "Sets the song's tempo, where the selected warped clip starts, to the tempo its file was made at, so the song follows the loop instead of the loop following the song."),
     info(Command::DoubleClipTempo, "clip.warp_tempo_double", "Double the clip's tempo", Area::Clip, &[], "Doubles the tempo the selected warped clips' files were made at, to correct a detection that found half of it. The clip then plays half as fast."),
     info(Command::HalveClipTempo, "clip.warp_tempo_halve", "Halve the clip's tempo", Area::Clip, &[], "Halves the tempo the selected warped clips' files were made at, to correct a detection that found double. The clip then plays twice as fast."),
+    info(Command::AddWarpMarker, "clip.warp_marker_add", "Add warp marker", Area::Clip, &[], "Adds a warp marker to the opened warped audio clip at the edit cursor (the playhead when there is none), on the sound that plays there, so nothing changes until it is moved."),
+    info(Command::ClearWarpMarkers, "clip.warp_markers_clear", "Remove all warp markers", Area::Clip, &[], "Takes every warp marker but one from the opened warped audio clip, so it plays at its file's tempo throughout. The clip's start stays where it is."),
 ];
 
 const fn info(
@@ -716,7 +720,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::HalveClipTempo as usize + 1,
+            Command::ClearWarpMarkers as usize + 1,
             ALL.len(),
             "a command is missing"
         );

@@ -81,6 +81,10 @@ pub struct Readers {
     /// Paths and warped streams fixed when the readers were made
     /// ([`Readers::fixed`]), else the registry is asked.
     fixed: Option<Fixed>,
+    /// A reader that must not wait (the disk thread's): a stream whose audio
+    /// needs work in the background answers [`MediaError::NotReady`] instead
+    /// of waiting for it.
+    polling: bool,
 }
 
 /// What [`Readers::fixed`] keeps of the registry.
@@ -91,6 +95,15 @@ struct Fixed {
 }
 
 impl Readers {
+    /// Readers that never wait for background work: the disk thread's, which
+    /// has other streams to serve.
+    pub fn polling() -> Self {
+        Self {
+            polling: true,
+            ..Self::default()
+        }
+    }
+
     /// Readers of the files registered now, by path, so a file forgotten
     /// later (another rate) still reads for a render already under way.
     pub fn fixed(ids: impl IntoIterator<Item = u64>) -> Self {
@@ -144,7 +157,7 @@ impl Readers {
                 Some(Reader::open(&path)?)
             }
         };
-        Rendering::new(warped, file)
+        Rendering::new(warped, file, self.polling)
             .ok_or_else(|| MediaError::Io("a warped stream has no audio to play".into()))
     }
 
