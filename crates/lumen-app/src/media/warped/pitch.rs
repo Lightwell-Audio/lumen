@@ -109,6 +109,17 @@ impl Identity {
     }
 }
 
+impl Identity {
+    /// This identity set apart for one clip: layered clips of one line whose
+    /// pitch envelopes differ cannot share a curve, so each has its own.
+    pub fn alone(self, clip: Id) -> Self {
+        let mut hasher = std::hash::DefaultHasher::new();
+        self.0.hash(&mut hasher);
+        clip.0.hash(&mut hasher);
+        Self(hasher.finish())
+    }
+}
+
 /// What one clip adds to its stream's pitch curve.
 pub struct Part<'a> {
     /// Where the clip starts in the song, and how long it plays.

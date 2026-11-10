@@ -105,6 +105,53 @@ fn the_pitch_chip_sets_the_transpose_and_says_what_is_set() {
 }
 
 #[test]
+fn dragging_the_transpose_moves_it_and_is_one_undo_step() {
+    let (mut lumen, id) = warped_in("pitch-drag", "Melodic");
+    open_pitch(&mut lumen);
+    let field = lumen.harness.get_by_label_contains("Transpose: ").rect();
+    let from = field.center();
+    lumen.drag(from, from + vec2(30.0, 0.0), Modifiers::NONE);
+    let coarse = transpose(&lumen, id);
+    assert!(coarse > 0, "a drag to the right goes up: {coarse}");
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    assert_eq!(transpose(&lumen, id), 0, "the whole drag is one undo step");
+    // With Shift the same drag moves a tenth as far (the popover is still open).
+    let from = lumen
+        .harness
+        .get_by_label_contains("Transpose: ")
+        .rect()
+        .center();
+    lumen.drag(from, from + vec2(30.0, 0.0), Modifiers::SHIFT);
+    let fine = transpose(&lumen, id);
+    assert!(
+        fine > 0 && fine * 4 < coarse,
+        "Shift is finer: {fine} against {coarse}"
+    );
+}
+
+#[test]
+fn undoing_a_change_to_repitch_brings_the_transpose_back() {
+    let (mut lumen, id) = warped_in("pitch-mode-undo", "Melodic");
+    open_pitch(&mut lumen);
+    type_into(&mut lumen, "Transpose: ", "3");
+    close_chip(&mut lumen);
+    assert_eq!(transpose(&lumen, id), 300);
+    open_chip(&mut lumen);
+    lumen.harness.get_by_label_contains("Warp mode: ").click();
+    lumen.frames(3);
+    lumen.click("Repitch");
+    assert_eq!(transpose(&lumen, id), 0);
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    assert_eq!(
+        transpose(&lumen, id),
+        300,
+        "one undo takes the mode back with it"
+    );
+}
+
+#[test]
 fn repitch_and_an_unwarped_clip_say_why_the_pitch_does_not_change() {
     let (mut lumen, id) = opened_click_track("pitch-silent");
     open_pitch(&mut lumen);

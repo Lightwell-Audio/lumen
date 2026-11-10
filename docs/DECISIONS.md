@@ -12726,7 +12726,10 @@ owner's call, 2026-11-10) and the whole slice built again.
    nothing but a hold between clips. The curve is in the stream's key. The pieces
    of a split clip still share one stream, and play what the whole clip did to
    within 2 in 1000 (`the_pieces_of_a_split_clip_share_its_pitch_curve`), so the
-   seam is as continuous as it was.
+   seam is as continuous as it was. Clips laid over one another (they overlap and
+   their envelopes differ) cannot share a curve, so each of those has a stream of
+   its own (`Identity::alone`; `layered_clips_with_different_envelopes_keep_their_own_pitch`).
+   A crossfade's two pieces overlap on purpose and still share.
 7. *The interface.* A Pitch chip beside the Warp chip (popover: Transpose in
    semitones with cents, a switch for the envelope, and why when the pitch
    cannot be heard), folding into the ⋯ menu after Warp and before the Fades
@@ -12735,8 +12738,9 @@ owner's call, 2026-11-10) and the whole slice built again.
    (a point may hold four); the arrangement's clip carries the transpose as the
    small "+2" of the owner's specimen B, so marks have a variable width and
    `place` takes their total width. Three commands, no keys: Show the clip's
-   pitch envelope, Transpose clip up a semitone and down. Drags of the field
-   merge into one undo step; each typed value is one.
+   pitch envelope, Transpose clip up a semitone and down. Transpose is a slider
+   (drag, Shift for fine, wheel, double-click for none, or a typed value); a drag
+   merges into one undo step and each typed value is one.
 8. *Repitch has no pitch.* The model drops a transpose from Repitch (S4a). A pitch
    envelope on such a clip, or on one that is not warped, is kept and plays
    nothing; the chip says why.

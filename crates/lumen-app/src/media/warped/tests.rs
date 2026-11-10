@@ -1128,3 +1128,35 @@ fn the_pieces_of_a_split_clip_share_its_pitch_curve() {
         .fold(0.0_f32, f32::max);
     assert!(worst < 2.0e-3, "the split changes the sound by {worst}");
 }
+
+/// Two clips of one file laid over one another, one with an envelope and one
+/// without, do not share a pitch curve: each plays its own.
+#[test]
+fn layered_clips_with_different_envelopes_keep_their_own_pitch() {
+    use lumen_core::automation::Shape;
+    let lane = pitch_lane(&[(0, 5.0, Shape::Step), (2, 7.0, Shape::Step)]);
+    let mut doc = with_mode(project(100.0, step(120.0), false), WarpMode::FullMix);
+    doc.apply("layer", None, |project| {
+        let mut track = (*project.tracks[0]).clone();
+        track.id = Id(project.tracks.iter().map(|t| t.id.0).max().unwrap() + 100);
+        let mut clip = (*track.clips[0]).clone();
+        clip.id = Id(clip.id.0 + 100);
+        track.clips = vec![Arc::new(clip)];
+        project.tracks.push(Arc::new(track));
+    });
+    set_pitch_envelope(&mut doc, lane);
+    let source = file();
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let list = engine_clips_with(
+        doc.project(),
+        RATE,
+        |_| Some((Arc::clone(&source), RATE)),
+        &mut |request| warps.stream(request),
+    );
+    assert_eq!(list.len(), 2);
+    assert!(
+        !Arc::ptr_eq(&list[0].audio, &list[1].audio),
+        "the clip with an envelope is not played by the curve of the other, nor the other by its"
+    );
+    assert_eq!(warps.len(), 2);
+}

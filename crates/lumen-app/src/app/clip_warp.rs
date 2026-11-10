@@ -230,7 +230,7 @@ impl App {
             return;
         }
         let done = self.document.transpose_warp(&ids, semitones * 100);
-        if done.changed == 0 && done.refused > 0 {
+        if done.changed == 0 {
             self.say("That is as far as a clip can be transposed".to_owned());
         }
     }

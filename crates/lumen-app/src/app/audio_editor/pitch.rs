@@ -123,10 +123,10 @@ impl App {
                 let cents = clip.warp.as_ref().map_or(0, |w| w.transpose_cents);
                 let semitones = cents as f32 / 100.0;
                 let (rect, _) = ui.allocate_exact_size(
-                    vec2(theme::size::WARP_FIELD, theme::size::CONTROL_SMALL),
+                    vec2(theme::size::WARP_SLIDER, theme::size::CONTROL_SMALL),
                     Sense::hover(),
                 );
-                let next = widgets::value_field(
+                let next = widgets::value_slider(
                     ui,
                     rect,
                     base.with("transpose"),

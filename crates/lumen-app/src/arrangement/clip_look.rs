@@ -279,7 +279,7 @@ pub(super) fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLo
                 } else if let Some(text) = mark.text() {
                     let galley = painter.layout_no_wrap(text, caption.clone(), ink);
                     let width = galley.size().x;
-                    painter.galley(pos2(x, y - galley.size().y / 2.0), galley, ink);
+                    painter.galley(pos2(x, (y - galley.size().y / 2.0).round()), galley, ink);
                     x += width + GAP;
                 }
             }

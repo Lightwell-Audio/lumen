@@ -389,24 +389,6 @@ impl App {
                 }
             });
         }
-        let mut file_ui = ui.new_child(
-            UiBuilder::new()
-                .id_salt("audio strip file")
-                .max_rect(file_rect)
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-        );
-        self.file_chip(&mut file_ui, file_rect, media);
-        if let Some(warp_rect) = warp_rect {
-            let mut warp_ui = ui.new_child(
-                UiBuilder::new()
-                    .id_salt("audio strip warp")
-                    .max_rect(warp_rect)
-                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
-            );
-            if self.warp_chip(&mut warp_ui, warp_rect, clip, ed) {
-                now = Some(Group::Warp);
-            }
-        }
         if let Some(pitch_rect) = pitch_rect {
             let mut pitch_ui = ui.new_child(
                 UiBuilder::new()
@@ -418,6 +400,24 @@ impl App {
                 now = Some(Group::Pitch);
             }
         }
+        if let Some(warp_rect) = warp_rect {
+            let mut warp_ui = ui.new_child(
+                UiBuilder::new()
+                    .id_salt("audio strip warp")
+                    .max_rect(warp_rect)
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            );
+            if self.warp_chip(&mut warp_ui, warp_rect, clip, ed) {
+                now = Some(Group::Warp);
+            }
+        }
+        let mut file_ui = ui.new_child(
+            UiBuilder::new()
+                .id_salt("audio strip file")
+                .max_rect(file_rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        self.file_chip(&mut file_ui, file_rect, media);
         ed.strip_group = now;
     }
 
