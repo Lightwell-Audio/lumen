@@ -42,6 +42,9 @@ const MIN_FRAMES: u64 = 1 << 20;
 pub struct WarpedStreams {
     pool: Arc<PagePool>,
     made: HashMap<u64, Made>,
+    /// The transients of each file a Rhythmic stream is made from, found once
+    /// however many streams an edit makes (by [`source_key`]).
+    scans: HashMap<u64, Arc<super::SliceScan>>,
 }
 
 struct Made {
@@ -56,6 +59,7 @@ impl WarpedStreams {
         Self {
             pool: Arc::clone(pool),
             made: HashMap::new(),
+            scans: HashMap::new(),
         }
     }
 
@@ -94,6 +98,10 @@ impl WarpedStreams {
             (shape.anchor, frames),
         );
         warped.engine = Engine::of(request.warp.mode);
+        if warped.engine == Engine::Slices {
+            let scan = self.scans.entry(source_key(request.source)).or_default();
+            warped.scan = Arc::clone(scan);
+        }
         let warped = Arc::new(warped);
         let id = streams::register_warped(warped);
         let stream = StreamAudio::new(&self.pool, id, request.rate, channels as u16, frames);
@@ -118,6 +126,8 @@ impl WarpedStreams {
             }
             kept
         });
+        // A file's scan goes with its last stream.
+        self.scans.retain(|_, scan| Arc::strong_count(scan) > 1);
     }
 
     /// How many streams are held.
@@ -166,17 +176,24 @@ impl Shape {
     }
 }
 
+/// Which file a stream reads: the stream file's id, or (for audio in memory)
+/// the audio itself, not a copy of it: the same Arc is the same audio.
+fn source_key(source: &Arc<ClipAudio>) -> u64 {
+    let mut hasher = std::hash::DefaultHasher::new();
+    match &**source {
+        ClipAudio::Stream(stream) => (0_u8, stream.id()).hash(&mut hasher),
+        ClipAudio::Memory { .. } => (1_u8, Arc::as_ptr(source) as usize).hash(&mut hasher),
+    }
+    hasher.finish()
+}
+
 /// Hashes everything a stream's frames depend on. The engine the mode plays
 /// with is in it; the transpose is left out
 /// until S6 plays it.
 fn key(request: &Request<'_>, shape: &Shape) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
     Engine::of(request.warp.mode).hash(&mut hasher);
-    match &**request.source {
-        ClipAudio::Stream(stream) => (0_u8, stream.id()).hash(&mut hasher),
-        // The audio itself, not a copy of it: the same Arc is the same audio.
-        ClipAudio::Memory { .. } => (1_u8, Arc::as_ptr(request.source) as usize).hash(&mut hasher),
-    }
+    source_key(request.source).hash(&mut hasher);
     request.rate.hash(&mut hasher);
     shape.frames.hash(&mut hasher);
     shape.anchor.0.hash(&mut hasher);

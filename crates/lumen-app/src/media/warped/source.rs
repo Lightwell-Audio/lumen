@@ -93,7 +93,7 @@ impl Rendering {
                 c.render(&mut self.input, &position, from as i64, left, right)?
             }
             Renderer::Slices(s) => {
-                let starts = warped.slice_starts(&mut self.input);
+                let starts = warped.slice_starts(&mut self.input)?;
                 s.render(
                     &mut self.input,
                     (&position, starts),

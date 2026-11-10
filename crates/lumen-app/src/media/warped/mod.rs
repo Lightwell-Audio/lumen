@@ -25,7 +25,7 @@ mod source;
 pub use provider::{Request, WarpedStreams};
 pub(super) use source::Rendering;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_core::warp::{self, Marker};
@@ -93,6 +93,33 @@ pub struct Warped {
     /// transients and the markers' places, found the first time a worker reads
     /// the stream and then kept, so every reader cuts the file alike.
     slices: OnceLock<Vec<i64>>,
+    /// The transients of the file, shared by every stream made from it.
+    scan: Arc<SliceScan>,
+}
+
+/// The transients of one file, found once for all the streams made from it
+/// (an edit to a map makes a new stream; the file is not read again).
+#[derive(Default)]
+pub struct SliceScan {
+    hits: Mutex<Option<Arc<Vec<f64>>>>,
+}
+
+impl SliceScan {
+    /// The transients, in seconds: found now if they have not been. Readers
+    /// that arrive while it runs wait for it and share the result.
+    fn hits(
+        &self,
+        input: &mut dyn lumen_media::repitch::Source,
+        rate: u32,
+    ) -> Result<Arc<Vec<f64>>, lumen_media::MediaError> {
+        let mut held = self.hits.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(found) = &*held {
+            return Ok(Arc::clone(found));
+        }
+        let found = Arc::new(slicer::scan(input, rate)?);
+        *held = Some(Arc::clone(&found));
+        Ok(found)
+    }
 }
 
 impl Warped {
@@ -117,19 +144,32 @@ impl Warped {
             anchor_ticks,
             frames,
             slices: OnceLock::new(),
+            scan: Arc::default(),
         }
     }
 
     /// Where a Rhythmic stream's slices start, in frames of the file: the
-    /// transients of the file (read through `input` the first time) and the
-    /// places the markers pin. A file that cannot be scanned is cut at the
-    /// markers alone.
-    pub(super) fn slice_starts(&self, input: &mut dyn lumen_media::repitch::Source) -> &[i64] {
-        self.slices.get_or_init(|| {
-            let hits = slicer::scan(input, self.rate).unwrap_or_default();
-            let pinned = self.markers.iter().map(|m| m.source);
-            slicer::starts(hits.into_iter().chain(pinned), self.rate, input.frames())
-        })
+    /// transients of the file (read through `input` the first time anything
+    /// plays this file, then shared by every stream of it) and the places the
+    /// markers pin. A scan that fails is an error, kept nowhere, so the next
+    /// read tries again and no stream is ever cut differently from another.
+    pub(super) fn slice_starts(
+        &self,
+        input: &mut dyn lumen_media::repitch::Source,
+    ) -> Result<&[i64], lumen_media::MediaError> {
+        if let Some(starts) = self.slices.get() {
+            return Ok(starts);
+        }
+        let hits = self.scan.hits(input, self.rate)?;
+        let pinned = self.markers.iter().map(|m| m.source);
+        let starts = slicer::starts(hits.iter().copied(), pinned, self.rate, input.frames());
+        Ok(self.slices.get_or_init(|| starts))
+    }
+
+    /// The slice starts a reader has found (tests).
+    #[cfg(test)]
+    fn slice_starts_for_test(&self) -> &[i64] {
+        self.slices.get().map_or(&[][..], Vec::as_slice)
     }
 
     /// The frame of the file, between frames, that plays at stream frame `k`.

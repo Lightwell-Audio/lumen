@@ -148,14 +148,67 @@ fn stereo_slices_keep_their_channels() {
 fn slice_starts_are_ordered_apart_and_inside_the_file() {
     let got = starts(
         [0.5, 0.1, 0.1005, f64::NAN, 9.0, -1.0, 0.0],
+        [],
         48_000,
         200_000,
     );
     assert_eq!(got, vec![0, 4_800, 24_000]);
-    assert_eq!(starts([], 48_000, 100), vec![0]);
-    // MIN_SLICE apart, not just distinct.
-    let close = starts([0.5, 0.5 + 1_000.0 / 48_000.0], 48_000, 100_000);
+    assert_eq!(starts([], [], 48_000, 100), vec![0]);
+    // A transient closer than MIN_SLICE to another start is not a slice.
+    let close = starts([0.5, 0.5 + 1_000.0 / 48_000.0], [], 48_000, 100_000);
     assert_eq!(close, vec![0, 24_000]);
+}
+
+#[test]
+fn a_warp_markers_place_is_always_a_slice_start() {
+    // A marker 10 ms after a transient, and one 100 frames after the file's
+    // start: both are starts; the transients beside them give way.
+    let got = starts([0.1], [0.110, 100.0 / 48_000.0, 0.5], 48_000, 200_000);
+    assert_eq!(got, vec![0, 100, 5_280, 24_000]);
+    // A marker on the first frame is that start.
+    assert_eq!(starts([], [0.0], 48_000, 1_000), vec![0]);
+}
+
+#[test]
+fn a_position_a_hair_short_of_a_whole_frame_has_reached_it() {
+    // The map plays frame 1,052 at 1,051.9999999999998, as floating point
+    // often does; the file is still copied whole.
+    let data = file(6_000);
+    let out = render(&data, &|k| k as f64 - 2.0e-13, &[0, 1_052, 3_001], 0, 6_000);
+    assert_eq!(out, data);
+}
+
+#[test]
+fn a_song_many_times_faster_still_gives_the_same_bits_however_it_is_asked() {
+    // Twenty times the speed puts the slices 120 frames apart in the song:
+    // closer than a fade, so a slice's tail runs under several.
+    let data = file(20_000);
+    let starts = [0, 2_400, 4_800, 7_200, 9_600];
+    let position = |k: i64| k as f64 * 20.0;
+    let whole = render(&data, &position, &starts, 0, 1_000);
+    for piece in [1_usize, 5, 64, 250] {
+        let mut joined = Vec::new();
+        let mut at = 0;
+        while at < whole.len() {
+            let len = piece.min(whole.len() - at);
+            joined.extend(render(&data, &position, &starts, at as i64, len));
+            at += len;
+        }
+        assert_eq!(joined, whole, "pieces of {piece}");
+    }
+    // A run that begins while the first slice is still fading under the rest.
+    assert_eq!(render(&data, &position, &starts, 250, 100), whole[250..350]);
+}
+
+#[test]
+fn the_ends_of_the_number_line_do_not_overflow() {
+    let data = file(2_000);
+    let out = render(&data, &|k| k as f64, &[0, 1_000], i64::MAX, 1);
+    assert_eq!(out, vec![0.0]);
+    let out = render(&data, &|k| k as f64, &[0, 1_000], i64::MAX - 1, 4);
+    assert!(out.iter().all(|v| *v == 0.0));
+    let out = render(&data, &|_| f64::INFINITY, &[0, 1_000], 0, 4);
+    assert!(out.iter().all(|v| *v == 0.0));
 }
 
 #[test]
@@ -178,5 +231,25 @@ fn scanning_finds_the_hits_of_a_file() {
             found.iter().any(|t| (t - want).abs() < 0.01),
             "no hit near {want}: {found:?}"
         );
+    }
+}
+
+#[test]
+fn a_stereo_pair_of_opposite_polarity_is_not_cancelled_to_nothing() {
+    let rate = 48_000_u32;
+    let mut left = vec![0.0_f32; 3 * 24_000];
+    let mut seed = 99_u32;
+    for burst in 0..3 {
+        for i in 0..4_800 {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let noise = (seed >> 8) as f32 / (1 << 24) as f32 * 2.0 - 1.0;
+            left[burst * 24_000 + 2_400 + i] = noise * (1.0 - i as f32 / 4_800.0);
+        }
+    }
+    let right: Vec<f32> = left.iter().map(|v| -v).collect();
+    let found = scan(&mut Memory(vec![left, right]), rate).unwrap();
+    for burst in 0..3 {
+        let want = (burst * 24_000 + 2_400) as f64 / f64::from(rate);
+        assert!(found.iter().any(|t| (t - want).abs() < 0.01), "{found:?}");
     }
 }

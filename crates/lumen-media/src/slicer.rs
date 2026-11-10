@@ -25,10 +25,17 @@ use crate::repitch::Source;
 /// Frames over which the end of a cut-off or early-ending slice fades out.
 pub const FADE: i64 = 192;
 
-/// The least distance between two slice starts, in frames: closer starts are
-/// one slice. With a span's speed limit of four times it keeps every slice
-/// longer in the song than its own fade.
+/// The least distance between a transient and the start beside it, in frames:
+/// a closer transient is not a slice of its own. A warp marker is a start
+/// whatever its distance.
 pub const MIN_SLICE: i64 = 1_024;
+
+/// How near a whole frame the position must come to have reached it. Positions
+/// are worked out in floating point (a tempo map, a sum of spans), so a frame
+/// the map plays exactly can come out a few parts in 10^13 short; without the
+/// tolerance a slice would start a frame late and a span at the file's speed
+/// would not be a copy.
+const REACHED: f64 = 1.0e-6;
 
 /// The sensitivity (0 to 100) the transients are read at: the middle.
 pub const SENSITIVITY: u8 = 50;
@@ -39,51 +46,76 @@ const SCAN_BLOCK: usize = 16_384;
 /// How far, in frames, the search for where a slice starts may go.
 const REACH: i64 = 1 << 40;
 
-/// The slice starts of a file: frame 0, each of `seconds` (transients and
-/// warp markers), at `rate`, in order and at least [`MIN_SLICE`] apart, inside
-/// a file of `frames`.
-pub fn starts(seconds: impl IntoIterator<Item = f64>, rate: u32, frames: u64) -> Vec<i64> {
-    let mut found: Vec<i64> = seconds
+/// The slice starts of a file: frame 0, each of `pinned` (the places warp
+/// markers pin; every one is a start), and each of `transients` that is at
+/// least [`MIN_SLICE`] from the start beside it, at `rate`, in order and
+/// inside a file of `frames`.
+pub fn starts(
+    transients: impl IntoIterator<Item = f64>,
+    pinned: impl IntoIterator<Item = f64>,
+    rate: u32,
+    frames: u64,
+) -> Vec<i64> {
+    let frame = |s: f64| (s * f64::from(rate)).round() as i64;
+    let inside = |f: &i64| *f > 0 && (*f as u64) < frames;
+    let mut out: std::collections::BTreeSet<i64> = pinned
         .into_iter()
         .filter(|s| s.is_finite())
-        .map(|s| (s * f64::from(rate)).round() as i64)
-        .filter(|f| *f > 0 && (*f as u64) < frames)
+        .map(frame)
+        .filter(inside)
+        .collect();
+    out.insert(0);
+    let mut found: Vec<i64> = transients
+        .into_iter()
+        .filter(|s| s.is_finite())
+        .map(frame)
+        .filter(inside)
         .collect();
     found.sort_unstable();
-    let mut out = vec![0_i64];
     for f in found {
-        if out.last().is_some_and(|last| f - last >= MIN_SLICE) {
-            out.push(f);
+        let before = out.range(..=f).next_back().copied();
+        let after = out.range(f..).next().copied();
+        if before.is_none_or(|b| f - b >= MIN_SLICE) && after.is_none_or(|a| a - f >= MIN_SLICE) {
+            out.insert(f);
         }
     }
-    out
+    out.into_iter().collect()
 }
 
-/// The transients of a whole file, in seconds: [`crate::detect`] over it at
-/// [`SENSITIVITY`]. Slow: it reads the file once.
+/// The transients of a whole file, in seconds, in order: [`crate::detect`]
+/// over it at [`SENSITIVITY`]. Each channel is read on its own and the hits
+/// joined (a stereo pair is not averaged first: a pair of opposite polarity
+/// would cancel to nothing). Slow: it reads the file once.
 pub fn scan(source: &mut dyn Source, rate: u32) -> Result<Vec<f64>, MediaError> {
-    let channels = source.channels().min(2);
+    let channels = source.channels().clamp(1, 2);
     let frames = source.frames();
-    let mut detector = Detector::new(rate);
-    let mut left = vec![0.0_f32; SCAN_BLOCK];
-    let mut right = vec![0.0_f32; SCAN_BLOCK];
+    let mut detectors: Vec<Detector> = (0..channels).map(|_| Detector::new(rate)).collect();
+    let mut block = [vec![0.0_f32; SCAN_BLOCK], vec![0.0_f32; SCAN_BLOCK]];
     let mut at = 0_u64;
     while at < frames {
         let n = ((frames - at) as usize).min(SCAN_BLOCK);
+        let [left, right] = &mut block;
         if channels >= 2 {
             source.read(at, &mut [&mut left[..n], &mut right[..n]])?;
-            detector.add(&left[..n], Some(&right[..n]));
         } else {
             source.read(at, &mut [&mut left[..n]])?;
-            detector.add(&left[..n], None);
+        }
+        for (detector, samples) in detectors.iter_mut().zip([&*left, &*right]) {
+            detector.add(&samples[..n], None);
         }
         at += n as u64;
     }
-    Ok(detector
-        .finish()
-        .transients_at(SENSITIVITY)
-        .map(|t| t.seconds)
-        .collect())
+    let mut hits: Vec<f64> = detectors
+        .into_iter()
+        .flat_map(|d| {
+            d.finish()
+                .transients_at(SENSITIVITY)
+                .map(|t| t.seconds)
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    hits.sort_by(f64::total_cmp);
+    Ok(hits)
 }
 
 /// Renders runs of output frames. Holds the scratch a run needs, so make one
@@ -135,11 +167,9 @@ impl Slicer {
         if n == 0 || starts.is_empty() || frames == 0 || !at_first.is_finite() {
             return Ok(());
         }
-        let end = first + n as i64;
-        // The slice playing at `first`, and the one before it, whose fade may
-        // still be sounding.
-        let here = starts.partition_point(|&s| (s as f64) <= at_first);
-        let mut j = here.saturating_sub(2);
+        let Some(end) = first.checked_add(n as i64) else {
+            return Ok(());
+        };
         let slice = |j: usize| {
             let from = starts[j];
             let stop = starts.get(j + 1).copied().unwrap_or(frames);
@@ -152,6 +182,15 @@ impl Slicer {
                     .map_or(i64::MAX, |&s| where_it_starts(position, s, first)),
             }
         };
+        // The slice playing at `first`, and back from it every slice whose
+        // fade can still be sounding: one cut off by a slice that arrived
+        // less than [`FADE`] frames before `first`. At a speed of many times
+        // the file's that is more than the one before.
+        let here = starts.partition_point(|&s| s as f64 <= at_first + REACHED);
+        let mut j = here.saturating_sub(1);
+        while j > 0 && where_it_starts(position, starts[j], first).saturating_add(FADE) > first {
+            j -= 1;
+        }
         while j < starts.len() {
             let s = slice(j);
             if s.at >= end {
@@ -192,8 +231,8 @@ impl Slicer {
             s.len - fade_from.min(s.len)
         };
         // The run's part of it, as offsets into the slice.
-        let o0 = (first - s.at).max(0);
-        let o1 = (end - s.at).min(sounding).min(frames - s.from);
+        let o0 = first.saturating_sub(s.at).max(0);
+        let o1 = end.saturating_sub(s.at).min(sounding).min(frames - s.from);
         if o0 >= o1 {
             return Ok(());
         }
@@ -231,13 +270,13 @@ impl Slicer {
 /// position runs forwards by at least a quarter of a frame per frame.
 fn where_it_starts(position: &dyn Fn(i64) -> f64, from: i64, hint: i64) -> i64 {
     let target = from as f64;
-    let reached = |k: i64| position(k) >= target;
+    let reached = |k: i64| position(k) + REACHED >= target;
     let (mut lo, mut hi);
     if reached(hint) {
         hi = hint;
         let mut step = 1;
         loop {
-            let k = hint - step;
+            let k = hint.saturating_sub(step);
             if !reached(k) {
                 lo = k;
                 break;
@@ -252,7 +291,7 @@ fn where_it_starts(position: &dyn Fn(i64) -> f64, from: i64, hint: i64) -> i64 {
         lo = hint;
         let mut step = 1;
         loop {
-            let k = hint + step;
+            let k = hint.saturating_add(step);
             if reached(k) {
                 hi = k;
                 break;

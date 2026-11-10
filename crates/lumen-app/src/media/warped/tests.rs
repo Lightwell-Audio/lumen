@@ -863,3 +863,30 @@ fn rhythmic_frames_do_not_depend_on_what_was_read_before() {
         );
     }
 }
+
+#[test]
+fn a_file_is_scanned_once_for_all_the_streams_an_edit_makes() {
+    let source = bursts();
+    let tempo = constant(120.0);
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let mut scans = Vec::new();
+    for marker in [None, Some(Marker::new(0.9, Ticks::quarters(2)))] {
+        let mut warp = rhythmic(95.0);
+        warp.markers.extend(marker);
+        let stream = warps
+            .stream(&request(&warp, &source, &tempo, 192_000))
+            .unwrap();
+        // Reading makes the scan.
+        read(&stream, 0, 1_000);
+        let id = stream.stream().unwrap().id();
+        scans.push(streams::warped(id).unwrap());
+    }
+    assert!(!Arc::ptr_eq(&scans[0], &scans[1]), "two streams");
+    assert!(
+        Arc::ptr_eq(&scans[0].scan, &scans[1].scan),
+        "one scan of the file"
+    );
+    // A marker cuts the file where it pins, a transient or not.
+    let starts = scans[1].slice_starts_for_test();
+    assert!(starts.contains(&((0.9 * f64::from(RATE)).round() as i64)));
+}
