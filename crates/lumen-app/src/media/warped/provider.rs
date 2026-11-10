@@ -167,7 +167,7 @@ impl Shape {
 }
 
 /// Hashes everything a stream's frames depend on. The engine the mode plays
-/// with is in it (Rhythmic and Repitch share one); the transpose is left out
+/// with is in it; the transpose is left out
 /// until S6 plays it.
 fn key(request: &Request<'_>, shape: &Shape) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();

@@ -152,7 +152,10 @@ fn markers_are_tab_stops_with_names_and_move_and_go_from_the_keyboard() {
     let (mut lumen, id) = warped_editor("warp-keys");
     // The edit cursor, on the wave at beat 2: the marker goes there.
     let body = shown(&lumen).body;
-    lumen.click_at(Pos2::new(x_of(&lumen, 2.0), body.center().y), Modifiers::NONE);
+    lumen.click_at(
+        Pos2::new(x_of(&lumen, 2.0), body.center().y),
+        Modifiers::NONE,
+    );
     command(&mut lumen, "Add warp marker");
     lumen.frames(4);
     let added = markers(&lumen, id);

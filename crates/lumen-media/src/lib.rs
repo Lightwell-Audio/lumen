@@ -14,6 +14,7 @@ pub mod detect;
 pub mod export;
 mod peaks;
 pub mod repitch;
+pub mod slicer;
 pub mod stream;
 pub mod stretch;
 pub mod take;

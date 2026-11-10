@@ -7,6 +7,7 @@ use std::sync::Arc;
 use lumen_engine::ClipAudio;
 use lumen_media::MediaError;
 use lumen_media::repitch::{self, Source};
+use lumen_media::slicer::Slicer;
 use lumen_media::stream::Reader;
 use lumen_media::stretch::{Chunks, Stretcher};
 
@@ -23,6 +24,7 @@ pub(in crate::media) struct Rendering {
 enum Renderer {
     Repitch(repitch::Renderer),
     Stretch(Box<Chunks>),
+    Slices(Slicer),
 }
 
 enum Input {
@@ -57,6 +59,7 @@ impl Rendering {
                 // Repitch: something to hear rather than a hole.
                 .unwrap_or_else(|_| Renderer::Repitch(repitch::Renderer::new())),
             Engine::Repitch => Renderer::Repitch(repitch::Renderer::new()),
+            Engine::Slices => Renderer::Slices(Slicer::new()),
         };
         Some(Self {
             warped,
@@ -88,6 +91,16 @@ impl Rendering {
             }
             Renderer::Stretch(c) => {
                 c.render(&mut self.input, &position, from as i64, left, right)?
+            }
+            Renderer::Slices(s) => {
+                let starts = warped.slice_starts(&mut self.input);
+                s.render(
+                    &mut self.input,
+                    (&position, starts),
+                    from as i64,
+                    left,
+                    right,
+                )?
             }
         }
         Ok(warped.frames.saturating_sub(from).min(n as u64) as usize)

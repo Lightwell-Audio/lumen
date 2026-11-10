@@ -25,11 +25,12 @@ mod source;
 pub use provider::{Request, WarpedStreams};
 pub(super) use source::Rendering;
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_core::warp::{self, Marker};
 use lumen_engine::ClipAudio;
+use lumen_media::slicer;
 use lumen_media::stretch::Preset;
 use lumen_project::model::WarpMode;
 
@@ -50,14 +51,17 @@ pub enum Engine {
     Repitch,
     /// The file stretched without changing its pitch (S4c).
     Stretch(Preset),
+    /// The file cut at its transients, each slice placed where the map puts
+    /// it and played at the file's own speed (S5b, Rhythmic).
+    Slices,
 }
 
 impl Engine {
-    /// The engine a mode plays with. Rhythmic is Lumen's own slicer, which
-    /// comes with S5b: until then it plays as Repitch, as it did before.
+    /// The engine a mode plays with. Rhythmic is Lumen's own slicer.
     pub fn of(mode: WarpMode) -> Self {
         match mode {
-            WarpMode::Repitch | WarpMode::Rhythmic => Engine::Repitch,
+            WarpMode::Repitch => Engine::Repitch,
+            WarpMode::Rhythmic => Engine::Slices,
             WarpMode::Melodic => Engine::Stretch(Preset::Light),
             WarpMode::FullMix => Engine::Stretch(Preset::Full),
         }
@@ -85,6 +89,10 @@ pub struct Warped {
     anchor_ticks: f64,
     /// Frames in the stream: the song up to the last sample it must reach.
     pub frames: u64,
+    /// The first frames of the slices of a Rhythmic stream: the file's
+    /// transients and the markers' places, found the first time a worker reads
+    /// the stream and then kept, so every reader cuts the file alike.
+    slices: OnceLock<Vec<i64>>,
 }
 
 impl Warped {
@@ -108,7 +116,20 @@ impl Warped {
             tempo,
             anchor_ticks,
             frames,
+            slices: OnceLock::new(),
         }
+    }
+
+    /// Where a Rhythmic stream's slices start, in frames of the file: the
+    /// transients of the file (read through `input` the first time) and the
+    /// places the markers pin. A file that cannot be scanned is cut at the
+    /// markers alone.
+    pub(super) fn slice_starts(&self, input: &mut dyn lumen_media::repitch::Source) -> &[i64] {
+        self.slices.get_or_init(|| {
+            let hits = slicer::scan(input, self.rate).unwrap_or_default();
+            let pinned = self.markers.iter().map(|m| m.source);
+            slicer::starts(hits.into_iter().chain(pinned), self.rate, input.frames())
+        })
     }
 
     /// The frame of the file, between frames, that plays at stream frame `k`.

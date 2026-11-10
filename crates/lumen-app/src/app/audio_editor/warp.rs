@@ -292,9 +292,6 @@ impl App {
                 }
             });
         });
-        if matches!(warp.as_ref().map(|w| w.mode), Some(WarpMode::Rhythmic)) {
-            widgets::hint(ui, "Rhythmic plays as Repitch until its slicing arrives");
-        }
         if warped && !self.settings.playback.from_disk {
             // A warped clip is played from a stream the disk thread prepares,
             // so with "Play audio from disk" off the wave is drawn warped and
