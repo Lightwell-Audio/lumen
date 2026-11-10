@@ -59,11 +59,16 @@ impl Rendering {
             (super::Origin::File(_), None) => return None,
         };
         let renderer = match warped.engine {
-            Engine::Stretch(preset) => Stretcher::new(warped.channels, warped.rate, preset)
-                .map(|s| Renderer::Stretch(Box::new(Chunks::new(s))))
-                // A stretcher that cannot be made plays the stream as
-                // Repitch: something to hear rather than a hole.
-                .unwrap_or_else(|_| Renderer::Repitch(repitch::Renderer::new())),
+            Engine::Stretch(preset) => Stretcher::new_transposed(
+                warped.channels,
+                warped.rate,
+                preset,
+                warped.transpose_cents,
+            )
+            .map(|s| Renderer::Stretch(Box::new(Chunks::new(s))))
+            // A stretcher that cannot be made plays the stream as
+            // Repitch: something to hear rather than a hole.
+            .unwrap_or_else(|_| Renderer::Repitch(repitch::Renderer::new())),
             Engine::Repitch => Renderer::Repitch(repitch::Renderer::new()),
             Engine::Slices => Renderer::Slices(Slicer::new()),
         };

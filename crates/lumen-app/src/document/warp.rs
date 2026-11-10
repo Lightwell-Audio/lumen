@@ -124,15 +124,16 @@ impl Document {
     }
 
     /// Changes a warp setting of the selected warped clips (mode, the tempo
-    /// the file was made at, transpose).
-    pub fn set_warp(&mut self, ids: &[Id], change: &Change) -> Warped {
+    /// the file was made at, transpose). A drag passes a `merge` key, so the
+    /// whole drag is one undo step.
+    pub fn set_warp(&mut self, ids: &[Id], change: &Change, merge: Option<&str>) -> Warped {
         let label = match change {
             Change::Mode(_) => "Set warp mode",
             Change::OriginalBpm(_) => "Set original tempo",
             Change::Transpose(_) => "Transpose clips",
         };
         let mut out = Warped::default();
-        self.history.apply(label, None, |project| {
+        self.history.apply(label, merge, |project| {
             out = each(project, ids, &|p, c| edit::set(p, c, change));
         });
         out
@@ -413,22 +414,50 @@ mod tests {
         );
     }
 
+    /// A drag of the transpose passes one merge key, so it is one undo step.
+    #[test]
+    fn a_drag_of_the_transpose_is_one_undo_step() {
+        let (mut doc, id) = doc_with_clip();
+        doc.warp_clips(&[id], 120.0);
+        doc.set_warp(&[id], &Change::Mode(WarpMode::Melodic), None);
+        for cents in [100, 200, 300] {
+            doc.set_warp(&[id], &Change::Transpose(cents), Some("warp transpose"));
+        }
+        assert_eq!(warp_of(&doc).unwrap().transpose_cents, 300);
+        doc.undo();
+        assert_eq!(
+            warp_of(&doc).unwrap().transpose_cents,
+            0,
+            "one undo takes the whole drag back"
+        );
+        assert_eq!(warp_of(&doc).unwrap().mode, WarpMode::Melodic);
+    }
+
     #[test]
     fn settings_markers_and_refusals() {
         let (mut doc, id) = doc_with_clip();
         doc.warp_clips(&[id], 120.0);
         assert_eq!(
-            doc.set_warp(&[id], &Change::Mode(WarpMode::Melodic))
+            doc.set_warp(&[id], &Change::Mode(WarpMode::Melodic), None)
                 .changed,
             1
         );
-        assert_eq!(doc.set_warp(&[id], &Change::Transpose(300)).changed, 1);
+        assert_eq!(
+            doc.set_warp(&[id], &Change::Transpose(300), None).changed,
+            1
+        );
         assert_eq!(warp_of(&doc).unwrap().transpose_cents, 300);
         // Repitch cannot transpose; a range out of bounds is refused.
-        assert_eq!(doc.set_warp(&[id], &Change::OriginalBpm(5.0)).refused, 1);
-        doc.set_warp(&[id], &Change::Mode(WarpMode::Repitch));
+        assert_eq!(
+            doc.set_warp(&[id], &Change::OriginalBpm(5.0), None).refused,
+            1
+        );
+        doc.set_warp(&[id], &Change::Mode(WarpMode::Repitch), None);
         assert_eq!(warp_of(&doc).unwrap().transpose_cents, 0);
-        assert_eq!(doc.set_warp(&[id], &Change::Transpose(100)).refused, 1);
+        assert_eq!(
+            doc.set_warp(&[id], &Change::Transpose(100), None).refused,
+            1
+        );
         // Markers: the same map changes nothing; a slowed one is made, and one
         // that would run the clip past its file is refused.
         let map = warp_of(&doc).unwrap().markers;

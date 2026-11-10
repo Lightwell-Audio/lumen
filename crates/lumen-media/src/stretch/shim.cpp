@@ -46,6 +46,18 @@ int lumen_stretch_interval(const LumenStretch *s) { return s->stretch.intervalSa
 int lumen_stretch_input_latency(const LumenStretch *s) { return s->stretch.inputLatency(); }
 int lumen_stretch_output_latency(const LumenStretch *s) { return s->stretch.outputLatency(); }
 
+// Shifts the pitch by `semitones` without changing the speed (M9.5 S6). Set
+// before the first hop, so every render starts from the same setting. 0 on
+// success.
+int lumen_stretch_set_transpose(LumenStretch *s, float semitones) {
+	try {
+		s->stretch.setTransposeSemitones(semitones);
+		return 0;
+	} catch (...) {
+		return 1;
+	}
+}
+
 // Forgets everything it has heard, as new.
 int lumen_stretch_reset(LumenStretch *s) {
 	try {

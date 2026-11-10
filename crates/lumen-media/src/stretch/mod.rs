@@ -45,6 +45,7 @@ unsafe extern "C" {
     fn lumen_stretch_interval(s: *const Raw) -> i32;
     fn lumen_stretch_input_latency(s: *const Raw) -> i32;
     fn lumen_stretch_output_latency(s: *const Raw) -> i32;
+    fn lumen_stretch_set_transpose(s: *mut Raw, semitones: f32) -> i32;
     fn lumen_stretch_reset(s: *mut Raw) -> i32;
     fn lumen_stretch_process(
         s: *mut Raw,
@@ -61,6 +62,7 @@ pub struct Stretcher {
     channels: usize,
     rate: u32,
     preset: Preset,
+    transpose_cents: i32,
     block: usize,
     interval: usize,
     input_latency: usize,
@@ -72,8 +74,19 @@ pub struct Stretcher {
 unsafe impl Send for Stretcher {}
 
 impl Stretcher {
-    /// A stretcher for one or two channels at `rate`.
+    /// A stretcher for one or two channels at `rate`, at the file's own pitch.
     pub fn new(channels: usize, rate: u32, preset: Preset) -> Result<Self, MediaError> {
+        Self::new_transposed(channels, rate, preset, 0)
+    }
+
+    /// A stretcher that also shifts the pitch by `transpose_cents` (S6). At 0
+    /// the library is not told anything, so the bits are those of [`Self::new`].
+    pub fn new_transposed(
+        channels: usize,
+        rate: u32,
+        preset: Preset,
+        transpose_cents: i32,
+    ) -> Result<Self, MediaError> {
         let failed = || MediaError::Resample("the time-stretcher could not be made".into());
         let code = match preset {
             Preset::Full => 0,
@@ -83,6 +96,18 @@ impl Stretcher {
         // SAFETY: plain values in; the result is checked for null below.
         let raw = unsafe { lumen_stretch_new(channels as i32, signed, code) };
         let raw = NonNull::new(raw).ok_or_else(failed)?;
+        if transpose_cents != 0 {
+            // SAFETY: `raw` is a live stretcher made above, and nothing has
+            // been fed to it yet.
+            let code = unsafe {
+                lumen_stretch_set_transpose(raw.as_ptr(), transpose_cents as f32 / 100.0)
+            };
+            if code != 0 {
+                // SAFETY: `raw` came from `lumen_stretch_new` and is freed once.
+                unsafe { lumen_stretch_free(raw.as_ptr()) };
+                return Err(failed());
+            }
+        }
         // SAFETY: `raw` is a live stretcher made above.
         let (block, interval, input, output) = unsafe {
             (
@@ -97,6 +122,7 @@ impl Stretcher {
             channels,
             rate,
             preset,
+            transpose_cents,
             block: block.max(1) as usize,
             interval: interval.max(1) as usize,
             input_latency: input.max(0) as usize,
@@ -114,6 +140,11 @@ impl Stretcher {
 
     pub fn preset(&self) -> Preset {
         self.preset
+    }
+
+    /// The pitch shift this stretcher was made with, in cents (0 for none).
+    pub fn transpose_cents(&self) -> i32 {
+        self.transpose_cents
     }
 
     /// Frames in the analysis block.

@@ -130,6 +130,7 @@ mod walkthrough_plugins;
 mod walkthrough_song;
 mod warp_chip;
 mod warp_markers;
+mod warp_transpose;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

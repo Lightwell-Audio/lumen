@@ -12670,3 +12670,94 @@ light at 150% and 200%, a split or looped clip, the arrangement's own clips.
    `a_marker_made_by_a_click_lands_on_a_grid_line`. Not reviewed by a
    subagent.
 
+
+## ADR-0137 — Transpose in the stretch modes (M9.5 S6a)
+
+**Date:** 2026-11-10. **Branch:** `claude/dazzling-johnson-1c3710` (the session's
+designated branch; the slice would otherwise be `m9.5-s6a-transpose`).
+**Status:** Built. No format change: the transpose field and its edits are in
+v33 (ADR-0130). MT-PITCH-1 waits for the owner's ear.
+
+**Context.** S4a stored a transpose on the clip, and S4c's library was called
+without one, so Melodic and Full mix played at the file's pitch. S6 asks for a
+static transpose in semitones and cents in every mode but Repitch, and a pitch
+envelope. The envelope is S6b (the plan's slice table, §3): it needs its own
+field and its own renderer work, so this slice carries the static transpose
+alone.
+
+**Decisions.**
+1. *The library transposes; the resampler does not.* `Stretcher::new_transposed`
+   calls the library's `setTransposeSemitones` once, through
+   `lumen_stretch_set_transpose` in the shim, before the first hop. At 0 the
+   library is not called, so an untransposed warped clip renders the bits it
+   did before (test `a_transpose_of_nothing_is_the_stretcher_as_it_was`).
+2. *A transposed stream copies nothing.* A span at the file's own speed is a
+   copy of the file (D3), which is the file at the file's pitch. With a
+   transpose, `Unity::scan` finds no such span (`copies: false`), so every
+   frame is stretched, including the seam tail's stretcher, which takes the
+   same transpose.
+3. *Only the stretch engines take a transpose.* `provider::transpose_of` gives
+   the transpose to Melodic and Full mix and 0 to Repitch and Rhythmic, so a
+   stream of the other modes is not remade by a stored transpose. The stream
+   key includes the transpose, so a changed transpose makes a new stream and
+   an unchanged one finds its own.
+4. *Transpose sits in the Warp popover, under Tempo.* The plan's strip group
+   (L B) would change `strip::choose`, its widths and its folding order. S6a
+   keeps the strip as it is: the row is one more line of the popover that the
+   Tempo row already is. The strip's Pitch group comes with S6b, which is when
+   the envelope's chip has to live beside Warp. The owner may object.
+5. *Rhythmic has no transpose.* A transposed slice would need each hit
+   pitch-shifted, and a phase-vocoder shift smears the attack that Rhythmic
+   exists to keep. `WarpMode::transposes` is true for Melodic and Full mix
+   only; the edit clears a transpose that a mode change takes away; the row
+   says "Not in Rhythmic yet: its hits keep their pitch". This departs from the
+   plan's "every mode but Repitch" and is the owner's to decide, with the
+   shift's cost as a question.
+6. *The value is typed in semitones.* `SliderKind::Semitones` runs from −48 to
+   +48 st, resets to none, and shows cents after the point ("+2.5 st"). The
+   model stores cents, rounded from the value. A drag passes the merge key
+   "warp transpose", so a drag is one undo step (as the gain drag is); a typed
+   value closes its gesture and is one step of its own.
+7. *The arrangement's clip has no transpose mark yet.* The marks are icons
+   (`clip_marks.rs`), and the mark needs an icon or the "+2" specimen the plan
+   names. Owed to S6b or a follow-up with specimens.
+
+**Measured** (`lumen-media` renderer, a 960 Hz pure tone of amplitude 0.5, Hann
+window; app test, amplitude 1.0 at unity speed 1.2). The pitch lands on the
+intended frequency in every case; the old pitch is below 0.06 of the
+amplitude. The level is the part that does not hold up:
+
+| Shift | Light (Melodic) | Full mix |
+|---|---|---|
+| +1200 ¢ (octave up), unity | 63% | 73% |
+| +700 ¢ (fifth up), speed 1.2 | 98% | 95% |
+| −1200 ¢ (octave down), unity | 22% | 82% |
+
+In the app, at speed 1.2, +1200 ¢ keeps 74% (Melodic) and 63% (Full mix), and
++700 ¢ keeps 98% and 93%.
+
+The cause is not established. The library runs at its defaults (the
+tonality limit is 0, so no partial is left unshifted), and the unshifted tone
+keeps 99 to 100%. An octave is the largest shift a user is likely to make, so
+the owner hears it first. KNOWN_ISSUES has the row.
+
+**Tests.** `lumen-media` stretch: `a_transposed_tone_moves_its_partials_at_every_speed`,
+`a_transposed_stream_gives_the_same_bits_however_it_is_asked` (pages, jumps,
+odd sizes), `a_transpose_of_nothing_is_the_stretcher_as_it_was`,
+`a_transposed_stream_copies_nothing`. `lumen-project`:
+`rhythmic_takes_no_transpose_yet`. `lumen-app` unit: the two stream tests
+(`a_transpose_moves_the_heard_pitch_in_the_stretch_modes_only`,
+`a_transpose_is_a_stream_of_its_own_only_where_it_is_played`), the document
+test `a_drag_of_the_transpose_is_one_undo_step`, the slider's readouts
+(`semitone_tests`). E2E `warp_transpose`: typing and undo, and the modes'
+hints and refusal.
+
+**Not run here.** The WSL performance gate (`perf.sh`) and the macOS
+cross-target clippy. The warped bench `warped_64` is not rerun: the transposed
+path is the library's own transpose, and its cost is untested.
+
+**Consequences.** The shim exposes one more call. `Chunks` has a `copies`
+rule that a future pitch envelope must keep: a stream that is not at the
+file's pitch copies nothing. S6b reuses the stream key and the stretcher's
+transpose, so its envelope has to change the library's transpose per hop
+rather than once per stretcher.

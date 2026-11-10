@@ -651,6 +651,7 @@ per slice and move what is no longer current out of it.
   One review round by GPT 6.1 Sol (high), fixed. The ignored E2E
   `look_at_the_strip` renders it (`SHOTS`, `LOOK_SCALE`). Not looked at:
   light at 150/200%, split or looped clips.
+- **Branch `claude/dazzling-johnson-1c3710`: M9.5 S6a is built** (ADR-0137; the session's designated branch, not renamed). A static transpose in semitones and cents in Melodic and Full mix, on the Warp popover's Transpose row, through the library's own transpose; a transposed stream copies nothing. MT-PITCH-1 waits for the owner's ear. **Tell the owner:** a pure tone an octave up keeps about two thirds of its level, and an octave down less (measured, `docs/KNOWN_ISSUES.md` top row); Rhythmic has no transpose yet (a transposed hit would smear its attack); the arrangement has no transpose mark; the strip's Pitch group and the pitch envelope are S6b, planned. Next: S6b.
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);

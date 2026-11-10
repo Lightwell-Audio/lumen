@@ -98,6 +98,7 @@ impl WarpedStreams {
             (shape.anchor, frames),
         );
         warped.engine = Engine::of(request.warp.mode);
+        warped.transpose_cents = transpose_of(request);
         if warped.engine == Engine::Slices {
             let scan = self.scans.entry(source_key(request.source)).or_default();
             warped.scan = Arc::clone(scan);
@@ -187,12 +188,21 @@ fn source_key(source: &Arc<ClipAudio>) -> u64 {
     hasher.finish()
 }
 
-/// Hashes everything a stream's frames depend on. The engine the mode plays
-/// with is in it; the transpose is left out
-/// until S6 plays it.
+/// The pitch shift a stream plays with, in cents: the clip's transpose in the
+/// modes that take one (S6), none in the others.
+fn transpose_of(request: &Request<'_>) -> i32 {
+    match Engine::of(request.warp.mode) {
+        Engine::Stretch(_) => request.warp.transpose_cents,
+        Engine::Repitch | Engine::Slices => 0,
+    }
+}
+
+/// Hashes everything a stream's frames depend on: the engine the mode plays
+/// with, and the transpose it plays with.
 fn key(request: &Request<'_>, shape: &Shape) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
     Engine::of(request.warp.mode).hash(&mut hasher);
+    transpose_of(request).hash(&mut hasher);
     source_key(request.source).hash(&mut hasher);
     request.rate.hash(&mut hasher);
     shape.frames.hash(&mut hasher);

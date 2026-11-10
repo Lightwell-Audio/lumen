@@ -23,7 +23,7 @@ fn gain_of(c: &Clip) -> f32 {
 }
 
 /// Types `text` into the field named `label` and presses Enter.
-fn type_into(lumen: &mut Lumen, label: &str, text: &str) {
+pub(super) fn type_into(lumen: &mut Lumen, label: &str, text: &str) {
     lumen.harness.get_by_label_contains(label).click();
     lumen.frames(2);
     lumen.key(Modifiers::COMMAND, Key::A);

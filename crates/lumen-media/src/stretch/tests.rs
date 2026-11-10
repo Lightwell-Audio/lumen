@@ -450,3 +450,81 @@ fn a_copy_and_a_stretch_meet_without_a_click() {
     eprintln!("largest step across the join {at:.4}, before it {elsewhere:.4}");
     assert!(at < elsewhere * 1.5 + 0.01, "{at} against {elsewhere}");
 }
+
+/// A transpose moves the partials and keeps their levels, at every speed: a
+/// fifth up (700 cents) puts the 220 Hz partial at about 329.6 Hz and the
+/// 660 Hz one at about 988.9 Hz, and nothing is left at the old pitch (S6).
+#[test]
+fn a_transposed_tone_moves_its_partials_at_every_speed() {
+    let fifth = 2.0_f64.powf(7.0 / 12.0);
+    for speed in [1.0_f64, 0.9, 1.1] {
+        let mut source = Mem {
+            planes: vec![tone(1_000_000)],
+        };
+        let mut c = Chunks::new(Stretcher::new_transposed(1, RATE, Preset::Full, 700).unwrap());
+        let (l, _) = render(
+            &mut c,
+            &mut source,
+            &|k| 5_000.0 + k as f64 * speed,
+            20_000,
+            40_000,
+        );
+        let (up, high) = (amplitude(&l, 220.0 * fifth), amplitude(&l, 660.0 * fifth));
+        let old = amplitude(&l, 220.0);
+        eprintln!("speed {speed}: 329.6 Hz {up:.3}, 988.9 Hz {high:.3}, 220 Hz {old:.3}");
+        assert!((up / 0.4 - 1.0).abs() < 0.15, "{speed}: {up}");
+        assert!((high / 0.25 - 1.0).abs() < 0.15, "{speed}: {high}");
+        assert!(old < 0.05, "{speed}: {old} left at the old pitch");
+    }
+}
+
+/// A transposed stream renders the same bits however it is asked for, as a
+/// stream at the file's own pitch does.
+#[test]
+fn a_transposed_stream_gives_the_same_bits_however_it_is_asked() {
+    let make = || Chunks::new(Stretcher::new_transposed(2, RATE, Preset::Full, -300).unwrap());
+    let total = 2 * CHUNK as usize + 5_000;
+    let (wl, wr) = render(&mut make(), &mut music(), &ramp, 0, total);
+    assert!(rms(&wl) > 0.1, "something was rendered");
+
+    let mut pages = make();
+    let mut source = music();
+    let (mut pl, mut pr) = (Vec::new(), Vec::new());
+    for first in (0..total).step_by(4096) {
+        let n = 4096.min(total - first);
+        let (l, r) = render(&mut pages, &mut source, &ramp, first as i64, n);
+        pl.extend(l);
+        pr.extend(r);
+    }
+    assert!(pl == wl && pr == wr, "pages differ from the whole");
+
+    let mut jumpy = make();
+    for (first, n) in [(120_000, 777), (10, 60_000), (CHUNK as usize - 3, 9)] {
+        let (l, r) = render(&mut jumpy, &mut source, &ramp, first as i64, n);
+        assert!(
+            l == wl[first..first + n] && r == wr[first..first + n],
+            "{first}+{n}"
+        );
+    }
+}
+
+/// A transpose of nothing is the stretcher as it was: the same bits, so a
+/// warp that is not transposed renders as it did before S6.
+#[test]
+fn a_transpose_of_nothing_is_the_stretcher_as_it_was() {
+    let total = 30_000;
+    let plain = render(&mut chunks(Preset::Full, 2), &mut music(), &ramp, 0, total);
+    let mut zero = Chunks::new(Stretcher::new_transposed(2, RATE, Preset::Full, 0).unwrap());
+    let none = render(&mut zero, &mut music(), &ramp, 0, total);
+    assert!(plain == none);
+}
+
+/// A file played at its own speed is not copied when the stream is
+/// transposed: a copy would play it at the file's pitch.
+#[test]
+fn a_transposed_stream_copies_nothing() {
+    let mut source = music();
+    let mut c = Chunks::new(Stretcher::new_transposed(2, RATE, Preset::Full, 100).unwrap());
+    let (l, _) = render(&mut c, &mut source, &|k| k as f64 + 1_000.0, 0, 20_000);
+    assert!(l != source.planes[0][1_000..21_000]);
+}

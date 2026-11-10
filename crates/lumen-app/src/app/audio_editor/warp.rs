@@ -253,7 +253,7 @@ impl App {
                     .show(ui, base.with("mode"), &names, chosen)
                 {
                     self.document
-                        .set_warp(&[clip.id], &Change::Mode(WarpMode::ALL[i]));
+                        .set_warp(&[clip.id], &Change::Mode(WarpMode::ALL[i]), None);
                 }
             });
             card_row(ui, "Tempo", |ui| {
@@ -293,6 +293,41 @@ impl App {
                     }
                 }
             });
+            // A transpose (S6) is set in the stretch modes only. Repitch would
+            // change the speed with the pitch, and Rhythmic's hits keep theirs.
+            let mode = warp.as_ref().map(|w| w.mode);
+            let transposes = mode.is_some_and(WarpMode::transposes);
+            ui.add_enabled_ui(transposes, |ui| {
+                card_row(ui, "Transpose", |ui| {
+                    let cents = warp.as_ref().map_or(0, |w| w.transpose_cents);
+                    let semitones = cents as f32 / 100.0;
+                    let (rect, _) = ui.allocate_exact_size(
+                        vec2(theme::size::WARP_FIELD, theme::size::CONTROL_SMALL),
+                        Sense::hover(),
+                    );
+                    let next = widgets::value_field(
+                        ui,
+                        rect,
+                        base.with("transpose"),
+                        semitones,
+                        SliderKind::Semitones,
+                        "Transpose",
+                        theme::controls(false),
+                    );
+                    let next_cents = (next * 100.0).round() as i32;
+                    if next_cents != cents {
+                        self.select_opened_clip(clip.id);
+                        self.set_clip_transpose(clip.id, next_cents);
+                    }
+                });
+            });
+            match mode {
+                Some(WarpMode::Repitch) => widgets::hint(ui, "Set by tempo in Repitch"),
+                Some(WarpMode::Rhythmic) => {
+                    widgets::hint(ui, "Not in Rhythmic yet: its hits keep their pitch");
+                }
+                _ => {}
+            }
         });
         if warped && !self.settings.playback.from_disk {
             // A warped clip is played from a stream the disk thread prepares,

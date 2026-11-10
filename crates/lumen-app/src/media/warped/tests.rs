@@ -731,7 +731,7 @@ fn amplitude(x: &[f32], cycles: f64) -> f64 {
 
 fn with_mode(mut doc: Document, mode: WarpMode) -> Document {
     let id = doc.project().tracks[0].clips[0].id;
-    assert_eq!(doc.set_warp(&[id], &Change::Mode(mode)).changed, 1);
+    assert_eq!(doc.set_warp(&[id], &Change::Mode(mode), None).changed, 1);
     doc
 }
 
@@ -915,4 +915,79 @@ fn a_reader_that_must_not_wait_is_told_so_until_the_scan_is_done() {
     // The same bits as a reader that waits for the scan itself.
     let waited = read(&stream, 0, got.min(PAGE));
     assert_eq!(left[..got.min(PAGE)], waited[..]);
+}
+
+/// A transpose raises what is heard in the stretch modes (an octave doubles
+/// the tone), and is refused where it is not played (Repitch, Rhythmic).
+#[test]
+fn a_transpose_moves_the_heard_pitch_in_the_stretch_modes_only() {
+    for mode in [WarpMode::Melodic, WarpMode::FullMix] {
+        let mut doc = with_mode(project(100.0, step(120.0), false), mode);
+        let id = doc.project().tracks[0].clips[0].id;
+        assert_eq!(
+            doc.set_warp(&[id], &Change::Transpose(1_200), None).changed,
+            1
+        );
+        let out = render(doc.project(), 96_000, 256, true);
+        let heard = &out[10_000..60_000];
+        let (old, octave) = (amplitude(heard, TONE), amplitude(heard, TONE * 2.0));
+        // The pitch moves and the old one is gone. The octave's level is not
+        // the unshifted one: the library keeps about two thirds of a pure
+        // tone's level up an octave (ADR-0137, measured; a fifth keeps more
+        // than 90%), so the bound says "heard", not "as loud".
+        assert!(octave > 0.5 && old < 0.05, "{mode:?}: {old} and {octave}");
+        assert_eq!(out, render(doc.project(), 96_000, 1_000, true), "{mode:?}");
+    }
+    let mut doc = project(100.0, step(120.0), false);
+    let id = doc.project().tracks[0].clips[0].id;
+    assert_eq!(
+        doc.set_warp(&[id], &Change::Transpose(1_200), None).refused,
+        1
+    );
+    let rhythmic = with_mode(doc, WarpMode::Rhythmic);
+    assert_eq!(
+        rhythmic.project().tracks[0].clips[0]
+            .warp
+            .as_ref()
+            .unwrap()
+            .transpose_cents,
+        0
+    );
+}
+
+/// A transpose makes a stream of its own where it is played, and Repitch
+/// (which plays none) finds the stream it had.
+#[test]
+fn a_transpose_is_a_stream_of_its_own_only_where_it_is_played() {
+    let source = file();
+    let tempo = constant(120.0);
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let mut id_of = |mode: WarpMode, cents: i32| {
+        let mut warp = Warp::new(100.0, 0.0);
+        warp.mode = mode;
+        warp.transpose_cents = cents;
+        warps
+            .stream(&request(&warp, &source, &tempo, 96_000))
+            .unwrap()
+            .stream()
+            .unwrap()
+            .id()
+    };
+    let plain = id_of(WarpMode::Melodic, 0);
+    assert_ne!(
+        id_of(WarpMode::Melodic, 300),
+        plain,
+        "a transpose is a stream of its own"
+    );
+    assert_eq!(
+        id_of(WarpMode::Melodic, 0),
+        plain,
+        "the same warp finds its stream"
+    );
+    let repitch = id_of(WarpMode::Repitch, 0);
+    assert_eq!(
+        id_of(WarpMode::Repitch, 300),
+        repitch,
+        "Repitch plays no transpose"
+    );
 }

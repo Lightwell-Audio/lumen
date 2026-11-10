@@ -567,6 +567,30 @@ mod tests {
         );
     }
 
+    /// Rhythmic cannot be transposed yet (S6, ADR-0137): the setting is refused
+    /// there, and a transpose set in Melodic is dropped on the way to it.
+    #[test]
+    fn rhythmic_takes_no_transpose_yet() {
+        let project = song();
+        let clip = enable(&project, &(*project.tracks[0].clips[0]).clone(), 120.0).unwrap();
+        let melodic = set(&project, &clip, &Change::Mode(WarpMode::Melodic)).unwrap();
+        let moved = set(&project, &melodic, &Change::Transpose(300)).unwrap();
+        assert_eq!(
+            set(&project, &moved, &Change::Mode(WarpMode::Rhythmic))
+                .unwrap()
+                .warp
+                .unwrap()
+                .transpose_cents,
+            0,
+            "Rhythmic drops the transpose"
+        );
+        let rhythmic = set(&project, &clip, &Change::Mode(WarpMode::Rhythmic)).unwrap();
+        assert_eq!(
+            set(&project, &rhythmic, &Change::Transpose(200)),
+            Err(Refused::Setting)
+        );
+    }
+
     #[test]
     fn markers_are_replaced_whole_and_the_clip_follows_them() {
         let project = song();

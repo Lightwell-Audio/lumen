@@ -174,12 +174,25 @@ impl App {
 
     /// Sets the tempo of `clip`'s file, from the control in the popover.
     pub(crate) fn set_clip_tempo(&mut self, clip: Id, bpm: f64) {
-        let done = self.document.set_warp(&[clip], &Change::OriginalBpm(bpm));
+        let done = self
+            .document
+            .set_warp(&[clip], &Change::OriginalBpm(bpm), None);
         if done.changed == 0 && done.refused > 0 {
             self.say(
                 "That tempo is out of range, or would play past the end of the clip's file"
                     .to_owned(),
             );
+        }
+    }
+
+    /// Sets a warped clip's transpose in cents (S6). A mode that cannot
+    /// transpose, or a value out of range, is refused and said so.
+    pub(crate) fn set_clip_transpose(&mut self, clip: Id, cents: i32) {
+        let done =
+            self.document
+                .set_warp(&[clip], &Change::Transpose(cents), Some("warp transpose"));
+        if done.changed == 0 && done.refused > 0 {
+            self.say("That transpose is out of range for this warp mode".to_owned());
         }
     }
 

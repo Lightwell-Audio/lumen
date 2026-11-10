@@ -73,6 +73,9 @@ impl Engine {
 pub struct Warped {
     pub origin: Origin,
     pub engine: Engine,
+    /// The pitch shift in cents the stretch engines play with (S6), 0 for
+    /// none. Only the stretch engines take it (see `provider::transpose_of`).
+    pub transpose_cents: i32,
     /// Channels played, one or two.
     pub channels: usize,
     /// The rate of file and stream.
@@ -188,6 +191,7 @@ impl Warped {
         Self {
             origin,
             engine: Engine::Repitch,
+            transpose_cents: 0,
             channels,
             rate,
             markers,

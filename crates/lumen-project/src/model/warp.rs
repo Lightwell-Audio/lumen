@@ -37,11 +37,13 @@ pub enum WarpMode {
 impl WarpMode {
     pub const ALL: [WarpMode; 4] = [Self::Repitch, Self::Rhythmic, Self::Melodic, Self::FullMix];
 
-    /// Whether the clip can be transposed in this mode. Repitch cannot: a
+    /// Whether the clip can be transposed in this mode (S6). Repitch cannot: a
     /// tape-style transpose would change the speed and the clip would stop
-    /// fitting its bars.
+    /// fitting its bars. Rhythmic cannot yet: its slices play at the file's
+    /// pitch, and a transposed slice would need each hit pitch-shifted, which
+    /// smears its attack (M9.5 S6 deviation, ADR-0137).
     pub fn transposes(self) -> bool {
-        self != Self::Repitch
+        matches!(self, Self::Melodic | Self::FullMix)
     }
 }
 

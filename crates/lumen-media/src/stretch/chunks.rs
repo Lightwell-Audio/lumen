@@ -223,7 +223,12 @@ impl Chunks {
     /// own speed, otherwise a fresh run.
     fn begin(&mut self, at: &Positions<'_>, chunk: i64) -> Result<(), MediaError> {
         let first = chunk * CHUNK;
-        let unity = Unity::scan(at, first - FADE, first + CHUNK);
+        let unity = Unity::scan(
+            at,
+            first - FADE,
+            first + CHUNK,
+            self.main.transpose_cents() == 0,
+        );
         let (copy, run) = match unity.whole(first - FADE, first + CHUNK) {
             Some(offset) => (Some(offset), None),
             None => (
@@ -261,7 +266,7 @@ fn tail(
     let first = chunk * CHUNK;
     let stereo = like.channels() >= 2;
     // The same spans the chunk will find for itself when it is begun.
-    let unity = Unity::scan(at, first - FADE, first + CHUNK);
+    let unity = Unity::scan(at, first - FADE, first + CHUNK, like.transpose_cents() == 0);
     if let Some(offset) = unity.whole(first - FADE, first + CHUNK) {
         // The chunk is a plain copy: so are the frames before it that it
         // would have played, the ones this seam is crossfaded into.
@@ -277,7 +282,12 @@ fn tail(
         ]);
     }
     if aux.is_none() {
-        *aux = Some(Stretcher::new(like.channels(), like.rate(), like.preset())?);
+        *aux = Some(Stretcher::new_transposed(
+            like.channels(),
+            like.rate(),
+            like.preset(),
+            like.transpose_cents(),
+        )?);
     }
     let stretcher = aux.as_mut().expect("made above");
     let mut run = Run::new(stretcher, at, first - FADE, FADE as usize)?;
@@ -426,12 +436,19 @@ struct Unity {
 impl Unity {
     /// The spans over `first..last` and a margin beyond them, wide enough
     /// that a frame of the range is never within [`FADE`] of a cut made by the
-    /// scan's own ends.
-    fn scan(at: &Positions<'_>, first: i64, last: i64) -> Self {
+    /// scan's own ends. With `copies` false (a stream transposed, S6) no span
+    /// is the file's own: nothing is copied.
+    fn scan(at: &Positions<'_>, first: i64, last: i64, copies: bool) -> Self {
         let margin = 2 * FADE + GRID;
         let lo = (first - margin).div_euclid(GRID) * GRID;
         let hi = (last + margin + GRID - 1).div_euclid(GRID) * GRID;
         let count = ((hi - lo) / GRID) as usize;
+        if !copies {
+            return Self {
+                lo,
+                spans: vec![None; count],
+            };
+        }
         let mut spans: Vec<Option<Span>> = Vec::with_capacity(count);
         let mut p = at.get(lo);
         for i in 0..count {
