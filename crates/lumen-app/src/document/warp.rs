@@ -84,6 +84,16 @@ fn each(
     out
 }
 
+/// Clip `id` in `project`.
+fn clip_in(project: &Project, id: Id) -> Option<&Clip> {
+    project
+        .tracks
+        .iter()
+        .flat_map(|t| t.clips.iter())
+        .find(|c| c.id == id)
+        .map(|c| &**c)
+}
+
 impl Document {
     /// Turns warp on for the selected audio clips, for files made at
     /// `original_bpm`. A clip at the file's own tempo plays as it did; any other
@@ -169,7 +179,8 @@ impl Document {
 
     /// One change to the warp markers of clip `id`, made from `base` (the
     /// warp strip, M9.5 S5b): a drag passes the project it began on and a
-    /// merge key, so the whole gesture is one undo step redone from there.
+    /// merge key, so the whole gesture is one undo step. Only the clip is
+    /// replaced, on the project as it is now.
     /// Says what was made, or why nothing was (a locked clip is
     /// [`Refused::Unchanged`]).
     pub fn edit_warp_marker(
@@ -188,13 +199,22 @@ impl Document {
         };
         let edited = match marker_edited(base, id, change) {
             Ok(edited) => edited,
-            // A drag brought back to where it began: the gesture's last state
-            // is the project it began on, so the step already made is undone
-            // in place (the change would be a no-op against `base`, but not
-            // against what the drag has made since).
-            Err(Refused::Unchanged) if merge.is_some() && self.project() != base => {
+            // A drag brought back to where it began: the clip goes back to
+            // what it was when the gesture began (the change would be a no-op
+            // against `base`, but not against what the drag has made since).
+            // Only this clip is put back: whatever else changed meanwhile (a
+            // mapped controller moving a fader) stays.
+            Err(Refused::Unchanged) if merge.is_some() => {
+                let (Some(began), Some(now)) = (clip_in(base, id), clip_in(self.project(), id))
+                else {
+                    return Err(Refused::Unchanged);
+                };
+                if began == now {
+                    return Err(Refused::Unchanged);
+                }
+                let began = began.clone();
                 self.history.apply(label, merge, |project| {
-                    *project = base.clone();
+                    super::clips::replace_clip(project, id, |_| began.clone());
                 });
                 let index = match change {
                     MarkerEdit::Move { index, .. } | MarkerEdit::Slide { index, .. } => Some(index),
@@ -208,8 +228,9 @@ impl Document {
             index: edited.index,
             held: edited.held,
         };
+        // The clip alone is replaced, on the project as it is now, so what
+        // changed elsewhere during the drag is kept.
         self.history.apply(label, merge, |project| {
-            *project = base.clone();
             super::clips::replace_clip(project, id, |_| edited.clip.clone());
         });
         Ok(done)
@@ -358,6 +379,38 @@ mod tests {
             doc.undo();
             assert_eq!(doc.project(), &before, "and still one undo step");
         }
+    }
+
+    #[test]
+    fn a_drag_keeps_what_changed_elsewhere_while_it_went_on() {
+        let (mut doc, id) = doc_with_clip();
+        doc.warp_clips(&[id], 120.0);
+        let before = doc.project().clone();
+        let (base, index) =
+            with_marker_edit(&before, id, MarkerEdit::Add(Ticks::quarters(2))).expect("a marker");
+        let index = index.expect("its place");
+        let track = doc.project().tracks[0].id;
+        let move_to = |to| MarkerEdit::Move {
+            index,
+            to: Ticks::quarters(to),
+        };
+        doc.edit_warp_marker(&base, id, move_to(3), Some("warp marker"))
+            .unwrap();
+        // A mapped controller moves a fader in the middle of the drag.
+        doc.set_volume(track, -6.0);
+        doc.edit_warp_marker(&base, id, move_to(4), Some("warp marker"))
+            .unwrap();
+        assert_eq!(doc.project().tracks[0].gain_db, -6.0, "an ordinary update");
+        assert_eq!(warp_of(&doc).unwrap().markers[index].at, Ticks::quarters(4));
+        // And a return to the start puts back the clip, not the fader.
+        doc.edit_warp_marker(&base, id, move_to(2), Some("warp marker"))
+            .unwrap();
+        assert_eq!(doc.project().tracks[0].gain_db, -6.0, "the return");
+        assert_eq!(
+            doc.project().tracks[0].clips[0],
+            base.tracks[0].clips[0],
+            "the clip is as the gesture began"
+        );
     }
 
     #[test]
