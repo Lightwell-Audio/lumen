@@ -364,8 +364,9 @@ impl PitchPlan {
 /// share a curve: each of those has a stream of its own. Only streams with
 /// an envelope have a curve.
 fn pitch_curves(project: &Project, played: &HashMap<Id, crate::crossfades::Played>) -> PitchPlan {
-    let mut groups: HashMap<Identity, Vec<(Id, Part<'_>)>> = HashMap::new();
-    for track in &project.tracks {
+    // Each clip with the track it is on: a crossfade's two pieces are on one.
+    let mut groups: HashMap<Identity, Vec<(Id, usize, Part<'_>)>> = HashMap::new();
+    for (track_at, track) in project.tracks.iter().enumerate() {
         for model in &track.clips {
             let clip = played.get(&model.id).map_or(&**model, |p| &p.clip);
             let (Some(warp), ClipContent::Audio { media, .. }) = (&clip.warp, &clip.content) else {
@@ -384,40 +385,47 @@ fn pitch_curves(project: &Project, played: &HashMap<Id, crate::crossfades::Playe
             groups
                 .entry(Identity::of(warp, key, clip.start))
                 .or_default()
-                .push((clip.id, Part::of(clip)));
+                .push((clip.id, track_at, Part::of(clip)));
         }
     }
     let mut plan = PitchPlan::default();
     for (identity, parts) in groups {
-        // A crossfade is two pieces of one line that overlap on purpose.
-        let layered = parts.iter().enumerate().any(|(i, (x, a))| {
-            parts[i + 1..].iter().any(|(y, b)| {
-                a.start < b.start + b.length
+        // The clips laid over another of the line with another envelope. A
+        // crossfade is two pieces of one line that overlap on purpose.
+        let mut layered: std::collections::HashSet<Id> = std::collections::HashSet::new();
+        for (i, (x, track_x, a)) in parts.iter().enumerate() {
+            for (y, track_y, b) in &parts[i + 1..] {
+                let crossfade =
+                    track_x == track_y && played.contains_key(x) && played.contains_key(y);
+                if a.start < b.start + b.length
                     && b.start < a.start + a.length
-                    && a.lane != b.lane
-                    && !played.contains_key(x)
-                    && !played.contains_key(y)
-            })
-        });
-        if layered {
-            for (id, part) in parts {
-                let alone = identity.alone(id);
-                plan.streams.insert(id, alone);
-                if let Some(lane) = merge_pitch(std::slice::from_ref(&part)) {
-                    plan.curves.insert(alone, lane);
+                    && (a.lane != b.lane || a.start != b.start)
+                    && !crossfade
+                {
+                    layered.insert(*x);
+                    layered.insert(*y);
                 }
             }
-        } else {
-            let parts: Vec<_> = parts
-                .into_iter()
-                .map(|(id, part)| {
-                    plan.streams.insert(id, identity);
-                    part
-                })
-                .collect();
-            if let Some(lane) = merge_pitch(&parts) {
-                plan.curves.insert(identity, lane);
+        }
+        let (alone, shared): (Vec<_>, Vec<_>) = parts
+            .into_iter()
+            .partition(|(id, _, _)| layered.contains(id));
+        for (id, _, part) in alone {
+            let own = identity.alone(id);
+            plan.streams.insert(id, own);
+            if let Some(lane) = merge_pitch(std::slice::from_ref(&part)) {
+                plan.curves.insert(own, lane);
             }
+        }
+        let parts: Vec<_> = shared
+            .into_iter()
+            .map(|(id, _, part)| {
+                plan.streams.insert(id, identity);
+                part
+            })
+            .collect();
+        if let Some(lane) = merge_pitch(&parts) {
+            plan.curves.insert(identity, lane);
         }
     }
     plan

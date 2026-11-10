@@ -651,8 +651,9 @@ per slice and move what is no longer current out of it.
   One review round by GPT 6.1 Sol (high), fixed. The ignored E2E
   `look_at_the_strip` renders it (`SHOTS`, `LOOK_SCALE`). Not looked at:
   light at 150/200%, split or looped clips.
-- **Branch `claude/dazzling-johnson-1c3710`: M9.5 S6, pitch, is built**
-  (ADR-0137; format v34; the session's designated branch, not renamed). A
+- **Branch `m9.5-s6-pitch`: M9.5 S6, pitch, is built** (ADR-0137; format v34;
+  the session's designated `claude/dazzling-johnson-1c3710` holds a discarded
+  first attempt, for the owner to delete). A
   static transpose and a pitch envelope, in every mode but Repitch: the
   envelope is a third clip envelope (`envelope::Kind::Pitch`, semitones), the
   stretch library is told the shift before every hop of a pitched stream, and

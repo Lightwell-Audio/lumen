@@ -12673,8 +12673,9 @@ light at 150% and 200%, a split or looped clip, the arrangement's own clips.
 
 ## ADR-0137 — Pitch: the transpose and the pitch envelope (M9.5 S6)
 
-**Date:** 2026-11-10. **Branch:** `claude/dazzling-johnson-1c3710` (the
-session's designated branch). **Status:** Built. Format v34 (the pitch
+**Date:** 2026-11-10. **Branch:** `m9.5-s6-pitch` (the session's designated
+branch, `claude/dazzling-johnson-1c3710`, holds a discarded first attempt: the
+owner may delete it). **Status:** Built. Format v34 (the pitch
 envelope; the transpose field is v33, ADR-0130). MT-PITCH-1 waits for the
 owner's ear.
 
@@ -12768,7 +12769,7 @@ pitch of nothing keeps level and pitch, an octave keeps the level; slicer: the
 rate of a transposed slice, a pitch of nothing equals none, a moving pitch gives
 the same bits however asked. `lumen-app`: merge, identity and the stream tests
 (`media::warped`), the strip's layouts, the marks, the slider's readouts; E2E
-`warp_pitch` (seven scenarios).
+`warp_pitch` (nine scenarios).
 
 **Not run here.** The WSL performance gate and the macOS cross-target clippy.
 The `warped_64` bench ignores pitch: a pitched stream's cost (a library call

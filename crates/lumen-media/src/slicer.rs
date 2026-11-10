@@ -334,7 +334,7 @@ impl Slicer {
         // slice arrives first (then the rest fades under it).
         let cut = room < long;
         let gap = !cut && s.next != i64::MAX && room > long;
-        let sounding = if cut { room + FADE } else { long };
+        let sounding = if cut { room.saturating_add(FADE) } else { long };
         let fade_from = if cut {
             room
         } else if gap {

@@ -270,7 +270,7 @@ pub(super) fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLo
             return;
         }
         Placed::Marks(width) => {
-            let mut x = room.max.x - width;
+            let mut x = (room.max.x - width).round();
             for mark in look.marks.list() {
                 if let Some(icon) = mark.icon() {
                     let at = Rect::from_center_size(pos2(x + MARK / 2.0, y), vec2(MARK, MARK));
