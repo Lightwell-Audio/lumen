@@ -38,7 +38,10 @@ pub(crate) fn goes_between(target: Target, to: &Track) -> bool {
     match target {
         Target::Volume | Target::Pan | Target::Trim | Target::Mute => true,
         Target::Send { .. } => to.has_target(target),
-        Target::Device { .. } | Target::ClipGain { .. } | Target::ClipPan { .. } => false,
+        Target::Device { .. }
+        | Target::ClipGain { .. }
+        | Target::ClipPan { .. }
+        | Target::ClipPitch { .. } => false,
     }
 }
 

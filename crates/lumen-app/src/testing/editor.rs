@@ -307,6 +307,7 @@ impl App {
                 crate::audio_editor::strip::Layout::Dot => "dot",
                 crate::audio_editor::strip::Layout::FoldProcessing => "fold processing",
                 crate::audio_editor::strip::Layout::FoldWarp => "fold warp",
+                crate::audio_editor::strip::Layout::FoldPitch => "fold pitch",
                 crate::audio_editor::strip::Layout::FoldFades => "fold fades",
             },
             band: d.band,
@@ -405,11 +406,12 @@ impl App {
         self.audio_editor.cursor
     }
 
-    /// The envelope the audio editor shows: "gain", "pan" or none.
+    /// The envelope the audio editor shows: "gain", "pan", "pitch" or none.
     pub fn audio_editor_envelope(&self) -> Option<&'static str> {
         self.audio_editor.pill.map(|k| match k {
             lumen_project::envelope::Kind::Gain => "gain",
             lumen_project::envelope::Kind::Pan => "pan",
+            lumen_project::envelope::Kind::Pitch => "pitch",
         })
     }
 

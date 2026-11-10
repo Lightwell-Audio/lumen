@@ -19,9 +19,11 @@
 //! a new stream, and the engine keeps playing the old one until the new
 //! one's pages are there.
 
+mod pitch;
 mod provider;
 mod source;
 
+pub use pitch::{Identity, Part, Pitch, merge as merge_pitch};
 pub use provider::{Request, WarpedStreams};
 pub(super) use source::Rendering;
 
@@ -58,10 +60,14 @@ pub enum Engine {
 
 impl Engine {
     /// The engine a mode plays with. Rhythmic is Lumen's own slicer.
-    pub fn of(mode: WarpMode) -> Self {
+    pub fn of(mode: WarpMode, pitch: &Pitch) -> Self {
         match mode {
             WarpMode::Repitch => Engine::Repitch,
             WarpMode::Rhythmic => Engine::Slices,
+            // A shifted tone holds far less of itself in the cheaper preset.
+            WarpMode::Melodic if pitch::needs_full_preset(mode, pitch) => {
+                Engine::Stretch(Preset::Full)
+            }
             WarpMode::Melodic => Engine::Stretch(Preset::Light),
             WarpMode::FullMix => Engine::Stretch(Preset::Full),
         }
@@ -73,6 +79,8 @@ impl Engine {
 pub struct Warped {
     pub origin: Origin,
     pub engine: Engine,
+    /// How far the stream's pitch is shifted (S6): nothing for Repitch.
+    pub pitch: Pitch,
     /// Channels played, one or two.
     pub channels: usize,
     /// The rate of file and stream.
@@ -188,6 +196,7 @@ impl Warped {
         Self {
             origin,
             engine: Engine::Repitch,
+            pitch: Pitch::default(),
             channels,
             rate,
             markers,
@@ -262,6 +271,14 @@ impl Warped {
     #[cfg(test)]
     fn slice_starts_for_test(&self) -> &[i64] {
         self.slices.get().map_or(&[][..], Vec::as_slice)
+    }
+
+    /// The shift of the pitch in cents at stream frame `k` (S6): a function
+    /// of `k` alone, like [`Warped::position`].
+    pub fn cents_at(&self, k: i64) -> f64 {
+        let seconds = k as f64 / f64::from(self.rate);
+        self.pitch
+            .cents_at(self.tempo.ticks_f64_at_seconds(seconds))
     }
 
     /// The frame of the file, between frames, that plays at stream frame `k`.

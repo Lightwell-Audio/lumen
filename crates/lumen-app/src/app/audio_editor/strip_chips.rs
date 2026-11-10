@@ -54,6 +54,56 @@ pub(super) fn file_chip_width(ui: &Ui, name: &str) -> f32 {
     (s + FILE_ICON + s + name + s + CHEVRON + s).min(theme::size::STRIP_FILE)
 }
 
+/// A chip of the strip that opens a popover (the Warp and Pitch chips): a
+/// raised face with `text` in it (the accent when `lit`) and a chevron, a Tab
+/// stop named `name` for a screen reader, with the focus ring. The caller opens
+/// the popover under the response.
+pub(super) fn popover_chip(
+    ui: &mut Ui,
+    rect: Rect,
+    id: egui::Id,
+    text: &str,
+    (lit, name): (bool, String),
+) -> egui::Response {
+    let palette = *theme::p();
+    let response = ui.interact(rect, id, Sense::click());
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name.clone()));
+    if ui.is_rect_visible(rect) {
+        let face = raised::face_of(ui, &response);
+        let rect = rect.round_to_pixels(ui.pixels_per_point());
+        let body = raised::paint(
+            ui.painter(),
+            rect,
+            theme::radius::for_height(rect.height()),
+            &face,
+        );
+        let mid = body.center().y.round();
+        let painter = ui.painter();
+        let ink = if lit { palette.accent } else { face.text() };
+        let s = theme::space::S;
+        let room = (body.width() - 3.0 * s - CHEVRON).max(0.0);
+        let font = FontId::proportional(theme::size::BODY);
+        let shown = widgets::fit(painter, text, font.clone(), room);
+        let galley = painter.layout_no_wrap(shown, font, ink);
+        painter.galley(
+            pos2(
+                (body.left() + s).round(),
+                mid - (galley.size().y / 2.0).round(),
+            ),
+            galley,
+            ink,
+        );
+        chevron(
+            painter,
+            pos2((body.right() - s - CHEVRON / 2.0).round(), mid),
+            palette.text_hint,
+        );
+        raised::focus_ring(painter, &response, rect);
+    }
+    response
+}
+
 impl App {
     /// The Clip chip: the clip's colour dot and name (the dot alone when
     /// `named` is false), opening Name and Color for the opened clip.

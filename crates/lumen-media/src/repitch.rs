@@ -40,6 +40,11 @@ pub const GRID: i64 = 16;
 /// plays as it was made is not changed (D3).
 const SNAP: f64 = 1.0e-7;
 
+/// A function of an output frame: the file frame that plays at it, or the
+/// shift of the pitch in cents there. Each must depend on nothing but the
+/// frame.
+pub type OfFrame<'a> = &'a dyn Fn(i64) -> f64;
+
 /// Where [`Renderer`] reads the file. Frames outside it are silence.
 pub trait Source {
     /// Channels the file has: one or two.

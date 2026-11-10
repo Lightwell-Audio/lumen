@@ -12670,3 +12670,108 @@ light at 150% and 200%, a split or looped clip, the arrangement's own clips.
    `a_marker_made_by_a_click_lands_on_a_grid_line`. Not reviewed by a
    subagent.
 
+
+## ADR-0137 — Pitch: the transpose and the pitch envelope (M9.5 S6)
+
+**Date:** 2026-11-10. **Branch:** `claude/dazzling-johnson-1c3710` (the
+session's designated branch). **Status:** Built. Format v34 (the pitch
+envelope; the transpose field is v33, ADR-0130). MT-PITCH-1 waits for the
+owner's ear.
+
+**Context.** S4a stored a transpose on the clip and S4c's library was called
+without one, so nothing was ever heard shifted. S6 asks for a static transpose
+in semitones and cents in every mode but Repitch, and a pitch envelope beside
+gain and pan. A first attempt at the transpose alone was discarded (the
+owner's call, 2026-11-10) and the whole slice built again.
+
+**Decisions.**
+1. *The pitch envelope is a third clip envelope.* `envelope::Kind::Pitch`,
+   `ClipEnvelopes.pitch`, in semitones, up to four octaves either way, written
+   only when set (migration `v33_to_v34` changes nothing; a frozen golden
+   fixture, `tests/fixtures/v34`). Every edit that handles envelopes by
+   iterating them (split, trim, shift, unloop) handles it, so it needed no edit
+   of its own. `Target::ClipPitch` names it for the lane editor and is never
+   saved. The engine does not play it: it is in the clip's stream.
+2. *Stretch modes shift in the library, at every hop.* `Chunks::render` takes a
+   function `pitch(k)` (cents at stream frame `k`); the stretcher is told the
+   shift before every hop, the pre-roll's too, from the middle frame of the
+   hop. It is told at every hop, not when it changes, because a reset keeps the
+   library's settings: a stretcher told only on change would play what it was
+   told before the chunk, and the bits would depend on what was asked for
+   earlier (test `a_moving_pitch_gives_the_same_bits_however_it_is_asked`
+   starts from a stretcher that has played elsewhere). A stream with no pitch
+   never calls the library, so it renders the bits it did before S6. The shift
+   follows the envelope in hops of about 21 ms and reaches the sound within a
+   block or so of the library's own, which is heard as a pitch that moves a
+   little after the point it is drawn at; it is not a sample-accurate pitch.
+3. *A span copies the file only where the shift is nothing* (`Unity::scan`
+   asks the pitch at both ends of each grid step): a copy would play the file at
+   its own pitch.
+4. *Rhythmic transposes like a sampler.* A transposed hit would otherwise need
+   its own pitch shift, which smears the attack Rhythmic exists to keep. Each
+   slice still starts where the map puts it, and its frames are read at the
+   rate the pitch makes (`rate = 2^(cents/1200)`), through the stateless
+   interpolator of Repitch: a hit rises and shortens together. Where the file is
+   read at each 16 frames of a slice is a table worked out from the slice's own
+   first frame (kept for the slice, extended as a run reaches), so the bits still
+   depend only on the slice and the frame. A pitch of nothing is the plain
+   slicer, bit for bit.
+5. *A pitched Melodic clip plays with the Full preset.* The cheaper preset
+   holds far less of a shifted tone (measured, below); `Engine::of` takes the
+   pitch. The stream key has the preset.
+6. *A stream has one pitch.* The clips that share a stream (the pieces a split
+   leaves, `Identity`) get one curve in song ticks, `pitch::merge`: each clip's
+   envelope over the part of the song it plays, the first value held back to its
+   start and the last held on to its end, a clip with no envelope holding 0, and
+   nothing but a hold between clips. The curve is in the stream's key. The pieces
+   of a split clip still share one stream, and play what the whole clip did to
+   within 2 in 1000 (`the_pieces_of_a_split_clip_share_its_pitch_curve`), so the
+   seam is as continuous as it was.
+7. *The interface.* A Pitch chip beside the Warp chip (popover: Transpose in
+   semitones with cents, a switch for the envelope, and why when the pitch
+   cannot be heard), folding into the ⋯ menu after Warp and before the Fades
+   (`Layout::FoldPitch`); a Pitch pill in the header beside Gain and Pan; the
+   lane shows two octaves either way with rests at nothing and at each octave
+   (a point may hold four); the arrangement's clip carries the transpose as the
+   small "+2" of the owner's specimen B, so marks have a variable width and
+   `place` takes their total width. Three commands, no keys: Show the clip's
+   pitch envelope, Transpose clip up a semitone and down. Drags of the field
+   merge into one undo step; each typed value is one.
+8. *Repitch has no pitch.* The model drops a transpose from Repitch (S4a). A pitch
+   envelope on such a clip, or on one that is not warped, is kept and plays
+   nothing; the chip says why.
+
+**Measured** (`lumen-media`, a 960 Hz pure tone, the cheaper preset "Light" and
+the Full one, at unity speed and at 1.2). The sound is not quieter: the overall
+level stays within 6% of the source in every case. What a big shift does to a
+pure tone is spread it: the share of its energy left at the target partial is
+
+| Shift | Light | Full |
+|---|---|---|
+| a fifth up | 97% | 91 to 94% |
+| an octave up | 44 to 74% | 54 to 56% |
+| an octave down | 5% | 71 to 76% |
+
+The pitch lands on the target in every case. The rest of the energy lands beside
+it: a roughness on a pure tone that a phase vocoder is known for. Music, not
+measured here, is the owner's to hear (MT-PITCH-1).
+
+**Tests.** `lumen-project`: the v34 golden and a file before pitch, the kind's
+range and shift, the migration, an envelope out of range refused. `lumen-media`
+stretch: partials move at every speed, a moving pitch gives the same bits
+however asked (pages, jumps, a used stretcher), copies only where unshifted, a
+pitch of nothing keeps level and pitch, an octave keeps the level; slicer: the
+rate of a transposed slice, a pitch of nothing equals none, a moving pitch gives
+the same bits however asked. `lumen-app`: merge, identity and the stream tests
+(`media::warped`), the strip's layouts, the marks, the slider's readouts; E2E
+`warp_pitch` (seven scenarios).
+
+**Not run here.** The WSL performance gate and the macOS cross-target clippy.
+The `warped_64` bench ignores pitch: a pitched stream's cost (a library call
+per hop, and the Full preset for Melodic) is not measured. Not looked at: the
+strip and the mark at 150% and 200% scale, and in the light theme.
+
+**Consequences.** `Chunks::render` and `Slicer::render` take a pitch function;
+a stream's request carries the merged curve (`lanes::pitch_curves`). A later
+change to a clip's own pitch must keep the curve a function of the song tick, or
+the pieces of a split stop sharing a stream.

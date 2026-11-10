@@ -22,7 +22,7 @@ pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
     v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16, v16_to_v17, v17_to_v18,
     v18_to_v19, v19_to_v20, v20_to_v21, v21_to_v22, v22_to_v23, v23_to_v24, v24_to_v25, v25_to_v26,
-    v26_to_v27, v27_to_v28, v28_to_v29, v29_to_v30, v30_to_v31, v31_to_v32, v32_to_v33,
+    v26_to_v27, v27_to_v28, v28_to_v29, v29_to_v30, v30_to_v31, v31_to_v32, v32_to_v33, v33_to_v34,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -498,6 +498,13 @@ fn v32_to_v33(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
+/// v34 (M9.5 S6) adds `pitch` to a clip's envelopes (`envelopes.pitch`, a
+/// lane of semitones), written only when a clip has one. A file without it
+/// has none, as every older project had: no clip changes pitch over time.
+fn v33_to_v34(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
 /// The highest id written anywhere in `document` (every `"id"` field).
 fn highest_id(document: &Value) -> Result<u64, String> {
     fn walk(value: &Value, highest: &mut u64) -> Result<(), String> {
@@ -697,6 +704,16 @@ mod tests {
                 .get("warp")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn v33_to_v34_keeps_every_clip_without_a_pitch_envelope() {
+        let v33 =
+            json!({"version":33,"project":{"tracks":[{"clips":[{"envelopes":{"gain":[]}}]}]}});
+        let v34 = v33_to_v34(v33).unwrap();
+        let envelopes = &v34["project"]["tracks"][0]["clips"][0]["envelopes"];
+        assert!(envelopes.get("pitch").is_none());
+        assert!(envelopes.get("gain").is_some(), "what was there stays");
     }
 
     #[test]

@@ -3,13 +3,12 @@
 //! layouts are chosen (`header.rs`). The drawing is `app::audio_editor::strip`.
 //!
 //! Left to right the strip holds the Clip chip, Gain, Mute and Lock, the
-//! fades, Reverse, Polarity and Normalize, and at the right the File chip.
+//! fades, Reverse, Polarity and Normalize, and at the right the File chip,
+//! with the Warp chip (S5a) and the Pitch chip (S6) to its left.
 //! When the row is too narrow its groups give way in the owner's order (L B):
-//! Processing first, then the Warp chip (S5a, which sits beside the File
-//! chip), then the Fades. Gain, Mute, Lock and the File chip never fold; the
-//! Clip chip shrinks to its dot. A group that a later slice adds (transpose)
-//! goes before the fades in the order and folds after Warp and before the
-//! Fades.
+//! Processing first, then the Warp chip, then the Pitch chip, then the Fades.
+//! Gain, Mute, Lock and the File chip never fold; the Clip chip shrinks to its
+//! dot.
 
 use crate::theme;
 
@@ -27,6 +26,8 @@ pub(crate) enum Layout {
     FoldProcessing,
     /// The Warp chip is in the ⋯ menu as well (S5a).
     FoldWarp,
+    /// The Pitch chip is in the ⋯ menu as well (S6).
+    FoldPitch,
     /// The Fades are in the ⋯ menu as well.
     FoldFades,
 }
@@ -36,6 +37,7 @@ pub(crate) enum Layout {
 pub(crate) enum Group {
     Processing,
     Warp,
+    Pitch,
     Fades,
 }
 
@@ -45,6 +47,7 @@ impl Layout {
         match group {
             Group::Processing => self.shows_processing(),
             Group::Warp => self.shows_warp(),
+            Group::Pitch => self.shows_pitch(),
             Group::Fades => self.shows_fades(),
         }
     }
@@ -61,7 +64,12 @@ impl Layout {
 
     /// The Warp chip is in the row, beside the File chip.
     pub(crate) fn shows_warp(self) -> bool {
-        !matches!(self, Self::FoldWarp | Self::FoldFades)
+        !matches!(self, Self::FoldWarp | Self::FoldPitch | Self::FoldFades)
+    }
+
+    /// The Pitch chip is in the row, to the left of the Warp chip.
+    pub(crate) fn shows_pitch(self) -> bool {
+        !matches!(self, Self::FoldPitch | Self::FoldFades)
     }
 
     /// Processing's buttons carry their words.
@@ -78,7 +86,7 @@ impl Layout {
     pub(crate) fn has_menu(self) -> bool {
         matches!(
             self,
-            Self::FoldProcessing | Self::FoldWarp | Self::FoldFades
+            Self::FoldProcessing | Self::FoldWarp | Self::FoldPitch | Self::FoldFades
         )
     }
 }
@@ -106,9 +114,12 @@ pub(crate) struct Widths {
     pub more: f32,
     /// The File chip at the least it is drawn (its icon and a few letters).
     pub file: f32,
-    /// The Warp chip (S5a), which has the right end beside the File chip and
-    /// never folds: it is where the clip's tempo is set.
+    /// The Warp chip (S5a), beside the File chip: where the clip's tempo is
+    /// set.
     pub warp: f32,
+    /// The Pitch chip (S6), beside the Warp chip: the transpose and the
+    /// pitch envelope.
+    pub pitch: f32,
 }
 
 /// The gap between the strip's groups.
@@ -128,16 +139,36 @@ pub(crate) fn choose(w: Widths) -> Layout {
         parts.extend_from_slice(extra);
         parts
     };
-    if fits(&with(&[w.chip, w.fades, w.processing_words, w.warp])) {
+    if fits(&with(&[
+        w.chip,
+        w.fades,
+        w.processing_words,
+        w.warp,
+        w.pitch,
+    ])) {
         Layout::Full
-    } else if fits(&with(&[w.chip, w.fades, w.processing_icons, w.warp])) {
+    } else if fits(&with(&[
+        w.chip,
+        w.fades,
+        w.processing_icons,
+        w.warp,
+        w.pitch,
+    ])) {
         Layout::Icons
-    } else if fits(&with(&[w.chip_dot, w.fades, w.processing_icons, w.warp])) {
+    } else if fits(&with(&[
+        w.chip_dot,
+        w.fades,
+        w.processing_icons,
+        w.warp,
+        w.pitch,
+    ])) {
         Layout::Dot
-    } else if fits(&with(&[w.chip_dot, w.fades, w.more, w.warp])) {
+    } else if fits(&with(&[w.chip_dot, w.fades, w.more, w.warp, w.pitch])) {
         Layout::FoldProcessing
-    } else if fits(&with(&[w.chip_dot, w.fades, w.more])) {
+    } else if fits(&with(&[w.chip_dot, w.fades, w.more, w.pitch])) {
         Layout::FoldWarp
+    } else if fits(&with(&[w.chip_dot, w.fades, w.more])) {
+        Layout::FoldPitch
     } else {
         Layout::FoldFades
     }
@@ -206,12 +237,13 @@ mod tests {
             more: 24.0,
             file: 90.0,
             warp: 70.0,
+            pitch: 64.0,
         }
     }
 
     #[test]
     fn the_widest_layout_that_fits_is_taken() {
-        let full = 120.0 + 150.0 + 52.0 + 260.0 + 220.0 + 90.0 + 70.0 + 6.0 * GROUP_GAP;
+        let full = 120.0 + 150.0 + 52.0 + 260.0 + 220.0 + 90.0 + 70.0 + 64.0 + 7.0 * GROUP_GAP;
         assert_eq!(choose(widths(full)), Layout::Full);
         assert_eq!(choose(widths(full - 1.0)), Layout::Icons);
         let icons = full - 220.0 + 84.0;
@@ -225,7 +257,10 @@ mod tests {
         assert_eq!(choose(widths(fold - 1.0)), Layout::FoldWarp);
         let warp = fold - 70.0 - GROUP_GAP;
         assert_eq!(choose(widths(warp)), Layout::FoldWarp);
-        assert_eq!(choose(widths(warp - 1.0)), Layout::FoldFades);
+        assert_eq!(choose(widths(warp - 1.0)), Layout::FoldPitch);
+        let pitch = warp - 64.0 - GROUP_GAP;
+        assert_eq!(choose(widths(pitch)), Layout::FoldPitch);
+        assert_eq!(choose(widths(pitch - 1.0)), Layout::FoldFades);
         assert_eq!(choose(widths(0.0)), Layout::FoldFades);
     }
 
@@ -277,6 +312,7 @@ mod tests {
                 Layout::Dot,
                 Layout::FoldProcessing,
                 Layout::FoldWarp,
+                Layout::FoldPitch,
                 Layout::FoldFades
             ]
         );
@@ -284,8 +320,9 @@ mod tests {
             // Whatever the layout, the menu holds exactly what the row lacks.
             assert_eq!(layout.has_menu(), !layout.shows_processing());
             // The Warp chip is in the row wherever Processing is, and in one
-            // narrower layout too.
+            // narrower layout too; the Pitch chip in one narrower still.
             assert!(layout.shows_warp() || !layout.shows_processing());
+            assert!(layout.shows_pitch() || !layout.shows_warp());
         }
     }
 }

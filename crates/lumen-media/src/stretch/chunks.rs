@@ -24,7 +24,7 @@
 
 use super::Stretcher;
 use crate::MediaError;
-use crate::repitch::{GRID, Source};
+use crate::repitch::{GRID, OfFrame, Source};
 
 /// Frames in a chunk: 24 pages of 4,096, a little over two seconds at 48 kHz.
 pub const CHUNK: i64 = 98_304;
@@ -107,10 +107,14 @@ impl Chunks {
     /// a file of two channels, `right` (both one length; a mono file leaves
     /// `right` alone). `position(k)` is the frame of the file, fractional,
     /// that plays at stream frame `k`; it must not depend on anything but `k`.
+    /// `pitch`, when there is one, gives the shift of the pitch in cents at
+    /// stream frame `k` (also a function of `k` alone): a stream with one is
+    /// shifted at every hop, and copies no part of the file but the frames
+    /// where the shift is nothing.
     pub fn render(
         &mut self,
         source: &mut dyn Source,
-        position: &dyn Fn(i64) -> f64,
+        (position, pitch): (OfFrame<'_>, Option<OfFrame<'_>>),
         first: i64,
         left: &mut [f32],
         right: &mut [f32],
@@ -129,7 +133,7 @@ impl Chunks {
             let stop = end.min((chunk + 1) * CHUNK);
             let (a, b) = ((k - first) as usize, (stop - first) as usize);
             let r = if stereo { Some(&mut right[a..b]) } else { None };
-            self.fill(source, position, chunk, k, &mut left[a..b], r)?;
+            self.fill(source, (position, pitch), chunk, k, &mut left[a..b], r)?;
             k = stop;
         }
         Ok(())
@@ -139,14 +143,14 @@ impl Chunks {
     fn fill(
         &mut self,
         source: &mut dyn Source,
-        position: &dyn Fn(i64) -> f64,
+        (position, pitch): (OfFrame<'_>, Option<OfFrame<'_>>),
         chunk: i64,
         from: i64,
         left: &mut [f32],
         mut right: Option<&mut [f32]>,
     ) -> Result<(), MediaError> {
         let hop = self.main.interval() as i64;
-        let at = Positions::new(position, hop);
+        let at = Positions::new(position, pitch, hop);
         if self.session.as_ref().map(|s| s.chunk) != Some(chunk) {
             self.begin(&at, chunk)?;
         }
@@ -350,6 +354,12 @@ impl Run {
             // the stream).
             let next = round(at.get(a + hop + latency)) + lead;
             let n = (next - self.read_at).max(0);
+            // A pitched stream tells the stretcher its shift for every hop,
+            // the pre-roll's too, so what it plays never depends on what it
+            // was told before (a chunk starts from a reset, not a new one).
+            if let Some(cents) = at.cents(a + hop / 2) {
+                stretcher.set_transpose(cents)?;
+            }
             let planes = window.get(source, self.read_at, self.read_at + n)?;
             let input = [planes[0], planes[1]];
             let [o0, o1] = out;
@@ -384,12 +394,43 @@ fn round(position: f64) -> i64 {
 /// stream ran on backwards.
 struct Positions<'p> {
     position: &'p dyn Fn(i64) -> f64,
+    pitch: Option<&'p dyn Fn(i64) -> f64>,
     hop: i64,
 }
 
+/// The most the pitch is shifted either way, in cents: four octaves.
+const MOST_CENTS: f64 = 4_800.0;
+
+/// A shift this small, in cents, is none: the frame is the file's own pitch.
+const NO_SHIFT: f64 = 0.005;
+
 impl<'p> Positions<'p> {
-    fn new(position: &'p dyn Fn(i64) -> f64, hop: i64) -> Self {
-        Self { position, hop }
+    fn new(
+        position: &'p dyn Fn(i64) -> f64,
+        pitch: Option<&'p dyn Fn(i64) -> f64>,
+        hop: i64,
+    ) -> Self {
+        Self {
+            position,
+            pitch,
+            hop,
+        }
+    }
+
+    /// The shift in cents at stream frame `k`, held from frame 0 below it, and
+    /// `None` for a stream with no pitch at all.
+    fn cents(&self, k: i64) -> Option<f64> {
+        let cents = (self.pitch?)(k.max(0));
+        Some(if cents.is_finite() {
+            cents.clamp(-MOST_CENTS, MOST_CENTS)
+        } else {
+            0.0
+        })
+    }
+
+    /// Whether the file plays at its own pitch at frame `k`.
+    fn unshifted(&self, k: i64) -> bool {
+        self.cents(k).is_none_or(|c| c.abs() < NO_SHIFT)
     }
 
     fn get(&self, k: i64) -> f64 {
@@ -442,7 +483,9 @@ impl Unity {
             let unity = offset.is_finite()
                 && offset.abs() < 1.0e15
                 && (p - k as f64 - offset).abs() < SNAP
-                && ((q - p) / GRID as f64 - 1.0).abs() < SNAP;
+                && ((q - p) / GRID as f64 - 1.0).abs() < SNAP
+                && at.unshifted(k)
+                && at.unshifted(k + GRID);
             spans.push(unity.then(|| Span {
                 offset: offset as i64,
                 from: k,

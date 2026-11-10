@@ -1,4 +1,4 @@
-//! Warp in the model (format v33, M9.5 slice S4a).
+//! Warp in the model (format v33, M9.5 slice S4a; the pitch envelope is v34, S6).
 //!
 //! Two kinds of test. The format ones: a golden file that loads forever, older
 //! projects that open unwarped, a project without warp that writes none, and
@@ -116,6 +116,57 @@ fn golden_v33_loads_and_round_trips() {
     let project = load(&path).expect("v33 golden file must load");
     assert_eq!(project, golden_v33_expected());
     assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
+}
+
+/// The model the v34 golden file must always load as. Never change it.
+fn golden_v34_expected() -> Project {
+    use lumen_core::automation::{Lane, Point, Shape};
+    use lumen_core::curve::Curve;
+    use lumen_project::envelope::Kind;
+    let mut clip = audio_clip(3_401, q(4), q(8), 96_000);
+    clip.warp = Some(Warp {
+        mode: WarpMode::FullMix,
+        original_bpm: 92.0,
+        markers: vec![Marker::new(2.0, Ticks::ZERO), Marker::new(4.5, q(4))],
+        transpose_cents: 200,
+    });
+    clip.audio_phase_seconds = 0.0;
+    clip.envelopes.set(
+        Kind::Pitch,
+        Lane::new(vec![
+            Point::new(q(0), 0.0),
+            Point::new(q(2), 7.0).with_shape(Shape::Curve(Curve::default())),
+            Point::new(q(4), -12.5).with_shape(Shape::Step),
+            Point::new(q(6), 0.0),
+        ])
+        .unwrap(),
+    );
+    let mut project = project_with(clip);
+    project.name = "Golden v34".into();
+    project
+}
+
+#[test]
+fn golden_v34_loads_and_round_trips() {
+    let path = fixture("v34/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v34_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v34 golden file must load");
+    assert_eq!(project, golden_v34_expected());
+    assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
+}
+
+#[test]
+fn a_project_before_pitch_envelopes_opens_with_none() {
+    let old = load(&fixture("v33/golden.lumen")).expect("v33 file loads");
+    assert!(
+        old.tracks
+            .iter()
+            .flat_map(|t| &t.clips)
+            .all(|c| c.envelopes.pitch.is_none())
+    );
 }
 
 #[test]

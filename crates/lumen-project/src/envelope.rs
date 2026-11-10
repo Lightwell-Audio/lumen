@@ -1,5 +1,6 @@
-//! Envelopes an audio clip carries (format v25, M7 slice A7): a gain and a
-//! pan that follow the clip, looping with it.
+//! Envelopes an audio clip carries (format v25, M7 slice A7; pitch added in
+//! v34, M9.5 S6): a gain, a pan and a pitch that follow the clip, looping with
+//! it.
 //!
 //! An envelope is a [`Lane`] whose points are measured from the clip's start,
 //! as a MIDI clip's notes are (ADR-0056): a move carries them, a trim moves
@@ -9,14 +10,21 @@
 //! `loop_length`, from the first repeat.
 //!
 //! Gain is in dB and adds to the clip's own gain; pan is −1 to 1 and pans
-//! the clip before its track does.
+//! the clip before its track does; pitch is in semitones and adds to the
+//! warp's own transpose. It is heard only while the clip is warped in a mode
+//! that transposes (`WarpMode::transposes`): on any other clip it is kept and
+//! plays nothing.
 
 use lumen_core::automation::{FLOOR_DB, Lane, Point, Shape};
 use lumen_core::time::Ticks;
 use serde::{Deserialize, Serialize};
 
 use crate::automation::LEVEL_MAX_DB;
-use crate::model::Clip;
+use crate::model::{Clip, MAX_TRANSPOSE_CENTS};
+
+/// How far a pitch envelope reaches either way, in semitones: as far as the
+/// warp's transpose does.
+pub const PITCH_RANGE_SEMITONES: f32 = (MAX_TRANSPOSE_CENTS / 100) as f32;
 
 /// What an envelope drives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -25,16 +33,19 @@ pub enum Kind {
     Gain,
     /// Pan, −1 (left) to +1 (right).
     Pan,
+    /// Pitch, in semitones, added to the clip's transpose (format v34).
+    Pitch,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 2] = [Kind::Gain, Kind::Pan];
+    pub const ALL: [Kind; 3] = [Kind::Gain, Kind::Pan, Kind::Pitch];
 
     /// The lowest and highest value an envelope of this kind may hold.
     pub fn range(self) -> (f32, f32) {
         match self {
             Kind::Gain => (FLOOR_DB, LEVEL_MAX_DB),
             Kind::Pan => (-1.0, 1.0),
+            Kind::Pitch => (-PITCH_RANGE_SEMITONES, PITCH_RANGE_SEMITONES),
         }
     }
 
@@ -47,6 +58,7 @@ impl Kind {
         match self {
             Kind::Gain => "Clip gain",
             Kind::Pan => "Clip pan",
+            Kind::Pitch => "Clip pitch",
         }
     }
 }
@@ -58,17 +70,21 @@ pub struct ClipEnvelopes {
     pub gain: Option<Lane>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pan: Option<Lane>,
+    /// In semitones (format v34).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pitch: Option<Lane>,
 }
 
 impl ClipEnvelopes {
     pub fn is_empty(&self) -> bool {
-        self.gain.is_none() && self.pan.is_none()
+        self.gain.is_none() && self.pan.is_none() && self.pitch.is_none()
     }
 
     pub fn get(&self, kind: Kind) -> Option<&Lane> {
         match kind {
             Kind::Gain => self.gain.as_ref(),
             Kind::Pan => self.pan.as_ref(),
+            Kind::Pitch => self.pitch.as_ref(),
         }
     }
 
@@ -78,6 +94,7 @@ impl ClipEnvelopes {
         let slot = match kind {
             Kind::Gain => &mut self.gain,
             Kind::Pan => &mut self.pan,
+            Kind::Pitch => &mut self.pitch,
         };
         *slot = (!lane.is_empty()).then_some(lane);
     }
@@ -92,7 +109,10 @@ impl ClipEnvelopes {
     /// Moves every point by `by` (earlier when negative), as a trim of the
     /// clip's start does.
     pub fn shift(&mut self, by: Ticks) {
-        for lane in [&mut self.gain, &mut self.pan].into_iter().flatten() {
+        for lane in [&mut self.gain, &mut self.pan, &mut self.pitch]
+            .into_iter()
+            .flatten()
+        {
             let points = lane
                 .points()
                 .iter()
@@ -288,6 +308,8 @@ mod tests {
     fn each_kind_has_the_range_its_control_has() {
         assert_eq!(Kind::Gain.range(), (FLOOR_DB, 6.0));
         assert_eq!(Kind::Pan.range(), (-1.0, 1.0));
+        assert_eq!(Kind::Pitch.range(), (-48.0, 48.0));
+        assert_eq!(Kind::ALL.len(), 3, "every kind is listed once");
     }
 
     #[test]
@@ -295,6 +317,7 @@ mod tests {
         let mut envelopes = ClipEnvelopes::default();
         envelopes.set(Kind::Gain, lane(&[(1, -6.0), (2, 0.0)]));
         envelopes.set(Kind::Pan, lane(&[(0, 1.0)]));
+        envelopes.set(Kind::Pitch, lane(&[(3, 7.0)]));
         envelopes.shift(Ticks::quarters(-2));
         let at: Vec<_> = envelopes
             .gain
@@ -309,5 +332,23 @@ mod tests {
             envelopes.pan.as_ref().unwrap().points()[0].at,
             Ticks::quarters(-2)
         );
+        assert_eq!(
+            envelopes.pitch.as_ref().unwrap().points()[0].at,
+            Ticks::quarters(1),
+            "a pitch envelope moves with the others"
+        );
+    }
+
+    #[test]
+    fn a_pitch_envelope_alone_is_an_envelope() {
+        let mut envelopes = ClipEnvelopes::default();
+        envelopes.set(Kind::Pitch, lane(&[(0, 2.0)]));
+        assert!(!envelopes.is_empty());
+        assert_eq!(
+            envelopes.iter().map(|(k, _)| k).collect::<Vec<_>>(),
+            [Kind::Pitch]
+        );
+        envelopes.set(Kind::Pitch, Lane::default());
+        assert!(envelopes.is_empty());
     }
 }

@@ -66,7 +66,7 @@ fn render(
 ) -> (Vec<f32>, Vec<f32>) {
     let (mut l, mut r) = (vec![0.0; frames], vec![0.0; frames]);
     chunks
-        .render(source, position, first, &mut l, &mut r)
+        .render(source, (position, None), first, &mut l, &mut r)
         .expect("renders");
     (l, r)
 }
@@ -449,4 +449,179 @@ fn a_copy_and_a_stretch_meet_without_a_click() {
     let (at, elsewhere) = (step(2_000, 4_000), step(100, 1_800));
     eprintln!("largest step across the join {at:.4}, before it {elsewhere:.4}");
     assert!(at < elsewhere * 1.5 + 0.01, "{at} against {elsewhere}");
+}
+
+fn render_pitched(
+    chunks: &mut Chunks,
+    source: &mut Mem,
+    (position, pitch): (&dyn Fn(i64) -> f64, &dyn Fn(i64) -> f64),
+    first: i64,
+    frames: usize,
+) -> (Vec<f32>, Vec<f32>) {
+    let (mut l, mut r) = (vec![0.0; frames], vec![0.0; frames]);
+    chunks
+        .render(source, (position, Some(pitch)), first, &mut l, &mut r)
+        .expect("renders");
+    (l, r)
+}
+
+/// A pitch moves the partials and keeps their levels, at every speed: a fifth
+/// up (700 cents) puts the 220 Hz partial at about 329.6 Hz and the 660 Hz one
+/// at about 988.9 Hz, and nothing is left at the old pitch (S6).
+#[test]
+fn a_pitched_tone_moves_its_partials_at_every_speed() {
+    let fifth = 2.0_f64.powf(7.0 / 12.0);
+    for speed in [1.0_f64, 0.9, 1.1] {
+        let mut source = Mem {
+            planes: vec![tone(1_000_000)],
+        };
+        let mut c = chunks(Preset::Full, 1);
+        let (l, _) = render_pitched(
+            &mut c,
+            &mut source,
+            (&|k| 5_000.0 + k as f64 * speed, &|_| 700.0),
+            20_000,
+            40_000,
+        );
+        let (up, high) = (amplitude(&l, 220.0 * fifth), amplitude(&l, 660.0 * fifth));
+        let old = amplitude(&l, 220.0);
+        eprintln!("speed {speed}: 329.6 Hz {up:.3}, 988.9 Hz {high:.3}, 220 Hz {old:.3}");
+        assert!((up / 0.4 - 1.0).abs() < 0.15, "{speed}: {up}");
+        assert!((high / 0.25 - 1.0).abs() < 0.15, "{speed}: {high}");
+        assert!(old < 0.05, "{speed}: {old} left at the old pitch");
+    }
+}
+
+/// A pitch that moves along the stream gives the same bits however the stream
+/// is asked for: in one piece, in pages, from jumps, and from a stretcher that
+/// has played something else first (it is told its shift at every hop, so it
+/// keeps nothing from before).
+#[test]
+fn a_moving_pitch_gives_the_same_bits_however_it_is_asked() {
+    let total = 2 * CHUNK as usize + 5_000;
+    let pitch = |k: i64| 400.0 * (k as f64 / 40_000.0).sin() - 100.0;
+    let (wl, wr) = render_pitched(
+        &mut chunks(Preset::Full, 2),
+        &mut music(),
+        (&ramp, &pitch),
+        0,
+        total,
+    );
+    assert!(rms(&wl) > 0.1, "something was rendered");
+
+    let mut pages = chunks(Preset::Full, 2);
+    let mut source = music();
+    let (mut pl, mut pr) = (Vec::new(), Vec::new());
+    for first in (0..total).step_by(4096) {
+        let n = 4096.min(total - first);
+        let (l, r) = render_pitched(&mut pages, &mut source, (&ramp, &pitch), first as i64, n);
+        pl.extend(l);
+        pr.extend(r);
+    }
+    assert!(pl == wl && pr == wr, "pages differ from the whole");
+
+    // A stretcher that has already played other frames, then jumps.
+    let mut used = chunks(Preset::Full, 2);
+    render_pitched(&mut used, &mut source, (&ramp, &pitch), 150_000, 9_000);
+    for (first, n) in [(120_000, 777), (10, 60_000), (CHUNK as usize - 3, 9)] {
+        let (l, r) = render_pitched(&mut used, &mut source, (&ramp, &pitch), first as i64, n);
+        assert!(
+            l == wl[first..first + n] && r == wr[first..first + n],
+            "{first}+{n}"
+        );
+    }
+}
+
+/// A stream with a pitch copies the file only where the pitch is nothing: at
+/// the file's own speed, the frames before a shift begins are the file, and the
+/// frames after it are not.
+#[test]
+fn a_pitched_stream_copies_the_file_only_where_it_is_not_shifted() {
+    let mut source = music();
+    let mut c = chunks(Preset::Full, 2);
+    let pitch = |k: i64| if k < 30_000 { 0.0 } else { 600.0 };
+    let (l, _) = render_pitched(
+        &mut c,
+        &mut source,
+        (&|k| k as f64 + 1_000.0, &pitch),
+        0,
+        60_000,
+    );
+    assert!(
+        l[2_000..27_000] == source.planes[0][3_000..28_000],
+        "before the shift it is the file"
+    );
+    assert!(
+        l[34_000..58_000] != source.planes[0][35_000..59_000],
+        "after it is not"
+    );
+    // And one that is shifted throughout copies nothing.
+    let (l, _) = render_pitched(
+        &mut chunks(Preset::Full, 2),
+        &mut source,
+        (&|k| k as f64 + 1_000.0, &|_| 100.0),
+        0,
+        20_000,
+    );
+    assert!(l != source.planes[0][1_000..21_000]);
+}
+
+/// A pitch of nothing keeps the level and the pitch the stream had: telling
+/// the stretcher "no shift" at every hop is not a different sound.
+#[test]
+fn a_pitch_of_nothing_keeps_the_level_and_the_pitch() {
+    for speed in [0.9_f64, 1.2] {
+        let mut source = Mem {
+            planes: vec![tone(1_000_000)],
+        };
+        let (l, _) = render_pitched(
+            &mut chunks(Preset::Full, 1),
+            &mut source,
+            (&|k| 5_000.0 + k as f64 * speed, &|_| 0.0),
+            20_000,
+            40_000,
+        );
+        let (a220, a660) = (amplitude(&l, 220.0), amplitude(&l, 660.0));
+        assert!((a220 / 0.4 - 1.0).abs() < 0.15, "{speed}: {a220}");
+        assert!((a660 / 0.25 - 1.0).abs() < 0.15, "{speed}: {a660}");
+    }
+}
+
+/// A big shift keeps the overall level and moves the pitch, but a pure tone
+/// does not stay pure: some of its energy lands beside the target partial
+/// (measured, ADR-0137). The Full preset holds more of it at the target than
+/// the cheaper one, an octave down especially, which is why a pitched Melodic
+/// clip plays with the Full one.
+#[test]
+fn an_octave_keeps_the_level_and_the_full_preset_keeps_more_of_the_tone() {
+    let pure = |frames: usize| -> Vec<f32> {
+        (0..frames)
+            .map(|i| {
+                (std::f64::consts::TAU * 960.0 * i as f64 / f64::from(RATE)).sin() as f32 * 0.5
+            })
+            .collect()
+    };
+    let share = |preset: Preset, cents: f64| {
+        let mut source = Mem {
+            planes: vec![pure(1_000_000)],
+        };
+        let (l, _) = render_pitched(
+            &mut chunks(preset, 1),
+            &mut source,
+            (&|k| 5_000.0 + k as f64, &|_| cents),
+            20_000,
+            40_000,
+        );
+        let target = amplitude(&l, 960.0 * 2f64.powf(cents / 1_200.0)) / 2f64.sqrt();
+        let level = rms(&l);
+        assert!(
+            (level / 0.3536 - 1.0).abs() < 0.12,
+            "{preset:?} {cents}: level {level}"
+        );
+        target * target / (level * level)
+    };
+    for cents in [1_200.0, -1_200.0] {
+        assert!(share(Preset::Full, cents) > 0.4, "Full at {cents}");
+    }
+    assert!(share(Preset::Full, -1_200.0) > share(Preset::Light, -1_200.0) * 3.0);
 }

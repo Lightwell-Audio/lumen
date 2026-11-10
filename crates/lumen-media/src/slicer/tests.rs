@@ -40,7 +40,7 @@ fn render(
     let mut source = Memory(vec![data.to_vec()]);
     let (mut l, mut r) = (vec![9.0; n], vec![]);
     Slicer::new()
-        .render(&mut source, (position, starts), first, &mut l, &mut r)
+        .render(&mut source, (position, starts, None), first, &mut l, &mut r)
         .unwrap();
     l
 }
@@ -139,7 +139,13 @@ fn stereo_slices_keep_their_channels() {
     let mut source = Memory(vec![l.clone(), r.clone()]);
     let (mut a, mut b) = (vec![0.0; 6_000], vec![0.0; 6_000]);
     Slicer::new()
-        .render(&mut source, (&|k| k as f64, &[0, 3_000]), 0, &mut a, &mut b)
+        .render(
+            &mut source,
+            (&|k| k as f64, &[0, 3_000], None),
+            0,
+            &mut a,
+            &mut b,
+        )
         .unwrap();
     assert_eq!((a, b), (l, r));
 }
@@ -272,4 +278,138 @@ fn the_last_slice_fades_at_half_speed_and_a_copy_stays_exact() {
     // At the file's own speed nothing is faded: the file, bit for bit.
     let out = render(&data, &|k| k as f64, &starts, 0, 9_000);
     assert_eq!(out, data);
+}
+
+fn render_pitched(
+    data: &[f32],
+    (position, pitch): (&dyn Fn(i64) -> f64, &dyn Fn(i64) -> f64),
+    starts: &[i64],
+    first: i64,
+    n: usize,
+) -> Vec<f32> {
+    let mut source = Memory(vec![data.to_vec()]);
+    let (mut l, mut r) = (vec![9.0; n], vec![]);
+    Slicer::new()
+        .render(
+            &mut source,
+            (position, starts, Some(pitch)),
+            first,
+            &mut l,
+            &mut r,
+        )
+        .unwrap();
+    l
+}
+
+/// The amplitude of the sine at `cycles` per frame in `x`, under a Hann window.
+fn amplitude(x: &[f32], cycles: f64) -> f64 {
+    let n = x.len() as f64;
+    let (mut re, mut im, mut window) = (0.0, 0.0, 0.0);
+    for (i, v) in x.iter().enumerate() {
+        let w = 0.5 - 0.5 * (std::f64::consts::TAU * i as f64 / n).cos();
+        let phase = std::f64::consts::TAU * cycles * i as f64;
+        re += w * f64::from(*v) * phase.cos();
+        im += w * f64::from(*v) * phase.sin();
+        window += w;
+    }
+    2.0 * re.hypot(im) / window
+}
+
+fn sine(frames: usize, cycles: f64) -> Vec<f32> {
+    (0..frames)
+        .map(|i| (std::f64::consts::TAU * cycles * i as f64).sin() as f32 * 0.5)
+        .collect()
+}
+
+/// An octave up plays a hit at twice the rate: its pitch doubles, it lasts
+/// half as long, and it still begins where the map puts it.
+#[test]
+fn a_transposed_slice_is_read_at_the_rate_of_its_pitch() {
+    let data = sine(8_000, 0.02);
+    let starts = [0, 4_000];
+    let up = render_pitched(&data, (&|k| k as f64, &|_| 1_200.0), &starts, 0, 8_000);
+    // The first slice's 4,000 file frames play in 2,000 output frames.
+    let heard = &up[200..1_800];
+    assert!(amplitude(heard, 0.04) > 0.45, "an octave up");
+    assert!(amplitude(heard, 0.02) < 0.02, "nothing at the old pitch");
+    // It is over by frame 2,000, then silence until the second slice at 4,000.
+    assert!(up[2_100..3_900].iter().all(|v| v.abs() < 1e-6), "the gap");
+    let second = &up[4_200..5_800];
+    assert!(
+        amplitude(second, 0.04) > 0.45,
+        "the next slice starts on time"
+    );
+    // An octave down plays at half the rate and is cut by the next slice.
+    let down = render_pitched(&data, (&|k| k as f64, &|_| -1_200.0), &starts, 0, 8_000);
+    assert!(amplitude(&down[200..3_800], 0.01) > 0.45, "an octave down");
+}
+
+/// A pitch of nothing is no pitch at all, bit for bit.
+#[test]
+fn a_pitch_of_nothing_plays_as_it_was_made() {
+    let data = file(9_000);
+    type Case = (Box<dyn Fn(i64) -> f64>, Vec<i64>);
+    let cases: [Case; 3] = [
+        (Box::new(|k| k as f64), vec![0, 2_000, 5_000]),
+        (Box::new(|k| k as f64 * 0.5), vec![0, 2_000, 5_000]),
+        (Box::new(|k| k as f64 * 2.0), vec![0, 1_500, 3_000, 5_000]),
+    ];
+    for (position, starts) in &cases {
+        let plain = render(&data, position, starts, 0, 9_000);
+        let zero = render_pitched(&data, (position, &|_| 0.0), starts, 0, 9_000);
+        assert_eq!(plain, zero);
+    }
+}
+
+/// A pitch that moves along the slice gives the same bits however it is
+/// asked for, in one piece, in pages or from the middle.
+#[test]
+fn a_moving_pitch_gives_the_same_bits_however_it_is_asked() {
+    let data = file(30_000);
+    let starts = [0, 6_000, 13_000, 21_000];
+    let position = |k: i64| k as f64 * 0.8 + 100.0;
+    let pitch = |k: i64| 500.0 * (k as f64 / 3_000.0).sin() + 200.0;
+    let n = 24_000;
+    let whole = render_pitched(&data, (&position, &pitch), &starts, 0, n);
+    assert!(
+        whole.iter().any(|v| v.abs() > 0.1),
+        "something was rendered"
+    );
+    let mut joined = Vec::new();
+    for at in (0..n).step_by(4_096) {
+        let len = 4_096.min(n - at);
+        joined.extend(render_pitched(
+            &data,
+            (&position, &pitch),
+            &starts,
+            at as i64,
+            len,
+        ));
+    }
+    assert_eq!(joined, whole, "pages");
+    assert_eq!(
+        render_pitched(&data, (&position, &pitch), &starts, 9_001, 777),
+        whole[9_001..9_778],
+        "from the middle"
+    );
+}
+
+/// Where a slice reads the file follows its pitch: constant at a rate, and a
+/// ramp's rate is the average of its ends.
+#[test]
+fn a_slice_reads_the_file_at_the_rate_of_its_pitch() {
+    let s = Slice {
+        from: 0,
+        len: 4_000,
+        at: 0,
+        next: i64::MAX,
+    };
+    let mut octave = Reads::new(&s, &|_| 1_200.0);
+    octave.extend(&|_| 1_200.0, 4_000, 4_000);
+    assert!((octave.position(1_600) - 3_200.0).abs() < 1e-9);
+    assert_eq!(octave.length(4_000), Some(2_000), "half as long");
+    let mut flat = Reads::new(&s, &|_| 0.0);
+    flat.extend(&|_| 0.0, 8_000, 4_000);
+    assert_eq!(flat.length(4_000), Some(4_000));
+    assert_eq!(flat.length(9_000), None, "not reached");
 }
