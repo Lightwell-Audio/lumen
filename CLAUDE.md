@@ -627,6 +627,23 @@ per slice and move what is no longer current out of it.
   Warp popover now says so and has a button to turn it on, and the audio
   editor's wave of a warped clip now follows the map. A warped clip still
   depends on "Play audio from disk"; making it not is pitched with S5b.
+- **Branch `m9.5-s5b-warp-markers`: M9.5 S5b is built** (ADR-0135; no format
+  change; MT-WARP-3 waits for the owner). Warp markers on the audio editor's
+  strip (ghost at the nearest hit, drag, Shift slides, Alt off the grid,
+  Tab stops with names, nudge keys, a span chip with the 25% to 400% limit;
+  `app/audio_editor/warp_markers.rs`), drawn as ticks on the arrangement's
+  clip (`arrangement/warp_ticks.rs`), and the Rhythmic slicer
+  (`lumen_media::slicer`): the file cut at transients and markers, each
+  slice placed where the map plays it and played at the file's own speed,
+  the end of a cut slice faded. Two commands (Add warp marker, Remove all warp
+  markers), tagged `@m9.5`. **Tell the owner:** Rhythmic has never been heard;
+  the first play of a file is silent while its transients are scanned on a
+  worker (a render waits); a tempo change inside a slice does not re-time its
+  tail (a declined review finding); a drag that returns to where it began
+  leaves no undo step (a `History` change). Four review rounds by GPT 6.1 Sol
+  (high), two per piece; the last round's fixes were not reviewed again. Not
+  run here: the WSL perf gate, the macOS cross-target clippy, the strip and
+  ticks at three scales in both themes. Next: S6 (pitch).
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);

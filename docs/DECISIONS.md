@@ -12499,3 +12499,103 @@ tests Warp from here at differing tempos, a later cursor and a tempo change;
 anything by ear or on a real loop (MT-WARP-2); the docs scene and page (owed,
 `@m9.5`); WSL perf gate and macOS cross-target clippy; the strip at 200%
 scale and the lowest panel height.
+
+
+## ADR-0135 — Warp markers and the Rhythmic slicer (M9.5 S5b)
+
+**Date:** 2026-11-09. **Branch:** `m9.5-s5b-warp-markers`. **Status:** Built;
+MT-WARP-3 waits for the owner. No format change (v33: the markers are in
+`Warp` since ADR-0130). Follows ADR-0130 to ADR-0134; the milestone plan is
+`docs/milestones/M9.5.md` (S5b).
+
+**Context.** Warp had a model, a sound and a Warp chip (S4, S5a) but no way
+to say where a sound belongs, and Rhythmic still played as Repitch. S5b adds
+the markers, draws them on the arrangement's clip and gives Rhythmic its own
+engine.
+
+**Decisions.**
+1. *Marker edits* (`lumen_core::warp`, `lumen_project::edit::warp_markers`):
+   `MarkerEdit::{Add, AddOn, Move, Slide, Remove, Clear}`. A span between two
+   markers (or a marker and the clip's end) may play at 25% to 400%; an edit
+   that would break it is refused with the reason. `Move` changes where a
+   source second plays; `Slide` changes which source second plays at a place.
+   One `Document` method, `edit_warp_marker(&base, id, change, merge)`, redoes
+   a drag from the clip as it began, so a drag is one undo step.
+2. *The warp strip* (`audio_editor/warp_strip.rs`, `app/audio_editor/warp_markers.rs`):
+   a ghost marker at the nearest transient under the pointer; drag to make
+   and move, Shift to slide, Alt to leave the grid, double-click to add or
+   delete; a span chip with the speed; Tab stops with accessible names;
+   Left and Right move a marker by the grid, Alt finely, Shift and Shift+Alt
+   slide it, Delete removes it. Commands (end of `Command`, no keys): Add warp
+   marker, Remove all warp markers; both `@m9.5` in `undocumented.txt`.
+3. *Markers on the arrangement* (`arrangement/warp_ticks.rs`, pure): a short
+   tick under the clip's title bar at each marker, from 40 points a beat, at
+   least 8 points apart, at most 256 per clip (4,096 turns of a loop). A
+   looping clip repeats the ticks of one turn. Only what is in view is made.
+4. *Loops.* A looping clip repeats one turn of its map, so a place in a later
+   turn is the same place in the first (`edit::warp::within`); Add warp marker
+   and Warp from here use it.
+5. *A drag that returns to where it began leaves no step* (`History`: a
+   gesture whose project equals the one it began on is dropped, redo kept as
+   it was), and the clip the drag restores is replaced alone, so an edit made
+   elsewhere while a drag went on is kept.
+6. *The Rhythmic slicer* (`lumen_media::slicer`, M = A). The file is cut at
+   its transients (the S5a detector at sensitivity 50, each channel scanned on
+   its own and the hits joined) and at every marker's source place (always).
+   A transient closer than 1,024 frames to a start beside it is not a start of
+   its own. Each slice **starts at the output frame where the map first plays
+   its first file frame** and then plays as a whole-frame copy at the file's
+   own speed and pitch; nothing is stretched. Where the song runs faster the
+   next slice arrives first and the rest fades over 192 frames under the new
+   attack; where it runs slower the slice ends with a fade of up to 192 frames
+   and silence follows until the next. A span at the file's own speed is a bit
+   copy (D3), including the last slice, which ends where the map reaches the
+   end of the file. Like Repitch, every output frame depends only on the map
+   and the file (a gallop and bisection finds where a slice starts, to a
+   tolerance of 10^-6 of a frame), so playback and export agree and the bits
+   do not depend on pages, jumps or block sizes.
+7. *Where the scan runs.* Slice starts come from one scan per source file,
+   shared by every stream an edit makes (`SliceScan`, kept in the provider by
+   the file's key and dropped with its last stream). A render scans in place.
+   The disk thread's reader never waits: the first ask starts the scan on a
+   worker thread (`lumen slice scan`) and answers `MediaError::NotReady` until
+   it is done; the disk loop leaves such pages out without marking them
+   broken and asks again after 20 ms. A scan that fails is an error, kept
+   nowhere, so the next ask tries again.
+
+**Review.** Four rounds by GPT 6.1 Sol (high), two for the markers and the
+ticks and two for the slicer. They changed: ticks in loops and a drag that
+returns to its start (round 1); a drag that replaced the whole project, and
+the keyboard slide (round 2); every sounding fade, markers as mandatory cuts,
+one scan per file, saturating arithmetic at the ends of the number line
+(slicer round 1); the non-blocking scan, the last slice's fade (slicer round
+2). **Declined, with the reason:** a span at the file's own speed between two
+slice starts is not a copy after a tempo change inside a slice. Slices are
+placed at their starts and play on at the file's own speed, so a tempo change
+during a slice does not re-time its tail; re-timing it would make the slice
+a stretch, which is what Rhythmic avoids. The last round's fixes were not
+reviewed again.
+
+**Consequences and deviations.**
+- Rhythmic no longer plays as Repitch; the popover's hint is gone. The mode
+  was never heard by ear (MT-WARP-3).
+- A Rhythmic clip's first play of a file is silent until its scan is done
+  (a few hundred milliseconds for a short loop; a pass of one worker's reader
+  for a long file). Renders wait for the scan instead.
+- Slowed down far enough, a slice leaves audible silence by design.
+- A Rhythmic clip still needs "Play audio from disk" like every warped clip
+  (ADR-0134 item 12); making that not so remains to be pitched.
+- The ticks are unit-tested and covered by the clip's E2E but were not
+  looked at in both themes at 100, 150 and 200%.
+
+**Verification.** `lumen-core` and `lumen-project` marker tests (limits, each
+edit, loops, a drag that returns); `History` test for the dropped gesture;
+`lumen-media` `slicer` (13: copy through slices, slower, faster, any way of
+asking, stereo, starts, markers, tolerance, many times faster, the ends of
+the number line, scanning, opposite-polarity stereo, the last slice's fade);
+`media::warped` (Rhythmic copy at the file's tempo, hits placed by the song,
+frames independent of reads, one scan for many streams, a polling reader);
+`disk` (a page not ready is asked for again and is no failure); `warp_ticks`
+(5); E2E `warp_markers.rs` (10). Not verified: anything by ear; the ticks and
+strip at 100, 150 and 200% in both themes; the WSL perf gate and macOS
+cross-target clippy.
