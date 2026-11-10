@@ -129,6 +129,7 @@ mod walkthrough_mix;
 mod walkthrough_plugins;
 mod walkthrough_song;
 mod warp_chip;
+mod warp_markers;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

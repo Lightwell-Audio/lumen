@@ -8,6 +8,7 @@ use std::sync::Arc;
 #[cfg(test)]
 use lumen_core::warp::Marker;
 use lumen_project::edit::warp::{self as edit, Change, Refused};
+use lumen_project::edit::warp_markers::{Edited, MarkerEdit, edit_marker};
 use lumen_project::model::{Clip, Id, Project};
 
 use super::Document;
@@ -20,6 +21,39 @@ pub struct Warped {
     /// Unlocked clips that could not take it: MIDI, a file that is not in
     /// the project, or a setting out of range.
     pub refused: usize,
+}
+
+/// What a marker edit did: the marker added, moved or slid by its place in
+/// time now, and whether a move or slide stopped at a speed limit.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MarkerDone {
+    pub index: Option<usize>,
+    pub held: bool,
+}
+
+/// The unlocked clip `id` of `project` with `change` made to its markers.
+fn marker_edited(project: &Project, id: Id, change: MarkerEdit) -> Result<Edited, Refused> {
+    let clip = project
+        .tracks
+        .iter()
+        .flat_map(|t| t.clips.iter())
+        .find(|c| c.id == id && !c.locked)
+        .ok_or(Refused::Unchanged)?;
+    edit_marker(project, clip, change)
+}
+
+/// `project` with `change` made to the markers of clip `id`, and the place of
+/// the marker it made: where a drag that first makes a marker begins, without
+/// a step in the history. `None` when the change does nothing.
+pub fn with_marker_edit(
+    project: &Project,
+    id: Id,
+    change: MarkerEdit,
+) -> Option<(Project, Option<usize>)> {
+    let edited = marker_edited(project, id, change).ok()?;
+    let mut out = project.clone();
+    super::clips::replace_clip(&mut out, id, |_| edited.clip.clone());
+    Some((out, edited.index))
 }
 
 /// Applies `make` to each unlocked clip of `ids`, as one step named `label`.
@@ -133,7 +167,38 @@ impl Document {
         out
     }
 
-    /// Replaces a warped clip's markers (the warp editor's drag, from S5b).
+    /// One change to the warp markers of clip `id`, made from `base` (the
+    /// warp strip, M9.5 S5b): a drag passes the project it began on and a
+    /// merge key, so the whole gesture is one undo step redone from there.
+    /// Says what was made, or why nothing was (a locked clip is
+    /// [`Refused::Unchanged`]).
+    pub fn edit_warp_marker(
+        &mut self,
+        base: &Project,
+        id: Id,
+        change: MarkerEdit,
+        merge: Option<&str>,
+    ) -> Result<MarkerDone, Refused> {
+        let edited = marker_edited(base, id, change)?;
+        let label = match change {
+            MarkerEdit::Add(_) | MarkerEdit::AddOn(_) => "Add warp marker",
+            MarkerEdit::Move { .. } => "Move warp marker",
+            MarkerEdit::Slide { .. } => "Slide audio under warp marker",
+            MarkerEdit::Remove(_) => "Delete warp marker",
+            MarkerEdit::Clear => "Remove warp markers",
+        };
+        let done = MarkerDone {
+            index: edited.index,
+            held: edited.held,
+        };
+        self.history.apply(label, merge, |project| {
+            *project = base.clone();
+            super::clips::replace_clip(project, id, |_| edited.clip.clone());
+        });
+        Ok(done)
+    }
+
+    /// Replaces a warped clip's markers whole (tests of the map's limits).
     /// Returns whether the clip changed.
     #[cfg(test)]
     pub fn set_warp_markers(&mut self, id: Id, markers: Vec<Marker>) -> bool {
@@ -192,6 +257,45 @@ mod tests {
         doc.set_clips_locked(&[id], true);
         assert_eq!(doc.warp_clips(&[id], 120.0), Warped::default());
         assert!(warp_of(&doc).is_none());
+    }
+
+    #[test]
+    fn a_marker_drag_is_one_undo_step_from_where_it_began() {
+        let (mut doc, id) = doc_with_clip();
+        doc.warp_clips(&[id], 120.0);
+        let before = doc.project().clone();
+        // A drag that makes its marker first: the base it is redone from has
+        // the marker, and the history has no step for that.
+        let (base, index) =
+            with_marker_edit(&before, id, MarkerEdit::Add(Ticks::quarters(2))).expect("a marker");
+        let index = index.expect("its place");
+        assert_eq!(doc.project(), &before);
+        for to in [3, 1] {
+            let done = doc
+                .edit_warp_marker(
+                    &base,
+                    id,
+                    MarkerEdit::Move {
+                        index,
+                        to: Ticks::quarters(to),
+                    },
+                    Some("warp marker"),
+                )
+                .expect("it moves");
+            assert_eq!(done.index, Some(index));
+        }
+        let markers = warp_of(&doc).unwrap().markers;
+        assert_eq!(markers.len(), 2);
+        assert_eq!(markers[1].at, Ticks::quarters(1));
+        doc.undo();
+        assert_eq!(doc.project(), &before, "one undo takes the whole drag back");
+        // A locked clip takes no marker.
+        doc.set_clips_locked(&[id], true);
+        let locked = doc.project().clone();
+        assert_eq!(
+            doc.edit_warp_marker(&locked, id, MarkerEdit::Add(Ticks::quarters(2)), None),
+            Err(Refused::Unchanged)
+        );
     }
 
     #[test]

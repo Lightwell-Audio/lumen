@@ -16,6 +16,7 @@ use crate::app::clip_commands::FINE;
 use crate::arrangement::handles::Handle;
 use crate::arrangement::select::Edge;
 use crate::audio_editor::handles::{EditorHandles, Part, STOPS, parse_db, parse_length};
+use crate::audio_editor::warp_strip::WarpStrip;
 use crate::audio_editor::{AudioEditor, Popover};
 use crate::widgets::{self, raised};
 use crate::{position, theme};
@@ -256,19 +257,23 @@ impl App {
         self.select_opened_clip(id);
     }
 
+    /// A place in words, for a handle's name: "bar 3 beat 1", with the
+    /// sixteenth when it is not on a beat.
+    pub(super) fn place_words(&self, t: Ticks) -> String {
+        let bbt = self.transport.timeline.meter.bbt_at(t);
+        let sixteenth = bbt.ticks.0 / (PPQ / 4);
+        let beat = format!("bar {} beat {}", bbt.bar + 1, bbt.beat + 1);
+        if sixteenth > 0 {
+            format!("{beat} sixteenth {}", sixteenth + 1)
+        } else {
+            beat
+        }
+    }
+
     /// "Trim start at bar 3 beat 1", "Fade in 125 ms, bent 30%", "Clip gain
     /// −3.0 dB": a handle's accessible name, with its value (M9.5 D18).
     pub(super) fn stop_name(&self, clip: &Clip, part: Part) -> String {
-        let place = |t: Ticks| {
-            let bbt = self.transport.timeline.meter.bbt_at(t);
-            let sixteenth = bbt.ticks.0 / (PPQ / 4);
-            let beat = format!("bar {} beat {}", bbt.bar + 1, bbt.beat + 1);
-            if sixteenth > 0 {
-                format!("{beat} sixteenth {}", sixteenth + 1)
-            } else {
-                beat
-            }
-        };
+        let place = |t: Ticks| self.place_words(t);
         match part {
             Part::Trim(Edge::Start) => format!("Trim start at {}", place(clip.start)),
             Part::Trim(Edge::End) => format!("Trim end at {}", place(clip.start + clip.length)),
@@ -317,6 +322,7 @@ impl App {
         ui: &mut Ui,
         id: Id,
         handles: &EditorHandles,
+        strip: Option<&WarpStrip>,
         ed: &mut AudioEditor,
     ) -> Option<(Part, Response)> {
         let clip = self.shown_clip(id)?;
@@ -327,6 +333,13 @@ impl App {
             .into_iter()
             .filter(|p| !(handles.gain_hidden && *p == gain))
         {
+            // The warp markers come between the gain line and the fade out,
+            // in the editor's time order (D17).
+            if part == Part::Handle(crate::arrangement::handles::Handle::Fade(Edge::End))
+                && let Some(strip) = strip
+            {
+                ed.markers.ring = self.marker_stops(ui, &clip, strip, ed);
+            }
             let rect = handles.stop_rect(part);
             let response = ui.interact(rect, stop_id(part), Sense::focusable_noninteractive());
             let name = self.stop_name(&clip, part);

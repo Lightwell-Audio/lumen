@@ -646,6 +646,13 @@ pub mod size {
     pub const BRACE_GRAB: f32 = 6.0;
     pub const BRACE_FLAG: f32 = 5.0;
     pub const CURSOR_CAP: f32 = 4.0;
+    /// The audio editor's warp strip between its ruler and the wave (M9.5
+    /// S5b, P A): its height, a marker's grab reach, how near a transient
+    /// the ghost marker lands, and the flag's size.
+    pub const WARP_STRIP: f32 = 14.0;
+    pub const WARP_GRAB: f32 = 6.0;
+    pub const WARP_NEAR: f32 = 12.0;
+    pub const WARP_FLAG: f32 = 6.0;
     /// The least room between two of the audio editor's bar numbers before
     /// only every second, fourth… shows.
     pub const BAR_NUMBER_ROOM: f32 = 32.0;

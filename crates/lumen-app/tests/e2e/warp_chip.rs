@@ -64,7 +64,7 @@ fn click_track(path: &Path, (bpm, beats): (f64, usize), lead: f64, seconds: f64)
 
 /// Lumen with a click track at 100 BPM (sixteen beats, the first a quarter of
 /// a second in) dropped in and opened in the Clip tab, detection done.
-fn opened_click_track(name: &str) -> (Lumen, Id) {
+pub(super) fn opened_click_track(name: &str) -> (Lumen, Id) {
     let mut lumen = Lumen::start(name);
     let file = click_track(&lumen.dir().join("clicks.wav"), (100.0, 16), 0.25, 9.85);
     lumen.drop_files(&[file]);
@@ -81,7 +81,7 @@ fn opened_click_track(name: &str) -> (Lumen, Id) {
 }
 
 /// The chip, opened.
-fn open_chip(lumen: &mut Lumen) {
+pub(super) fn open_chip(lumen: &mut Lumen) {
     let chip = lumen
         .harness
         .query_all_by_label_contains("Warp: ")
@@ -92,12 +92,12 @@ fn open_chip(lumen: &mut Lumen) {
 }
 
 /// The popover closed, so a key reaches the app.
-fn close_chip(lumen: &mut Lumen) {
+pub(super) fn close_chip(lumen: &mut Lumen) {
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
 }
 
-fn warped(lumen: &Lumen, id: Id) -> Clip {
+pub(super) fn warped(lumen: &Lumen, id: Id) -> Clip {
     let c = clip(lumen, id);
     assert!(c.warp.is_some(), "the clip is warped");
     c

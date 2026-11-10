@@ -45,6 +45,7 @@ pub mod split;
 pub mod takes;
 pub mod velocity;
 pub mod warp;
+pub mod warp_markers;
 mod warped_loop;
 mod windows;
 

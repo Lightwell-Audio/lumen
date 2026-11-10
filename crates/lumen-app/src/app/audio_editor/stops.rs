@@ -120,6 +120,14 @@ impl App {
     /// The keys of a focused stop, before the commands see them: kept for
     /// the editor's next drawing.
     pub(crate) fn audio_stop_keys(&mut self, ctx: &egui::Context) {
+        if let Some(index) = super::warp_markers::focused(ctx, &self.audio_editor.markers.ids) {
+            let keys = ctx.input_mut(|i| super::warp_markers::take_keys(&mut i.events));
+            self.audio_editor
+                .markers
+                .keys
+                .extend(keys.into_iter().map(|(key, mods)| (index, key, mods)));
+            return;
+        }
         let Some(stop) = focused(ctx) else {
             return;
         };

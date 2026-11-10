@@ -130,9 +130,16 @@ pub fn gradient(painter: &Painter, rect: Rect, left: Color32, right: Color32) {
 /// not here). Placed with its left edge at `at.x`, centred on `at.y`, kept
 /// inside `bounds`. Returns where it was drawn.
 pub fn draw_hint(painter: &Painter, at: Pos2, text: &str, bounds: Rect) -> Rect {
+    draw_hint_tone(painter, at, text, bounds, false)
+}
+
+/// [`draw_hint`] that turns to the warning colour when `warn`: a value held
+/// at its limit (a warp marker at 25% or 400%).
+pub fn draw_hint_tone(painter: &Painter, at: Pos2, text: &str, bounds: Rect, warn: bool) -> Rect {
     let palette = theme::p();
+    let ink = if warn { palette.warning } else { palette.text };
     let font = FontId::proportional(theme::size::CAPTION);
-    let galley = painter.layout_no_wrap(text.to_owned(), font, palette.text);
+    let galley = painter.layout_no_wrap(text.to_owned(), font, ink);
     let size = vec2(
         galley.size().x + 2.0 * theme::space::XS + 2.0,
         theme::size::CAPTION + 4.0,
@@ -143,16 +150,19 @@ pub fn draw_hint(painter: &Painter, at: Pos2, text: &str, bounds: Rect) -> Rect 
         rect,
         theme::radius::SMALL,
         palette.overlay,
-        Stroke::new(1.0, palette.border_strong),
+        Stroke::new(
+            1.0,
+            if warn {
+                palette.warning
+            } else {
+                palette.border_strong
+            },
+        ),
         egui::StrokeKind::Inside,
     );
     let left = rect.left() + theme::space::XS;
     let mid = rect.center().y;
-    painter.galley(
-        pos2(left, mid - galley.size().y / 2.0),
-        galley,
-        palette.text,
-    );
+    painter.galley(pos2(left, mid - galley.size().y / 2.0), galley, ink);
     rect
 }
 

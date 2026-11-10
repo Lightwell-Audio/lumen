@@ -451,7 +451,7 @@ fn crossfade_curve_owner(project: &Project, clip: Id, edge: Edge) -> (Id, Edge) 
 }
 
 /// Replaces the unlocked clip `id` with `change` of it.
-fn replace_clip(project: &mut Project, id: Id, change: impl FnOnce(&Clip) -> Clip) {
+pub(super) fn replace_clip(project: &mut Project, id: Id, change: impl FnOnce(&Clip) -> Clip) {
     for track in &mut project.tracks {
         if let Some(i) = track.clips.iter().position(|c| c.id == id && !c.locked) {
             let t = Arc::make_mut(track);

@@ -423,6 +423,8 @@ impl App {
             Command::SetTempoFromClip => self.set_tempo_from_clip(),
             Command::DoubleClipTempo => self.scale_clip_tempo(2.0),
             Command::HalveClipTempo => self.scale_clip_tempo(0.5),
+            Command::AddWarpMarker => self.add_warp_marker_command(),
+            Command::ClearWarpMarkers => self.clear_warp_markers_command(),
             Command::AddAudioTrack => self.arrangement.add_track(doc, TrackKind::Audio),
             Command::AddMidiTrack => self.arrangement.add_track(doc, TrackKind::Midi),
             Command::AddReturnTrack => self.arrangement.add_track(doc, TrackKind::Return),
