@@ -48,6 +48,8 @@ pub(super) const SPLIT_BELOW: f32 = 40.0;
 const NAME_MIN_WIDTH: f32 = 24.0;
 /// Width of a clip still loading for import, before it has a length.
 const PENDING_WIDTH: f32 = 160.0;
+/// How far a warp marker's tick hangs under the title bar.
+const WARP_TICK: f32 = 7.0;
 /// A locked clip's clamps: bars this wide at both ends (the owner's K3).
 pub(super) const CLAMP: f32 = 3.0;
 
@@ -372,6 +374,30 @@ impl Arrangement {
                                 theme::radius::SMALL,
                                 palette.accent.gamma_multiply(wash),
                             );
+                        }
+                        if let Some(warp) = &clip.warp {
+                            // A warped clip's markers, read here and edited in
+                            // the audio editor (M9.5 S5b).
+                            let at = lumen_project::edit::warp::origin(clip);
+                            let ticks = super::warp_ticks::xs(
+                                time,
+                                canvas.left(),
+                                at,
+                                &warp.markers,
+                                (x0, x1),
+                                (canvas.left(), canvas.right()),
+                            );
+                            let stroke = Stroke::new(
+                                1.0,
+                                theme::CLIP_TEXT.gamma_multiply(if heard { 0.7 } else { 0.3 }),
+                            );
+                            let top = rect.top() + TITLE.min(rect.height());
+                            let bottom = (top + WARP_TICK).min(rect.bottom());
+                            let lane_clip =
+                                painter.with_clip_rect(lane.intersect(painter.clip_rect()));
+                            for x in ticks {
+                                lane_clip.vline(x, top..=bottom, stroke);
+                            }
                         }
                         if x1 - x0 < NAME_MIN_WIDTH {
                             continue;
