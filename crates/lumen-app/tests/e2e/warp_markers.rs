@@ -197,3 +197,92 @@ fn remove_all_warp_markers_is_one_step_and_keeps_the_clip_in_time() {
     lumen.frames(3);
     assert_eq!(markers(&lumen, id).len(), 3);
 }
+
+#[test]
+fn a_drag_brought_back_to_where_it_began_leaves_the_clip_as_it_was() {
+    let (mut lumen, id) = warped_editor("warp-return");
+    lumen.double_click(on_strip(&lumen, 4.0));
+    let made = clip(&lumen, id);
+    let (strip, flags) = lumen.app().audio_warp_strip().unwrap();
+    let from = Pos2::new(flags[1], strip.center().y);
+    // Out and back to the same place without letting go.
+    lumen.harness.hover_at(from);
+    lumen.harness.drag_at(from);
+    lumen.frames(2);
+    for step in 1..=6 {
+        lumen
+            .harness
+            .hover_at(from + eframe::egui::vec2(10.0 * step as f32, 0.0));
+        lumen.frames(1);
+    }
+    assert_ne!(clip(&lumen, id), made, "it moved");
+    for step in (0..=6).rev() {
+        lumen
+            .harness
+            .hover_at(from + eframe::egui::vec2(10.0 * step as f32, 0.0));
+        lumen.frames(1);
+    }
+    lumen.harness.drop_at(from);
+    lumen.frames(3);
+    assert_eq!(clip(&lumen, id), made, "back where it began");
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    assert_eq!(
+        markers(&lumen, id).len(),
+        1,
+        "one undo took the drag and the marker"
+    );
+}
+
+#[test]
+fn shift_and_the_arrows_slide_the_audio_under_the_marker() {
+    let (mut lumen, id) = warped_editor("warp-slide-keys");
+    let body = shown(&lumen).body;
+    lumen.click_at(
+        Pos2::new(x_of(&lumen, 2.0), body.center().y),
+        Modifiers::NONE,
+    );
+    command(&mut lumen, "Add warp marker");
+    lumen.frames(4);
+    let added = markers(&lumen, id);
+    lumen.key(Modifiers::SHIFT, Key::ArrowRight);
+    lumen.frames(2);
+    let slid = markers(&lumen, id);
+    assert_eq!(slid[1].at, added[1].at, "the marker stays");
+    assert!(slid[1].source < added[1].source, "the audio moved later");
+    lumen.key(Modifiers::SHIFT, Key::ArrowLeft);
+    lumen.frames(2);
+    assert_eq!(markers(&lumen, id), added, "and back");
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    assert_ne!(markers(&lumen, id), added, "each press is a step");
+}
+
+#[test]
+fn the_add_command_in_a_later_repeat_of_a_loop_adds_in_the_turn_that_plays() {
+    let (mut lumen, id) = warped_editor("warp-loop-add");
+    let c = clip(&lumen, id);
+    // Loop the clip over three turns of its length.
+    let turn = c.length;
+    lumen
+        .app_mut()
+        .trim_clip_end_to(id, c.start + turn + turn + turn, true);
+    lumen.frames(3);
+    let looped = clip(&lumen, id);
+    assert_eq!(looped.loop_length, Some(turn), "it loops");
+    let at = looped.start + Ticks::quarters(2);
+    lumen.app_mut().set_audio_cursor(at + turn);
+    command(&mut lumen, "Add warp marker");
+    lumen.frames(3);
+    let later = markers(&lumen, id);
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    lumen.app_mut().set_audio_cursor(at);
+    command(&mut lumen, "Add warp marker");
+    lumen.frames(3);
+    assert_eq!(
+        later,
+        markers(&lumen, id),
+        "the same marker as in the first turn"
+    );
+}

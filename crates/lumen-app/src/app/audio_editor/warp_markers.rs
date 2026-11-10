@@ -23,7 +23,7 @@ use eframe::egui::{
     Sense, Stroke, Ui, pos2,
 };
 use lumen_core::warp;
-use lumen_project::edit::warp::{Refused, origin};
+use lumen_project::edit::warp::{Refused, origin, within};
 use lumen_project::edit::warp_markers::{MarkerEdit, held_at};
 use lumen_project::model::{Clip, Id};
 
@@ -52,7 +52,8 @@ pub(crate) fn focused(ctx: &egui::Context, ids: &[egui::Id]) -> Option<usize> {
 }
 
 /// Takes the keys a focused marker answers: Left and Right (with Alt for
-/// fine), and Delete.
+/// fine; with Shift they slide the audio under the marker instead), and
+/// Delete.
 pub(crate) fn take_keys(events: &mut Vec<egui::Event>) -> Vec<(Key, Modifiers)> {
     let mut taken = Vec::new();
     events.retain(|event| {
@@ -67,7 +68,10 @@ pub(crate) fn take_keys(events: &mut Vec<egui::Event>) -> Vec<(Key, Modifiers)> 
         };
         let plain = modifiers == Modifiers::NONE;
         let ours = (matches!(key, Key::ArrowLeft | Key::ArrowRight)
-            && (plain || modifiers == Modifiers::ALT))
+            && (plain
+                || modifiers == Modifiers::ALT
+                || modifiers == Modifiers::SHIFT
+                || modifiers == (Modifiers::SHIFT | Modifiers::ALT)))
             || (plain && matches!(key, Key::Delete | Key::Backspace));
         if ours {
             taken.push((key, modifiers));
@@ -449,7 +453,8 @@ impl App {
         let mut ed = std::mem::take(&mut self.audio_editor);
         let at = ed.cursor.unwrap_or_else(|| self.transport.playhead());
         self.select_opened_clip(id);
-        self.add_warp_marker(id, MarkerEdit::Add(at - origin(&clip)), &mut ed);
+        // A cursor in a later repeat of a loop is the same place in the first.
+        self.add_warp_marker(id, MarkerEdit::Add(within(&clip, at)), &mut ed);
         self.audio_editor = ed;
     }
 
@@ -491,7 +496,59 @@ impl App {
                 }
                 continue;
             }
-            self.nudge_warp_marker(clip.id, index, key, mods.alt, ed);
+            if mods.shift {
+                self.slide_warp_marker(clip.id, index, key, mods.alt, ed);
+            } else {
+                self.nudge_warp_marker(clip.id, index, key, mods.alt, ed);
+            }
+        }
+    }
+
+    /// Shift and Left or Right on a marker: the audio under it slides by the
+    /// grid (the marker stays), an undo step a press. The same edit as the
+    /// Shift and drag.
+    fn slide_warp_marker(
+        &mut self,
+        id: Id,
+        index: usize,
+        key: Key,
+        fine: bool,
+        ed: &mut AudioEditor,
+    ) {
+        if !self.opened_clip_takes_edits(id) {
+            return;
+        }
+        let Some(clip) = self.shown_clip(id) else {
+            return;
+        };
+        let Some((marker, bpm)) = clip
+            .warp
+            .as_ref()
+            .and_then(|w| Some((*w.markers.get(index)?, w.original_bpm)))
+        else {
+            return;
+        };
+        let direction = if key == Key::ArrowLeft { -1 } else { 1 };
+        // The step is a grid cell of the file's own beats; the audio moves
+        // the way the key points (a drag to the right moves it later).
+        let here = origin(&clip) + marker.at;
+        let step = self.key_step(ed.time.zoom, here, direction, fine) - here;
+        let seconds = step.as_quarters() * 60.0 / bpm.max(1.0);
+        let source = marker.source - seconds;
+        let base = self.document.project().clone();
+        self.select_opened_clip(id);
+        match self
+            .document
+            .edit_warp_marker(&base, id, MarkerEdit::Slide { index, source }, None)
+        {
+            Ok(done) => {
+                ed.markers.reveal = Some(index);
+                if done.held {
+                    self.say(format!("This marker can't slide further: {AT_LIMIT}"));
+                }
+            }
+            Err(Refused::Unchanged) => {}
+            Err(_) => self.say(format!("This marker can't slide further: {OUTSIDE_FILE}")),
         }
     }
 

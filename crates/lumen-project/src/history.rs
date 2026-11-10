@@ -154,6 +154,20 @@ impl History {
             }
         } else {
             self.current = next;
+            // A gesture brought back to where it began has changed nothing:
+            // its step goes, so undo does not stop on a step that does
+            // nothing. The gesture is closed; moving on begins a new step.
+            if self
+                .undo
+                .back()
+                .is_some_and(|step| unchanged(&step.project, &self.current))
+                && let Some(step) = self.undo.pop_back()
+            {
+                self.redo.clear();
+                self.open_gesture = None;
+                self.state = step.state;
+                return true;
+            }
         }
         self.redo.clear();
         self.open_gesture = merge.map(str::to_owned);
@@ -595,6 +609,33 @@ mod tests {
         assert_eq!(history.steps().0.len(), 2);
         history.undo();
         assert_eq!(history.project().tempo[0].bpm, 159.0);
+        history.undo();
+        assert_eq!(history.project(), &start);
+    }
+
+    #[test]
+    fn a_gesture_brought_back_to_where_it_began_leaves_no_step() {
+        let start = small_project(3);
+        let was = start.tempo[0].bpm;
+        let mut history = History::new(start.clone());
+        history.apply("Earlier", None, |p| p.name = "Earlier".into());
+        let before = history.project().clone();
+        let state = history.state();
+        history.apply("Change tempo", Some("tempo"), |p| {
+            p.tempo[0].bpm = was + 10.0
+        });
+        assert_eq!(history.steps().0.len(), 2);
+        history.apply("Change tempo", Some("tempo"), |p| p.tempo[0].bpm = was);
+        assert_eq!(history.project(), &before);
+        assert_eq!(history.steps().0, ["Earlier"], "no step that does nothing");
+        assert_eq!(history.state(), state, "the same state as before it");
+        // Moving on is a new step, not a merge into the one before.
+        history.apply("Change tempo", Some("tempo"), |p| {
+            p.tempo[0].bpm = was + 5.0
+        });
+        assert_eq!(history.steps().0.len(), 2);
+        history.undo();
+        assert_eq!(history.project(), &before);
         history.undo();
         assert_eq!(history.project(), &start);
     }

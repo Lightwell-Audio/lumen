@@ -314,6 +314,11 @@ impl App {
         })
     }
 
+    /// Puts the audio editor's edit cursor at `at`.
+    pub fn set_audio_cursor(&mut self, at: Ticks) {
+        self.audio_editor.cursor = Some(at);
+    }
+
     /// Where the audio editor's warp strip and its markers' flags were drawn
     /// last frame: `None` for a clip that is not warped (M9.5 S5b).
     pub fn audio_warp_strip(&self) -> Option<(egui::Rect, Vec<f32>)> {

@@ -378,13 +378,15 @@ impl Arrangement {
                         if let Some(warp) = &clip.warp {
                             // A warped clip's markers, read here and edited in
                             // the audio editor (M9.5 S5b).
-                            let at = lumen_project::edit::warp::origin(clip);
                             let ticks = super::warp_ticks::xs(
                                 time,
                                 canvas.left(),
-                                at,
-                                &warp.markers,
-                                (x0, x1),
+                                &super::warp_ticks::Map {
+                                    origin: lumen_project::edit::warp::origin(clip),
+                                    markers: &warp.markers,
+                                    period: clip.loop_length,
+                                    clip: (x0, x1),
+                                },
                                 (canvas.left(), canvas.right()),
                             );
                             let stroke = Stroke::new(

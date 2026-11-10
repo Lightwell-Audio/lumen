@@ -179,13 +179,30 @@ impl Document {
         change: MarkerEdit,
         merge: Option<&str>,
     ) -> Result<MarkerDone, Refused> {
-        let edited = marker_edited(base, id, change)?;
         let label = match change {
             MarkerEdit::Add(_) | MarkerEdit::AddOn(_) => "Add warp marker",
             MarkerEdit::Move { .. } => "Move warp marker",
             MarkerEdit::Slide { .. } => "Slide audio under warp marker",
             MarkerEdit::Remove(_) => "Delete warp marker",
             MarkerEdit::Clear => "Remove warp markers",
+        };
+        let edited = match marker_edited(base, id, change) {
+            Ok(edited) => edited,
+            // A drag brought back to where it began: the gesture's last state
+            // is the project it began on, so the step already made is undone
+            // in place (the change would be a no-op against `base`, but not
+            // against what the drag has made since).
+            Err(Refused::Unchanged) if merge.is_some() && self.project() != base => {
+                self.history.apply(label, merge, |project| {
+                    *project = base.clone();
+                });
+                let index = match change {
+                    MarkerEdit::Move { index, .. } | MarkerEdit::Slide { index, .. } => Some(index),
+                    _ => None,
+                };
+                return Ok(MarkerDone { index, held: false });
+            }
+            Err(refused) => return Err(refused),
         };
         let done = MarkerDone {
             index: edited.index,
@@ -296,6 +313,51 @@ mod tests {
             doc.edit_warp_marker(&locked, id, MarkerEdit::Add(Ticks::quarters(2)), None),
             Err(Refused::Unchanged)
         );
+    }
+
+    #[test]
+    fn a_drag_brought_back_to_where_it_began_puts_the_clip_back() {
+        for slide in [false, true] {
+            let (mut doc, id) = doc_with_clip();
+            doc.warp_clips(&[id], 120.0);
+            let before = doc.project().clone();
+            let (base, index) = with_marker_edit(&before, id, MarkerEdit::Add(Ticks::quarters(2)))
+                .expect("a marker");
+            let index = index.expect("its place");
+            let source = Document::new(base.clone()).project().tracks[0].clips[0]
+                .warp
+                .as_ref()
+                .unwrap()
+                .markers[index]
+                .source;
+            let (away, home) = if slide {
+                (
+                    MarkerEdit::Slide {
+                        index,
+                        source: source + 0.1,
+                    },
+                    MarkerEdit::Slide { index, source },
+                )
+            } else {
+                (
+                    MarkerEdit::Move {
+                        index,
+                        to: Ticks::quarters(3),
+                    },
+                    MarkerEdit::Move {
+                        index,
+                        to: Ticks::quarters(2),
+                    },
+                )
+            };
+            for edit in [away, home] {
+                doc.edit_warp_marker(&base, id, edit, Some("warp marker"))
+                    .expect("it follows the pointer");
+            }
+            assert_eq!(doc.project(), &base, "back where the gesture began");
+            doc.undo();
+            assert_eq!(doc.project(), &before, "and still one undo step");
+        }
     }
 
     #[test]
