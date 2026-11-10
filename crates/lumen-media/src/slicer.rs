@@ -177,9 +177,9 @@ impl Slicer {
                 from,
                 len: stop - from,
                 at: where_it_starts(position, from, first),
-                next: starts
-                    .get(j + 1)
-                    .map_or(i64::MAX, |&s| where_it_starts(position, s, first)),
+                // The last slice ends where the map reaches the end of the
+                // file, as any other where the next one begins.
+                next: where_it_starts(position, stop, first),
             }
         };
         // The slice playing at `first`, and back from it every slice whose

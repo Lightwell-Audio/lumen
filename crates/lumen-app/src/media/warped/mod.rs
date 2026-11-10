@@ -101,24 +101,76 @@ pub struct Warped {
 /// (an edit to a map makes a new stream; the file is not read again).
 #[derive(Default)]
 pub struct SliceScan {
-    hits: Mutex<Option<Arc<Vec<f64>>>>,
+    state: Mutex<Scan>,
+}
+
+#[derive(Default)]
+enum Scan {
+    #[default]
+    Idle,
+    /// A worker is reading the file.
+    Running,
+    Done(Arc<Vec<f64>>),
+    /// The worker could not read it. Said once to the reader that asks, then
+    /// the next asks again.
+    Failed(String),
+}
+
+/// Where a scan stands, for a reader that does not wait.
+enum Poll {
+    Ready(Arc<Vec<f64>>),
+    Pending,
+    Failed(String),
 }
 
 impl SliceScan {
-    /// The transients, in seconds: found now if they have not been. Readers
-    /// that arrive while it runs wait for it and share the result.
+    fn lock(&self) -> std::sync::MutexGuard<'_, Scan> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The transients, in seconds, read through `input` now if nobody has yet
+    /// (a render, which has nothing else to do while it waits). Whoever
+    /// finishes first is kept: the result is the same.
     fn hits(
         &self,
         input: &mut dyn lumen_media::repitch::Source,
         rate: u32,
     ) -> Result<Arc<Vec<f64>>, lumen_media::MediaError> {
-        let mut held = self.hits.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(found) = &*held {
+        if let Scan::Done(found) = &*self.lock() {
             return Ok(Arc::clone(found));
         }
         let found = Arc::new(slicer::scan(input, rate)?);
-        *held = Some(Arc::clone(&found));
+        *self.lock() = Scan::Done(Arc::clone(&found));
         Ok(found)
+    }
+
+    /// Where the scan stands; `start` is run (once, by the first to ask) to
+    /// begin it on a worker.
+    fn poll(&self, start: impl FnOnce()) -> Poll {
+        let mut state = self.lock();
+        match &*state {
+            Scan::Done(found) => Poll::Ready(Arc::clone(found)),
+            Scan::Running => Poll::Pending,
+            Scan::Failed(message) => {
+                let message = message.clone();
+                *state = Scan::Idle;
+                Poll::Failed(message)
+            }
+            Scan::Idle => {
+                *state = Scan::Running;
+                drop(state);
+                start();
+                Poll::Pending
+            }
+        }
+    }
+
+    /// The worker's answer.
+    fn finish(&self, result: Result<Vec<f64>, lumen_media::MediaError>) {
+        *self.lock() = match result {
+            Ok(found) => Scan::Done(Arc::new(found)),
+            Err(error) => Scan::Failed(error.to_string()),
+        };
     }
 }
 
@@ -151,8 +203,9 @@ impl Warped {
     /// Where a Rhythmic stream's slices start, in frames of the file: the
     /// transients of the file (read through `input` the first time anything
     /// plays this file, then shared by every stream of it) and the places the
-    /// markers pin. A scan that fails is an error, kept nowhere, so the next
-    /// read tries again and no stream is ever cut differently from another.
+    /// markers pin. For a reader that can wait. A scan that fails is an
+    /// error, kept nowhere, so the next read tries again and no stream is ever
+    /// cut differently from another.
     pub(super) fn slice_starts(
         &self,
         input: &mut dyn lumen_media::repitch::Source,
@@ -161,9 +214,48 @@ impl Warped {
             return Ok(starts);
         }
         let hits = self.scan.hits(input, self.rate)?;
+        Ok(self.cut(&hits, input.frames()))
+    }
+
+    /// [`Warped::slice_starts`] for a reader that must not wait (the disk
+    /// thread's): the file is read on a worker of its own, and until that has
+    /// finished the answer is [`lumen_media::MediaError::NotReady`].
+    pub(super) fn slice_starts_polled(this: &Arc<Self>) -> Result<&[i64], lumen_media::MediaError> {
+        use lumen_media::MediaError;
+        if let Some(starts) = this.slices.get() {
+            return Ok(starts);
+        }
+        let worker = Arc::clone(this);
+        match this.scan.poll(move || worker.start_scan()) {
+            Poll::Ready(hits) => {
+                let frames = source::frames_of(&this.origin).ok_or(MediaError::NotReady)?;
+                Ok(this.cut(&hits, frames))
+            }
+            Poll::Pending => Err(MediaError::NotReady),
+            Poll::Failed(message) => Err(MediaError::Io(message)),
+        }
+    }
+
+    /// Begins the scan of this stream's file on a worker.
+    fn start_scan(self: Arc<Self>) {
+        let this = Arc::clone(&self);
+        let spawned = std::thread::Builder::new()
+            .name("lumen slice scan".into())
+            .spawn(move || {
+                let result = source::scan_file(&this.origin, this.channels, this.rate);
+                this.scan.finish(result);
+            });
+        if let Err(error) = spawned {
+            self.scan
+                .finish(Err(lumen_media::MediaError::Io(error.to_string())));
+        }
+    }
+
+    /// The slice starts for `hits` in a file of `frames`, kept.
+    fn cut(&self, hits: &[f64], frames: u64) -> &[i64] {
         let pinned = self.markers.iter().map(|m| m.source);
-        let starts = slicer::starts(hits.iter().copied(), pinned, self.rate, input.frames());
-        Ok(self.slices.get_or_init(|| starts))
+        let starts = slicer::starts(hits.iter().copied(), pinned, self.rate, frames);
+        self.slices.get_or_init(|| starts)
     }
 
     /// The slice starts a reader has found (tests).

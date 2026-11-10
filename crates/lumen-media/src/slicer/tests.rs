@@ -253,3 +253,23 @@ fn a_stereo_pair_of_opposite_polarity_is_not_cancelled_to_nothing() {
         assert!(found.iter().any(|t| (t - want).abs() < 0.01), "{found:?}");
     }
 }
+
+#[test]
+fn the_last_slice_fades_at_half_speed_and_a_copy_stays_exact() {
+    let data = file(9_000);
+    let starts = [0, 2_000, 5_000];
+    // Half speed: the last slice (4,000 frames) starts at output 10,000, plays
+    // to its end at 14,000 and the end of the file fades.
+    let out = render(&data, &|k| k as f64 * 0.5, &starts, 0, 20_000);
+    let last = 10_000;
+    assert_eq!(out[last..last + 3_000], data[5_000..8_000]);
+    assert!(
+        out[last + 4_000 - 20..last + 4_000]
+            .iter()
+            .all(|v| v.abs() < 0.05)
+    );
+    assert!(out[last + 4_000..].iter().all(|v| *v == 0.0));
+    // At the file's own speed nothing is faded: the file, bit for bit.
+    let out = render(&data, &|k| k as f64, &starts, 0, 9_000);
+    assert_eq!(out, data);
+}

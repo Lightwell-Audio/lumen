@@ -103,6 +103,10 @@ pub enum MediaError {
     /// No audio in the file.
     Empty,
     Cancelled,
+    /// The audio is not ready to be read yet (something it needs is still
+    /// being worked out in the background): ask again shortly. A page reader
+    /// that cannot wait answers this; it is not a failure.
+    NotReady,
     Resample(String),
     Encode(String),
 }
@@ -118,6 +122,7 @@ impl std::fmt::Display for MediaError {
             MediaError::Decode(m) => write!(f, "The file is damaged: {m}"),
             MediaError::Empty => write!(f, "The file contains no audio"),
             MediaError::Cancelled => write!(f, "Canceled"),
+            MediaError::NotReady => write!(f, "Not ready yet"),
             MediaError::Resample(m) => write!(f, "Sample-rate conversion failed: {m}"),
             MediaError::Encode(m) => write!(f, "Audio encoding failed: {m}"),
         }

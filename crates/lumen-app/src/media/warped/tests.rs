@@ -890,3 +890,29 @@ fn a_file_is_scanned_once_for_all_the_streams_an_edit_makes() {
     let starts = scans[1].slice_starts_for_test();
     assert!(starts.contains(&((0.9 * f64::from(RATE)).round() as i64)));
 }
+
+#[test]
+fn a_reader_that_must_not_wait_is_told_so_until_the_scan_is_done() {
+    let source = bursts();
+    let tempo = constant(120.0);
+    let warp = rhythmic(95.0);
+    let mut warps = WarpedStreams::new(&PagePool::new(1));
+    let stream = warps
+        .stream(&request(&warp, &source, &tempo, 192_000))
+        .unwrap();
+    let id = stream.stream().unwrap();
+    let mut polling = Readers::polling();
+    let (mut left, mut right) = (vec![0.0; PAGE], vec![0.0; PAGE]);
+    // The first ask starts the scan; until it is done the answer is "not
+    // ready", which is no failure.
+    let got = lumen_testkit::wait_for("the scan to finish", || {
+        match polling.read(id, 0, &mut left, &mut right) {
+            Err(lumen_media::MediaError::NotReady) => None,
+            other => Some(other),
+        }
+    })
+    .expect("the page, once the file has been read");
+    // The same bits as a reader that waits for the scan itself.
+    let waited = read(&stream, 0, got.min(PAGE));
+    assert_eq!(left[..got.min(PAGE)], waited[..]);
+}

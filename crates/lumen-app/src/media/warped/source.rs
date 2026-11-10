@@ -16,6 +16,8 @@ use super::{Engine, Warped};
 /// A warped stream opened for reading.
 pub(in crate::media) struct Rendering {
     warped: Arc<Warped>,
+    /// Never waits for background work (the disk thread's rendering).
+    polling: bool,
     renderer: Renderer,
     input: Input,
 }
@@ -37,7 +39,11 @@ enum Input {
 
 impl Rendering {
     /// `warped` over `file`, the reader of its stream file when it plays one.
-    pub(in crate::media) fn new(warped: Arc<Warped>, file: Option<Reader>) -> Option<Self> {
+    pub(in crate::media) fn new(
+        warped: Arc<Warped>,
+        file: Option<Reader>,
+        polling: bool,
+    ) -> Option<Self> {
         let input = match (&warped.origin, file) {
             (super::Origin::Memory(audio), _) => {
                 audio.memory()?;
@@ -63,6 +69,7 @@ impl Rendering {
         };
         Some(Self {
             warped,
+            polling,
             renderer,
             input,
         })
@@ -93,7 +100,11 @@ impl Rendering {
                 c.render(&mut self.input, &position, from as i64, left, right)?
             }
             Renderer::Slices(s) => {
-                let starts = warped.slice_starts(&mut self.input)?;
+                let starts = if self.polling {
+                    Warped::slice_starts_polled(&warped)?
+                } else {
+                    warped.slice_starts(&mut self.input)?
+                };
                 s.render(
                     &mut self.input,
                     (&position, starts),
@@ -137,4 +148,41 @@ impl Source for Input {
             Input::File { reader, .. } => reader.read(from, out).map(|_| ()),
         }
     }
+}
+
+/// The frames in the file a stream reads.
+pub(super) fn frames_of(origin: &super::Origin) -> Option<u64> {
+    match origin {
+        super::Origin::Memory(audio) => Some(audio.frames() as u64),
+        super::Origin::File(id) => {
+            let path = crate::media::streams::path(*id)?;
+            Reader::open(&path).ok().map(|r| r.layout().frames)
+        }
+    }
+}
+
+/// The transients of the file a stream reads, read through a reader of its own
+/// (for a worker).
+pub(super) fn scan_file(
+    origin: &super::Origin,
+    channels: usize,
+    rate: u32,
+) -> Result<Vec<f64>, MediaError> {
+    let mut input = match origin {
+        super::Origin::Memory(audio) => {
+            audio.memory().ok_or(MediaError::Empty)?;
+            Input::Memory(Arc::clone(audio))
+        }
+        super::Origin::File(id) => {
+            let path = crate::media::streams::path(*id)
+                .ok_or_else(|| MediaError::Io(format!("no stream file for media {id}")))?;
+            let reader = Reader::open(&path)?;
+            let channels = channels.min(usize::from(reader.layout().channels));
+            Input::File {
+                reader: Box::new(reader),
+                channels,
+            }
+        }
+    };
+    lumen_media::slicer::scan(&mut input, rate)
 }

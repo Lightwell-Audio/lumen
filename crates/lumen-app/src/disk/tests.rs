@@ -23,6 +23,8 @@ struct Fake {
     reads: Arc<AtomicUsize>,
     /// Pages of this file fail.
     broken: Option<u64>,
+    /// The next reads answer "not ready" this many times.
+    not_ready: Arc<AtomicUsize>,
 }
 
 impl Pages for Fake {
@@ -35,6 +37,13 @@ impl Pages for Fake {
     ) -> Result<usize, MediaError> {
         self.reads.fetch_add(1, Ordering::Relaxed);
         std::thread::sleep(self.delay);
+        if self
+            .not_ready
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            return Err(MediaError::NotReady);
+        }
         if self.broken == Some(audio.id()) {
             return Err(MediaError::Io("gone".to_owned()));
         }
@@ -258,6 +267,7 @@ fn fake(delay: Duration) -> (Box<Fake>, Arc<AtomicUsize>) {
         delay,
         reads: Arc::clone(&reads),
         broken: None,
+        not_ready: Arc::default(),
     };
     (Box::new(fake), reads)
 }
@@ -388,12 +398,33 @@ fn a_page_that_cannot_be_read_is_counted_once() {
         delay: Duration::ZERO,
         reads: Arc::clone(&reads),
         broken: Some(9),
+        not_ready: Arc::default(),
     });
     let disk = Disk::start(&pool, pages, handle.transport_reader());
     disk.set_scene(scene(&clips, None, vec![]));
     eventually("every page was tried", || disk.stats().failed() == 10);
     std::thread::sleep(Duration::from_millis(50));
     assert_eq!(reads.load(Ordering::Relaxed), 10, "not tried again");
+}
+
+#[test]
+fn a_page_that_is_not_ready_is_asked_for_again_and_is_no_failure() {
+    let pool = PagePool::new(64);
+    let a = stream(&pool, 3, 4);
+    let clips = vec![clip(&a, 0, 0, 4 * P)];
+    let (handle, _) = player(clips.clone());
+    let reads = Arc::new(AtomicUsize::new(0));
+    let pages = Box::new(Fake {
+        delay: Duration::ZERO,
+        reads: Arc::clone(&reads),
+        broken: None,
+        not_ready: Arc::new(AtomicUsize::new(3)),
+    });
+    let disk = Disk::start(&pool, pages, handle.transport_reader());
+    disk.set_scene(scene(&clips, None, vec![]));
+    eventually("every page arrives", || (0..4).all(|p| a.resident(p)));
+    assert_eq!(disk.stats().failed(), 0, "waiting is not failing");
+    drop(disk);
 }
 
 #[test]
