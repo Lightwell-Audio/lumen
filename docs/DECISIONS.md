@@ -12636,6 +12636,18 @@ with an opaque body colour over it.
 **Not done.** G3's alternate bar bands, C's speed labels on the notches and
 D's stretch band were offered and not chosen.
 
-**Verification.** Rendered in both themes at 100% (a throwaway test, not
-kept); the theme contrast test; E2E `warp_markers` and the suite. Not
-looked at: 150% and 200%, the arrangement's own clips.
+4. *Review (gpt-6.1-sol, high, one round).* Fixed: the focus ring round a
+   notch was clipped to the strip (it is now drawn with the editor's painter
+   round `WarpStrip::notch_rect`); the painter's literals are tokens
+   (`WARP_NOTCH_*`, `WARP_TICK_FLOOR`, `WARP_POLE*`, `WARP_GHOST_*`,
+   `WARP_TICK_*`); the notch's tip, its pole and the hairline through the
+   wave share one snapped x and one stroke (hover thickens both); a
+   transient under a marker is found by bisection, not a scan. Rendering
+   coverage: the ignored E2E `look_at_the_strip` is kept (`SHOTS`,
+   `LOOK_SCALE`); a pixel check was not added because the suite runs without
+   a GPU on CI. The last round's fixes were not reviewed again.
+
+**Verification.** Rendered with `look_at_the_strip`: dark at 100%, 150% and
+200%, light at 100% (before the review's fixes; dark at 150% and 200% after);
+the theme contrast test; E2E `warp_markers` and the suite. Not looked at:
+light at 150% and 200%, a split or looped clip, the arrangement's own clips.

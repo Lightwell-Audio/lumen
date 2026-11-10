@@ -644,6 +644,13 @@ per slice and move what is no longer current out of it.
   (high), two per piece; the last round's fixes were not reviewed again. Not
   run here: the WSL perf gate, the macOS cross-target clippy, the strip and
   ticks at three scales in both themes. Next: S6 (pitch).
+  **Follow-up (owner, 2026-11-09, from rendered specimens; ADR-0136):** warp
+  markers are white rounded notches, each transient a small grey triangle in
+  the (now 18 pt) strip, and the editor's grid is drawn over the clip body
+  under the wave (it was hidden by the body fill; tokens `clip_grid_*`).
+  One review round by GPT 6.1 Sol (high), fixed. The ignored E2E
+  `look_at_the_strip` renders it (`SHOTS`, `LOOK_SCALE`). Not looked at:
+  light at 150/200%, split or looped clips.
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);

@@ -414,6 +414,16 @@ pub const CLIP_EDGE: f32 = 0.6;
 /// `text_hint` at this strength, on a `well` wash at `OUTSIDE_WASH`.
 pub const WAVE_OUTSIDE: f32 = 0.55;
 pub const OUTSIDE_WASH: f32 = 0.7;
+/// The audio editor's warp strip (M9.5 S5b): a marker's pole at rest and
+/// when lit; the ghost notch's fill, and its ink when it is not on a
+/// transient; a transient triangle's strength at 0 and what a full-strength
+/// transient adds.
+pub const WARP_POLE: f32 = 0.45;
+pub const WARP_POLE_LIT: f32 = 0.8;
+pub const WARP_GHOST_FILL: f32 = 0.15;
+pub const WARP_GHOST_FREE: f32 = 0.6;
+pub const WARP_TICK_BASE: f32 = 0.45;
+pub const WARP_TICK_GAIN: f32 = 0.4;
 /// The audio editor's handles at rest: `text` at this strength. They stay
 /// out of the wave's way and are still plain to find (M9.5 HS A).
 pub const HANDLE_QUIET: f32 = 0.55;
@@ -667,8 +677,15 @@ pub mod size {
     pub const WARP_NEAR: f32 = 12.0;
     pub const WARP_NOTCH_W: f32 = 9.0;
     pub const WARP_NOTCH_H: f32 = 12.0;
+    /// The notch's gap under the strip's top, the radius of its top
+    /// corners and how far its point tapers.
+    pub const WARP_NOTCH_INSET: f32 = 2.0;
+    pub const WARP_NOTCH_RADIUS: f32 = 2.5;
+    pub const WARP_NOTCH_TAPER: f32 = 4.5;
     pub const WARP_TICK_W: f32 = 6.0;
     pub const WARP_TICK_H: f32 = 5.0;
+    /// The gap between a transient's triangle and the strip's floor.
+    pub const WARP_TICK_FLOOR: f32 = 3.0;
     /// The least room between two of the audio editor's bar numbers before
     /// only every second, fourth… shows.
     pub const BAR_NUMBER_ROOM: f32 = 32.0;

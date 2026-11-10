@@ -727,33 +727,61 @@ impl App {
                 || focused.is_some_and(|(i, _)| *i == index);
             let lit = chosen || Some(index) == hot;
             let ink = if chosen { palette.accent } else { palette.text };
-            wave_painter.vline(
-                *x,
-                body.y_range(),
-                Stroke::new(
-                    if lit {
-                        theme::stroke::LIT
-                    } else {
-                        theme::stroke::HAIRLINE
-                    },
-                    ink.gamma_multiply(if lit { 0.8 } else { 0.45 }),
-                ),
+            // The notch's tip, its pole and the hairline through the wave
+            // share one x and one stroke.
+            let x = snapped(painter, *x);
+            let pole = Stroke::new(
+                if lit {
+                    theme::stroke::LIT
+                } else {
+                    theme::stroke::HAIRLINE
+                },
+                ink.gamma_multiply(if lit {
+                    theme::WARP_POLE_LIT
+                } else {
+                    theme::WARP_POLE
+                }),
             );
-            Self::paint_notch(&strip_painter, rect, *x, (ink, false), Some(index) == hot);
+            wave_painter.vline(x, body.y_range(), pole);
+            Self::paint_notch(
+                &strip_painter,
+                rect,
+                x,
+                Look {
+                    ink,
+                    pole,
+                    ghost: false,
+                    lifted: Some(index) == hot,
+                },
+            );
         }
         if let Some(StripHover::Ghost(g)) = ed.markers.hover
             && dragged.is_none()
             && view.contains(g.x)
         {
-            let ink = palette
-                .accent
-                .gamma_multiply(if g.on_transient { 1.0 } else { 0.6 });
-            Self::paint_notch(&strip_painter, rect, g.x, (ink, true), false);
+            let ink = palette.accent.gamma_multiply(if g.on_transient {
+                1.0
+            } else {
+                theme::WARP_GHOST_FREE
+            });
+            Self::paint_notch(
+                &strip_painter,
+                rect,
+                snapped(painter, g.x),
+                Look {
+                    ink,
+                    pole: Stroke::new(theme::stroke::HAIRLINE, ink),
+                    ghost: true,
+                    lifted: false,
+                },
+            );
         }
+        // The ring reaches past the strip (it is round the notch), so it is
+        // drawn with the editor's painter, not the strip's.
         if let Some((index, response)) = focused
-            && let Some(ring) = strip.flag_rect(*index)
+            && let Some(ring) = strip.notch_rect(*index)
         {
-            crate::widgets::raised::focus_ring(&strip_painter, response, ring);
+            crate::widgets::raised::focus_ring(painter, response, ring);
         }
     }
 
@@ -774,13 +802,16 @@ impl App {
         let (w, h) = (theme::size::WARP_TICK_W, theme::size::WARP_TICK_H);
         let ink = theme::p().text_secondary;
         let inside = painter.with_clip_rect(strip.rect.intersect(painter.clip_rect()));
-        let top = strip.rect.bottom() - h - 3.0;
+        let top = strip.rect.bottom() - h - theme::size::WARP_TICK_FLOOR;
         for t in in_view(analysis, sensitivity, (a as f64 / rate, b as f64 / rate)) {
             let Some(beat) = file.beat_of_frame(t.seconds * rate) else {
                 continue;
             };
             let x = time.x(strip.rect.left(), beat);
-            if strip.flags.iter().any(|f| (f - x).abs() < 1.0) {
+            // The markers are in time order: one beside this transient is
+            // the first at or after a point before it.
+            let next = strip.flags.partition_point(|f| *f < x - 1.0);
+            if strip.flags.get(next).is_some_and(|f| *f < x + 1.0) {
                 continue;
             }
             inside.add(egui::Shape::convex_polygon(
@@ -789,29 +820,22 @@ impl App {
                     pos2(x + w / 2.0, top),
                     pos2(x, top + h),
                 ],
-                ink.gamma_multiply(0.45 + 0.4 * t.strength.clamp(0.0, 1.0)),
+                ink.gamma_multiply(
+                    theme::WARP_TICK_BASE + theme::WARP_TICK_GAIN * t.strength.clamp(0.0, 1.0),
+                ),
                 Stroke::NONE,
             ));
         }
     }
 
     /// One notch: a rounded pin centred on `x` that points down at its
-    /// place, with the thin pole under it to the strip's floor. `outline` is
-    /// the ghost (a rim and a faint fill); `lifted` is the marker under the
-    /// pointer (a rim round the fill).
-    fn paint_notch(
-        painter: &Painter,
-        rect: Rect,
-        x: f32,
-        (ink, outline): (egui::Color32, bool),
-        lifted: bool,
-    ) {
-        let ppp = painter.pixels_per_point();
-        let x = (x * ppp).round() / ppp;
+    /// place, with its pole under it to the strip's floor.
+    fn paint_notch(painter: &Painter, rect: Rect, x: f32, look: Look) {
         let (w, h) = (theme::size::WARP_NOTCH_W, theme::size::WARP_NOTCH_H);
         let (left, right) = (x - w / 2.0, x + w / 2.0);
-        let top = rect.top() + 2.0;
-        let (r, shoulder) = (2.5, top + h - 4.5);
+        let top = rect.top() + theme::size::WARP_NOTCH_INSET;
+        let r = theme::size::WARP_NOTCH_RADIUS;
+        let shoulder = top + h - theme::size::WARP_NOTCH_TAPER;
         let mut points = Vec::with_capacity(12);
         for (cx, cy, from) in [(left + r, top + r, 180.0_f32), (right - r, top + r, 270.0)] {
             for step in 0..=3 {
@@ -822,23 +846,39 @@ impl App {
         points.push(pos2(right, shoulder));
         points.push(pos2(x, top + h));
         points.push(pos2(left, shoulder));
-        painter.vline(
-            x,
-            top + h..=rect.bottom(),
-            Stroke::new(theme::stroke::HAIRLINE, ink),
-        );
-        let (fill, stroke) = if outline {
+        painter.vline(x, top + h..=rect.bottom(), look.pole);
+        let (fill, stroke) = if look.ghost {
             (
-                ink.gamma_multiply(0.15),
-                Stroke::new(theme::stroke::HAIRLINE * 1.5, ink),
+                look.ink.gamma_multiply(theme::WARP_GHOST_FILL),
+                Stroke::new(theme::stroke::LIT, look.ink),
             )
-        } else if lifted {
-            (ink, Stroke::new(theme::stroke::HAIRLINE, theme::p().accent))
+        } else if look.lifted {
+            (
+                look.ink,
+                Stroke::new(theme::stroke::HAIRLINE, theme::p().accent),
+            )
         } else {
-            (ink, Stroke::NONE)
+            (look.ink, Stroke::NONE)
         };
         painter.add(egui::Shape::convex_polygon(points, fill, stroke));
     }
+}
+
+/// How a notch is drawn: its ink, the stroke of its pole, whether it is the
+/// ghost (a rim and a faint fill) and whether it is lifted (a marker under
+/// the pointer, with an accent rim).
+struct Look {
+    ink: egui::Color32,
+    pole: Stroke,
+    ghost: bool,
+    lifted: bool,
+}
+
+/// `x` on a whole physical pixel, so a notch's tip, its pole and the
+/// hairline through the wave land on the same one.
+fn snapped(painter: &Painter, x: f32) -> f32 {
+    let ppp = painter.pixels_per_point();
+    (x * ppp).round() / ppp
 }
 
 /// The seconds of the file in a beat at the flag `x`.

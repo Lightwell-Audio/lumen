@@ -286,3 +286,34 @@ fn the_add_command_in_a_later_repeat_of_a_loop_adds_in_the_turn_that_plays() {
         "the same marker as in the first turn"
     );
 }
+
+/// Renders the strip for a look, not a check: `SHOTS` names a folder and
+/// `LOOK_SCALE` (default 1) the UI scale. The notches, the ghost under the
+/// pointer, a picked marker and the triangles, with the grid under the wave.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn look_at_the_strip() {
+    let (mut lumen, id) = warped_editor("warp-look");
+    let scale: f32 = std::env::var("LOOK_SCALE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1.0);
+    lumen.harness.set_pixels_per_point(scale);
+    lumen.frames(4);
+    let c = clip(&lumen, id);
+    for q in [1, 3] {
+        lumen
+            .app_mut()
+            .set_audio_cursor(c.start + Ticks::quarters(q));
+        command(&mut lumen, "Add warp marker");
+        lumen.frames(3);
+    }
+    let at = on_strip(&lumen, 2.0);
+    lumen.harness.hover_at(at);
+    lumen.frames(4);
+    let image = lumen.harness.render().expect("render");
+    let dir = std::path::PathBuf::from(std::env::var("SHOTS").expect("SHOTS names a folder"));
+    image
+        .save(dir.join(format!("strip-dark-{}.png", (scale * 100.0) as u32)))
+        .expect("save");
+}

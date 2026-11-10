@@ -93,7 +93,19 @@ impl WarpStrip {
             .map(|(i, _)| i)
     }
 
-    /// Where marker `index`'s focus ring goes.
+    /// Where marker `index`'s notch is drawn: the rect its focus ring goes
+    /// round.
+    pub(crate) fn notch_rect(&self, index: usize) -> Option<Rect> {
+        let x = *self.flags.get(index)?;
+        let (w, h) = (theme::size::WARP_NOTCH_W, theme::size::WARP_NOTCH_H);
+        let top = self.rect.top() + theme::size::WARP_NOTCH_INSET;
+        Some(Rect::from_x_y_ranges(
+            x - w / 2.0..=x + w / 2.0,
+            top..=top + h,
+        ))
+    }
+
+    /// Where marker `index`'s Tab stop is: its grab reach.
     pub(crate) fn flag_rect(&self, index: usize) -> Option<Rect> {
         let x = *self.flags.get(index)?;
         let reach = theme::size::WARP_GRAB;
