@@ -561,6 +561,12 @@ impl App {
                         Instant::now(),
                     ));
                     self.file_notice = None;
+                    // The save committed, but the previous version could not
+                    // be kept: say what is safe (sweep M1).
+                    if let Some(why) = &saved.backup_error {
+                        self.file_notice =
+                            Some(format!("Saved, but {why}. Your project itself was saved."));
+                    }
                     if let Some(next) = self.after_save.take() {
                         self.proceed(ctx, next);
                     }
@@ -793,7 +799,9 @@ impl App {
             .frame(super::view::notice_panel_frame())
             .show(ui, |ui| {
                 super::view::notice_card(ui, |ui| {
-                    ui.label(&message);
+                    // A notice is read in full: it wraps rather than being cut
+                    // short or widening the window.
+                    ui.add(egui::Label::new(&message).wrap());
                     if message.starts_with("Not saved")
                         && raised::primary_button(ui, "Save as\u{2026}").clicked()
                     {

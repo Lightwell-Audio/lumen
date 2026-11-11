@@ -258,6 +258,47 @@ fn a_project_from_before_the_mixer_opens_with_a_master_and_saves_as_current() {
     assert!(saved.contains("\"master\": {"), "with its master");
 }
 
+/// The backup is best effort (sweep M1): with `Backups` taken by a file, the
+/// save still commits, says the previous version was not kept, and the saved
+/// project reopens.
+#[test]
+fn a_save_whose_backup_fails_still_saves_and_says_so() {
+    let mut lumen = Lumen::start("save-no-backup");
+    lumen.key(Modifiers::COMMAND, Key::T);
+    let path = project_file(lumen.dir(), "Song");
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
+
+    // A file where the backups folder would go: every backup fails.
+    let folder = path.parent().expect("the project's folder");
+    std::fs::write(folder.join("Backups"), b"not a folder").unwrap();
+    let name = lumen.track_names()[0].clone();
+    lumen.click(&format!("Mute {name}"));
+    assert!(lumen.app().is_dirty());
+    let saved = lumen.app().project().clone();
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
+
+    let notice = lumen.app().file_notice().unwrap_or_default().to_owned();
+    assert!(
+        notice.starts_with("Saved, but the previous version could not be backed up"),
+        "{notice}"
+    );
+    assert!(
+        notice.ends_with("Your project itself was saved."),
+        "{notice}"
+    );
+    assert!(!notice.contains('\u{2026}'), "read in full: {notice}");
+
+    // What was saved reopens as it was.
+    let dir = lumen.crash();
+    let mut again = Lumen::start_with(dir, |launch| launch.opening(path.clone()));
+    again.wait_for("the project to open", |app| !app.is_busy());
+    again.frames(5);
+    assert_eq!(again.app().project().tracks[0].mute, saved.tracks[0].mute);
+    assert!(!again.app().is_dirty());
+}
+
 #[test]
 fn enter_in_the_save_question_saves_and_goes_on() {
     let mut lumen = Lumen::start("save-question-enter");

@@ -225,6 +225,7 @@ impl App {
             copied,
             bytes,
             skipped,
+            backup_error,
         } = saved;
         let audio = match copied {
             0 => String::new(),
@@ -265,6 +266,11 @@ impl App {
             } else {
                 format!("Saved a copy as {called} ({audio})")
             }),
+        }
+        // The save committed even where the previous version could not be
+        // kept: say both, so the warning is not taken for a failed save.
+        if let Some(why) = &backup_error {
+            self.file_notice = Some(format!("Saved, but {why}. Your project itself was saved."));
         }
         match skipped.as_slice() {
             [] => {}

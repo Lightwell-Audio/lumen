@@ -106,6 +106,10 @@ pub struct Saved {
     /// Media the save could not find on this machine: they are left as the
     /// project had them, still missing. Their file names.
     pub skipped: Vec<String>,
+    /// Why the previous version could not be copied into `Backups`. The save
+    /// itself committed: the file holds the new content. The interface says
+    /// so, without treating it as a failed save.
+    pub backup_error: Option<String>,
 }
 
 /// Stops a long save and shows how far it has come (Collect and save). The
@@ -368,7 +372,9 @@ fn save_inner(request: SaveRequest, control: Option<&Control>) -> Result<Saved, 
         };
         media.path = media_path_for(&dir, &location);
     }
-    lumen_project::save(&project, &file, &SaveOptions { keep_backups })
+    // The backup is best effort (sweep M1): the save wins, and a backup that
+    // could not be made is reported with the result.
+    let report = lumen_project::save_with_report(&project, &file, &SaveOptions { keep_backups })
         .map_err(|e| e.to_string())?;
     if let Some(control) = control {
         control.set(1.0);
@@ -380,6 +386,7 @@ fn save_inner(request: SaveRequest, control: Option<&Control>) -> Result<Saved, 
         copied,
         bytes,
         skipped,
+        backup_error: report.backup_error,
     })
 }
 
@@ -736,6 +743,37 @@ mod tests {
         assert!(!original.starts_with(r"\\?\"), "{original}");
         assert_eq!(opened.project.tracks, doc.project().tracks);
         assert_eq!(opened.media_files.len(), 2);
+    }
+
+    /// A previous version that cannot be kept in `Backups` is a warning, not
+    /// a failed save (sweep M1): the new content is written either way.
+    #[test]
+    fn a_backup_that_cannot_be_kept_is_reported_and_the_save_stands() {
+        let tmp = TempDir::new("files-backup");
+        let doc = document_with(&[]);
+        let path = tmp.path().join("Song.lumen");
+        let first = save_now(request(&doc, path.clone(), false)).unwrap();
+        assert_eq!(first.backup_error, None, "there is nothing to keep yet");
+
+        // A file where `Backups` would go: making the folder must fail.
+        std::fs::write(tmp.path().join("Backups"), b"not a folder").unwrap();
+        let mut project = doc.project().clone();
+        project.view.left_beat = 12.0;
+        let second = save_now(SaveRequest {
+            project: project.clone(),
+            ..request(&doc, path.clone(), false)
+        })
+        .unwrap();
+        let why = second.backup_error.expect("the failed backup is reported");
+        assert!(
+            why.contains("the previous version could not be backed up"),
+            "{why}"
+        );
+        assert_eq!(
+            open_now(&path).unwrap().project.view,
+            project.view,
+            "the new content is on disk"
+        );
     }
 
     #[test]
