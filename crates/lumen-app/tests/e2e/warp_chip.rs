@@ -22,10 +22,17 @@ const RATE: u32 = 48_000;
 /// file `seconds` long. A click is a short decaying burst of noise, a louder
 /// one on every fourth beat.
 fn click_track(path: &Path, (bpm, beats): (f64, usize), lead: f64, seconds: f64) -> PathBuf {
+    let onsets: Vec<f64> = (0..beats).map(|b| lead + b as f64 * 60.0 / bpm).collect();
+    clicks_at(path, &onsets, seconds)
+}
+
+/// A stereo WAV `seconds` long with a click at each of `onsets` (seconds), as
+/// [`click_track`] makes them: for a loop with one hit played late.
+pub(super) fn clicks_at(path: &Path, onsets: &[f64], seconds: f64) -> PathBuf {
     let frames = (seconds * f64::from(RATE)) as usize;
     let mut mono = vec![0.0_f32; frames];
-    for b in 0..beats {
-        let at = ((lead + b as f64 * 60.0 / bpm) * f64::from(RATE)) as usize;
+    for (b, onset) in onsets.iter().enumerate() {
+        let at = (onset * f64::from(RATE)) as usize;
         let gain = if b % 4 == 0 { 0.9 } else { 0.5 };
         let mut seed = 0x1234_5678_u32;
         for i in 0..2_400 {
@@ -188,6 +195,46 @@ fn warp_starts_from_the_tempo_found_and_each_change_is_one_undo_step() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(3);
     assert!(clip(&lumen, id).warp.is_some(), "one undo turns it back on");
+}
+
+/// MT-WARP-2 (owner): turning warp on for a file made at a slower tempo than
+/// the song left the clip as long as the file played unwarped, with silence
+/// after the sound. The clip now ends where the sound does, in the same undo
+/// step, and a clip the person made shorter is left alone.
+#[test]
+fn turning_warp_on_cuts_the_clip_to_where_the_sound_ends() {
+    let mut lumen = Lumen::start("warp-fit");
+    // A 100 BPM loop of 9.85 s, dropped into a 120 BPM song: unwarped, the
+    // clip is 9.85 s long (19.7 beats).
+    let file = click_track(&lumen.dir().join("clicks.wav"), (100.0, 16), 0.25, 9.85);
+    lumen.drop_files(&[file]);
+    lumen.frames(40);
+    let id = lumen.app().project().tracks[0].clips[0].id;
+    let whole = clip(&lumen, id).length;
+    open(&mut lumen, id);
+    lumen.wait_for("detection", |app| app.audio_detection().ready);
+
+    open_chip(&mut lumen);
+    lumen.click("Warp clip");
+    let cut = warped(&lumen, id).length;
+    // Played at 100/120 of its length, the file lasts 9.85 s * 100 / 120 of
+    // the song: about 16.4 beats, give or take the clip's first fraction.
+    let expected = whole.0 as f64 * 100.0 / 120.0;
+    assert!(
+        (cut.0 as f64 - expected).abs() < f64::from(PPQ as u32) / 4.0,
+        "{cut:?} for about {expected}"
+    );
+    assert!(
+        cut < whole,
+        "the clip follows the sound, not the old length"
+    );
+    close_chip(&mut lumen);
+
+    // One undo brings back the clip as it was, unwarped.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    assert!(clip(&lumen, id).warp.is_none());
+    assert_eq!(clip(&lumen, id).length, whole);
 }
 
 #[test]

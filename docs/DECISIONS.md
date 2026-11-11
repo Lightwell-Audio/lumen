@@ -12780,3 +12780,41 @@ strip and the mark at 150% and 200% scale, and in the light theme.
 a stream's request carries the merged curve (`lanes::pitch_curves`). A later
 change to a clip's own pitch must keep the curve a function of the song tick, or
 the pieces of a split stop sharing a stream.
+
+## ADR-0138 — A warped clip ends where its sound does (M9.5 owner finding, MT-WARP-2)
+
+**Status.** Accepted (owner, 2026-11-10: option A of three).
+
+**Context.** Turning warp on kept the clip's length (`enable`: "nothing is
+stretched yet"). For a file made at a slower tempo than the song, the sound then
+ends before the clip does, and the clip carries a stretch of silence. The owner
+saw it with a 96 BPM loop in a 150+ BPM song and called it a bug. It was also
+inconsistent: a loop that follows the song by itself on import takes whole bars
+(ADR-0134), and ÷2 refused a tempo that ran the clip past its file.
+
+**Options.** A: cut the clip to the end of the warped sound when warp is turned
+on and when the file's tempo is changed (×2, ÷2, a typed tempo), never
+lengthening it, in the same undo step. B: A, and snap loops to whole bars. C:
+leave the length and add a "Fit clip to warped audio" command.
+
+**Choice.** A. `lumen_project::edit::warp::fit_to_file` is `trim`'s end edge
+at the clip's own end, so the clip stops at the file's last frame under every
+pass's map and the fade out is cropped as any trim does. It does nothing to a
+clip that already ends inside its file (one the owner trimmed shorter), one that
+loops, or one that is not warped. `Document::warp_clips_by` and the original-
+tempo `edit::set` call it, so each is still one undo step.
+
+**Consequences and deviations.**
+- A tempo change that would run the clip past its file is no longer refused: the
+  clip is cut instead. A change that would start the clip outside its file, or
+  is out of range, is still refused (the notice says so). This replaces the
+  first consequence of ADR-0134.
+- Not covered: marker drags, Warp from here (which can turn warp on) and Set
+  project tempo from clip. A marker that would run the clip past its file is
+  still refused; a clip warped by Warp from here keeps its length. Recording
+  and the import follow (`as_recorded`, `follow_detected`) are as before.
+- Option B (whole bars for a loop) is not built.
+- Tests: `fit_to_file` unit tests, `Document` test
+  `warping_to_a_faster_tempo_than_the_file_cuts_the_clip_in_the_same_step`,
+  `lumen-project/tests/warp.rs` (the two refusals became cuts), E2E
+  `warp_chip::turning_warp_on_cuts_the_clip_to_where_the_sound_ends`.

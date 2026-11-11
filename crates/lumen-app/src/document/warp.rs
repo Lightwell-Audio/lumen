@@ -97,7 +97,9 @@ fn clip_in(project: &Project, id: Id) -> Option<&Clip> {
 impl Document {
     /// Turns warp on for the selected audio clips, for files made at
     /// `original_bpm`. A clip at the file's own tempo plays as it did; any other
-    /// tempo plays it faster or slower, the pitch moving with it (Repitch).
+    /// tempo plays it faster or slower, the pitch moving with it (Repitch). A
+    /// clip the sound now ends before is cut back to where its file ends, in
+    /// the same step (`edit::fit_to_file`); it is never made longer.
     #[cfg(test)]
     pub fn warp_clips(&mut self, ids: &[Id], original_bpm: f64) -> Warped {
         self.warp_clips_by(ids, &|_| original_bpm)
@@ -108,7 +110,10 @@ impl Document {
     pub fn warp_clips_by(&mut self, ids: &[Id], original_bpm: &dyn Fn(&Clip) -> f64) -> Warped {
         let mut out = Warped::default();
         self.history.apply("Warp clips", None, |project| {
-            out = each(project, ids, &|p, c| edit::enable(p, c, original_bpm(c)));
+            out = each(project, ids, &|p, c| {
+                let on = edit::enable(p, c, original_bpm(c))?;
+                Ok(edit::fit_to_file(p, &on))
+            });
         });
         out
     }
@@ -303,6 +308,33 @@ mod tests {
         assert_eq!(doc.project(), &plain);
         doc.redo();
         assert_eq!(doc.project(), &warped);
+    }
+
+    #[test]
+    fn warping_to_a_faster_tempo_than_the_file_cuts_the_clip_in_the_same_step() {
+        // MT-WARP-2 (owner): the clip kept its length and carried silence.
+        let (mut doc, id) = doc_with_clip();
+        let plain = doc.project().clone();
+        let length = plain.tracks[0].clips[0].length;
+        // Made at 30 BPM in the 120 BPM song, the file is heard four times as
+        // fast, and ends long before the clip does.
+        assert_eq!(doc.warp_clips(&[id], 30.0).changed, 1);
+        let cut = doc.project().tracks[0].clips[0].length;
+        assert!(
+            cut < length,
+            "the clip follows the sound: {cut:?} < {length:?}"
+        );
+        // One undo brings back the whole clip and no warp.
+        doc.undo();
+        assert_eq!(doc.project(), &plain);
+        // A clip the owner already made shorter than the sound is not changed.
+        assert_eq!(doc.warp_clips(&[id], 240.0).changed, 1);
+        assert_eq!(doc.project().tracks[0].clips[0].length, length);
+        // A tempo change that makes the file faster again cuts the clip, and
+        // is not refused (it used to be).
+        assert_eq!(doc.scale_warp_tempo(&[id], 0.25).changed, 1);
+        assert!(doc.project().tracks[0].clips[0].length < length);
+        lumen_project::validate(doc.project()).unwrap();
     }
 
     #[test]

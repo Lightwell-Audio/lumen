@@ -632,7 +632,9 @@ fn markers_that_leave_the_file_are_refused() {
         );
     }
     assert_eq!(clip.warp, before);
-    // A tempo change that pushes the end out of the file is refused as well.
+    // A tempo change that pushes the end out of the file cuts the clip back
+    // to where the file ends (MT-WARP-2): never longer, and never refused
+    // for that alone.
     let mut project = project_with(audio_clip(1, q(0), q(8), 0));
     let clip = (*project.tracks[0].clips[0]).clone();
     let tail = Marker::new(FILE_SECONDS - 4.0, Ticks::ZERO);
@@ -640,10 +642,14 @@ fn markers_that_leave_the_file_are_refused() {
     let clip = warp_edit::set_markers(&project, &clip, vec![tail]).unwrap();
     Arc::make_mut(&mut project.tracks[0]).clips[0] = Arc::new(clip.clone());
     // Four seconds of file for a clip that plays four; at 60 BPM it needs eight.
-    assert_eq!(
-        warp_edit::set(&project, &clip, &warp_edit::Change::OriginalBpm(60.0)),
-        Err(warp_edit::Refused::Setting)
-    );
+    let fitted = warp_edit::set(&project, &clip, &warp_edit::Change::OriginalBpm(60.0))
+        .expect("the clip is cut back, not refused");
+    assert!(fitted.length < clip.length, "cut back to the file's end");
+    assert_eq!(fitted.start, clip.start);
+    every_pass_fits(&fitted);
+    let mut after = project.clone();
+    Arc::make_mut(&mut after.tracks[0]).clips[0] = Arc::new(fitted);
+    assert_eq!(validate(&after), Ok(()));
 }
 
 #[test]
@@ -894,7 +900,7 @@ fn a_trim_or_a_brace_edit_keeps_every_take_inside_its_file() {
 }
 
 #[test]
-fn a_new_original_tempo_is_refused_when_a_stored_take_would_leave_the_file() {
+fn a_new_original_tempo_cuts_the_clip_back_when_a_stored_take_would_leave_the_file() {
     let mut project = project_with(audio_clip(1, q(0), q(4), 0));
     let mut clip = (*project.tracks[0].clips[0]).clone();
     // The playing pass is pinned by two markers (it reads the same whatever
@@ -919,10 +925,12 @@ fn a_new_original_tempo_is_refused_when_a_stored_take_would_leave_the_file() {
     Arc::make_mut(&mut project.tracks[0]).clips[0] = Arc::new(clip.clone());
     assert_eq!(validate(&project), Ok(()));
     every_pass_fits(&clip);
-    assert_eq!(
-        warp_edit::set(&project, &clip, &warp_edit::Change::OriginalBpm(60.0)),
-        Err(warp_edit::Refused::Setting)
-    );
+    // The clip is cut to where the tightest pass's file ends, so every pass
+    // still reads inside it.
+    let fitted = warp_edit::set(&project, &clip, &warp_edit::Change::OriginalBpm(60.0))
+        .expect("the clip is cut back, not refused");
+    assert!(fitted.length < clip.length);
+    every_pass_fits(&fitted);
 }
 
 #[test]

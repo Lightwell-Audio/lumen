@@ -407,7 +407,7 @@ short: the history of every slice is in `docs/HANDOFF_ARCHIVE.md`
 and the reasoning in `docs/DECISIONS.md`. Add one short paragraph to "Now"
 per slice and move what is no longer current out of it.
 
-**Now (2026-10-31)**
+**Now (2026-11-10)**
 - **M7 (automation, editing and render) is merged:** A0 to A8, E0 to E6
   (built as "M7b"; folded back into `docs/milestones/M7.md` on 2026-10-29)
   and the UX round three (ADR-0108, PR #75). Waiting for the owner:
@@ -610,7 +610,7 @@ per slice and move what is no longer current out of it.
   and ÷2, the detected tempo with Use, the sensitivity, Set project tempo from
   clip and Warp from here, each one undo step. Five commands, no keys, tagged
   `@m9.5` in `undocumented.txt`. **Tell the owner:** ×2, ÷2 and a typed tempo
-  are refused when the clip would then play past the end of its file; the
+  cut the clip back to its file's end (ADR-0138; they were refused); the
   sensitivity is not saved; nothing was heard on real music; Rhythmic still
   plays as Repitch. Not run here: the WSL perf gate and the macOS
   cross-target clippy. Next: S5b (markers, the Rhythmic slicer).
@@ -670,6 +670,35 @@ per slice and move what is no longer current out of it.
   is shorter); the clip mark shows the transpose, not an envelope. Not run
   here: the WSL perf gate, the macOS cross-target clippy, the pitched cost in
   `warped_64`, the strip and mark at 150% and 200%. Next: S7 (the close).
+- **Branch `m9.5-s7-close`: M9.5 S7, the close, is built** (cut from S6, then
+  merged with `main` after PR #109; no format change; no ADR). E2E
+  `walkthrough_warp` plays out the exit criterion on a click-track loop
+  named "92 BPM" (one hit 80 ms late) and a steady tone, and compares the
+  export with what the test device played (same hits and gaps within 2 ms,
+  the tone at 429 Hz for +2 st); it compares gaps from the second hit on,
+  because the test device drops up to a block before `listen` begins.
+  MT-M9.5-1 (`docs/manual-tests/M9.5.md`) is its twin on the Focusrite. The
+  review is `docs/audits/2026-11-10-m9.5.md`: no High, four Medium, two
+  Low, **waiting for the owner's go-ahead** (M1 split `warp_markers.rs`; **M2
+  a decision: one warp marker moves the audio on both sides of it, so the
+  walkthrough anchors the neighbours first; pitched: "Fix this hit"**; M3 two
+  gates could not run here; M4 the plan's allocation-guard test for warped
+  playback was never written). The report is in `docs/PROGRESS.md`. **Tell
+  the owner:** nothing in 9.5 has been heard by a person (MT-WARP-1 to 3,
+  MT-PITCH-1, MT-M9.5-1); the WSL perf gate and the macOS cross-clippy did not
+  run here (the latter needs a C++ compiler for the Apple target); the docs
+  pass for 9.5 is owed (ADR-0133, eleven `@m9.5` ids). The KNOWN_ISSUES row
+  "Audio clips do not follow tempo" is removed. Next: the owner's decision on
+  M2, then the review's fixes, the docs pass and the approval of 9.5 before M8.
+  **Manual-test update, 2026-11-10:** the owner passed MT-WARP-1 to 3 on
+  synthetic assets. The real-GUI agent run verified ADR-0138's clip-length
+  change and several layouts, but reproduced overlapping file-time ruler
+  labels after a large marker drag. Pitch listening remains partial: a
+  doubled transient near bar 3 at nonzero transpose in Melodic/Full mix,
+  absent at static zero; the Pitch chip/popover moves during adjustment,
+  and zero static transpose does not make an active pitch envelope clear.
+  These findings are not fixed; see `docs/manual-tests/M9.5.md` and
+  `docs/KNOWN_ISSUES.md`. MT-M9.5-1 and milestone approval remain open.
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);
