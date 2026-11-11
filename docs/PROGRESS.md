@@ -23,6 +23,13 @@ wheel, edge scroll and window place, kept quantize options, the presets
 folder, a covered control taking the focus, an orphaned host adopted by an
 ancestor other than process 1). MT-KI-1 waits for the owner.
 
+On branch `m9.5-s7-close` (2026-11-10): M9.5, audio clip editing and warp, is built (S0 to S6 merged, formats
+v33 and v34). S7, the close, adds E2E `walkthrough_warp` (the exit criterion: a 92 BPM loop in a 120 BPM song, one
+late hit fixed with markers, a phrase transposed +2 st, the export equal to what was heard), MT-M9.5-1 and the review
+(`docs/audits/2026-11-10-m9.5.md`: four Medium findings, waiting for the owner). Owner listening on 2026-11-10
+passed MT-WARP-1 to 3; MT-PITCH-1 remains partial with audible and UI findings. MT-M9.5-1 remains open.
+The milestone report is below; detailed runs are in `docs/manual-tests/M9.5.md`.
+
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
 
 ## Milestones
@@ -38,7 +45,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 6 | VST3 Hosting & Device System | ✅ Signed off 2026-10-26; MT-VST-3 to 7 and the ADR-0069 callback numbers are out of scope for now (owner), so the callback's wait stays on trial | [M6](milestones/M6.md); review `docs/audits/2026-10-18-m6.md` |
 | 7 | Automation, Editing & Render | 🟡 A0 to A8 and E0 to E6 merged (ADR-0081 to 0098; formats v22 to v29); MT-EDIT-2 passed by ear (owner, 2026-11-07); MT-EDIT-7 and MT-UX-2 (agent runs 2026-11-07, steps left open) and the approval wait; E7 and E8 moved to mini milestone 9.5 (2026-11-04) | [M7](milestones/M7.md); reviews `docs/audits/2026-10-22-m7.md`, `docs/audits/2026-10-24-m7b.md` |
 | 9 | Recording, Media, Export & Production Workflow | 🟡 R0 to R8, R1b, R2b, R4b, R7b and R7c merged (PR #60 to #89; ADR-0099 to 0117; formats v30 to v32). R9 (close) on `m9-s9-closeout`. Manual tests passed by the owner on 2026-11-07: MT-M9-1, MT-REC-5, MT-AUDIO-7, MT-FIRSTRUN-1, MT-SYS-1; MT-BROWSE-1 partly (the preview; Places and the Keep Music choice not run). Still waiting: MT-EXPORT-1 (real-device real-time export) and MT-PREF-1 | Before M8 (owner, 2026-10-23). [M9](milestones/M9.md); review `docs/audits/2026-11-03-m9.md` |
-| 9.5 | Audio clip editing and warp (mini milestone) | 🟡 In progress, planned (`docs/milestones/M9.5.md`); every choice made on 2026-11-04 (all recommendations, BS B, TL C, KC C). S0 built (ADR-0120; T waits for the owner's ear), S1 built (ADR-0121; MT-CLIP-1 passed except step 9 at 200%, which fails at the smallest window, see KNOWN_ISSUES); S2 planned in three (§9, owner: every recommendation, 2026-11-06), S2a built (the editor's handles, ADR-0123; MT-CLIP-2 passed by hand and by ear on 2026-11-07 except step 10 at 200%, where the editor header is cut off at the smallest window; the Clip tab's focus ring is also clipped), S2b built (range, edit cursor, envelopes, loop brace, ADR-0126; MT-CLIP-3 waits) and S2c built (Loop clip, scrub and keys on the ruler, Pop out, ADR-0127; MT-CLIP-4 waits) and S3 built (the properties strip, the File chip and the marks on clips, ADR-0128; MT-CLIP-5 waits) and S4a built (warp in the model, format v33, ADR-0130) and S4b built (Repitch: a warped clip follows the tempo in playback and every render, a stateless windowed-sinc, ADR-0131; no control reaches it before S5, nothing has been heard) and S4c built (Melodic and Full mix on the vendored stretch library, T = C, ADR-0132; MT-WARP-1 waits for the owner's ear) and S4d built (the "Follow tempo" preference: recordings and tagged loops follow the song's tempo; its docs page waits for the docs pass) and S5a built (detection: transients and tempo on a worker, kept in the cache; the Warp chip with ×2, ÷2, Set project tempo from clip and Warp from here, ADR-0134; MT-WARP-2 waits) and S5b built (warp markers on the editor's strip and as ticks on the arrangement's clip; the Rhythmic slicer, ADR-0135; MT-WARP-3 waits) and S6 built (a static transpose and the pitch envelope in every mode but Repitch, format v34, the Pitch chip, pill and lane, the "+2" mark; ADR-0137; MT-PITCH-1 waits; a pure tone shifted an octave is roughened, KNOWN_ISSUES) | Owner, 2026-11-03: before M8. M7's planned E7 (the audio clip editor in the detail panel) and E8 (warp and time-stretch, with the clip's static pitch and the audio pitch envelope), `docs/milestones/M7.md` §5 |
+| 9.5 | Audio clip editing and warp (mini milestone) | 🟡 Built, not signed off; planned (`docs/milestones/M9.5.md`); every choice made on 2026-11-04 (all recommendations, BS B, TL C, KC C). S0 built (ADR-0120; T waits for the owner's ear), S1 built (ADR-0121; MT-CLIP-1 passed except step 9 at 200%, which fails at the smallest window, see KNOWN_ISSUES); S2 planned in three (§9, owner: every recommendation, 2026-11-06), S2a built (the editor's handles, ADR-0123; MT-CLIP-2 passed by hand and by ear on 2026-11-07 except step 10 at 200%, where the editor header is cut off at the smallest window; the Clip tab's focus ring is also clipped), S2b built (range, edit cursor, envelopes, loop brace, ADR-0126; MT-CLIP-3 waits) and S2c built (Loop clip, scrub and keys on the ruler, Pop out, ADR-0127; MT-CLIP-4 waits) and S3 built (the properties strip, the File chip and the marks on clips, ADR-0128; MT-CLIP-5 waits) and S4a built (warp in the model, format v33, ADR-0130) and S4b built (Repitch: a warped clip follows the tempo in playback and every render, a stateless windowed-sinc, ADR-0131; no control reaches it before S5, nothing has been heard) and S4c built (Melodic and Full mix on the vendored stretch library, T = C, ADR-0132; MT-WARP-1 waits for the owner's ear) and S4d built (the "Follow tempo" preference: recordings and tagged loops follow the song's tempo; its docs page waits for the docs pass) and S5a built (detection: transients and tempo on a worker, kept in the cache; the Warp chip with ×2, ÷2, Set project tempo from clip and Warp from here, ADR-0134; MT-WARP-2 waits) and S5b built (warp markers on the editor's strip and as ticks on the arrangement's clip; the Rhythmic slicer, ADR-0135; MT-WARP-3 waits) and S6 built (a static transpose and the pitch envelope in every mode but Repitch, format v34, the Pitch chip, pill and lane, the "+2" mark; ADR-0137; MT-PITCH-1 waits; a pure tone shifted an octave is roughened, KNOWN_ISSUES) and S7 built on `m9.5-s7-close` (E2E `walkthrough_warp`, MT-M9.5-1 waits, the review `docs/audits/2026-11-10-m9.5.md` with four Medium findings waiting for the owner, the report below); the docs pass is owed (ADR-0133) | Owner, 2026-11-03: before M8. M7's planned E7 (the audio clip editor in the detail panel) and E8 (warp and time-stretch, with the clip's static pitch and the audio pitch envelope), `docs/milestones/M7.md` §5 |
 | D | User documentation on the website | 🟡 Strategy accepted 2026-11-05 (ADR-0119). D0 built on `docs/d0-foundations`: the site, search, generated reference, coverage baseline, the recorder and the Split a clip scenes, CI checks and the deploy, which renders only the scenes that changed (owner: A, USER_DOCS.md §13). Waiting for the owner: the look at the built pages | [Strategy](USER_DOCS.md): slices D0 to D7, then docs per slice, per milestone and later per version |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | After M9 (owner, 2026-10-23) |
 | 10 | Hardening, Performance & Release | 🔲 | Holds the §7 [M] item "logging with a Reveal logs menu item": a rolling log file beside the crash reports and a Reveal logs command (M9 review L4) |
@@ -304,6 +311,91 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 ---
 
 ## Milestone reports
+
+### Milestone 9.5 — report (2026-11-10)
+**Status:** Built, not signed off. S0 to S6 are merged (ADR-0120 to 0137; formats v33 and v34). S7, the close, is on
+`m9.5-s7-close`: the combined walkthrough (E2E `walkthrough_warp`, MT-M9.5-1) and the review
+(`docs/audits/2026-11-10-m9.5.md`). The plan is `docs/milestones/M9.5.md`.
+
+**Shipped.**
+- **S0 stretch trial** (ADR-0120): the blind pack that chose the library (the owner chose T = C, the vendored
+  stretch library).
+- **S1 to S3 the audio clip editor** (ADR-0121, 0123, 0126, 0127, 0128): the shared clip header and canvas with
+  zoom, the file's whole length and a wave at the samples; trims, fades, the gain line and slip as the
+  arrangement's own edits; the range, edit cursor, gain and pan envelopes and the loop brace; scrub, Loop clip and
+  Pop out; and the properties strip with the File chip and marks on arrangement clips.
+- **S4 warp** (ADR-0130 to 0132): warp in the model (format v33) with every audio edit keeping the map true;
+  Repitch; Melodic and Full mix on the vendored stretch library, bit-identical however the stream is asked;
+  new clips and recordings follow the song's tempo ("Follow the tempo", Loops by default).
+- **S5 detection and markers** (ADR-0134, 0135): transients and tempo on a worker and in the cache; the Warp chip
+  (×2, ÷2, Set project tempo from clip, Warp from here); warp markers made by dragging a ghost, snapped to the
+  grid, with keys and accessible names; markers drawn on the arrangement's clip; the Rhythmic slicer.
+- **S6 pitch** (ADR-0137; format v34): a static transpose in semitones and cents and the pitch envelope, in every
+  mode but Repitch; the Pitch chip, pill and lane; the "+2" mark on the clip.
+- **S7 the walkthrough.** E2E `walkthrough_warp` plays out the exit criterion: a loop at 92 BPM follows a 120 BPM
+  song with nothing done to it, one late hit is fixed with warp markers, a phrase is transposed +2 st, both clips
+  are trimmed, faded and slipped in the Clip tab, and the export has the same hits at the same distances (± 2 ms)
+  as the test device played, with the tone at the pitch that was set. MT-M9.5-1 is its twin on the Focusrite.
+
+**Verified.** Gates on Windows, 2026-11-10:
+- fmt and workspace clippy `-D warnings`;
+- E2E: 976 passed, 5 ignored (the look-at tests that render PNGs), no retries;
+- 13 of 13 smoke tests; the `lumen-app` unit tests (1,330) and the other crates' tests;
+- the layering, naming, design-token and docs-coverage tests.
+
+**Pre-PR recheck, 2026-11-10:** after ADR-0138 and the manual-test records,
+`cargo fmt --all`, workspace clippy with `-D warnings`, and
+`cargo test --workspace` passed. The E2E suite passed 977 tests with 5 ignored;
+the app unit suite passed 1,331 with 2 ignored. The separate ignored smoke
+suite passed all 13 tests. WSL's Ubuntu mirror was unavailable
+(`WSL_E_DISTRO_NOT_FOUND`), so the Linux/performance gates did not run.
+macOS cross-clippy was attempted and stopped because the C++ compiler
+`c++` was not found. These checks remain open, not passed.
+
+**Review.** `lumen-review` ran on 2026-11-10 (`docs/audits/2026-11-10-m9.5.md`): no High, four Medium, two Low. It
+swept M9.5's own diff by scans and reading, not every crate.
+- **M1:** `app/audio_editor/warp_markers.rs` is 941 production lines; split it by concern.
+- **M2 (a decision for the owner):** one warp marker moves the audio on both sides of it, so fixing one late hit
+  needs anchors on the hits either side, and nothing tells the user. Recommendation: a "Fix this hit" action in the
+  strip's menu that makes the three markers in one undo step.
+- **M3:** the WSL mirror (clippy and the performance gate) and the macOS cross-target clippy could not run on this
+  machine.
+- **M4:** the plan's allocation-guard test for warped playback with marker drags was not written. Covered by
+  argument only (a warped clip is a stream at the callback).
+- **L1** (fixed): the "Audio clips do not follow tempo" row is removed from KNOWN_ISSUES. **L2:** the docs pass is
+  owed.
+
+**Not verified.**
+- **Owner listening update, 2026-11-10:** MT-WARP-1 to 3 passed by overall owner reports. MT-PITCH-1 is partial:
+  transpose works, but a repeated doubled transient near bar 3 was heard at nonzero transpose in Melodic and
+  Full mix; the chip/popover moves during adjustment and an active envelope is unclear beside a zero static
+  transpose. MT-M9.5-1 remains open. See the manual-test run for evidence and limits; the modes were originally
+  tuned without listening (ADR-0132, 0135).
+- **Not run:** the WSL Linux mirror and the performance gate (`lumen-project` and `lumen-media` changed, the engine
+  did not), the macOS cross-clippy (it needs a C++ compiler for the Apple target), and the screenshots at 100, 150
+  and 200% in both themes at the time of the review. Later real-GUI checks covered ordinary layouts in both
+  themes at all three scales in part; a large marker drag reproduced overlapping file-time ruler labels.
+  The native-minimum checks and several popover combinations remain open (`docs/manual-tests/M9.5.md`).
+- **MT-CLIP-1 step 9 and MT-CLIP-2 step 10:** the smallest window at UI scale 200% is unusable (KNOWN_ISSUES).
+
+**Risks.**
+1. One disk thread stretches about 30 stereo tracks in real time (`warped_64`, ADR-0132); a project with more
+   warped tracks underruns at the disk thread's reads, not in the callback.
+2. A pure tone shifted an octave is roughened (ADR-0137); real material is not measured.
+3. A warped clip plays warped live only while "Play audio from disk" is on, and an edit while playing is held up
+   to 2 s (KNOWN_ISSUES).
+4. Stretched audio is bit-identical for any page size, jump and block size within one build, but not between
+   platforms (the maths library differs; `crates/lumen-media/vendor/VENDORED.md`). A warped export from macOS
+   and one from Windows can differ in the last bits. The libraries are MIT-licensed and listed in
+   `THIRD_PARTY_NOTICES.md`.
+
+**Proposed next.**
+1. The owner decides M2 and runs the manual tests above.
+2. The fixes of the review, then the **documentation pass** for 9.5 (ADR-0133: the owed pages, a full render, and
+   `m9.5` added to `site/docs/data/docs_pass.txt`).
+3. The approval of 9.5, then **M8** (drum maps and built-in devices), as the owner ordered on 2026-10-23, then M10.
+
+**Waiting for the owner.** The decision on M2, the manual tests, and the approval of M9.5.
 
 ### Milestone 9 — report (2026-11-03)
 **Status:** Built, not signed off. R0 to R8 are merged (PR #60 to #89; ADR-0099 to 0117; formats v30 to v32). R9,

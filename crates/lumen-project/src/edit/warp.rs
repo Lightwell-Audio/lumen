@@ -18,7 +18,7 @@ use lumen_core::warp::Marker;
 
 use crate::model::{Clip, ClipContent, Pass, Project, Warp, WarpMode};
 
-use super::audio_of;
+use super::{Edge, audio_of};
 
 /// Source frames two positions may differ by and still be one frame.
 const FRAME_SLACK: f64 = 1e-6;
@@ -190,6 +190,27 @@ pub fn enable(project: &Project, clip: &Clip, original_bpm: f64) -> Result<Clip,
     Ok(out)
 }
 
+/// `clip` cut back to where its file ends under its map, so a clip warped to
+/// a faster tempo than its file's does not carry silence after the sound
+/// (M9.5 owner finding, MT-WARP-2). A clip that already ends inside the file
+/// (one the owner trimmed shorter included), one that loops (its brace says
+/// what plays) and one that is not warped come back as they were: it never
+/// makes a clip longer. The fade out is cropped as any trim of the end does.
+pub fn fit_to_file(project: &Project, clip: &Clip) -> Clip {
+    let loops = clip.loop_length.is_some_and(|p| p > Ticks::ZERO);
+    if clip.warp.is_none() || loops {
+        return clip.clone();
+    }
+    super::trim(
+        project,
+        &super::tempo_of(project),
+        clip,
+        Edge::End,
+        clip.start + clip.length,
+        false,
+    )
+}
+
 /// The ticks, from the start of a clip of `length`, at which the song's tempo
 /// changes inside it, with a tick every `step` along a ramp (a ramp is a
 /// curve, and a marker only draws a straight line between two points). In
@@ -354,10 +375,15 @@ pub fn set(project: &Project, clip: &Clip, change: &Change) -> Result<Clip, Refu
         }
     }
     // The original tempo decides where a map reads outside its markers, so it
-    // can move what the window plays: not out of the file, in any pass.
+    // can move what the window plays. A clip that would now run past the end
+    // of its file in any pass is cut back to where the file ends (it is never
+    // lengthened); one that would start outside it is refused.
+    if matches!(change, Change::OriginalBpm(_)) {
+        out = fit_to_file(project, &out);
+    }
     if !warps(clip)
         .zip(warps(&out))
-        .all(|(before, after)| may_become(project, clip, before, after))
+        .all(|(before, after)| may_become(project, &out, before, after))
     {
         return Err(Refused::Setting);
     }
@@ -509,6 +535,38 @@ mod tests {
         assert_eq!(disable(&warped).unwrap(), clip);
         assert_eq!(enable(&project, &warped, 120.0), Err(Refused::Unchanged));
         assert_eq!(disable(&clip), Err(Refused::Unchanged));
+    }
+
+    #[test]
+    fn a_clip_warped_faster_than_its_file_is_cut_to_where_the_sound_ends() {
+        let project = song();
+        let clip = (*project.tracks[0].clips[0]).clone();
+        // Taken as made at 30 BPM in a 120 BPM song, the file is heard four
+        // times as fast: the clip's 4 s would need 16 s of a 10 s file
+        // (MT-WARP-2).
+        let warped = enable(&project, &clip, 30.0).unwrap();
+        let fitted = fit_to_file(&project, &warped);
+        assert_eq!(fitted.start, clip.start);
+        assert!(fitted.length < warped.length, "cut to the sound");
+        assert!(fitted.length >= super::super::MIN_LENGTH);
+        // Fitting twice changes nothing.
+        assert_eq!(fit_to_file(&project, &fitted), fitted);
+    }
+
+    #[test]
+    fn fitting_never_lengthens_and_leaves_what_it_does_not_apply_to() {
+        let project = song();
+        let clip = (*project.tracks[0].clips[0]).clone();
+        // Not warped: as it was.
+        assert_eq!(fit_to_file(&project, &clip), clip);
+        // Warped slower than the file: the clip is shorter than the sound, so
+        // it stays as the owner made it.
+        let slow = enable(&project, &clip, 240.0).unwrap();
+        assert_eq!(fit_to_file(&project, &slow), slow);
+        // A clip that loops: its brace says what plays.
+        let mut looping = enable(&project, &clip, 30.0).unwrap();
+        looping.loop_length = Some(looping.length);
+        assert_eq!(fit_to_file(&project, &looping), looping);
     }
 
     #[test]

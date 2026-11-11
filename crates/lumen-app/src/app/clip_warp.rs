@@ -166,7 +166,7 @@ impl App {
         let done = self.document.scale_warp_tempo(&ids, factor);
         if done.changed == 0 && done.refused > 0 {
             self.say(
-                "That tempo is out of range, or would play past the end of the clip's file"
+                "That tempo is out of range, or would put the start of the clip outside its file"
                     .to_owned(),
             );
         }
@@ -179,7 +179,7 @@ impl App {
             .set_warp(&[clip], &Change::OriginalBpm(bpm), None);
         if done.changed == 0 && done.refused > 0 {
             self.say(
-                "That tempo is out of range, or would play past the end of the clip's file"
+                "That tempo is out of range, or would put the start of the clip outside its file"
                     .to_owned(),
             );
         }

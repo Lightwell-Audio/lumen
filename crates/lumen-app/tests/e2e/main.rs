@@ -128,6 +128,7 @@ mod walkthrough_editing;
 mod walkthrough_mix;
 mod walkthrough_plugins;
 mod walkthrough_song;
+mod walkthrough_warp;
 mod warp_chip;
 mod warp_markers;
 mod warp_pitch;
