@@ -293,12 +293,17 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
     let song = lumen.dir().join("song.wav");
     let exported = export(&mut lumen, &song);
     let exported_hits = onsets(exported.iter().copied().take(LISTEN));
-    assert_eq!(
-        exported_hits.len(),
-        heard_hits.len(),
+    // The test device drops what it played before `listen` begins, so the
+    // first hit can be heard as a tail, or (on a slow runner) not at all: the
+    // heard hits are then the export's from its second on. Nothing else may
+    // be missing.
+    let missed = exported_hits.len().checked_sub(heard_hits.len());
+    assert!(
+        matches!(missed, Some(0 | 1)),
         "the same hits: heard {heard_hits:?}, exported {exported_hits:?}"
     );
-    for (heard, exported) in gaps(&heard_hits).into_iter().zip(gaps(&exported_hits)) {
+    let exported_hits = &exported_hits[missed.unwrap_or(0)..];
+    for (heard, exported) in gaps(&heard_hits).into_iter().zip(gaps(exported_hits)) {
         assert!(
             (heard - exported).abs() < 0.002,
             "a gap of {heard} s heard and {exported} s exported: heard {heard_hits:?}, exported {exported_hits:?}"
