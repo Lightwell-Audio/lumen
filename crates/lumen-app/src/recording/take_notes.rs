@@ -110,21 +110,28 @@ impl TakeNotes {
 }
 
 /// Deletes `files` on a thread of their own: the interface never waits on
-/// the disk (H1).
-pub(crate) fn delete_later(files: Vec<PathBuf>) {
+/// the disk (H1, sweep M3). Returns whether the deletion was queued.
+pub(crate) fn delete_later(files: Vec<PathBuf>) -> bool {
     if files.is_empty() {
-        return;
+        return true;
     }
     let spawned = std::thread::Builder::new()
-        .name("lumen-take-notes".into())
+        .name("lumen-delete".into())
         .spawn(move || {
             for file in files {
                 let _ = std::fs::remove_file(file);
             }
         });
-    // A thread that cannot start leaves the sidecars: recovery skips a take
-    // a project already holds, so a sidecar left over does no harm.
-    drop(spawned);
+    // A thread that cannot start leaves the files: a sidecar left over does
+    // no harm (recovery skips a take a project already holds), and a render
+    // nothing refers to goes with the work folder's next tidy-up.
+    match spawned {
+        Ok(_) => true,
+        Err(error) => {
+            crate::trace::log(|| format!("delete: the thread did not start ({error})"));
+            false
+        }
+    }
 }
 
 #[cfg(test)]
@@ -177,5 +184,16 @@ mod tests {
         assert_eq!(notes.keep_only(2), vec![side(1)]);
         assert_eq!(notes.close(), vec![side(2)]);
         assert!(!notes.any());
+    }
+
+    /// Rendered files go the same way as sidecars: the deletion is queued and
+    /// the caller never waits on the disk (sweep M3).
+    #[test]
+    fn a_deletion_is_queued_and_happens_afterwards() {
+        let dir = lumen_project::testing::TempDir::new("delete-later");
+        let file = dir.path().join("bounced.wav");
+        std::fs::write(&file, b"a render nobody kept").unwrap();
+        assert!(delete_later(vec![file.clone()]), "the deletion is queued");
+        lumen_testkit::wait_until("the queued file to be deleted", || !file.exists());
     }
 }

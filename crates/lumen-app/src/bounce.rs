@@ -534,11 +534,14 @@ impl Render {
     }
 }
 
-/// Removes the files of renders that will not be used.
+/// Removes the files of renders that will not be used: queued on a thread of
+/// its own, so a big file on a slow drive never holds a frame (sweep M3).
 pub fn remove_files(made: &[Rendered]) {
-    for done in made {
-        let _ = std::fs::remove_file(&done.media.path);
-    }
+    crate::recording::take_notes::delete_later(
+        made.iter()
+            .map(|done| PathBuf::from(&done.media.path))
+            .collect(),
+    );
 }
 
 #[cfg(test)]
@@ -601,6 +604,30 @@ mod tests {
 
     fn read(path: &std::path::Path) -> lumen_media::Audio {
         lumen_media::decode(path, &AtomicBool::new(false), &mut |_| {}).unwrap()
+    }
+
+    /// A render that will not be used is deleted without the caller (the
+    /// interface thread) waiting on the disk (sweep M3).
+    #[test]
+    fn an_unused_render_is_deleted_after_the_call_returns() {
+        let dir = TempDir::new("bounce-unused");
+        let path = dir.path().join("bounced.wav");
+        std::fs::write(&path, b"a render nobody kept").unwrap();
+        let made = Rendered {
+            track: Id(1),
+            media: Media {
+                id: Id(2),
+                path: path.to_string_lossy().into_owned(),
+                original_path: None,
+                frames: 0,
+                channels: 2,
+                sample_rate: RATE,
+                size_bytes: 21,
+            },
+            tail_frames: 0,
+        };
+        remove_files(std::slice::from_ref(&made));
+        lumen_testkit::wait_until("the unused render to be deleted", || !path.exists());
     }
 
     #[test]

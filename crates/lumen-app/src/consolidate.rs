@@ -248,11 +248,15 @@ impl Render {
     }
 }
 
-/// Removes the files of renders that will not be used.
+/// Removes the files of renders that will not be used: queued on a thread of
+/// its own, so a big file on a slow drive never holds a frame (sweep M3).
 pub fn remove_files(baked: &[Baked]) {
-    for done in baked {
-        let _ = std::fs::remove_file(&done.media.path);
-    }
+    crate::recording::take_notes::delete_later(
+        baked
+            .iter()
+            .map(|done| PathBuf::from(&done.media.path))
+            .collect(),
+    );
 }
 
 #[cfg(test)]
