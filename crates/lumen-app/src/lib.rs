@@ -392,6 +392,18 @@ pub struct App {
     /// keeps `saved_appearance` until the user changes it in the menu.
     appearance_override: bool,
     saved_appearance: settings::Appearance,
+    /// The window's least inner size last sent, in UI points (F5); `None`
+    /// before the first one.
+    min_window: Option<egui::Vec2>,
+    /// The monitor's size (UI points) that size was worked out for. When
+    /// egui reports another (the monitor became known, the window moved to
+    /// another screen, the zoom changed) the frame loop works it out again.
+    min_window_monitor: Option<egui::Vec2>,
+    /// The pixels per point the last least-size command was sent with (F5).
+    /// The command is converted to native points when egui-winit processes it,
+    /// at the zoom of the pass that sent it, so the same value is sent again
+    /// after a zoom change (ADR-0139; `app/window_size.rs::must_send`).
+    min_window_ppp: Option<f32>,
     /// The OS theme when the appearance was last applied ("Match system").
     system_theme: Option<egui::Theme>,
     /// The device banner's last message, kept while it slides away.
@@ -689,6 +701,14 @@ impl eframe::App for App {
         if ctx.system_theme() != self.system_theme {
             self.apply_appearance(&ctx);
         }
+        // The monitor is not known while the app is built, and its size in
+        // UI points moves with the zoom, so the window's least size takes
+        // the monitor's cap from the first frame that has it and again when
+        // it changes (F5). It sends only when the size or the zoom the
+        // command is converted with changes (`window_size::must_send`).
+        if self.window_minimum_stale(&ctx) {
+            self.apply_window_minimum(&ctx);
+        }
         let panels_before = (self.show_browser, self.show_detail);
         if std::mem::take(&mut self.toggle_detail_requested) {
             self.show_detail = !self.show_detail;
@@ -906,6 +926,10 @@ pub fn run() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_title(display_name())
             .with_inner_size([1600.0, 900.0])
+            // UI points (egui-winit multiplies builder sizes by the zoom
+            // factor when it creates the window). The zoom is still 1 here,
+            // so the app re-sends the scaled minimum once the saved UI scale
+            // is applied (`app::window_size`, F5).
             .with_min_inner_size([960.0, 540.0])
             .with_icon(brand::window_icon()),
         ..Default::default()

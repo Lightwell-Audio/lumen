@@ -5,6 +5,8 @@
 //! and file time. Only the columns in view are drawn, so a one-hour file
 //! costs what a one-second one does.
 
+use std::sync::Arc;
+
 use eframe::egui::{self, Color32, FontId, Painter, Rect, Stroke, pos2, vec2};
 use lumen_core::grid::{Level, Line};
 use lumen_core::meter::MeterMap;
@@ -363,39 +365,49 @@ pub(crate) fn ruler(
         }
     }
     // The file's own time, from its first frame, at a step that keeps the
-    // labels apart: device-rate frames over the rate.
-    let rate = f64::from(rate.max(1));
-    if let Some(step) = time_step(file, time, strip, rate) {
-        let from = time.beat_at(strip.left(), strip.left()).max(file.from);
-        let to = time.beat_at(strip.left(), strip.right()).min(file.to);
-        if let (Some(a), Some(b)) = (file.frame_at(from), file.frame_at(to - 1e-9)) {
-            let (s0, s1) = (a / rate, b / rate);
-            let mut k = (s0 / step).ceil() as i64;
-            while (k as f64) * step <= s1 {
-                let t = k as f64 * step;
-                if let Some(q) = beat_of_frame(file, t * rate) {
-                    let lx = x(q);
-                    painter.vline(
-                        lx,
-                        strip.bottom() - theme::size::TIME_TICK..=strip.bottom(),
-                        Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
-                    );
-                    let galley = painter.layout_no_wrap(
-                        seconds_text(t, step),
-                        label_font.clone(),
-                        palette.text_hint,
-                    );
-                    let at = pos2(
-                        lx + theme::space::XXS + 1.0,
-                        strip.bottom() - theme::size::RULER_BAND - galley.size().y,
-                    );
-                    if at.x + galley.size().x <= strip.right() {
-                        painter.galley(at, galley, palette.text_hint);
-                    }
-                }
-                k += 1;
-            }
-        }
+    // labels apart: device-rate frames over the rate. The step comes from
+    // the span at the strip's centre, so after a big warp drag the spans
+    // beside it can run much faster and their labels would overprint: each
+    // label is drawn only if it clears the last one drawn ([`thinned_labels`]).
+    let candidates = time_label_candidates(file, time, strip, rate);
+    // Every label keeps its tick, drawn or not.
+    for (lx, _) in &candidates {
+        painter.vline(
+            *lx,
+            strip.bottom() - theme::size::TIME_TICK..=strip.bottom(),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
+        );
+    }
+    // A label's width is asked for only once it clears the last one drawn, so
+    // a compressed span lays out only the few labels it draws, and the galley
+    // made for the width is the one drawn.
+    let mut galleys: Vec<Option<Arc<egui::Galley>>> = vec![None; candidates.len()];
+    let drawn = thinned_labels(
+        candidates
+            .iter()
+            .map(|(lx, _)| lx + theme::space::XXS + 1.0),
+        |i| {
+            let galley = painter.layout_no_wrap(
+                candidates[i].1.clone(),
+                label_font.clone(),
+                palette.text_hint,
+            );
+            let width = galley.size().x;
+            galleys[i] = Some(galley);
+            width
+        },
+        strip.right(),
+        theme::space::XXS,
+    );
+    for i in drawn {
+        let Some(galley) = galleys[i].take() else {
+            continue;
+        };
+        let at = pos2(
+            candidates[i].0 + theme::space::XXS + 1.0,
+            strip.bottom() - theme::size::RULER_BAND - galley.size().y,
+        );
+        painter.galley(at, galley, palette.text_hint);
     }
     painter.hline(
         strip.x_range(),
@@ -454,6 +466,72 @@ fn time_step(file: &WholeFile, time: TimeView, strip: Rect, rate: f64) -> Option
         .find(|s| s * per_second >= f64::from(theme::size::TIME_LABEL_ROOM))
 }
 
+/// The file's time in `strip` before thinning: the left x of every label's
+/// tick and its text, in time order. The step is the one for the span at the
+/// strip's centre ([`time_step`]); a faster span elsewhere puts these
+/// labels closer together, so [`label_fits`] decides which are drawn.
+fn time_label_candidates(
+    file: &WholeFile,
+    time: TimeView,
+    strip: Rect,
+    rate: u32,
+) -> Vec<(f32, String)> {
+    let rate = f64::from(rate.max(1));
+    let Some(step) = time_step(file, time, strip, rate) else {
+        return Vec::new();
+    };
+    let from = time.beat_at(strip.left(), strip.left()).max(file.from);
+    let to = time.beat_at(strip.left(), strip.right()).min(file.to);
+    let (Some(a), Some(b)) = (file.frame_at(from), file.frame_at(to - 1e-9)) else {
+        return Vec::new();
+    };
+    let (s0, s1) = (a / rate, b / rate);
+    let mut labels = Vec::new();
+    let mut k = (s0 / step).ceil() as i64;
+    while (k as f64) * step <= s1 {
+        let t = k as f64 * step;
+        if let Some(q) = beat_of_frame(file, t * rate) {
+            labels.push((time.x(strip.left(), q), seconds_text(t, step)));
+        }
+        k += 1;
+    }
+    labels
+}
+
+/// Whether a label whose left edge is `left` clears the right edge of the
+/// last one drawn by `gap`. Labels never overprint, however much faster the
+/// file runs at this part of the ruler.
+fn label_fits(prev_right: Option<f32>, left: f32, gap: f32) -> bool {
+    prev_right.is_none_or(|right| left >= right + gap)
+}
+
+/// The indices of the labels [`ruler`] draws, from their left edges in order:
+/// a label is drawn when it clears the right edge of the last one drawn by
+/// `gap` ([`label_fits`]) and its own right edge does not pass `strip_right`.
+/// A label cut at the right edge is not drawn and does not move that edge.
+/// `width` is asked for a label's width only once it clears the gap, so a
+/// compressed span costs no layouts for the labels it drops.
+fn thinned_labels(
+    lefts: impl IntoIterator<Item = f32>,
+    mut width: impl FnMut(usize) -> f32,
+    strip_right: f32,
+    gap: f32,
+) -> Vec<usize> {
+    let mut drawn = Vec::new();
+    let mut last_right: Option<f32> = None;
+    for (i, left) in lefts.into_iter().enumerate() {
+        if !label_fits(last_right, left, gap) {
+            continue;
+        }
+        let right = left + width(i);
+        if right <= strip_right {
+            last_right = Some(right);
+            drawn.push(i);
+        }
+    }
+    drawn
+}
+
 /// "0:01.250" style: minutes and seconds, with as many decimals as `step`
 /// needs.
 pub(crate) fn seconds_text(seconds: f64, step: f64) -> String {
@@ -489,5 +567,118 @@ mod tests {
         assert_eq!(seconds_text(1.25, 0.05), "0:01.25");
         assert_eq!(seconds_text(0.5, 0.5), "0:00.5");
         assert_eq!(seconds_text(0.0015, 0.001), "0:00.002");
+    }
+
+    #[test]
+    fn the_first_label_always_fits_and_a_later_one_needs_its_gap() {
+        assert!(label_fits(None, 500.0, 2.0));
+        assert!(label_fits(Some(100.0), 102.0, 2.0), "exactly the gap");
+        assert!(label_fits(Some(100.0), 140.0, 2.0));
+        assert!(!label_fits(Some(100.0), 101.0, 2.0), "one point short");
+        assert!(!label_fits(Some(100.0), 90.0, 2.0), "over the last one");
+    }
+
+    /// F4: after a warp marker is dragged far, the spans beside the one at
+    /// the strip's centre run much faster, so the labels the centre's step
+    /// chooses overprint there. Through [`thinned_labels`], the function the
+    /// ruler itself uses, the drawn labels never overlap.
+    #[test]
+    fn file_time_labels_never_overprint_when_a_warp_speeds_a_span_up() {
+        use crate::arrangement::waves::Span;
+        use crate::audio_editor::source::Played;
+
+        let span = |start: f64, end: f64, first_frame: f64, frames_per_beat: f64| Span {
+            media: 1,
+            start,
+            end,
+            first_frame,
+            frames_per_beat,
+            gain: 1.0,
+        };
+        // Four beats of file at 48,000 frames a beat (a second each), then
+        // four at 4,800 (a tenth of a second each): the stretch a warp drag
+        // of ten times the speed leaves. The step is chosen from the second
+        // span, which the strip's centre is in.
+        let file = WholeFile {
+            spans: vec![
+                span(0.0, 4.0, 0.0, 48_000.0),
+                span(4.0, 8.0, 192_000.0, 4_800.0),
+            ],
+            from: 0.0,
+            to: 8.0,
+            loop_window: (0.0, 8.0),
+            played: Played {
+                first: (0.0, 8.0),
+                second: None,
+            },
+            heard: (0.0, 8.0),
+        };
+        let time = TimeView {
+            left: 0.0,
+            zoom: 100.0,
+        };
+        let strip = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 40.0));
+        let candidates = time_label_candidates(&file, time, strip, 48_000);
+        assert!(candidates.len() > 8, "the fixture's labels: {candidates:?}");
+
+        // The widths the ruler lays the labels out at.
+        let ctx = egui::Context::default();
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let width = |text: &str| {
+            ctx.fonts_mut(|fonts| {
+                fonts
+                    .layout_no_wrap(
+                        text.to_owned(),
+                        FontId::monospace(theme::size::SCALE),
+                        Color32::WHITE,
+                    )
+                    .size()
+                    .x
+            })
+        };
+        let gap = theme::space::XXS;
+        let left = |lx: f32| lx + theme::space::XXS + 1.0;
+        // The bug: taken as they come, some labels overlap.
+        let unthinned: Vec<(f32, f32)> = candidates
+            .iter()
+            .map(|(lx, text)| (left(*lx), left(*lx) + width(text)))
+            .collect();
+        assert!(
+            unthinned.windows(2).any(|pair| pair[1].0 < pair[0].1 + gap),
+            "the fixture does not compress any labels: {unthinned:?}"
+        );
+
+        // The fix, as the ruler runs it: each drawn label clears the last one
+        // drawn, and one cut at the right edge is left out.
+        let widths: Vec<f32> = candidates.iter().map(|(_, text)| width(text)).collect();
+        let drawn = thinned_labels(
+            candidates.iter().map(|(lx, _)| left(*lx)),
+            |i| widths[i],
+            strip.right(),
+            gap,
+        );
+        assert!(
+            drawn.len() > 1 && drawn.len() < candidates.len(),
+            "the thinning dropped nothing: {drawn:?} of {}",
+            candidates.len()
+        );
+        let boxes: Vec<(f32, f32)> = drawn
+            .iter()
+            .map(|i| {
+                let (at, right) = (left(candidates[*i].0), left(candidates[*i].0) + widths[*i]);
+                assert!(right <= strip.right(), "one cut at the right edge is drawn");
+                (at, right)
+            })
+            .collect();
+        for pair in boxes.windows(2) {
+            assert!(
+                pair[1].0 >= pair[0].1 + gap,
+                "{} overprints {}",
+                pair[1].0,
+                pair[0].1
+            );
+        }
     }
 }

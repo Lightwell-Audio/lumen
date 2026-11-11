@@ -14,7 +14,7 @@ use std::sync::Arc;
 use lumen_core::time::Ticks;
 use lumen_media::detect::{Analysis, CONFIDENT, Tempo};
 use lumen_project::edit::warp::Change;
-use lumen_project::model::{Clip, ClipContent, Id};
+use lumen_project::model::{Clip, ClipContent, Id, WarpMode};
 
 use crate::App;
 use crate::app::track_freeze::FROZEN_TIMING;
@@ -195,6 +195,21 @@ impl App {
         if done.changed == 0 && done.refused > 0 {
             self.say("That transpose is out of range".to_owned());
         }
+    }
+
+    /// Sets the warp mode of `clip`, from the Pitch popover's way out of
+    /// Repitch (M9.5 S7, F3). One undo step; a locked clip keeps its mode and
+    /// says so (the popover's button is disabled for one, so this is the path
+    /// a script or a stale popover can still take).
+    pub(crate) fn set_clip_warp_mode(&mut self, clip: Id, mode: WarpMode) {
+        // `Document::set_warp` skips a locked clip without changing or
+        // refusing it, and no mode is out of range, so a refusal is never
+        // reported: the lock is checked here instead.
+        if self.clip(clip).is_some_and(|c| c.locked) {
+            self.say("The clip is locked, so its warp mode was not changed".to_owned());
+            return;
+        }
+        self.document.set_warp(&[clip], &Change::Mode(mode), None);
     }
 
     /// Why Transpose clip up and down cannot run: they need a warped audio

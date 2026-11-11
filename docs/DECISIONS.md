@@ -12818,3 +12818,19 @@ tempo `edit::set` call it, so each is still one undo step.
   `warping_to_a_faster_tempo_than_the_file_cuts_the_clip_in_the_same_step`,
   `lumen-project/tests/warp.rs` (the two refusals became cuts), E2E
   `warp_chip::turning_warp_on_cuts_the_clip_to_where_the_sound_ends`.
+
+## ADR-0139 — Manual-test fixes for M9.5 (pitch popover, ruler labels, window minimum)
+
+**Status.** Accepted (owner asked 2026-11-10: fix the issues the 9.5 manual tests found; plan in `docs/milestones/M9.5.md` §11).
+
+**Context.** The owner's and the agents' manual runs of MT-PITCH-1, MT-WARP-3 and MT-CLIP-1/2 found five defects with a clear fix and one that needs a design choice.
+
+**Choices.**
+1. *The Pitch chip's width is stable* (`audio_editor/pitch.rs::sizing_text`): it is sized for the widest label its formatter can produce ("Pitch -44.44 st", plus " env" when the clip has a pitch envelope), so the chip, its neighbours, the strip's folding and the popover's anchor do not move while Transpose is dragged. Cost: the chip is as wide as its widest state at all times and folds into the ⋯ menu a little earlier. The alternative (remember the width at open time) was not taken because the folding decision would then depend on popover state.
+2. *A pitch envelope is shown and removable in the popover* whatever the static transpose, with its range in semitones and "Remove envelope" (`Document::clear_clip_pitch_envelope`, one undo step, refused on a locked clip), because a stored envelope with Warp off is applied again when Warp is turned on in a mode that transposes, and the popover showed only "0 st".
+3. *The Repitch notice leads the popover* and offers "Use Melodic" (one undo step).
+4. *File-time ruler labels are thinned greedily* left to right: a label is drawn only when it clears the previous one by `space::XXS`; ticks are kept. The step is still chosen from the span at the centre, so very uneven warps show fewer labels in the fast spans rather than overprinting.
+5. *The main window's minimum is 960 x 540 UI points at every scale* (`app/window_size.rs`), capped by the monitor's native size divided by the scale and never below 960 x 540 native points. The command (`egui::ViewportCommand::MinInnerSize`) takes UI points, so its value is 960 x 540 only when no cap applies; with a cap the arithmetic is done in native points and divided by the scale. egui-winit multiplies the value by the zoom factor and the native pixels per point when it processes the command, which is at the end of the pass that sent it, so the value is in UI points of the zoom that pass began with. The monitor's size egui reports is in UI points of that same zoom as well, and is converted to native points with it (`pixels_per_point / native_pixels_per_point`), not with the new scale. The minimum is sent again when the monitor size egui reports changes, and also when the pixels per point differs from the one the last command was converted with (the same 960 x 540 UI points is sent again after a scale change, because only the conversion differs). Where a screen cannot hold the minimum the cap wins and the layout folds as before. The pop-out editors keep their own minimum.
+6. *Not fixed, owner's choice:* the level dip at a chunk seam of a pitched clip (KNOWN_ISSUES, top row), measured by `crates/lumen-media/tests/warp_transient.rs`.
+
+**Consequences.** No format change. The ruler thinning is covered by a unit test. The window minimum's runtime scale change and its monitor cap cannot be unit-tested (the test harness has no window), so the owner re-checks them by hand: change the scale from 100% to 200% in the menu, then try to shrink the window; its minimum must grow (MT-CLIP-1 step 9, MT-CLIP-2 step 10, MT-WARP-3 step 2).

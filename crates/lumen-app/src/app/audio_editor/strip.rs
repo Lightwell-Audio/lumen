@@ -16,7 +16,7 @@ use lumen_core::time::TempoMap;
 use lumen_project::edit::Edge;
 use lumen_project::model::{Clip, ClipContent, Id};
 
-use super::pitch::{chip_text as pitch_text, chip_width as pitch_width};
+use super::pitch::chip_width as pitch_width;
 use super::strip_chips::{clip_chip_widths, file_chip_width, text_width};
 use super::warp::{chip_text, chip_width};
 use crate::App;
@@ -262,7 +262,7 @@ impl App {
             more: theme::size::CONTROL,
             file: file_chip_width(ui, file),
             warp: chip_width(ui, &chip_text(clip)),
-            pitch: pitch_width(ui, &pitch_text(clip)),
+            pitch: pitch_width(ui, clip),
         }
     }
 
