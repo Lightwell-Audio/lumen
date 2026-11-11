@@ -1,12 +1,13 @@
 //! P-FORMAT pass criteria: round trips, golden fixtures, refusal of newer
 //! files, robustness against damaged input, crash-safe saving.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
 use lumen_core::fade::{Fade, FadeShape};
-use lumen_core::grid::{Feel, Grid, Size};
+use lumen_core::grid::{Feel, Grid, Size, Width};
 use lumen_core::pan::PanLaw;
 use lumen_core::time::{PPQ, TempoPoint, Ticks};
 use lumen_project::migrate::CURRENT_VERSION;
@@ -142,10 +143,40 @@ fn golden_v1_expected() -> Project {
             sample_rate: 48_000,
             size_bytes: 384_044,
         }],
-        // Not in v1 files: the migrations write the defaults.
+        // Not in v1 files: the migrations write these literals (frozen with
+        // the migrations, never taken from the live defaults).
         markers: Vec::new(),
-        transport: Default::default(),
-        view: Default::default(),
+        transport: TransportState {
+            loop_start: Ticks::ZERO,
+            loop_end: Ticks::quarters(16),
+            loop_enabled: false,
+            punch_in: false,
+            punch_out: false,
+        },
+        view: ViewState {
+            left_beat: 0.0,
+            px_per_beat: 24.0,
+            browser_open: true,
+            detail_open: true,
+            browser_size: 220.0,
+            detail_size: 220.0,
+            top: 0.0,
+            track_heights: BTreeMap::new(),
+            expanded: BTreeSet::new(),
+            grid: Grid {
+                fixed: false,
+                width: Width::Narrow,
+                size: Size::Note(16),
+                feel: Feel::Straight,
+                snap: true,
+            },
+            collapsed: BTreeSet::new(),
+            header_width: 204.0,
+            returns_height: None,
+            returns_folded: false,
+            folded_devices: BTreeSet::new(),
+            shown_params: BTreeMap::new(),
+        },
         mappings: Vec::new(),
         notes: String::new(),
         new_track_color: None,
