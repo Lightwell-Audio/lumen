@@ -675,8 +675,9 @@ per slice and move what is no longer current out of it.
   `walkthrough_warp` plays out the exit criterion on a click-track loop
   named "92 BPM" (one hit 80 ms late) and a steady tone, and compares the
   export with what the test device played (same hits and gaps within 2 ms,
-  the tone at 429 Hz for +2 st); it compares gaps from the second hit on,
-  because the test device drops up to a block before `listen` begins.
+  the tone at 429 Hz for +2 st); it hears the device from Play on
+  (`Lumen::listen_from`; `listen` drops what played before it is called) and
+  compares every hit, the first included.
   MT-M9.5-1 (`docs/manual-tests/M9.5.md`) is its twin on the Focusrite. The
   review is `docs/audits/2026-11-10-m9.5.md`: no High, four Medium, two
   Low, **waiting for the owner's go-ahead** (M1 split `warp_markers.rs`; **M2

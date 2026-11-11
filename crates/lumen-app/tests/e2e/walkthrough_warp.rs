@@ -13,7 +13,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers, Pos2};
 use egui_kittest::kittest::Queryable;
@@ -60,11 +59,11 @@ fn onsets(left: impl IntoIterator<Item = f32>) -> Vec<usize> {
     found
 }
 
-/// The seconds between each hit and the next, from the second hit on: the test
-/// device drops what it played before `listen` began, up to a block, so the
-/// first hit heard may be only its tail.
+/// The seconds between each hit and the next, the first included: the test
+/// device is heard from Play on (`Lumen::listen_from`), so the first hit is
+/// heard whole.
 fn gaps(onsets: &[usize]) -> Vec<f64> {
-    onsets[1..]
+    onsets
         .windows(2)
         .map(|pair| (pair[1] - pair[0]) as f64 / RATE)
         .collect()
@@ -74,8 +73,8 @@ fn gaps(onsets: &[usize]) -> Vec<f64> {
 fn hear(lumen: &mut Lumen) -> Vec<f32> {
     lumen.key(Modifiers::NONE, Key::Home);
     lumen.wait_for("the rewind", |app| app.playhead() == Ticks::ZERO);
-    lumen.key(Modifiers::NONE, Key::Space);
-    let heard = lumen.listen(Duration::ZERO, LISTEN);
+    // Everything from Play on: a hit lost at the start would be a fault.
+    let heard = lumen.listen_from(|l| l.key(Modifiers::NONE, Key::Space), LISTEN);
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.frames(5);
     heard.iter().map(|f| f[0]).collect()
@@ -155,15 +154,17 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
     );
     lumen.frames(30);
     let before = gaps(&onsets(hear(&mut lumen)));
+    // The gap into the late hit is the one before it in the list.
+    let late = LATE_HIT - 1;
     assert!(
-        before.len() >= 4,
+        before.len() > late,
         "the hits of the loop are heard: {before:?}"
     );
-    for gap in &before[..3] {
+    for gap in &before[..late] {
         assert!((gap - 0.5).abs() < 0.025, "on the song's beat: {before:?}");
     }
     assert!(
-        before[3] > 0.5 + 0.04,
+        before[late] > 0.5 + 0.04,
         "the late hit is heard late: {before:?}"
     );
 
@@ -293,17 +294,13 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
     let song = lumen.dir().join("song.wav");
     let exported = export(&mut lumen, &song);
     let exported_hits = onsets(exported.iter().copied().take(LISTEN));
-    // The test device drops what it played before `listen` begins, so the
-    // first hit can be heard as a tail, or (on a slow runner) not at all: the
-    // heard hits are then the export's from its second on. Nothing else may
-    // be missing.
-    let missed = exported_hits.len().checked_sub(heard_hits.len());
-    assert!(
-        matches!(missed, Some(0 | 1)),
+    // Every hit, the first included: the test device was heard from Play on.
+    assert_eq!(
+        exported_hits.len(),
+        heard_hits.len(),
         "the same hits: heard {heard_hits:?}, exported {exported_hits:?}"
     );
-    let exported_hits = &exported_hits[missed.unwrap_or(0)..];
-    for (heard, exported) in gaps(&heard_hits).into_iter().zip(gaps(exported_hits)) {
+    for (heard, exported) in gaps(&heard_hits).into_iter().zip(gaps(&exported_hits)) {
         assert!(
             (heard - exported).abs() < 0.002,
             "a gap of {heard} s heard and {exported} s exported: heard {heard_hits:?}, exported {exported_hits:?}"
