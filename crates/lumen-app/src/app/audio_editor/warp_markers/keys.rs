@@ -221,6 +221,14 @@ impl App {
                 focused = Some((index, response));
             }
         }
+        ed.markers.keyboard = match focused.as_ref() {
+            Some((index, _)) => Some(*index),
+            // The palette's field (or anything else outside the editor) taking
+            // it keeps the last marker: the command runs from there. Another
+            // of the editor's stops taking it drops the marker.
+            None if crate::app::audio_editor::stops::focused(ui.ctx()).is_some() => None,
+            None => ed.markers.keyboard,
+        };
         ed.markers.focused_before = focused.as_ref().map(|(i, _)| *i);
         focused
     }

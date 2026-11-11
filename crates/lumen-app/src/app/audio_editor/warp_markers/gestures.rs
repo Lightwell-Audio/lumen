@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use eframe::egui::{self, CursorIcon, PointerButton, Pos2, Rect, Response, Ui, pos2};
 
+use lumen_media::detect::Analysis;
 use lumen_project::edit::warp::{Refused, origin};
 use lumen_project::edit::warp_markers::{MarkerEdit, held_at};
 use lumen_project::model::{Clip, Id};
@@ -18,7 +19,7 @@ use crate::app::audio_editor::gestures::WaveArea;
 use crate::app::audio_editor::range::ticks_of;
 use crate::app::info::{Held, Info, Mouse};
 use crate::audio_editor::warp_strip::{self, Ghost, WarpStrip};
-use crate::audio_editor::{AudioEditor, MarkerDrag, Slide, StripHover, handles};
+use crate::audio_editor::{AudioEditor, MarkerDrag, Slide, StripHover, StripMenu, handles};
 use crate::commands::Command;
 use crate::document::warp::with_marker_edit;
 use crate::theme;
@@ -48,7 +49,9 @@ impl App {
     ) {
         let ctx = response.ctx.clone();
         let left = strip.rect.left();
-        let found = self.found_for(clip).map(|(_, a, s)| (a, s));
+        // The editor's findings, not the app's: the app's editor is taken out
+        // while it draws.
+        let found = ed.detect.found(clip).map(|(_, a, s)| (a, s));
         let ghost_at = |x: f32, ed: &AudioEditor| -> Option<Ghost> {
             warp_strip::ghost(
                 area.file,
@@ -112,28 +115,45 @@ impl App {
         }
         if response.secondary_clicked() {
             ed.markers.menu = match ed.markers.hover {
-                Some(StripHover::Marker(i)) => Some(i),
+                Some(StripHover::Marker(i)) => Some(StripMenu::Marker(i)),
+                Some(StripHover::Ghost(g)) if g.on_transient => {
+                    Some(StripMenu::Hit { source: g.source })
+                }
                 _ => None,
             };
         }
         let menu = ed.markers.menu;
-        widgets::Menu::context(response).show(|ui| self.warp_strip_menu(ui, clip, menu, ed));
+        let seen = found.as_ref().map(|(a, s)| (&**a, *s));
+        widgets::Menu::context(response).show(|ui| self.warp_strip_menu(ui, clip, menu, seen, ed));
         self.warp_hover_info(&ctx, ed);
     }
 
-    /// The right-click menu of the strip: the marker under the pointer, and
-    /// the clip's markers.
+    /// The right-click menu of the strip: a transient's "Fix this hit", the
+    /// marker under the pointer, and the clip's markers.
     fn warp_strip_menu(
         &mut self,
         ui: &mut Ui,
         clip: &Clip,
-        marker: Option<usize>,
+        menu: Option<StripMenu>,
+        found: Option<(&Analysis, u8)>,
         ed: &mut AudioEditor,
     ) {
-        if let Some(i) = marker {
+        if let Some(StripMenu::Marker(i)) = menu {
             widgets::menu_caption(ui, "Warp marker");
             if widgets::menu_item(ui, "Delete marker", None, true).clicked() {
                 self.remove_warp_marker(clip.id, i, ed);
+                ui.close();
+            }
+        }
+        // On a hit: pin the hits either side with it, so only it moves when
+        // its marker is dragged (M9.5 review M2, the owner's C). Left out when
+        // nothing would be added, as menus list what can apply.
+        if let Some(StripMenu::Hit { source }) = menu
+            && let Some(sides) = super::markers::fix_target(clip, source, found)
+        {
+            let keys = self.keymap.keys(Command::FixWarpHit);
+            if widgets::menu_item(ui, "Fix this hit", keys.as_ref(), true).clicked() {
+                self.fix_warp_hit(clip.id, source, sides, ed);
                 ui.close();
             }
         }

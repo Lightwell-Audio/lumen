@@ -379,6 +379,7 @@ impl App {
             Command::RevealClipFile => self.reveal_clip_file_unavailable(),
             Command::WarpClips | Command::WarpFromHere => self.warp_unavailable(),
             Command::AddWarpMarker | Command::ClearWarpMarkers => self.markers_unavailable(),
+            Command::FixWarpHit => self.fix_warp_hit_unavailable(),
             Command::TransposeClipUp | Command::TransposeClipDown => self.transpose_unavailable(),
             Command::SetTempoFromClip | Command::DoubleClipTempo | Command::HalveClipTempo => {
                 self.warped_unavailable()
