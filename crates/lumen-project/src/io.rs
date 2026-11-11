@@ -168,10 +168,34 @@ impl Default for SaveOptions {
     }
 }
 
+/// What a successful save did besides write the project.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SaveReport {
+    /// Why the previous version could not be copied into `Backups`. The save
+    /// itself committed: the project file holds the new content. A caller may
+    /// show this as a warning.
+    pub backup_error: Option<String>,
+}
+
 /// Saves atomically, keeping rolling backups of the previous file.
+///
+/// A backup that cannot be made is reported in [`SaveReport`] and does not
+/// stop the save: the new content replaces the old file either way, because
+/// losing the save is worse than losing one backup.
 pub fn save(project: &Project, path: &Path, options: &SaveOptions) -> Result<(), SaveError> {
+    save_with_report(project, path, options).map(|_| ())
+}
+
+/// [`save`], also saying whether the backup of the previous version was made.
+pub fn save_with_report(
+    project: &Project,
+    path: &Path,
+    options: &SaveOptions,
+) -> Result<SaveReport, SaveError> {
     let bytes = to_bytes(project)?;
-    write_atomically(path, &bytes, options, &mut |_| Ok(())).map_err(SaveError::Io)
+    let backup_error =
+        write_atomically(path, &bytes, options, &mut |_| Ok(())).map_err(SaveError::Io)?;
+    Ok(SaveReport { backup_error })
 }
 
 /// Writes any file (an exported MIDI file, M5 slice 7) by the project's
@@ -179,17 +203,19 @@ pub fn save(project: &Project, path: &Path, options: &SaveOptions) -> Result<(),
 /// the old one, so a crash leaves the old file or the new, never half.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let options = SaveOptions { keep_backups: 0 };
-    write_atomically(path, bytes, &options, &mut |_| Ok(()))
+    write_atomically(path, bytes, &options, &mut |_| Ok(())).map(|_| ())
 }
 
 /// The commit protocol. `before_commit` runs after the new content is safely
 /// on disk and before it replaces the old file (a test seam for failures).
+/// Returns why the backup of the previous version could not be made, if it
+/// could not: that is a warning, not a failure of the write.
 fn write_atomically(
     path: &Path,
     bytes: &[u8],
     options: &SaveOptions,
     before_commit: &mut dyn FnMut(&Path) -> io::Result<()>,
-) -> io::Result<()> {
+) -> io::Result<Option<String>> {
     let dir = path
         .parent()
         .filter(|d| !d.as_os_str().is_empty())
@@ -206,11 +232,18 @@ fn write_atomically(
         file.sync_all()?;
         drop(file);
         before_commit(&temp)?;
-        if options.keep_backups > 0 && path.exists() {
-            back_up(path, dir, &name, options.keep_backups)?;
-        }
+        // Best effort: whatever happens to the backup, the new content is
+        // renamed into place below.
+        let backup_error = if options.keep_backups > 0 && path.exists() {
+            back_up(path, dir, &name, options.keep_backups)
+                .err()
+                .map(|error| format!("the previous version could not be backed up: {error}"))
+        } else {
+            None
+        };
         fs::rename(&temp, path)?;
-        sync_dir(dir)
+        sync_dir(dir)?;
+        Ok(backup_error)
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temp);
@@ -415,6 +448,32 @@ mod tests {
             !stale.exists(),
             "stale temp file should be removed after a good save"
         );
+    }
+
+    #[test]
+    fn a_save_commits_even_when_the_backup_cannot_be_made() {
+        let dir = TempDir::new("backup-fails");
+        let path = dir.path().join("Song.lumen");
+        save(&small_project(1), &path, &SaveOptions::default()).unwrap();
+        // A file where the `Backups` folder would be: making the folder
+        // fails on every platform.
+        fs::write(dir.path().join("Backups"), b"not a folder").unwrap();
+
+        let report = save_with_report(&small_project(2), &path, &SaveOptions::default())
+            .expect("the save must win over a failed backup");
+        assert!(report.backup_error.is_some(), "the failure is reported");
+        assert_eq!(
+            load(&path).unwrap(),
+            small_project(2),
+            "the new content is on disk"
+        );
+        assert!(
+            dir.path().join("Backups").is_file(),
+            "the failed backup left what was there alone"
+        );
+        // The previous API keeps working the same way.
+        save(&small_project(3), &path, &SaveOptions::default()).expect("the save still wins");
+        assert_eq!(load(&path).unwrap(), small_project(3));
     }
 
     #[test]
