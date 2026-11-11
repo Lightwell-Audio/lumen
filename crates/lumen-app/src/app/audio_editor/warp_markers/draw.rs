@@ -117,7 +117,8 @@ impl App {
 
     /// The transients in the strip: a small triangle pointing down at each,
     /// except where a marker already stands (within a point). Only those in
-    /// view are looked at.
+    /// view are looked at. The triangle is the one a detected hit is drawn as
+    /// on the wave too (`paint::hit_triangle`).
     pub(crate) fn paint_transient_ticks(
         painter: &Painter,
         strip: &WarpStrip,
@@ -129,10 +130,8 @@ impl App {
             return;
         };
         let rate = f64::from(rate);
-        let (w, h) = (theme::size::WARP_TICK_W, theme::size::WARP_TICK_H);
-        let ink = theme::p().text_secondary;
         let inside = painter.with_clip_rect(strip.rect.intersect(painter.clip_rect()));
-        let top = strip.rect.bottom() - h - theme::size::WARP_TICK_FLOOR;
+        let top = strip.rect.bottom() - theme::size::WARP_TICK_H - theme::size::WARP_TICK_FLOOR;
         for t in in_view(analysis, sensitivity, (a as f64 / rate, b as f64 / rate)) {
             let Some(beat) = file.beat_of_frame(t.seconds * rate) else {
                 continue;
@@ -144,17 +143,7 @@ impl App {
             if strip.flags.get(next).is_some_and(|f| *f < x + 1.0) {
                 continue;
             }
-            inside.add(egui::Shape::convex_polygon(
-                vec![
-                    pos2(x - w / 2.0, top),
-                    pos2(x + w / 2.0, top),
-                    pos2(x, top + h),
-                ],
-                ink.gamma_multiply(
-                    theme::WARP_TICK_BASE + theme::WARP_TICK_GAIN * t.strength.clamp(0.0, 1.0),
-                ),
-                Stroke::NONE,
-            ));
+            paint::hit_triangle(&inside, x, top, t.strength);
         }
     }
 

@@ -83,8 +83,9 @@ pub(crate) struct Detection {
 }
 
 /// Where the transients are drawn for a clip: in its warp strip when it is
-/// warped; on the wave, faintly, for a clip that is not, only while the Warp
-/// popover is open (its Sensitivity control previews them); nowhere else.
+/// warped; on the wave, as the same small triangles, for a clip that is not,
+/// only while the Warp popover is open (its Sensitivity control previews
+/// them); nowhere else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Shown {
     Strip,

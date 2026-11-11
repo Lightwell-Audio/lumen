@@ -106,9 +106,12 @@ impl App {
             .map(|a| (key, std::sync::Arc::clone(a), ed.detect.sensitivity))
     }
 
-    /// Faint ticks on the wave where detection found the sound starting,
-    /// more of them at a higher sensitivity. Only the ticks in view are
-    /// looked at.
+    /// The detected hits on the wave of a clip that is not warped: the same
+    /// small grey triangle a warped clip shows in its strip, at the top of the
+    /// wave body and pointing down into the wave, roughly where they sit once
+    /// warp is on. They cannot be grabbed (a warp marker is made in the strip);
+    /// they are drawn only while the Warp popover is open. Only the hits in
+    /// view are looked at.
     pub(super) fn paint_transients(
         painter: &egui::Painter,
         body: Rect,
@@ -120,19 +123,14 @@ impl App {
             return;
         };
         let rate = f64::from(rate);
-        let accent = theme::p().accent;
         let inside = painter.with_clip_rect(body.intersect(painter.clip_rect()));
+        let top = paint::wave_hit_top(body);
         for t in in_view(analysis, sensitivity, (a as f64 / rate, b as f64 / rate)) {
             let Some(beat) = file.beat_of_frame(t.seconds * rate) else {
                 continue;
             };
-            let x = time.x(body.left(), beat).round() + 0.5;
-            let ink = accent.gamma_multiply(0.25 + 0.5 * t.strength.clamp(0.0, 1.0));
-            inside.vline(
-                x,
-                body.top()..=body.bottom(),
-                egui::Stroke::new(theme::stroke::HAIRLINE, ink),
-            );
+            let x = time.x(body.left(), beat);
+            paint::hit_triangle(&inside, x, top, t.strength);
         }
     }
 

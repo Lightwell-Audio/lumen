@@ -390,8 +390,8 @@ impl App {
             && let Some(found) = ed.detect.analysis(key)
         {
             // A warped clip shows them as triangles in its strip; one that
-            // is not shows them as faint lines on the wave only while the
-            // Warp popover is open.
+            // is not shows the same triangles at the top of its wave only
+            // while the Warp popover is open.
             let at = (ed.time, rate);
             match (
                 crate::audio_editor::detect::Shown::of(strip.is_some(), previewing),
