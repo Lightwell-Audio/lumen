@@ -31,7 +31,8 @@ fn main() {
         || AsioBackend::new().expect("COM apartment"),
         Box::new(|_: &mut Block<'_>| {}),
         Timing::default(),
-    );
+    )
+    .expect("the audio control thread starts");
     let config = |rate| StreamConfig {
         device: device.clone(),
         sample_rate: Some(rate),

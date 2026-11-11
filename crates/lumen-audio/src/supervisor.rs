@@ -10,13 +10,13 @@
 //! fail moments later. A configuration change that fails falls back to the
 //! last working configuration (spec §6.9).
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use crate::backend::{Backend, Stream, StreamEvent};
+use crate::backend::{Backend, OpenError, Stream, StreamEvent, silent};
 use crate::types::{AudioCallback, AudioError, Block, StreamConfig, StreamInfo};
 
 /// What the supervisor reports to the UI.
@@ -247,6 +247,9 @@ pub enum SwitchError {
     /// The old control thread did not give the callback back within
     /// [`HANDOVER_TIMEOUT`]: its driver did not close. It still holds it.
     NoHandover,
+    /// The new control thread could not start (the system is out of threads);
+    /// the callback went with it, so audio is off until a restart.
+    NotStarted,
 }
 
 impl std::fmt::Display for SwitchError {
@@ -254,6 +257,7 @@ impl std::fmt::Display for SwitchError {
         f.write_str(match self {
             SwitchError::Stopped => "the audio thread has stopped",
             SwitchError::NoHandover => "the audio thread did not hand over in time",
+            SwitchError::NotStarted => "the audio thread could not start",
         })
     }
 }
@@ -274,8 +278,13 @@ pub struct AudioSystem {
 
 impl AudioSystem {
     /// Starts the control thread. `make_backend` runs on that thread, so
-    /// thread-affine drivers (ASIO's COM apartment) live there.
-    pub fn spawn<B, F>(make_backend: F, callback: Box<dyn AudioCallback>, timing: Timing) -> Self
+    /// thread-affine drivers (ASIO's COM apartment) live there. A thread that
+    /// cannot start is an error that hands the callback back.
+    pub fn spawn<B, F>(
+        make_backend: F,
+        callback: Box<dyn AudioCallback>,
+        timing: Timing,
+    ) -> Result<Self, OpenError>
     where
         B: Backend + 'static,
         F: FnOnce() -> B + Send + 'static,
@@ -293,32 +302,43 @@ impl AudioSystem {
             event_tx.clone(),
             Arc::clone(&status),
             timing,
-        );
-        Self {
+        )?;
+        Ok(Self {
             commands,
             events,
             event_tx,
             status,
             thread: Some(thread),
             timing,
-        }
+        })
     }
 
+    /// Starts the control thread; a system that cannot make one gets the
+    /// failure and its callback back, so audio says why instead of panicking.
     fn start_thread<B, F>(
         make_backend: F,
         callback: Box<dyn AudioCallback>,
         events: Sender<DeviceEvent>,
         status: Arc<Status>,
         timing: Timing,
-    ) -> (Sender<Command>, JoinHandle<()>)
+    ) -> Result<(Sender<Command>, JoinHandle<()>), OpenError>
     where
         B: Backend + 'static,
         F: FnOnce() -> B + Send + 'static,
     {
         let (commands, command_rx) = mpsc::channel();
+        // The callback waits here until the thread has begun, so a thread
+        // that cannot start hands it back instead of dropping it with the
+        // closure.
+        let slot = Arc::new(Mutex::new(Some(callback)));
+        let handed = Arc::clone(&slot);
         let thread = std::thread::Builder::new()
             .name("lumen-audio-control".into())
             .spawn(move || {
+                let taken = handed.lock().unwrap_or_else(PoisonError::into_inner).take();
+                let Some(callback) = taken else {
+                    return;
+                };
                 let backend = make_backend();
                 Supervisor {
                     backend,
@@ -335,9 +355,23 @@ impl AudioSystem {
                     timing,
                 }
                 .run(command_rx);
-            })
-            .expect("spawn audio control thread");
-        (commands, thread)
+            });
+        match thread {
+            Ok(thread) => Ok((commands, thread)),
+            Err(error) => {
+                let callback = slot
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take()
+                    .unwrap_or_else(silent);
+                Err(OpenError {
+                    error: AudioError::Driver(format!(
+                        "the audio control thread could not start: {error}"
+                    )),
+                    callback,
+                })
+            }
+        }
     }
 
     /// Switches to another driver model (ASIO to WASAPI, for example) and
@@ -386,7 +420,12 @@ impl AudioSystem {
             self.event_tx.clone(),
             Arc::clone(&self.status),
             self.timing,
-        );
+        )
+        .map_err(|_| {
+            // The callback went with the thread: audio is off until a
+            // restart, which the interface says.
+            SwitchError::NotStarted
+        })?;
         self.commands = commands;
         self.thread = Some(thread);
         self.configure(config);

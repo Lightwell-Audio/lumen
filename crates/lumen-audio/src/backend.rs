@@ -19,6 +19,14 @@ pub struct OpenError {
     pub callback: Box<dyn AudioCallback>,
 }
 
+/// A callback that does nothing: for a stream whose real callback went with a
+/// thread that died before it could hand it back. Audio is silent and the
+/// failure is reported, rather than the app panicking over a callback it
+/// cannot recover.
+pub(crate) fn silent() -> Box<dyn AudioCallback> {
+    Box::new(|_: &mut crate::types::Block<'_>| {})
+}
+
 impl std::fmt::Debug for OpenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OpenError")

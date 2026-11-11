@@ -321,6 +321,12 @@ impl Audio {
             Answer::Failed(error @ SwitchError::Stopped) => {
                 self.lost_for_this_run(format!("Could not switch the audio driver: {error}"));
             }
+            Answer::Failed(error @ SwitchError::NotStarted) => {
+                self.lost_for_this_run(format!(
+                    "Could not switch the audio driver: {error}. Save your work and restart \
+                     {PRODUCT_NAME}."
+                ));
+            }
             Answer::Gone if self.system.is_some() || self.parked.is_some() => {
                 self.notice = Some(format!("{} is not available", change.device));
             }

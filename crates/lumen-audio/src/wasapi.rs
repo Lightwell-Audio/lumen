@@ -18,13 +18,13 @@
 //! as a reset request; the reopen then fails and the supervisor reports
 //! `Lost`) or as a device that stops consuming audio (reported as a stall).
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, SyncSender};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use crate::backend::{Backend, OpenError, Stream, StreamEvent};
+use crate::backend::{Backend, OpenError, Stream, StreamEvent, silent};
 use crate::convert::{SampleFormat, interleave_bytes};
 use crate::priority::ProAudio;
 use crate::types::{
@@ -233,14 +233,26 @@ impl Backend for WasapiBackend {
         }
         let flags = Arc::new(Flags::default());
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        // The callback waits in the slot until the stream has opened, so a
+        // render thread that cannot start hands it back to the caller.
+        let slot = Arc::new(Mutex::new(Some(callback)));
+        let handing = Arc::clone(&slot);
         let thread = {
             let config = config.clone();
             let flags = Arc::clone(&flags);
             let exclusive = self.exclusive;
             std::thread::Builder::new()
                 .name("lumen-audio-wasapi".into())
-                .spawn(move || render_thread(&config, exclusive, callback, &flags, &ready_tx))
-                .expect("spawn WASAPI render thread")
+                .spawn(move || render_thread(&config, exclusive, &handing, &flags, &ready_tx))
+        };
+        let thread = match thread {
+            Ok(thread) => thread,
+            Err(error) => {
+                return Err(OpenError {
+                    error: AudioError::Driver(format!("the audio thread could not start: {error}")),
+                    callback: take(&slot),
+                });
+            }
         };
         match ready_rx.recv() {
             Ok(Ok(info)) => Ok(Box::new(WasapiStream {
@@ -252,7 +264,18 @@ impl Backend for WasapiBackend {
                 let _ = thread.join();
                 Err(OpenError { error, callback })
             }
-            Err(_) => panic!("the WASAPI render thread died while opening the device"),
+            Err(_) => {
+                // The render thread ended before saying how: it panicked.
+                // Take the callback if it never left the slot; otherwise a
+                // silent stand-in keeps the app alive while it reports why.
+                let _ = thread.join();
+                Err(OpenError {
+                    error: AudioError::Driver(
+                        "the audio thread stopped while opening the device".into(),
+                    ),
+                    callback: take(&slot),
+                })
+            }
         }
     }
 }
@@ -266,12 +289,21 @@ struct Flags {
 
 type Ready = SyncSender<Result<StreamInfo, (AudioError, Box<dyn AudioCallback>)>>;
 
+/// Takes the callback back out of its slot, or a silent stand-in when it went
+/// with a thread that died before handing it back.
+fn take(slot: &Mutex<Option<Box<dyn AudioCallback>>>) -> Box<dyn AudioCallback> {
+    slot.lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take()
+        .unwrap_or_else(silent)
+}
+
 /// Owns everything COM-related for one stream; returns the callback when
 /// the stream ends (`None` if it never started).
 fn render_thread(
     config: &StreamConfig,
     exclusive: bool,
-    mut callback: Box<dyn AudioCallback>,
+    callback: &Mutex<Option<Box<dyn AudioCallback>>>,
     flags: &Flags,
     ready: &Ready,
 ) -> Option<Box<dyn AudioCallback>> {
@@ -291,10 +323,18 @@ fn render_thread(
     let mut render = match opened {
         Ok(render) => render,
         Err(error) => {
-            let _ = ready.send(Err((error, callback)));
+            // The device did not open: the callback was never used.
+            let _ = ready.send(Err((error, take(callback))));
             return None;
         }
     };
+    // The stream runs: the callback leaves the slot for the render loop. A
+    // panic from here on is the supervisor's stall to report, and the
+    // callback is gone with this thread.
+    let mut callback = callback
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take()?;
     let _ = ready.send(Ok(render.info.clone()));
     render.run(callback.as_mut(), flags);
     let _ = render.client.stop_stream();
@@ -678,10 +718,12 @@ impl Stream for WasapiStream {
 
     fn close(mut self: Box<Self>) -> Box<dyn AudioCallback> {
         self.flags.stop.store(true, Ordering::Release);
+        // A render thread that panicked took the callback with it: silence
+        // and a stall report beat taking the app down with it.
         self.thread
             .take()
             .and_then(|t| t.join().ok().flatten())
-            .expect("the WASAPI render thread returns the callback")
+            .unwrap_or_else(silent)
     }
 }
 
@@ -694,6 +736,61 @@ mod tests {
         assert_eq!(hns_to_frames(100_000, 48_000), 480);
         assert_eq!(hns_to_frames(100_000, 44_100), 441);
         assert_eq!(hns_to_frames(30_000, 48_000), 144);
+    }
+
+    fn block(outputs: &mut [f32]) -> Block<'_> {
+        Block {
+            sample_rate: 48_000,
+            frames: 2,
+            inputs: &[],
+            outputs,
+            input_channels: 0,
+            output_channels: 2,
+            position: None,
+        }
+    }
+
+    /// A stream whose render thread died (a panic) closes with a silent
+    /// callback. Taking the app down for a callback that is gone is worse
+    /// (sweep M7).
+    #[test]
+    fn a_stream_whose_thread_is_gone_closes_with_silence() {
+        let stream = Box::new(WasapiStream {
+            info: StreamInfo {
+                sample_rate: 48_000,
+                buffer_frames: 128,
+                input_latency: 0,
+                output_latency: 0,
+                input_channels: 0,
+                output_channels: 2,
+                silent_inputs: Vec::new(),
+            },
+            flags: Arc::new(Flags::default()),
+            thread: None,
+        });
+        let mut callback = stream.close();
+        let mut outputs = [1.0f32; 4];
+        callback.process(&mut block(&mut outputs));
+        assert_eq!(outputs, [1.0; 4], "the stand-in leaves the block alone");
+    }
+
+    #[test]
+    fn the_callback_slot_hands_the_callback_back_once_and_then_silence() {
+        let callback: Box<dyn AudioCallback> = Box::new(|block: &mut Block<'_>| {
+            block.outputs.fill(0.5);
+        });
+        let slot = Mutex::new(Some(callback));
+        let mut handed = take(&slot);
+        assert!(slot.lock().unwrap().is_none(), "it left the slot");
+        let mut outputs = [0.0f32; 4];
+        handed.process(&mut block(&mut outputs));
+        assert_eq!(outputs, [0.5; 4], "the callback that was handed back runs");
+
+        // With the callback gone with a dead thread, a stand-in answers.
+        let mut stand_in = take(&slot);
+        let mut outputs = [1.0f32; 4];
+        stand_in.process(&mut block(&mut outputs));
+        assert_eq!(outputs, [1.0; 4]);
     }
 
     #[test]
