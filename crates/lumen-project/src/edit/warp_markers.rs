@@ -9,11 +9,16 @@
 //! ([`lumen_core::warp::MIN_RATIO`], [`lumen_core::warp::MAX_RATIO`]): a move
 //! or a slide past that stops at the limit and says so ([`Edited::held`]).
 //! Markers are counted in the playing pass; a take's other passes keep theirs.
+//!
+//! A marker moves the audio on both sides of it, so fixing one late hit means
+//! pinning the hits either side first (M9.5 review M2). [`fix_hit`] makes all
+//! three markers in one map, each where the map plays it, so nothing is heard
+//! differently until the hit's own marker is dragged.
 
 use lumen_core::time::Ticks;
 use lumen_core::warp::{self, Marker};
 
-use super::warp::{Refused, anchor, file_seconds};
+use super::warp::{FRAME_SLACK, Refused, anchor, file_seconds};
 use crate::model::{Clip, Project};
 
 /// One change to a warped clip's markers. Ticks count from the clip's content
@@ -130,6 +135,87 @@ pub fn held_at(clip: &Clip, index: usize, to: Ticks) -> bool {
         let (low, high) = warp::tick_limits(&w.markers, w.original_bpm, index);
         to < low || to > high
     })
+}
+
+/// What [`fix_hit`] places: the map with the markers added, and where the
+/// hit's own marker stands in it (the one already there when it had one).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FixedHit {
+    pub markers: Vec<Marker>,
+    pub hit: Option<usize>,
+}
+
+/// Whether a marker already stands on the second `source` of the file: one at
+/// the tick the map plays it at, or pinning a second within a frame of it
+/// (the slack that keeps a frame exact when a clip is anchored to its file).
+fn standing_at(markers: &[Marker], bpm: f64, source: f64) -> Option<usize> {
+    let at = warp::tick_at_source(markers, bpm, source);
+    markers
+        .iter()
+        .position(|m| m.at == at || (m.source - source).abs() < FRAME_SLACK)
+}
+
+/// `clip`'s map with a marker on the hit at `hit` seconds of the file and on
+/// the transients either side of it, `before` and `after`, so a drag of the
+/// hit's marker moves only that hit (M9.5 review M2, the owner's C).
+///
+/// Each marker goes where the map plays its second now, so nothing that is
+/// heard moves. A side is left alone when a marker stands on that transient
+/// already, or anywhere strictly between it and the hit: that marker holds
+/// the side. A hit with a marker on it adds none for the hit. Refused when the
+/// clip is not warped or nothing would be added.
+pub fn fix_hit(
+    clip: &Clip,
+    hit: f64,
+    (before, after): (Option<f64>, Option<f64>),
+) -> Result<FixedHit, Refused> {
+    let Some(map) = &clip.warp else {
+        return Err(Refused::Unchanged);
+    };
+    let bpm = map.original_bpm;
+    let mut wanted = Vec::new();
+    if standing_at(&map.markers, bpm, hit).is_none() {
+        wanted.push(hit);
+    }
+    for source in [before, after].into_iter().flatten() {
+        if standing_at(&map.markers, bpm, source).is_some() {
+            continue;
+        }
+        // A marker anywhere between the transient and the hit holds the side
+        // already, on either side.
+        let (low, high) = if source < hit {
+            (source, hit)
+        } else {
+            (hit, source)
+        };
+        let between = map
+            .markers
+            .iter()
+            .any(|m| m.source > low && m.source < high);
+        if !between {
+            wanted.push(source);
+        }
+    }
+    if wanted.is_empty() {
+        return Err(Refused::Unchanged);
+    }
+    // In time order, each placed by the map as it is now: adding markers
+    // changes nothing that is heard, so every one is placed by the same map.
+    wanted.sort_by(f64::total_cmp);
+    let mut markers = map.markers.clone();
+    for source in wanted {
+        let Some((next, _)) =
+            warp::with_marker(&markers, warp::marker_on(&map.markers, bpm, source))
+        else {
+            continue;
+        };
+        markers = next;
+    }
+    if markers == map.markers {
+        return Err(Refused::Unchanged);
+    }
+    let hit = standing_at(&markers, bpm, hit);
+    Ok(FixedHit { markers, hit })
 }
 
 #[cfg(test)]
@@ -343,6 +429,116 @@ mod tests {
         assert_eq!(
             edit_marker(&project, &plain, MarkerEdit::Add(q(1))),
             Err(Refused::Unchanged)
+        );
+    }
+
+    /// The song's clip with the map `markers` (second of the file, beat): the
+    /// file lasts ten seconds, so every map here is inside it.
+    fn mapped(markers: &[(f64, i64)]) -> Clip {
+        let (_, clip) = warped();
+        let mut clip = clip;
+        clip.warp.as_mut().unwrap().markers = markers
+            .iter()
+            .map(|(source, at)| Marker::new(*source, q(*at)))
+            .collect();
+        clip
+    }
+
+    /// The map of a clip, for [`heard`] with an explicit clip.
+    fn map(clip: &Clip) -> &[Marker] {
+        &clip.warp.as_ref().unwrap().markers
+    }
+
+    /// The beats at which the seconds of `sources` play in `markers` at
+    /// `bpm`.
+    fn beats_in(markers: &[Marker], bpm: f64, sources: &[f64]) -> Vec<Ticks> {
+        sources
+            .iter()
+            .map(|s| warp::tick_at_source(markers, bpm, *s))
+            .collect()
+    }
+
+    #[test]
+    fn fixing_a_late_hit_pins_the_hit_and_the_hits_either_side_without_moving_them() {
+        // The file plays as made; the hit at 0.7 s is late (the map has it
+        // play between beats 1 and 2), with 0.4 s and 1.2 s the hits around it.
+        let clip = mapped(&[(0.0, 0), (2.0, 4)]);
+        let hit = 0.7;
+        let sides = (Some(0.4), Some(1.2));
+        let bpm = clip.warp.as_ref().unwrap().original_bpm;
+        let before = beats_in(map(&clip), bpm, &[0.4, hit, 1.2]);
+        let fixed = fix_hit(&clip, hit, sides).expect("three markers");
+        assert_eq!(fixed.markers.len(), 5);
+        // Each marker is where the map played its second, so the beat of every
+        // hit is the one it had.
+        assert_eq!(beats_in(&fixed.markers, bpm, &[0.4, hit, 1.2]), before);
+        for (source, at) in [(0.4, before[0]), (hit, before[1]), (1.2, before[2])] {
+            assert!(
+                (warp::source_at(&fixed.markers, bpm, at) - source).abs() < 1e-9,
+                "{source} s on {at:?}"
+            );
+        }
+        assert_eq!(fixed.hit, Some(2), "the hit's own marker");
+        assert_eq!(
+            fixed.markers[2],
+            Marker::new(hit, before[1]),
+            "on the hit, where it plays"
+        );
+        // The hits before and after are exactly where the map had them.
+        assert_eq!(fixed.markers[1], Marker::new(0.4, before[0]));
+        assert_eq!(fixed.markers[3], Marker::new(1.2, before[2]));
+    }
+
+    #[test]
+    fn a_marker_between_the_hit_and_a_neighbour_holds_that_side() {
+        // A marker just after the hit: the hit's next side needs no anchor.
+        let clip = mapped(&[(0.0, 0), (0.85, 1), (1.0, 2)]);
+        let fixed = fix_hit(&clip, 0.7, (Some(0.4), Some(1.2))).expect("some markers");
+        let sources: Vec<f64> = fixed.markers.iter().map(|m| m.source).collect();
+        assert!(sources.contains(&0.4), "the side before is pinned");
+        assert!(!sources.contains(&1.2), "the side after was already held");
+        // And the other way round.
+        let clip = mapped(&[(0.0, 0), (0.55, 1), (1.3, 3)]);
+        let fixed = fix_hit(&clip, 0.7, (Some(0.4), Some(1.2))).expect("some markers");
+        let sources: Vec<f64> = fixed.markers.iter().map(|m| m.source).collect();
+        assert!(!sources.contains(&0.4), "the side before was already held");
+        assert!(sources.contains(&1.2), "the side after is pinned");
+    }
+
+    #[test]
+    fn a_marker_on_the_hit_or_its_neighbour_adds_no_second_one() {
+        let clip = mapped(&[(0.0, 0), (0.5, 1), (1.0, 2)]);
+        // 0.5 s already has its marker: it is where a hit on it stands.
+        let fixed = fix_hit(&clip, 0.5, (Some(0.25), Some(0.75))).expect("the sides");
+        let sources: Vec<f64> = fixed.markers.iter().map(|m| m.source).collect();
+        assert_eq!(
+            sources.iter().filter(|s| (**s - 0.5).abs() < 1e-9).count(),
+            1
+        );
+        let index = fixed.hit.expect("the marker already on it");
+        assert_eq!(fixed.markers[index].source, 0.5);
+        // Every side already held: nothing to add.
+        assert_eq!(fix_hit(&clip, 0.5, (None, None)), Err(Refused::Unchanged));
+        // A clip that is not warped has nothing to fix.
+        let mut plain = clip;
+        plain.warp = None;
+        assert_eq!(
+            fix_hit(&plain, 0.5, (Some(0.25), None)),
+            Err(Refused::Unchanged)
+        );
+    }
+
+    #[test]
+    fn the_first_and_last_hits_have_only_one_side() {
+        let clip = mapped(&[(0.0, 0), (1.0, 2)]);
+        let first = fix_hit(&clip, 0.1, (None, Some(0.9))).expect("the hit and after it");
+        assert_eq!(first.markers.len(), 4);
+        let last = fix_hit(&clip, 3.0, (Some(2.5), None)).expect("the hit and before it");
+        assert_eq!(last.markers.len(), 4);
+        assert_eq!(
+            fix_hit(&clip, 3.0, (None, None)).map(|f| f.markers.len()),
+            Ok(3),
+            "the hit alone"
         );
     }
 }

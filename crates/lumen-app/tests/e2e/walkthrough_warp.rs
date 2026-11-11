@@ -167,14 +167,15 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
         "the late hit is heard late: {before:?}"
     );
 
-    // 2. Fix the late hit: anchors on the hits either side of it, then the late
-    //    hit is dragged onto its beat. The audio after an anchor stays where it
-    //    was, so the anchors are made first.
+    // 2. Fix the late hit: Fix this hit pins the hits either side of it and
+    //    adds a marker on it, one undo step, and the marker is dragged onto
+    //    its beat. Nothing else moves: the anchors stay where they were.
     open(&mut lumen, drums);
     lumen.wait_for("detection", |app| app.audio_detection().ready);
-    lumen.double_click(on_strip(&lumen, 4.0));
-    lumen.double_click(on_strip(&lumen, 6.0));
     let late_beat = (LATE_HIT as f64 * LOOP_BEAT + LATE_BY) * LOOP_BPM / 60.0;
+    lumen.right_click(on_strip(&lumen, late_beat));
+    assert!(lumen.shows("Fix this hit"), "the strip offers to fix it");
+    lumen.click("Fix this hit");
     let from = on_strip(&lumen, late_beat);
     let to = on_strip(&lumen, LATE_HIT as f64);
     lumen.drag(from, to, Modifiers::NONE);
@@ -318,9 +319,9 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
 /// (M9.5 S7 review, finding M2): one marker moves the audio on both sides of
 /// it. Dragging the late hit onto its beat with nothing pinned shifts every
 /// later hit 61 ms early, because the audio after the last marker keeps its
-/// speed from that marker on. Anchors on the hits either side keep them where
-/// they were, as the walkthrough does. If Lumen pins the neighbours itself one
-/// day, this test is the one to change.
+/// speed from that marker on. "Fix this hit" is the way to fix one hit: it
+/// pins the hits either side first, as the walkthrough does with it. If plain
+/// dragging ever pins them itself, this test is the one to change.
 #[test]
 fn a_lone_marker_moves_the_hits_after_it_so_the_walkthrough_anchors_first() {
     let mut lumen = Lumen::start_with(TempDir::new("e2e-warp-lone-marker"), |l| {

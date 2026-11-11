@@ -211,6 +211,15 @@ pub(crate) enum StripHover {
     Ghost(warp_strip::Ghost),
 }
 
+/// What a right-click on the warp strip opened its menu on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum StripMenu {
+    /// The marker at this index.
+    Marker(usize),
+    /// The transient at `source` seconds of the file.
+    Hit { source: f64 },
+}
+
 /// A drag of one warp marker: the project it began on (the drag redoes its
 /// edit from there each frame, so it is one undo step), how far the marker
 /// was from the pointer when it was picked up, and for a slide where the
@@ -241,8 +250,12 @@ pub(crate) struct WarpEditor {
     pub drawn: Option<warp_strip::WarpStrip>,
     /// The marker last picked or moved: its hairline is lit.
     pub picked: Option<usize>,
-    /// The marker a right-click opened its menu on.
-    pub menu: Option<usize>,
+    /// The marker a right-click opened its menu on, or the transient it did.
+    pub menu: Option<StripMenu>,
+    /// The marker that last had the keyboard. A command run from the palette
+    /// acts on it: the palette's field holds the keyboard by then. Another of
+    /// the editor's stops taking it clears this.
+    pub keyboard: Option<usize>,
     /// The markers' Tab stops, drawn last frame, in time order.
     pub ids: Vec<eframe::egui::Id>,
     /// Keys taken for the focused marker, for the next frame.

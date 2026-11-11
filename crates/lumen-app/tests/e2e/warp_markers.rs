@@ -3,6 +3,12 @@
 //! moved in one drag, double-click to add and delete, Shift and drag to slide
 //! the audio under a marker, the 25% to 400% limit, and the markers from the
 //! keyboard. Each drag is one undo step.
+//!
+//! "Fix this hit" (M9.5 review M2, the owner's C) is here too: on a transient
+//! it pins the hits either side in one step, so a drag of the hit's own marker
+//! moves only it, and the command does the same on the focused marker.
+
+use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers, Pos2};
 use egui_kittest::kittest::Queryable;
@@ -10,10 +16,10 @@ use lumen_core::time::{PPQ, Ticks};
 use lumen_core::warp::{MAX_RATIO, MIN_RATIO, ratio};
 use lumen_project::model::{Clip, Id};
 
-use super::Lumen;
-use super::audio_editor_handles::{clip, shown, x_of};
+use super::audio_editor_handles::{clip, open, shown, x_of};
 use super::clip_commands::command;
-use super::warp_chip::{close_chip, open_chip, opened_click_track};
+use super::warp_chip::{clicks_at, close_chip, open_chip, opened_click_track};
+use super::{Lumen, TempDir};
 
 /// A click track opened in the editor and warped at the tempo found.
 fn warped_editor(name: &str) -> (Lumen, Id) {
@@ -333,6 +339,205 @@ fn the_add_command_in_a_later_repeat_of_a_loop_adds_in_the_turn_that_plays() {
         later,
         markers(&lumen, id),
         "the same marker as in the first turn"
+    );
+}
+
+/// The tempo of the loop these tests fix a hit in, and the hit played late:
+/// eight beats at 100 BPM, the sixth 80 ms late.
+const LOOP_BPM: f64 = 100.0;
+const BEAT: f64 = 60.0 / LOOP_BPM;
+const LATE: usize = 5;
+const LATE_BY: f64 = 0.08;
+
+/// The second of the file the late hit is at.
+fn late_at() -> f64 {
+    LATE as f64 * BEAT + LATE_BY
+}
+
+/// The second of the file each of the loop's eight hits is at.
+fn hit_at(k: usize) -> f64 {
+    k as f64 * BEAT + if k == LATE { LATE_BY } else { 0.0 }
+}
+
+/// A loop of eight beats at 100 BPM with the sixth hit played late, dropped
+/// in (so it follows the song), opened in the editor and listened to.
+fn warped_late_loop(name: &str) -> (Lumen, Id) {
+    let mut lumen = Lumen::start_with(TempDir::new(&format!("e2e-{name}")), |l| {
+        l.playing_from_disk()
+    });
+    let onsets: Vec<f64> = (0..8).map(hit_at).collect();
+    let file = clicks_at(&lumen.dir().join("Drums 100 BPM.wav"), &onsets, 8.0 * BEAT);
+    lumen.drop_files(&[file]);
+    lumen.wait_for("the loop to follow the song", |app| {
+        app.project()
+            .tracks
+            .first()
+            .and_then(|t| t.clips.first())
+            .is_some_and(|c| c.warp.is_some())
+    });
+    lumen.frames(30);
+    let id = lumen.app().project().tracks[0].clips[0].id;
+    open(&mut lumen, id);
+    lumen.wait_for("detection", |app| app.audio_detection().ready);
+    lumen.frames(3);
+    (lumen, id)
+}
+
+/// The strip's middle line where the late hit plays, from the clip's map.
+fn on_late_hit(lumen: &Lumen, id: Id) -> Pos2 {
+    let c = clip(lumen, id);
+    let w = c.warp.as_ref().expect("the loop is warped");
+    let at = c.start + lumen_core::warp::tick_at_source(&w.markers, w.original_bpm, late_at());
+    on_strip(lumen, at.as_quarters())
+}
+
+/// Plays from the start for four seconds and gives the frames the hits began
+/// at: the first frame over 0.1 after a quiet stretch.
+fn heard_hits(lumen: &mut Lumen) -> Vec<usize> {
+    lumen.key(Modifiers::NONE, Key::Home);
+    lumen.wait_for("the rewind", |app| app.playhead() == Ticks::ZERO);
+    lumen.key(Modifiers::NONE, Key::Space);
+    let heard = lumen.listen(Duration::ZERO, 4 * 48_000);
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.frames(5);
+    let mut found: Vec<usize> = Vec::new();
+    for (i, f) in heard.iter().enumerate() {
+        if f[0].abs() > 0.1 && found.last().is_none_or(|last| i - last > 12_000) {
+            found.push(i);
+        }
+    }
+    found
+}
+
+/// Whether every hit of the loop plays at the beat it did in `before`: the
+/// map's beat for each second of the file, whole ticks.
+fn hits_did_not_move(lumen: &Lumen, id: Id, before: &Clip) {
+    let was = before.warp.as_ref().expect("warped");
+    let now = clip(lumen, id);
+    let is = now.warp.as_ref().expect("still warped");
+    for k in 0..8 {
+        let at = hit_at(k);
+        assert_eq!(
+            lumen_core::warp::tick_at_source(&is.markers, is.original_bpm, at),
+            lumen_core::warp::tick_at_source(&was.markers, was.original_bpm, at),
+            "hit {k} at {at} s moved"
+        );
+    }
+}
+
+#[test]
+fn fix_this_hit_pins_the_hits_either_side_so_only_the_late_hit_moves() {
+    let (mut lumen, id) = warped_late_loop("warp-fix-hit");
+    let before = clip(&lumen, id);
+    assert_eq!(markers(&lumen, id).len(), 1, "one marker to begin with");
+
+    // Right-click the late hit: the strip's menu offers to fix it, and one
+    // step makes its marker and the two anchors.
+    lumen.right_click(on_late_hit(&lumen, id));
+    assert!(lumen.shows("Fix this hit"), "the menu offers it");
+    lumen.click("Fix this hit");
+    assert_eq!(lumen.app().undo_label(), Some("Fix this hit"));
+    assert_eq!(
+        markers(&lumen, id).len(),
+        4,
+        "the hit and the hits beside it"
+    );
+    hits_did_not_move(&lumen, id, &before);
+
+    // Drag the hit's marker onto its beat: only that hit moves.
+    let (strip, flags) = lumen.app().audio_warp_strip().expect("the strip");
+    let hit = on_late_hit(&lumen, id);
+    let index = flags
+        .iter()
+        .position(|x| (x - hit.x).abs() < 2.0)
+        .expect("the hit's marker");
+    let c = clip(&lumen, id);
+    let to = x_of(
+        &lumen,
+        (c.start + Ticks::quarters(LATE as i64)).as_quarters(),
+    );
+    lumen.drag(
+        Pos2::new(flags[index], strip.center().y),
+        Pos2::new(to, strip.center().y),
+        Modifiers::NONE,
+    );
+    let moved = clip(&lumen, id);
+    let map = moved.warp.as_ref().expect("still warped");
+    assert_eq!(map.markers[index].at, Ticks::quarters(LATE as i64));
+    assert!((map.markers[index].source - late_at()).abs() < 0.001);
+    for k in [LATE - 1, LATE + 1] {
+        let source = map.source_at(Ticks::quarters(k as i64));
+        assert!(
+            (source - hit_at(k)).abs() < 0.002,
+            "hit {k} stayed where it was: {source} s"
+        );
+    }
+
+    // Heard: every hit half a second apart, the late one included.
+    let heard = heard_hits(&mut lumen);
+    assert!(heard.len() >= 7, "hits heard: {heard:?}");
+    let gaps: Vec<f64> = heard[1..]
+        .windows(2)
+        .map(|pair| (pair[1] - pair[0]) as f64 / 48_000.0)
+        .collect();
+    for gap in &gaps {
+        assert!((gap - 0.5).abs() < 0.02, "every hit on the beat: {gaps:?}");
+    }
+
+    // One undo takes the drag back, a second the three markers.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    let kept = clip(&lumen, id);
+    assert_eq!(markers(&lumen, id).len(), 4, "the markers stay");
+    assert_eq!(
+        lumen_core::warp::tick_at_source(
+            &kept.warp.as_ref().unwrap().markers,
+            kept.warp.as_ref().unwrap().original_bpm,
+            late_at()
+        ),
+        lumen_core::warp::tick_at_source(
+            &before.warp.as_ref().unwrap().markers,
+            before.warp.as_ref().unwrap().original_bpm,
+            late_at()
+        ),
+        "the hit is back where it played"
+    );
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    assert_eq!(clip(&lumen, id), before, "one undo takes all three markers");
+}
+
+#[test]
+fn fix_this_hit_from_the_keyboard_pins_the_focused_markers_hits() {
+    let (mut lumen, id) = warped_late_loop("warp-fix-hit-keys");
+    let before = clip(&lumen, id);
+    // A marker on the late hit, from the keyboard: the cursor goes there and
+    // Add warp marker makes it and gives it the keyboard.
+    let c = clip(&lumen, id);
+    let w = c.warp.as_ref().expect("warped");
+    let at = c.start + lumen_core::warp::tick_at_source(&w.markers, w.original_bpm, late_at());
+    lumen.app_mut().set_audio_cursor(at);
+    command(&mut lumen, "Add warp marker");
+    assert_eq!(markers(&lumen, id).len(), 2);
+    let made = clip(&lumen, id);
+
+    // Fix this hit, from the palette, acts on that marker: its two neighbours
+    // are pinned with it, in one step.
+    command(&mut lumen, "Fix this hit");
+    assert_eq!(lumen.app().undo_label(), Some("Fix this hit"));
+    assert_eq!(
+        markers(&lumen, id).len(),
+        4,
+        "the hit and the hits beside it"
+    );
+    hits_did_not_move(&lumen, id, &before);
+
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    assert_eq!(
+        clip(&lumen, id).warp,
+        made.warp,
+        "one undo takes the two anchors back"
     );
 }
 

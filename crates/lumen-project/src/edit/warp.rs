@@ -21,7 +21,7 @@ use crate::model::{Clip, ClipContent, Pass, Project, Warp, WarpMode};
 use super::{Edge, audio_of};
 
 /// Source frames two positions may differ by and still be one frame.
-const FRAME_SLACK: f64 = 1e-6;
+pub(super) const FRAME_SLACK: f64 = 1e-6;
 
 /// Splits source seconds into the whole frame the media offset holds and the
 /// remainder `audio_phase_seconds` holds, with a position on a frame kept

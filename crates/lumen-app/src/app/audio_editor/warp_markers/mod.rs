@@ -9,6 +9,9 @@
 //! - **Keyboard:** each marker is a Tab stop, in time order. Left and Right
 //!   move it by the grid (Alt finely), Delete takes it away. Add warp marker
 //!   puts one at the edit cursor (the playhead when there is none).
+//! - **Fix this hit** (right-click a transient, or the command) pins the hits
+//!   either side and adds a marker on this one, one undo step, so only this
+//!   hit moves when its marker is dragged (M9.5 review M2, the owner's C).
 //! - A drag shows the speed of the two spans beside the marker; at the limit
 //!   (25% and 400%) the marker stops and the chip turns to the warning colour.
 //!

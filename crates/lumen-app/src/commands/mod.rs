@@ -288,6 +288,7 @@ pub(crate) enum Command {
     AudioEditorPitchEnvelope,
     TransposeClipUp,
     TransposeClipDown,
+    FixWarpHit,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -663,6 +664,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AudioEditorPitchEnvelope, "view.audio_editor_pitch_envelope", "Show the clip's pitch envelope", Area::View, &[], "Shows the opened audio clip's pitch envelope over its wave in the audio editor, to add, move and draw its points in semitones. It is heard while the clip is warped in Melodic, Full mix or Rhythmic. Again hides it."),
     info(Command::TransposeClipUp, "clip.transpose_up", "Transpose clip up a semitone", Area::Clip, &[], "Raises the selected warped audio clips by a semitone, in Melodic, Full mix or Rhythmic. Repitch is left as it is: its pitch follows the tempo. It stops at four octaves."),
     info(Command::TransposeClipDown, "clip.transpose_down", "Transpose clip down a semitone", Area::Clip, &[], "Lowers the selected warped audio clips by a semitone, in Melodic, Full mix or Rhythmic. Repitch is left as it is: its pitch follows the tempo. It stops at four octaves."),
+    info(Command::FixWarpHit, "clip.warp_fix_hit", "Fix this hit", Area::Clip, &[], "Pin the hits either side and add a marker on this one, so only this hit moves when you drag it. Nothing is heard differently until it moves."),
 ];
 
 const fn info(
@@ -726,7 +728,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::TransposeClipDown as usize + 1,
+            Command::FixWarpHit as usize + 1,
             ALL.len(),
             "a command is missing"
         );

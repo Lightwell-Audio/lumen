@@ -425,6 +425,7 @@ impl App {
             Command::HalveClipTempo => self.scale_clip_tempo(0.5),
             Command::AddWarpMarker => self.add_warp_marker_command(),
             Command::ClearWarpMarkers => self.clear_warp_markers_command(),
+            Command::FixWarpHit => self.fix_warp_hit_command(),
             Command::TransposeClipUp => self.transpose_clips_command(1),
             Command::TransposeClipDown => self.transpose_clips_command(-1),
             Command::AddAudioTrack => self.arrangement.add_track(doc, TrackKind::Audio),

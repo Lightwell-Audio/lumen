@@ -116,6 +116,15 @@ impl Default for Detection {
 }
 
 impl Detection {
+    /// What was found for the file `clip` plays (the media, or its reversed
+    /// twin's), when it is this detection's file: the key, the findings, and
+    /// the sensitivity they are read at.
+    pub(crate) fn found(&self, clip: &Clip) -> Option<(u64, Arc<Analysis>, u8)> {
+        let key = file_key(clip)?;
+        self.analysis(key)
+            .map(|found| (key, Arc::clone(found), self.sensitivity))
+    }
+
     /// What was found for `media`, once it is.
     pub(crate) fn analysis(&self, media: u64) -> Option<&Arc<Analysis>> {
         match &self.state {
