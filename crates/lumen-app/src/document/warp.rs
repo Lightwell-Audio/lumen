@@ -8,7 +8,7 @@ use std::sync::Arc;
 #[cfg(test)]
 use lumen_core::warp::Marker;
 use lumen_project::edit::warp::{self as edit, Change, Refused};
-use lumen_project::edit::warp_markers::{Edited, MarkerEdit, edit_marker};
+use lumen_project::edit::warp_markers::{Edited, MarkerEdit, edit_marker, fix_hit};
 use lumen_project::model::{Clip, Id, Project};
 
 use super::Document;
@@ -260,6 +260,37 @@ impl Document {
         Ok(done)
     }
 
+    /// "Fix this hit" (M9.5 review M2, the owner's C): a marker on the hit
+    /// whose second of the file is `hit`, and on the transients either side of
+    /// it (`sides`), in one step. Each goes where the clip's map plays its
+    /// second, so nothing is heard differently; the hit's marker is then the
+    /// only one a drag moves. A side a marker already holds is left alone.
+    /// Refused for a locked clip, one that is not warped, or when nothing
+    /// would be added.
+    pub fn fix_warp_hit(
+        &mut self,
+        id: Id,
+        hit: f64,
+        sides: (Option<f64>, Option<f64>),
+    ) -> Result<MarkerDone, Refused> {
+        let (marked, index) = {
+            let project = self.project();
+            let clip = project
+                .tracks
+                .iter()
+                .flat_map(|t| t.clips.iter())
+                .find(|c| c.id == id && !c.locked)
+                .ok_or(Refused::Unchanged)?;
+            let fixed = fix_hit(clip, hit, sides)?;
+            let marked = edit::set_markers(project, clip, fixed.markers)?;
+            (marked, fixed.hit)
+        };
+        self.history.apply("Fix this hit", None, |project| {
+            super::clips::replace_clip(project, id, |_| marked.clone());
+        });
+        Ok(MarkerDone { index, held: false })
+    }
+
     /// Replaces a warped clip's markers whole (tests of the map's limits).
     /// Returns whether the clip changed.
     #[cfg(test)]
@@ -477,6 +508,49 @@ mod tests {
         doc.undo();
         assert_eq!(warp_of(&doc).unwrap().transpose_cents, 0);
         assert_eq!(warp_of(&doc).unwrap().mode, WarpMode::Melodic);
+    }
+
+    /// M9.5 review M2: a late hit and the hits either side get their markers
+    /// in one step, and one undo puts the map back exactly.
+    #[test]
+    fn fixing_a_hit_makes_its_three_markers_in_one_step_and_undo_restores_the_map() {
+        let (mut doc, id) = doc_with_clip();
+        doc.warp_clips(&[id], 120.0);
+        let map = vec![
+            Marker::new(0.0, Ticks::ZERO),
+            Marker::new(2.0, Ticks::quarters(4)),
+        ];
+        assert!(doc.set_warp_markers(id, map.clone()));
+        let before = doc.project().clone();
+        let beats = |markers: &[Marker], sources: &[f64]| -> Vec<Ticks> {
+            sources
+                .iter()
+                .map(|s| lumen_core::warp::tick_at_source(markers, 120.0, *s))
+                .collect()
+        };
+        let was = beats(&map, &[0.4, 0.7, 1.2]);
+        let done = doc
+            .fix_warp_hit(id, 0.7, (Some(0.4), Some(1.2)))
+            .expect("the hit and its sides");
+        assert_eq!(done.index, Some(2), "the hit's own marker");
+        let fixed = warp_of(&doc).unwrap().markers;
+        assert_eq!(fixed.len(), 5, "the hit, both sides and the two there were");
+        assert_eq!(beats(&fixed, &[0.4, 0.7, 1.2]), was, "no hit moved");
+        assert_eq!(doc.history().undo_label(), Some("Fix this hit"));
+        // Fixing it again has nothing to add, and makes no step.
+        assert_eq!(
+            doc.fix_warp_hit(id, 0.7, (Some(0.4), Some(1.2))),
+            Err(Refused::Unchanged)
+        );
+        assert_eq!(doc.history().undo_label(), Some("Fix this hit"));
+        doc.undo();
+        assert_eq!(doc.project(), &before, "one undo puts the whole map back");
+        // A locked clip is left as it is.
+        doc.set_clips_locked(&[id], true);
+        assert_eq!(
+            doc.fix_warp_hit(id, 0.7, (Some(0.4), Some(1.2))),
+            Err(Refused::Unchanged)
+        );
     }
 
     /// Moving the transpose keeps what is there: it adds to each clip's own,

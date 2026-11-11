@@ -93,11 +93,7 @@ impl App {
     /// What detection found for the file `clip` plays, when it is the opened
     /// clip's file.
     pub(crate) fn found_for(&self, clip: &Clip) -> Found {
-        let detect = &self.audio_editor.detect;
-        let key = file_key(clip)?;
-        detect
-            .analysis(key)
-            .map(|a| (key, Arc::clone(a), detect.sensitivity))
+        self.audio_editor.detect.found(clip)
     }
 
     /// The tempo `clip`'s file states, if it does.

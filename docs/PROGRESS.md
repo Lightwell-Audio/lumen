@@ -27,7 +27,7 @@ On branch `m9.5-s7-close` (2026-11-10): M9.5, audio clip editing and warp, is bu
 v33 and v34). S7, the close, adds E2E `walkthrough_warp` (the exit criterion: a 92 BPM loop in a 120 BPM song, one
 late hit fixed with markers, a phrase transposed +2 st, the export equal to what was heard), MT-M9.5-1 and the review
 (`docs/audits/2026-11-10-m9.5.md`: four Medium findings, waiting for the owner). Owner listening on 2026-11-10
-passed MT-WARP-1 to 3; MT-PITCH-1 remains partial with audible and UI findings. MT-M9.5-1 remains open.
+passed MT-WARP-1 to 3; MT-PITCH-1 remains partial with audible and UI findings. On `m9.5-closeout` (2026-11-11) the review's M1, M2 (Fix this hit), M4 and M6 are fixed (ADR-0140), and the owner passed MT-M9.5-1. Left: M3 (the WSL performance gate) and the docs pass, then the approval.
 The milestone report is below; detailed runs are in `docs/manual-tests/M9.5.md`.
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked

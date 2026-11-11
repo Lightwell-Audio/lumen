@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use eframe::egui::{self, Color32, FontId, Painter, Rect, Stroke, pos2, vec2};
+use eframe::egui::{self, Color32, FontId, Painter, Pos2, Rect, Stroke, pos2, vec2};
 use lumen_core::grid::{Level, Line};
 use lumen_core::meter::MeterMap;
 use lumen_media::Peaks;
@@ -193,6 +193,48 @@ pub(crate) fn wave(painter: &Painter, lane: Rect, input: &WaveInput<'_>) {
             Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
     }
+}
+
+/// A detected hit: the small grey triangle both places draw for one, in the
+/// warp strip once the clip is warped (M9.5 S5b, ADR-0136) and at the top of
+/// the wave while its Warp popover is open on a clip that is not
+/// (`App::paint_transient_ticks`, `App::paint_transients`). It sits with its
+/// base on `top` and its point on `x`, and `strength` (0 to 1) decides how
+/// strongly it shows.
+pub(crate) fn hit_triangle(painter: &Painter, x: f32, top: f32, strength: f32) {
+    painter.add(egui::Shape::convex_polygon(
+        hit_triangle_points(x, top),
+        hit_ink(strength),
+        Stroke::NONE,
+    ));
+}
+
+/// The triangle a detected hit is drawn as: a base centred on `x` at `top`
+/// and a point at `x` a [`theme::size::WARP_TICK_H`] below it.
+fn hit_triangle_points(x: f32, top: f32) -> Vec<Pos2> {
+    let (w, h) = (theme::size::WARP_TICK_W, theme::size::WARP_TICK_H);
+    vec![
+        pos2(x - w / 2.0, top),
+        pos2(x + w / 2.0, top),
+        pos2(x, top + h),
+    ]
+}
+
+/// The triangle's ink: `text_secondary` at the strength-scaled alpha a hit
+/// shows at, from [`theme::WARP_TICK_BASE`] for a soft one to that plus
+/// [`theme::WARP_TICK_GAIN`] for the loudest.
+fn hit_ink(strength: f32) -> Color32 {
+    theme::p()
+        .text_secondary
+        .gamma_multiply(theme::WARP_TICK_BASE + theme::WARP_TICK_GAIN * strength.clamp(0.0, 1.0))
+}
+
+/// The top of a detected hit's triangle on the wave of a clip that is not
+/// warped: just inside the wave body's top edge, by the gap
+/// [`theme::size::WARP_TICK_FLOOR`] the warp strip keeps under its own
+/// triangles, so the same triangle reads the same way in either place.
+pub(crate) fn wave_hit_top(body: Rect) -> f32 {
+    body.top() + theme::size::WARP_TICK_FLOOR
 }
 
 /// One column a physical pixel wide: the extent of the frames under it.
@@ -567,6 +609,54 @@ mod tests {
         assert_eq!(seconds_text(1.25, 0.05), "0:01.25");
         assert_eq!(seconds_text(0.5, 0.5), "0:00.5");
         assert_eq!(seconds_text(0.0015, 0.001), "0:00.002");
+    }
+
+    /// A detected hit is one triangle wherever it is drawn: its base centred
+    /// on the hit, its point on the hit and below the base, so it points down
+    /// at the place it marks.
+    #[test]
+    fn a_detected_hit_points_down_at_its_place() {
+        let (x, top) = (100.0, 20.0);
+        let triangle = hit_triangle_points(x, top);
+        assert_eq!(triangle.len(), 3, "a triangle");
+        assert_eq!(triangle[2].x, x, "the point is where the hit is");
+        assert_eq!(
+            triangle[2].y,
+            top + theme::size::WARP_TICK_H,
+            "the point hangs below the base"
+        );
+        assert_eq!(triangle[0].y, top);
+        assert_eq!(triangle[1].y, top);
+        assert_eq!(triangle[0].x, x - theme::size::WARP_TICK_W / 2.0);
+        assert_eq!(triangle[1].x, x + theme::size::WARP_TICK_W / 2.0);
+    }
+
+    /// On the wave the triangle hangs from inside the body's top edge and
+    /// stays in the top band, clear of the wave's middle.
+    #[test]
+    fn a_hit_on_the_wave_sits_in_the_waves_top_band() {
+        let body = Rect::from_min_size(pos2(0.0, 200.0), vec2(600.0, 300.0));
+        let triangle = hit_triangle_points(50.0, wave_hit_top(body));
+        assert!(triangle[0].y > body.top(), "just inside the top edge");
+        assert!(
+            triangle[2].y < body.center().y,
+            "above the wave's middle: {triangle:?}"
+        );
+        assert!(
+            triangle[2].y - body.top() <= 10.0,
+            "a small mark at the top: {triangle:?}"
+        );
+    }
+
+    /// The strength-to-opacity rule both places draw with: a harder hit shows
+    /// more strongly, and a strength past full adds nothing more.
+    #[test]
+    fn a_harder_hit_shows_more_strongly() {
+        let alpha = |strength: f32| hit_ink(strength).a();
+        assert!(alpha(0.0) > 0, "a soft hit still shows");
+        assert!(alpha(0.0) < alpha(0.5));
+        assert!(alpha(0.5) < alpha(1.0));
+        assert_eq!(alpha(1.0), alpha(2.0), "the strength is clamped");
     }
 
     #[test]

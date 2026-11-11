@@ -675,8 +675,9 @@ per slice and move what is no longer current out of it.
   `walkthrough_warp` plays out the exit criterion on a click-track loop
   named "92 BPM" (one hit 80 ms late) and a steady tone, and compares the
   export with what the test device played (same hits and gaps within 2 ms,
-  the tone at 429 Hz for +2 st); it compares gaps from the second hit on,
-  because the test device drops up to a block before `listen` begins.
+  the tone at 429 Hz for +2 st); it hears the device from Play on
+  (`Lumen::listen_from`; `listen` drops what played before it is called) and
+  compares every hit, the first included.
   MT-M9.5-1 (`docs/manual-tests/M9.5.md`) is its twin on the Focusrite. The
   review is `docs/audits/2026-11-10-m9.5.md`: no High, four Medium, two
   Low, **waiting for the owner's go-ahead** (M1 split `warp_markers.rs`; **M2
@@ -716,6 +717,19 @@ per slice and move what is no longer current out of it.
   before: audit M2 and M6, the sine-chord tempo, M1, M3, M4 and the docs pass.
   Built by DeepSeek V4.1 Flash delegates and reviewed in two rounds (GLM 5.3,
   GLM 5.3 Flash); the last round's fixes were not reviewed again.
+- **Branch `m9.5-closeout`: the M9.5 review's fixes** (ADR-0140; no format
+  change). M1: `warp_markers.rs` is a folder of six files. M4: an
+  allocation-guard test plays warped clips while a marker is dragged and a clip
+  transposed (`media::warped::tests`). M2 (owner: C): **Fix this hit** in the
+  strip's menu and the palette (`clip.warp_fix_hit`) pins the hits either side
+  and marks this one in one undo step; the walkthrough E2E uses it. M6 (owner:
+  A): detected hits on an unwarped clip are the strip's grey triangles. Found
+  on the way: the strip read detection from the app while the editor was taken
+  out to draw, so its ghost never snapped to a hit (fixed). The owner rechecked
+  PR #111's fixes by hand (2026-11-11). Built by DeepSeek V4.1 Flash delegates,
+  reviewed and integrated by the parent; workspace tests, E2E (982) and smoke
+  pass. **The owner passed MT-M9.5-1 on it (2026-11-11).** Waiting: M3 (needs
+  WSL), the docs pass, then the approval.
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);

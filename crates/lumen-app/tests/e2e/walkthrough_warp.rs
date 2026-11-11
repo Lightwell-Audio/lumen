@@ -13,7 +13,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers, Pos2};
 use egui_kittest::kittest::Queryable;
@@ -60,11 +59,11 @@ fn onsets(left: impl IntoIterator<Item = f32>) -> Vec<usize> {
     found
 }
 
-/// The seconds between each hit and the next, from the second hit on: the test
-/// device drops what it played before `listen` began, up to a block, so the
-/// first hit heard may be only its tail.
+/// The seconds between each hit and the next, the first included: the test
+/// device is heard from Play on (`Lumen::listen_from`), so the first hit is
+/// heard whole.
 fn gaps(onsets: &[usize]) -> Vec<f64> {
-    onsets[1..]
+    onsets
         .windows(2)
         .map(|pair| (pair[1] - pair[0]) as f64 / RATE)
         .collect()
@@ -74,8 +73,8 @@ fn gaps(onsets: &[usize]) -> Vec<f64> {
 fn hear(lumen: &mut Lumen) -> Vec<f32> {
     lumen.key(Modifiers::NONE, Key::Home);
     lumen.wait_for("the rewind", |app| app.playhead() == Ticks::ZERO);
-    lumen.key(Modifiers::NONE, Key::Space);
-    let heard = lumen.listen(Duration::ZERO, LISTEN);
+    // Everything from Play on: a hit lost at the start would be a fault.
+    let heard = lumen.listen_from(|l| l.key(Modifiers::NONE, Key::Space), LISTEN);
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.frames(5);
     heard.iter().map(|f| f[0]).collect()
@@ -155,26 +154,29 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
     );
     lumen.frames(30);
     let before = gaps(&onsets(hear(&mut lumen)));
+    // The gap into the late hit is the one before it in the list.
+    let late = LATE_HIT - 1;
     assert!(
-        before.len() >= 4,
+        before.len() > late,
         "the hits of the loop are heard: {before:?}"
     );
-    for gap in &before[..3] {
+    for gap in &before[..late] {
         assert!((gap - 0.5).abs() < 0.025, "on the song's beat: {before:?}");
     }
     assert!(
-        before[3] > 0.5 + 0.04,
+        before[late] > 0.5 + 0.04,
         "the late hit is heard late: {before:?}"
     );
 
-    // 2. Fix the late hit: anchors on the hits either side of it, then the late
-    //    hit is dragged onto its beat. The audio after an anchor stays where it
-    //    was, so the anchors are made first.
+    // 2. Fix the late hit: Fix this hit pins the hits either side of it and
+    //    adds a marker on it, one undo step, and the marker is dragged onto
+    //    its beat. Nothing else moves: the anchors stay where they were.
     open(&mut lumen, drums);
     lumen.wait_for("detection", |app| app.audio_detection().ready);
-    lumen.double_click(on_strip(&lumen, 4.0));
-    lumen.double_click(on_strip(&lumen, 6.0));
     let late_beat = (LATE_HIT as f64 * LOOP_BEAT + LATE_BY) * LOOP_BPM / 60.0;
+    lumen.right_click(on_strip(&lumen, late_beat));
+    assert!(lumen.shows("Fix this hit"), "the strip offers to fix it");
+    lumen.click("Fix this hit");
     let from = on_strip(&lumen, late_beat);
     let to = on_strip(&lumen, LATE_HIT as f64);
     lumen.drag(from, to, Modifiers::NONE);
@@ -292,6 +294,7 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
     let song = lumen.dir().join("song.wav");
     let exported = export(&mut lumen, &song);
     let exported_hits = onsets(exported.iter().copied().take(LISTEN));
+    // Every hit, the first included: the test device was heard from Play on.
     assert_eq!(
         exported_hits.len(),
         heard_hits.len(),
@@ -318,9 +321,9 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
 /// (M9.5 S7 review, finding M2): one marker moves the audio on both sides of
 /// it. Dragging the late hit onto its beat with nothing pinned shifts every
 /// later hit 61 ms early, because the audio after the last marker keeps its
-/// speed from that marker on. Anchors on the hits either side keep them where
-/// they were, as the walkthrough does. If Lumen pins the neighbours itself one
-/// day, this test is the one to change.
+/// speed from that marker on. "Fix this hit" is the way to fix one hit: it
+/// pins the hits either side first, as the walkthrough does with it. If plain
+/// dragging ever pins them itself, this test is the one to change.
 #[test]
 fn a_lone_marker_moves_the_hits_after_it_so_the_walkthrough_anchors_first() {
     let mut lumen = Lumen::start_with(TempDir::new("e2e-warp-lone-marker"), |l| {

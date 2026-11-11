@@ -248,6 +248,31 @@ impl Lumen {
         heard.split_off(settle)
     }
 
+    /// Everything the test device plays from `start` on, for at least `frames`
+    /// frames. Unlike [`Lumen::listen`], which drops what played before it is
+    /// called, what played before `start` is dropped and nothing after it:
+    /// pressing Play and then listening loses the song's first frames (on a
+    /// slow runner a whole first hit), and a test of what plays from the
+    /// start must hear all of it.
+    pub fn listen_from(&mut self, start: impl FnOnce(&mut Self), frames: usize) -> Vec<[f32; 4]> {
+        self.frames(1);
+        self.app_mut().heard_all();
+        start(self);
+        let started = Instant::now();
+        let mut heard = self.app_mut().heard_all();
+        while heard.len() < frames {
+            assert!(
+                started.elapsed() < patience(),
+                "heard {} of {frames} frames",
+                heard.len()
+            );
+            std::thread::sleep(Duration::from_millis(10));
+            self.frames(1);
+            heard.extend(self.app_mut().heard_all());
+        }
+        heard
+    }
+
     /// Runs frames until `done` holds, sleeping a little between them so
     /// background work (audio, loading, saving) moves on. Panics, saying
     /// what it waited for, if it takes longer than [`patience`].
