@@ -531,3 +531,38 @@ fn without_disk_playback_a_warped_clip_is_heard_unwarped_until_it_is_turned_on()
         assert!((gap - 0.5).abs() < 0.02, "{gap} s: on the song's beat");
     }
 }
+
+/// Renders the detected hits on an unwarped clip's wave with its Warp popover
+/// open, for a look by eye: `SHOTS=<folder> LOOK_SCALE=1.5 cargo test -p
+/// lumen-app --test e2e look_at_the_wave_hits -- --ignored` (the theme is the
+/// process's).
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn look_at_the_wave_hits() {
+    let (mut lumen, _) = opened_click_track("wave-hits-look");
+    let scale: f32 = std::env::var("LOOK_SCALE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1.0);
+    lumen.harness.set_pixels_per_point(scale);
+    lumen.frames(4);
+    // At a larger scale the strip may fold, and the chip become a page of the
+    // More menu.
+    if lumen
+        .harness
+        .query_all_by_label_contains("Warp: ")
+        .next()
+        .is_some()
+    {
+        open_chip(&mut lumen);
+    } else {
+        lumen.click("More clip properties");
+        lumen.click("Warp\u{2026}");
+    }
+    lumen.frames(4);
+    let image = lumen.harness.render().expect("render");
+    let dir = std::path::PathBuf::from(std::env::var("SHOTS").expect("SHOTS names a folder"));
+    image
+        .save(dir.join(format!("wave-hits-dark-{}.png", (scale * 100.0) as u32)))
+        .expect("save");
+}
