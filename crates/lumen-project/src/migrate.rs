@@ -198,7 +198,9 @@ fn v5_to_v6(mut document: Value) -> Result<Value, String> {
 /// constant power (owner, M4): projects from before play 3 dB quieter at
 /// the centre.
 fn v6_to_v7(mut document: Value) -> Result<Value, String> {
-    let next_id = highest_id(&document)? + 1;
+    let next_id = highest_id(&document)?
+        .checked_add(1)
+        .ok_or("the highest id is the largest possible, so no id is free for the master track")?;
     let project = document
         .get_mut("project")
         .and_then(Value::as_object_mut)
@@ -1000,6 +1002,16 @@ mod tests {
         let v10 = json!({ "version": 10, "project": { "tracks": [{ "clips": [{ "content": clip.clone() }] }] } });
         let v11 = upgrade(v10, 10, FIRST_VERSION, MIGRATIONS).unwrap();
         assert_eq!(v11["project"]["tracks"][0]["clips"][0]["content"], clip);
+    }
+
+    #[test]
+    fn an_id_at_the_limit_leaves_no_room_for_a_master() {
+        let v6 = json!({ "version": 6, "project": { "tracks": [
+            { "id": "ffffffffffffffff", "kind": "audio" },
+        ] } });
+        let (version, message) = upgrade(v6, 6, FIRST_VERSION, MIGRATIONS).unwrap_err();
+        assert_eq!(version, 6);
+        assert!(message.contains("largest possible"), "{message}");
     }
 
     #[test]

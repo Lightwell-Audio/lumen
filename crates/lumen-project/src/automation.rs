@@ -54,15 +54,6 @@ impl Target {
         }
     }
 
-    /// Whether the value is a level in dB, which the engine turns into a
-    /// gain (silent at the floor).
-    pub fn is_level(self) -> bool {
-        matches!(
-            self,
-            Target::Volume | Target::Trim | Target::Send { .. } | Target::ClipGain { .. }
-        )
-    }
-
     /// Where a control of this target rests when nothing sets it: a plugin
     /// parameter at its middle, everything else at 0.
     pub fn default_value(self) -> f32 {

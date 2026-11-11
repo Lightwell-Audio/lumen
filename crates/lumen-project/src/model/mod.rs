@@ -286,11 +286,6 @@ impl Project {
         MeterMap::new(self.meter.clone())
             .unwrap_or_else(|_| MeterMap::constant(Meter::FOUR_FOUR).expect("4/4 is valid"))
     }
-
-    /// The time signature in force at `at`.
-    pub fn signature_at(&self, at: Ticks) -> TimeSignature {
-        TimeSignature::of(self.meter_map().meter_at(at)).unwrap_or(TimeSignature::FOUR_FOUR)
-    }
 }
 
 /// One time signature for the whole song, as a project's `meter`.
