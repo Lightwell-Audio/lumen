@@ -131,6 +131,10 @@ impl App {
             motion::time(motion::BASE),
         );
         ctx.set_zoom_factor(appearance.scale());
+        // The zoom takes effect at the start of the next pass, and the window
+        // command is converted then; the least size is sent again from the
+        // pass whose monitor size has moved (`app/window_size.rs`).
+        self.apply_window_minimum(ctx);
         self.system_theme = ctx.system_theme();
     }
 

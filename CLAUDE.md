@@ -699,6 +699,23 @@ per slice and move what is no longer current out of it.
   and zero static transpose does not make an active pitch envelope clear.
   These findings are not fixed; see `docs/manual-tests/M9.5.md` and
   `docs/KNOWN_ISSUES.md`. MT-M9.5-1 and milestone approval remain open.
+- **Branch `fix/m9.5-manual-findings`: the M9.5 manual-test findings with a
+  clear fix are fixed** (ADR-0139; plan `docs/milestones/M9.5.md` §11; no
+  format change). The Pitch chip keeps one width, so its popover no longer
+  shakes; the popover shows an active pitch envelope with Remove envelope and
+  leads with why Repitch cannot be pitched (Use Melodic); the editor's
+  file-time ruler labels are thinned so a big warp drag cannot overprint them;
+  the main window's minimum is 960 x 540 UI points at every UI scale (capped
+  by the monitor). **Tell the owner:** the window minimum is unit-tested only
+  (the runtime scale change and the monitor cap need a hand check: 100% to
+  200% in the menu, then shrink the window; MT-CLIP-1 step 9, MT-CLIP-2
+  step 10); the repeated transient is measured, not fixed: a pitched clip
+  dips up to 7.7 dB for about 30 ms at a chunk seam (KNOWN_ISSUES, top row;
+  `lumen-media/tests/warp_transient.rs`), and fixing it is a design choice
+  (phase-aware blend, or one long run per stream). Left for the owner as
+  before: audit M2 and M6, the sine-chord tempo, M1, M3, M4 and the docs pass.
+  Built by DeepSeek V4.1 Flash delegates and reviewed in two rounds (GLM 5.3,
+  GLM 5.3 Flash); the last round's fixes were not reviewed again.
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);

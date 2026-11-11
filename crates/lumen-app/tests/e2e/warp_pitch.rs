@@ -165,7 +165,10 @@ fn repitch_and_an_unwarped_clip_say_why_the_pitch_does_not_change() {
     lumen.click("Warp clip");
     close_chip(&mut lumen);
     open_pitch(&mut lumen);
-    assert!(shows(&lumen, "Set by tempo in Repitch"), "Repitch says why");
+    assert!(
+        shows(&lumen, "Repitch changes speed and pitch together"),
+        "Repitch says why"
+    );
     close_chip(&mut lumen);
 
     // A transpose set in Melodic goes when the clip is set to Repitch.

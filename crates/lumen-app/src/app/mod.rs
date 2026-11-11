@@ -75,3 +75,4 @@ pub(crate) mod track_freeze;
 mod track_input;
 pub(crate) mod view;
 mod welcome;
+mod window_size;

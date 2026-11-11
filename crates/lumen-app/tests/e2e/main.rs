@@ -91,6 +91,7 @@ mod outputs;
 mod overdub_seams;
 mod palette;
 mod parameters;
+mod pitch_popover;
 mod playback;
 mod plugin_lanes;
 mod plugins;

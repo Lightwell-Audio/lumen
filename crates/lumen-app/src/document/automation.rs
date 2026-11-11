@@ -10,6 +10,7 @@ use std::sync::Arc;
 use lumen_core::automation::{Lane, Point};
 use lumen_core::time::Ticks;
 use lumen_project::automation::{AutomationLane, MAX_LANES, Target};
+use lumen_project::envelope::Kind;
 use lumen_project::model::Id;
 
 use super::Document;
@@ -290,6 +291,22 @@ impl Document {
         Ok(())
     }
 
+    /// Takes the pitch envelope of the audio clip `clip` away, points and
+    /// all, as one undo step named "Remove clip envelope": the audio editor's
+    /// Pitch popover (M9.5 S7, F2). A locked clip keeps it
+    /// ([`LaneRefusal::Locked`]), and a clip with no pitch envelope changes
+    /// nothing and adds no step.
+    pub fn clear_clip_pitch_envelope(&mut self, clip: Id) -> Result<(), LaneRefusal> {
+        let track = self
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.clips.iter().any(|c| c.id == clip))
+            .map(|t| t.id)
+            .ok_or(LaneRefusal::NoTarget)?;
+        self.remove_lane(track, Target::envelope(clip, Kind::Pitch))
+    }
+
     /// Takes `track`'s lane for `target` away, points and all.
     pub fn remove_lane(&mut self, track: Id, target: Target) -> Result<(), LaneRefusal> {
         let held = super::mixer::find(self.project(), track).ok_or(LaneRefusal::NoTrack)?;
@@ -436,6 +453,60 @@ mod tests {
             .collect();
         assert_eq!(values, [-1.0, 1.0, 6.0, -100.0]);
         lumen_project::validate(doc.project()).unwrap();
+    }
+
+    /// F2: the Pitch popover's Remove envelope takes the clip's pitch
+    /// envelope away in one step, and one undo brings it back.
+    #[test]
+    fn the_clips_pitch_envelope_is_taken_away_in_one_step() {
+        use lumen_project::model::Project;
+
+        let mut doc = Document::new(crate::empty_project());
+        let media = doc.fresh_id();
+        doc.import(vec![crate::document::tests::file(
+            media,
+            "Loop",
+            Ticks::ZERO,
+        )]);
+        let track = doc.project().tracks[0].id;
+        let clip = doc.project().tracks[0].clips[0].id;
+        fn envelope(doc: &Document, clip: Id) -> Option<Lane> {
+            doc.project()
+                .tracks
+                .iter()
+                .flat_map(|t| &t.clips)
+                .find(|c| c.id == clip)
+                .and_then(|c| c.envelopes.pitch.clone())
+        }
+        doc.set_lane(
+            track,
+            Target::envelope(clip, Kind::Pitch),
+            lane(&[(0, 17.76), (4, -3.0)]),
+            false,
+        )
+        .unwrap();
+        let before: Project = doc.project().clone();
+        let steps = doc.history().steps().0.len();
+        assert_eq!(doc.clear_clip_pitch_envelope(clip), Ok(()));
+        assert_eq!(doc.history().undo_label(), Some("Remove clip envelope"));
+        assert!(envelope(&doc, clip).is_none(), "the envelope is gone");
+        assert_eq!(doc.history().steps().0.len(), steps + 1, "one step for it");
+        doc.undo();
+        assert_eq!(doc.project(), &before, "one undo brings it all back");
+        // A locked clip keeps its envelope.
+        doc.set_clips_locked(&[clip], true);
+        assert_eq!(
+            doc.clear_clip_pitch_envelope(clip),
+            Err(LaneRefusal::Locked)
+        );
+        assert!(envelope(&doc, clip).is_some());
+        doc.set_clips_locked(&[clip], false);
+        // One with no pitch envelope changes nothing and records nothing.
+        assert_eq!(doc.clear_clip_pitch_envelope(clip), Ok(()));
+        assert!(envelope(&doc, clip).is_none());
+        let steps = doc.history().steps().0.len();
+        assert_eq!(doc.clear_clip_pitch_envelope(clip), Ok(()));
+        assert_eq!(doc.history().steps().0.len(), steps, "nothing recorded");
     }
 
     #[test]
