@@ -1,17 +1,21 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
 use lumen_core::warp::Marker;
 use lumen_engine::{
-    ClipAudio, Command, Destination, NodeSpec, PAGE, PagePool, Routing, StreamAudio, Timeline,
-    clip_player, engine, mixer,
+    ClipAudio, ClipsHandle, Command, Destination, NodeSpec, PAGE, PagePool, Routing, StreamAudio,
+    Timeline, clip_player, engine, mixer,
 };
+use lumen_media::MediaError;
 use lumen_project::edit::warp::Change;
+use lumen_project::edit::warp_markers::MarkerEdit;
 use lumen_project::model::{Id, Project, Warp, WarpMode};
 
 use super::{Request, WarpedStreams};
+use crate::disk::{Disk, plan::Scene};
 use crate::document::{Document, DropInto, Imported};
 use crate::lanes::engine_clips_with;
 use crate::media::streams::{self, Readers, Unread};
@@ -1159,4 +1163,364 @@ fn layered_clips_with_different_envelopes_keep_their_own_pitch() {
         "the clip with an envelope is not played by the curve of the other, nor the other by its"
     );
     assert_eq!(warps.len(), 2);
+}
+
+/// A ten second file with a steady tone and a decaying noise hit every half
+/// second: every warp mode plays something, and the Rhythmic slicer finds
+/// transients in it.
+fn hits() -> Arc<ClipAudio> {
+    let mut left = vec![0.0_f32; FRAMES];
+    for (i, value) in left.iter_mut().enumerate() {
+        *value = 0.2 * (std::f64::consts::TAU * TONE * i as f64).sin() as f32;
+    }
+    let mut seed = 12_345_u32;
+    for hit in 0..20 {
+        let at = 4_800 + hit * 24_000;
+        for i in 0..4_800 {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let noise = (seed >> 8) as f32 / (1 << 24) as f32 * 2.0 - 1.0;
+            left[at + i] += noise * (1.0 - i as f32 / 4_800.0);
+        }
+    }
+    let right = left.iter().map(|v| v * 0.5).collect();
+    Arc::new(ClipAudio::Memory {
+        sample_rate: RATE,
+        channels: vec![left, right],
+    })
+}
+
+/// A project of two warped clips of one file, in a song at 120 BPM: the first
+/// in Full mix made at 105 BPM, the second in Rhythmic made at 100 BPM. Both
+/// are ten seconds long, so there is more to play than the read-ahead.
+fn warped_pair() -> (Document, Id, Id) {
+    let imported = |id: u64, name: &str| Imported {
+        media: Id(id),
+        path: PathBuf::from(format!("C:/a/{name}.wav")),
+        name: name.into(),
+        sample_rate: RATE,
+        channels: 2,
+        frames: FRAMES as u64,
+        size_bytes: 0,
+        tempo: None,
+        at: Ticks::ZERO,
+        into: DropInto::NewTracks {
+            before: None,
+            group: None,
+        },
+    };
+    let mut doc = Document::new(crate::empty_project());
+    doc.import(vec![imported(1_000, "A"), imported(1_001, "B")]);
+    doc.apply("prepare", None, |project| project.tempo = step(120.0));
+    let a = doc.project().tracks[0].clips[0].id;
+    let b = doc.project().tracks[1].clips[0].id;
+    assert_eq!(doc.warp_clips(&[a], 105.0).changed, 1);
+    assert_eq!(
+        doc.set_warp(&[a], &Change::Mode(WarpMode::FullMix), None)
+            .changed,
+        1
+    );
+    assert_eq!(doc.warp_clips(&[b], 100.0).changed, 1);
+    assert_eq!(
+        doc.set_warp(&[b], &Change::Mode(WarpMode::Rhythmic), None)
+            .changed,
+        1
+    );
+    (doc, a, b)
+}
+
+/// The playback an edit is sent into: the streams made so far, the engine's
+/// clip list, the disk thread's scene and the file they play.
+struct Playing {
+    warps: WarpedStreams,
+    source: Arc<ClipAudio>,
+    timeline: Timeline,
+    clips: ClipsHandle,
+    disk: Disk,
+}
+
+impl Playing {
+    /// The clip list `doc` plays, its warped clips as streams in the pool.
+    fn list(&mut self, doc: &Document) -> Vec<lumen_engine::Clip> {
+        engine_clips_with(
+            doc.project(),
+            RATE,
+            |_| Some((Arc::clone(&self.source), RATE)),
+            &mut |request| self.warps.stream(request),
+        )
+    }
+
+    /// Sends `doc`'s clip list as the app does while playing (M9.5 S4b): the
+    /// disk thread is told of the new streams first, and the list waits until
+    /// the next quarter second of it is in memory, as
+    /// `Lanes::hold_for_warps` does, so the edit is heard without the dip of a
+    /// late page.
+    fn send(&mut self, doc: &Document, at: i64) -> Arc<Scene> {
+        let list = self.list(doc);
+        assert!(
+            list.iter().all(|c| c.audio.stream().is_some()),
+            "every warped clip plays as a stream"
+        );
+        let scene = Arc::new(Scene::new(&list, &self.timeline, RATE, None, vec![0]));
+        self.disk.set_scene(Arc::clone(&scene));
+        lumen_testkit::wait_until("the edit's next quarter second in memory", || {
+            scene.ready(at, i64::from(RATE / 4))
+        });
+        self.clips.set(list).expect("the engine takes the list");
+        scene
+    }
+}
+
+/// What the disk thread read, counted: the frames it got from the streams and
+/// the highest page of each, so the test can say it read past the first two
+/// second chunk of the stretch modes.
+#[derive(Default)]
+struct Tally {
+    frames: AtomicUsize,
+    highest: Mutex<HashMap<u64, usize>>,
+}
+
+impl Tally {
+    /// The highest page read of stream `id`.
+    fn highest(&self, id: u64) -> Option<usize> {
+        self.highest
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&id)
+            .copied()
+    }
+}
+
+/// The live readers, with what they read counted.
+struct Counted {
+    inner: Readers,
+    tally: Arc<Tally>,
+}
+
+impl crate::disk::Pages for Counted {
+    fn read(
+        &mut self,
+        audio: &StreamAudio,
+        page: usize,
+        left: &mut [f32],
+        right: &mut [f32],
+    ) -> Result<usize, MediaError> {
+        let got = crate::disk::Pages::read(&mut self.inner, audio, page, left, right)?;
+        self.tally.frames.fetch_add(got, Ordering::Relaxed);
+        let mut highest = self
+            .tally
+            .highest
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let top = highest.entry(audio.id()).or_insert(0);
+        *top = (*top).max(page);
+        Ok(got)
+    }
+
+    fn keep(&mut self, streams: &[StreamAudio]) {
+        crate::disk::Pages::keep(&mut self.inner, streams)
+    }
+}
+
+/// M9.5 review M4: the plan's counting-allocator test (`docs/milestones/M9.5.md`
+/// §5). A warped clip and a Rhythmic one play through the page pool the device
+/// callback reads, the disk thread computing the pages, while a warp marker is
+/// dragged (three moves under one merge key) and the transpose is changed;
+/// every edit sends a new clip list to the engine. `engine.process` is the
+/// first thing `Audio::start`'s callback runs, and the guard counts every heap
+/// operation inside it.
+#[test]
+fn warped_playback_and_its_edits_never_touch_the_heap_on_the_audio_thread() {
+    assert!(
+        lumen_rt::guard_is_active(),
+        "the guarded allocator is not installed"
+    );
+    /// The first stretch chunk is 98,304 frames, 2.048 s: played past, the
+    /// pages on the other side of it are read and heard.
+    const CHUNK: i64 = 98_304;
+    /// Where in the song the drag and the transpose happen and where it stops.
+    const DRAG_AT: i64 = 50_000;
+    const TRANSPOSE_AT: i64 = 80_000;
+    const STOP_AT: i64 = 112_000;
+    const BLOCK: usize = 128;
+
+    let source = hits();
+    let (mut doc, a, _rhythmic) = warped_pair();
+    let timeline = Timeline::new(
+        TempoMap::new(doc.project().tempo.clone()).unwrap(),
+        doc.project().meter_map(),
+    );
+    let pool = PagePool::new(512);
+    let (clips, player) = clip_player();
+    let (mut routing, mixed) = mixer(player);
+    let nodes = doc
+        .project()
+        .tracks
+        .iter()
+        .map(|track| NodeSpec::unity(track.id.0, Destination::Hardware(0)))
+        .collect();
+    assert!(
+        routing
+            .set(&Routing {
+                nodes,
+                cue: None,
+                measure: None,
+            })
+            .unwrap()
+    );
+    let (mut handle, mut engine) = engine(timeline.clone(), mixed, RATE);
+
+    // The disk thread and the live pool, as `Streaming::start` makes them: the
+    // callback reads pages the thread left there, and never waits for it.
+    let tally = Arc::new(Tally::default());
+    let mut playing = Playing {
+        warps: WarpedStreams::new(&pool),
+        source,
+        timeline,
+        clips,
+        disk: Disk::start(
+            &pool,
+            Box::new(Counted {
+                inner: Readers::polling(),
+                tally: Arc::clone(&tally),
+            }),
+            handle.transport_reader(),
+        ),
+    };
+    let first = playing.list(&doc);
+    assert_eq!(first.len(), 2);
+    assert!(
+        first.iter().all(|c| c.audio.stream().is_some()),
+        "both clips are warped streams"
+    );
+    let mut scene = Arc::new(Scene::new(&first, &playing.timeline, RATE, None, vec![0]));
+    playing.disk.set_scene(Arc::clone(&scene));
+    lumen_testkit::wait_until("the first quarter second in memory", || {
+        scene.ready(0, i64::from(RATE / 4))
+    });
+    playing.clips.set(first).expect("the engine takes the list");
+    handle.send(Command::Play).expect("the transport plays");
+
+    let mut data = vec![0.0; 2 * BLOCK];
+    let (mut heard, mut past_the_chunk, mut blocks) = (0_usize, 0_usize, 0_usize);
+    let (mut dragged, mut transposed) = (false, false);
+    // The streams the engine plays now: an edit makes a new one.
+    let mut streams: Vec<u64> = scene.streams().iter().map(|s| s.id()).collect();
+    let guard = lumen_testkit::Deadline::new();
+    loop {
+        let at = handle.transport().sample;
+        if at >= STOP_AT {
+            break;
+        }
+        guard.check("the warped clips playing through the callback");
+        lumen_testkit::wait_until("the next pages at the playhead", || {
+            scene.ready(at, i64::from(RATE / 4))
+        });
+        // What the device callback runs, counted.
+        let ((), heap) =
+            lumen_rt::count_rt_violations(|| engine.process(RATE, &mut data, 2, BLOCK));
+        assert_eq!(
+            heap, 0,
+            "the audio thread touched the heap at song frame {at} (block {blocks})"
+        );
+        let sounding = data[..BLOCK].iter().filter(|v| v.abs() > 1.0e-3).count();
+        heard += sounding;
+        if at >= CHUNK {
+            past_the_chunk += sounding;
+        }
+        blocks += 1;
+        // The app's side, outside the callback.
+        playing.clips.collect_garbage();
+        routing.collect_garbage();
+
+        // A drag of a warp marker: the pointer goes down and makes its marker
+        // without a history step, then moves it three times under one key, so
+        // the whole gesture is one undo step and every move reaches the engine.
+        if !dragged && at >= DRAG_AT {
+            let before = doc.project().clone();
+            let (base, index) = crate::document::warp::with_marker_edit(
+                &before,
+                a,
+                MarkerEdit::Add(Ticks::quarters(8)),
+            )
+            .expect("the marker the pointer went down on");
+            let index = index.expect("its place");
+            for to in [
+                Ticks::quarters(9),
+                Ticks::quarters(7),
+                Ticks::quarters(8) + Ticks(lumen_core::time::PPQ / 2),
+            ] {
+                let done = doc
+                    .edit_warp_marker(
+                        &base,
+                        a,
+                        MarkerEdit::Move { index, to },
+                        Some("warp marker"),
+                    )
+                    .expect("the drag moves its marker");
+                assert_eq!(done.index, Some(index));
+                scene = playing.send(&doc, at);
+                let now: Vec<u64> = scene.streams().iter().map(|s| s.id()).collect();
+                assert!(
+                    now.iter().any(|id| !streams.contains(id)),
+                    "the drag's move made a new stream"
+                );
+                streams = now;
+            }
+            assert_eq!(
+                doc.history().undo_label(),
+                Some("Move warp marker"),
+                "the whole drag is one step"
+            );
+            dragged = true;
+        }
+        // And the transpose, a second edit that makes another stream.
+        if !transposed && at >= TRANSPOSE_AT {
+            assert_eq!(
+                doc.set_warp(&[a], &Change::Transpose(200), Some("warp transpose"))
+                    .changed,
+                1
+            );
+            scene = playing.send(&doc, at);
+            let now: Vec<u64> = scene.streams().iter().map(|s| s.id()).collect();
+            assert!(
+                now.iter().any(|id| !streams.contains(id)),
+                "the transpose made a new stream"
+            );
+            streams = now;
+            transposed = true;
+        }
+    }
+    assert!(dragged && transposed, "both edits were made while playing");
+    // The audio really played: sound for most of the frames, and sound on the
+    // other side of the first stretch chunk.
+    let played_frames = blocks * BLOCK;
+    assert!(
+        heard * 5 > played_frames * 4,
+        "only {heard} of {played_frames} frames sounded"
+    );
+    assert!(
+        past_the_chunk > 8_000,
+        "only {past_the_chunk} frames sounded past the first two second chunk"
+    );
+    // And the streams were read across that chunk, not just up to it.
+    let chunk_page = CHUNK as usize / PAGE;
+    for stream in scene.streams() {
+        let highest = tally
+            .highest(stream.id())
+            .unwrap_or_else(|| panic!("stream {} was never read", stream.id()));
+        assert!(
+            highest > chunk_page,
+            "stream {} was read only to page {highest}, before the chunk at {chunk_page}",
+            stream.id()
+        );
+    }
+    assert!(
+        tally.frames.load(Ordering::Relaxed) > played_frames,
+        "the disk thread read the streams the callback played"
+    );
+    assert_eq!(
+        pool.underruns(),
+        0,
+        "the callback found every page it played"
+    );
 }
