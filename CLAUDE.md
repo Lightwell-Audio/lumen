@@ -727,8 +727,8 @@ per slice and move what is no longer current out of it.
   out to draw, so its ghost never snapped to a hit (fixed). The owner rechecked
   PR #111's fixes by hand (2026-11-11). Built by DeepSeek V4.1 Flash delegates,
   reviewed and integrated by the parent; workspace tests, E2E (982) and smoke
-  pass. Waiting: MT-M9.5-1 (synthetic set and `run.ps1 -Test walkthrough` in
-  `C:\lt\m95-owner-20261110`), M3 (needs WSL), the docs pass, then the approval.
+  pass. **The owner passed MT-M9.5-1 on it (2026-11-11).** Waiting: M3 (needs
+  WSL), the docs pass, then the approval.
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);
