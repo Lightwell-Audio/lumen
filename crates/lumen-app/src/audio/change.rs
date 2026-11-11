@@ -91,10 +91,19 @@ impl Change {
         names: Names,
     ) -> Self {
         let (tx, answers) = mpsc::channel();
-        std::thread::Builder::new()
-            .name("lumen-audio-change".into())
-            .spawn(move || run(target, system, &tx))
-            .expect("spawn the audio change thread");
+        // A worker that cannot start leaves the receiver disconnected, which
+        // `answer` already reports as `Answer::Gone`: the interface says the
+        // device is not available and audio stays off.
+        let spawned =
+            crate::spawn::spawn_named("lumen-audio-change", move || run(target, system, &tx));
+        if let Err(error) = spawned {
+            crate::trace::log(|| {
+                format!(
+                    "audio: {}",
+                    crate::spawn::start_failed("the audio change", &error)
+                )
+            });
+        }
         Self {
             answers,
             unread: VecDeque::new(),

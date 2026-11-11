@@ -59,6 +59,8 @@ pub struct Listing {
     found: Vec<Template>,
     pending: Option<Receiver<Vec<Template>>>,
     asked: Option<Instant>,
+    /// Why the last listing could not start; said once.
+    failure: Option<String>,
 }
 
 impl Listing {
@@ -76,14 +78,24 @@ impl Listing {
         self.asked = Some(Instant::now());
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
-        std::thread::Builder::new()
-            .name("lumen-templates".into())
-            .spawn(move || {
-                let _ = tx.send(list(&dir));
-                ctx.request_repaint();
-            })
-            .expect("spawn template listing");
-        self.pending = Some(rx);
+        let spawned = crate::spawn::spawn_named("lumen-templates", move || {
+            let _ = tx.send(list(&dir));
+            ctx.request_repaint();
+        });
+        match spawned {
+            Ok(_) => self.pending = Some(rx),
+            Err(error) => {
+                // The list stays as it was; the next ask tries again.
+                let why = crate::spawn::start_failed("listing the templates", &error);
+                crate::trace::log(|| format!("templates: {why}"));
+                self.failure = Some(why);
+            }
+        }
+    }
+
+    /// Why a listing could not start, once.
+    pub fn take_failure(&mut self) -> Option<String> {
+        self.failure.take()
     }
 
     /// Takes the worker's answer when it is in. True when the list changed.

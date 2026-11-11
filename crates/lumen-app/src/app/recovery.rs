@@ -65,6 +65,14 @@ impl App {
         if started {
             self.record.audio.notes.autosave_started();
         }
+        // Crash protection is off if its worker cannot start: say so, and say
+        // what is still safe (the project in memory).
+        if let Some(why) = autosave.take_failure() {
+            self.file_notice = Some(format!(
+                "Autosave could not start: {why}. Save your work yourself until this is fixed, \
+                 and restart if it keeps happening."
+            ));
+        }
         if let Some(due) = autosave.due_in(now) {
             ctx.request_repaint_after(due);
         }

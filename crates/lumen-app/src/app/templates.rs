@@ -26,17 +26,24 @@ impl Size {
     /// Starts reading the sizes of `files`.
     fn read(files: Vec<PathBuf>) -> Self {
         let (tx, rx) = mpsc::channel();
-        std::thread::Builder::new()
-            .name("lumen-template-size".into())
-            .spawn(move || {
-                let sizes = files
-                    .iter()
-                    .filter_map(|file| std::fs::metadata(file).ok())
-                    .filter(|meta| meta.is_file());
-                let total = sizes.fold((0, 0), |(bytes, n), meta| (bytes + meta.len(), n + 1));
-                let _ = tx.send(total);
-            })
-            .expect("spawn template size reader");
+        let spawned = crate::spawn::spawn_named("lumen-template-size", move || {
+            let sizes = files
+                .iter()
+                .filter_map(|file| std::fs::metadata(file).ok())
+                .filter(|meta| meta.is_file());
+            let total = sizes.fold((0, 0), |(bytes, n), meta| (bytes + meta.len(), n + 1));
+            let _ = tx.send(total);
+        });
+        if let Err(error) = spawned {
+            // The line saying how much audio the template holds is a help,
+            // not part of saving it: with no worker it stays unsaid.
+            crate::trace::log(|| {
+                format!(
+                    "templates: {}",
+                    crate::spawn::start_failed("the template size reader", &error)
+                )
+            });
+        }
         Self::Reading(rx)
     }
 
@@ -122,6 +129,9 @@ impl App {
     pub(crate) fn poll_templates(&mut self, ctx: &egui::Context) {
         if !self.templates.listing.asked_once() {
             self.templates.listing.ask(ctx, self.templates_dir(), false);
+        }
+        if let Some(why) = self.templates.listing.take_failure() {
+            self.say(why);
         }
         self.templates.listing.poll();
     }
@@ -314,15 +324,18 @@ impl App {
         let dir = self.templates_dir();
         let reveals = self.templates.reveals;
         let shown = dir.clone();
-        std::thread::Builder::new()
-            .name("lumen-templates-folder".into())
-            .spawn(move || {
-                let _ = std::fs::create_dir_all(&shown);
-                if reveals {
-                    crate::crash::reveal(&shown);
-                }
-            })
-            .expect("spawn templates folder opener");
+        let spawned = crate::spawn::spawn_named("lumen-templates-folder", move || {
+            let _ = std::fs::create_dir_all(&shown);
+            if reveals {
+                crate::crash::reveal(&shown);
+            }
+        });
+        if let Err(error) = spawned {
+            self.say(crate::spawn::start_failed(
+                "showing the templates folder",
+                &error,
+            ));
+        }
         self.templates.revealed.push(dir);
     }
 

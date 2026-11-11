@@ -289,33 +289,40 @@ impl Worker {
         let (requests, inbox) = channel::<(StreamAudio, Want, egui::Context)>();
         let done = Arc::new(Mutex::new(None));
         let results = Arc::clone(&done);
-        std::thread::Builder::new()
-            .name("lumen-strip-read".into())
-            .spawn(move || {
-                let mut readers = Readers::default();
-                while let Ok(mut request) = inbox.recv() {
-                    // Only the newest request is wanted.
-                    while let Ok(newer) = inbox.try_recv() {
-                        request = newer;
-                    }
-                    let (stream, want @ (_, first, count), ctx) = request;
-                    let (mut left, mut right) =
-                        (vec![0.0; count as usize], vec![0.0; count as usize]);
-                    let from = first.max(0) as u64;
-                    if readers.read(&stream, from, &mut left, &mut right).is_err() {
-                        // A file that cannot be read draws from its peaks.
-                        continue;
-                    }
-                    if stream.channels() == 1 {
-                        right.copy_from_slice(&left);
-                    }
-                    readers.keep(std::slice::from_ref(&stream));
-                    *results.lock().unwrap_or_else(PoisonError::into_inner) =
-                        Some((want, to_strip(&left, &right)));
-                    ctx.request_repaint();
+        let spawned = crate::spawn::spawn_named("lumen-strip-read", move || {
+            let mut readers = Readers::default();
+            while let Ok(mut request) = inbox.recv() {
+                // Only the newest request is wanted.
+                while let Ok(newer) = inbox.try_recv() {
+                    request = newer;
                 }
-            })
-            .expect("spawn the strip reader");
+                let (stream, want @ (_, first, count), ctx) = request;
+                let (mut left, mut right) = (vec![0.0; count as usize], vec![0.0; count as usize]);
+                let from = first.max(0) as u64;
+                if readers.read(&stream, from, &mut left, &mut right).is_err() {
+                    // A file that cannot be read draws from its peaks.
+                    continue;
+                }
+                if stream.channels() == 1 {
+                    right.copy_from_slice(&left);
+                }
+                readers.keep(std::slice::from_ref(&stream));
+                *results.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some((want, to_strip(&left, &right)));
+                ctx.request_repaint();
+            }
+        });
+        if let Err(error) = spawned {
+            // The strip is drawn from its peaks without this reader: it only
+            // makes the samples crisper, so a thread that cannot start is
+            // noted in the log, not shown.
+            crate::trace::log(|| {
+                format!(
+                    "samples: {}",
+                    crate::spawn::start_failed("the sample reader", &error)
+                )
+            });
+        }
         Self {
             requests,
             done,

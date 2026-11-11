@@ -97,6 +97,7 @@ mod routing;
 mod ruler;
 mod settings;
 mod song_lanes;
+mod spawn;
 mod strays;
 mod tap_tempo;
 mod templates;

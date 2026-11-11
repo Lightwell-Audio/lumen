@@ -38,6 +38,8 @@ pub struct Read {
 #[derive(Default)]
 pub struct Reader {
     batches: Vec<Receiver<Read>>,
+    /// Why a read could not start; said once by the interface.
+    failure: Option<String>,
 }
 
 impl Reader {
@@ -45,29 +47,38 @@ impl Reader {
     pub fn read(&mut self, paths: Vec<PathBuf>, at: Ticks, into: DropInto, ctx: &egui::Context) {
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
-        std::thread::Builder::new()
-            .name("lumen-midi-read".into())
-            .spawn(move || {
-                for path in paths {
-                    let file = read_file(&path);
-                    let name = path
-                        .file_stem()
-                        .map_or_else(|| "MIDI".into(), |s| s.to_string_lossy().into_owned());
-                    let read = Read {
-                        path,
-                        name,
-                        at,
-                        into,
-                        file,
-                    };
-                    if tx.send(read).is_err() {
-                        return;
-                    }
-                    ctx.request_repaint();
+        let spawned = crate::spawn::spawn_named("lumen-midi-read", move || {
+            for path in paths {
+                let file = read_file(&path);
+                let name = path
+                    .file_stem()
+                    .map_or_else(|| "MIDI".into(), |s| s.to_string_lossy().into_owned());
+                let read = Read {
+                    path,
+                    name,
+                    at,
+                    into,
+                    file,
+                };
+                if tx.send(read).is_err() {
+                    return;
                 }
-            })
-            .expect("spawn MIDI file reader");
-        self.batches.push(rx);
+                ctx.request_repaint();
+            }
+        });
+        match spawned {
+            Ok(_) => self.batches.push(rx),
+            Err(error) => {
+                let why = crate::spawn::start_failed("reading the MIDI file", &error);
+                crate::trace::log(|| format!("midi: {why}"));
+                self.failure = Some(why);
+            }
+        }
+    }
+
+    /// Why a read could not start, once.
+    pub fn take_failure(&mut self) -> Option<String> {
+        self.failure.take()
     }
 
     /// The files read since the last call, in order.
@@ -125,14 +136,17 @@ pub fn export(
     ctx: &egui::Context,
 ) -> Receiver<Result<Exported, String>> {
     let (tx, rx) = mpsc::channel();
+    let report = tx.clone();
     let ctx = ctx.clone();
-    std::thread::Builder::new()
-        .name("lumen-midi-export".into())
-        .spawn(move || {
-            let _ = tx.send(make(&project, name, what));
-            ctx.request_repaint();
-        })
-        .expect("spawn MIDI exporter");
+    if let Err(error) = crate::spawn::spawn_named("lumen-midi-export", move || {
+        let _ = tx.send(make(&project, name, what));
+        ctx.request_repaint();
+    }) {
+        let _ = report.send(Err(crate::spawn::start_failed(
+            "making the MIDI file",
+            &error,
+        )));
+    }
     rx
 }
 
@@ -166,17 +180,20 @@ pub fn write(
     ctx: &egui::Context,
 ) -> Receiver<Result<PathBuf, String>> {
     let (tx, rx) = mpsc::channel();
+    let report = tx.clone();
     let ctx = ctx.clone();
-    std::thread::Builder::new()
-        .name("lumen-midi-write".into())
-        .spawn(move || {
-            let result = lumen_project::write_atomic(&path, &bytes)
-                .map(|()| path)
-                .map_err(|e| e.to_string());
-            let _ = tx.send(result);
-            ctx.request_repaint();
-        })
-        .expect("spawn MIDI file writer");
+    if let Err(error) = crate::spawn::spawn_named("lumen-midi-write", move || {
+        let result = lumen_project::write_atomic(&path, &bytes)
+            .map(|()| path)
+            .map_err(|e| e.to_string());
+        let _ = tx.send(result);
+        ctx.request_repaint();
+    }) {
+        let _ = report.send(Err(crate::spawn::start_failed(
+            "writing the MIDI file",
+            &error,
+        )));
+    }
     rx
 }
 

@@ -379,6 +379,9 @@ impl App {
     /// Once a frame: files found, read and written; a save waiting for its
     /// plugin; the names of the sounds kept honest.
     pub(crate) fn poll_presets(&mut self, ctx: &egui::Context) {
+        if let Some(why) = self.chain.presets.files.take_failure() {
+            self.say(why);
+        }
         for done in self.chain.presets.files.poll() {
             match done {
                 Done::Listed { device, entries } => {

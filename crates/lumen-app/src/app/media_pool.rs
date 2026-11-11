@@ -247,7 +247,16 @@ impl App {
             && !self.is_working_in_files()
         {
             self.media_pool.scanned = Some(wanted);
-            self.media_pool.scanning = Some(self.start_scan());
+            match self.start_scan() {
+                Ok(rx) => self.media_pool.scanning = Some(rx),
+                Err(error) => {
+                    // The missing-file answers stay as they were, and the
+                    // next change tries again.
+                    let why = crate::spawn::start_failed("the media scan", &error);
+                    crate::trace::log(|| format!("media pool: {why}"));
+                    self.say(why);
+                }
+            }
             ctx.request_repaint();
         }
     }
@@ -271,7 +280,7 @@ impl App {
             || self.is_recording()
     }
 
-    fn start_scan(&self) -> Receiver<Scan> {
+    fn start_scan(&self) -> std::io::Result<Receiver<Scan>> {
         let project = self.document.project();
         let inputs = strays::Inputs {
             project_dir: self
@@ -298,16 +307,13 @@ impl App {
         };
         let files = self.document.media_files.clone();
         let (tx, rx) = mpsc::channel();
-        std::thread::Builder::new()
-            .name("lumen-pool-scan".into())
-            .spawn(move || {
-                let _ = tx.send(Scan {
-                    absent: pool::absent(&files),
-                    strays: strays::scan(&inputs),
-                });
-            })
-            .expect("spawn media pool scan");
-        rx
+        crate::spawn::spawn_named("lumen-pool-scan", move || {
+            let _ = tx.send(Scan {
+                absent: pool::absent(&files),
+                strays: strays::scan(&inputs),
+            });
+        })?;
+        Ok(rx)
     }
 
     /// Asks which file stands in for the missing item `id`.
@@ -359,14 +365,18 @@ impl App {
         };
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
-        std::thread::Builder::new()
-            .name("lumen-relink-check".into())
-            .spawn(move || {
-                let verdict = relink::verdict(&media, &path);
-                let _ = tx.send((path, verdict));
-                ctx.request_repaint();
-            })
-            .expect("spawn relink check");
+        let spawned = crate::spawn::spawn_named("lumen-relink-check", move || {
+            let verdict = relink::verdict(&media, &path);
+            let _ = tx.send((path, verdict));
+            ctx.request_repaint();
+        });
+        if let Err(error) = spawned {
+            // Nothing waits on a check that never started.
+            let why = crate::spawn::start_failed("checking the file", &error);
+            crate::trace::log(|| format!("media pool: {why}"));
+            self.say(why);
+            return;
+        }
         self.media_pool.checking = Some(Checking { id, rx });
     }
 
@@ -455,7 +465,17 @@ impl App {
             return;
         }
         let control = Control::default();
-        let rx = relink::start(folder.clone(), wanted, control.clone());
+        let rx = match relink::start(folder.clone(), wanted, control.clone()) {
+            Ok(rx) => rx,
+            Err(error) => {
+                self.media_pool.note = Some(crate::spawn::start_failed(
+                    "the search for missing files",
+                    &error,
+                ));
+                self.show_media_pool();
+                return;
+            }
+        };
         self.media_pool.report = None;
         self.media_pool.search = Some(Search {
             rx,
@@ -551,14 +571,19 @@ impl App {
         }
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
-        std::thread::Builder::new()
-            .name("lumen-pool-clear".into())
-            .spawn(move || {
-                let _ = tx.send(strays::clear(&strays));
-                ctx.request_repaint();
-            })
-            .expect("spawn media pool clear");
-        self.media_pool.clearing = Some(rx);
+        let spawned = crate::spawn::spawn_named("lumen-pool-clear", move || {
+            let _ = tx.send(strays::clear(&strays));
+            ctx.request_repaint();
+        });
+        match spawned {
+            Ok(_) => self.media_pool.clearing = Some(rx),
+            Err(error) => {
+                self.media_pool.armed = false;
+                let why = crate::spawn::start_failed("moving the unused files", &error);
+                crate::trace::log(|| format!("media pool: {why}"));
+                self.say(why);
+            }
+        }
     }
 
     /// The missing file chosen in the tab, which Locate acts on.

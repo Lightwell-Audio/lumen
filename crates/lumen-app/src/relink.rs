@@ -112,15 +112,12 @@ pub fn start(
     folder: PathBuf,
     wanted: Vec<Media>,
     control: Control,
-) -> Receiver<Result<Report, Stopped>> {
+) -> std::io::Result<Receiver<Result<Report, Stopped>>> {
     let (tx, rx) = mpsc::channel();
-    std::thread::Builder::new()
-        .name("lumen-relink".into())
-        .spawn(move || {
-            let _ = tx.send(search(&folder, &wanted, &control));
-        })
-        .expect("spawn relink thread");
-    rx
+    crate::spawn::spawn_named("lumen-relink", move || {
+        let _ = tx.send(search(&folder, &wanted, &control));
+    })?;
+    Ok(rx)
 }
 
 /// Looks through `folder` and its subfolders (not following links) for a file

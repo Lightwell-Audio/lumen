@@ -98,6 +98,8 @@ pub struct Autosave {
     hurried: Option<Duration>,
     /// How the last write ended (`true`: written), until taken.
     finished: Option<bool>,
+    /// Why the last write could not start, until taken.
+    failed: Option<String>,
 }
 
 /// What the autosave thread sends back: the save's result, and the
@@ -123,6 +125,7 @@ impl Autosave {
             fixed: false,
             hurried: None,
             finished: None,
+            failed: None,
         }
     }
 
@@ -237,15 +240,22 @@ impl Autosave {
                     .collect();
                 let (lock, lock_file) = (self.lock.take(), self.lock_file());
                 self.written = None;
-                std::thread::Builder::new()
-                    .name("lumen-autosave-clear".into())
-                    .spawn(move || {
-                        for file in files {
-                            let _ = std::fs::remove_file(file);
-                        }
-                        release(lock, lock_file);
-                    })
-                    .expect("spawn autosave cleanup thread");
+                let spawned = crate::spawn::spawn_named("lumen-autosave-clear", move || {
+                    for file in files {
+                        let _ = std::fs::remove_file(file);
+                    }
+                    release(lock, lock_file);
+                });
+                if let Err(error) = spawned {
+                    // The files stay and will read as an old recovery; the
+                    // lock is released when its handle drops either way.
+                    crate::trace::log(|| {
+                        format!(
+                            "autosave: {}",
+                            crate::spawn::start_failed("the autosave clean-up", &error)
+                        )
+                    });
+                }
             }
             return;
         }
@@ -269,19 +279,37 @@ impl Autosave {
         // disk unclaimed.
         let lock_file = self.lock.is_none().then(|| self.lock_file()).flatten();
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::Builder::new()
-            .name("lumen-autosave".into())
-            .spawn(move || {
-                let _ = std::fs::create_dir_all(note_file.parent().unwrap_or(Path::new(".")));
-                let lock = lock_file.and_then(|path| take_lock(&path));
-                if let Some(text) = note {
-                    let _ = std::fs::write(&note_file, text);
-                }
-                let saved = files::save_now(request);
-                let _ = tx.send(Written { saved, lock });
-            })
-            .expect("spawn autosave thread");
+        let report = tx.clone();
+        let spawned = crate::spawn::spawn_named("lumen-autosave", move || {
+            let _ = std::fs::create_dir_all(note_file.parent().unwrap_or(Path::new(".")));
+            let lock = lock_file.and_then(|path| take_lock(&path));
+            if let Some(text) = note {
+                let _ = std::fs::write(&note_file, text);
+            }
+            let saved = files::save_now(request);
+            let _ = tx.send(Written { saved, lock });
+        });
+        if let Err(error) = spawned {
+            // The interface says autosave is not running; the write is
+            // finished as failed so nothing waits for it.
+            crate::trace::log(|| {
+                format!(
+                    "autosave: {}",
+                    crate::spawn::start_failed("the autosave", &error)
+                )
+            });
+            self.failed = Some(error.to_string());
+            let _ = report.send(Written {
+                saved: Err(crate::spawn::start_failed("the autosave", &error)),
+                lock: None,
+            });
+        }
         self.writing = Some(rx);
+    }
+
+    /// Why autosave could not start, once, for the interface to say.
+    pub fn take_failure(&mut self) -> Option<String> {
+        self.failed.take()
     }
 
     /// How the last write ended, once: `Some(true)` when it was written.

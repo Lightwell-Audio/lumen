@@ -101,6 +101,9 @@ pub struct Disk {
     messages: Option<Sender<Message>>,
     stats: Arc<Stats>,
     thread: Option<std::thread::JoinHandle<()>>,
+    /// Why the thread could not start: streaming then plays nothing, and the
+    /// interface says so instead of waiting on audio that never comes.
+    failure: Option<String>,
 }
 
 impl Disk {
@@ -125,15 +128,26 @@ impl Disk {
             busy: Duration::ZERO,
             since: Instant::now(),
         };
-        let thread = std::thread::Builder::new()
-            .name("lumen-disk".into())
-            .spawn(move || worker.run(&inbox))
-            .expect("spawn the disk thread");
+        let spawned = crate::spawn::spawn_named("lumen-disk", move || worker.run(&inbox));
+        let (messages, thread, failure) = match spawned {
+            Ok(thread) => (Some(messages), Some(thread), None),
+            Err(error) => {
+                let why = crate::spawn::start_failed("reading audio from disk", &error);
+                crate::trace::log(|| format!("disk: {why}"));
+                (None, None, Some(why))
+            }
+        };
         Self {
-            messages: Some(messages),
+            messages,
             stats,
-            thread: Some(thread),
+            thread,
+            failure,
         }
+    }
+
+    /// Why the disk thread could not start, if it could not.
+    pub fn failure(&self) -> Option<&str> {
+        self.failure.as_deref()
     }
 
     pub fn stats(&self) -> &Stats {

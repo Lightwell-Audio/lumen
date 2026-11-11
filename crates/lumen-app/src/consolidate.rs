@@ -176,37 +176,15 @@ impl Render {
         let progress = Arc::new(AtomicU32::new(0f32.to_bits()));
         let (stop, shown, ctx) = (Arc::clone(&cancel), Arc::clone(&progress), ctx.clone());
         let total: u64 = jobs.iter().map(|j| j.frames).sum::<u64>().max(1);
-        std::thread::Builder::new()
-            .name("lumen-consolidate".into())
-            .spawn(move || {
-                let mut before = 0;
-                let mut baked: Vec<Baked> = Vec::with_capacity(jobs.len());
-                for mut job in jobs {
-                    if let Some(again) = &again {
-                        match played_again(again, &mut job, &stop) {
-                            Ok(true) => {}
-                            Ok(false) => {
-                                remove_files(&baked);
-                                return;
-                            }
-                            Err(e) => {
-                                remove_files(&baked);
-                                let _ = tx.send(Err(e));
-                                ctx.request_repaint();
-                                return;
-                            }
-                        }
-                    }
-                    let frames = job.frames;
-                    let result = render_job(job, &timeline, rate, &stop, &mut |n| {
-                        let fraction = (before + n) as f32 / total as f32;
-                        shown.store(fraction.min(1.0).to_bits(), Ordering::Relaxed);
-                        ctx.request_repaint();
-                    });
-                    match result {
-                        Ok(Some(done)) => baked.push(done),
-                        // Stopped: drop the files already made and say nothing.
-                        Ok(None) => {
+        let report = tx.clone();
+        let spawned = crate::spawn::spawn_named("lumen-consolidate", move || {
+            let mut before = 0;
+            let mut baked: Vec<Baked> = Vec::with_capacity(jobs.len());
+            for mut job in jobs {
+                if let Some(again) = &again {
+                    match played_again(again, &mut job, &stop) {
+                        Ok(true) => {}
+                        Ok(false) => {
                             remove_files(&baked);
                             return;
                         }
@@ -217,12 +195,35 @@ impl Render {
                             return;
                         }
                     }
-                    before += frames;
                 }
-                let _ = tx.send(Ok(baked));
-                ctx.request_repaint();
-            })
-            .expect("spawn consolidate render");
+                let frames = job.frames;
+                let result = render_job(job, &timeline, rate, &stop, &mut |n| {
+                    let fraction = (before + n) as f32 / total as f32;
+                    shown.store(fraction.min(1.0).to_bits(), Ordering::Relaxed);
+                    ctx.request_repaint();
+                });
+                match result {
+                    Ok(Some(done)) => baked.push(done),
+                    // Stopped: drop the files already made and say nothing.
+                    Ok(None) => {
+                        remove_files(&baked);
+                        return;
+                    }
+                    Err(e) => {
+                        remove_files(&baked);
+                        let _ = tx.send(Err(e));
+                        ctx.request_repaint();
+                        return;
+                    }
+                }
+                before += frames;
+            }
+            let _ = tx.send(Ok(baked));
+            ctx.request_repaint();
+        });
+        if let Err(error) = spawned {
+            let _ = report.send(Err(crate::spawn::start_failed("joining the clips", &error)));
+        }
         Self {
             results,
             cancel,

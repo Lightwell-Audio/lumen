@@ -21,6 +21,8 @@ use std::sync::mpsc::{self, Receiver};
 use lumen_project::model::{Id, Project};
 use lumen_project::{MediaLocation, SaveOptions, locate_media, media_path_for};
 
+use crate::spawn::{spawn_named, start_failed};
+
 /// Where audio copied into a project goes, inside its folder.
 pub const IMPORTED: &str = "Samples/Imported";
 /// Where audio Lumen rendered itself (a consolidated clip) goes, inside the
@@ -173,12 +175,14 @@ impl From<&str> for Failure {
 /// Starts saving in the background.
 pub fn save(request: SaveRequest) -> Receiver<Result<Saved, String>> {
     let (tx, rx) = mpsc::channel();
-    std::thread::Builder::new()
-        .name("lumen-save".into())
-        .spawn(move || {
-            let _ = tx.send(save_now(request));
-        })
-        .expect("spawn save thread");
+    let report = tx.clone();
+    if let Err(error) = spawn_named("lumen-save", move || {
+        let _ = tx.send(save_now(request));
+    }) {
+        // The interface waits for this answer: hand it the failure instead
+        // of leaving the save showing as under way.
+        let _ = report.send(Err(start_failed("the save", &error)));
+    }
     rx
 }
 
@@ -186,12 +190,12 @@ pub fn save(request: SaveRequest) -> Receiver<Result<Saved, String>> {
 /// how far its copying has come: Collect and save.
 pub fn collect(request: SaveRequest, control: Control) -> Receiver<Result<Saved, Failure>> {
     let (tx, rx) = mpsc::channel();
-    std::thread::Builder::new()
-        .name("lumen-collect".into())
-        .spawn(move || {
-            let _ = tx.send(collect_now(request, &control));
-        })
-        .expect("spawn collect thread");
+    let report = tx.clone();
+    if let Err(error) = spawn_named("lumen-collect", move || {
+        let _ = tx.send(collect_now(request, &control));
+    }) {
+        let _ = report.send(Err(Failure::Failed(start_failed("the save", &error))));
+    }
     rx
 }
 
@@ -571,12 +575,12 @@ pub struct Opened {
 /// Starts opening `path` in the background.
 pub fn open(path: PathBuf) -> Receiver<Result<Opened, String>> {
     let (tx, rx) = mpsc::channel();
-    std::thread::Builder::new()
-        .name("lumen-open".into())
-        .spawn(move || {
-            let _ = tx.send(open_now(&path));
-        })
-        .expect("spawn open thread");
+    let report = tx.clone();
+    if let Err(error) = spawn_named("lumen-open", move || {
+        let _ = tx.send(open_now(&path));
+    }) {
+        let _ = report.send(Err(start_failed("opening the project", &error)));
+    }
     rx
 }
 

@@ -100,6 +100,10 @@ impl App {
                 self.normalizing = None;
                 self.say("Normalize stopped".to_owned());
             }
+            Poll::Failed(why) => {
+                self.normalizing = None;
+                self.say(format!("Could not normalize: {why}"));
+            }
             Poll::Done(found) => {
                 let left_out = running.left_out;
                 self.normalizing = None;

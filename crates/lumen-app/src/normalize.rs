@@ -44,6 +44,8 @@ pub enum Poll {
     Done(Vec<Peak>),
     /// Stopped before it finished; nothing was found.
     Stopped,
+    /// The worker could not start; the words say why.
+    Failed(String),
 }
 
 /// A scan on its worker. Dropping it stops the worker.
@@ -51,6 +53,8 @@ pub struct Scan {
     results: Receiver<Vec<Peak>>,
     cancel: Arc<AtomicBool>,
     progress: Arc<AtomicU32>,
+    /// Why the worker could not start, reported once.
+    failure: Option<String>,
 }
 
 impl Drop for Scan {
@@ -129,39 +133,48 @@ impl Scan {
             .map(|j| frames_of(&j.audio, j.source.window).len())
             .sum::<usize>()
             .max(1);
-        std::thread::Builder::new()
-            .name("lumen-normalize".into())
-            .spawn(move || {
-                let mut done = 0usize;
-                let mut found = Vec::with_capacity(jobs.len());
-                for job in &jobs {
-                    let peak = peak_of(&job.audio, job.source.window, &stop, |n| {
-                        done += n;
-                        shown.store((done as f32 / total as f32).to_bits(), Ordering::Relaxed);
-                        ctx.request_repaint();
-                    });
-                    let Some(peak) = peak else {
-                        return;
-                    };
-                    found.push(Peak {
-                        clip: job.clip,
-                        peak,
-                        source: job.source,
-                    });
-                }
-                let _ = tx.send(found);
-                ctx.request_repaint();
-            })
-            .expect("spawn normalize scan");
+        let spawned = crate::spawn::spawn_named("lumen-normalize", move || {
+            let mut done = 0usize;
+            let mut found = Vec::with_capacity(jobs.len());
+            for job in &jobs {
+                let peak = peak_of(&job.audio, job.source.window, &stop, |n| {
+                    done += n;
+                    shown.store((done as f32 / total as f32).to_bits(), Ordering::Relaxed);
+                    ctx.request_repaint();
+                });
+                let Some(peak) = peak else {
+                    return;
+                };
+                found.push(Peak {
+                    clip: job.clip,
+                    peak,
+                    source: job.source,
+                });
+            }
+            let _ = tx.send(found);
+            ctx.request_repaint();
+        });
+        let failure = match spawned {
+            Ok(_) => None,
+            Err(error) => {
+                let why = crate::spawn::start_failed("reading the audio to normalize", &error);
+                crate::trace::log(|| format!("normalize: {why}"));
+                Some(why)
+            }
+        };
         Self {
             results,
             cancel,
             progress,
+            failure,
         }
     }
 
     /// Where the scan stands; a finished scan answers `Done` once.
     pub fn poll(&self) -> Poll {
+        if let Some(why) = &self.failure {
+            return Poll::Failed(why.clone());
+        }
         match self.results.try_recv() {
             Ok(found) => Poll::Done(found),
             Err(TryRecvError::Empty) => {

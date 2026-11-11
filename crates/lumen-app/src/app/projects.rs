@@ -277,15 +277,23 @@ impl App {
         show: impl FnOnce() -> FileDialog + Send + 'static,
         answered: impl FnOnce(Vec<PathBuf>) -> FileDialog,
     ) {
-        self.dialog = Some(match &mut self.dialog_answers {
+        self.dialog = match &mut self.dialog_answers {
             Some(answers) => {
                 let (tx, rx) = std::sync::mpsc::channel();
                 let _ = tx.send(answered(answers.pop_front().unwrap_or_default()));
                 ctx.request_repaint();
-                rx
+                Some(rx)
             }
-            None => spawn_dialog(ctx, show),
-        });
+            None => match spawn_dialog(ctx, show) {
+                Ok(rx) => Some(rx),
+                Err(error) => {
+                    // Nothing is waiting on a dialog that never opened.
+                    self.save_dialog = false;
+                    self.say(crate::spawn::start_failed("the file chooser", &error));
+                    None
+                }
+            },
+        };
     }
 
     pub(crate) fn start_save(&mut self, path: PathBuf) {
@@ -818,15 +826,12 @@ impl App {
 pub(crate) fn spawn_dialog(
     ctx: &egui::Context,
     show: impl FnOnce() -> FileDialog + Send + 'static,
-) -> std::sync::mpsc::Receiver<FileDialog> {
+) -> std::io::Result<std::sync::mpsc::Receiver<FileDialog>> {
     let (tx, rx) = std::sync::mpsc::channel();
     let ctx = ctx.clone();
-    std::thread::Builder::new()
-        .name("lumen-file-dialog".into())
-        .spawn(move || {
-            let _ = tx.send(show());
-            ctx.request_repaint();
-        })
-        .expect("spawn file dialog");
-    rx
+    crate::spawn::spawn_named("lumen-file-dialog", move || {
+        let _ = tx.send(show());
+        ctx.request_repaint();
+    })?;
+    Ok(rx)
 }

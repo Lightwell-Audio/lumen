@@ -106,19 +106,26 @@ impl Pictures {
     pub(crate) fn new(wake: impl Fn() + Send + 'static) -> Self {
         let (jobs, requests) = channel::<Job>();
         let (finished, done) = channel::<Done>();
-        std::thread::Builder::new()
-            .name("plugin pictures".into())
-            .spawn(move || {
-                // Ends when the app drops its sender.
-                while let Ok((class, module)) = requests.recv() {
-                    let image = snapshot_path(&module, &class).and_then(|path| load(&path));
-                    if finished.send((class, image)).is_err() {
-                        break;
-                    }
-                    wake();
+        let spawned = crate::spawn::spawn_named("plugin pictures", move || {
+            // Ends when the app drops its sender.
+            while let Ok((class, module)) = requests.recv() {
+                let image = snapshot_path(&module, &class).and_then(|path| load(&path));
+                if finished.send((class, image)).is_err() {
+                    break;
                 }
-            })
-            .expect("the picture thread starts");
+                wake();
+            }
+        });
+        if let Err(error) = spawned {
+            // A picture makes a device card friendlier; without it the card
+            // is as it always was, so this is noted, not shown.
+            crate::trace::log(|| {
+                format!(
+                    "pictures: {}",
+                    crate::spawn::start_failed("the picture reader", &error)
+                )
+            });
+        }
         Self {
             slots: HashMap::new(),
             jobs,

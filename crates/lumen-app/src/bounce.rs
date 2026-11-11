@@ -460,39 +460,17 @@ impl Render {
     /// rate, when the loaded audio is at another one (`render_audio`).
     pub fn start(jobs: Vec<Job>, again: Option<Arc<Again>>, ctx: &egui::Context) -> Self {
         let (tx, results) = channel();
+        let report = tx.clone();
         let cancel = Arc::new(AtomicBool::new(false));
         let progress = Arc::new(AtomicU32::new(0f32.to_bits()));
         let (stop, shown, ctx) = (Arc::clone(&cancel), Arc::clone(&progress), ctx.clone());
         let count = jobs.len().max(1) as f32;
-        std::thread::Builder::new()
-            .name("lumen-bounce".into())
-            .spawn(move || {
-                let mut made: Vec<Rendered> = Vec::with_capacity(jobs.len());
-                for mut job in jobs {
-                    if let Some(again) = &again {
-                        match again.clips(&stop) {
-                            Ok(Some(clips)) => job.clips = clips,
-                            Ok(None) => {
-                                remove_files(&made);
-                                return;
-                            }
-                            Err(e) => {
-                                remove_files(&made);
-                                let _ = tx.send(Err(e));
-                                ctx.request_repaint();
-                                return;
-                            }
-                        }
-                    }
-                    let before = made.len() as f32;
-                    let result = render_job(job, &stop, &mut |part| {
-                        let fraction = (before + part) / count;
-                        shown.store(fraction.min(1.0).to_bits(), Ordering::Relaxed);
-                        ctx.request_repaint();
-                    });
-                    match result {
-                        Ok(Some(done)) => made.push(done),
-                        // Stopped: drop the files already made and say nothing.
+        let spawned = crate::spawn::spawn_named("lumen-bounce", move || {
+            let mut made: Vec<Rendered> = Vec::with_capacity(jobs.len());
+            for mut job in jobs {
+                if let Some(again) = &again {
+                    match again.clips(&stop) {
+                        Ok(Some(clips)) => job.clips = clips,
                         Ok(None) => {
                             remove_files(&made);
                             return;
@@ -505,10 +483,33 @@ impl Render {
                         }
                     }
                 }
-                let _ = tx.send(Ok(made));
-                ctx.request_repaint();
-            })
-            .expect("spawn bounce render");
+                let before = made.len() as f32;
+                let result = render_job(job, &stop, &mut |part| {
+                    let fraction = (before + part) / count;
+                    shown.store(fraction.min(1.0).to_bits(), Ordering::Relaxed);
+                    ctx.request_repaint();
+                });
+                match result {
+                    Ok(Some(done)) => made.push(done),
+                    // Stopped: drop the files already made and say nothing.
+                    Ok(None) => {
+                        remove_files(&made);
+                        return;
+                    }
+                    Err(e) => {
+                        remove_files(&made);
+                        let _ = tx.send(Err(e));
+                        ctx.request_repaint();
+                        return;
+                    }
+                }
+            }
+            let _ = tx.send(Ok(made));
+            ctx.request_repaint();
+        });
+        if let Err(error) = spawned {
+            let _ = report.send(Err(crate::spawn::start_failed("the bounce", &error)));
+        }
         Self {
             results,
             cancel,
