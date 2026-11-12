@@ -52,6 +52,9 @@ const KNOWN: &[&str] = &[
     "crates/lumen-app/tests/smoke.rs",
     // An ignored measurement: it prints times and asserts none.
     "crates/lumen-engine/tests/midi_scale.rs",
+    // The deadline a hosted block is given bounds the wait; the test asserts
+    // only that nothing on the path touches the heap.
+    "crates/lumen-devices/tests/hosted_rt.rs",
     // Shared by the lumen-hosting tests; the timing ones are listed.
     "crates/lumen-hosting/tests/support/mod.rs",
     "crates/lumen-media/tests/files.rs",
