@@ -404,6 +404,34 @@ struct Prepared {
     use_output_ready: bool,
 }
 
+/// Runs `dispose` when dropped, unless disarmed: every way out of an open that
+/// has created the driver's buffers gives them back, so the driver is not left
+/// holding them for the next open to find busy (sweep M5b).
+struct DisposeOnDrop<F: FnMut()> {
+    dispose: Option<F>,
+}
+
+impl<F: FnMut()> DisposeOnDrop<F> {
+    fn new(dispose: F) -> Self {
+        Self {
+            dispose: Some(dispose),
+        }
+    }
+
+    /// Keeps the buffers: the stream owns them from here.
+    fn disarm(mut self) {
+        self.dispose = None;
+    }
+}
+
+impl<F: FnMut()> Drop for DisposeOnDrop<F> {
+    fn drop(&mut self) {
+        if let Some(mut dispose) = self.dispose.take() {
+            dispose();
+        }
+    }
+}
+
 impl AsioBackend {
     fn open_stream(&self, config: &StreamConfig) -> Result<Prepared, AudioError> {
         let asio = |e: ffi::AsioError| match e {
@@ -464,6 +492,11 @@ impl AsioBackend {
         driver
             .create_buffers(&mut infos, frames, &CALLBACKS)
             .map_err(asio)?;
+        // From here a failure leaves the driver without buffers, so the next
+        // open does not find it busy with the ones this one made (sweep M5b).
+        let created = DisposeOnDrop::new(|| {
+            let _ = driver.dispose_buffers();
+        });
         let channel = |info: &AsioBufferInfo| -> Result<Channel, AudioError> {
             let sample_type = driver
                 .channel_info(info.channel_num, info.is_input == 1)
@@ -489,13 +522,7 @@ impl AsioBackend {
             .iter()
             .map(&channel)
             .collect::<Result<Vec<_>, _>>();
-        let (inputs, outputs) = match (inputs, outputs) {
-            (Ok(i), Ok(o)) => (i, o),
-            (Err(e), _) | (_, Err(e)) => {
-                let _ = driver.dispose_buffers();
-                return Err(e);
-            }
-        };
+        let (inputs, outputs) = (inputs?, outputs?);
         for output in &outputs {
             for half in output.buffers {
                 // SAFETY: fresh driver buffers of `frames` samples.
@@ -505,6 +532,7 @@ impl AsioBackend {
         let (input_latency, output_latency) = driver.latencies().unwrap_or((frames, frames));
         let sample_rate = driver.sample_rate().map_err(asio)? as u32;
         let use_output_ready = driver.output_ready() == ffi::ASE_OK;
+        created.disarm();
         Ok(Prepared {
             info: StreamInfo {
                 sample_rate,
@@ -693,5 +721,41 @@ mod tests {
     fn big_endian_formats_are_reported_unsupported() {
         assert!(!supported(0)); // Int16MSB
         assert!(supported(ffi::ST_INT32_LSB));
+    }
+
+    /// The driver seam is a raw COM vtable with no fake behind it, so the
+    /// buffers guard is checked on its own: every return past `create_buffers`
+    /// disposes, and only the path that builds a stream keeps them (sweep M5b).
+    #[test]
+    fn an_open_that_fails_after_creating_buffers_disposes_them() {
+        use std::cell::Cell;
+
+        fn open(disposed: &Cell<u32>, fail: bool) -> Result<(), ()> {
+            let created = DisposeOnDrop::new(|| disposed.set(disposed.get() + 1));
+            let result = if fail { Err(()) } else { Ok(()) };
+            result?;
+            created.disarm();
+            Ok(())
+        }
+
+        let disposed = Cell::new(0);
+        assert!(open(&disposed, true).is_err());
+        assert_eq!(disposed.get(), 1, "a failed open gives the buffers back");
+        assert!(open(&disposed, false).is_ok());
+        assert_eq!(disposed.get(), 1, "the stream keeps the buffers it opened");
+    }
+
+    /// Dropping the guard without disarming is the early-return path, and it
+    /// disposes exactly once; an explicit drop after disarming does nothing.
+    #[test]
+    fn the_buffers_guard_disposes_once_and_only_when_armed() {
+        use std::cell::Cell;
+
+        let disposed = Cell::new(0);
+        drop(DisposeOnDrop::new(|| disposed.set(disposed.get() + 1)));
+        assert_eq!(disposed.get(), 1);
+        let created = DisposeOnDrop::new(|| disposed.set(disposed.get() + 1));
+        created.disarm();
+        assert_eq!(disposed.get(), 1, "disarmed: the stream owns them");
     }
 }
