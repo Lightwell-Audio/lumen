@@ -19,6 +19,7 @@
 
 mod capture;
 mod editor;
+mod hear;
 mod outputs;
 mod parameters;
 mod presets;
@@ -30,6 +31,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use self::outputs::{output_mask, sidechain_mask};
+use self::parameters::{Load, Parameters};
 use lumen_devices::{Cost, Guard, HostedInstrument, Status};
 use lumen_engine::{InstrumentSpec, MidiTrack, MixerHandle};
 use lumen_hosting::{
@@ -147,124 +149,6 @@ pub enum EditorState {
     Refused(String),
 }
 
-/// What Lumen knows of a plugin's parameters while its host runs (M6 slice 4).
-#[derive(Default)]
-struct Parameters {
-    /// The plugin's parameters, capped, as they were when it loaded, with
-    /// their values in the saved state.
-    list: Vec<ParamInfo>,
-    /// The plugin's own count, which may be more than the list.
-    total: u32,
-    units: Vec<UnitInfo>,
-    /// The value each parameter has in the plugin as far as Lumen knows: the
-    /// saved state's, then what Lumen set and what the plugin did inside.
-    values: BTreeMap<u32, f64>,
-    /// The value a parameter had before the project first held one for it:
-    /// what an undone change goes back to.
-    base: BTreeMap<u32, f64>,
-    /// The parameters a lane drives now (M7 slice A3): the engine gives the
-    /// plugin their values, so what Lumen knows of them is not the plugin's
-    /// until the lane lets go.
-    driven: std::collections::BTreeSet<u32>,
-    /// Parameters a lane let go of, and when to send each its value at rest
-    /// once more: the engine's plan without the lane can reach the audio
-    /// thread a block after the first send, and until then the lane's value
-    /// goes with every block over it.
-    released: Vec<(u32, std::time::Instant)>,
-    /// The values the project held when the host was started.
-    started_with: BTreeMap<u32, f64>,
-    /// The plugin's own text for the values last asked about, by parameter:
-    /// the newest last, at most [`TEXTS_KEPT`] each. More than one is kept
-    /// because more than one reader asks (the card for the value it shows,
-    /// a lane for the point under the pointer), and one answer must not
-    /// stand for another's value.
-    texts: HashMap<u32, Vec<(f64, String)>>,
-    /// The plugin's own word for each step of a stepped parameter, by
-    /// parameter (a chooser's list), as far as it has said them.
-    choices: HashMap<u32, Vec<String>>,
-    /// The parameters whose steps have been asked about.
-    choices_asked: std::collections::HashSet<u32>,
-    /// The plugin named its controls anew and the list is being read again:
-    /// once it comes, the texts above are forgotten.
-    retitled: bool,
-    /// What the plugin made of text the user typed, waiting for the document:
-    /// the parameter, the text, and the value or `None` when it did not
-    /// understand.
-    typed: Vec<(u32, String, Option<f64>)>,
-    /// Edits the plugin made inside itself, waiting for the document, each
-    /// with whether it came inside a gesture (between a begin and an end).
-    edits: Vec<(Edit, bool)>,
-    /// The parameter whose gesture is open, since when. A gesture that never
-    /// ends is let go of after [`GESTURE_LIMIT`].
-    open: Option<(u32, std::time::Instant)>,
-    /// Controller, bend and pressure events no parameter took, in all.
-    ignored: u32,
-    /// Values Lumen has sent the plugin to match the project (a plugin's own
-    /// edits need none).
-    sent: u32,
-    /// Whether the host has linked before: a fresh link of the same process
-    /// keeps what is known.
-    linked_before: bool,
-    /// Whether the plugin's state is ahead of what the project saved.
-    dirty: bool,
-    /// How many times it has changed, and when last: a state read after the
-    /// last change is the plugin's state now.
-    edit_count: u64,
-    last_edit: Option<std::time::Instant>,
-    /// The plugin's state as last read, and the edit count it was read at. A
-    /// read is never replaced by a failed one: this is the last good state, the
-    /// one a plugin that fails starts again from.
-    captured: Option<Captured>,
-    /// When it was read, and the plugin's values when it was asked for.
-    captured_when: Option<std::time::Instant>,
-    captured_values: BTreeMap<u32, f64>,
-    /// The values as they were when the read in flight was asked for.
-    capturing_values: Option<BTreeMap<u32, f64>>,
-    /// When the plugin was last read for a checkpoint (or loaded).
-    last_checkpoint: Option<std::time::Instant>,
-    captured_at: u64,
-    /// A read in flight, started at this edit count.
-    capturing: Option<u64>,
-    /// The last read failed (hung, crashed, refused); not tried again until
-    /// the plugin changes again.
-    capture_failed: bool,
-    /// The values the project holds for the device, as last seen.
-    held: BTreeMap<u32, f64>,
-    /// The programs the plugin offers (M6 slice 5).
-    programs: Vec<ProgramList>,
-    /// The revision of the sound the plugin has, as the project counts them
-    /// (`Device::state_rev`): another revision in the project means a state
-    /// was loaded, or an undo or redo went across one, and the plugin is given
-    /// the project's state.
-    state_rev: u32,
-    /// States sent to the plugin, answers not yet in, oldest first.
-    loads: std::collections::VecDeque<Load>,
-    /// A preset the plugin refused, to be given to it again when the time
-    /// comes: a plugin still loading its content may refuse a state it takes
-    /// a moment later.
-    retry: Option<(std::time::Instant, Load)>,
-    /// What the plugin does inside itself shortly after a state is loaded is
-    /// the loading, not the user: its edits are not taken until this time.
-    quiet_until: Option<std::time::Instant>,
-    /// A program the user chose, by name, and when: the edits the plugin makes
-    /// in answer are one undo step with the choice.
-    program: Option<(String, std::time::Instant)>,
-    /// The choice has not been sent to the plugin yet: what the plugin sets in
-    /// answer to it is wanted, unlike its answer to any later value of ours.
-    program_fresh: bool,
-}
-
-/// A state sent to a plugin whose answer is awaited.
-struct Load {
-    state: Captured,
-    /// `Some` for a preset the user chose: the project is edited once the
-    /// plugin has taken it (and not if it refuses). `None` for the project's
-    /// own state sent again after an undo or redo.
-    preset: Option<String>,
-    /// How many times the plugin has refused it already.
-    tries: u8,
-}
-
 /// What became of a preset the user chose to load.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PresetNews {
@@ -281,106 +165,6 @@ pub enum PresetNews {
         name: String,
         why: String,
     },
-}
-
-impl Parameters {
-    /// The plugin has changed: its state read before is out of date.
-    fn touch(&mut self) {
-        self.dirty = true;
-        self.edit_count += 1;
-        self.last_edit = Some(std::time::Instant::now());
-        self.capture_failed = false;
-    }
-
-    /// Whether the state read last is the plugin's state now.
-    fn fresh(&self) -> bool {
-        self.captured.is_some() && self.captured_at == self.edit_count
-    }
-
-    /// Whether Lumen may set the parameter: not an output the plugin reports
-    /// and not its bypass.
-    fn settable(&self, id: u32) -> bool {
-        self.list
-            .iter()
-            .find(|i| i.id == id)
-            .is_none_or(|i| !i.read_only() && !i.bypass())
-    }
-
-    /// The values a plugin started again from its last good state needs set
-    /// over it: what the project holds, and every value that moved since that
-    /// state was read (or since the plugin loaded, when none was), by the
-    /// plugin's own doing or Lumen's.
-    fn catch_up(&self, held: &BTreeMap<u32, f64>) -> BTreeMap<u32, f64> {
-        let then = if self.captured.is_some() {
-            &self.captured_values
-        } else {
-            &self.base
-        };
-        let mut all = held.clone();
-        for (&id, &value) in &self.values {
-            if self.settable(id) && !all.contains_key(&id) && then.get(&id) != Some(&value) {
-                all.insert(id, value);
-            }
-        }
-        all
-    }
-
-    /// Whether the user holds a control in the plugin's window, or has just
-    /// chosen a program: not a moment to read the plugin.
-    fn gesture_is_open(&self) -> bool {
-        self.open
-            .is_some_and(|(_, since)| since.elapsed() < GESTURE_LIMIT)
-            || self
-                .program
-                .as_ref()
-                .is_some_and(|(_, since)| since.elapsed() < PROGRAM_WINDOW)
-    }
-
-    /// Notes that a read is asked for now.
-    fn asked(&mut self) {
-        self.capturing = Some(self.edit_count);
-        self.capturing_values = Some(self.values.clone());
-    }
-
-    /// Forgets the plugin's words for values and steps when the list `now`
-    /// read again names its controls anew (it said so, or a title, unit or
-    /// step count differs): a patch that renames them may say their values
-    /// otherwise too. True when they were forgotten.
-    fn forget_texts_if_renamed(&mut self, now: &[ParamInfo]) -> bool {
-        let renamed = std::mem::take(&mut self.retitled)
-            || now.iter().any(|now| {
-                self.list.iter().any(|known| {
-                    known.id == now.id
-                        && (known.title != now.title
-                            || known.units != now.units
-                            || known.steps != now.steps)
-                })
-            });
-        if renamed {
-            self.texts.clear();
-            self.choices.clear();
-            self.choices_asked.clear();
-        }
-        renamed
-    }
-
-    /// Keeps the plugin's `text` for `value` of parameter `id`, the newest.
-    fn remember_text(&mut self, id: u32, value: f64, text: String) {
-        let kept = self.texts.entry(id).or_default();
-        kept.retain(|(at, _)| !same_value(*at, value));
-        if kept.len() >= TEXTS_KEPT {
-            kept.remove(0);
-        }
-        kept.push((value, text));
-    }
-}
-
-/// How many of a parameter's value texts are kept.
-const TEXTS_KEPT: usize = 8;
-
-/// Whether two normalized values are the same value, for their texts.
-pub(crate) fn same_value(a: f64, b: f64) -> bool {
-    (a - b).abs() < 1e-9
 }
 
 /// The most steps a parameter may have to be shown as a list of choices; a
@@ -981,25 +765,6 @@ impl Hosting {
             }
         }
         costs
-    }
-}
-
-impl Parameters {
-    /// The values to send so the plugin matches what the project holds: every
-    /// value the project has that the plugin does not, and, for a parameter
-    /// the project let go of (an undone change), the value it had before.
-    fn differences(&self, held: &BTreeMap<u32, f64>) -> Vec<(u32, f64)> {
-        let mut send: Vec<(u32, f64)> = held
-            .iter()
-            .filter(|&(id, v)| self.values.get(id) != Some(v))
-            .map(|(&id, &v)| (id, v))
-            .collect();
-        for (&id, &base) in &self.base {
-            if !held.contains_key(&id) && self.values.get(&id).is_some_and(|&v| v != base) {
-                send.push((id, base));
-            }
-        }
-        send
     }
 }
 
