@@ -1,6 +1,6 @@
 //! The device thread's tests.
 
-use super::run::output_pairs;
+use super::run::{Silence, UNANSWERED_LIMIT, output_pairs};
 use super::*;
 
 #[test]
@@ -144,6 +144,88 @@ fn a_thread_that_panics_says_so() {
     let said = Cell::new(false);
     catching(|| {}, || said.set(true));
     assert!(!said.get());
+}
+
+/// A control call that timed out.
+fn missed() -> Result<(), HostError> {
+    Err(HostError::Timeout)
+}
+
+/// A control call the host answered.
+fn answered() -> Result<(), HostError> {
+    Ok(())
+}
+
+#[test]
+fn a_host_is_given_up_on_after_three_control_calls_in_a_row_go_unanswered() {
+    assert_eq!(UNANSWERED_LIMIT, 3, "the limit the test counts to");
+    let mut silence = Silence::default();
+    for _ in 0..UNANSWERED_LIMIT - 1 {
+        assert!(!silence.watch(&missed(), 0), "a few misses are a glitch");
+    }
+    assert!(
+        silence.watch(&missed(), 0),
+        "a host that answered none of them is unresponsive"
+    );
+}
+
+#[test]
+fn an_answer_starts_the_count_again() {
+    let mut silence = Silence::default();
+    assert!(!silence.watch(&missed(), 0));
+    assert!(!silence.watch(&missed(), 0));
+    assert!(!silence.watch(&answered(), 0));
+    for _ in 0..UNANSWERED_LIMIT - 1 {
+        assert!(!silence.watch(&missed(), 0), "the count began again");
+    }
+    assert!(silence.watch(&missed(), 0));
+}
+
+#[test]
+fn a_refusal_is_an_answer_and_does_not_count_towards_a_hang() {
+    // A plugin that says no (a bad state, a busy controller) is listening:
+    // only silence does.
+    let refused: Result<(), HostError> = Err(HostError::Protocol("a refusal".into()));
+    let mut silence = Silence::default();
+    for _ in 0..UNANSWERED_LIMIT + 1 {
+        assert!(!silence.watch(&refused, 0));
+    }
+    assert!(!silence.watch(&missed(), 0));
+    assert!(!silence.watch(&missed(), 0));
+    assert!(silence.watch(&missed(), 0));
+}
+
+#[test]
+fn a_block_the_host_answered_is_progress_not_a_hang() {
+    // An offline render gives a plugin seconds per block: a control call that
+    // times out while blocks are being answered is a busy plugin, not a hung
+    // one.
+    let mut silence = Silence::default();
+    let mut blocks = 0;
+    for _ in 0..1_000 {
+        blocks += 1;
+        assert!(
+            !silence.watch(&missed(), blocks),
+            "block {blocks}: the host is answering"
+        );
+    }
+    // The blocks stop: then the misses count.
+    assert!(!silence.watch(&missed(), blocks));
+    assert!(!silence.watch(&missed(), blocks));
+    assert!(silence.watch(&missed(), blocks));
+}
+
+/// The failure said for a host that stopped answering control calls reads as
+/// a hang, so the interface offers a reload as it does for any hung host.
+#[test]
+fn silence_is_reported_as_a_hung_host() {
+    let failure = Failure {
+        step: Step::Running,
+        error: HostError::Timeout,
+        detail: None,
+    };
+    assert!(failure.hung() && !failure.crashed());
+    assert!(failure.to_string().contains("did not answer"));
 }
 
 #[test]

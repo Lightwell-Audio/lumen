@@ -32,6 +32,10 @@ pub struct Counts {
     /// Parameters whose automation for a block was left out because the
     /// region had no room for it (M7 slice A3).
     dropped_params: AtomicU32,
+    /// Blocks the host answered, counted by the audio thread: the control
+    /// thread reads it to tell a host working on a long block (an offline
+    /// render) from one that stopped answering.
+    answered: AtomicU32,
 }
 
 impl Counts {
@@ -45,6 +49,11 @@ impl Counts {
 
     pub fn dropped_params(&self) -> u32 {
         self.dropped_params.load(Ordering::Relaxed)
+    }
+
+    /// How many blocks the host has answered.
+    pub fn answered(&self) -> u32 {
+        self.answered.load(Ordering::Relaxed)
     }
 }
 
@@ -249,6 +258,7 @@ impl Hosted for Link {
     fn collect(&mut self, deadline: Instant, left: &mut [f32], right: &mut [f32]) -> Reply {
         match self.wait_while_alive(deadline) {
             Poll::Done(answer) if answer.outcome == Outcome::Done => {
+                self.counts.answered.fetch_add(1, Ordering::Relaxed);
                 self.copy_pair(0, left, right);
                 Reply::Ready {
                     latency: answer.latency,
