@@ -14,9 +14,9 @@
 use eframe::egui::epaint::text::VariationCoords;
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily, FontId, FontTweak};
 
-const INTER: &[u8] = include_bytes!("../assets/fonts/Inter.ttf");
-const UNBOUNDED: &[u8] = include_bytes!("../assets/fonts/Unbounded.ttf");
-const MARTIAN_MONO: &[u8] = include_bytes!("../assets/fonts/MartianMono.ttf");
+const INTER: &[u8] = include_bytes!("../../assets/fonts/Inter.ttf");
+const UNBOUNDED: &[u8] = include_bytes!("../../assets/fonts/Unbounded.ttf");
+const MARTIAN_MONO: &[u8] = include_bytes!("../../assets/fonts/MartianMono.ttf");
 /// Martian Mono's width: narrower than its default 100, so the position,
 /// tempo and meter scales keep the room Hack had.
 const MONO_WIDTH: f32 = 87.5;
