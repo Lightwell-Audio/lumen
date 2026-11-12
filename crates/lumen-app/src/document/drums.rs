@@ -614,7 +614,11 @@ mod tests {
                         9 => Step::Quantize(map, input),
                         10 => Step::Choke(map, input),
                         11 => Step::Route(map, input),
-                        _ => Step::Attach(if next() % 2 == 0 { first } else { second }),
+                        _ => Step::Attach(if next().is_multiple_of(2) {
+                            first
+                        } else {
+                            second
+                        }),
                     });
                 }
             }

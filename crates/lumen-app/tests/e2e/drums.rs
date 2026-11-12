@@ -196,7 +196,7 @@ fn the_choosers_detach_takes_the_map_off_the_track_it_named() {
         "the track the chooser named lost its map"
     );
     assert_eq!(
-        lumen.app().note().as_deref(),
+        lumen.app().note(),
         Some("Drum map detached: the notes play as they are")
     );
 }
