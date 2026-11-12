@@ -23,9 +23,10 @@ extern "C" {
 // A stretcher for `channels` channels at `rate`. `preset` 0 is the library's
 // default, 1 its cheaper one. Null if it could not be made.
 LumenStretch *lumen_stretch_new(int channels, int rate, int preset) {
+	LumenStretch *s = nullptr;
 	try {
 		if (channels < 1 || channels > 2 || rate < 8000) return nullptr;
-		auto *s = new LumenStretch(0x4C554D454E); // "LUMEN"
+		s = new LumenStretch(0x4C554D454E); // "LUMEN"
 		if (preset == 1) {
 			s->stretch.presetCheaper(channels, float(rate), false);
 		} else {
@@ -33,6 +34,10 @@ LumenStretch *lumen_stretch_new(int channels, int rate, int preset) {
 		}
 		return s;
 	} catch (...) {
+		// A preset that throws leaves nothing to hand back, so the stretcher
+		// made above is freed here; without this it leaks with its FFT plans
+		// for the life of the process.
+		delete s;
 		return nullptr;
 	}
 }
