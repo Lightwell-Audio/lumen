@@ -1,5 +1,5 @@
-//! Plugin editor windows on Windows (M6 slice 4, ADR-0067 "Editors"; the
-//! spike's window code, `lumen-editor-spike`, made production).
+//! Plugin editor windows on Windows (M6 slice 4, ADR-0067 "Editors"; grown
+//! from the M6 editor-focus prototype).
 //!
 //! The window is made, pumped and destroyed on the host's main thread, which
 //! is also the thread that made the plugin and the one thread allowed to call
@@ -20,9 +20,10 @@
 //! moves the window, and `setContentScaleFactor` comes before `attached` and
 //! again on every monitor change.
 //!
-//! This is the only code in the host that has no test on Linux. The spike ran
-//! on Windows with the test plugin and one real plugin (MT-VST-0 "Editors");
-//! this module is checked by the cross-target compiler and by MT-VST-4.
+//! This is the only code in the host that has no test on Linux. The prototype
+//! ran on Windows with the test plugin and one real plugin (MT-VST-0
+//! "Editors"); this module is checked by the cross-target compiler and by
+//! MT-VST-4.
 
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
