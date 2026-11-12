@@ -1607,6 +1607,36 @@ a 96 pt label column (`size::LABEL_COLUMN`) for chosen values, and on/off settin
 - **Blocked plugins:** one row per plugin: the warning shape (`MENU_ICON`), the name cut short with
   "…", and Retry at the right edge (named "Retry <name>"). An empty list says so in a sentence.
 
+## 7k. Built-in devices and their personalities (M8 slice B0; the owner's BF C)
+
+Every built-in device Lumen ships is a **personality**: a name of its own, with what it is under it, a
+signature colour and one visual idea (owner, 2026-11-12, approved from round 2 of `docs/specimens/m8/`).
+The chain card, its frame, power, preset field, focus ring and every control's gesture stay Lumen's;
+only what the device *is* changes.
+
+- **Name and subtitle.** The card's name row holds the personality's name ("Prism") in the place a
+  plugin's name sits, and its kind ("Utility") under it where a plugin's vendor sits. Menus, the lane
+  chooser and tooltips use the same two words: "Prism" for the device, "Utility" for what it is. The
+  name in the *picture band* is set in Unbounded (`fonts::display`), as every card's monogram is.
+  A device has one stable saved name (`PluginRef::Builtin.name`, `"utility"`), which is never the
+  personality: renaming a personality is a design change, and old projects keep their sound.
+- **Signature colour.** One hue per device in `theme::personality` (`UTILITY` for Prism, a quiet steel
+  grey), the same in both themes, as a clip's colour is. It tints the card's picture band; it is never
+  the only signal that a device is a device (the name and the subtitle always are).
+- **Visual idea.** BF C: a drawn face where a picture is the control (an EQ's curve and analyzer, a
+  compressor's transfer, a sampler's wave and pads); the generic eight-knob strip for the rest —
+  Prism, the delay, the reverb, the synth. A device with a face keeps the card's chrome and still puts
+  every parameter in All parameters. B0 builds the strip; the faces arrive with their devices (B1, B2,
+  B5).
+- **The strip** is the card's own (`chain/strip.rs`, eight knobs in two rows and the All button): a
+  built-in's parameters come from its table, so they read in the device's words ("Width 100 %",
+  "Swap L/R Off") with no round trip. The masthead's window button is not offered (a built-in's
+  controls are its card and All parameters) and Learn is hidden with it; automation and controller
+  menus on each knob are the plugin's.
+- **Presets** use the card's field and menu, and Lumen's own folder (`Documents/Lumen Presets/<kind>`),
+  one folder per device, one `.lumenpreset` file per sound: JSON, so a person can read and edit it.
+- Names are checked for trademark conflicts before release (M10).
+
 ## 8. Key flows
 
 ### Join crossfades (M7b E2, accepted X1)
