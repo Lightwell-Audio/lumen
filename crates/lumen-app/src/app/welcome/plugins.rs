@@ -40,7 +40,7 @@ impl App {
             warning(ui, OFF_THIS_RUN, 0.0);
             return;
         }
-        let ready = welcome::plugins_ready(self.plugins.catalog());
+        let ready = rules::plugins_ready(self.plugins.catalog());
         let blocked = self.plugins.catalog().blocked().len();
         match self.plugins.status().clone() {
             Scan::Off => {
@@ -96,7 +96,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(format!(
                         "{} ready to use",
-                        welcome::count(ready, "plugin", "plugins")
+                        rules::count(ready, "plugin", "plugins")
                     ));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if self.plugins.waiting().is_none()
@@ -124,7 +124,7 @@ impl App {
                     .extend(icons::shapes(Icon::Warning, icon, theme::p().warning));
                 ui.label(format!(
                     "{} could not be loaded",
-                    welcome::count(blocked, "plugin", "plugins")
+                    rules::count(blocked, "plugin", "plugins")
                 ));
                 if ui
                     .link("See them")

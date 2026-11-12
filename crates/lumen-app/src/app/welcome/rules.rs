@@ -1,7 +1,7 @@
 //! The first-run window between frames, and the rules it shows (M9 slice
 //! R7b, ADR-0115): which step is open, which steps were seen, what each
 //! step's pill says, whether an ASIO driver is offered, and how many
-//! plugins are ready. Drawn by `app/welcome.rs`.
+//! plugins are ready. Drawn by the rest of `app/welcome/`.
 
 use eframe::egui;
 use lumen_plugin_catalog::catalog::{Catalog, Source};
@@ -122,9 +122,9 @@ pub struct Lumi {
     pub curious: egui::TextureHandle,
 }
 
-const WAVING: &[u8] = include_bytes!("../assets/brand/lumi-waving.png");
-const CELEBRATING: &[u8] = include_bytes!("../assets/brand/lumi-celebrating.png");
-const CURIOUS: &[u8] = include_bytes!("../assets/brand/lumi-curious.png");
+const WAVING: &[u8] = include_bytes!("../../../assets/brand/lumi-waving.png");
+const CELEBRATING: &[u8] = include_bytes!("../../../assets/brand/lumi-celebrating.png");
+const CURIOUS: &[u8] = include_bytes!("../../../assets/brand/lumi-curious.png");
 
 impl Lumi {
     /// Decodes the poses. `None` if one would not decode (it is built in,

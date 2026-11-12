@@ -59,7 +59,7 @@ mod tools_gestures;
 pub(crate) mod track_freeze;
 mod track_input;
 pub(crate) mod view;
-mod welcome;
+pub(crate) mod welcome;
 mod window_size;
 
 // The paths these files had while they sat flat here (audit M11), so every

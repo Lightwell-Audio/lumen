@@ -36,7 +36,7 @@ impl App {
             return;
         };
         let names: Vec<String> = drivers.iter().map(|(_, n)| n.clone()).collect();
-        let Some(offer) = welcome::asio_offer(&names, &audio.driver) else {
+        let Some(offer) = rules::asio_offer(&names, &audio.driver) else {
             return;
         };
         let ready = audio.can_change();

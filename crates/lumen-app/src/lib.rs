@@ -99,19 +99,20 @@ mod settings;
 mod song_lanes;
 mod spawn;
 mod strays;
-mod tap_tempo;
-mod templates;
 pub mod testing;
 mod theme;
 mod timefmt;
 mod timeview;
 mod trace;
 mod transport;
-mod welcome;
 mod widgets;
 
 pub use launch::Launch;
 pub use timeview::TimeView;
+
+// The first-run window's state and rules, kept as `crate::welcome` while they
+// live in `app/welcome/` with the window that draws them (audit M11).
+pub(crate) use app::welcome;
 
 use std::path::PathBuf;
 use std::sync::Arc;
