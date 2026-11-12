@@ -526,13 +526,13 @@ per slice and move what is no longer current out of it.
   `tools/stretch-trial` is its own workspace; the blind pack is the page
   "Lumen Stretch Trial". T waits for the owner's ear (recommendation C).
   **S1** (`m9.5-s1-editor-canvas`, cut from S0, ADR-0121): the clip editors'
-  shared header (`app/clip_header.rs`: a new header part goes there, for
+  shared header (`app/clip/clip_header.rs`: a new header part goes there, for
   both editors) and the audio editor's canvas (`audio_editor/`,
   `app/audio_editor.rs`). Main (D0) is merged in: S0 and S1 moved to
   ADR-0120 and 0121 (S0's own branch still says 0119, so merge S1, which
   holds S0, rather than S0 alone). Its docs page is Guides › Clips and
   selection › Look inside an audio clip (scene `audio_clip_editor`).
-  MT-CLIP-1 waits. Every slice now carries its docs (USER_DOCS.md §10.1;
+  MT-CLIP-1 waits. Every slice now carries its docs (USER_DOCS.md §10.1; superseded by ADR-0133 below;
   `docs_coverage` fails on a command with no page).
   **S2** is planned in three (`docs/milestones/M9.5.md` §9; owner: every
   recommendation, 2026-11-06). **S2a** (`m9.5-s2a-editor-handles`, ADR-0123)
@@ -606,7 +606,7 @@ per slice and move what is no longer current out of it.
   audio editor draws the transients faintly and the strip gains a Warp chip
   beside the File chip, folding into the ⋯ menu after Processing
   (`app/audio_editor/warp.rs`; its commands are
-  `app/clip_warp.rs`): the switch, mode, tempo field (`SliderKind::Bpm`), ×2
+  `app/clip/clip_warp.rs`): the switch, mode, tempo field (`SliderKind::Bpm`), ×2
   and ÷2, the detected tempo with Use, the sensitivity, Set project tempo from
   clip and Warp from here, each one undo step. Five commands, no keys, tagged
   `@m9.5` in `undocumented.txt`. **Tell the owner:** ×2, ÷2 and a typed tempo
@@ -688,7 +688,7 @@ per slice and move what is no longer current out of it.
   the owner:** nothing in 9.5 has been heard by a person (MT-WARP-1 to 3,
   MT-PITCH-1, MT-M9.5-1); the WSL perf gate and the macOS cross-clippy did not
   run here (the latter needs a C++ compiler for the Apple target); the docs
-  pass for 9.5 is owed (ADR-0133, eleven `@m9.5` ids). The KNOWN_ISSUES row
+  pass for 9.5 is owed (ADR-0133, twelve `@m9.5` ids). The KNOWN_ISSUES row
   "Audio clips do not follow tempo" is removed. Next: the owner's decision on
   M2, then the review's fixes, the docs pass and the approval of 9.5 before M8.
   **Manual-test update, 2026-11-10:** the owner passed MT-WARP-1 to 3 on
@@ -730,6 +730,30 @@ per slice and move what is no longer current out of it.
   reviewed and integrated by the parent; workspace tests, E2E (982) and smoke
   pass. **The owner passed MT-M9.5-1 on it (2026-11-11).** Waiting: M3 (needs
   WSL), the docs pass, then the approval.
+- **Branch `m9.5-architecture-sweep`: the architecture sweep after M9.5**
+  (ADR-0141; audit `docs/audits/2026-11-11-architecture-sweep.md`; owner:
+  fix all six groups, regroup the loose modules, name the stroke and opacity
+  literals; no format change, host protocol still 9; **not pushed**). A save
+  survives a failed backup (`SaveReport`); the take sidecar and the autosave
+  note carry a `version` (a newer file is kept, counted and named); the
+  golden fixtures are pinned by hash; ASIO frees its state only when no
+  callback runs (`asio/inflight.rs`) and the cpal callback has no lock
+  (`callback_slot.rs`); the audio side's clip player cannot load pages
+  (`ClipPlayer<NoLoader>`; renders use `clip_player_for_render()`); every
+  production file over 800 lines is split but `design/theme.rs` and
+  `commands/run.rs`; the loose root modules are in `design/`, `engine/`,
+  `bake/`, `project_files/`, `system/` and `timeline/` (re-exported, so
+  imports did not change; the table is in ARCHITECTURE.md); `browser/` lost
+  its `impl App` blocks as the M12 pilot; the editor-spike binaries are
+  deleted. Built by DeepSeek V4.1 Flash delegates, each merge reviewed by
+  the parent. Workspace tests (4,166), clippy, fmt and smoke pass. **Tell
+  the owner:** not run here: the WSL mirror and perf gate, the macOS
+  cross-clippy, screenshots, the Focusrite (the ASIO changes have fake-driver
+  tests only), real plugins; `chain/` and `note_editor/` keep their `impl
+  App` blocks (do them when next changed); the association's registry write
+  is still on the click; the host's log nonce does not stop a hostile
+  plugin; two UI tests flake when the workspace runs in parallel
+  (KNOWN_ISSUES, top rows).
 - **Branch `chore/ci-deterministic-tests`: tests that do not depend on the
   runner** (ADR-0122; owner asked 2026-11-06). The test devices wait for
   plugin hosts as an offline render does (a dead host ends the wait early);
@@ -800,7 +824,7 @@ per slice and move what is no longer current out of it.
 
 **Where to look**
 - `docs/PROGRESS.md`: every requirement's status and the milestone reports.
-- `docs/DECISIONS.md`: ADR-0001 to ADR-0124 and the table of owner decisions.
+- `docs/DECISIONS.md`: ADR-0001 to ADR-0141 and the table of owner decisions.
 - `docs/USER_DOCS.md`: the user documentation strategy (accepted, ADR-0119).
 - `docs/MANUAL_TESTS.md` and `docs/manual-tests/`: hardware and by-hand
   tests with every run's results.
@@ -921,7 +945,7 @@ error where it can be)
   slice adds E2E scenarios for what it delivered. Run Lumen by hand for
   screenshots only with `--audio test:fake --settings ... --autosave-dir
   ... --crash-dir ...`, never with the owner's settings, autosaves, crash
-  reports or device. Crash reports (`crash.rs`) say what failed and where.
+  reports or device. Crash reports (`system/crash.rs`) say what failed and where.
 - **Before pushing platform-specific code:** run the WSL Linux mirror
   (`clippy.sh`, and `perf.sh` when engine or project code changes) and the
   macOS cross-target clippy. See DEVELOPMENT.md.
@@ -939,8 +963,8 @@ error where it can be)
   (dashed lines, repeats, labels) is cut to the visible lanes first. A
   dashed line across a long clip once asked for 64 GiB and crashed
   (owner, after slice 6c; E2E `hovering_a_long_clip_at_the_deepest_zoom_stays_quick`).
-- **Design:** UI colours, sizes and durations come from `theme.rs`,
-  `motion.rs` and `fonts.rs`, never inline. Windows draw their own title
+- **Design:** UI colours, sizes and durations come from `design/theme.rs`,
+  `design/motion.rs` and `design/fonts.rs`, never inline. Windows draw their own title
   row; long text wraps or truncates and never widens a window.
 - **Editing files from scripts:** rustfmt reflows code, so exact-match
   replacements often miss. Prefer the Edit tool, and write longer scripts

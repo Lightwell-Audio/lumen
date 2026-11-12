@@ -2,7 +2,7 @@
 //! shows, moved on from the levels the engine measured.
 //!
 //! The engine hands over each node's peaks since the last look, its RMS
-//! and whether it clipped (`lumen_engine::Level`). Here they ecome what is
+//! and whether it clipped (`lumen_engine::Level`). Here they become what is
 //! drawn, with the owner's B2 ballistics: a peak jumps up at once and falls
 //! 20 dB a second; a hold line stays 1.5 s on the highest peak, then falls;
 //! a clip stays lit until it is clicked. The master's loudness windows and

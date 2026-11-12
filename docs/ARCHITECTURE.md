@@ -141,7 +141,7 @@ preserves older playback.
 | Design system | Semantic colour tokens (dark and light), type, spacing and motion, in `theme.rs`, `motion.rs` and `fonts.rs`; spec in `docs/DESIGN.md` | ADR-0023 |
 | Real-time engine | Allocation-free, block-size-invariant; transport, tempo and meter maps, declick crossfades, clip player, MIDI player and the built-in instruments, the mixer graph (a plan compiled on the UI side), metronome | ADR-0003, 0017, 0019, 0020, 0035, 0045 |
 | Audio devices | Lumen's own backend layer: native ASIO over COM, WASAPI shared and exclusive, cpal for macOS and Linux; a supervisor that recovers from loss, resets and sleep | ADR-0006, 0016, 0021 |
-| Projects | Folder with versioned JSON (format v26; loop source phase and partial fade windows; automation and hidden captured MIDI provenance retained), migrations over untyped JSON, atomic saves, rolling backups, relative media paths | ADR-0004, 0064 |
+| Projects | Folder with versioned JSON (format v34; loop source phase and partial fade windows; automation and hidden captured MIDI provenance retained), migrations over untyped JSON, atomic saves, rolling backups, relative media paths | ADR-0004, 0064 |
 | Undo | Shared snapshots: tracks and clips in `Arc`, every step a cheap copy | ADR-0024 |
 | Time | Integer ticks at 1,411,200 PPQ, with one rounding rule to samples; MIDI searches sample-expanded tick bounds and assigns events by their exact sample, including at a block's start | ADR-0009, 0062 follow-up |
 | Plugins (M6) | `vst3` crate bindings, sandboxed host processes (`lumen-plugin-host`: module loading, a bounded versioned protocol, stale-block rejection, a shared-memory audio path), out-of-process scanning (a child per module with a deadline, a cache keyed by file stamp, a blocked list with reasons: `lumen-plugin-catalog`) | ADR-0005, 0066, 0067, 0068, 0071 |
@@ -194,8 +194,9 @@ Tools (binaries of `lumen-plugin-host`): `lumen-host-probe` runs installed plugi
 through scan, load, buses, configure, process, link, state, parameters, editor and
 shutdown, each in a host process of its own, and prints a compatibility table
 (M6 slice 7a); `lumen-host-bench` measures the audio path between Lumen and host
-processes (MT-VST-0); `lumen-editor-spike` settled how plugin windows take focus
-(ADR-0067). The fault soak is `lumen-hosting/tests/soak.rs`.
+processes (MT-VST-0); the editor-focus spike that settled how plugin windows take focus
+(ADR-0067) was deleted in the 2026-11 sweep (ADR-0141); the production host
+is `editor/`. The fault soak is `lumen-hosting/tests/soak.rs`.
 
 Native macOS hosting (ADR-0085): `module/macos.rs` resolves bundle metadata
 without loading code and initializes the retained `CFBundleRef` in the child;
@@ -234,11 +235,40 @@ for shutdown; the shared region's quit setter is internal.
   product.
 
 
+### Where modules went (sweep after M9.5, ADR-0141)
+
+The module tables above name files as they were when each slice was built.
+Since the sweep these live in folders (the public paths are re-exported from
+`lib.rs` and `app/mod.rs`, so `use` lines did not change):
+
+| Was | Now |
+|---|---|
+| `theme.rs`, `motion.rs`, `fonts.rs`, `light.rs`, `icons/` | `design/` |
+| `lanes/`, `routing.rs`, `played.rs`, `lane_bake.rs` | `engine/` (lanes in `engine/lanes/`) |
+| `bounce.rs`, `consolidate.rs`, `normalize.rs`, `crossfades.rs` | `bake/` |
+| `autosave.rs`, `files.rs`, `relink.rs` | `project_files/` |
+| `crash.rs`, `trace.rs`, `launch.rs`, `brand.rs`, `owner.rs` | `system/` |
+| `canvas.rs`, `playhead.rs`, `position.rs`, `ruler.rs`, `timefmt.rs`, `timeview.rs` | `timeline/` |
+| `app/clip_*.rs` | `app/clip/` |
+| `app/auto_*.rs` | `app/auto/` |
+| `app/audio_*.rs` | `app/audio/` |
+| `app/palette.rs`, `app/projects.rs`, `app/view.rs` | folders of the same names in `app/` |
+| `tap_tempo`, `templates`, `welcome` | `app/` (their `impl App` beside the pure half) |
+| `chain/presets.rs`, `chain/view.rs`, `transport/bar.rs`, `widgets/toggle.rs` | folders of the same names |
+| `lumen-plugin-host` `client.rs`, `editor/win.rs` | `client/`, `editor/win/` |
+| `lumen-engine` `clips.rs`, `engine.rs`, `midi/player.rs`, `mixer/plan.rs` | `clips/`, `engine/`, `midi/player/`, `mixer/plan/` |
+
+New: `spawn.rs` (`spawn_named`: every worker thread is named and a failed
+start is an error value), `lumen-audio` `asio/inflight.rs`,
+`callback_slot.rs`, `drift.rs`, and `lumen-engine`'s loader-free
+`ClipPlayer<NoLoader>` (ADR-0141 choices 4 to 6). The thread diagram above
+omits about eleven threads added since it was drawn; redrawing it is open.
+
 ### M7b E0 source windows (ADR-0092)
 
 - `lumen-project::edit::split::clips`: pure clip/range-edge splitting;
   `edit/windows.rs`: slicing and partial fade windows; `document/split.rs`:
-  one history step and fresh IDs. Format v26 has an identity migration over
+  one history step and fresh IDs. Format v26 (now v34) had an identity migration over
   older JSON (new fields default to the old behavior) and a frozen golden.
 - `lumen-core::fade::Fade`: visible length plus original curve offset/span.
   A newly drawn fade resets the source window. `Clip.loop_phase` retains

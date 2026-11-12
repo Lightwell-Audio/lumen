@@ -12,9 +12,13 @@ value, the 12 clip colours and the size, radius, stroke and duration values
 agree; v3 adds the spacing steps `space_xl` (24), in the code as `theme::space::XL`
 since M9 R7b, and `space_2xl` (32), which the code does not have yet (add it
 to `theme::space` when a screen needs it, not before).
-Code: `crates/lumen-app/src/theme.rs` (colour, type, spacing, shape,
-strokes, the on states and the egui style built from them), `motion.rs`
-(motion), `light.rs` (light) and `widgets/raised.rs` (material, §5a).
+Code: `crates/lumen-app/src/design/theme.rs` (colour, type, spacing, shape,
+strokes, the on states and the egui style built from them), `design/motion.rs`
+(motion), `design/light.rs` (light), `design/fonts.rs`, `design/icons/` and
+`widgets/raised.rs` (material, §5a). Strokes and opacities have names
+(`theme::stroke`, `theme::alpha`; sweep M14, ADR-0141); shared controls are
+`widgets::list_row`, `raised::text_button` and `widgets::double_click_reset`:
+use them before writing a new row, text button or reset gesture.
 Every screen takes its values from there. A colour or duration written
 inline in UI code is a bug.
 

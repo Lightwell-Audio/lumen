@@ -4,7 +4,7 @@ Branch: `m9.5-architecture-sweep` (cut from `origin/main` at `63e11a8c`, after
 PR #112). This is the full-repository review the `lumen-review` skill asks for
 at the end of a milestone. The M9.5 review of 2026-11-10 swept only that
 milestone's diff; this one reads every crate, as the M9 review did. Per the
-skill, **nothing found here has been fixed**: the owner decides first.
+skill, **nothing found here was fixed by the review itself**: the owner decided first, and the fixes are recorded in Status below (ADR-0141).
 
 ## Method and honesty about evidence
 
@@ -344,8 +344,32 @@ a type with no loader. This is the M4 point of the M9.5 review, generalised.
 
 ## Status
 
-Nothing fixed yet. When the owner approves, this table records each finding,
-its fix and its commit.
+Fixed on `m9.5-architecture-sweep` after the owner's go-ahead (2026-11-11),
+by DeepSeek V4.1 Flash delegates whose work the parent compared and gated
+before merging. Decisions are in ADR-0141.
 
 | Finding | Fix | Commit |
 |---|---|---|
+| M1 failed backup aborts a save | Backup is best effort; `SaveReport` names its error; every save gets its own temporary name | 9c209914, db29ead3, 3f562a94 |
+| M2 migrations write live defaults | v1 and v3 defaults frozen as literals | bcb56461 |
+| M3 renders deleted on the UI thread | Deleted on a worker | 65be489b |
+| M4 UI-thread disk and registry work | (a) crash leftovers read and discarded on a worker; (b) association status cached; (c) dialog folder made on the dialog's thread; (d) streaming state dropped on its own thread | 01fcdf3f, 93fd6903, 2298a011, 37f5095f, fafa214f, d79ccf63 |
+| M5 audio boundary hardening | (a) in-flight callback counter; (b) buffers returned on a failed open; (c) held driver told from missing; (d) a stream dropped without close is stopped; (e) callback panics kept at the boundary; (f) driver messages acted on; (g) drift ratio clamped; (h) stale note dropped | bf9cbc69, 211832a8, cb62f4f6, a97e13b6, a14d51dc, 8ba6e356, ffbfc440, a2ace7db |
+| M6 `Render::fill` skips under contention | Callback handed over without a lock | 789586b8 |
+| M7 WASAPI open can panic | A thread that cannot start is a value | 0b81580d, ee3a7da7 |
+| M8 hosting control calls ignore timeouts | A host that stops answering is failed and killed; blocks are counted | 33396c1c, 30c11be6 |
+| M9 unversioned side files, goldens not pinned | Sidecar and autosave note versioned and frozen as fixtures; goldens pinned by hash; recover-latest tested | 8435801f, 6d582030, 42dd9e0b, 35eacdcb, 6f688ddf |
+| M10 files over 800 lines | Split by concern: client, editor window, clip player, MIDI player, engine, mixer plan, lanes, icons, toggle, perf scenarios, hosting, view, palette, projects, presets, chain view, transport bar; editor spike deleted. `theme.rs` and `commands/run.rs` left whole by choice | b4053cc9, c1d4e3df, 4c872af6, 59d3dffe, 49a37ab7, e55e4248, 5c8e5ecc, 3f28fa40, 7b4dc00b, 64d1d1ee, cb9311c6, 427415b6, 20cce74a, 23f3943c, 78f7b95b, fb29bb60, ee0df08d |
+| M11 layout | Loose modules grouped into `engine/`, `bake/`, `project_files/`, `system/`, `design/`, `timeline/`, `app/clip/`, `app/auto/`, `app/audio/` and the pure halves beside `impl App`; `panels` stays at the root | 72b76de9, c5052a8c, 499b0283, 424b0311, 5cb831a2, e73f2fac, 653e1e95, b30b6bc3, 339ba20c, 43c2a0b7, 3923b32e |
+| M12 `impl App` outside `app/` | Pilot done on `browser/` (twelve pure functions tested); empty blocks in `testing/` deleted. **Not done:** `chain/` and `note_editor/` | 81786d09, ff3f876c to c7d7f960 |
+| M13 stale suppressions | Removed or narrowed; the ⋯ menu's inputs one struct | ff8a7743, b1054843, 4a160ebb, 2a78dec5 |
+| M14 literal strokes and opacities | Named in `theme::stroke`, `theme::alpha`, `motion` and clip opacities; no visual change | af627ea3, 22d3685f, fba1ba54, 5d459556, 5809d441, 75b5c609 |
+| M15 docs drift | CLAUDE.md §12, ARCHITECTURE (version, spike, module-move table), DESIGN paths and shared controls, KNOWN_ISSUES, PROGRESS, ADR-0141. Not done: the thread diagram's missing threads, the long module-table rows keep old file names (the table maps them) | this branch's docs commit |
+| M16 allocation-guard coverage | (a) clip, MIDI, mixer, metronome and meter tests and the synth and hosted instrument run under the guard; (b) the audio side's clip player cannot reach a page loader (first attempt reverted: it silenced exports) | 46217648, ae9d8015, 5a676b7e, ec9946ad, 26b1fdf1 reverted by ff71ea02 |
+| Lows | Region bounds rechecked and shared-object names refused; host log nonce; crash filter reads guarded; stretcher freed on a throw; scan threads by `Builder`; menu, history and Cue controls on the design system; double-click reset on the tempo and offset fields; first-run notices wrap; dead code and stale comments removed | da673f7f, 8cdef5ff, cb79acae, 924a301c, faf72495, 98ce4fda, 38a9ed30, e26a88f9, 71ed5479, 0252cdef, 2d1b1612, 2a25f01c, 64a48b11, 51653ec2, a364f91b, afc10e19, 1bbd21b8, 5cec1e1b, 4a17b7eb |
+
+**Left open:** `test-support` features for `lumen-project::testing` and
+`lumen-midi::fake`; `lumen-midi`'s 64-slot activity table; the
+`warp_transient` investigations that assert nothing (all in KNOWN_ISSUES);
+the association registry write still on the click; M12 for `chain/` and
+`note_editor/`.
