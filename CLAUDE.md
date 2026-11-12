@@ -810,6 +810,14 @@ per slice and move what is no longer current out of it.
   leftover tag. Slice reports list what is owed. On the S4c branch the
   preference is tagged (`pref:edit.follow_tempo @m9.5`); its stashed
   `follow_tempo_preference` scene is dropped (`git stash list`).
+- **Branch `m8-plan`: M8 is planned** (`docs/milestones/M8.md`, 2026-11-12;
+  owner asked for a plan built for delegated agents). Two lanes, drum maps
+  (D0 to D4) and built-in devices (B0 to B6), after specimens (P) and before
+  the close (Z); X1 to X4 ([S]) sit behind the cut line. Each slice is a
+  self-contained brief in delegation.md's form; §4 says how the parent
+  hands out briefs and merges the hot spots (command order, format numbers,
+  ADR numbers). Waits for the owner's choices (§2: DM, DV, DE, SQ, RT, SP,
+  BF, PR, CO, CL) and the approval of 9.5.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
