@@ -131,7 +131,7 @@ impl App {
     /// write. Tracks that cannot are named in a notice. `punch` is the range
     /// that is kept, if there is one; `looped` is the loop when Loop is on, so
     /// jumps back are passes and a take begun inside it lines up with it.
-    pub(super) fn begin_audio_takes(
+    pub(crate) fn begin_audio_takes(
         &mut self,
         punch: Option<(Ticks, Ticks)>,
         looped: Option<(Ticks, Ticks)>,
@@ -302,7 +302,7 @@ impl App {
 
     /// While recording: says so, once, if the disk cannot keep up and input
     /// is being lost, so the player can stop rather than find out at the end.
-    pub(super) fn watch_audio_takes(&mut self, lanes: &[Lane]) {
+    pub(crate) fn watch_audio_takes(&mut self, lanes: &[Lane]) {
         if lanes.is_empty() || self.record.audio.warned || self.transport.audio.takes.dropped() == 0
         {
             return;
@@ -316,7 +316,7 @@ impl App {
 
     /// What the arrangement draws of the takes under way: each as far as
     /// the worker has written it.
-    pub(super) fn audio_take_looks(&self, lanes: &[Lane]) -> Vec<AudioTakeLook> {
+    pub(crate) fn audio_take_looks(&self, lanes: &[Lane]) -> Vec<AudioTakeLook> {
         let Some(rate) = self.transport.audio.info.as_ref().map(|i| i.sample_rate) else {
             return Vec::new();
         };
@@ -345,7 +345,7 @@ impl App {
     /// Recording has ended: the worker closes the files and
     /// [`Self::poll_audio_takes`] puts them in. With `discard` they are
     /// thrown away instead.
-    pub(super) fn end_audio_takes(
+    pub(crate) fn end_audio_takes(
         &mut self,
         lanes: Vec<Lane>,
         discard: bool,
@@ -366,7 +366,7 @@ impl App {
     }
 
     /// What the takes being finished recorded over (see [`Finishing`]).
-    pub(super) fn finishing_replaced(&self) -> Vec<crate::midi::play::Replacing> {
+    pub(crate) fn finishing_replaced(&self) -> Vec<crate::midi::play::Replacing> {
         self.record
             .audio
             .finishing
@@ -382,7 +382,7 @@ impl App {
 
     /// The takes to draw while their files are closed: what the arrangement
     /// showed while recording, until the clips are placed.
-    pub(super) fn finishing_lanes(&self) -> Vec<Lane> {
+    pub(crate) fn finishing_lanes(&self) -> Vec<Lane> {
         self.record
             .audio
             .finishing

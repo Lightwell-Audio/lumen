@@ -41,7 +41,7 @@ impl App {
 
         let open = self.transport.audio.open_inputs();
         self.lend_input_choices(ctx, &open);
-        let dt = super::mixer::meter_step(&mut self.inputs.meters_at, ctx);
+        let dt = crate::app::mixer::meter_step(&mut self.inputs.meters_at, ctx);
         let running = matches!(
             self.transport.audio.status,
             crate::audio::Status::Running { .. }

@@ -3,10 +3,8 @@
 //! M1).
 
 pub(crate) mod association;
+pub(crate) mod audio;
 pub(crate) mod audio_editor;
-pub(crate) mod audio_export;
-pub(crate) mod audio_inputs;
-pub(crate) mod audio_record;
 pub(crate) mod auto;
 mod bench_callback;
 pub(crate) mod cache_folder;
@@ -66,6 +64,7 @@ mod window_size;
 
 // The paths these files had while they sat flat here (audit M11), so every
 // `crate::app::<name>` keeps working.
+pub(crate) use audio::{audio_export, audio_inputs, audio_record};
 pub(crate) use auto::{auto_keys, auto_recording};
 pub(crate) use clip::{
     clip_bounce, clip_card, clip_commands, clip_consolidate, clip_controls, clip_file, clip_header,
