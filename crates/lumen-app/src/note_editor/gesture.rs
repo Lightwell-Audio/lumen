@@ -222,6 +222,7 @@ mod tests {
             clip_start: Ticks::ZERO,
             row_height: 10.0,
             scroll: 0.0,
+            rows: crate::piano_roll::draw::Rows::all(),
         }
     }
 

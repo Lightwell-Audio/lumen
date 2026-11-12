@@ -12,7 +12,7 @@ use lumen_core::time::Ticks;
 use lumen_project::model::Note;
 use lumen_render::BoxInstance;
 
-use super::draw::{self, RollView};
+use super::draw::{self, RollView, Rows};
 use super::notes::{ClipNotes, NoteColors, note_instances};
 use crate::canvas::{GridLook, Surface};
 use crate::theme;
@@ -75,12 +75,15 @@ pub(crate) fn show(ui: &mut egui::Ui, boxes: &Arc<Vec<BoxInstance>>, zoom: f64, 
             .min(draw::content_height(row_height) - rect.height())
             .max(0.0),
         row_height,
+        rows: Rows::all(),
     };
     draw::roll(
-        ui.painter(),
-        Surface::Docked,
-        rect,
-        56.0,
+        draw::RollCanvas {
+            painter: ui.painter(),
+            surface: Surface::Docked,
+            rect,
+            key_width: 56.0,
+        },
         view,
         &grid,
         draw::RollNotes {
@@ -88,5 +91,6 @@ pub(crate) fn show(ui: &mut egui::Ui, boxes: &Arc<Vec<BoxInstance>>, zoom: f64, 
             generation: 1,
             under: |_: &eframe::egui::Painter| {},
         },
+        None,
     );
 }

@@ -49,6 +49,10 @@ pub(crate) enum FileDialog {
     /// A folder to add as a place, or where a missing one went (none when
     /// cancelled; M9 R7c).
     Place(Option<PathBuf>),
+    /// Where to write a drum map, or the file to read (none when
+    /// cancelled; M8 D1).
+    DrumMapExport(Option<PathBuf>),
+    DrumMapImport(Option<PathBuf>),
 }
 
 thread_local! {

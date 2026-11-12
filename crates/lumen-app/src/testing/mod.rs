@@ -565,6 +565,59 @@ impl App {
         self.drum_choice.is_some()
     }
 
+    /// Whether the drum map editor is open (M8 D1).
+    pub fn drum_map_editor_open(&self) -> bool {
+        self.drum_map.is_open()
+    }
+
+    /// The map the drum map editor shows.
+    pub fn drum_map_editor_map(&self) -> Option<Id> {
+        self.drum_map.map()
+    }
+
+    /// What the drum map editor last said about a file (its notice).
+    pub fn drum_map_notice(&self) -> Option<&str> {
+        self.drum_map.notice().map(|notice| notice.words.as_str())
+    }
+
+    /// The sound the map editor is waiting for a note on.
+    pub fn drum_map_learning(&self) -> Option<u8> {
+        self.drum_map.learning().map(|(_, input)| input)
+    }
+
+    /// Plays `key` on an input, as the live feed tells the editor (the
+    /// Learn button's note).
+    pub fn drum_map_played(&mut self, key: u8) {
+        self.drum_map_heard(key);
+    }
+
+    /// Whether the clip editor's key column shows only the map's sounds.
+    pub fn hiding_unmapped_keys(&self) -> bool {
+        self.note_editor.hide_unmapped
+    }
+
+    /// Folds the clip editor's key column to the map's sounds (the Keys
+    /// button, for screenshots).
+    pub fn hide_the_unmapped_keys(&mut self) {
+        self.toggle_hide_unmapped_keys();
+    }
+
+    /// How many pitch rows the clip editor drew this frame (128 on a track
+    /// with no map, or the map's sounds when they are folded).
+    pub fn note_editor_rows(&self) -> Option<usize> {
+        self.note_editor.last_view.map(|view| view.rows.len())
+    }
+
+    /// Opens the drum map editor on the selected track, as the command does.
+    pub fn open_the_drum_map_editor(&mut self) {
+        self.open_drum_map_editor();
+    }
+
+    /// Opens a MIDI clip in the clip editor, as a double-click does.
+    pub fn open_clip_editor(&mut self, clip: Id) {
+        self.open_note_editor(clip);
+    }
+
     /// Sets a clip's gain as the properties card does (one undo step).
     pub fn set_clip_gain_like_the_card(&mut self, clip: Id, db: f32) {
         self.document.set_clip_gain(&[clip], db, Some("card gain"));

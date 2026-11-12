@@ -493,6 +493,25 @@ impl App {
                 self.can_convert_drum_map(),
                 "Select clips on a track with a drum map first, with another map to go to",
             ),
+            Command::DrumMapUnique => need(
+                self.selected_midi_tracks()
+                    .iter()
+                    .any(|id| self.document.drum_map_of(*id).is_some()),
+                "Select a MIDI track with a drum map first",
+            ),
+            Command::DrumMapSave | Command::DrumMapExport => need(
+                self.drum_map.map().is_some()
+                    || self
+                        .selected_midi_tracks()
+                        .iter()
+                        .any(|id| self.document.drum_map_of(*id).is_some()),
+                "Select a MIDI track with a drum map first",
+            ),
+            Command::DrumMapImport => Ok(()),
+            Command::HideUnmappedKeys => need(
+                self.editor_has_drum_map(),
+                "Open a MIDI clip on a track with a drum map first",
+            ),
             Command::ClearSolos => need(
                 lumen_project::solo::any_soloed(self.document.project()),
                 "Nothing is soloed",
