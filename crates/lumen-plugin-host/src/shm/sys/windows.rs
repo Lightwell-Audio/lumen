@@ -7,7 +7,9 @@ use std::process::Child;
 use std::ptr;
 use std::time::Duration;
 
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, ERROR_ALREADY_EXISTS, HANDLE, INVALID_HANDLE_VALUE, SetLastError, WAIT_OBJECT_0,
+};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
@@ -41,6 +43,25 @@ fn checked(handle: HANDLE, what: &str) -> io::Result<HANDLE> {
     }
 }
 
+/// As [`checked`], and refuses an object that was already there. A create must
+/// make a new one, as the Unix side's `O_EXCL` does: the names are only handed
+/// to the caller that made the objects, so one that already exists belongs to
+/// something else and is not ours to use.
+fn created(handle: HANDLE, what: &str) -> io::Result<HANDLE> {
+    let handle = checked(handle, what)?;
+    // The create hands back the existing object and sets this when the name is
+    // taken; the create functions above cleared the thread's last error first.
+    if io::Error::last_os_error().raw_os_error() == Some(ERROR_ALREADY_EXISTS as i32) {
+        // SAFETY: closing the handle this function owns.
+        unsafe { CloseHandle(handle) };
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("{what}: the name is already in use"),
+        ));
+    }
+    Ok(handle)
+}
+
 /// A mapped block of shared memory, zero-filled when created.
 pub struct Mapping {
     handle: HANDLE,
@@ -56,6 +77,9 @@ unsafe impl Sync for Mapping {}
 impl Mapping {
     pub fn create(name: &str, len: usize) -> io::Result<Self> {
         let name = wide(name);
+        // SAFETY: a plain call clearing this thread's last error, so the
+        // create's own answer is what is read back.
+        unsafe { SetLastError(0) };
         // SAFETY: a page-file-backed named mapping; the pointers are valid.
         let handle = unsafe {
             CreateFileMappingW(
@@ -67,7 +91,7 @@ impl Mapping {
                 name.as_ptr(),
             )
         };
-        Self::map(checked(handle, "CreateFileMappingW")?, len)
+        Self::map(created(handle, "CreateFileMappingW")?, len)
     }
 
     pub fn open(name: &str, len: usize) -> io::Result<Self> {
@@ -127,9 +151,12 @@ unsafe impl Sync for Signal {}
 impl Signal {
     pub fn create(name: &str) -> io::Result<Self> {
         let name = wide(name);
+        // SAFETY: a plain call clearing this thread's last error, so the
+        // create's own answer is what is read back.
+        unsafe { SetLastError(0) };
         // SAFETY: an auto-reset, initially unsignalled, named event.
         let event = unsafe { CreateEventW(ptr::null(), 0, 0, name.as_ptr()) };
-        Ok(Self::with_timer(checked(event, "CreateEventW")?))
+        Ok(Self::with_timer(created(event, "CreateEventW")?))
     }
 
     pub fn open(name: &str) -> io::Result<Self> {
@@ -295,6 +322,33 @@ mod tests {
     use super::*;
     use std::sync::mpsc;
     use std::time::Instant;
+
+    /// A create must make a new object, as the Unix side's `O_EXCL` does, so a
+    /// name that is already in use is refused instead of joined.
+    #[test]
+    fn a_mapping_name_that_is_already_taken_is_refused() {
+        let names = Names::new(&format!("dup-mapping-{}", std::process::id()));
+        let first = Mapping::create(&names.region, 4096).expect("the first mapping");
+        let again = Mapping::create(&names.region, 4096)
+            .err()
+            .expect("the second is refused");
+        assert_eq!(again.kind(), io::ErrorKind::AlreadyExists, "{again}");
+        drop(first);
+        // Windows removes a name with its last handle.
+        Mapping::create(&names.region, 4096).expect("the name is free again");
+    }
+
+    #[test]
+    fn an_event_name_that_is_already_taken_is_refused() {
+        let names = Names::new(&format!("dup-event-{}", std::process::id()));
+        let first = Signal::create(&names.go).expect("the first event");
+        let again = Signal::create(&names.go)
+            .err()
+            .expect("the second is refused");
+        assert_eq!(again.kind(), io::ErrorKind::AlreadyExists, "{again}");
+        drop(first);
+        Signal::create(&names.go).expect("the name is free again");
+    }
 
     /// A signal whose timer cannot be armed (the handle is an event, which
     /// `SetWaitableTimer` refuses) still gives up at the timeout.

@@ -24,7 +24,7 @@ use crate::protocol::{
     ParamInfo, ParamQueue, ProgramList, Request, Response, Taken, UnitInfo, read_response,
     write_request,
 };
-use crate::shm::sys::remove_names;
+use crate::shm::sys::{link_base, remove_names};
 use crate::shm::{BlockLink, Layout, Wake};
 
 /// Hosts are put in a job that ends them with Lumen: Windows has no request
@@ -613,17 +613,12 @@ impl HostProcess {
         wake: Wake,
         within: Duration,
     ) -> Result<BlockLink, HostError> {
-        static LINKS: AtomicU32 = AtomicU32::new(0);
         let transport = |e: std::io::Error| HostError::Failed {
             kind: FailureKind::Transport,
             message: e.to_string(),
         };
         let deadline = Instant::now() + within;
-        let base = format!(
-            "{:x}-{:x}",
-            std::process::id(),
-            LINKS.fetch_add(1, Ordering::Relaxed)
-        );
+        let base = link_base();
         let (link, names) = BlockLink::create(&base, layout, wake).map_err(transport)?;
         let attached = self.call(&Request::Attach { base, layout, wake }, within);
         // The host has opened the objects, or has failed to; either way the
