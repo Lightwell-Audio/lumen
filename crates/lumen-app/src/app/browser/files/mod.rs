@@ -5,6 +5,7 @@
 
 mod head;
 mod list;
+mod row;
 use std::path::{Path, PathBuf};
 
 use eframe::egui;
