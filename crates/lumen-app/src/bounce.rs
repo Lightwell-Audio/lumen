@@ -25,7 +25,7 @@ use eframe::egui;
 use lumen_devices::{Guard, HostedInstrument, Status};
 use lumen_engine::{
     Clip, Ended, InstrumentSpec, Layered, NodeAutomation, NodeSpec, OFFLINE_WAIT, SourceRender,
-    Timeline, clip_player, midi_player, mixer, render_source,
+    Timeline, clip_player_for_render, midi_player, mixer, render_source,
 };
 use lumen_hosting::{Happened, Manager};
 use lumen_media::wav::{Sample, Spec, Writer};
@@ -282,7 +282,7 @@ pub fn render_job(
     project.tracks.retain(|t| t.id == track);
     let mut statuses: Vec<(String, Arc<Status>)> = Vec::new();
     let mut instrument = None;
-    let (mut clip_handle, clip_play) = clip_player();
+    let (mut clip_handle, clip_play) = clip_player_for_render();
     let (mut midi_handle, midi_play) = midi_player();
     let (mut mixer_handle, mut source) = mixer(Layered(clip_play, midi_play));
     for Running { plugin, linked } in running {

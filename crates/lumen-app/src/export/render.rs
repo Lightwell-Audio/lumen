@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use lumen_devices::{Guard, HostedInstrument, Status};
 use lumen_engine::{
     Destination, InstrumentSpec, OFFLINE_WAIT, Routing, Source, SourceRender, Timeline,
-    clip_player, midi_player, mixer, render_source,
+    clip_player_for_render, midi_player, mixer, render_source,
 };
 use lumen_hosting::{Happened, Manager};
 use lumen_media::wav::{Sample, Spec, Writer};
@@ -182,7 +182,7 @@ pub fn prepare(job: &Job, cancel: &AtomicBool) -> Result<Option<Prepared>, Strin
         route_stem(&job.project, &mut routing, stem)?;
     }
 
-    let (mut clips, clip_source) = clip_player();
+    let (mut clips, clip_source) = clip_player_for_render();
     let (mut midi, midi_source) = midi_player();
     let (mut mixer_control, mixer_source) = mixer(lumen_engine::Layered(clip_source, midi_source));
     let mut statuses = Vec::with_capacity(running.len());
@@ -431,7 +431,9 @@ fn route_stem(_project: &Project, routing: &mut Routing, stem: Id) -> Result<(),
 mod tests {
     use super::*;
     use lumen_core::time::Ticks;
-    use lumen_engine::{Clip, ClipAudio, ClipEnvelope, ClipShape};
+    use lumen_engine::{
+        Clip, ClipAudio, ClipEnvelope, ClipShape, OfflineLoader, PAGE, PagePool, StreamAudio,
+    };
     use lumen_project::model::{Color, Level, Send, Track, TrackKind};
     use lumen_project::testing::TempDir;
 
@@ -506,6 +508,38 @@ mod tests {
         assert!((master - 0.5).abs() < 0.002, "master sum: {master}");
         assert!((group_stem - 0.5).abs() < 0.002, "group sum: {group_stem}");
         assert!((first_stem - 0.2).abs() < 0.002, "track stem: {first_stem}");
+    }
+
+    /// A streamed clip's pages live in its loader's pool, never in a page the
+    /// disk thread left: an export must load them as it reads, or the file
+    /// comes out silent (sweep M16b).
+    #[test]
+    fn an_export_of_a_streamed_clip_stays_non_silent() {
+        let pool = PagePool::new(4);
+        let loader = OfflineLoader::new(
+            &pool,
+            Box::new(
+                |audio: &StreamAudio, page: usize, left: &mut [f32], right: &mut [f32]| {
+                    let first = (page * PAGE) as u64;
+                    let frames = audio.frames().saturating_sub(first).min(PAGE as u64) as usize;
+                    left[..frames].fill(0.4);
+                    right[..frames].fill(0.4);
+                    Some(frames)
+                },
+            ),
+        );
+        // The stream starts with no page in memory: only the render's loader
+        // can fill it.
+        let live = StreamAudio::new(&PagePool::new(1), 1, RATE, 2, FRAMES);
+        let mut streamed = source_clip(1, 1, 0.0);
+        streamed.audio = Arc::new(ClipAudio::Stream(loader.stream(&live)));
+        let heard = render_sample(
+            project(vec![track(1, "Audio", TrackKind::Audio)]),
+            vec![streamed],
+            None,
+            "streamed.wav",
+        );
+        assert!((heard - 0.4).abs() < 0.02, "streamed export: {heard}");
     }
 
     #[test]

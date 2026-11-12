@@ -43,7 +43,8 @@ pub use capture::{
     CaptureReader, CaptureSink, Chunk as CaptureChunk, RING_CHUNKS, RING_SAMPLES, capture,
 };
 pub use clips::{
-    Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, FadeFrames, clip_player, for_each_page,
+    Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, FadeFrames, clip_player,
+    clip_player_for_render, for_each_page,
 };
 pub use engine::{
     Command, Engine, EngineHandle, HOST_SHARE, OFFLINE_WAIT, Region, TransportReader, engine,
@@ -73,5 +74,8 @@ pub use scrub::{MAX_SPEED as MAX_SCRUB_SPEED, ScrubStyle};
 pub use snapshot::TransportSnapshot;
 pub use source::{Inputs, Jump, Mode, Output, RenderContext, Source};
 pub use stream::plan as stream_plan;
-pub use stream::{OfflineLoader, PAGE, PageLoader, PagePool, PoolWriter, ReadPage, StreamAudio};
+pub use stream::{
+    LoadPages, NoLoader, OfflineLoader, PAGE, PageLoad, PageLoader, PagePool, PoolWriter, ReadPage,
+    StreamAudio,
+};
 pub use timeline::Timeline;

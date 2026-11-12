@@ -3,8 +3,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::clip::Clip;
+use super::fades::{FadeFrames, Fades, MAX_TABLES, TABLE_STEPS, Table};
 use super::seams::{BARE_LEAD, envelopes_meet, fades_meet, source_meets};
-use super::{Clip, FadeFrames, Fades, MAX_TABLES, TABLE_STEPS, Table};
+
 use crate::stream::PagePool;
 
 /// A clip list with its lookup, fade and join metadata prepared off-thread.
