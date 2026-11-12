@@ -174,9 +174,9 @@ pub fn validate(project: &Project) -> Result<(), String> {
         }
         let mut inputs = HashSet::new();
         for sound in &map.sounds {
-            if sound.name.chars().count() > 64 {
+            if sound.name.trim().is_empty() || sound.name.chars().count() > 64 {
                 return Err(format!(
-                    "drum map {index} {:?}: a sound's name is too long",
+                    "drum map {index} {:?}: a sound's name is empty or too long",
                     map.name
                 ));
             }
@@ -219,6 +219,25 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     "drum map {index} {:?}: an output pair must be 1 to {MOST_BUSES}",
                     map.name
                 ));
+            }
+            // A sound sent to another track (D4): that track must be there and
+            // play an instrument.
+            if let Route::Track(to) = sound.route {
+                match kinds.get(&to) {
+                    Some(TrackKind::Midi) => {}
+                    Some(_) => {
+                        return Err(format!(
+                            "drum map {index} {:?}: a sound plays on a track that is not an instrument track",
+                            map.name
+                        ));
+                    }
+                    None => {
+                        return Err(format!(
+                            "drum map {index} {:?}: a sound plays on a track that does not exist",
+                            map.name
+                        ));
+                    }
+                }
             }
         }
     }
