@@ -18,10 +18,6 @@
 //! relaxed ordering (plain loads and stores on every target); the table
 //! entries carry the ordering. No lock, no allocation and no unsafe code on
 //! either side.
-//!
-//! The two sides are told apart by type (sweep M16b): the audio thread's
-//! player reads only pages that are in memory ([`NoLoader`]), and only an
-//! offline render's player may load one it misses ([`PageLoad`]).
 
 mod offline;
 pub mod plan;
@@ -241,8 +237,9 @@ impl StreamAudio {
         self.entry(page).is_some()
     }
 
-    /// Whether `page` is in memory, after loading it if this stream can. Never
-    /// for the audio thread: its player has no way to reach this.
+    /// Whether `page` is in memory, after loading it if this is an offline
+    /// stream. Real-time safe for the streams the audio thread plays, which
+    /// load nothing.
     #[inline]
     pub fn ensure(&self, page: usize) -> bool {
         if self.resident(page) {
@@ -257,21 +254,14 @@ impl StreamAudio {
         }
     }
 
-    /// One channel's samples, read through the page table: the audio thread's
-    /// side, which never loads a page.
+    /// One channel's samples, read through the page table. Real-time safe.
     pub fn side(&self, channel: usize) -> StreamSide<'_> {
-        self.side_with::<NoLoader>(channel)
-    }
-
-    /// One channel's samples, read (and loaded when missing) as `L` allows.
-    pub(crate) fn side_with<L: PageLoad>(&self, channel: usize) -> StreamSide<'_, L> {
         StreamSide {
             audio: self,
             samples: &self.pool().samples,
             frames: self.frames(),
             channel: channel.min(self.channels() - 1),
             last: std::cell::Cell::new((usize::MAX, MISSING)),
-            policy: std::marker::PhantomData,
         }
     }
 }
@@ -279,43 +269,10 @@ impl StreamAudio {
 /// Where [`StreamSide`] remembers a page that is not in memory.
 const MISSING: usize = usize::MAX;
 
-/// Whether a player may load a page it finds missing (sweep M16b).
-///
-/// A stream has two sides. The audio thread reads pages the disk thread has
-/// put in memory and must never touch a disk; an offline render fills its own
-/// pool as it reads. The clip player is written once and given one of these as
-/// a type parameter, so the audio thread's player is compiled with no way to
-/// reach a loader at all: not by convention, by type.
-pub trait PageLoad: Send {
-    /// Whether `page` is in memory, loading it when this side may.
-    fn ensure(stream: &StreamAudio, page: usize) -> bool;
-}
-
-/// The audio thread's pages: what the disk thread has put in memory, nothing
-/// more. Never loads anything.
-pub struct NoLoader;
-
-impl PageLoad for NoLoader {
-    #[inline]
-    fn ensure(stream: &StreamAudio, page: usize) -> bool {
-        stream.resident(page)
-    }
-}
-
-/// An offline render's pages: a page the player misses is loaded on the spot,
-/// on the rendering thread. Never the audio thread's.
-pub(crate) struct LoadPages;
-
-impl PageLoad for LoadPages {
-    fn ensure(stream: &StreamAudio, page: usize) -> bool {
-        stream.ensure(page)
-    }
-}
-
 /// One channel of a streamed file as the clip player reads it, remembering
 /// the last page it looked up. The pool's samples and the file's length are
 /// looked up once, so a sample costs an index and a load.
-pub struct StreamSide<'a, L = NoLoader> {
+pub struct StreamSide<'a> {
     audio: &'a StreamAudio,
     samples: &'a [AtomicU32],
     frames: u64,
@@ -323,13 +280,11 @@ pub struct StreamSide<'a, L = NoLoader> {
     /// The last page looked up, and where its first sample of this channel
     /// is in `samples` ([`MISSING`]: not in memory).
     last: std::cell::Cell<(usize, usize)>,
-    /// What this side may load: [`NoLoader`] for the audio thread.
-    policy: std::marker::PhantomData<L>,
 }
 
-impl<L: PageLoad> StreamSide<'_, L> {
+impl StreamSide<'_> {
     /// The sample at `frame`, or `None` past the end or when its page is not
-    /// in memory. Real-time safe for [`NoLoader`], which loads nothing.
+    /// in memory. Real-time safe.
     #[inline]
     pub fn at(&self, frame: usize) -> Option<f32> {
         if frame as u64 >= self.frames {
@@ -340,10 +295,10 @@ impl<L: PageLoad> StreamSide<'_, L> {
         let base = if seen == page {
             base
         } else {
-            // A side that may load gets what it misses.
+            // An offline stream loads what it misses.
             let entry = match self.audio.entry(page) {
                 Some(entry) => entry,
-                None if L::ensure(self.audio, page) => self.audio.entry(page).unwrap_or(NONE),
+                None if self.audio.ensure(page) => self.audio.entry(page).unwrap_or(NONE),
                 None => NONE,
             };
             let base = if entry == NONE {

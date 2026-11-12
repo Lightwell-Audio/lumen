@@ -52,7 +52,7 @@ use set::ClipSet;
 use crate::envelope::{ClipEnvelope, EnvelopeGains};
 use crate::mixer::{BUS_CHANNELS, Buses, TrackSource};
 use crate::source::{Jump, Mode, RenderContext};
-use crate::stream::{NoLoader, PAGE, PageLoad, PagePool, StreamAudio, StreamSide};
+use crate::stream::{PAGE, PagePool, StreamAudio, StreamSide};
 use crate::timeline::Timeline;
 
 /// Clip edge fades: 2 ms.
@@ -140,7 +140,7 @@ impl Samples for &[f32] {
     }
 }
 
-impl<L: PageLoad> Samples for &StreamSide<'_, L> {
+impl Samples for &StreamSide<'_> {
     #[inline(always)]
     fn at(&self, frame: usize) -> Option<f32> {
         StreamSide::at(self, frame)
@@ -313,12 +313,7 @@ impl ClipsHandle {
 }
 
 /// Audio side: plays the clips. A [`Source`] for the engine.
-///
-/// `L` decides whether a streamed page it misses may be loaded: the audio
-/// thread's player is `ClipPlayer<NoLoader>` (what [`clip_player`] makes) and
-/// has no way to reach a loader at all; only an offline render's player may
-/// load ([`crate::stream::PageLoad`], sweep M16b).
-pub struct ClipPlayer<L = NoLoader> {
+pub struct ClipPlayer {
     incoming: rtrb::Consumer<Box<ClipSet>>,
     retired: rtrb::Producer<Box<ClipSet>>,
     /// A replaced list that did not fit in the retired queue yet.
@@ -328,8 +323,6 @@ pub struct ClipPlayer<L = NoLoader> {
     swap: Option<Swap>,
     /// The envelope gains of the clip being played.
     gains: EnvelopeGains,
-    /// What this player may load: nothing, for the audio thread's.
-    policy: std::marker::PhantomData<L>,
 }
 
 /// A crossfade from one clip list to the next.
@@ -341,16 +334,8 @@ struct Swap {
 }
 
 /// Creates the clip pair, starting with no clips. Allocates, so call it off
-/// the audio thread. What it makes cannot load a streamed page: that is the
-/// audio thread's player (sweep M16b).
+/// the audio thread.
 pub fn clip_player() -> (ClipsHandle, ClipPlayer) {
-    clip_player_for::<NoLoader>()
-}
-
-/// As [`clip_player`], with `L` deciding whether a missing page is loaded.
-/// Only an offline render asks for a player that may load, and only from this
-/// crate.
-pub(crate) fn clip_player_for<L: PageLoad>() -> (ClipsHandle, ClipPlayer<L>) {
     let (incoming_tx, incoming_rx) = rtrb::RingBuffer::new(QUEUE);
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(QUEUE + 1);
     (
@@ -367,7 +352,6 @@ pub(crate) fn clip_player_for<L: PageLoad>() -> (ClipsHandle, ClipPlayer<L>) {
             current: Box::new(ClipSet::new(Vec::new(), &mut HashMap::new(), false)),
             swap: None,
             gains: EnvelopeGains::new(),
-            policy: std::marker::PhantomData,
         },
     )
 }
@@ -438,9 +422,8 @@ impl Ramp {
 
 /// Plays `clip` at its kept level into its track's bus in `buses`, faded
 /// by `ramp`. A tail (rendered ahead of a jump) reads the level but does
-/// not move it. `L` says whether a missing streamed page may be loaded: the
-/// audio thread's player passes [`NoLoader`], which cannot (sweep M16b).
-fn play<L: PageLoad>(
+/// not move it.
+fn play(
     clip: &Clip,
     kept: Kept<'_>,
     cx: &RenderContext<'_>,
@@ -480,7 +463,7 @@ fn play<L: PageLoad>(
         // after is missing, it glides out (on audio it still has) and back in
         // once its pages are there. Each time it has to is one underrun.
         let ready = for_each_page(clip, start, a..b + block.ahead, stream.frames(), &mut |p| {
-            L::ensure(stream, p)
+            stream.ensure(p)
         });
         if !ready {
             goal = 0.0;
@@ -555,7 +538,7 @@ fn play<L: PageLoad>(
             ClipAudio::Memory { channels, .. } => {
                 side_mix.run(target, channels[side.min(sources - 1)].as_slice())
             }
-            ClipAudio::Stream(stream) => side_mix.run(target, &stream.side_with::<L>(side)),
+            ClipAudio::Stream(stream) => side_mix.run(target, &stream.side(side)),
         };
     }
     *level = gain;
@@ -801,7 +784,7 @@ fn edge_gain(
     (from_start.min(to_end) as f32 / edge as f32).min(1.0)
 }
 
-impl<L: PageLoad> ClipPlayer<L> {
+impl ClipPlayer {
     /// Takes a new clip list if one arrived and no crossfade is running.
     /// With `fade`, clips that moved crossfade into it. Real-time safe.
     fn take_new(&mut self, fade: bool) {
@@ -880,7 +863,7 @@ impl<L: PageLoad> ClipPlayer<L> {
     }
 }
 
-impl<L: PageLoad> TrackSource for ClipPlayer<L> {
+impl TrackSource for ClipPlayer {
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Buses<'_>) {
         if cx.mode == Mode::Ring {
             // Stopped, and only instrument and effect tails ring. The engine
@@ -924,7 +907,7 @@ impl<L: PageLoad> TrackSource for ClipPlayer<L> {
                 Some(x) if set.swapped[i] => Ramp::In(x),
                 _ => Ramp::Steady,
             };
-            play::<L>(
+            play(
                 &set.clips[i],
                 Kept {
                     level: &mut set.levels[i],
@@ -948,7 +931,7 @@ impl<L: PageLoad> TrackSource for ClipPlayer<L> {
             set_seams(&mut swap.old, cx);
             let old = &mut *swap.old;
             for i in (0..old.clips.len()).filter(|&i| old.swapped[i]) {
-                play::<L>(
+                play(
                     &old.clips[i],
                     Kept {
                         level: &mut old.levels[i],
