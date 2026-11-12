@@ -15,16 +15,7 @@ pub(crate) mod auto_recording;
 mod bench_callback;
 pub(crate) mod cache_folder;
 pub(crate) mod capture_midi;
-pub(crate) mod clip_bounce;
-pub(crate) mod clip_card;
-mod clip_commands;
-pub(crate) mod clip_consolidate;
-pub(crate) mod clip_controls;
-mod clip_envelopes;
-pub(crate) mod clip_file;
-pub(crate) mod clip_header;
-pub(crate) mod clip_normalize;
-pub(crate) mod clip_warp;
+pub(crate) mod clip;
 pub(crate) mod clipboard_keys;
 mod commands;
 mod controller_requests;
@@ -76,3 +67,10 @@ mod track_input;
 pub(crate) mod view;
 mod welcome;
 mod window_size;
+
+// The paths these files had while they sat flat here (audit M11), so every
+// `crate::app::<name>` keeps working.
+pub(crate) use clip::{
+    clip_bounce, clip_card, clip_commands, clip_consolidate, clip_controls, clip_file, clip_header,
+    clip_normalize, clip_warp,
+};
