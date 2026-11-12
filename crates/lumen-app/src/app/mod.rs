@@ -7,11 +7,7 @@ pub(crate) mod audio_editor;
 pub(crate) mod audio_export;
 pub(crate) mod audio_inputs;
 pub(crate) mod audio_record;
-pub(crate) mod auto_editing;
-mod auto_gestures;
-mod auto_keys;
-mod auto_params;
-pub(crate) mod auto_recording;
+pub(crate) mod auto;
 mod bench_callback;
 pub(crate) mod cache_folder;
 pub(crate) mod capture_midi;
@@ -70,6 +66,7 @@ mod window_size;
 
 // The paths these files had while they sat flat here (audit M11), so every
 // `crate::app::<name>` keeps working.
+pub(crate) use auto::{auto_keys, auto_recording};
 pub(crate) use clip::{
     clip_bounce, clip_card, clip_commands, clip_consolidate, clip_controls, clip_file, clip_header,
     clip_normalize, clip_warp,
