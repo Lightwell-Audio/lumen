@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) mod controls;
 pub(crate) mod files;
 pub(crate) mod list;
-mod media_tab;
+pub(crate) mod media_tab;
 pub(crate) mod panel;
 pub(crate) mod rows;
 pub(crate) mod view;
