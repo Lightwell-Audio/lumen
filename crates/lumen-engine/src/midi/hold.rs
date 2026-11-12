@@ -172,16 +172,15 @@ impl TrackState {
     }
 
     /// Ends the clip notes sounding on `key` at `offset`: the recording
-    /// input has just played it.
+    /// input has just played it. A clip note chased in this same part has
+    /// not reached the instrument, so its note-on is taken back rather than
+    /// answered (M8 D0 review round 2).
     pub fn give_way(&mut self, key: u8, offset: u32) {
         let mut i = 0;
         while i < self.held.len() {
             let h = self.held[i];
             if h.key == key {
-                self.push_release(Event {
-                    offset,
-                    msg: Msg::note_off(h.channel, h.key),
-                });
+                self.end_before_it_sounded(h.channel, h.key, offset);
                 self.held.swap_remove(i);
             } else {
                 i += 1;
@@ -1285,6 +1284,32 @@ mod tests {
                 .count()
         };
         assert_eq!((offs(46), offs(42)), (0, 1), "no stray note-off");
+    }
+
+    #[test]
+    fn a_clip_note_chased_in_the_pass_a_pad_wins_it_never_reaches_the_instrument() {
+        // A list rebuilt while recording chases the clip's note at offset 0,
+        // and a pad of that key wins it on the same frame: the chased note-on
+        // is taken back, not answered by an off that would sort before it
+        // (M8 D0 review round 2).
+        let kit = hat_kit();
+        let mut state = TrackState::new();
+        hold_key(&mut state, 44, Ticks(0), &kit);
+        state.give_way(44, 0);
+        assert!(
+            state.events.is_empty(),
+            "nothing reached the instrument: {:?}",
+            state.events
+        );
+        assert!(state.held.is_empty());
+        // A note that sounded in an earlier part still gets its real off.
+        hold_key(&mut state, 44, Ticks(0), &kit);
+        state.events.clear();
+        state.give_way(44, 0);
+        assert_eq!(
+            state.events.iter().map(|e| e.msg).collect::<Vec<_>>(),
+            vec![Msg::note_off(0, 44)]
+        );
     }
 
     #[test]

@@ -207,6 +207,9 @@ impl Sound {
     }
 }
 
+/// The longest name a drum sound or a map may carry, in characters.
+pub const MOST_SOUND_NAME: usize = 64;
+
 /// A kit: an id, a name and its sounds, in the lanes' order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DrumMap {

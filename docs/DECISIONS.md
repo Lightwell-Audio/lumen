@@ -12910,7 +12910,11 @@ exactly what the engine is given when a mapped track plays.
    frame makes the release land first. A choked note leaves the tracker, so its
    own end never sends a second note-off. The same path serves clip notes and
    a player's pads, and a sound's played note is the group key (two sounds
-   sharing a played note share the first one's group).
+   sharing a played note share the first one's group). Two sounds of one
+   group struck on the same sample: the last struck sounds and the other is
+   never sent. For clip notes "last" is the note list's order (start, then
+   pitch, so the higher note wins a tie); for pads it is the order they
+   arrive in.
 6. **Recording keeps input notes** (the owner's E4). The engine's capture
    already carries what was played; `recording::recorder::Capture` maps an
    incoming key back to the input note of the sound that plays it, first sound
@@ -13006,3 +13010,13 @@ branch):
 - *L9:* not run or looked at here: the WSL performance gate, the macOS
   cross-target clippy, and the three-scale screenshots in both themes (this
   slice has no window of its own; D1's editor is where they are looked at).
+
+**Review round 2** (a re-check of round 1's fixes): every round 1 finding
+verified fixed. One more ending path had the same flaw as H1: a pad that wins
+a clip note (`TrackState::give_way`) sent a note-off even when that note was
+chased in the same pass, so the off sorted before its on. It now takes the
+queued note-on back as the other two paths do (unit test in `hold.rs`). A
+sound's or a map's name longer than `MOST_SOUND_NAME` (64 characters) is now
+refused by the `Document` edits as well as by `validate`, so a long name typed
+in an editor can no longer make a save fail. The same-sample tie in a choke
+group is stated in item 5.

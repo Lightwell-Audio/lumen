@@ -11,7 +11,9 @@ use std::sync::Arc;
 
 use lumen_core::time::Ticks;
 use lumen_project::drums::{self, Converted, presets::Preset};
-use lumen_project::model::{ClipContent, DrumIcon, DrumMap, Id, Quantize, Route, Sound, TrackKind};
+use lumen_project::model::{
+    ClipContent, DrumIcon, DrumMap, Id, MOST_SOUND_NAME, Quantize, Route, Sound, TrackKind,
+};
 
 use super::Document;
 
@@ -190,7 +192,7 @@ impl Document {
     /// One undo step.
     pub fn set_sound_name(&mut self, map: Id, input: u8, name: &str) -> bool {
         let name = name.trim();
-        if name.is_empty() {
+        if name.is_empty() || name.chars().count() > MOST_SOUND_NAME {
             return false;
         }
         let icon = drums::icon_for_name(name);
@@ -226,7 +228,8 @@ impl Document {
     /// is empty.
     pub fn rename_drum_map(&mut self, map: Id, name: &str) -> bool {
         let name = name.trim();
-        if name.is_empty() || self.drum_map(map).is_none() {
+        if name.is_empty() || name.chars().count() > MOST_SOUND_NAME || self.drum_map(map).is_none()
+        {
             return false;
         }
         self.history.apply("Rename drum map", None, |project| {
