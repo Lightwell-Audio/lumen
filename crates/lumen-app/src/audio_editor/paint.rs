@@ -371,7 +371,7 @@ pub(crate) fn ruler(
     // Bar numbers every 1, 2, 4… bars, by bar number, so the same bars keep
     // their labels while the view scrolls.
     let label_font = FontId::monospace(theme::size::SCALE);
-    let every = bar_label_step(lines, time);
+    let every = bar_label_step(lines, meter, time);
     for line in lines {
         let lx = x(line.at.as_quarters());
         match line.level {
@@ -459,15 +459,25 @@ pub(crate) fn ruler(
 }
 
 /// How many bars a bar number stands for at this zoom: 1, 2, 4… so labels
-/// keep `BAR_NUMBER_ROOM` apart.
-fn bar_label_step(lines: &[Line], time: TimeView) -> i64 {
+/// keep `BAR_NUMBER_ROOM` apart. The width of one bar is the gap between the
+/// first two bar lines over the bars between them: at a coarse zoom the grid
+/// draws a line only every second or fourth bar, and measuring that gap as a
+/// single bar made the labels too close for a three-digit number.
+fn bar_label_step(lines: &[Line], meter: &MeterMap, time: TimeView) -> i64 {
     let mut bars = lines.iter().filter(|l| l.level == Level::Bar);
     let (Some(a), Some(b)) = (bars.next(), bars.next()) else {
         return 1;
     };
-    let per_bar = ((b.at - a.at).as_quarters() * time.zoom) as f32;
+    let between = (meter.bbt_at(b.at).bar - meter.bbt_at(a.at).bar).max(1);
+    let per_line = ((b.at - a.at).as_quarters() * time.zoom) as f32;
+    bars_per_label(per_line / between as f32)
+}
+
+/// The power of two of bars a label stands for when a bar is `px_per_bar`
+/// points wide: the first that leaves `BAR_NUMBER_ROOM` between labels.
+fn bars_per_label(px_per_bar: f32) -> i64 {
     let mut every = 1;
-    while per_bar * (every as f32) < theme::size::BAR_NUMBER_ROOM && every < 1 << 20 {
+    while px_per_bar * (every as f32) < theme::size::BAR_NUMBER_ROOM && every < 1 << 20 {
         every *= 2;
     }
     every
@@ -657,6 +667,51 @@ mod tests {
         assert!(alpha(0.0) < alpha(0.5));
         assert!(alpha(0.5) < alpha(1.0));
         assert_eq!(alpha(1.0), alpha(2.0), "the strength is clamped");
+    }
+
+    /// The owner's report: a 133-bar clip at about 9 points a bar printed
+    /// three-digit bar numbers every second bar, over each other. A bar that
+    /// narrow gets a number every fourth bar, and a wide one every bar.
+    #[test]
+    fn bar_numbers_keep_their_room_however_narrow_a_bar_is() {
+        assert_eq!(bars_per_label(9.0), 4);
+        assert_eq!(bars_per_label(16.0), 2);
+        assert_eq!(bars_per_label(32.0), 1);
+        assert_eq!(bars_per_label(200.0), 1);
+        assert_eq!(bars_per_label(0.0), 1 << 20, "a zero width ends the loop");
+        for px in [3.0_f32, 5.0, 9.0, 11.0, 17.0, 31.0] {
+            let every = bars_per_label(px);
+            assert!(px * every as f32 >= theme::size::BAR_NUMBER_ROOM, "{px}");
+        }
+    }
+
+    /// The same report through the ruler's own step: the grid draws a bar line
+    /// only every second bar, so the gap between the first two lines is two
+    /// bars, and the step still comes from the width of one.
+    #[test]
+    fn the_step_counts_the_bars_between_two_grid_lines() {
+        use lumen_core::meter::Meter;
+        use lumen_core::time::Ticks;
+
+        let meter = MeterMap::constant(Meter::FOUR_FOUR).unwrap();
+        let line = |bar: i64| Line {
+            at: Ticks::quarters(bar * 4),
+            level: Level::Bar,
+        };
+        // 2.25 points a quarter: a bar is 9 points.
+        let time = TimeView {
+            left: 0.0,
+            zoom: 2.25,
+        };
+        assert_eq!(
+            bar_label_step(&[line(0), line(2), line(4)], &meter, time),
+            4
+        );
+        assert_eq!(
+            bar_label_step(&[line(0), line(1), line(2)], &meter, time),
+            4
+        );
+        assert_eq!(bar_label_step(&[line(0)], &meter, time), 1, "one line");
     }
 
     #[test]
