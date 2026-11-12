@@ -10,7 +10,7 @@
 //! leaves them where recovery finds them, and Save copies them into the
 //! project (`Samples/Recorded`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -286,6 +286,9 @@ impl App {
                 if kept == 1 { "" } else { "s" },
                 dir.display()
             ));
+        }
+        if found.newer > 0 {
+            words.push(newer_takes(found.newer, dir));
         }
         if !words.is_empty() {
             let own = self
@@ -601,6 +604,20 @@ impl App {
     }
 }
 
+/// What recovery says about unfinished takes a newer version of the app
+/// wrote: they were not opened, and they stay for that version (sweep M9).
+fn newer_takes(count: usize, dir: &Path) -> String {
+    format!(
+        "{count} unfinished recording{} {} written by a newer version of {PRODUCT_NAME}, so this version left {} in {} instead. Open {} with that version to recover {}.",
+        if count == 1 { "" } else { "s" },
+        if count == 1 { "was" } else { "were" },
+        if count == 1 { "it" } else { "them" },
+        dir.display(),
+        if count == 1 { "it" } else { "them" },
+        if count == 1 { "it" } else { "them" },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -612,5 +629,29 @@ mod tests {
         assert_eq!(file_stem("  .. "), "Audio");
         assert_eq!(file_stem(""), "Audio");
         assert_eq!(file_stem(&"x".repeat(200)).len(), 60);
+    }
+
+    #[test]
+    fn a_take_a_newer_version_wrote_is_said_to_be_kept_for_it() {
+        let one = newer_takes(1, Path::new("C:/Work/Recordings"));
+        assert!(
+            one.contains("1 unfinished recording was written by a newer version"),
+            "{one}"
+        );
+        assert!(
+            one.contains("left it in C:/Work/Recordings instead"),
+            "{one}"
+        );
+        assert!(one.contains("recover it"), "{one}");
+        let two = newer_takes(3, Path::new("C:/Work/Recordings"));
+        assert!(
+            two.contains("3 unfinished recordings were written"),
+            "{two}"
+        );
+        assert!(
+            two.contains("left them in C:/Work/Recordings instead"),
+            "{two}"
+        );
+        assert!(two.contains("recover them"), "{two}");
     }
 }

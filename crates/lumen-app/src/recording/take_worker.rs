@@ -60,6 +60,12 @@ const REFRESH: Duration = Duration::from_secs(1);
 const WRAP_SLACK: i64 = 64;
 /// The extension of a take's sidecar, after `.wav`.
 const SIDECAR: &str = "take";
+/// The sidecar's shape version (sweep M9). A sidecar written before the field
+/// existed has this shape, so a file without one reads as version 1
+/// ([`legacy_version`]). A sidecar with a higher version was written by a
+/// newer build: it is kept where it is, never read or deleted, and recovery
+/// says so.
+pub(crate) const VERSION: u32 = 1;
 
 /// One track's file.
 #[derive(Debug, Clone)]
@@ -174,6 +180,10 @@ pub(crate) struct TrackResult {
 /// The file beside a take that says it is unfinished.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Sidecar {
+    /// The shape this sidecar is written in. Files written before it was
+    /// added have exactly this shape, so they read as version 1.
+    #[serde(default = "legacy_version")]
+    pub version: u32,
     #[serde(default)]
     pub session: String,
     pub track: u64,
@@ -193,6 +203,62 @@ pub(crate) struct Sidecar {
 
 fn is_zero(n: &u64) -> bool {
     *n == 0
+}
+
+/// The version of a sidecar written before the field existed: its shape is
+/// version 1's, so there is nothing to migrate.
+fn legacy_version() -> u32 {
+    VERSION
+}
+
+/// What a sidecar file says, as far as this build reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum SidecarRead {
+    /// This build's shape, or the legacy one, which is the same shape.
+    Known(Sidecar),
+    /// A newer build wrote it: neither read nor deleted, and recovery says
+    /// so. It is still counted for the session it names.
+    Newer {
+        version: u32,
+        session: Option<String>,
+    },
+    /// Not a sidecar, or too damaged to say whose it is.
+    Unreadable,
+}
+
+/// Reads `file` as a sidecar. The version is checked first, without this
+/// build's shape, so a file a newer build wrote is reported as such rather
+/// than as damaged: its fields may mean something else now.
+pub(crate) fn read_sidecar(file: &Path) -> SidecarRead {
+    /// The few fields that say what a sidecar is, whatever its version.
+    #[derive(Deserialize)]
+    struct Header {
+        #[serde(default)]
+        version: u32,
+        #[serde(default)]
+        session: Option<String>,
+    }
+    let Ok(bytes) = fs::read(file) else {
+        return SidecarRead::Unreadable;
+    };
+    let Ok(header) = serde_json::from_slice::<Header>(&bytes) else {
+        return SidecarRead::Unreadable;
+    };
+    let version = if header.version == 0 {
+        VERSION
+    } else {
+        header.version
+    };
+    if version > VERSION {
+        return SidecarRead::Newer {
+            version,
+            session: header.session,
+        };
+    }
+    match serde_json::from_slice(&bytes) {
+        Ok(sidecar) => SidecarRead::Known(sidecar),
+        Err(_) => SidecarRead::Unreadable,
+    }
 }
 
 /// The first `<base> <n>.wav` beside `preferred` that no file, sidecar or
@@ -231,24 +297,42 @@ pub(crate) struct Unfinished {
     pub sidecar: Sidecar,
 }
 
-/// The unfinished takes in `dir` that `session` was recording, by file name.
-/// A sidecar that cannot be read is left alone.
-pub(crate) fn unfinished(dir: &Path, session: &str) -> Vec<Unfinished> {
+/// What a session's sidecars in one folder say.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct SessionTakes {
+    /// The takes to recover, by file name.
+    pub takes: Vec<Unfinished>,
+    /// Sidecars a newer build wrote for this session: kept, never read.
+    pub newer: usize,
+}
+
+/// The unfinished takes in `dir` that `session` was recording, by file name,
+/// and the sidecars a newer build wrote for it. A sidecar that cannot be read
+/// is left alone; so is one a newer build wrote, which may mean anything.
+pub(crate) fn unfinished(dir: &Path, session: &str) -> SessionTakes {
     let suffix = format!(".wav.{SIDECAR}");
-    let mut found: Vec<Unfinished> = fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            let name = path.file_name()?.to_str()?;
-            let stem = name.strip_suffix(&suffix)?;
-            let file = path.with_file_name(format!("{stem}.wav"));
-            let sidecar: Sidecar = serde_json::from_slice(&fs::read(&path).ok()?).ok()?;
-            (sidecar.session == session && file.is_file()).then_some(Unfinished { file, sidecar })
-        })
-        .collect();
-    found.sort_by(|a, b| a.file.cmp(&b.file));
+    let mut found = SessionTakes::default();
+    for path in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = path.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let Some(stem) = name.strip_suffix(&suffix) else {
+            continue;
+        };
+        let file = path.with_file_name(format!("{stem}.wav"));
+        match read_sidecar(&path) {
+            SidecarRead::Known(sidecar) if sidecar.session == session && file.is_file() => {
+                found.takes.push(Unfinished { file, sidecar });
+            }
+            SidecarRead::Newer {
+                session: Some(owner),
+                ..
+            } if owner == session => found.newer += 1,
+            _ => {}
+        }
+    }
+    found.takes.sort_by(|a, b| a.file.cmp(&b.file));
     found
 }
 
@@ -525,6 +609,7 @@ impl Lane {
     /// The sidecar as the take stands.
     fn sidecar(&self) -> Option<Sidecar> {
         Some(Sidecar {
+            version: VERSION,
             session: self.job.session.clone(),
             track: self.job.track,
             start: self.start?,
@@ -613,14 +698,20 @@ pub(crate) struct Found {
     pub takes: Vec<TrackResult>,
     /// Takes that could not be read; they stay where they are.
     pub unreadable: usize,
+    /// Unfinished takes a newer build wrote: they stay where they are, for
+    /// that build to recover (sweep M9).
+    pub newer: usize,
 }
 
 /// Recovery's disk work for the takes `session` left in `dir`: lists them,
 /// repairs each file, and removes takes that hold nothing. Sidecars of
-/// takes with audio stay until a save holds them.
+/// takes with audio stay until a save holds them. A take a newer build wrote
+/// is counted and left alone.
 pub(crate) fn recover(dir: &Path, session: &str) -> Found {
     let mut found = Found::default();
-    for lost in unfinished(dir, session) {
+    let leftover = unfinished(dir, session);
+    found.newer = leftover.newer;
+    for lost in leftover.takes {
         match lumen_media::take::repair(&lost.file) {
             Ok(r) if r.frames > 0 => found.takes.push(TrackResult {
                 track: lost.sidecar.track,
@@ -767,6 +858,7 @@ mod tests {
     fn unfinished_takes_are_found_by_session_with_their_sidecars() {
         let dir = folder("unfinished");
         let side = |session: &str, track: u64| Sidecar {
+            version: VERSION,
             session: session.to_owned(),
             track,
             start: 480,
@@ -793,12 +885,119 @@ mod tests {
         fs::write(dir.join("junk.wav.take"), b"not json").unwrap();
         let found = unfinished(&dir, "s1");
         let names: Vec<_> = found
+            .takes
             .iter()
             .map(|u| u.file.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, ["a.wav", "c.wav"]);
-        assert_eq!(found[1].sidecar, side("s1", 3));
-        assert!(unfinished(&dir, "nobody").is_empty());
+        assert_eq!(found.takes[1].sidecar, side("s1", 3));
+        assert!(unfinished(&dir, "nobody").takes.is_empty());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A frozen fixture in the crate's `tests/fixtures`.
+    fn fixture(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name)
+    }
+
+    /// What the frozen fixtures say, so both shapes are checked against the
+    /// same take.
+    fn frozen_take() -> Sidecar {
+        Sidecar {
+            version: VERSION,
+            session: "1762310400000-4242".into(),
+            track: 3,
+            start: 480,
+            rate: 48_000,
+            channels: 2,
+            wraps: vec![Wrap {
+                frame: 9_600,
+                at: 480,
+            }],
+            silence: 240,
+            looped: Some((480, 9_600)),
+        }
+    }
+
+    #[test]
+    fn a_legacy_sidecar_without_a_version_still_says_what_its_take_is() {
+        let read = read_sidecar(&fixture("take-sidecar-legacy.json"));
+        let SidecarRead::Known(sidecar) = read else {
+            panic!("a file written before versioning must load: {read:?}")
+        };
+        assert_eq!(
+            sidecar,
+            frozen_take(),
+            "a file without a version is the version 1 shape"
+        );
+    }
+
+    #[test]
+    fn a_version_1_sidecar_says_what_its_take_is() {
+        let read = read_sidecar(&fixture("take-sidecar-v1.json"));
+        let SidecarRead::Known(sidecar) = read else {
+            panic!("a version 1 sidecar must load: {read:?}")
+        };
+        assert_eq!(sidecar, frozen_take());
+    }
+
+    #[test]
+    fn recovery_finds_both_sidecar_shapes_for_their_session() {
+        for name in ["take-sidecar-legacy.json", "take-sidecar-v1.json"] {
+            let dir = folder("fixture-read");
+            let file = dir.join("Vox 1.wav");
+            fs::write(&file, b"x").unwrap();
+            fs::copy(fixture(name), sidecar_path(&file)).unwrap();
+            let found = unfinished(&dir, "1762310400000-4242");
+            assert_eq!(found.takes.len(), 1, "{name}");
+            assert_eq!(found.takes[0].sidecar, frozen_take(), "{name}");
+            assert_eq!(found.newer, 0, "{name}");
+            assert_eq!(unfinished(&dir, "someone-else").takes.len(), 0, "{name}");
+            fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_sidecar_a_newer_build_wrote_is_kept_and_never_read() {
+        let dir = folder("newer-version");
+        let file = dir.join("Vox 1.wav");
+        fs::write(&file, b"x").unwrap();
+        // Readable as version 1's shape; its version says otherwise, so this
+        // build must not read it, adopt it or delete it.
+        let side = r#"{"version":2,"session":"s","track":1,"start":0,"rate":48000,"channels":1}"#;
+        fs::write(sidecar_path(&file), side).unwrap();
+        let found = unfinished(&dir, "s");
+        assert!(found.takes.is_empty(), "a newer shape is not read");
+        assert_eq!(found.newer, 1, "and is counted, to be said");
+        assert_eq!(unfinished(&dir, "other").newer, 0, "not another session's");
+        let found = recover(&dir, "s");
+        assert!(found.takes.is_empty());
+        assert_eq!(found.newer, 1);
+        assert!(file.exists(), "the take is kept");
+        assert_eq!(
+            fs::read_to_string(sidecar_path(&file)).unwrap(),
+            side,
+            "the sidecar is kept as it was"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_sidecar_written_now_declares_its_version() {
+        let dir = folder("versioned");
+        let j = job(&dir, 1, 1);
+        let mut takes = Takes::new(plan(vec![j.clone()], 0, None));
+        let (chunk, data) = mono(1, 0, 0, 64);
+        takes.feed(chunk, &data);
+        let text = fs::read_to_string(sidecar_path(&j.path)).unwrap();
+        assert!(text.starts_with(r#"{"version":1,"#), "{text}");
+        let SidecarRead::Known(side) = read_sidecar(&sidecar_path(&j.path)) else {
+            panic!("what the worker wrote must read back")
+        };
+        assert_eq!((side.version, side.track, side.start), (VERSION, 1, 0));
+        takes.finish();
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1277,8 +1476,8 @@ mod tests {
         temporary.push(".tmp");
         fs::write(PathBuf::from(temporary), br#"{"session":"s","tr"#).unwrap();
         let found = unfinished(&dir, "s");
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].file, file);
+        assert_eq!(found.takes.len(), 1);
+        assert_eq!(found.takes[0].file, file);
         fs::remove_dir_all(dir).unwrap();
     }
 
