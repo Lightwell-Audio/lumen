@@ -27,6 +27,9 @@ pub(crate) struct Reported {
     status: Option<Status>,
     /// The worker reading it.
     pending: Option<Receiver<Status>>,
+    /// A read has been asked for: a system that cannot start a thread is not
+    /// asked again every frame.
+    tried: bool,
     /// The answer held is out of date and a read is wanted.
     stale: bool,
     /// A window that shows the row was open on the last frame.
@@ -64,12 +67,20 @@ impl Reported {
         std::mem::take(&mut self.start_pending)
     }
 
+    /// Whether a read is wanted now: the first one (asked once, so a system
+    /// that cannot start a thread is not asked again every frame), a stale
+    /// answer, or a window that shows the row having just opened.
+    fn wants(&self, shown: bool) -> bool {
+        (!self.tried && self.status.is_none()) || self.stale || (shown && !self.shown)
+    }
+
     /// Asks a worker for the status; nothing happens while one is reading.
     fn ask(&mut self, ctx: &egui::Context, association: &Association) {
         if self.pending.is_some() {
             return;
         }
         self.stale = false;
+        self.tried = true;
         let (tx, rx) = mpsc::channel();
         let (hive, exe, ctx) = (association.hive(), association.exe.clone(), ctx.clone());
         let spawned = crate::spawn::spawn_named("lumen-association", move || {
@@ -141,8 +152,7 @@ impl App {
         // The registry changes while Lumen runs (the person changes it in
         // Default apps), so a window opening looks again; so does the first
         // frame, which start-up does not wait for.
-        let first = self.association_status.status().is_none();
-        if first || self.association_status.stale || (shown && !self.association_status.shown) {
+        if self.association_status.wants(shown) {
             self.association_status.ask(ctx, &self.association);
         }
         self.association_status.shown = shown;
@@ -315,6 +325,19 @@ mod tests {
         let before = reported.status().cloned();
         reported.wrote(None);
         assert_eq!(reported.status().cloned(), before);
+    }
+
+    #[test]
+    fn a_read_is_wanted_once_until_a_window_opens_or_the_answer_is_stale() {
+        let mut reported = Reported::default();
+        assert!(reported.wants(false), "the first look");
+        reported.tried = true;
+        assert!(!reported.wants(false), "not asked again every frame");
+        assert!(reported.wants(true), "a window showing the row opened");
+        reported.shown = true;
+        assert!(!reported.wants(true), "and it stays open");
+        reported.stale = true;
+        assert!(reported.wants(true), "a change asks again");
     }
 
     #[test]
