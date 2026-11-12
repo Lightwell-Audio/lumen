@@ -17,7 +17,7 @@ use crate::{App, fonts, motion, theme, widgets};
 pub(super) const PICTURE: egui::Vec2 = egui::vec2(46.0, 16.0);
 /// The play button on a sound's row, and an icon's box.
 pub(super) const PLAY: f32 = 18.0;
-pub(super) const ICON: f32 = 14.0;
+pub(crate) const ICON: f32 = 14.0;
 
 impl App {
     /// One row: a sound (play, name, picture, length), a project, or a

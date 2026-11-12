@@ -3,6 +3,8 @@
 //! the places and folders the person keeps. What a tab shows, and how it is
 //! drawn, are `crate::browser::files`.
 
+mod head;
+
 use std::path::{Path, PathBuf};
 
 use eframe::egui;

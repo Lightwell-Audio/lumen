@@ -12,10 +12,10 @@
 //!   done is `app::browser::files` (audit M12).
 
 pub(crate) mod disk;
-mod head;
+pub(crate) mod head;
 mod list;
 pub(crate) mod preview;
-mod row;
+pub(crate) mod row;
 mod strip;
 pub(crate) mod thumbs;
 pub(crate) mod walk;
