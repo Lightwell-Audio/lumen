@@ -160,6 +160,16 @@ fn group<R>(row: &mut Ui, name: &'static str, add: impl FnOnce(&mut Ui) -> R) ->
     .inner
 }
 
+/// What the strip's ⋯ menu acts on: the clip, the tempo its fades land on,
+/// why it cannot be changed, and how the strip is laid out.
+#[derive(Clone, Copy)]
+struct More<'a> {
+    clip: &'a Clip,
+    tempo: &'a TempoMap,
+    fixed: &'a Fixed,
+    layout: Layout,
+}
+
 /// Why the opened clip's gain, fades and processing cannot be changed.
 pub(super) enum Fixed {
     No,
@@ -379,7 +389,17 @@ impl App {
         }
         if layout.has_menu() {
             group(&mut row, "more", |ui| {
-                let more = self.strip_more(ui, &ctx, clip, &tempo, &fixed, layout, ed);
+                let more = self.strip_more(
+                    ui,
+                    &ctx,
+                    More {
+                        clip,
+                        tempo: &tempo,
+                        fixed: &fixed,
+                        layout,
+                    },
+                    ed,
+                );
                 // A group that folded while it had the keyboard leaves it on
                 // the ⋯ button (D36).
                 if let Some(was) = ed.strip_group
@@ -583,17 +603,19 @@ impl App {
 
     /// The ⋯ button and its menu, which holds the folded groups. Returns the
     /// button's response.
-    #[allow(clippy::too_many_arguments)]
     fn strip_more(
         &mut self,
         ui: &mut Ui,
         ctx: &egui::Context,
-        clip: &Clip,
-        tempo: &TempoMap,
-        fixed: &Fixed,
-        layout: Layout,
+        more: More<'_>,
         ed: &mut AudioEditor,
     ) -> egui::Response {
+        let More {
+            clip,
+            tempo,
+            fixed,
+            layout,
+        } = more;
         let more = raised::icon_button(ui, "More clip properties", |painter, centre, ink| {
             for step in [-DOT_GAP, 0.0, DOT_GAP] {
                 painter.circle_filled(centre + vec2(step, 0.0), DOTS, ink);
