@@ -381,7 +381,14 @@ mod tests {
         // worker, and only `poll` collects its answer.
         assert!(scan.busy(), "the worker is looking");
         assert!(!scan.take_recover_latest(), "no flag: it is offered");
-        let found = answered(&mut scan);
+        // The answer comes through `poll`, waiting on the worker with the
+        // testkit's hang guard (never a count of frames).
+        let mut answer = None;
+        lumen_testkit::wait_until("the leftover scan's answer", || {
+            answer = scan.poll();
+            answer.is_some()
+        });
+        let found = answer.expect("the scan answered");
         assert!(!scan.busy(), "the answer is in");
         let names: Vec<&str> = found.iter().map(|l| l.note.name.as_str()).collect();
         assert_eq!(names, ["new", "old"], "newest first, this session left out");
