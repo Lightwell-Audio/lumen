@@ -34,11 +34,6 @@ use crate::widgets::{draw_edge_glow, gradient};
 
 /// Space between a lane's edges and its clips.
 pub(super) const INSET: f32 = 3.0;
-/// The opacity of clips on tracks that cannot be heard.
-const DIMMED: f32 = 0.42;
-/// How much of a clip shows through the automation lane over it (M7 slice
-/// A1, the owner's L1 B: the clips step back while a lane is shown).
-const UNDER_LANE: f32 = 0.45;
 /// Space between the title bar and the waveform, and below it.
 pub(super) const WAVE_GAP: f32 = 2.0;
 /// Below this height (in points), stereo is drawn as one waveform.
@@ -287,10 +282,10 @@ impl Arrangement {
                 let mut alpha = if audible(&project.tracks[index]) {
                     1.0
                 } else {
-                    DIMMED
+                    theme::CLIP_DIMMED
                 };
                 if self.auto.dims(project.tracks[index].id) {
-                    alpha *= UNDER_LANE;
+                    alpha *= theme::UNDER_LANE;
                 }
                 slots[index] = RowSlot::new(row.y * ppp, row.height * ppp, alpha);
             }
@@ -427,10 +422,10 @@ impl Arrangement {
                         );
                         let mut look = look_of(clip, track, paint, lanes, ctx);
                         if !heard {
-                            look.alpha *= DIMMED;
+                            look.alpha *= theme::CLIP_DIMMED;
                         }
                         if self.auto.dims(track.id) {
-                            look.alpha *= UNDER_LANE;
+                            look.alpha *= theme::UNDER_LANE;
                         }
                         if row.clipped {
                             // Folding shut: the name stays inside the lane.

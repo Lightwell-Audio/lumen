@@ -240,6 +240,10 @@ unselected header.
   have its own colour from the palette, or follow its track's.
 - **Dimmed:** `DIMMED` (45% opacity) is what steps back beside something
   lit, such as the info line's other actions while a modifier is held.
+- **Clips that step back:** `theme::CLIP_DIMMED` (42%) dims the clips of a
+  track that cannot be heard, and `theme::UNDER_LANE` (45%) shows how much
+  of a clip shows through the automation lane over it (§7h). Both are their
+  own tokens: they are close to `DIMMED` in value but are not the same thing.
 - **Muted clips:** `CLIP_MUTED` (`#6C7078`, both themes), a grey of the
   same lightness, so names and waveforms stay readable (the owner's M1).
 
@@ -1528,7 +1532,7 @@ bar ruler's right-click menu, as well as T.
 ## 7h. Automation lanes (M7 slice A1, ADR-0082, the owner's L1 B)
 
 A lane is drawn over its track's clip lane, not in a row of its own. While a track shows
-one: the clips behind it step back to 45% (`UNDER_LANE`, names too); the lane takes a faint
+one: the clips behind it step back to 45% (`theme::UNDER_LANE`, names too); the lane takes a faint
 accent wash with accent hairlines at its top and bottom and a hairline where the control
 rests (0 dB, centre); the line is the accent at `stroke::LIT`, and a lane that is off is
 `text_hint`. Points are `size::AUTO_POINT` circles: hollow at rest (the canvas colour

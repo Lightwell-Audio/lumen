@@ -416,8 +416,17 @@ pub const METER_WARN_DB: f32 = -6.0;
 /// How strongly a meter's peak shows behind its RMS.
 pub const METER_PEAK_ALPHA: f32 = 0.4;
 /// The opacity of what steps back beside something lit: the info line's
-/// other actions while a modifier is held (the interface audit's I1).
+/// other actions while a modifier is held (the interface audit's I1). A clip
+/// that steps back has its own two levels, [`CLIP_DIMMED`] and
+/// [`UNDER_LANE`].
 pub const DIMMED: f32 = 0.45;
+/// The opacity of clips on tracks that cannot be heard (muted, or a group
+/// that is), a step darker than [`DIMMED`] so it reads as silent at a
+/// glance.
+pub const CLIP_DIMMED: f32 = 0.42;
+/// How much of a clip shows through the automation lane over it (M7 slice
+/// A1, the owner's L1 B: the clips step back while a lane is shown).
+pub const UNDER_LANE: f32 = 0.45;
 /// How strong a clip's outline is in its colour.
 pub const CLIP_EDGE: f32 = 0.6;
 /// The audio editor's file outside the clip's window: the wave in
