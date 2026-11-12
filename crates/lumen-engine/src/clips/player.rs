@@ -4,7 +4,7 @@
 use crate::envelope::EnvelopeGains;
 use crate::mixer::{BUS_CHANNELS, Buses, TrackSource};
 use crate::source::{Jump, Mode, RenderContext};
-use crate::stream::{NoLoader, PageLoad, PagePool};
+use crate::stream::{LoadPages, NoLoader, PageLoad, PagePool};
 use crate::timeline::Timeline;
 
 use super::crossfades::{Crossfade, Ramp, SWAP_PER_SECOND, Swap};
@@ -311,14 +311,20 @@ impl<L: PageLoad> ClipPlayer<L> {
     }
 }
 
-impl<L: PageLoad> TrackSource for ClipPlayer<L> {
-    fn render(&mut self, cx: &RenderContext<'_>, out: &mut Buses<'_>) {
+impl<L: PageLoad> ClipPlayer<L> {
+    /// One block of the player, written once for both sides. The two
+    /// [`TrackSource`] impls below are concrete, so each side's code is
+    /// compiled here in this crate, as the one non-generic player was: a
+    /// generic impl was instantiated in whichever crate built the player, and
+    /// the audio thread's clips ran half as fast again in `engine_clips_64`.
+    #[inline(always)]
+    fn render_block(&mut self, cx: &RenderContext<'_>, out: &mut Buses<'_>) {
         if cx.mode == Mode::Ring {
             // Stopped, and only instrument and effect tails ring. The engine
             // renders instead of idling while a note rings, so lists sent
             // meanwhile are taken here, or a held live note would fill the
             // queue and the interface would hold its next edits back.
-            self.idle();
+            self.idle_now();
             return;
         }
         if !cx.tail {
@@ -407,12 +413,12 @@ impl<L: PageLoad> TrackSource for ClipPlayer<L> {
         self.finish_swap(false);
     }
 
-    fn idle(&mut self) {
+    fn idle_now(&mut self) {
         self.finish_swap(true);
         self.take_new(false);
     }
 
-    fn locate(&mut self, _: &Timeline, _: u32, _: i64, _: Jump) {
+    fn locate_now(&mut self) {
         // A jump is crossfaded by the engine: a crossfade between lists ends
         // here, and levels start at their targets rather than gliding.
         self.finish_swap(true);
@@ -423,3 +429,26 @@ impl<L: PageLoad> TrackSource for ClipPlayer<L> {
         }
     }
 }
+
+/// The two sides' [`TrackSource`] impls are concrete, so each is compiled in
+/// this crate whoever builds the player (see `render_block`).
+macro_rules! track_source {
+    ($side:ty) => {
+        impl TrackSource for ClipPlayer<$side> {
+            fn render(&mut self, cx: &RenderContext<'_>, out: &mut Buses<'_>) {
+                self.render_block(cx, out);
+            }
+
+            fn idle(&mut self) {
+                self.idle_now();
+            }
+
+            fn locate(&mut self, _: &Timeline, _: u32, _: i64, _: Jump) {
+                self.locate_now();
+            }
+        }
+    };
+}
+
+track_source!(NoLoader);
+track_source!(LoadPages);
