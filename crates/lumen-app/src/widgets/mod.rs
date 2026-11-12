@@ -81,6 +81,26 @@ pub fn shorten(painter: &egui::Painter, text: &str, font: FontId, width: f32) ->
     format!("{cut}\u{2026}")
 }
 
+/// Whether a double-click landed on `response`'s control this frame, for a
+/// field that must return to its default (DESIGN §5). A `DragValue` begins
+/// editing on the first click, so its own response never sees the second
+/// one; the pointer's double-click is read against the field's rect
+/// instead. The edit the first click began ends too, so the reset value is
+/// what the field shows.
+pub fn double_click_reset(ui: &mut egui::Ui, response: &egui::Response) -> bool {
+    let hit = ui.input(|i| {
+        i.pointer
+            .button_double_clicked(egui::PointerButton::Primary)
+    }) && ui
+        .ctx()
+        .pointer_interact_pos()
+        .is_some_and(|at| response.rect.contains(at));
+    if hit {
+        ui.memory_mut(|m| m.surrender_focus(response.id));
+    }
+    hit
+}
+
 /// How wide and tall [`draw_arrow`]'s arrow is, for laying out beside it.
 pub const ARROW_SIZE: f32 = 8.0;
 

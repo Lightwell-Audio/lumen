@@ -7,8 +7,9 @@
 
 use std::time::Duration;
 
+use eframe::egui::accesskit::Role;
 use eframe::egui::{Event, Key, Modifiers, vec2};
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{Queryable, by};
 use lumen_app::App;
 use lumen_midi::Direction;
 use lumen_midi::fake::FakeControl;
@@ -51,6 +52,36 @@ fn every_page_opens_from_the_list_and_draws_every_row_search_can_find() {
         missing.is_empty(),
         "rows search finds but no page draws: {missing:?}"
     );
+}
+
+#[test]
+fn a_double_click_on_the_recording_offset_returns_it_to_zero() {
+    // Every control resets to its default on a double-click (DESIGN §5).
+    let mut lumen = Lumen::start_with(TempDir::new("e2e-preferences-offset"), |l| {
+        l.with_input_device()
+    });
+    lumen.open_audio_settings();
+    let offset = |l: &Lumen| {
+        l.harness
+            .query_all(by().predicate(|node| {
+                node.label().as_deref() == Some("Recording offset")
+                    && node.role() == Role::SpinButton
+            }))
+            .next()
+            .map(|node| node.rect().center())
+    };
+    lumen.run_until("the recording offset", |l| offset(l).is_some());
+    let at = offset(&lumen).expect("the offset field");
+    super::lane_view::click_at(&mut lumen, at);
+    lumen.frames(2);
+    lumen.key(Modifiers::COMMAND, Key::A);
+    lumen.harness.event(Event::Text("12.5".into()));
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(2);
+    assert_eq!(lumen.app().record_offset().0, 12.5);
+    let at = offset(&lumen).expect("the offset field");
+    lumen.double_click(at);
+    assert_eq!(lumen.app().record_offset().0, 0.0);
 }
 
 #[test]

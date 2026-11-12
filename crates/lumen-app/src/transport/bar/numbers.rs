@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// The tempo a double-click on the tempo field returns it to: a new
+/// project's (DESIGN §5: every control resets to its default).
+const DEFAULT_BPM: f64 = 120.0;
+
 impl Transport {
     /// Tempo, meter and position as the pieces of one 30 pt numeric well
     /// (the interface audit's TB1), hairlines between them. The values are
@@ -85,9 +89,13 @@ impl Transport {
             tempo,
             "Tempo",
             None,
-            Some("20 to 999 BPM. Drag, or click to type."),
+            Some("20 to 999 BPM. Drag, or click to type; double-click to return to 120."),
         );
         tempo.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, "Tempo"));
+        let reset = widgets::double_click_reset(ui, &tempo);
+        if reset {
+            bpm = DEFAULT_BPM;
+        }
         if let Some(unit) = unit {
             let galley =
                 ui.painter()
@@ -99,7 +107,7 @@ impl Transport {
             ui.painter()
                 .galley(at.round(), galley, theme::p().text_hint);
         }
-        if tempo.changed() {
+        if tempo.changed() || reset {
             // A drag is one undo step (merged until the pointer is released).
             doc.set_tempo_at(state.ticks, bpm, Some("tempo"));
         }
