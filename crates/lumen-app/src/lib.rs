@@ -49,7 +49,6 @@ mod bake;
 mod bench;
 mod browser;
 mod callback_bench;
-mod canvas;
 mod chain;
 #[cfg(test)]
 mod clip_flags_render;
@@ -70,16 +69,13 @@ mod midi;
 mod note_editor;
 mod panels;
 mod piano_roll;
-mod playhead;
 mod plugins;
 mod pool;
-mod position;
 mod preferences;
 mod preset_files;
 mod probe;
 mod project_files;
 mod recording;
-mod ruler;
 mod settings;
 mod song_lanes;
 mod spawn;
@@ -88,20 +84,20 @@ mod system;
 mod tap_tempo;
 mod templates;
 pub mod testing;
-mod timefmt;
-mod timeview;
+mod timeline;
 mod transport;
 mod welcome;
 mod widgets;
 
 pub use system::launch::Launch;
-pub use timeview::TimeView;
+pub use timeline::timeview::TimeView;
 
 pub(crate) use bake::{bounce, consolidate, crossfades, normalize};
 pub(crate) use design::{fonts, icons, light, motion, theme};
 pub(crate) use engine::{lane_bake, lanes, played, routing};
 pub(crate) use project_files::{autosave, files, relink};
 pub(crate) use system::{brand, crash, launch, owner, trace};
+pub(crate) use timeline::{canvas, playhead, position, ruler, timefmt, timeview};
 
 use std::path::PathBuf;
 use std::sync::Arc;
