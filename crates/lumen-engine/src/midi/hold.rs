@@ -214,8 +214,9 @@ impl TrackState {
     }
 
     /// Sends a note-on at `offset` and holds the note. A note already held
-    /// on the key is released first, and the other sounds of its choke group
-    /// end at the same sample (M8 D0).
+    /// on the key is ended first (taken back rather than answered when it
+    /// has not reached the instrument yet), and the other sounds of its
+    /// choke group end at the same sample (M8 D0).
     pub fn start_note(&mut self, held: Held, velocity: u8, offset: u32, kit: Option<&DrumKit>) {
         if let Some(i) = self
             .held
@@ -274,8 +275,11 @@ impl TrackState {
     }
 
     /// Ends the other sounds of the choke group `key` is in, at `offset`: a
-    /// new hit of a group silences the rest of it, the owner's CO A. A note
-    /// of the same key is left to [`Self::start_note`], which retriggers it.
+    /// new hit of a group silences the rest of it, the owner's CO A. A sound
+    /// that started in this same part has not reached the instrument yet, so
+    /// its note-on is taken back rather than answered
+    /// ([`Self::end_before_it_sounded`]). A note of the same key is left to
+    /// [`Self::start_note`], which retriggers it.
     pub fn choke(&mut self, kit: Option<&DrumKit>, key: u8, offset: u32) {
         let Some(kit) = kit.filter(|k| k.chokes()) else {
             return;
