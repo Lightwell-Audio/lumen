@@ -1,7 +1,7 @@
 //! The transport (spec §5): what drives `lumen-engine` (play, stop, locate,
 //! scrub, Follow, the timeline it plays) here; the bar's controls (go to
 //! start, stop, play, record, loop, metronome, tempo, time signature, the
-//! position field) in `bar.rs`; the audio status, its panel and the
+//! position field) in `bar/`; the audio status, its panel and the
 //! settings window in `status.rs`. Keys are commands (`crate::commands`).
 
 mod bar;
