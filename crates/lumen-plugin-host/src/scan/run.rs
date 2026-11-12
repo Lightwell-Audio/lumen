@@ -5,7 +5,7 @@
 //! threads of their own, the wait polls, and a child that outlives its
 //! deadline or a cancel is killed.
 
-use std::io::Read;
+use std::io::{self, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -86,9 +86,29 @@ pub fn run_scan(
         return ScanOutcome::Unstarted(format!("could not group the scan process: {e}"));
     }
 
-    // One byte past the limit tells "exactly full" from "too much".
-    let stdout = collect(child.stdout.take().expect("piped stdout"), MAX_REPLY + 1);
-    let stderr = collect(child.stderr.take().expect("piped stderr"), STDERR_KEPT);
+    // One byte past the limit tells "exactly full" from "too much". A reader
+    // thread that cannot start is a value, not a panic: the scan must never
+    // take the app down.
+    let stdout = match collect(
+        child.stdout.take().expect("piped stdout"),
+        MAX_REPLY + 1,
+        "output",
+    ) {
+        Ok(read) => read,
+        Err(error) => {
+            // Without this reader there is no reply to read at all.
+            let outcome = reader_failed("output", error);
+            return stopped(&mut child, outcome);
+        }
+    };
+    // The module's error output only explains a failure, so a scan goes on
+    // without it rather than giving up the answer.
+    let stderr = collect(
+        child.stderr.take().expect("piped stderr"),
+        STDERR_KEPT,
+        "errors",
+    )
+    .ok();
 
     let started = Instant::now();
     let status = loop {
@@ -111,7 +131,10 @@ pub fn run_scan(
     // holding a pipe open (another process that inherited it, a helper the
     // module started) must not turn a finished answer into "no reply".
     let reply = stdout.finish();
-    let detail = String::from_utf8_lossy(&stderr.finish()).trim().to_string();
+    let detail = match stderr {
+        Some(stderr) => String::from_utf8_lossy(&stderr.finish()).trim().to_string(),
+        None => String::new(),
+    };
     classify(status, &reply, detail)
 }
 
@@ -131,24 +154,37 @@ impl Collected {
 }
 
 /// Reads `pipe` on a thread of its own, keeping the first `keep` bytes and
-/// reading on past them so a child that writes more cannot stall.
-fn collect(mut pipe: impl Read + Send + 'static, keep: usize) -> Collected {
+/// reading on past them so a child that writes more cannot stall. `what` names
+/// the pipe in the thread's name and in a failure. A system out of threads
+/// refuses the thread; that is returned, never panicked.
+fn collect(mut pipe: impl Read + Send + 'static, keep: usize, what: &str) -> io::Result<Collected> {
     let bytes = Arc::new(Mutex::new(Vec::new()));
     let (ended_tx, ended) = mpsc::channel();
     let shared = Arc::clone(&bytes);
-    std::thread::spawn(move || {
-        let mut chunk = [0u8; 8192];
-        while let Ok(n) = pipe.read(&mut chunk) {
-            if n == 0 {
-                break;
+    std::thread::Builder::new()
+        .name(format!("lumen-scan-{what}"))
+        .spawn(move || {
+            let mut chunk = [0u8; 8192];
+            while let Ok(n) = pipe.read(&mut chunk) {
+                if n == 0 {
+                    break;
+                }
+                let mut kept = shared.lock().unwrap_or_else(|e| e.into_inner());
+                let room = keep.saturating_sub(kept.len());
+                kept.extend_from_slice(&chunk[..n.min(room)]);
             }
-            let mut kept = shared.lock().unwrap_or_else(|e| e.into_inner());
-            let room = keep.saturating_sub(kept.len());
-            kept.extend_from_slice(&chunk[..n.min(room)]);
-        }
-        let _ = ended_tx.send(());
-    });
-    Collected { bytes, ended }
+            let _ = ended_tx.send(());
+        })?;
+    Ok(Collected { bytes, ended })
+}
+
+/// A reader thread that could not start leaves nothing to read, so the module's
+/// scan cannot run. It is reported as a scan that could not start, which is
+/// what it is; the app carries on with the other modules.
+fn reader_failed(what: &str, error: io::Error) -> ScanOutcome {
+    ScanOutcome::Unstarted(format!(
+        "could not start the thread reading the scan's {what}: {error}"
+    ))
 }
 
 /// Asks the scan program at `exe` a question it can only answer if it is a
@@ -233,14 +269,31 @@ mod tests {
             bytes: Some(b"reply".to_vec()),
             never,
         };
-        let collected = collect(held, 64);
+        let collected = collect(held, 64, "output").expect("a reader");
         assert_eq!(collected.finish(), b"reply");
         drop(hold);
     }
 
     #[test]
     fn only_the_first_bytes_are_kept() {
-        let collected = collect(std::io::Cursor::new(vec![7u8; 100_000]), 10);
-        assert_eq!(collected.finish(), vec![7u8; 10]);
+        let read = collect(std::io::Cursor::new(vec![7u8; 100_000]), 10, "output");
+        assert_eq!(read.expect("a reader").finish(), vec![7u8; 10]);
+    }
+
+    /// A reader that cannot start becomes a scan that could not start, naming
+    /// the pipe, rather than a panic that would end the app's scan.
+    #[test]
+    fn a_reader_thread_that_cannot_start_is_a_scan_that_could_not_start() {
+        let outcome = reader_failed(
+            "output",
+            std::io::Error::from(std::io::ErrorKind::OutOfMemory),
+        );
+        match outcome {
+            ScanOutcome::Unstarted(why) => {
+                assert!(why.contains("thread"), "{why}");
+                assert!(why.contains("output"), "{why}");
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

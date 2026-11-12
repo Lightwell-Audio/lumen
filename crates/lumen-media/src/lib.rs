@@ -76,12 +76,12 @@ impl Audio {
         self.frames() as f64 / f64::from(self.sample_rate.max(1))
     }
 
-    /// The samples, channel after channel, without copying.
     /// The waveform peaks of this audio; `None` if cancelled.
     pub fn peaks(&self, cancel: &AtomicBool) -> Option<Peaks> {
         Peaks::build(&self.channels, cancel)
     }
 
+    /// The samples, channel after channel, without copying.
     pub fn into_channels(self) -> Vec<Vec<f32>> {
         self.channels
     }

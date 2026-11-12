@@ -15,9 +15,6 @@
 //! cross [`shm`]: a block of shared memory and a wake-up in each direction,
 //! opened with [`protocol::Request::Attach`].
 
-// The bindings' enum constants are `i32` on Windows and `u32` elsewhere.
-#![allow(clippy::unnecessary_cast)]
-
 mod blocks;
 mod com;
 pub mod editor;
