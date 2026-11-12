@@ -484,7 +484,7 @@ function dial(cx, cy, r, v, hue, name, val) {
   return s;
 }
 // the card: picture (a face), header, preset row, footer — the chain's chrome
-function card(w, h, {name, sub, hue, badge = 'FX'}, face, footer) {
+function card(w, h, {name, sub, hue, badge = 'FX', all = 41}, face, footer) {
   const [gi, gd] = lg([[0, hexA(hue, .22)], [1, hexA(hue, 0)]]);
   let s = gd + rect(0, 0, w, h, C.raised, {rx:12, stroke:C.border_strong, 'stroke-width':1});
   s += `<path d="M0 12 a12 12 0 0 1 12 -12 h${w - 24} a12 12 0 0 1 12 12 v36 h-${w} z" fill="url(#${gi})"/>`;
@@ -505,7 +505,7 @@ function card(w, h, {name, sub, hue, badge = 'FX'}, face, footer) {
   s += `<path d="M0 ${h - C_FOOTER} H${w} V${h - 12} A12 12 0 0 1 ${w - 12} ${h} H12 A12 12 0 0 1 0 ${h - 12} Z" fill="${C.header}"/>`;
   s += line(0, h - C_FOOTER + .5, w, h - C_FOOTER + .5, C.border, 1);
   s += mono(12, h - 13, footer, C.hint, 9);
-  s += raised(w - 80, h - 26, 68, 18, 5) + mono(w - 46, h - 13, 'All 41 ▸', C.text2, 8.5, {'text-anchor':'middle'});
+  s += raised(w - 80, h - 26, 68, 18, 5) + mono(w - 46, h - 13, `All ${all} ▸`, C.text2, 8.5, {'text-anchor':'middle'});
   return s;
 }
 // 1 · Iris — the parametric EQ: the curve is the control, the analyzer behind it
@@ -744,10 +744,10 @@ function compactCard(name, sub, hue, ks, footer) {
 
 // ---------- the page ----------
 const DEV = [
-  {name:'Iris', sub:'Parametric EQ', hue:'#7C8CFF', face:faceIris, footer:'audio → audio · 0 ms'},
-  {name:'Gravity', sub:'Compressor', hue:'#B46CFF', face:faceGravity, footer:'audio → audio · keyed'},
-  {name:'Horizon', sub:'Limiter', hue:'#FF8A4C', face:faceHorizon, footer:'audio → audio · 1.5 ms'},
-  {name:'Shutter', sub:'Sampler · pads', hue:'#5AA9FF', face:faceShutter, footer:'MIDI → audio · 8 pads'},
+  {name:'Iris', sub:'Parametric EQ', hue:'#7C8CFF', face:faceIris, all:41, footer:'audio → audio · 0 ms'},
+  {name:'Gravity', sub:'Compressor', hue:'#B46CFF', face:faceGravity, all:12, footer:'audio → audio · keyed'},
+  {name:'Horizon', sub:'Limiter', hue:'#FF8A4C', face:faceHorizon, all:8, footer:'audio → audio · 1.5 ms'},
+  {name:'Shutter', sub:'Sampler · pads', hue:'#5AA9FF', face:faceShutter, all:64, footer:'MIDI → audio · 8 pads'},
 ];
 const chosen = `<span class="rec" style="background:${C.accent_muted};color:${C.accent}">Chosen</span>`;
 const sub = s => `<span class="sub">${s}</span>`;
@@ -789,7 +789,7 @@ H += `<h2>Arrangement · a mapped track's clip (DV A) ${chosen}</h2>
 
 // 4 · the device faces
 H += `<h2>Device faces (BF C) · folded, without the picture, and whole ${chosen}</h2>
-<p class="q" style="color:${C.text2}">BF C with a personality each: the name is its own, what it is sits underneath, and a signature hue tints a deep screen that stays the same in both themes, as a clip does. The card's frame, power, preset row, focus ring and every gesture stay Lumen's, and every parameter is still in All parameters (the footer's button). A face takes the parameter strip: 158 pt on a card without its picture, and the picture's 72 pt too on a whole card, so the face has 230 pt for its light.</p>
+<p class="q" style="color:${C.text2}">BF C with a personality each: the name is its own, what it is sits underneath, and a signature hue tints a deep screen that stays the same in both themes, as a clip does. The card's frame, power, preset row, focus ring and every gesture stay Lumen's, and every parameter is still in All parameters (the footer's button). A face takes the parameter strip: 158 pt on a card without its picture, and the picture's 72 pt too on a whole card, so the face has 230 pt for its light. Shutter's pads are the track's map, which here holds the clip's seven sounds and one the clip does not play (a cowbell), the way Lanes can hide an unused sound.</p>
 <div class="row">`;
 DEV.forEach(d => { H += frame(`${d.name} ${sub(`232 × 272 · no picture`)}`, svg(CARD_W, CARD_NORMAL, card(CARD_W, CARD_NORMAL, d, d.face, d.footer)), '', 'card'); });
 H += `</div><div class="row" style="margin-top:calc(22px*var(--s))">`;
@@ -805,7 +805,7 @@ H += frame(`Compact ${sub('232 × 116 · COMPACT_H')}`,
     'audio → audio · 0 ms')),
   'A card at the least height keeps its header, four knobs and footer (the chain\'s own rule), so a face folds back to its first four parameters.', 'card');
 H += frame(`Prism, the generic strip ${sub('232 × 272')}`,
-  svg(CARD_W, CARD_NORMAL, card(CARD_W, CARD_NORMAL, {name:'Prism', sub:'Utility · gain, width, mono', hue:'#9AA0AC'},
+  svg(CARD_W, CARD_NORMAL, card(CARD_W, CARD_NORMAL, {name:'Prism', sub:'Utility · gain, width, mono', hue:'#9AA0AC', all:9},
     (w, h) => prismFace(w, h), 'audio → audio · 0 ms')),
   'The strip for the rest: the same eight comet knobs as a plugin\'s card, its own name, subtitle and hue above.', 'card');
 H += `</div>`;
