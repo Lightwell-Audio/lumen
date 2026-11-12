@@ -250,6 +250,12 @@ pub const LIGHT: Palette = Palette {
     ],
 };
 
+/// A model colour (`0xRRGGBB`) as the interface draws it: the one place a
+/// `u32` colour is unpacked.
+pub const fn colour_of(rgb: u32) -> Color32 {
+    Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
+}
+
 /// Track and clip colours: the model's palette (`Color::PALETTE`, which
 /// new tracks take in turn), drawn as it is. The same in both themes
 /// (content keeps its identity).
@@ -258,8 +264,7 @@ pub const CLIP_COLORS: [Color32; 12] = {
     let mut colors = [Color32::BLACK; 12];
     let mut i = 0;
     while i < colors.len() {
-        let c = palette[i].0;
-        colors[i] = Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8);
+        colors[i] = colour_of(palette[i].0);
         i += 1;
     }
     colors
