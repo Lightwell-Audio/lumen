@@ -28,6 +28,19 @@ const SMOOTHING: f64 = 0.01;
 /// million, and this settles it to a few dozen frames of offset.
 const GAIN: f64 = 4.0e-6;
 
+/// The most the correction may bend the rate, either way: half a percent,
+/// about a hundred times any difference between two real clocks, and inside
+/// what a slip can follow at every block size a queue is made for.
+const BEND: f64 = 0.005;
+
+/// The ratio to steer to for a smoothed level `smoothed` against `target`: a
+/// queue running low asks for a ratio above one, so fewer input frames are
+/// taken per output block. Clamped to [`BEND`], so a runaway estimate asks for
+/// no more than a slip can follow.
+fn ratio_for(target: f64, smoothed: f64) -> f64 {
+    (1.0 + GAIN * (target - smoothed)).clamp(1.0 - BEND, 1.0 + BEND)
+}
+
 /// A queue between a capture clock and the render clock.
 pub struct Corrected {
     channels: usize,
@@ -45,6 +58,12 @@ pub struct Corrected {
     padded: Vec<f32>,
     underruns: u64,
     overruns: u64,
+    /// The last ratio the slip took.
+    ratio: f64,
+    /// Times the slip refused a ratio and the last good one was set again:
+    /// the capture clock is further from the render clock than a slip can
+    /// follow. Counted rather than dropped.
+    ratio_failures: u64,
 }
 
 impl Corrected {
@@ -67,6 +86,8 @@ impl Corrected {
             padded: vec![0.0; 2 * period * channels],
             underruns: 0,
             overruns: 0,
+            ratio: 1.0,
+            ratio_failures: 0,
         })
     }
 
@@ -91,6 +112,32 @@ impl Corrected {
     #[cfg(test)]
     fn overruns(&self) -> u64 {
         self.overruns
+    }
+
+    /// The ratio the slip is running at.
+    #[cfg(test)]
+    fn ratio(&self) -> f64 {
+        self.ratio
+    }
+
+    /// Times the slip refused a ratio and the last good one was set again.
+    #[cfg(test)]
+    fn ratio_failures(&self) -> u64 {
+        self.ratio_failures
+    }
+
+    /// Steers the slip to `ratio`, keeping the last ratio that worked: a slip
+    /// that will not take it has already clamped to its own limit, so the
+    /// ratio it last took is set again, and the refusal is counted (sweep
+    /// M5g). Real-time safe: no allocation, no lock.
+    fn steer(&mut self, ratio: f64) {
+        match self.slip.set_resample_ratio(ratio, false) {
+            Ok(()) => self.ratio = ratio,
+            Err(_) => {
+                self.ratio_failures += 1;
+                let _ = self.slip.set_resample_ratio(self.ratio, false);
+            }
+        }
     }
 
     /// Queues `samples`, interleaved. When the queue is full the oldest
@@ -132,9 +179,9 @@ impl Corrected {
         }
         self.smoothed += SMOOTHING * (self.queued as f64 - self.smoothed);
         // A queue running low asks for a ratio above one: fewer input frames
-        // per output block. The ratio is clamped to what can be slipped.
-        let ratio = 1.0 + GAIN * (self.target as f64 - self.smoothed);
-        let _ = self.slip.set_resample_ratio(ratio, false);
+        // per output block. The ratio is clamped to what can be slipped, and a
+        // slip that still refuses it keeps the last one that worked.
+        self.steer(ratio_for(self.target as f64, self.smoothed));
 
         let channels = self.channels;
         let need = self.slip.input_frames_next();
@@ -270,5 +317,57 @@ mod tests {
     #[test]
     fn a_period_too_short_to_correct_is_refused() {
         assert!(Corrected::new(2, 2, 2).is_none());
+    }
+
+    /// An estimate that has run away asks for no more than a slip can follow,
+    /// and a real clock difference is nowhere near the clamp (sweep M5g).
+    #[test]
+    fn an_extreme_estimate_is_clamped_to_what_a_slip_can_follow() {
+        assert_eq!(ratio_for(1_000.0, -1.0e9), 1.0 + BEND);
+        assert_eq!(ratio_for(1_000.0, 1.0e9), 1.0 - BEND);
+        assert_eq!(ratio_for(1_000.0, 1_000.0), 1.0);
+        // A hundred frames short at 48 kHz: about two parts per thousand.
+        let ratio = ratio_for(1_000.0, 900.0);
+        assert!((ratio - (1.0 + 4.0e-4)).abs() < 1e-12, "{ratio}");
+    }
+
+    /// A block run with a level nothing could explain still leaves the slip at
+    /// a ratio it can follow, and none of it is a refusal (sweep M5g).
+    #[test]
+    fn a_runaway_level_run_stays_inside_the_clamp() {
+        let mut queue = Corrected::new(1, 64, 64).expect("queue");
+        queue.push(&[0.0; 64]);
+        let mut out = vec![0.0; 64];
+        queue.pull(&mut out);
+        // What a broken estimate would leave behind.
+        queue.smoothed = -1.0e9;
+        queue.pull(&mut out);
+        assert_eq!(queue.ratio(), 1.0 + BEND);
+        assert_eq!(queue.ratio_failures(), 0, "the clamp kept it in range");
+    }
+
+    /// A ratio the slip refuses is survived: the last good one is set again
+    /// and the refusal is counted, so playback does not stop steering (sweep
+    /// M5g).
+    #[test]
+    fn a_refused_ratio_keeps_the_last_one_and_is_counted() {
+        let mut queue = Corrected::new(CHANNELS, PERIOD, PERIOD).expect("queue");
+        assert_eq!(queue.ratio(), 1.0);
+        // Past what a slip follows: it clamps to its own limit and says so.
+        queue.steer(1.5);
+        assert_eq!(queue.ratio_failures(), 1);
+        assert_eq!(queue.ratio(), 1.0, "the last ratio that worked is back");
+        queue.steer(1.001);
+        assert_eq!(
+            queue.ratio_failures(),
+            1,
+            "an accepted change is no failure"
+        );
+        assert!((queue.ratio() - 1.001).abs() < 1e-12, "{}", queue.ratio());
+        // And the queue still plays after the refusal.
+        let mut out = vec![0.0; CHANNELS * PERIOD];
+        queue.push(&[0.5; CHANNELS * PERIOD]);
+        queue.pull(&mut out);
+        assert!(out.iter().all(|&x| x == 0.5));
     }
 }
