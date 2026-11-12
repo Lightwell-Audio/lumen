@@ -151,11 +151,30 @@ pub struct Capture {
     /// window. Only its first pass is floored here after latency correction.
     start: Option<Ticks>,
     first_pass: Option<u32>,
+    /// What each track keeps of an incoming note, by the track's drum map
+    /// (M8 D0): the map's input note for the key that came in, so a take on
+    /// a mapped track holds input notes even when the player's pads send the
+    /// notes the kit plays. A track with no map has no line.
+    store: BTreeMap<u64, [u8; 128]>,
 }
 
 impl Capture {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Sets what `track` keeps of a played key, from its drum map (M8 D0):
+    /// nothing to do for `None`, whose notes are stored as they came.
+    pub fn set_store_map(&mut self, track: u64, map: Option<&lumen_project::model::DrumMap>) {
+        match map {
+            Some(map) => {
+                self.store
+                    .insert(track, lumen_project::drums::store_table(map));
+            }
+            None => {
+                self.store.remove(&track);
+            }
+        }
     }
 
     /// A capture of a take that loops over `looped` (start and end ticks),
@@ -223,10 +242,17 @@ impl Capture {
         pass = mapped_pass;
         let channel = c.msg.channel();
         let looped = self.looped;
+        // The key the take keeps: the map's input note when the track has one.
+        let stored = |key: u8| {
+            self.store
+                .get(&c.track)
+                .map_or(key, |table| table[usize::from(key)])
+        };
         let lane = self.lanes.entry(c.track).or_default();
         lane.see(pass);
         match kind {
             Kind::NoteOn { key, velocity } => {
+                let key = stored(key);
                 let open = Held {
                     start: at,
                     velocity,
@@ -237,6 +263,7 @@ impl Capture {
                 }
             }
             Kind::NoteOff { key, .. } => {
+                let key = stored(key);
                 if let Some(open) = lane.held.remove(&(channel, key)) {
                     lane.finish(key, open, (at, pass), looped);
                 }

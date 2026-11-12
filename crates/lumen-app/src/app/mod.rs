@@ -19,6 +19,7 @@ pub(crate) mod copies;
 mod cue;
 pub(crate) mod detail;
 mod draw_clip;
+pub(crate) mod drum_choice;
 pub(crate) mod editing;
 pub(crate) mod follow_detect;
 pub(crate) mod grid;

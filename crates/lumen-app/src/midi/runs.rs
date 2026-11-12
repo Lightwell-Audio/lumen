@@ -28,15 +28,45 @@ use std::sync::Arc;
 use lumen_core::midi::Msg;
 use lumen_core::time::Ticks;
 use lumen_engine::{MidiClip, MidiControl, MidiNote, control_list, note_list};
+use lumen_project::drums;
 use lumen_project::edit::seams;
-use lumen_project::model::{self, ClipContent, EventKind, Id};
+use lumen_project::model::{self, ClipContent, DrumMap, EventKind, Id};
 
 /// A clip in a run, and how much of it plays (less than its length when a
 /// Replace take is recording over its end).
+///
+/// `map` is the drum map the track reads its notes through (M8 D0), which
+/// changes neither the clip nor its notes: the notes are given their sound's
+/// note, channel and length here, at play time.
 #[derive(Clone, Copy)]
 pub(crate) struct Member<'a> {
     pub clip: &'a Arc<model::Clip>,
     pub length: Ticks,
+    pub map: Option<&'a DrumMap>,
+}
+
+/// How a track's drum map plays its notes: the map, if any. A clip note with
+/// no map plays as written.
+#[derive(Clone, Copy)]
+pub(crate) struct Voice<'a> {
+    map: Option<&'a DrumMap>,
+}
+
+impl<'a> Voice<'a> {
+    pub(crate) fn new(map: Option<&'a DrumMap>) -> Self {
+        Self { map }
+    }
+
+    /// The note as played: the key, the channel (the track's when none) and
+    /// the length (a sound's override, else the note's); none for a muted
+    /// sound, or one no solo lets through.
+    fn played(self, note: model::Note) -> Option<(u8, Option<u8>, Ticks)> {
+        match self.map {
+            None => Some((note.pitch(), None, note.length())),
+            Some(map) => drums::played(map, note.pitch())
+                .map(|p| (p.key, p.channel, p.length_of(note.length()))),
+        }
+    }
 }
 
 /// Arrangement interval hidden while a bounded Replace take is recorded,
@@ -128,6 +158,7 @@ fn run_notes_masked(run: &[Member<'_>], suppression: Option<Suppression>) -> Vec
     for (k, m) in run.iter().enumerate() {
         let offset = m.clip.start - head.clip.start;
         let (notes, _) = content(m.clip);
+        let voice = Voice::new(m.map);
         let mut next: Vec<(Ticks, u8, usize)> = Vec::new();
         carried = match k {
             0 => Vec::new(),
@@ -138,32 +169,38 @@ fn run_notes_masked(run: &[Member<'_>], suppression: Option<Suppression>) -> Vec
         };
         for &i in &carried {
             let n = notes[i];
+            let Some((key, _channel, length)) = voice.played(n) else {
+                continue;
+            };
             let at = m.clip.start + n.start();
             if suppression.is_some_and(|s| s.hides(at)) {
                 continue;
             }
-            if let Some(&(_, _, e)) = reaching.iter().find(|r| (r.0, r.1) == (at, n.pitch())) {
-                let mut end = n.end().min(m.length);
+            if let Some(&(_, _, e)) = reaching.iter().find(|r| (r.0, r.1) == (at, key)) {
+                let mut end = (n.start() + length).min(m.length);
                 if let Some(s) = suppression
                     .filter(|s| s.from < s.until && at < s.from && m.clip.start + end > s.from)
                 {
                     end = end.min(s.from - m.clip.start);
                 }
                 out[e].length = offset + end - out[e].start;
-                if n.end() >= m.length && end >= m.length {
-                    next.push((at, n.pitch(), e));
+                if length >= m.length - n.start() && end >= m.length {
+                    next.push((at, key, e));
                 }
             }
         }
         for n in notes.iter().filter(|n| !n.muted() && shows(m, n.start())) {
+            let Some((key, channel, note_length)) = voice.played(*n) else {
+                continue;
+            };
             let arrangement_start = m.clip.start + n.start();
             if suppression.is_some_and(|s| s.hides(arrangement_start)) {
                 continue;
             }
             let mut length = if loops(m) {
-                n.length()
+                note_length
             } else {
-                n.length().min(m.length - n.start())
+                note_length.min(m.length - n.start())
             };
             if !loops(m)
                 && let Some(s) = suppression.filter(|s| {
@@ -175,16 +212,17 @@ fn run_notes_masked(run: &[Member<'_>], suppression: Option<Suppression>) -> Vec
                 length = length.min(s.from - arrangement_start);
             }
             if !loops(m)
-                && n.end() >= m.length
+                && n.start() + note_length >= m.length
                 && arrangement_start + length >= m.clip.start + m.length
             {
-                next.push((m.clip.start + n.start(), n.pitch(), out.len()));
+                next.push((m.clip.start + n.start(), key, out.len()));
             }
             out.push(MidiNote {
                 start: offset + n.start(),
                 length,
-                pitch: n.pitch(),
+                pitch: key,
                 velocity: n.velocity(),
+                channel,
             });
         }
         reaching = next;
@@ -221,23 +259,29 @@ pub(crate) fn loop_fragment(
     from: Ticks,
     length: Ticks,
     period: Ticks,
+    map: Option<&DrumMap>,
 ) -> (Vec<MidiNote>, Vec<MidiControl>) {
     let ClipContent::Midi { notes, events } = &clip.content else {
         return (Vec::new(), Vec::new());
     };
+    let voice = Voice::new(map);
     let phase = Ticks((clip.loop_phase.0 + from.0).rem_euclid(period.0));
     let mut played_notes = Vec::new();
     for note in notes
         .iter()
         .filter(|n| !n.muted() && n.start() >= Ticks::ZERO && n.start() < period)
     {
-        let source_end = (note.start() + note.length()).min(period);
+        let Some((key, channel, note_length)) = voice.played(*note) else {
+            continue;
+        };
+        let source_end = (note.start() + note_length).min(period);
         if note.start() < phase && source_end > phase && length > Ticks::ZERO {
             played_notes.push(MidiNote {
                 start: Ticks::ZERO,
                 length: (source_end - phase).min(length),
-                pitch: note.pitch(),
+                pitch: key,
                 velocity: note.velocity(),
+                channel,
             });
         }
         if note.start() < Ticks::ZERO || note.start() >= period {
@@ -247,12 +291,13 @@ pub(crate) fn loop_fragment(
         if at >= length {
             continue;
         }
-        let note_length = note.length().min(period - note.start()).min(length - at);
+        let note_length = note_length.min(period - note.start()).min(length - at);
         played_notes.push(MidiNote {
             start: at,
             length: note_length,
-            pitch: note.pitch(),
+            pitch: key,
             velocity: note.velocity(),
+            channel,
         });
     }
     let mut played_controls = Vec::new();
@@ -305,18 +350,27 @@ fn control(event: &model::ClipEvent) -> Vec<MidiControl> {
 
 /// A split piece may be shorter than the source loop. Read the source pattern
 /// against its original period, not that piece's timeline window.
-fn loop_pattern(clip: &model::Clip, period: Ticks) -> (Arc<[MidiNote]>, Arc<[MidiControl]>) {
+fn loop_pattern(
+    clip: &model::Clip,
+    period: Ticks,
+    map: Option<&DrumMap>,
+) -> (Arc<[MidiNote]>, Arc<[MidiControl]>) {
     let ClipContent::Midi { notes, events } = &clip.content else {
         return (note_list(Vec::new()), control_list(Vec::new()));
     };
+    let voice = Voice::new(map);
     let notes = notes
         .iter()
         .filter(|n| !n.muted() && n.start() >= Ticks::ZERO && n.start() < period)
-        .map(|n| MidiNote {
-            start: n.start(),
-            length: n.length(),
-            pitch: n.pitch(),
-            velocity: n.velocity(),
+        .filter_map(|n| {
+            let (pitch, channel, length) = voice.played(*n)?;
+            Some(MidiNote {
+                start: n.start(),
+                length,
+                pitch,
+                velocity: n.velocity(),
+                channel,
+            })
         })
         .collect();
     let controls = events
@@ -343,22 +397,27 @@ struct Pattern {
     /// The clips they were built from, and how much of each played (also
     /// keeps their addresses from being reused while the entry lives).
     members: Vec<(Arc<model::Clip>, Ticks)>,
+    /// The drum map they were read through (M8 D0), if any.
+    map: Option<DrumMap>,
     notes: Arc<[MidiNote]>,
     controls: Arc<[MidiControl]>,
 }
 
 impl Pattern {
     fn matches(&self, run: &[Member<'_>]) -> bool {
-        self.members.len() == run.len()
+        self.map.as_ref() == run.first().and_then(|m| m.map)
+            && self.members.len() == run.len()
             && self.members.iter().zip(run).all(|((clip, length), m)| {
                 *length == m.length && (Arc::ptr_eq(clip, m.clip) || **clip == **m.clip)
             })
     }
 }
 
-/// A translated run, kept while its clips and suppression window are stable.
+/// A translated run, kept while its clips, its map and suppression window are
+/// stable.
 struct Cached {
     members: Vec<(Arc<model::Clip>, Ticks)>,
+    map: Option<DrumMap>,
     suppression: Option<Suppression>,
     clips: Vec<MidiClip>,
 }
@@ -366,6 +425,7 @@ struct Cached {
 impl Cached {
     fn matches(&self, run: &[Member<'_>], suppression: Option<Suppression>) -> bool {
         self.suppression == suppression
+            && self.map.as_ref() == run.first().and_then(|m| m.map)
             && self.members.len() == run.len()
             && self.members.iter().zip(run).all(|((clip, length), m)| {
                 *length == m.length && (Arc::ptr_eq(clip, m.clip) || **clip == **m.clip)
@@ -407,6 +467,7 @@ impl Cache {
                     let source = Member {
                         clip: head,
                         length: head.length,
+                        map: run[0].map,
                     };
                     let source_run = if period.is_some() {
                         std::slice::from_ref(&source)
@@ -414,7 +475,7 @@ impl Cache {
                         run
                     };
                     let (notes, controls) = if let Some(period) = period {
-                        loop_pattern(head, period)
+                        loop_pattern(head, period, run[0].map)
                     } else {
                         (
                             note_list(run_notes(source_run)),
@@ -425,6 +486,7 @@ impl Cache {
                         head.id,
                         Pattern {
                             members: run.iter().map(|m| (Arc::clone(m.clip), m.length)).collect(),
+                            map: run[0].map.cloned(),
                             notes: Arc::clone(&notes),
                             controls: Arc::clone(&controls),
                         },
@@ -461,6 +523,7 @@ impl Cache {
                     &pattern.0,
                     &pattern.1,
                     &seams,
+                    run[0].map,
                 ));
                 let suffix_elapsed = mask_until - start;
                 clips.extend(loop_segments(
@@ -474,6 +537,7 @@ impl Cache {
                     &pattern.0,
                     &pattern.1,
                     &seams,
+                    run[0].map,
                 ));
             } else if let Some(period) = period.filter(|p| head.loop_phase.0.rem_euclid(p.0) != 0) {
                 let (start, length, _) = extent(run);
@@ -488,6 +552,7 @@ impl Cache {
                     &pattern.0,
                     &pattern.1,
                     &seams,
+                    run[0].map,
                 ));
             } else {
                 let (start, length, period) = extent(run);
@@ -513,6 +578,7 @@ impl Cache {
                 head.id,
                 Cached {
                     members: run.iter().map(|m| (Arc::clone(m.clip), m.length)).collect(),
+                    map: run[0].map.cloned(),
                     suppression,
                     clips: clips.clone(),
                 },
@@ -575,6 +641,7 @@ fn loop_segments(
     notes: &Arc<[MidiNote]>,
     controls: &Arc<[MidiControl]>,
     seams: &[Ticks],
+    map: Option<&DrumMap>,
 ) -> Vec<MidiClip> {
     let LoopSpan {
         start,
@@ -598,7 +665,7 @@ fn loop_segments(
         )];
     }
     let first = (period - phase).min(length);
-    let (fragment_notes, fragment_controls) = loop_fragment(clip, elapsed, first, period);
+    let (fragment_notes, fragment_controls) = loop_fragment(clip, elapsed, first, period, map);
     let mut segments = vec![engine_clip(
         clip.id,
         start,
@@ -635,8 +702,10 @@ fn segment_seams(elapsed: Ticks, length: Ticks, seams: &[Ticks]) -> Arc<[Ticks]>
 /// The keys `track`'s clips hold at arrangement time `at`, as the engine
 /// plays them (`hold.rs`): a note sounds from its start up to where it
 /// stops, within its repeat of a looping clip's content. A zero-length note
-/// sounds for one tick. Each key once.
-pub(crate) fn sounding_keys(track: &model::Track, at: Ticks) -> Vec<u8> {
+/// sounds for one tick. Each key once. What the track's drum map plays, not
+/// what its clips store (M8 D0).
+pub(crate) fn sounding_keys(project: &model::Project, track: &model::Track, at: Ticks) -> Vec<u8> {
+    let map = project.drum_map_of(track);
     let members = track
         .clips
         .iter()
@@ -644,6 +713,7 @@ pub(crate) fn sounding_keys(track: &model::Track, at: Ticks) -> Vec<u8> {
         .map(|clip| Member {
             clip,
             length: clip.length,
+            map,
         });
     let mut keys = Vec::new();
     for run in runs(members) {
@@ -654,7 +724,7 @@ pub(crate) fn sounding_keys(track: &model::Track, at: Ticks) -> Vec<u8> {
         }
         let (notes, local) = if let Some(period) = period {
             (
-                loop_pattern(run[0].clip, period).0.to_vec(),
+                loop_pattern(run[0].clip, period, map).0.to_vec(),
                 (run[0].clip.loop_phase.0 + local).rem_euclid(period.0),
             )
         } else {

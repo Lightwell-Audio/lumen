@@ -236,8 +236,8 @@ pub fn from_sources(track: &model::Track, inputs: &Inputs) -> u64 {
 
 /// The keys the track's own clips hold at arrangement time `at`, as the
 /// engine plays them: see `midi_runs::sounding_keys`.
-pub fn sounding_keys(track: &model::Track, at: Ticks) -> Vec<u8> {
-    crate::midi::runs::sounding_keys(track, at)
+pub fn sounding_keys(project: &Project, track: &model::Track, at: Ticks) -> Vec<u8> {
+    crate::midi::runs::sounding_keys(project, track, at)
 }
 
 /// The keys a track's own clips sound on its MIDI output now, while the
@@ -259,7 +259,7 @@ pub fn busy_keys(project: &Project, id: Id, at: Ticks, playing: bool) -> Vec<u8>
     if !lumen_project::solo::hearing(project).of(id).output {
         return Vec::new();
     }
-    sounding_keys(track, at)
+    sounding_keys(project, track, at)
 }
 
 /// What the engine plays: every MIDI track's unmuted clips, in start
@@ -328,6 +328,27 @@ fn plugin_outputs(project: &Project, track: &model::Track, hosts: &dyn Hosts) ->
         .collect()
 }
 
+/// [the track's drum map](kit_of): what live input plays and which sounds
+/// choke each other, made once per list on this side (the owner's E3).
+fn kit_of(project: &Project, track: &model::Track) -> Option<Box<lumen_engine::DrumKit>> {
+    let map = project.drum_map_of(track)?;
+    let mut kit = lumen_engine::DrumKit::new();
+    for sound in &map.sounds {
+        kit.set(
+            sound.input,
+            lumen_engine::KitKey {
+                key: sound.output,
+                channel: sound.channel,
+                silent: !map.heard(sound),
+            },
+        );
+        if let Some(group) = sound.choke {
+            kit.set_choke(sound.output, group);
+        }
+    }
+    Some(Box::new(kit))
+}
+
 /// [`engine_midi`] with the hosts that play the plugin instruments.
 pub fn engine_midi_with(
     project: &Project,
@@ -353,6 +374,8 @@ pub fn engine_midi_with(
             ),
             None => (Target::Instrument, false),
         };
+        // What the track's drum map makes of its notes, and of live input.
+        let map = project.drum_map_of(track);
         let members = track
             .clips
             .iter()
@@ -361,6 +384,7 @@ pub fn engine_midi_with(
                 Some(crate::midi::runs::Member {
                     clip,
                     length: inputs.playing_length(track.id, clip)?,
+                    map,
                 })
             });
         let suppression = inputs.suppression(track.id);
@@ -379,7 +403,8 @@ pub fn engine_midi_with(
                 .listening(listening(track, inputs, silent))
                 .recording(recording(track, inputs))
                 .recording_within(inputs.record_window)
-                .recording_timing(inputs.record_timing),
+                .recording_timing(inputs.record_timing)
+                .playing_drums(kit_of(project, track)),
         );
     }
     tracks
@@ -681,7 +706,7 @@ mod tests {
         assert_eq!(pitches, vec![60]);
         assert!(tracks[0].clips[0].controls.is_empty());
         let start = project.tracks[0].clips[0].start;
-        assert_eq!(sounding_keys(&project.tracks[0], start), vec![60]);
+        assert_eq!(sounding_keys(&project, &project.tracks[0], start), vec![60]);
     }
 
     #[test]
@@ -918,15 +943,28 @@ mod tests {
         let clip = midi_clip(vec![Note::new(q(1), q(2), 60, 100)], vec![]);
         let (project, _) = project_with(clip);
         let track = &project.tracks[0];
-        assert!(sounding_keys(track, q(4)).is_empty(), "before the note");
-        assert_eq!(sounding_keys(track, q(5)), vec![60], "at its start");
-        assert_eq!(sounding_keys(track, Ticks(q(7).0 - 1)), vec![60]);
         assert!(
-            sounding_keys(track, q(7)).is_empty(),
+            sounding_keys(&project, track, q(4)).is_empty(),
+            "before the note"
+        );
+        assert_eq!(
+            sounding_keys(&project, track, q(5)),
+            vec![60],
+            "at its start"
+        );
+        assert_eq!(sounding_keys(&project, track, Ticks(q(7).0 - 1)), vec![60]);
+        assert!(
+            sounding_keys(&project, track, q(7)).is_empty(),
             "its end is not in it"
         );
-        assert!(sounding_keys(track, q(3)).is_empty(), "before the clip");
-        assert!(sounding_keys(track, q(12)).is_empty(), "the clip's end");
+        assert!(
+            sounding_keys(&project, track, q(3)).is_empty(),
+            "before the clip"
+        );
+        assert!(
+            sounding_keys(&project, track, q(12)).is_empty(),
+            "the clip's end"
+        );
     }
 
     #[test]
@@ -944,7 +982,10 @@ mod tests {
             vec![],
         );
         let (project, _) = project_with(clip);
-        assert_eq!(sounding_keys(&project.tracks[0], q(5)), vec![60, 64]);
+        assert_eq!(
+            sounding_keys(&project, &project.tracks[0], q(5)),
+            vec![60, 64]
+        );
     }
 
     #[test]
@@ -953,7 +994,7 @@ mod tests {
         let mut clip = midi_clip(vec![Note::new(q(0), q(8), 60, 100)], vec![]);
         clip.muted = true;
         let (project, _) = project_with(clip);
-        assert!(sounding_keys(&project.tracks[0], q(5)).is_empty());
+        assert!(sounding_keys(&project, &project.tracks[0], q(5)).is_empty());
     }
 
     #[test]
@@ -971,12 +1012,15 @@ mod tests {
         let (project, _) = project_with(clip);
         let track = &project.tracks[0];
         // Repeat 0 (beats 4 to 6): 60, then 64, which the repeat cuts short.
-        assert_eq!(sounding_keys(track, q(4)), vec![60]);
-        assert_eq!(sounding_keys(track, q(5)), vec![64]);
+        assert_eq!(sounding_keys(&project, track, q(4)), vec![60]);
+        assert_eq!(sounding_keys(&project, track, q(5)), vec![64]);
         // Repeat 1 (beats 6 to 8): 64 does not carry over into the repeat.
-        assert_eq!(sounding_keys(track, q(6)), vec![60]);
-        assert_eq!(sounding_keys(track, q(7)), vec![64]);
-        assert!(sounding_keys(track, q(12)).is_empty(), "the clip ended");
+        assert_eq!(sounding_keys(&project, track, q(6)), vec![60]);
+        assert_eq!(sounding_keys(&project, track, q(7)), vec![64]);
+        assert!(
+            sounding_keys(&project, track, q(12)).is_empty(),
+            "the clip ended"
+        );
     }
 
     #[test]

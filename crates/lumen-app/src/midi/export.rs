@@ -9,18 +9,20 @@ use std::sync::Arc;
 use lumen_core::meter::MeterPoint;
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
 use lumen_project::edit::in_window;
-use lumen_project::model::{Clip, ClipContent, ClipEvent, Id, Note, Project, TrackKind};
+use lumen_project::model::{Clip, ClipContent, ClipEvent, DrumMap, Id, Note, Project, TrackKind};
 use lumen_project::smf::{FileTrack, MidiFile};
 
 use crate::midi::runs::{Member, loop_fragment, loop_period, run_notes, runs};
 
 /// The notes and events `clips` (one track's, in start order) play, in
-/// arrangement time.
-fn heard(clips: &[&Arc<Clip>]) -> (Vec<Note>, Vec<ClipEvent>) {
+/// arrangement time. `map` is the track's drum map, if any (M8 D0): what an
+/// exported part holds is what plays, the map's notes, not the ones stored.
+fn heard(clips: &[&Arc<Clip>], map: Option<&DrumMap>) -> (Vec<Note>, Vec<ClipEvent>) {
     let (mut notes, mut events) = (Vec::new(), Vec::new());
     let members = clips.iter().map(|clip| Member {
         clip,
         length: clip.length,
+        map,
     });
     for run in runs(members) {
         let head = run[0].clip;
@@ -28,7 +30,7 @@ fn heard(clips: &[&Arc<Clip>]) -> (Vec<Note>, Vec<ClipEvent>) {
             let length = run.last().expect("run is non-empty").clip.start
                 + run.last().expect("run is non-empty").length
                 - head.start;
-            bake_loop(head, length, period, &mut notes, &mut events);
+            bake_loop(head, length, period, &mut notes, &mut events, map);
             continue;
         }
         notes.extend(
@@ -61,6 +63,7 @@ fn bake_loop(
     period: Ticks,
     notes: &mut Vec<Note>,
     events: &mut Vec<ClipEvent>,
+    map: Option<&DrumMap>,
 ) {
     let ClipContent::Midi {
         events: controls, ..
@@ -77,7 +80,7 @@ fn bake_loop(
             period - phase
         }
         .min(length - elapsed);
-        let (fragment, _) = loop_fragment(clip, elapsed, span, period);
+        let (fragment, _) = loop_fragment(clip, elapsed, span, period, map);
         notes.extend(fragment.into_iter().map(|n| {
             Note::new(
                 clip.start + elapsed + n.start,
@@ -170,7 +173,8 @@ pub fn clips_file(project: &Project, ids: &[Id]) -> Option<MidiFile> {
             .filter(|(t, _)| *t == index)
             .map(|(_, c)| *c)
             .collect();
-        let (n, e) = heard(&clips);
+        let map = project.drum_map_of(&project.tracks[index]);
+        let (n, e) = heard(&clips, map);
         notes.extend(n);
         events.extend(e);
     }
@@ -212,7 +216,7 @@ pub fn project_file(project: &Project) -> Option<MidiFile> {
         .filter(|t| t.kind == TrackKind::Midi)
         .filter_map(|track| {
             let clips: Vec<&Arc<Clip>> = track.clips.iter().filter(|c| !c.muted).collect();
-            let (notes, events) = heard(&clips);
+            let (notes, events) = heard(&clips, project.drum_map_of(track));
             (!notes.is_empty() || !events.is_empty()).then(|| FileTrack {
                 name: Some(track.name.clone()),
                 channel: track.midi_to.as_ref().map_or(0, |out| out.channel),
