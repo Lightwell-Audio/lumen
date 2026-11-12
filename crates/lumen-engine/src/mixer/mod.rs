@@ -42,7 +42,7 @@ mod spec;
 
 pub(crate) use auto::Kind as LaneKind;
 pub use auto::{AutoLane, AutoPoint, KNOT, NodeAutomation, db_gain};
-pub use builtins::Slot;
+pub use builtins::{MAX_BUILTINS, Slot};
 pub use compile::compile;
 pub use delay::MAX_DEVICE_LATENCY;
 pub use hosts::MAX_HOSTS;
@@ -73,6 +73,10 @@ use crate::timeline::Timeline;
 const QUEUE: usize = 4;
 /// Attach and detach messages waiting for the audio side.
 const HOST_QUEUE: usize = 64;
+/// Attach and detach messages waiting for the audio side for built-in effects:
+/// as deep as the pool, because a render attaches every built-in its routing
+/// names before it plays a block (M8 slice B0, review H2).
+const DEVICE_QUEUE: usize = builtins::MAX_BUILTINS;
 /// A plan of a new shape crossfades in over 5 ms.
 const SWAP_PER_SECOND: u32 = 200;
 /// Audio per track, played into the tracks' buses. Every method must be
@@ -194,6 +198,9 @@ pub struct MixerHandle {
     /// of (M8 slice B0).
     devices: rtrb::Producer<DeviceMsg>,
     devices_retired: rtrb::Consumer<Box<Slot>>,
+    /// The ones the pool had no room for (review M3): the audio side gives the
+    /// slot back here with the id, and the interface frees it and says so.
+    devices_refused: rtrb::Consumer<(u64, Box<Slot>)>,
     /// A device message waits: as `hosts_pending`, for built-ins.
     devices_pending: Arc<AtomicBool>,
 }
@@ -246,6 +253,18 @@ impl MixerHandle {
             self.devices_pending.store(true, Ordering::Release);
         }
         sent
+    }
+
+    /// The devices the mixer's pool had no room for since the last call
+    /// (review M3): their slots are freed here, on the interface side, and the
+    /// ids say which devices are not running.
+    pub fn take_refused_builtins(&mut self) -> Vec<u64> {
+        let mut refused = Vec::new();
+        while let Ok((id, slot)) = self.devices_refused.pop() {
+            drop(slot);
+            refused.push(id);
+        }
+        refused
     }
 
     /// Compiles `routing` and sends it. Returns whether it was sent: false
@@ -364,6 +383,10 @@ pub struct Mixer<T> {
     builtins: BuiltinPool,
     device_msgs: rtrb::Consumer<DeviceMsg>,
     device_retired: rtrb::Producer<Box<Slot>>,
+    device_refused: rtrb::Producer<(u64, Box<Slot>)>,
+    /// A refused slot the interface has not taken yet (cannot happen: the ring
+    /// is deeper than the messages one block can carry).
+    device_held: Option<(u64, Box<Slot>)>,
     devices_pending: Arc<AtomicBool>,
     /// The device rate of the last block (0 before the first), for how long
     /// a host's quiet must last.
@@ -400,8 +423,9 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
     let (host_tx, host_rx) = rtrb::RingBuffer::new(HOST_QUEUE);
     let (host_retired_tx, host_retired_rx) = rtrb::RingBuffer::new(HOST_QUEUE + 1);
     let hosts_pending = Arc::new(AtomicBool::new(false));
-    let (device_tx, device_rx) = rtrb::RingBuffer::new(HOST_QUEUE);
-    let (device_retired_tx, device_retired_rx) = rtrb::RingBuffer::new(HOST_QUEUE + 1);
+    let (device_tx, device_rx) = rtrb::RingBuffer::new(DEVICE_QUEUE);
+    let (device_retired_tx, device_retired_rx) = rtrb::RingBuffer::new(DEVICE_QUEUE + 1);
+    let (device_refused_tx, device_refused_rx) = rtrb::RingBuffer::new(DEVICE_QUEUE + 1);
     let devices_pending = Arc::new(AtomicBool::new(false));
     (
         MixerHandle {
@@ -416,6 +440,7 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
             hosts_pending: Arc::clone(&hosts_pending),
             devices: device_tx,
             devices_retired: device_retired_rx,
+            devices_refused: device_refused_rx,
             devices_pending: Arc::clone(&devices_pending),
         },
         Mixer {
@@ -435,6 +460,8 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
             builtins: BuiltinPool::new(),
             device_msgs: device_rx,
             device_retired: device_retired_tx,
+            device_refused: device_refused_tx,
+            device_held: None,
             devices_pending,
             rate: 0,
         },
@@ -514,6 +541,12 @@ impl<T> Mixer<T> {
     /// As [`Mixer::apply_hosts`], for the built-in effects.
     #[inline(never)]
     fn apply_devices(&mut self) {
+        // A refused slot the interface has not taken yet (see below).
+        if let Some(held) = self.device_held.take()
+            && let Err(rtrb::PushError::Full(held)) = self.device_refused.push(held)
+        {
+            self.device_held = Some(held);
+        }
         if !self.devices_pending.swap(false, Ordering::AcqRel) {
             return;
         }
@@ -524,7 +557,24 @@ impl<T> Mixer<T> {
             let gone = match message {
                 DeviceMsg::Attach(id, slot) => match self.builtins.insert(id, slot) {
                     Ok(replaced) => replaced,
-                    Err(refused) => Some(refused),
+                    // The pool is full: the slot goes back to be freed off
+                    // the audio thread, with the id so the interface says
+                    // which device is not running (review M3).
+                    Err(refused) => {
+                        // At most `DEVICE_QUEUE` messages arrive between two
+                        // drains and the refusal ring holds one more, so this
+                        // push cannot fail; holding the slot rather than
+                        // dropping it keeps it off the audio thread's heap
+                        // whatever happens.
+                        if let Err(rtrb::PushError::Full(held)) =
+                            self.device_refused.push((id, refused))
+                        {
+                            debug_assert!(self.device_held.is_none(), "refusal ring full");
+                            self.device_held = Some(held);
+                            self.devices_pending.store(true, Ordering::Release);
+                        }
+                        None
+                    }
                 },
                 DeviceMsg::Detach(id) => self.builtins.remove(id),
             };

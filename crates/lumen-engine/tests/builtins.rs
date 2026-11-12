@@ -9,7 +9,7 @@ use std::sync::Arc;
 use lumen_core::automation::{Lane, Point, Shape};
 use lumen_core::time::Ticks;
 use lumen_devices::utility::{self, GAIN};
-use lumen_devices::{Effect, Utility};
+use lumen_devices::{Effect, Key, Stereo, Utility};
 use lumen_engine::{
     AutoLane, AutoPoint, Clip, ClipAudio, ClipPlayer, ClipsHandle, Command, Destination, Device,
     Engine, EngineHandle, Mixer, MixerHandle, NodeAutomation, NodeSpec, ParamLane, Routing, Slot,
@@ -49,6 +49,7 @@ fn routing(values: &[(u32, f32)], latency: u32, lane: Option<AutoLane>) -> Routi
     track.devices = vec![Device::Builtin {
         device: DEVICE,
         latency,
+        bypass: false,
     }];
     track.values = vec![(DEVICE, values.to_vec())];
     track.automation = lane.map(|lane| NodeAutomation {
@@ -337,19 +338,389 @@ fn an_offline_render_plays_what_playback_plays() {
     );
     assert_eq!(ended, Ended::Done);
     assert_eq!(rendered.len(), 6000);
-    // Past the play fade-in (2 ms) and the start of the first glide. The two
-    // cut the blocks differently (the render pre-rolls 100 ms, so its blocks
-    // are not the engine's), and the same lane curve interpolated along
-    // different stretches differs by float rounding: within a thousandth of
-    // the level, far under what a 16-bit file holds.
+    // Past the play fade-in (2 ms) the two agree frame for frame: the render
+    // cuts its blocks where playback does (the lead-in is a whole number of
+    // blocks, review L9), so a lane's points land on the same samples and the
+    // device's curves are interpolated along the same stretches.
     let mut worst = 0.0f32;
     for (frame, (a, b)) in live.iter().zip(&rendered).enumerate().skip(300) {
         let difference = (a - b).abs();
-        let allowed = 1e-3 * b.abs() + 1e-5;
-        if difference > allowed {
+        if a.to_bits() != b.to_bits() {
             panic!("frame {frame}: {a} live against {b} rendered");
         }
         worst = worst.max(difference);
     }
-    assert!(worst < 1e-3, "the render differs by {worst}");
+    assert_eq!(worst, 0.0, "the render differs by {worst}");
+}
+
+/// A pass-through whose latency follows one of its parameters (M8 slice B0,
+/// review H1): it holds its input back by the frames the same function the
+/// routing's latency comes from gives it, so the plan and the running device
+/// agree and a parallel dry path can be compared with it sample for sample.
+struct Timed {
+    /// The delay line of each side, long enough for the longest delay here.
+    rings: [Vec<f32>; 2],
+    at: usize,
+    /// The gain it was last told, as a device holds a value between blocks.
+    value: f32,
+}
+
+/// Frames the device holds its output back by at `values`: 240 at the bottom of
+/// the gain, 480 at the top.
+fn timed_latency(values: &[(u32, f32)]) -> u32 {
+    let up = lumen_devices::params::normalised_of(utility::TABLE, GAIN, values);
+    240 + (up * 240.0) as u32
+}
+
+impl Timed {
+    fn new() -> Self {
+        Self {
+            rings: [vec![0.0; 1024], vec![0.0; 1024]],
+            at: 0,
+            value: 0.0,
+        }
+    }
+}
+
+/// What the block says the gain (and so the latency) is: the last point of the
+/// last queue that names it, or what the device was last told (the engine tells
+/// a device a value only when it changed, so a device holds it between blocks,
+/// as `params::values` does).
+fn timed_value(block: &lumen_devices::Block<'_>, value: &mut f32) {
+    for i in 0..block.events.len() {
+        let (id, points) = block.events.queue(i);
+        if id == GAIN
+            && let Some(point) = points.last()
+        {
+            *value = point.1 as f32;
+        }
+    }
+}
+
+impl Effect for Timed {
+    fn process(&mut self, block: &lumen_devices::Block<'_>, io: Stereo<'_>, _: Option<Key<'_>>) {
+        timed_value(block, &mut self.value);
+        let delay = timed_latency(&[(GAIN, self.value)]) as usize;
+        let n = io.left.len();
+        for (ring, samples) in self.rings.iter_mut().zip([io.left, io.right]) {
+            for (k, sample) in samples.iter_mut().enumerate() {
+                let at = (self.at + k) % ring.len();
+                ring[at] = *sample;
+                *sample = ring[(at + ring.len() - delay) % ring.len()];
+            }
+        }
+        self.at = (self.at + n) % self.rings[0].len();
+    }
+}
+
+/// A clip on `track` that is silence with one sample of `value` at `at`, long
+/// enough for any render here.
+fn impulse_clip(track: u64, at: usize, value: f32) -> Clip {
+    let mut left = vec![0.0; 480_000];
+    left[at] = value;
+    Clip {
+        envelope: Default::default(),
+        id: track,
+        track,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 480_000,
+        gain: 1.0,
+        audio: Arc::new(ClipAudio::Memory {
+            sample_rate: RATE,
+            channels: vec![left.clone(), left],
+        }),
+        shape: Default::default(),
+    }
+}
+
+/// H1: a device whose latency follows a parameter plays in line with a
+/// parallel dry path, sample for sample, at both settings — the plan's
+/// compensation and the device's own delay come from the same values.
+#[test]
+fn a_latency_that_follows_a_parameter_keeps_a_parallel_path_in_line() {
+    const DRY: u64 = 2;
+    const AT: usize = 5_000;
+    let routing = |latency: u32, gain: f32| Routing {
+        nodes: vec![
+            NodeSpec::unity(MASTER, Destination::Hardware(0)),
+            {
+                let mut wet = NodeSpec::unity(TRACK, Destination::Node(MASTER));
+                wet.devices = vec![Device::Builtin {
+                    device: DEVICE,
+                    latency,
+                    bypass: false,
+                }];
+                wet.values = vec![(DEVICE, vec![(GAIN, gain)])];
+                wet
+            },
+            NodeSpec::unity(DRY, Destination::Node(MASTER)),
+        ],
+        cue: None,
+        measure: None,
+    };
+    let render = |latency: u32, gain: f32| {
+        let (mut clips, player) = clip_player();
+        clips
+            .set(vec![
+                impulse_clip(TRACK, AT, 0.5),
+                impulse_clip(DRY, AT, 0.5),
+            ])
+            .unwrap();
+        let (mut handle, source) = mixer(player);
+        assert!(handle.set(&routing(latency, gain)).unwrap());
+        handle
+            .attach_builtin(DEVICE, Slot::new(Box::new(Timed::new())))
+            .unwrap_or_else(|_| panic!("room in the pool"));
+        let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
+        transport.send(Command::Play).unwrap();
+        let mut data = vec![0.0; 2 * 128];
+        let mut left = Vec::new();
+        for _ in 0..(AT + 2_000) / 128 {
+            engine.process(RATE, &mut data, 2, 128);
+            left.extend_from_slice(&data[..128]);
+        }
+        left
+    };
+    for (latency, gain) in [(240u32, 0.0f32), (480, 1.0)] {
+        let loud = render(latency, gain);
+        // The engine plays the timeline as far ahead as the compensation, so
+        // the impulse comes out that much earlier; the point is that both
+        // paths put it in one sample, and that it is both of them.
+        let placed: Vec<(usize, f32)> = loud
+            .iter()
+            .enumerate()
+            .skip(4_096)
+            .filter(|(_, s)| s.abs() > 1e-6)
+            .map(|(k, s)| (k, *s))
+            .collect();
+        assert_eq!(placed.len(), 1, "latency {latency}: {placed:?}");
+        let (at, value) = placed[0];
+        assert_eq!(
+            at,
+            AT + latency as usize,
+            "latency {latency}: the impulse is at {at}"
+        );
+        assert!((value - 1.0).abs() < 1e-6, "both paths: {value}");
+    }
+}
+
+/// A device that silences what it is given and counts the blocks it is asked
+/// for, so its being asked (or not) can be seen.
+struct Counting(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl Effect for Counting {
+    fn process(&mut self, _: &lumen_devices::Block<'_>, io: Stereo<'_>, _: Option<Key<'_>>) {
+        io.left.fill(0.0);
+        io.right.fill(0.0);
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// M1: the power button means something. A bypassed built-in glides to its dry
+/// signal — never a step — and is not asked for a block at all once it has
+/// faded out; turning it back on glides it in again.
+#[test]
+fn the_power_button_glides_a_built_in_to_its_dry_signal() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let asked = Arc::new(AtomicUsize::new(0));
+    let (mut clips_handle, player) = clip_player();
+    clips_handle.set(vec![clip(0.25)]).unwrap();
+    let (mut routing_handle, source) = mixer(player);
+    let mut on = routing(&[(GAIN, gain(-6.0))], 0, None);
+    assert!(routing_handle.set(&on).unwrap());
+    routing_handle
+        .attach_builtin(DEVICE, Slot::new(Box::new(Counting(Arc::clone(&asked)))))
+        .unwrap_or_else(|_| panic!("room in the pool"));
+    let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
+    let render = |engine: &mut Engine<Mixer<ClipPlayer>>, blocks: usize| {
+        let mut data = vec![0.0; 2 * 128];
+        let mut out = Vec::new();
+        for _ in 0..blocks {
+            engine.process(RATE, &mut data, 2, 128);
+            out.extend_from_slice(&data[..128]);
+        }
+        out
+    };
+    transport.send(Command::Play).unwrap();
+    // On, it silences the audio, and the count is the signal that it ran.
+    let heard = render(&mut engine, 4);
+    assert_eq!(asked.load(Ordering::Relaxed), 4, "asked while on");
+    assert!(heard.iter().all(|s| s.abs() < 1e-6), "it silences while on");
+    // Power off: it is asked while it fades (20 ms), then not at all.
+    on.nodes[1].devices[0] = Device::Builtin {
+        device: DEVICE,
+        latency: 0,
+        bypass: true,
+    };
+    assert!(routing_handle.set(&on).unwrap());
+    let before = asked.load(Ordering::Relaxed);
+    let heard = render(&mut engine, 20);
+    let fading = asked.load(Ordering::Relaxed) - before;
+    assert!(fading > 0 && fading < 20, "asked while fading: {fading}");
+    // A step would be a jump between two neighbouring frames; a 20 ms glide is
+    // at most a hundredth of the level a frame.
+    let worst = heard
+        .windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .fold(0.0f32, f32::max);
+    assert!(worst < 0.01, "the bypass stepped by {worst}");
+    assert!(
+        (heard[heard.len() - 1] - 0.25).abs() < 1e-3,
+        "dry again: {}",
+        heard[heard.len() - 1]
+    );
+    let before = asked.load(Ordering::Relaxed);
+    render(&mut engine, 40);
+    assert_eq!(asked.load(Ordering::Relaxed), before, "not asked when off");
+    // Back on: it glides in and is asked again.
+    on.nodes[1].devices[0] = Device::Builtin {
+        device: DEVICE,
+        latency: 0,
+        bypass: false,
+    };
+    assert!(routing_handle.set(&on).unwrap());
+    render(&mut engine, 20);
+    assert!(
+        asked.load(Ordering::Relaxed) > before,
+        "asked again when on"
+    );
+}
+
+/// L3: a block that takes a new plan and a device to attach and one to detach
+/// touches no heap at all.
+#[test]
+fn a_plan_swap_with_a_device_to_attach_and_detach_never_touches_the_heap() {
+    assert!(guard_is_active(), "the guarded allocator is installed");
+    let before = routing(&[(GAIN, gain(0.0))], 0, None);
+    let mut after = routing(&[(GAIN, gain(-6.0))], 0, None);
+    after.nodes[1].devices[0] = Device::Builtin {
+        device: DEVICE + 1,
+        latency: 0,
+        bypass: false,
+    };
+    let mut rig = rig(vec![clip(0.25)], &before);
+    rig.attach(Box::new(Utility::new()));
+    rig.play();
+    rig.run(1024, 128);
+    // Queued on the interface side: a new plan, one device to attach and the
+    // one it holds to take away.
+    assert!(rig.routing.set(&after).unwrap());
+    rig.routing
+        .attach_builtin(DEVICE + 1, Slot::new(Box::new(Utility::new())))
+        .unwrap_or_else(|_| panic!("room in the pool"));
+    rig.routing.detach_builtin(DEVICE);
+    let mut data = vec![0.0; 2 * 128];
+    let ((), heap) = count_rt_violations(|| {
+        rig.engine.process(RATE, &mut data, 2, 128);
+    });
+    assert_eq!(heap, 0, "the audio thread allocated");
+}
+
+/// L6: the values the project holds are carried to a device when they change,
+/// not every block: a still device opens no parameter queue at all, and a
+/// value the interface moved arrives once (the device holds it, as
+/// `params::values` does).
+#[test]
+fn a_still_built_in_is_told_nothing_after_the_first_block() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Counts the parameters each block carries: the first block's, and the
+    /// most any later one had.
+    struct Watching {
+        calls: Arc<AtomicUsize>,
+        first: Arc<AtomicUsize>,
+        later: Arc<AtomicUsize>,
+    }
+
+    impl Effect for Watching {
+        fn process(&mut self, block: &lumen_devices::Block<'_>, _: Stereo<'_>, _: Option<Key<'_>>) {
+            let n = block.events.len();
+            if self.calls.fetch_add(1, Ordering::Relaxed) == 0 {
+                self.first.store(n, Ordering::Relaxed);
+            } else {
+                self.later.fetch_max(n, Ordering::Relaxed);
+            }
+        }
+    }
+
+    let (calls, first, later) = (
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicUsize::new(0)),
+    );
+    let routing = routing(&[(GAIN, gain(-6.0))], 0, None);
+    let mut rig = rig(vec![clip(0.25)], &routing);
+    rig.attach(Box::new(Watching {
+        calls: Arc::clone(&calls),
+        first: Arc::clone(&first),
+        later: Arc::clone(&later),
+    }));
+    rig.play();
+    rig.run(1024, 128);
+    assert!(calls.load(Ordering::Relaxed) >= 8, "it ran");
+    assert!(
+        first.load(Ordering::Relaxed) >= 1,
+        "the first block carries the value the project holds"
+    );
+    assert_eq!(
+        later.load(Ordering::Relaxed),
+        0,
+        "nothing is told again while the values are still"
+    );
+}
+
+/// FNV-1a 64, written here rather than pulled in, so a pin cannot drift with a
+/// library (the golden files' rule).
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// L2: the golden render of an automated Prism, pinned by its samples. A golden
+/// is frozen: one that differs from its pin was changed on purpose, and the pin
+/// moves in the same commit.
+#[test]
+fn a_golden_render_of_an_automated_prism_is_pinned_to_its_samples() {
+    let lane = AutoLane::new(vec![
+        AutoPoint {
+            at: 0,
+            value: gain(0.0),
+            shape: Shape::Linear,
+        },
+        AutoPoint {
+            at: 2000,
+            value: gain(-12.0),
+            shape: Shape::Curve(lumen_core::curve::Curve::FAST),
+        },
+        AutoPoint {
+            at: 3000,
+            value: gain(-40.0),
+            shape: Shape::Step,
+        },
+        AutoPoint {
+            at: 3500,
+            value: gain(6.0),
+            shape: Shape::Linear,
+        },
+    ])
+    .unwrap();
+    let routing = routing(&[(GAIN, gain(0.0))], 0, Some(lane));
+    let mut rig = rig(vec![clip(0.25)], &routing);
+    rig.attach(Box::new(Utility::new()));
+    rig.play();
+    let heard = rig.run(5000, 128);
+    let bytes: Vec<u8> = heard
+        .iter()
+        .flat_map(|s| s.to_bits().to_le_bytes())
+        .collect();
+    let hash = fnv1a64(&bytes);
+    assert_eq!(
+        hash, 0x8748_4ddb_5086_5272,
+        "the golden render moved: the pin is 0x{hash:016x}"
+    );
 }

@@ -498,6 +498,15 @@ impl NodeStages {
         self.mute.is_some()
     }
 
+    /// Whether a lane drives parameter `param` of `device` in this block: what
+    /// a built-in's value the project holds is always sent for, so the lane's
+    /// points are read as a lane and never as a value at rest (M8 slice B0,
+    /// review L6).
+    pub(super) fn drives(&self, device: u64, param: u32) -> bool {
+        self.plugins
+            .iter()
+            .any(|(d, lane, _)| *d == device && lane.param == param)
+    }
     /// Multiplies the input gain by the trim lane, and by the mute lane
     /// when mute comes with the input (a node with no devices).
     pub(super) fn input(

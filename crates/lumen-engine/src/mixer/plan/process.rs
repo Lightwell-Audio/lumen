@@ -210,9 +210,28 @@ impl Plan {
                             (&side[..frames], &side[CHUNK..CHUNK + frames])
                         });
                         self.host_scratch.params.start(frames);
-                        for &(id, value) in device.values.iter() {
+                        // The values the project holds: only one that moved
+                        // since the device was last told opens a queue, and one
+                        // a lane drives always does, so the lane's points are
+                        // read as a lane rather than as a value at rest (M8
+                        // slice B0, review L6). A still device does no parameter
+                        // work then, and a device with many parameters never
+                        // fills the block's room.
+                        for (index, &(id, value)) in device.values.iter().enumerate() {
+                            let driven = node
+                                .auto
+                                .as_deref()
+                                .is_some_and(|auto| auto.drives(device.builtin, id));
+                            if !driven && device.values_last[index] == value {
+                                continue;
+                            }
+                            // Room that is not there leaves the value where it
+                            // was rather than dropping the lane under it; the
+                            // table's test keeps a device's own table inside
+                            // `MOST_QUEUES`.
                             if self.host_scratch.params.open(id) {
                                 self.host_scratch.params.point(0, f64::from(value));
+                                device.values_last[index] = value;
                             }
                         }
                         if let Some(auto) = node.auto.as_deref() {

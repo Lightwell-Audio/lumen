@@ -26,8 +26,11 @@ use super::hosts::{HostScratch, Hosting};
 use super::plan::CHUNK;
 
 /// How many built-in effects one mixer holds: the most devices a project's
-/// tracks and buses can carry in one plan.
-pub const MAX_BUILTINS: usize = 256;
+/// tracks and buses can carry in one plan. A project larger than this is told
+/// about it (review M3), never silently short of devices; the pool itself is
+/// [`MAX_BUILTINS`] `Option<(u64, Box<Slot>)>` slots, 24 bytes each, about
+/// 48 KiB, allocated once with the mixer and never again.
+pub const MAX_BUILTINS: usize = 2048;
 
 /// A device with no built-in: one in a host, or the synthetic delay.
 pub(super) const NO_BUILTIN: u64 = u64::MAX;
@@ -172,11 +175,15 @@ impl BuiltinPool {
     }
 }
 
-/// Runs a built-in device over a node's `left` and `right`: its output, or the
-/// fallback (the input through the device's delay line) when it is not attached
-/// or the block is being rendered ahead of a jump. `key` is what arrives for
-/// the node's sidechain. `scratch.params` holds the values the node's
-/// parameters hold and the points the block's lanes give them.
+/// Runs a built-in device over a node's `left` and `right`: its output, the
+/// fallback (the input through the device's delay line) when it is not
+/// attached or the block is being rendered ahead of a jump, or a glide between
+/// the two. The glide is what makes the power button and an attach smooth
+/// (M8 slice B0, review M1): a bypassed device is not asked for blocks at all
+/// once its output has faded out, and it fades back in when it is turned on,
+/// as a plugin does. `key` is what arrives for the node's sidechain.
+/// `scratch.params` holds the values the node's parameters hold and the points
+/// the block's lanes give them.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run(
     dev: &mut super::plan::Dev,
@@ -201,6 +208,14 @@ pub(super) fn run(
         .as_deref_mut()
         .and_then(|pool| pool.get_mut(dev.builtin))
     else {
+        // Nothing of the device heard the values the block carried: when it
+        // is attached, it is told every one of them (review L6).
+        dev.values_last.fill(f32::NAN);
+        // And it is not heard: the node is on its dry fallback, so a device
+        // attached while the song plays fades in rather than stepping in (as
+        // a host's does, whose glide stays at the fallback until it answers).
+        dev.wet.set(0.0);
+        dev.wet.settle();
         left.copy_from_slice(dry_left);
         right.copy_from_slice(dry_right);
         return;
@@ -213,6 +228,43 @@ pub(super) fn run(
         slot.asked = true;
         return;
     }
+    // Power off, and nothing of its output left to fade: the effect is not
+    // asked for a block at all (a bypassed plugin is not either), so a
+    // bypassed device costs nothing and its quiet counts towards a Stop.
+    if dev.bypass && dev.wet.settled() && dev.wet.value() == 0.0 {
+        dev.values_last.fill(f32::NAN);
+        left.copy_from_slice(dry_left);
+        right.copy_from_slice(dry_right);
+        return;
+    }
+    // The device is on and heard on its own: it works where the audio already
+    // is, which is the one path every project with a built-in takes (no copy,
+    // no glide). The copy and the blend below are for a device that fades in
+    // or out.
+    if !dev.bypass && dev.wet.settled() && dev.wet.value() == 1.0 {
+        let block = Block {
+            rate,
+            start,
+            law,
+            events: &scratch.params,
+        };
+        let key = key.map(|(left, right)| Key { left, right });
+        slot.effect.process(
+            &block,
+            Stereo {
+                left: &mut *left,
+                right: &mut *right,
+            },
+            key,
+        );
+        slot.asked = true;
+        slot.heard(left, right);
+        return;
+    }
+    let (wet_left, wet_right) = scratch.wet.split_at_mut(CHUNK);
+    let (wet_left, wet_right) = (&mut wet_left[..n], &mut wet_right[..n]);
+    wet_left.copy_from_slice(left);
+    wet_right.copy_from_slice(right);
     let block = Block {
         rate,
         start,
@@ -223,13 +275,25 @@ pub(super) fn run(
     slot.effect.process(
         &block,
         Stereo {
-            left: &mut *left,
-            right: &mut *right,
+            left: wet_left,
+            right: wet_right,
         },
         key,
     );
     slot.asked = true;
-    slot.heard(left, right);
+    slot.heard(wet_left, wet_right);
+    dev.wet.set(if dev.bypass { 0.0 } else { 1.0 });
+    if dev.wet.settled() {
+        left.copy_from_slice(wet_left);
+        right.copy_from_slice(wet_right);
+    } else {
+        let gain = &mut scratch.gain[..n];
+        dev.wet.fill(gain, rate, true);
+        for k in 0..n {
+            left[k] = dry_left[k] + (wet_left[k] - dry_left[k]) * gain[k];
+            right[k] = dry_right[k] + (wet_right[k] - dry_right[k]) * gain[k];
+        }
+    }
 }
 
 #[cfg(test)]
@@ -308,6 +372,7 @@ mod tests {
         track.devices = vec![crate::mixer::Device::Builtin {
             device: 7,
             latency: 0,
+            bypass: false,
         }];
         assert!(
             handle

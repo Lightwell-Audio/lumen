@@ -113,6 +113,7 @@ fn engine_builtin_64(bencher: divan::Bencher<'_, '_>) {
         node.devices = vec![Device::Builtin {
             device: 1_000 + node.id,
             latency: 0,
+            bypass: false,
         }];
         // A gain a little under unity, and a pan off centre: the device works.
         node.values = vec![(

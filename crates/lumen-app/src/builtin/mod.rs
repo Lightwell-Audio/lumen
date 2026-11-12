@@ -15,12 +15,12 @@
 //! Each built-in has a **personality** (owner, 2026-11-12): a name of its own,
 //! with what it is as a subtitle, and a signature colour (DESIGN.md §7k).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use eframe::egui::Color32;
 use lumen_devices::params::{self, ParamInfo as Info};
-use lumen_devices::utility;
-use lumen_engine::{MixerHandle, Slot};
+use lumen_devices::{Description, utility};
+use lumen_engine::{MixerHandle, Routing, Slot};
 use lumen_hosting::{FLAG_CAN_AUTOMATE, ParamInfo};
 use lumen_project::model::{Device, Id, PluginRef, Project};
 use lumen_project::routing::all_tracks;
@@ -28,8 +28,9 @@ use lumen_project::routing::all_tracks;
 use crate::theme;
 
 /// What a built-in device is, as a person reads it: its personality's name,
-/// what it is, and its signature colour.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// what it is, its signature colour, and the description its table and timing
+/// come from.
+#[derive(Clone, Copy)]
 pub struct Identity {
     /// The name of its own ("Prism").
     pub name: &'static str,
@@ -38,18 +39,63 @@ pub struct Identity {
     pub kind: &'static str,
     /// Its signature colour (`theme::personality`).
     pub colour: Color32,
+    /// Its table, and how its latency and tail follow its values (M8 slice B0,
+    /// review H1: a pure function of the values, so the routing follows a
+    /// setting exactly as it follows a plugin's reported latency).
+    pub timing: &'static Description,
 }
+
+impl PartialEq for Identity {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.kind == other.kind && self.colour == other.colour
+    }
+}
+
+impl Eq for Identity {}
 
 /// The stable names of the built-in effects this build knows, with the
 /// personality each has.
-const IDENTITIES: &[(&str, Identity)] = &[(
-    utility::NAME,
-    Identity {
-        name: "Prism",
-        kind: "Utility",
-        colour: theme::personality::UTILITY,
-    },
-)];
+const IDENTITIES: &[(&str, Identity)] = &[
+    (
+        utility::NAME,
+        Identity {
+            name: "Prism",
+            kind: "Utility",
+            colour: theme::personality::UTILITY,
+            timing: &utility::DESCRIPTION,
+        },
+    ),
+    #[cfg(test)]
+    (
+        TEST_DEVICE,
+        Identity {
+            name: "Test timer",
+            kind: "Test",
+            colour: theme::personality::UTILITY,
+            timing: &TEST_TIMING,
+        },
+    ),
+];
+
+/// A device that exists only in tests (M8 slice B0, review H1): its latency
+/// follows one of its parameters, so a latency that is a function of the
+/// values can be followed from the project to the routing and the plan.
+#[cfg(test)]
+pub(crate) const TEST_DEVICE: &str = "test_timed";
+
+#[cfg(test)]
+fn test_latency(values: lumen_devices::Values<'_>) -> u32 {
+    let up = params::normalised_of(utility::TABLE, utility::GAIN, values);
+    240 + (up * 240.0) as u32
+}
+
+#[cfg(test)]
+static TEST_TIMING: Description = Description {
+    name: TEST_DEVICE,
+    table: utility::TABLE,
+    latency: test_latency,
+    tail: |_| 0,
+};
 
 /// What `name` is as a person reads it, if it is a built-in effect this build
 /// knows.
@@ -72,7 +118,7 @@ pub fn is_builtin(device: &Device) -> bool {
 
 /// The table a device of `name` declares.
 pub fn table(name: &str) -> Option<&'static [Info]> {
-    lumen_devices::effect_params(name)
+    identity(name).map(|identity| identity.timing.table)
 }
 
 /// The values a fresh device of `name` starts with: every parameter at the
@@ -127,17 +173,58 @@ pub fn routing_values(project: &Project) -> Vec<(u64, Vec<(u32, f32)>)> {
         .collect()
 }
 
-/// The latency each built-in device reports, in frames, for the routing's
-/// delay compensation. Read from the device's own build, so a device whose
-/// latency depends on a setting says so. A frozen track's devices do not play
-/// (its file does), so they are left out, as the routing leaves them out.
+/// The latency each built-in device reports at the values the project holds,
+/// in frames, for the routing's delay compensation. Read from the device's
+/// description and the project's values — never from a throwaway instance
+/// (M8 slice B0, review H1) — so a setting that changes the latency changes
+/// the routing exactly as a plugin's reported latency change does, and an
+/// export or a bounce (with no interface behind it) gets the same answer.
+/// A frozen track's devices do not play (its file does), so they are left out,
+/// as the routing leaves them out.
 pub fn latencies(project: &Project) -> BTreeMap<Id, u32> {
     let sounding = lumen_project::edit::freeze::played(project);
     all_tracks(&sounding)
         .flat_map(|track| track.devices.iter())
         .filter(|d| is_builtin(d))
-        .filter_map(|d| lumen_devices::effect(name_of(d)).map(|effect| (d.id, effect.latency())))
+        .filter_map(|d| {
+            let identity = identity(name_of(d))?;
+            Some((d.id, (identity.timing.latency)(&values(d))))
+        })
         .collect()
+}
+
+/// What the project holds for the devices `update` cares about, in one number
+/// (M8 slice B0, review L7): every built-in's id, name, bypass and values, and
+/// which tracks are frozen (a frozen track's devices are not played). When it
+/// has not changed there is nothing for `Builtins` to do, so a still project
+/// costs one pass and no allocation.
+fn revision(project: &Project) -> u64 {
+    fn put(hash: &mut u64, word: u64) {
+        for byte in word.to_le_bytes() {
+            *hash ^= u64::from(byte);
+            *hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for track in all_tracks(project) {
+        put(&mut hash, track.id.0);
+        put(&mut hash, u64::from(track.frozen.is_some()));
+        for device in &track.devices {
+            if !is_builtin(device) {
+                continue;
+            }
+            put(&mut hash, device.id.0);
+            put(&mut hash, u64::from(device.bypass));
+            for byte in name_of(device).bytes() {
+                put(&mut hash, u64::from(byte));
+            }
+            for (&id, &value) in &device.params {
+                put(&mut hash, u64::from(id));
+                put(&mut hash, value.to_bits());
+            }
+        }
+    }
+    hash
 }
 
 /// The parameters of `device` in the shape a plugin's arrive in.
@@ -195,17 +282,26 @@ pub fn choices(device: &Device, param: u32) -> Vec<String> {
 /// interface reads them through.
 #[derive(Default)]
 pub struct Builtins {
-    /// What is attached, by device id.
+    /// What is attached, by device id, and the name it is attached as.
     attached: BTreeMap<Id, String>,
     /// Frames each built-in reports its output trails its input by (M8 slice
-    /// B0), read from the effect when it is built, for the routing's delay
-    /// compensation.
+    /// B0), read from its description and the values the project holds, for
+    /// the routing's delay compensation.
     latency: BTreeMap<Id, u32>,
     /// The parameters of each built-in device, in the shape a plugin's arrive
     /// in, so the chain never has to build them again in a frame.
     params: BTreeMap<Id, Vec<ParamInfo>>,
     /// Built-ins the mixer's queue had no room for: tried again next frame.
     waiting: Vec<(Id, Box<Slot>)>,
+    /// The devices the mixer's pool had no room for (M8 slice B0, review M3):
+    /// the audio thread gave their slots back, so they are not running and the
+    /// person is told once, in full.
+    refused: BTreeSet<Id>,
+    /// What the last update saw of the project, in one number (review L7): a
+    /// still project does no work at all.
+    revision: u64,
+    /// A sentence to show, until the frame reads it.
+    note: Option<String>,
 }
 
 impl Builtins {
@@ -220,9 +316,38 @@ impl Builtins {
         &self.latency
     }
 
+    /// What the person should be told, once (a device the mixer had no room
+    /// for). Read in full.
+    pub fn take_note(&mut self) -> Option<String> {
+        self.note.take()
+    }
+
+    /// Whether the device is not running because the mixer had no room for it.
+    pub fn refused(&self, device: Id) -> bool {
+        self.refused.contains(&device)
+    }
+
     /// Keeps the attached built-ins in step with the project: one is built and
     /// handed over when its device appears, and taken away when it goes.
-    pub fn update(&mut self, project: &Project, mixer: &mut MixerHandle) {
+    /// Returns whether what the routing reads changed (a device's latency), so
+    /// the caller only copies the latencies when they can differ.
+    pub fn update(&mut self, project: &Project, mixer: &mut MixerHandle) -> bool {
+        let revision = revision(project);
+        let mut changed = false;
+        if revision != self.revision {
+            self.revision = revision;
+            self.follow(project, mixer);
+            changed = true;
+        }
+        // A device the pool refused (review M3) and one whose queue was full
+        // are retried every frame, whatever else changed.
+        self.take_refused(mixer);
+        self.attach_waiting(mixer);
+        changed
+    }
+
+    /// Devices that came, went or changed what they are.
+    fn follow(&mut self, project: &Project, mixer: &mut MixerHandle) {
         // A frozen track plays its file and runs no device, as the routing
         // has it.
         let sounding = lumen_project::edit::freeze::played(project);
@@ -236,19 +361,38 @@ impl Builtins {
             }
         }
         self.forget_gone(&wanted, mixer);
-        for (id, name) in &wanted {
-            if self.attached.contains_key(id) {
-                continue;
+        for track in all_tracks(project) {
+            for device in &track.devices {
+                if !is_builtin(device) {
+                    continue;
+                }
+                let id = device.id;
+                if self.attached.contains_key(&id) {
+                    // A device the pool refused is tried again when the
+                    // project changes; one it holds keeps its place.
+                    self.refused.remove(&id);
+                    continue;
+                }
+                let name = name_of(device);
+                let Some(effect) = lumen_devices::effect(name) else {
+                    continue;
+                };
+                self.attached.insert(id, name.to_owned());
+                // Its latency is a pure function of the values the project
+                // holds (review H1), so a setting that moves it is a new
+                // routing.
+                if let Some(identity) = identity(name) {
+                    self.latency
+                        .insert(id, (identity.timing.latency)(&values(device)));
+                }
+                self.waiting.push((id, Slot::new(effect)));
             }
-            let Some(effect) = lumen_devices::effect(name) else {
-                continue;
-            };
-            self.attached.insert(*id, name.clone());
-            self.latency.insert(*id, effect.latency());
-            self.waiting.push((*id, Slot::new(effect)));
         }
         self.latency
             .retain(|id, _| wanted.iter().any(|(known, _)| known == id));
+        // A refused device that left the project is forgotten with it.
+        self.refused
+            .retain(|id| wanted.iter().any(|(known, _)| known == id));
         // The tables the interface reads, for the devices the project holds.
         self.params
             .retain(|id, _| wanted.iter().any(|(known, _)| known == id));
@@ -263,7 +407,6 @@ impl Builtins {
                 }
             }
         }
-        self.attach_waiting(mixer);
     }
 
     /// The effects of devices that left the project, or changed what they are.
@@ -288,6 +431,24 @@ impl Builtins {
         }
     }
 
+    /// Built-in effects the mixer's pool had no room for (review M3): they are
+    /// not running, and the person is told once, with what it means.
+    fn take_refused(&mut self, mixer: &mut MixerHandle) {
+        for id in mixer.take_refused_builtins() {
+            let id = Id(id);
+            let Some(name) = self.attached.remove(&id) else {
+                continue;
+            };
+            self.refused.insert(id);
+            let device = identity(&name).map_or("A built-in device", |i| i.name);
+            self.note = Some(format!(
+                "{device} could not start: the mixer has room for {} built-in devices at once. \
+                 It plays its dry signal until there is room, and the rest of the project is heard.",
+                lumen_engine::MAX_BUILTINS
+            ));
+        }
+    }
+
     /// Effects the mixer's queue had no room for last time.
     fn attach_waiting(&mut self, mixer: &mut MixerHandle) {
         let mut still = Vec::new();
@@ -305,21 +466,55 @@ impl Builtins {
     }
 }
 
-/// Builds every built-in effect in `project` and attaches them to `mixer`, for
-/// a render with no interface behind it (an export, a bounce).
-pub fn attach_all(project: &Project, mixer: &mut MixerHandle) -> Result<(), String> {
+/// Builds the built-in effects a render's routing names and attaches them to
+/// `mixer`, for a render with no interface behind it (an export, a bounce).
+///
+/// A render's queue is finite and nothing drains it before the first block, so
+/// a project with more built-ins than the queue holds would fail on the 65th
+/// (M8 slice B0, review H2). `drain` is called when the queue is full: it runs
+/// the mixer idle for a block, which is how the audio side takes the devices
+/// (an export's callback does this itself). Only the built-ins the routing
+/// names are attached: a bounce attaches its one track's devices, not every
+/// device in the project.
+pub fn attach_all(
+    project: &Project,
+    routing: &Routing,
+    mixer: &mut MixerHandle,
+    mut drain: impl FnMut(),
+) -> Result<(), String> {
+    let named: BTreeSet<u64> = routing
+        .nodes
+        .iter()
+        .flat_map(|node| node.devices.iter())
+        .filter_map(|device| match *device {
+            lumen_engine::Device::Builtin { device, .. } => Some(device),
+            _ => None,
+        })
+        .collect();
     let sounding = lumen_project::edit::freeze::played(project);
     for track in all_tracks(&sounding) {
         for device in &track.devices {
-            if !is_builtin(device) {
+            if !is_builtin(device) || !named.contains(&device.id.0) {
                 continue;
             }
             let Some(effect) = lumen_devices::effect(name_of(device)) else {
                 continue;
             };
-            mixer
-                .attach_builtin(device.id.0, Slot::new(effect))
-                .map_err(|_| "Too many built-in devices to render at once".to_owned())?;
+            let mut slot = Slot::new(effect);
+            // Give the audio side a block whenever the queue is full, so a
+            // project of any size attaches; a bounded number of rounds keeps a
+            // mixer that is not running from looping forever.
+            let mut rounds = 0;
+            while let Err(back) = mixer.attach_builtin(device.id.0, slot) {
+                slot = back;
+                rounds += 1;
+                if rounds > 64 {
+                    return Err(
+                        "The mixer would not take the project's built-in devices".to_owned()
+                    );
+                }
+                drain();
+            }
         }
     }
     Ok(())
@@ -419,5 +614,164 @@ mod tests {
             .1;
         assert_eq!(width, 0.5);
         assert_eq!(latencies(&project).get(&prism.id), Some(&0));
+    }
+
+    /// H1: a device whose latency follows a parameter has that latency in the
+    /// project's latencies, in the routing and in the compiled plan, and a
+    /// change of the parameter changes all three — exactly as a host's
+    /// reported latency change does.
+    #[test]
+    fn a_latency_that_follows_a_parameter_reaches_the_routing_and_the_plan() {
+        use crate::engine::routing::{Cue, Devices, routing};
+        let mut project = crate::empty_project();
+        let mut timed = device(TEST_DEVICE);
+        // The gain at its lowest: 240 frames.
+        timed.params.insert(utility::GAIN, 0.0);
+        let mut track = Track::new(Id(1), "Audio".to_owned(), TrackKind::Audio, Color(0));
+        track.devices = vec![timed.clone()];
+        project.tracks = vec![std::sync::Arc::new(track)];
+        assert_eq!(latencies(&project).get(&timed.id), Some(&240));
+        let plan = |project: &Project| {
+            let devices = Devices {
+                builtin: latencies(project),
+                ..Devices::default()
+            };
+            let routing = routing(project, &Cue::default(), &devices, 48_000);
+            lumen_engine::compile_routing(&routing).unwrap()
+        };
+        assert_eq!(plan(&project).compensation().frames, 240);
+
+        // The setting moves: so does the plan's timing, with no device built.
+        let mut loud = timed.clone();
+        loud.params.insert(utility::GAIN, 1.0);
+        let mut track = Track::new(Id(1), "Audio".to_owned(), TrackKind::Audio, Color(0));
+        track.devices = vec![loud];
+        project.tracks = vec![std::sync::Arc::new(track)];
+        assert_eq!(latencies(&project).get(&timed.id), Some(&480));
+        assert_eq!(plan(&project).compensation().frames, 480);
+        assert_eq!(
+            plan(&project).compensation().path,
+            [(1, 480)],
+            "the track is the path that holds it back"
+        );
+    }
+
+    /// Every device the engine can run has a personality, and every personality
+    /// is a device the engine can run: the two lists cannot drift apart.
+    #[test]
+    fn every_built_in_device_has_a_personality() {
+        for description in lumen_devices::EFFECTS {
+            let identity = identity(description.name)
+                .unwrap_or_else(|| panic!("{} has no personality", description.name));
+            assert_eq!(identity.timing.name, description.name);
+        }
+        for (name, identity) in IDENTITIES {
+            assert_eq!(identity.timing.name, *name);
+            if *name != TEST_DEVICE {
+                assert!(
+                    lumen_devices::effect_description(name).is_some(),
+                    "{name} is not a device"
+                );
+            }
+        }
+    }
+
+    /// L7: a still project does nothing at all here. The first frame builds
+    /// what the project holds; the next, with nothing changed, allocates
+    /// nothing and hands over nothing; one edit is noticed again.
+    #[test]
+    fn a_still_project_does_nothing() {
+        use lumen_engine::{Source, clip_player, mixer};
+        let mut project = crate::empty_project();
+        let mut prism = device(utility::NAME);
+        for (id, value) in defaults(utility::NAME) {
+            prism.params.insert(id, f64::from(value));
+        }
+        let mut track = Track::new(Id(1), "Audio".to_owned(), TrackKind::Audio, Color(0));
+        track.devices = vec![prism.clone()];
+        project.tracks = vec![std::sync::Arc::new(track)];
+        let (_clips, player) = clip_player();
+        let (mut handle, mut source) = mixer(player);
+        let mut builtins = Builtins::default();
+        assert!(
+            builtins.update(&project, &mut handle),
+            "the first frame builds it"
+        );
+        assert!(
+            !builtins.update(&project, &mut handle),
+            "a still project changes nothing"
+        );
+        // A value the person moved is an edit: it is noticed, and the device
+        // is not built again.
+        let mut loud = prism;
+        loud.params.insert(utility::GAIN, 0.25);
+        let mut track = Track::new(Id(1), "Audio".to_owned(), TrackKind::Audio, Color(0));
+        track.devices = vec![loud];
+        project.tracks = vec![std::sync::Arc::new(track)];
+        assert!(builtins.update(&project, &mut handle), "the edit is seen");
+        assert!(!builtins.update(&project, &mut handle), "and only the once");
+        source.idle(48_000, 128);
+        assert!(builtins.attached(Id(5)));
+    }
+
+    /// H2: a render attaches more built-ins than the mixer's queue holds. The    /// queue is drained while attaching, so a project of thousands of devices
+    /// cannot fail on the 65th (M8 slice B0, review H2); the ones past the
+    /// pool come back as refused, so the interface can say which are not
+    /// running, and nothing is dropped on the audio thread.
+    #[test]
+    fn a_render_attaches_more_built_ins_than_the_queue_holds() {
+        use lumen_engine::{Destination, NodeSpec, Routing, Source, clip_player, mixer};
+        const RATE: u32 = 48_000;
+        let total = lumen_engine::MAX_BUILTINS + 4;
+        let mut project = crate::empty_project();
+        let mut tracks = Vec::with_capacity(total);
+        for k in 0..total {
+            let mut track = Track::new(
+                Id(1_000 + k as u64),
+                format!("Track {k}"),
+                TrackKind::Audio,
+                Color(0),
+            );
+            let mut prism = Device::new(
+                Id(5_000 + k as u64),
+                PluginRef::Builtin {
+                    name: utility::NAME.to_owned(),
+                },
+                false,
+                Vec::new(),
+            );
+            for (id, value) in defaults(utility::NAME) {
+                prism.params.insert(id, f64::from(value));
+            }
+            track.devices = vec![prism];
+            tracks.push(std::sync::Arc::new(track));
+        }
+        project.tracks = tracks;
+        // A routing whose one node names every device: what `attach_all` reads.
+        let mut node = NodeSpec::unity(1, Destination::Hardware(0));
+        node.devices = (0..total)
+            .map(|k| lumen_engine::Device::Builtin {
+                device: 5_000 + k as u64,
+                latency: 0,
+                bypass: false,
+            })
+            .collect();
+        let routing = Routing {
+            nodes: vec![node],
+            cue: None,
+            measure: None,
+        };
+        let (_clips, player) = clip_player();
+        let (mut handle, mut source) = mixer(player);
+        attach_all(&project, &routing, &mut handle, || source.idle(RATE, 256))
+            .expect("every device attaches");
+        // One more block takes the last of them, which the pool refuses.
+        source.idle(RATE, 256);
+        let refused = handle.take_refused_builtins();
+        assert_eq!(refused.len(), total - lumen_engine::MAX_BUILTINS);
+        assert!(
+            handle.take_refused_builtins().is_empty(),
+            "a refusal is reported once"
+        );
     }
 }

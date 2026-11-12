@@ -645,9 +645,18 @@ impl eframe::App for App {
             &mut self.transport.audio.mixer,
             &mut self.lanes.devices.hosted,
         );
-        self.builtin
-            .update(self.document.project(), &mut self.transport.audio.mixer);
-        self.lanes.devices.builtin = self.builtin.latencies().clone();
+        // A still project does nothing here (M8 slice B0, review L7): the
+        // devices, their values and their latencies are read again only when
+        // what the project holds of them changes.
+        if self
+            .builtin
+            .update(self.document.project(), &mut self.transport.audio.mixer)
+        {
+            self.lanes.devices.builtin = self.builtin.latencies().clone();
+        }
+        if let Some(note) = self.builtin.take_note() {
+            self.say(note);
+        }
         self.watch_safe_mode();
         self.arrangement.output_notes = chain::outputs::notes_of(self);
         self.lanes.midi_changed(hosts.midi);

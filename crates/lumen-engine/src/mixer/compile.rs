@@ -157,13 +157,18 @@ pub(super) fn compile_metered(
         let first_device = devices.len() as u32;
         for (index, device) in spec.devices.iter().enumerate() {
             device.hash(&mut hasher);
-            let (listen, host, builtin, values) = match *device {
-                super::spec::Device::Delay { listen, .. } => (listen, NO_HOST, NO_BUILTIN, &[][..]),
-                super::spec::Device::Hosted { host, .. } => (false, host, NO_BUILTIN, &[][..]),
-                super::spec::Device::Builtin { device, .. } => (
+            let (listen, host, builtin, bypass, values) = match *device {
+                super::spec::Device::Delay { listen, .. } => {
+                    (listen, NO_HOST, NO_BUILTIN, false, &[][..])
+                }
+                super::spec::Device::Hosted { host, .. } => {
+                    (false, host, NO_BUILTIN, false, &[][..])
+                }
+                super::spec::Device::Builtin { device, bypass, .. } => (
                     false,
                     NO_HOST,
                     device,
+                    bypass,
                     spec.values
                         .iter()
                         .find(|(id, _)| *id == device)
@@ -184,7 +189,9 @@ pub(super) fn compile_metered(
                 listen,
                 host,
                 builtin,
+                bypass,
                 values: Arc::from(values),
+                values_last: vec![f32::NAN; values.len()],
                 wet: Smoothed::new(0.0),
                 began: false,
                 refused: false,

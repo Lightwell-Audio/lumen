@@ -39,9 +39,17 @@ pub(in crate::mixer) struct Dev {
     pub(in crate::mixer) host: u64,
     /// The device's id in the mixer's built-in pool, or [`NO_BUILTIN`].
     pub(in crate::mixer) builtin: u64,
+    /// The built-in's power is off: it is not asked for blocks, and the node
+    /// glides to the dry fallback (M8 slice B0, review M1).
+    pub(in crate::mixer) bypass: bool,
     /// What the project holds for a built-in's parameters, normalised, by id,
     /// sorted: played at the block's first frame, under the lanes' points.
     pub(in crate::mixer) values: Arc<[(u32, f32)]>,
+    /// What each of `values` was when the device was last told: only a value
+    /// that moved opens a queue, so a still device costs no parameter work
+    /// (M8 slice B0, review L6). Worked out in `compile`; NaN before the
+    /// device is told anything.
+    pub(in crate::mixer) values_last: Vec<f32>,
     /// 1 while the host's output is what the node hears, 0 for the fallback.
     pub(in crate::mixer) wet: Smoothed,
     /// The device's block was handed to its host ahead of the node loop.

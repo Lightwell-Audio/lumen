@@ -162,9 +162,9 @@ pub(super) struct HostScratch {
     /// The input through a device's delay line: the fallback, for a host's
     /// glide and for a built-in with no effect attached.
     pub dry: [f32; 2 * CHUNK],
-    /// The host's output.
-    wet: [f32; 2 * CHUNK],
-    gain: [f32; CHUNK],
+    /// The device's own output, for the glide between it and the fallback.
+    pub wet: [f32; 2 * CHUNK],
+    pub gain: [f32; CHUNK],
     /// The parameters the lanes change in the block, for the device being
     /// handed one (M7 slice A3).
     pub params: ParamBlock,

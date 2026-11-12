@@ -219,32 +219,29 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Ro
                         listen: false,
                     })
                     .into_iter()
-                    // A plugin effect is named for as long as the project
-                    // holds it: the engine plays the host where one is
-                    // attached and the same time without it (D1, D7).
-                    .chain(
-                        track
-                            .devices
-                            .iter()
-                            .filter(|d| d.is_vst3() && !d.is_instrument())
-                            .map(|d| Device::Hosted {
+                    // Every device in the chain, in the order the card shows
+                    // them (M8 slice B0, review M2): a plugin effect is named
+                    // for as long as the project holds it (the engine plays
+                    // the host where one is attached and the same time without
+                    // it, D1, D7), and a built-in effect runs in the audio
+                    // thread itself, found by its id. An instrument is not in
+                    // the chain.
+                    .chain(track.devices.iter().filter_map(|d| {
+                        if d.is_vst3() && !d.is_instrument() {
+                            return Some(Device::Hosted {
                                 host: d.id.0,
                                 latency: devices.hosted.get(&d.id).copied().unwrap_or(0),
-                            }),
-                    )
-                    // A built-in effect runs in the audio thread itself (M8
-                    // slice B0), found by its id; its reported latency keeps
-                    // every other path lined up with it.
-                    .chain(
-                        track
-                            .devices
-                            .iter()
-                            .filter(|d| crate::builtin::is_builtin(d))
-                            .map(|d| Device::Builtin {
-                                device: d.id.0,
-                                latency: devices.builtin.get(&d.id).copied().unwrap_or(0),
-                            }),
-                    )
+                            });
+                        }
+                        // A built-in's reported latency keeps every other path
+                        // lined up with it; its power button glides the node to
+                        // the dry fallback rather than being ignored.
+                        crate::builtin::is_builtin(d).then(|| Device::Builtin {
+                            device: d.id.0,
+                            latency: devices.builtin.get(&d.id).copied().unwrap_or(0),
+                            bypass: d.bypass,
+                        })
+                    }))
                     .collect(),
                 // What each built-in's parameters hold, carried with the
                 // routing so a knob reaches the audio thread with the next
@@ -577,6 +574,59 @@ mod tests {
         assert!(
             super::bounce_routing(doc.project(), Id(9_999), &Devices::default(), RATE).is_none()
         );
+    }
+
+    /// M2: a track's chain plays in the order its card shows, whatever kinds of
+    /// device are in it — a built-in before a plugin plays before it, and the
+    /// reverse.
+    #[test]
+    fn the_chain_plays_in_the_order_the_card_shows() {
+        use lumen_project::model::{DeviceKind, PluginRef};
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio]);
+        let plugin = with_plugin(&mut doc, ids[0], DeviceKind::Effect, "Filter");
+        let builtin = doc
+            .add_device(
+                ids[0],
+                PluginRef::Builtin {
+                    name: lumen_devices::utility::NAME.to_owned(),
+                },
+                crate::document::Slot::End,
+            )
+            .unwrap();
+        let order = |doc: &Document| -> Vec<&'static str> {
+            let routing = super::routing(doc.project(), &Cue::default(), &Devices::default(), RATE);
+            node(&routing, ids[0])
+                .devices
+                .iter()
+                .map(|d| match d {
+                    Device::Hosted { .. } => "plugin",
+                    Device::Builtin { .. } => "builtin",
+                    Device::Delay { .. } => "delay",
+                })
+                .collect()
+        };
+        assert_eq!(order(&doc), ["plugin", "builtin"]);
+        // The card shows them the other way round: so does the chain.
+        doc.move_device(ids[0], builtin, ids[0], crate::document::Slot::At(0))
+            .unwrap();
+        assert_eq!(order(&doc), ["builtin", "plugin"]);
+        // And the routing compiles either way.
+        lumen_engine::compile_routing(&super::routing(
+            doc.project(),
+            &Cue::default(),
+            &Devices::default(),
+            RATE,
+        ))
+        .unwrap();
+        assert_ne!(plugin, builtin);
+        // A latent test device still comes first: it is the track's own.
+        let mut devices = Devices::default();
+        devices.latent.insert(ids[0], 12);
+        let routing = super::routing(doc.project(), &Cue::default(), &devices, RATE);
+        assert!(matches!(
+            node(&routing, ids[0]).devices[0],
+            Device::Delay { .. }
+        ));
     }
 
     fn doc_with(kinds: &[TrackKind]) -> (Document, Vec<Id>) {

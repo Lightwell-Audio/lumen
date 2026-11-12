@@ -63,9 +63,9 @@ pub use midi::{
 };
 pub use mixer::{
     AutoLane, AutoPoint, BUS_CHANNELS, Bus, Buses, Compensation, CueOut, Destination, Device, KNOT,
-    Layered, Level, MAX_DEVICE_LATENCY, MAX_HOSTS, Mixer, MixerHandle, NodeAutomation, NodeSpec,
-    ParamLane, Plan, RMS_SECONDS, Routing, RoutingError, SendSpec, SidechainSpec, Slot, Tap,
-    TrackSource, compile as compile_routing, db_gain, mixer,
+    Layered, Level, MAX_BUILTINS, MAX_DEVICE_LATENCY, MAX_HOSTS, Mixer, MixerHandle,
+    NodeAutomation, NodeSpec, ParamLane, Plan, RMS_SECONDS, Routing, RoutingError, SendSpec,
+    SidechainSpec, Slot, Tap, TrackSource, compile as compile_routing, db_gain, mixer,
 };
 pub use render::{
     ClipRender, Ended, Finished, MOST_BLOCK, SourceRender, render_clips, render_source,

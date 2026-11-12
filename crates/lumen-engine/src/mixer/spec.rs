@@ -68,10 +68,17 @@ pub enum Device {
     Hosted { host: u64, latency: u32 },
     /// A built-in effect (M8 slice B0), found in the mixer's built-in pool by
     /// the id `device`: Lumen's own code, run in-process on the audio thread.
-    /// `latency` is what it reports, in frames: delay compensation counts it,
-    /// and it is the delay the node plays while the device is not attached
-    /// yet, so timing never shifts. A change of it is a new routing.
-    Builtin { device: u64, latency: u32 },
+    /// `latency` is what it reports at the values `NodeSpec::values` holds, in
+    /// frames: delay compensation counts it, and it is the delay the node
+    /// plays while the device is not attached yet, so timing never shifts. A
+    /// change of it is a new routing. `bypass` is the device's power button:
+    /// the node glides to the dry fallback and the effect is not asked for
+    /// blocks until it is on again (M8 slice B0, review M1).
+    Builtin {
+        device: u64,
+        latency: u32,
+        bypass: bool,
+    },
 }
 
 impl Device {
@@ -83,6 +90,12 @@ impl Device {
                 latency.min(super::MAX_DEVICE_LATENCY)
             }
         }
+    }
+
+    /// Whether a built-in device's power is off: it runs nothing and the node
+    /// plays its dry fallback.
+    pub fn bypass(&self) -> bool {
+        matches!(*self, Self::Builtin { bypass: true, .. })
     }
 }
 
