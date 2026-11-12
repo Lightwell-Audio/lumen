@@ -210,3 +210,37 @@ fn a_writer_refuses_another_pools_stream() {
     let audio = StreamAudio::new(&two, 1, 48_000, 2, 10);
     writer.load(&audio, 0, &[0.0; 10], &[0.0; 10]);
 }
+
+/// The audio thread's side of a stream never loads: a page it has not been
+/// given reads nothing, even on a stream built for an offline render whose
+/// loader would read the file. Loading is the offline read's, asked for
+/// explicitly (sweep M16b).
+#[test]
+fn an_audio_side_never_loads_a_page() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let pool = PagePool::new(4);
+    let loads = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&loads);
+    let loader = OfflineLoader::new(
+        &pool,
+        Box::new(move |audio, page, left, right| {
+            counted.fetch_add(1, Ordering::Relaxed);
+            let frames = (audio.frames() as usize - page * PAGE).min(PAGE);
+            let (l, r) = page_of(page, frames);
+            left[..frames].copy_from_slice(&l);
+            right[..frames].copy_from_slice(&r);
+            Some(frames)
+        }),
+    );
+    let live = StreamAudio::new(&PagePool::new(1), 1, 48_000, 2, PAGE as u64);
+    let stream = loader.stream(&live);
+    let side = stream.side(0);
+    assert_eq!(side.at(0), None, "a page that was not given reads nothing");
+    assert_eq!(loads.load(Ordering::Relaxed), 0, "and nothing was loaded");
+    // A side that may load, which only an offline read asks for, does.
+    assert!(stream.ensure(0));
+    assert_eq!(loads.load(Ordering::Relaxed), 1, "the file was read once");
+    assert_eq!(stream.side(0).at(0), Some(1e-7));
+}

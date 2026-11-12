@@ -15,9 +15,10 @@ use std::time::{Duration, Instant};
 
 use lumen_devices::hosted::QUIET_LEVEL;
 
-use crate::clips::{Clip, clip_player};
+use crate::clips::{Clip, clip_player_for};
 use crate::mixer::{BUS_CHANNELS, Buses, CHUNK, TrackSource};
 use crate::source::{Jump, Mode, Output, RenderContext, Source};
+use crate::stream::LoadPages;
 use crate::timeline::Timeline;
 
 /// The most frames a render handles at a time.
@@ -73,7 +74,7 @@ pub fn render_clips(
     for clip in &mut clips {
         clip.track = BUS_ID;
     }
-    let (mut handle, mut player) = clip_player();
+    let (mut handle, mut player) = clip_player_for::<LoadPages>();
     handle.bare_ends(bare_ends);
     if handle.set(clips).is_err() {
         unreachable!("a new clip queue has room for one list");
@@ -251,4 +252,115 @@ pub fn render_source<S: Source + ?Sized>(
         sink(l, r);
     }
     Ended::Done
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use lumen_core::time::Ticks;
+
+    use crate::clips::{Clip, ClipAudio, ClipShape, clip_player};
+    use crate::stream::{OfflineLoader, PAGE, PagePool, StreamAudio};
+
+    const RATE: u32 = 48_000;
+
+    /// A stream of `PAGE` frames that an offline render fills from `loads`,
+    /// counted: the audio the player hears when it may load is 0.5 and -0.5.
+    fn offline_stream(pool: &Arc<PagePool>, loads: &Arc<AtomicUsize>) -> StreamAudio {
+        let counted = Arc::clone(loads);
+        let loader = OfflineLoader::new(
+            pool,
+            Box::new(move |_, _, left, right| {
+                counted.fetch_add(1, Ordering::Relaxed);
+                left[..PAGE].fill(0.5);
+                right[..PAGE].fill(-0.5);
+                Some(PAGE)
+            }),
+        );
+        let live = StreamAudio::new(&PagePool::new(1), 7, RATE, 2, PAGE as u64);
+        loader.stream(&live)
+    }
+
+    fn clip(audio: ClipAudio) -> Clip {
+        Clip {
+            id: 1,
+            track: BUS_ID,
+            start: Ticks::ZERO,
+            offset: 0,
+            length: PAGE as i64,
+            gain: 1.0,
+            audio: Arc::new(audio),
+            shape: ClipShape::default(),
+            envelope: Default::default(),
+        }
+    }
+
+    /// The audio thread's player has no way to load a page: an offline stream
+    /// handed to it plays silence and its loader is never asked, while an
+    /// offline render of the same stream loads and plays it (sweep M16b).
+    #[test]
+    fn only_an_offline_render_loads_the_pages_it_reads() {
+        // A render may load what it reads, so it hears the file.
+        let loads = Arc::new(AtomicUsize::new(0));
+        let stream = offline_stream(&PagePool::new(4), &loads);
+        let mut heard = Vec::new();
+        let ended = render_clips(
+            ClipRender {
+                clips: vec![clip(ClipAudio::Stream(stream))],
+                timeline: Timeline::default(),
+                sample_rate: RATE,
+                from: 0,
+                frames: PAGE as u64,
+                bare_ends: false,
+                block: 256,
+            },
+            &AtomicBool::new(false),
+            &mut |_| {},
+            &mut |left, right| {
+                heard.extend(left.iter().zip(right).map(|(l, r)| (*l, *r)));
+            },
+        );
+        assert_eq!(ended, Finished::Done);
+        assert!(loads.load(Ordering::Relaxed) > 0, "the render loads");
+        assert!(heard.iter().any(|(l, _)| *l != 0.0), "and hears the file");
+
+        // The audio thread's player cannot, so it plays silence.
+        let loads = Arc::new(AtomicUsize::new(0));
+        let stream = offline_stream(&PagePool::new(4), &loads);
+        let (mut handle, mut player) = clip_player();
+        assert!(
+            handle.set(vec![clip(ClipAudio::Stream(stream))]).is_ok(),
+            "room for one list"
+        );
+        let timeline = Timeline::default();
+        let context = RenderContext {
+            timeline: &timeline,
+            sample_rate: RATE,
+            start: 0,
+            tail: false,
+            stopping: false,
+            mode: Mode::Play,
+            stream: 0,
+            device: 0,
+            recording: false,
+            looping: None,
+            deadline: None,
+        };
+        let mut data = vec![0.0; CHUNK * BUS_CHANNELS];
+        let by_id = [(BUS_ID, 0)];
+        player.render(&context, &mut Buses::over(&by_id, &mut data, 256));
+        assert_eq!(
+            loads.load(Ordering::Relaxed),
+            0,
+            "the audio thread's player loads nothing"
+        );
+        assert!(
+            data.iter().all(|&x| x == 0.0),
+            "and what it cannot hear is silent"
+        );
+    }
 }
