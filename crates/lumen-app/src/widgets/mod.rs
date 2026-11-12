@@ -82,7 +82,7 @@ pub fn shorten(painter: &egui::Painter, text: &str, font: FontId, width: f32) ->
 }
 
 /// Whether a double-click landed on `response`'s control this frame, for a
-/// field that must return to its default (DESIGN §5). A `DragValue` begins
+/// field that must return to its default on one. A `DragValue` begins
 /// editing on the first click, so its own response never sees the second
 /// one; the pointer's double-click is read against the field's rect
 /// instead. The edit the first click began ends too, so the reset value is

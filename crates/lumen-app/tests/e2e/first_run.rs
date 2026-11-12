@@ -262,7 +262,7 @@ fn the_device_menus_in_preferences_and_setup_are_separate() {
 
 #[test]
 fn a_narrow_welcome_window_wraps_its_hint_instead_of_cutting_its_end() {
-    // A notice wraps; only a name or a path may end in "�" (DESIGN �9).
+    // A notice wraps; only a name or a path may end in an ellipsis.
     let mut lumen = first_run("welcome-wrap");
     let hint = |l: &Lumen| {
         l.harness

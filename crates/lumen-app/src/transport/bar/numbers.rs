@@ -4,7 +4,7 @@
 use super::*;
 
 /// The tempo a double-click on the tempo field returns it to: a new
-/// project's (DESIGN §5: every control resets to its default).
+/// project's, as every control returns to its default on a double-click.
 const DEFAULT_BPM: f64 = 120.0;
 
 impl Transport {

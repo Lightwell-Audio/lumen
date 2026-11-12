@@ -56,7 +56,7 @@ fn every_page_opens_from_the_list_and_draws_every_row_search_can_find() {
 
 #[test]
 fn a_double_click_on_the_recording_offset_returns_it_to_zero() {
-    // Every control resets to its default on a double-click (DESIGN §5).
+    // Every control resets to its default on a double-click.
     let mut lumen = Lumen::start_with(TempDir::new("e2e-preferences-offset"), |l| {
         l.with_input_device()
     });
