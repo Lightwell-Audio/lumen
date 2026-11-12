@@ -695,6 +695,16 @@ impl Stream for AsioStream {
     }
 }
 
+impl Drop for AsioStream {
+    fn drop(&mut self) {
+        // A stream dropped without `close` (an early return, a failed open
+        // that already started, a panic) still stops its driver and reclaims
+        // its state instead of leaving the device running (sweep M5d). After
+        // `close` the driver is gone, so this has nothing left to do.
+        drop(self.shutdown());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -801,5 +811,28 @@ mod tests {
             "an init failure is not proof the device is absent"
         );
         assert!(other.to_string().contains("No ASIO device found"));
+    }
+
+    /// A stream is shut down once: a second call, which `Drop` makes after
+    /// `close`, finds the driver taken and frees nothing twice (sweep M5d).
+    #[test]
+    fn shutting_a_stream_down_twice_is_harmless() {
+        let mut stream = AsioStream {
+            driver: None,
+            state: ptr::null_mut(),
+            info: StreamInfo {
+                sample_rate: 48_000,
+                buffer_frames: 128,
+                input_latency: 0,
+                output_latency: 0,
+                input_channels: 0,
+                output_channels: 2,
+                silent_inputs: Vec::new(),
+            },
+            started_at: Instant::now(),
+            failed_to_start: false,
+        };
+        drop(stream.shutdown());
+        drop(stream.shutdown());
     }
 }
