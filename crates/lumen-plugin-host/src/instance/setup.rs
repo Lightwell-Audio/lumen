@@ -1,6 +1,13 @@
 //! Creating an instance and setting it up: buses, speaker arrangements and
 //! activation.
 
+// The bindings' enum constants are `i32` on Windows and `u32` elsewhere, so a
+// cast one platform needs is a no-op on the other.
+#![allow(
+    clippy::unnecessary_cast,
+    reason = "the bindings' enum constants are `i32` on Windows and `u32` elsewhere, so the cast one platform needs is a no-op on the other"
+)]
+
 use super::*;
 
 impl Instance {

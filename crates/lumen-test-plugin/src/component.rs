@@ -1,5 +1,12 @@
 //! The audio component of both test plugins: buses, processing, state.
 
+// The bindings' enum constants are `i32` on Windows and `u32` elsewhere, so a
+// cast one platform needs is a no-op on the other.
+#![allow(
+    clippy::unnecessary_cast,
+    reason = "the bindings' enum constants are `i32` on Windows and `u32` elsewhere, so the cast one platform needs is a no-op on the other"
+)]
+
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 

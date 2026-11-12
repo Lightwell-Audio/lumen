@@ -338,6 +338,10 @@ impl Instance {
 
     /// One call of the plugin's `process` over `span` of the buffers, checked
     /// by [`Self::process_into`].
+    #[allow(
+        clippy::unnecessary_cast,
+        reason = "the bindings' enum constants are `i32` on Windows and `u32` elsewhere, so the cast one platform needs is a no-op on the other"
+    )]
     fn process_span(
         &mut self,
         format: Format,
