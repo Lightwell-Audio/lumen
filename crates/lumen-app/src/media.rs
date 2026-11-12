@@ -287,8 +287,13 @@ impl Library {
     /// before; turned off, clips of streamed files are silent (their disk
     /// thread has stopped).
     pub fn set_streaming(&mut self, streaming: Option<streaming::Streaming>) {
-        // The old disk thread stops here.
-        self.streaming = streaming;
+        let Some(old) = std::mem::replace(&mut self.streaming, streaming) else {
+            return;
+        };
+        // The old disk thread stops where it is, up to one page read, and
+        // its join does not belong in a frame (sweep M4d): it is dropped on
+        // a thread of its own.
+        crate::spawn::drop_later(old);
     }
 
     /// The pool, disk thread and cache while streaming is on.
