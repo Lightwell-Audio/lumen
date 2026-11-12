@@ -3,7 +3,6 @@
 //! timing; a plugin says whether it is an instrument or an effect. Old files
 //! mean what they always meant, and a damaged file is refused with a reason.
 
-use std::fs;
 use std::path::PathBuf;
 
 use lumen_project::model::{
@@ -16,6 +15,8 @@ use serde_json::{Value, json};
 
 const CLASS_A: &str = "ABCDEF0123456789ABCDEF0123456789";
 const CLASS_B: &str = "0123456789ABCDEF0123456789ABCDEF";
+
+mod common;
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -78,13 +79,7 @@ fn golden_v17_expected() -> Project {
 
 #[test]
 fn golden_v17_file_loads_forever() {
-    let path = fixture("v17/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v17_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v17 golden file must load");
-    assert_eq!(project, golden_v17_expected());
+    common::golden("v17", golden_v17_expected);
 }
 
 #[test]
@@ -269,13 +264,7 @@ fn golden_v18_expected() -> Project {
 
 #[test]
 fn golden_v18_file_loads_forever() {
-    let path = fixture("v18/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v18_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v18 golden file must load");
-    assert_eq!(project, golden_v18_expected());
+    common::golden("v18", golden_v18_expected);
 }
 
 #[test]
@@ -323,13 +312,7 @@ fn golden_v19_expected() -> Project {
 
 #[test]
 fn golden_v19_file_loads_forever() {
-    let path = fixture("v19/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v19_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v19 golden file must load");
-    assert_eq!(project, golden_v19_expected());
+    common::golden("v19", golden_v19_expected);
 }
 
 #[test]
@@ -417,13 +400,7 @@ fn golden_v20_expected() -> Project {
 
 #[test]
 fn golden_v20_file_loads_forever() {
-    let path = fixture("v20/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v20_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v20 golden file must load");
-    assert_eq!(project, golden_v20_expected());
+    common::golden("v20", golden_v20_expected);
 }
 
 #[test]
@@ -511,13 +488,7 @@ fn golden_v21_expected() -> Project {
 
 #[test]
 fn golden_v21_file_loads_forever() {
-    let path = fixture("v21/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v21_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v21 golden file must load");
-    assert_eq!(project, golden_v21_expected());
+    common::golden("v21", golden_v21_expected);
 }
 
 #[test]
@@ -637,13 +608,7 @@ fn golden_v22_expected() -> Project {
 
 #[test]
 fn golden_v22_file_loads_forever() {
-    let path = fixture("v22/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v22_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v22 golden file must load");
-    assert_eq!(project, golden_v22_expected());
+    common::golden("v22", golden_v22_expected);
 }
 
 #[test]
@@ -766,13 +731,7 @@ fn golden_v23_expected() -> Project {
 
 #[test]
 fn golden_v23_file_loads_forever() {
-    let path = fixture("v23/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v23_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v23 golden file must load");
-    assert_eq!(project, golden_v23_expected());
+    common::golden("v23", golden_v23_expected);
 }
 
 #[test]

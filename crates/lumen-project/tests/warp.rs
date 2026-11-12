@@ -8,7 +8,6 @@
 //! project stays valid, and that split followed by Join returns the original.
 //! Nothing here listens: until S4b, warp is stored and kept true, not played.
 
-use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -30,6 +29,8 @@ const FILE_SECONDS: f64 = 120.0;
 fn q(n: i64) -> Ticks {
     Ticks::quarters(n)
 }
+
+mod common;
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -108,13 +109,7 @@ fn golden_v33_expected() -> Project {
 
 #[test]
 fn golden_v33_loads_and_round_trips() {
-    let path = fixture("v33/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v33_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v33 golden file must load");
-    assert_eq!(project, golden_v33_expected());
+    let project = common::golden("v33", golden_v33_expected);
     assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
 }
 
@@ -148,13 +143,7 @@ fn golden_v34_expected() -> Project {
 
 #[test]
 fn golden_v34_loads_and_round_trips() {
-    let path = fixture("v34/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v34_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v34 golden file must load");
-    assert_eq!(project, golden_v34_expected());
+    let project = common::golden("v34", golden_v34_expected);
     assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
 }
 

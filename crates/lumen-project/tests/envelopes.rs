@@ -2,7 +2,6 @@
 //! measured from the clip's start. Older files hold none; a damaged one is
 //! refused with a reason.
 
-use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -12,6 +11,8 @@ use lumen_project::envelope::Kind;
 use lumen_project::model::{Clip, ClipContent, Color, Id, Media, Project, Track, TrackKind};
 use lumen_project::testing::project_of;
 use lumen_project::{from_bytes, load, to_bytes};
+
+mod common;
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -106,24 +107,12 @@ fn golden_v26_expected() -> Project {
 
 #[test]
 fn golden_v25_file_loads_forever() {
-    let path = fixture("v25/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v25_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v25 golden file must load");
-    assert_eq!(project, golden_v25_expected());
+    common::golden("v25", golden_v25_expected);
 }
 
 #[test]
 fn golden_v26_file_loads_and_round_trips_phase_and_fade_windows() {
-    let path = fixture("v26/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v26_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v26 golden file must load");
-    assert_eq!(project, golden_v26_expected());
+    let project = common::golden("v26", golden_v26_expected);
     assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
 }
 
