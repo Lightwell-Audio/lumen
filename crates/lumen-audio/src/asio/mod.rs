@@ -283,6 +283,25 @@ unsafe fn write_samples(buffer: *mut c_void, sample_type: AsioSampleType, source
     }
 }
 
+/// How a failed driver `init` reads to the user (sweep M5c).
+///
+/// ASIO's `init` answers only true or false, and the driver's own message is
+/// all it offers: one that names the device as taken means another
+/// application holds it, so it says so instead of reading as a missing
+/// device. Anything else is a plain driver error carrying that message.
+fn init_error(message: String) -> AudioError {
+    // The driver's words only: ASIO hands back no code to tell these apart.
+    let said = message.to_lowercase();
+    let busy = ["in use", "busy", "already open"]
+        .iter()
+        .any(|phrase| said.contains(phrase));
+    if busy {
+        AudioError::DeviceBusy(message)
+    } else {
+        AudioError::Driver(message)
+    }
+}
+
 /// ASIO devices. Construct on the audio control thread: it enters a COM
 /// apartment that the drivers live in.
 pub struct AsioBackend {
@@ -316,9 +335,7 @@ impl AsioBackend {
 
     fn load(&self, clsid: &str) -> Result<Driver, AudioError> {
         let driver = Driver::create(clsid).map_err(AudioError::DeviceNotFound)?;
-        driver
-            .init(self.window.0)
-            .map_err(AudioError::DeviceNotPresent)?;
+        driver.init(self.window.0).map_err(init_error)?;
         Ok(driver)
     }
 
@@ -757,5 +774,32 @@ mod tests {
         let created = DisposeOnDrop::new(|| disposed.set(disposed.get() + 1));
         created.disarm();
         assert_eq!(disposed.get(), 1, "disarmed: the stream owns them");
+    }
+
+    /// A driver another application holds must not read as a missing one: the
+    /// user is told it is busy, with a way forward (sweep M5c).
+    #[test]
+    fn a_driver_held_elsewhere_reads_as_busy_not_missing() {
+        for message in [
+            "The device is in use by another application",
+            "ASIO driver busy",
+            "Device already open",
+        ] {
+            let error = init_error(message.into());
+            assert!(
+                matches!(&error, AudioError::DeviceBusy(m) if m == message),
+                "{error:?} for {message}"
+            );
+        }
+        let other = init_error("No ASIO device found".into());
+        assert!(
+            matches!(&other, AudioError::Driver(m) if m == "No ASIO device found"),
+            "{other:?}"
+        );
+        assert!(
+            !matches!(other, AudioError::DeviceNotPresent(_)),
+            "an init failure is not proof the device is absent"
+        );
+        assert!(other.to_string().contains("No ASIO device found"));
     }
 }
