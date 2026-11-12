@@ -12952,3 +12952,57 @@ allocation guard; offline equals real time for a mapped track; and E2E for
 attaching, hearing a sound muted and converting from the clip's menu. Not
 built here, on purpose: the piano roll's drum names, the drum editor, the step
 sequencer, per-sound routing (D4) and the sampler (B5) that honours it.
+
+Export MIDI writes one channel per file track (`midi/export.rs`), so a file of
+a mapped track holds the right notes on the track's channel and not the
+channel a sound names: E4's "as stored" export and the export settings are
+where that is settled.
+
+**Review round 1** (an independent reviewer; every finding fixed on the
+branch):
+
+- *H1 and H2: a choke in the choked note's own pass.* A chase after a locate
+  or a loop wrap, two notes of one group on one tick and two pads on one frame
+  all start the choked note in the same pass as the choke, so the note-off
+  sorted before the note-on it answered: the instrument was sent an off for a
+  key it never held, and the note it was given rang on, past Stop too. The
+  tracker now takes that pass's queued note-on back instead of sending a
+  note-off (`hold.rs`, `end_before_it_sounded` and `cancel_queued_on`): the
+  note never reached the instrument, so it owes no release. The four
+  scenarios are tests with a per-channel-and-key check that no off precedes
+  its on and nothing is left sounding after Stop (`tests/live.rs`), there is a
+  unit case in `hold.rs`, and the allocation guard plays a locate into
+  overlapping hats and same-tick hits.
+- *M1: a remapped pad while recording.* The clips' notes reach the engine as
+  the note their sound plays, while the recording's `Down` kept the key that
+  came in, so a sound remapping 36 to 40 never won its own clip's notes and
+  the part sounded doubled until the take was committed. `Down` keeps both and
+  `yields` compares the played note (`tests/record.rs`).
+- *M2: Capture MIDI on a mapped track.* `played::take_of` took no map, so a
+  captured phrase stored the notes the kit plays. It now takes the track's map
+  and gives the capture a recording's store table.
+- *L1: the chooser's Detach.* It ran the command that reads the selection, and
+  the window is not modal, so a click on another track's header detached the
+  wrong track (or nothing). It acts on the tracks it named.
+- *L2: the property test* carries muted notes and controller events, in an
+  order the seeded numbers choose, and compares the reloaded project's notes
+  and events rather than counting maps.
+- *L3 and L4: tests.* The recorder's store table has its own test, and a
+  sound's channel has engine tests for a clip note and a live pad, including a
+  map edit while the note sounds.
+- *L5: the model's dead and inconsistent API.* `played_note` is gone; a played
+  note two sounds share is in the first sound's choke group in `kit_of` as
+  well as in `choke_of_output`; a sound's colour is `DrumIcon::color`, beside
+  the icon, and no longer read from the preset tables.
+- *L7: the cost of translation.* `drums::Playing` reads a map once (a 128-note
+  input index and one "any soloed"), so a 100,000-note clip translates in
+  O(notes), and the run cache holds one shared `Arc<DrumMap>` per map instead
+  of a whole kit in every cached clip.
+- *L6: validation* refuses a nameless or blank sound name and a
+  `Route::Track` that names no instrument track.
+- *L10: the drum E2E* waits for the device to fall silent (a `Deadline` around
+  `listen`) instead of running thirty frames after muting.
+- *L8 is recorded, not fixed:* see the export sentence above.
+- *L9:* not run or looked at here: the WSL performance gate, the macOS
+  cross-target clippy, and the three-scale screenshots in both themes (this
+  slice has no window of its own; D1's editor is where they are looked at).
