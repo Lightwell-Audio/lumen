@@ -387,9 +387,9 @@ pub struct NodeAutomation {
     pub pan: Option<AutoLane>,
     /// Each send's level in dB, by the send's place in the node's `sends`.
     pub sends: Vec<Option<AutoLane>>,
-    /// The parameters of the node's plugin effects that lanes drive (M7
-    /// slice A3): the effect's host id and the lane of one of its
-    /// parameters.
+    /// The parameters of the node's devices that lanes drive (M7 slice A3,
+    /// plugins; M8 slice B0, built-ins): the device's id and the lane of one
+    /// of its parameters.
     pub plugins: Vec<(u64, ParamLane)>,
 }
 
@@ -440,7 +440,7 @@ pub(super) struct NodeStages {
 
 impl NodeStages {
     /// The stages of `lanes` for a node whose `devices` are in this order.
-    /// A plugin is given the audio that reaches it: `lag_pre` behind the
+    /// A device is given the audio that reaches it: `lag_pre` behind the
     /// timeline, and later still by the devices before it.
     pub(super) fn new(
         lanes: &NodeAutomation,
@@ -452,12 +452,18 @@ impl NodeStages {
         let plugins = lanes
             .plugins
             .iter()
-            .filter_map(|(host, lane)| {
-                let index = devices
-                    .iter()
-                    .position(|d| matches!(*d, Device::Hosted { host: h, .. } if h == *host))?;
+            .filter_map(|(device, lane)| {
+                let index = devices.iter().position(|d| match *d {
+                    Device::Hosted { host, .. } => host == *device,
+                    Device::Builtin { device: built, .. } => built == *device,
+                    Device::Delay { .. } => false,
+                })?;
                 let before: u32 = devices[..index].iter().map(Device::latency).sum();
-                Some((*host, lane.clone(), i64::from(lag_pre) + i64::from(before)))
+                Some((
+                    *device,
+                    lane.clone(),
+                    i64::from(lag_pre) + i64::from(before),
+                ))
             })
             .collect();
         Self {
@@ -472,17 +478,18 @@ impl NodeStages {
         }
     }
 
-    /// Starts `block` for the `frames` frames the plugin `host` is given
-    /// from timeline sample `start`, with the lanes that drive its parameters.
-    pub(super) fn plugin_block(
+    /// Adds the lanes that drive `device`'s parameters to `block`, for the
+    /// `frames` frames it is given from timeline sample `start`: the points are
+    /// added to a block the caller has started (the value the project holds
+    /// comes first, so a lane's queue is the one a device reads).
+    pub(super) fn device_block(
         &self,
-        host: u64,
+        device: u64,
         start: i64,
         frames: usize,
         block: &mut ParamBlock,
     ) {
-        block.start(frames);
-        for (_, lane, lag) in self.plugins.iter().filter(|(h, ..)| *h == host) {
+        for (_, lane, lag) in self.plugins.iter().filter(|(d, ..)| *d == device) {
             params::fill(block, lane, start - lag, frames);
         }
     }

@@ -66,6 +66,12 @@ pub enum Device {
     /// absent, so timing never shifts (the owner's D1 and D7). A change of
     /// it is a new routing.
     Hosted { host: u64, latency: u32 },
+    /// A built-in effect (M8 slice B0), found in the mixer's built-in pool by
+    /// the id `device`: Lumen's own code, run in-process on the audio thread.
+    /// `latency` is what it reports, in frames: delay compensation counts it,
+    /// and it is the delay the node plays while the device is not attached
+    /// yet, so timing never shifts. A change of it is a new routing.
+    Builtin { device: u64, latency: u32 },
 }
 
 impl Device {
@@ -73,7 +79,9 @@ impl Device {
     pub fn latency(&self) -> u32 {
         match *self {
             Self::Delay { frames, .. } => frames.min(super::MAX_DEVICE_LATENCY),
-            Self::Hosted { latency, .. } => latency.min(super::MAX_DEVICE_LATENCY),
+            Self::Hosted { latency, .. } | Self::Builtin { latency, .. } => {
+                latency.min(super::MAX_DEVICE_LATENCY)
+            }
         }
     }
 }
@@ -116,6 +124,12 @@ pub struct NodeSpec {
     pub source: u32,
     /// Sidechains into the node's second input (M4 slice 6).
     pub sidechains: Vec<SidechainSpec>,
+    /// The values each built-in effect of the node holds, normalised, by
+    /// device id (M8 slice B0): what the project says, carried with the
+    /// routing so a knob reaches the audio thread with the node's next block
+    /// without a message of its own. A lane still wins inside a block. Not
+    /// part of the routing's shape: moving a knob never crossfades.
+    pub values: Vec<(u64, Vec<(u32, f32)>)>,
     /// The lanes that drive the node's trim, mute, fader, pan and sends
     /// (M7 slice A0). A value with a lane is the lane's: the fixed trim,
     /// volume, pan, mute (`audible` and `sends_audible` as the track's own
@@ -142,6 +156,7 @@ impl NodeSpec {
             devices: Vec::new(),
             source: 0,
             sidechains: Vec::new(),
+            values: Vec::new(),
             automation: None,
         }
     }

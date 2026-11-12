@@ -5,6 +5,9 @@ use super::super::auto::NodeStages;
 use super::super::delay::LineId;
 use super::super::smooth::Smoothed;
 use super::super::spec::Tap;
+use lumen_core::pan::PanLaw;
+
+use std::sync::Arc;
 
 /// Where a compiled node's output goes: an index into the plan's nodes.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -24,15 +27,21 @@ pub(in crate::mixer) struct Send {
     pub(in crate::mixer) line: LineId,
 }
 
-/// A compiled device: the synthetic delay (its line), or a plugin effect in
-/// a host (its fallback line, and the glide to its output).
-#[derive(Debug, Clone, Copy)]
+/// A compiled device: the synthetic delay (its line), a plugin effect in a
+/// host (its fallback line, and the glide to its output), or a built-in effect
+/// (its fallback line and the values its parameters hold).
+#[derive(Debug, Clone)]
 pub(in crate::mixer) struct Dev {
     pub(in crate::mixer) line: LineId,
     /// Adds the node's sidechain input before delaying.
     pub(in crate::mixer) listen: bool,
     /// The host's id in the mixer's pool, or [`NO_HOST`].
     pub(in crate::mixer) host: u64,
+    /// The device's id in the mixer's built-in pool, or [`NO_BUILTIN`].
+    pub(in crate::mixer) builtin: u64,
+    /// What the project holds for a built-in's parameters, normalised, by id,
+    /// sorted: played at the block's first frame, under the lanes' points.
+    pub(in crate::mixer) values: Arc<[(u32, f32)]>,
     /// 1 while the host's output is what the node hears, 0 for the fallback.
     pub(in crate::mixer) wet: Smoothed,
     /// The device's block was handed to its host ahead of the node loop.
@@ -60,6 +69,9 @@ pub(in crate::mixer) const NO_SIDE: u32 = u32::MAX;
 #[derive(Debug, Clone)]
 pub(in crate::mixer) struct Node {
     pub(in crate::mixer) id: u64,
+    /// The pan law the node pans with: a built-in device that pans follows it
+    /// (M8 slice B0).
+    pub(in crate::mixer) law: PanLaw,
     /// Delays what the tracks play into the node, when it waits for a
     /// later input.
     pub(in crate::mixer) input_line: LineId,

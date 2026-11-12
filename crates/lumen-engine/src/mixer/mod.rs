@@ -30,6 +30,7 @@
 //! engine's crossfade at the output would come too early.
 
 mod auto;
+mod builtins;
 mod compile;
 mod delay;
 mod hosts;
@@ -41,6 +42,7 @@ mod spec;
 
 pub(crate) use auto::Kind as LaneKind;
 pub use auto::{AutoLane, AutoPoint, KNOT, NodeAutomation, db_gain};
+pub use builtins::Slot;
 pub use compile::compile;
 pub use delay::MAX_DEVICE_LATENCY;
 pub use hosts::MAX_HOSTS;
@@ -57,6 +59,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use builtins::{BuiltinPool, DeviceMsg};
 use compile::compile_metered;
 use hosts::{HostMsg, HostPool, Hosting};
 use lumen_devices::Guard;
@@ -72,7 +75,6 @@ const QUEUE: usize = 4;
 const HOST_QUEUE: usize = 64;
 /// A plan of a new shape crossfades in over 5 ms.
 const SWAP_PER_SECOND: u32 = 200;
-
 /// Audio per track, played into the tracks' buses. Every method must be
 /// real-time safe, as for [`Source`].
 pub trait TrackSource: Send {
@@ -188,6 +190,12 @@ pub struct MixerHandle {
     /// A host message waits: set here, cleared when the audio side takes
     /// them, so a callback with none to take reads one flag.
     hosts_pending: Arc<AtomicBool>,
+    /// Built-in effects on their way to the audio side, and the ones it let go
+    /// of (M8 slice B0).
+    devices: rtrb::Producer<DeviceMsg>,
+    devices_retired: rtrb::Consumer<Box<Slot>>,
+    /// A device message waits: as `hosts_pending`, for built-ins.
+    devices_pending: Arc<AtomicBool>,
 }
 
 impl MixerHandle {
@@ -211,6 +219,31 @@ impl MixerHandle {
         let sent = self.hosts.push(HostMsg::Detach(id)).is_ok();
         if sent {
             self.hosts_pending.store(true, Ordering::Release);
+        }
+        sent
+    }
+
+    /// Attaches a built-in effect as device `id`, the id a
+    /// [`Device::Builtin`] names. A device already attached under `id` is
+    /// replaced (and freed here, by [`MixerHandle::collect_garbage`]). Gives
+    /// the slot back when the queue is full: try again next frame.
+    pub fn attach_builtin(&mut self, id: u64, slot: Box<Slot>) -> Result<(), Box<Slot>> {
+        match self.devices.push(DeviceMsg::Attach(id, slot)) {
+            Ok(()) => {
+                self.devices_pending.store(true, Ordering::Release);
+                Ok(())
+            }
+            Err(rtrb::PushError::Full(DeviceMsg::Attach(_, slot))) => Err(slot),
+            Err(rtrb::PushError::Full(DeviceMsg::Detach(_))) => unreachable!("an attach was sent"),
+        }
+    }
+
+    /// Takes the built-in effect `id` away. Returns whether the message was
+    /// queued.
+    pub fn detach_builtin(&mut self, id: u64) -> bool {
+        let sent = self.devices.push(DeviceMsg::Detach(id)).is_ok();
+        if sent {
+            self.devices_pending.store(true, Ordering::Release);
         }
         sent
     }
@@ -298,6 +331,10 @@ impl MixerHandle {
         while self.hosts_retired.pop().is_ok() {
             freed += 1;
         }
+        // A built-in dropped here is freed off the audio thread.
+        while self.devices_retired.pop().is_ok() {
+            freed += 1;
+        }
         freed
     }
 }
@@ -323,6 +360,11 @@ pub struct Mixer<T> {
     host_msgs: rtrb::Consumer<HostMsg>,
     host_retired: rtrb::Producer<Guard>,
     hosts_pending: Arc<AtomicBool>,
+    /// The built-in effects the plan's built-in devices find by id.
+    builtins: BuiltinPool,
+    device_msgs: rtrb::Consumer<DeviceMsg>,
+    device_retired: rtrb::Producer<Box<Slot>>,
+    devices_pending: Arc<AtomicBool>,
     /// The device rate of the last block (0 before the first), for how long
     /// a host's quiet must last.
     rate: u32,
@@ -358,6 +400,9 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
     let (host_tx, host_rx) = rtrb::RingBuffer::new(HOST_QUEUE);
     let (host_retired_tx, host_retired_rx) = rtrb::RingBuffer::new(HOST_QUEUE + 1);
     let hosts_pending = Arc::new(AtomicBool::new(false));
+    let (device_tx, device_rx) = rtrb::RingBuffer::new(HOST_QUEUE);
+    let (device_retired_tx, device_retired_rx) = rtrb::RingBuffer::new(HOST_QUEUE + 1);
+    let devices_pending = Arc::new(AtomicBool::new(false));
     (
         MixerHandle {
             incoming: incoming_tx,
@@ -369,6 +414,9 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
             hosts: host_tx,
             hosts_retired: host_retired_rx,
             hosts_pending: Arc::clone(&hosts_pending),
+            devices: device_tx,
+            devices_retired: device_retired_rx,
+            devices_pending: Arc::clone(&devices_pending),
         },
         Mixer {
             tracks,
@@ -384,6 +432,10 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
             host_msgs: host_rx,
             host_retired: host_retired_tx,
             hosts_pending,
+            builtins: BuiltinPool::new(),
+            device_msgs: device_rx,
+            device_retired: device_retired_tx,
+            devices_pending,
             rate: 0,
         },
     )
@@ -453,6 +505,35 @@ impl<T> Mixer<T> {
         // A callback with nothing to take reads one flag.
         if self.hosts_pending.load(Ordering::Relaxed) {
             self.apply_hosts();
+        }
+        if self.devices_pending.load(Ordering::Relaxed) {
+            self.apply_devices();
+        }
+    }
+
+    /// As [`Mixer::apply_hosts`], for the built-in effects.
+    #[inline(never)]
+    fn apply_devices(&mut self) {
+        if !self.devices_pending.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        while self.device_retired.slots() >= 1 {
+            let Ok(message) = self.device_msgs.pop() else {
+                break;
+            };
+            let gone = match message {
+                DeviceMsg::Attach(id, slot) => match self.builtins.insert(id, slot) {
+                    Ok(replaced) => replaced,
+                    Err(refused) => Some(refused),
+                },
+                DeviceMsg::Detach(id) => self.builtins.remove(id),
+            };
+            if let Some(slot) = gone {
+                let _ = self.device_retired.push(slot);
+            }
+        }
+        if !self.device_msgs.is_empty() {
+            self.devices_pending.store(true, Ordering::Release);
         }
     }
 
@@ -586,6 +667,7 @@ impl<T: TrackSource> Source for Mixer<T> {
                     let tap = Some(&mut self.loudness);
                     let mut hosting = Hosting {
                         pool: Some(&mut self.hosts),
+                        builtins: Some(&mut self.builtins),
                         deadline: part_cx.deadline,
                     };
                     let pass = Pass {
@@ -615,6 +697,7 @@ impl<T: TrackSource> Source for Mixer<T> {
                     // asked once for a block.
                     let mut hosting = Hosting {
                         pool: Some(&mut self.hosts),
+                        builtins: Some(&mut self.builtins),
                         deadline: part_cx.deadline,
                     };
                     let pass = Pass {
@@ -642,6 +725,7 @@ impl<T: TrackSource> Source for Mixer<T> {
         }
         if advance {
             self.hosts.age(frames);
+            self.builtins.age(frames);
         }
     }
 
@@ -664,6 +748,7 @@ impl<T: TrackSource> Source for Mixer<T> {
             // A move of the playhead in the song: no effect's tail carries
             // over to the new place (the engine crossfades the jump itself).
             self.hosts.flush();
+            self.builtins.reset();
         }
         if jump != Jump::Play && self.plan.latency() > 0 {
             // Latent: the engine's crossfade would come before the jump is
@@ -716,8 +801,8 @@ impl<T: TrackSource> Source for Mixer<T> {
     }
 
     fn ringing(&self) -> bool {
-        // A plugin effect rings out after a Stop until its output has been
-        // quiet for a while: a delay or a reverb is not cut off.
-        self.tracks.ringing() || self.hosts.sounding(self.rate)
+        // A plugin effect or a built-in rings out after a Stop until its output
+        // has been quiet for a while: a delay or a reverb is not cut off.
+        self.tracks.ringing() || self.hosts.sounding(self.rate) || self.builtins.sounding(self.rate)
     }
 }

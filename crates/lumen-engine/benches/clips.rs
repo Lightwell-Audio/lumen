@@ -76,3 +76,68 @@ fn routed_tracks_at_128_frames(bencher: divan::Bencher<'_, '_>, tracks: usize) {
     let mut data = vec![0.0; 256];
     bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
 }
+
+/// 64 tracks, each with Prism, the utility device, on it (M8 slice B0): what a
+/// built-in effect costs the audio thread, beside `routed_tracks_at_128_frames`
+/// without one.
+#[divan::bench]
+fn engine_builtin_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::utility::{self, Utility};
+    use lumen_engine::{Device, Slot};
+    const TRACKS: u64 = 64;
+    let audio = Arc::new(ClipAudio::Memory {
+        sample_rate: 48_000,
+        channels: vec![vec![0.1; 480_000], vec![-0.1; 480_000]],
+    });
+    let (mut handle, player) = clip_player();
+    handle
+        .set(
+            (0..TRACKS)
+                .map(|i| Clip {
+                    envelope: Default::default(),
+                    id: i,
+                    start: Ticks::ZERO,
+                    offset: 0,
+                    length: 480_000,
+                    gain: 0.5,
+                    track: i,
+                    audio: Arc::clone(&audio),
+                    shape: Default::default(),
+                })
+                .collect(),
+        )
+        .unwrap();
+    let (mut routing, source) = mixer(player);
+    let mut plan = routed(TRACKS, 0);
+    for node in plan.nodes.iter_mut().filter(|n| n.id < TRACKS) {
+        node.devices = vec![Device::Builtin {
+            device: 1_000 + node.id,
+            latency: 0,
+        }];
+        // A gain a little under unity, and a pan off centre: the device works.
+        node.values = vec![(
+            1_000 + node.id,
+            vec![
+                (utility::GAIN, 0.6),
+                (utility::PAN, 0.55),
+                (utility::WIDTH, 0.75),
+            ],
+        )];
+    }
+    for id in 0..TRACKS {
+        assert!(
+            routing
+                .attach_builtin(1_000 + id, Slot::new(Box::new(Utility::new())))
+                .is_ok()
+        );
+    }
+    assert!(routing.set(&plan).unwrap());
+    let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
+    transport.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 256];
+    // Past the fade-in and the 20 ms glide to the values.
+    for _ in 0..400 {
+        engine.process(48_000, &mut data, 2, 128);
+    }
+    bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
+}

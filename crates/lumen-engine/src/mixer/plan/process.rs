@@ -1,6 +1,7 @@
 //! Running a plan: the node loop, the cue bus and the small in-place mixes.
 
 use super::super::auto::NodeStages;
+use super::super::builtins::{self, NO_BUILTIN};
 use super::super::delay::{Lines, NO_LINE};
 use super::super::hosts::{self, Hosting, NO_HOST};
 use super::super::meter::{LoudnessTap, keep};
@@ -75,7 +76,8 @@ impl Plan {
                 let host = self.devices[early as usize].host;
                 match self.nodes[index].auto.as_deref() {
                     Some(auto) => {
-                        auto.plugin_block(host, start, frames, &mut self.host_scratch.params);
+                        self.host_scratch.params.start(frames);
+                        auto.device_block(host, start, frames, &mut self.host_scratch.params);
                     }
                     None => self.host_scratch.params.start(frames),
                 }
@@ -89,6 +91,7 @@ impl Plan {
         }
         for index in 0..self.nodes.len() {
             let node = &mut self.nodes[index];
+            let law = node.law;
             // Downstream nodes always come later, so the buses split here.
             let (head, tail) = self.buses.split_at_mut((index + 1) * BUS);
             let bus = &mut head[index * BUS..];
@@ -177,14 +180,16 @@ impl Plan {
                         });
                         // The parameters lanes change in this block, for
                         // a device not already handed it.
-                        match node.auto.as_deref() {
-                            Some(auto) if !device.began => auto.plugin_block(
+                        self.host_scratch.params.start(frames);
+                        if !device.began
+                            && let Some(auto) = node.auto.as_deref()
+                        {
+                            auto.device_block(
                                 device.host,
                                 start,
                                 frames,
                                 &mut self.host_scratch.params,
-                            ),
-                            _ => self.host_scratch.params.start(frames),
+                            );
                         }
                         hosts::run(
                             device,
@@ -194,6 +199,39 @@ impl Plan {
                             (&mut *left, &mut *right),
                             key,
                             (rate, advance),
+                        );
+                        continue;
+                    }
+                    if device.builtin != NO_BUILTIN {
+                        // A built-in runs where it is, with the values the
+                        // project holds and the lanes' points.
+                        let key = (node.side != NO_SIDE).then(|| {
+                            let side = &self.sides[node.side as usize * BUS..][..BUS];
+                            (&side[..frames], &side[CHUNK..CHUNK + frames])
+                        });
+                        self.host_scratch.params.start(frames);
+                        for &(id, value) in device.values.iter() {
+                            if self.host_scratch.params.open(id) {
+                                self.host_scratch.params.point(0, f64::from(value));
+                            }
+                        }
+                        if let Some(auto) = node.auto.as_deref() {
+                            auto.device_block(
+                                device.builtin,
+                                start,
+                                frames,
+                                &mut self.host_scratch.params,
+                            );
+                        }
+                        builtins::run(
+                            device,
+                            &mut self.lines,
+                            &mut self.host_scratch,
+                            hosting,
+                            (&mut *left, &mut *right),
+                            key,
+                            (rate, start, advance),
+                            law,
                         );
                         continue;
                     }
