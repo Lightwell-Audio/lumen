@@ -62,8 +62,9 @@ pub(crate) mod view;
 pub(crate) mod welcome;
 mod window_size;
 
-// The paths these files had while they sat flat here (audit M11), so every
-// `crate::app::<name>` keeps working.
+// The paths the rest of the app names as `crate::app::<name>`, kept now that
+// these files sit in folders (audit M11); the modules nothing names by path
+// are reached inside their folder.
 pub(crate) use audio::{audio_export, audio_inputs, audio_record};
 pub(crate) use auto::{auto_keys, auto_recording};
 pub(crate) use clip::{

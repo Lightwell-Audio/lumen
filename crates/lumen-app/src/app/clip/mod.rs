@@ -1,12 +1,12 @@
 //! The clip, by concern (audit M11): the commands on the selection
 //! (`clip_commands`: join, crop, unloop, nudge and the selection variants;
-//! `clip_warp`: the tempo of an audio clip's file), the edits the channels it
-//! plays on own (`clip_card`: mute, lock, rename, colour and the pinned
-//! properties card; `clip_controls`: the rows the card and the audio editor's
-//! strip share; `clip_envelopes`: the clip's own gain and pan lane;
-//! `clip_file`: the file an audio clip plays), the renders a clip or a track
-//! can ask for (`clip_consolidate`, `clip_bounce`, `clip_normalize`), and the
-//! clip editors' shared header (`clip_header`).
+//! `clip_warp`: the tempo of an audio clip's file), the clip's own properties
+//! (`clip_card`: mute, lock, rename, colour and the pinned card they are
+//! edited in; `clip_controls`: the gain and fade rows the card and the audio
+//! editor's strip share; `clip_envelopes`: the clip's gain and pan lane shown
+//! on the clip; `clip_file`: the file an audio clip plays), the renders a clip
+//! or a track can ask for (`clip_consolidate`, `clip_bounce`,
+//! `clip_normalize`), and the clip editors' shared header (`clip_header`).
 
 pub(crate) mod clip_bounce;
 pub(crate) mod clip_card;
