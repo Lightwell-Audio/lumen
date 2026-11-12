@@ -107,7 +107,7 @@ pub struct HostedInstrument {
     holding: Holding,
     dropped: u32,
     /// The parameters that change in the next block ([`Instrument::automate`]).
-    params: ParamBlock,
+    pub(super) params: ParamBlock,
 }
 
 impl HostedInstrument {
@@ -222,6 +222,12 @@ impl Instrument for HostedInstrument {
         // Nothing to say, and nothing left from before to take back: the
         // common case, at every block of every instrument without a lane.
         if params.is_empty() && self.params.is_empty() {
+            return;
+        }
+        // A placeholder instrument (its track's plugin lives elsewhere) has
+        // no room for a block and no host to send one to: copying into it
+        // would allocate on the audio thread, so nothing is (sweep Low).
+        if !self.params.has_room() {
             return;
         }
         self.params.copy_from(params);

@@ -678,6 +678,24 @@ fn a_block_with_no_automation_carries_none() {
     assert_eq!(seen.lock().unwrap().params, vec![vec![]]);
 }
 
+/// A placeholder instrument has no room for a parameter block and no host to
+/// send one to: a block aimed at it is dropped, never copied, which would
+/// allocate on the audio thread (sweep Low).
+#[test]
+fn a_placeholder_instrument_is_never_given_a_parameter_block() {
+    let mut placeholder = HostedInstrument::placeholder();
+    let mut block = ParamBlock::new();
+    block.start(64);
+    block.open(5);
+    block.point(0, 0.5);
+    placeholder.automate(&block);
+    assert!(placeholder.params.is_empty());
+    assert!(
+        !placeholder.params.has_room(),
+        "the placeholder keeps its zero room"
+    );
+}
+
 #[test]
 fn parameters_cut_from_a_block_are_counted_once_however_often_it_is_tried() {
     let (host, seen) = Fake::new(vec![READY]);

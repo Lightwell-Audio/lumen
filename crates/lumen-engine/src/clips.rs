@@ -3,7 +3,8 @@
 //! behind the same [`Source`] interface.
 //!
 //! A clip starts at a musical position and plays its audio at the audio's
-//! own speed (no warping yet). Clips fade in and out over 2 ms at their
+//! own speed, or, when the project asks for it, as a warped stream rendered
+//! at the project's tempo (M9.5). Clips fade in and out over 2 ms at their
 //! edges; the engine crossfades every transport jump.
 //!
 //! The clip list is replaced whole: the UI builds a new one and sends it
@@ -800,9 +801,6 @@ fn edge_gain(
     (from_start.min(to_end) as f32 / edge as f32).min(1.0)
 }
 
-/// Resolves candidate split seams against this block's tempo map. This is a
-/// bounded linear pass over metadata built off the audio thread and allocates
-/// nothing. Locate and loop declick remain owned by the engine transport.
 impl<L: PageLoad> ClipPlayer<L> {
     /// Takes a new clip list if one arrived and no crossfade is running.
     /// With `fade`, clips that moved crossfade into it. Real-time safe.
