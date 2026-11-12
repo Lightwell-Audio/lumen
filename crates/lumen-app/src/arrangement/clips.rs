@@ -396,7 +396,7 @@ impl Arrangement {
                                 (canvas.left(), canvas.right()),
                             );
                             let stroke = Stroke::new(
-                                1.0,
+                                theme::stroke::HAIRLINE,
                                 theme::CLIP_TEXT.gamma_multiply(if heard {
                                     theme::alpha::INK_DIM
                                 } else {

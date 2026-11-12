@@ -151,7 +151,7 @@ pub fn draw_hint_tone(painter: &Painter, at: Pos2, text: &str, bounds: Rect, war
         theme::radius::SMALL,
         palette.overlay,
         Stroke::new(
-            1.0,
+            theme::stroke::HAIRLINE,
             if warn {
                 palette.warning
             } else {

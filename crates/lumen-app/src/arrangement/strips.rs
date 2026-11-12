@@ -51,7 +51,7 @@ fn ghost_strip(ui: &mut Ui, area: Rect, keymap: &Keymap) -> bool {
             .gamma_multiply(theme::alpha::HOVER_STEP * hover),
     );
     let stroke = egui::Stroke::new(
-        1.0,
+        theme::stroke::HAIRLINE,
         palette
             .border_strong
             .lerp_to_gamma(palette.text_hint, hover),

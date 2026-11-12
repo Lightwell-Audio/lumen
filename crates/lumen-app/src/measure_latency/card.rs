@@ -233,7 +233,11 @@ fn trace(ui: &mut Ui, busy: bool, outcome: Option<&Outcome>) {
     let (rect, response) = ui.allocate_exact_size(vec2(width, TRACE_HEIGHT), Sense::hover());
     let c = theme::p();
     let painter = ui.painter_at(rect);
-    painter.hline(rect.x_range(), rect.center().y, (1.0, c.grid_bar));
+    painter.hline(
+        rect.x_range(),
+        rect.center().y,
+        (theme::stroke::HAIRLINE, c.grid_bar),
+    );
     let returns = outcome
         .filter(|_| !busy)
         .and_then(|o| o.result.as_ref().ok())
@@ -256,12 +260,15 @@ fn trace(ui: &mut Ui, busy: bool, outcome: Option<&Outcome>) {
                     c.accent.gamma_multiply(theme::alpha::EDGE_FAINT)
                 };
                 let points = back.iter().enumerate().map(|(i, s)| pos2(x(i), y(*s)));
-                painter.add(Shape::line(points.collect(), (1.4, colour)));
+                painter.add(Shape::line(
+                    points.collect(),
+                    (theme::stroke::GLYPH_WIDE, colour),
+                ));
             }
             let at = x(RETURN_BEFORE);
             painter.extend(Shape::dashed_line(
                 &[pos2(at, rect.top()), pos2(at, rect.bottom())],
-                (1.0, c.text_secondary),
+                (theme::stroke::HAIRLINE, c.text_secondary),
                 2.0,
                 2.0,
             ));
