@@ -2450,6 +2450,10 @@ fn builtin_card() {
         ("light", 2.0, vec2(1280.0, 900.0), "whole"),
         ("dark", 1.0, vec2(960.0, 540.0), "small"),
         ("light", 1.0, vec2(960.0, 540.0), "small"),
+        ("dark", 1.5, vec2(960.0, 540.0), "small"),
+        ("light", 1.5, vec2(960.0, 540.0), "small"),
+        ("dark", 2.0, vec2(960.0, 540.0), "small"),
+        ("light", 2.0, vec2(960.0, 540.0), "small"),
     ] {
         let dir = TempDir::new(&format!("shots-prism-{appearance}-{scale}-{tag}"));
         let track = Track::new(Id(1), "Keys".to_owned(), TrackKind::Audio, Color(0x5E8C6A));

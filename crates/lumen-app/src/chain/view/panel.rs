@@ -135,6 +135,7 @@ impl App {
                 face: row.face.face(),
                 latency_ms: row.latency_ms,
                 reports_latency: row.vst3 || row.builtin,
+                running: row.running,
                 track_color: track_colour,
                 band: 0.0,
                 folded: folded[i],
@@ -221,6 +222,31 @@ impl App {
                 paint_chip(&painter, at(layout.output()), &output);
                 paint_port(&painter, at(layout.input()).right_center(), beam);
                 paint_port(&painter, at(layout.output()).left_center(), beam);
+                // The tray's own menu, in its empty state and past the last
+                // card: a device can be added from here, without the browser
+                // (M8 slice B0, review M4). It is drawn before the cards and
+                // the empty state so their own controls take the pointer.
+                let tail = Rect::from_min_max(
+                    pos2(at(layout.output()).right() + theme::space::S, whole.top()),
+                    whole.max,
+                );
+                let tail = ui.interact(
+                    tail,
+                    egui::Id::new(("chain tail", track_id.0)),
+                    Sense::click(),
+                );
+                tail.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        true,
+                        "Add a device to the chain",
+                    )
+                });
+                widgets::Menu::context(&tail).show(|ui| {
+                    // The row lands on the track whose chain this is.
+                    self.arrangement.selected = vec![track_id];
+                    self.menu_command(ui, Command::AddUtility, "Add Prism (utility)");
+                });
                 if rows.is_empty() {
                     // The shared empty state (the interface audit's D1, the
                     // owner's A), above the in and out chips and their cable.

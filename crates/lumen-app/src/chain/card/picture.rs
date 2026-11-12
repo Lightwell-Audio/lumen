@@ -99,34 +99,142 @@ pub(super) fn paint_picture(
             glyph(&clipped, area, Icon::PlugOff, palette.text_hint);
         }
         _ => {
-            clipped.text(
-                pos2(area.left() + 14.0, area.bottom() - 6.0),
-                Align2::LEFT_BOTTOM,
-                art::monogram(look.name),
-                fonts::display((look.band * 0.62).clamp(18.0, 64.0)),
-                ink,
-            );
-            // The kind again, large and quiet, at the picture's right.
-            let kind = if look.instrument {
-                Icon::Keys
-            } else {
-                Icon::Sliders
-            };
-            let side = (look.band * 0.4).clamp(16.0, 36.0);
-            let at = Rect::from_center_size(
-                pos2(
-                    area.right() - 14.0 - side / 2.0,
-                    area.top() + 14.0 + side / 2.0,
-                ),
-                vec2(side, side),
-            );
-            clipped.extend(icons::shapes(
-                kind,
-                at,
-                ink.gamma_multiply(theme::alpha::INK_QUIET),
-            ));
+            match crate::builtin::identity(look.identity) {
+                // A built-in has a personality: its signature hue as a deep
+                // tinted screen, unchanged in both themes, with a still
+                // drawing of its idea (DESIGN.md §7k). It has no monogram: the
+                // card's name row already carries its name (M8 slice B0,
+                // review L8).
+                Some(personality) => paint_idea(&clipped, area, personality, muted),
+                None => {
+                    clipped.text(
+                        pos2(area.left() + 14.0, area.bottom() - 6.0),
+                        Align2::LEFT_BOTTOM,
+                        art::monogram(look.name),
+                        fonts::display((look.band * 0.62).clamp(18.0, 64.0)),
+                        ink,
+                    );
+                    // The kind again, large and quiet, at the picture's right.
+                    paint_kind(&clipped, area, look, ink);
+                }
+            }
         }
     }
+}
+
+/// The kind, large and quiet, at the picture's right.
+fn paint_kind(painter: &egui::Painter, area: Rect, look: &Look<'_>, ink: Color32) {
+    let kind = if look.instrument {
+        Icon::Keys
+    } else {
+        Icon::Sliders
+    };
+    let side = (look.band * 0.4).clamp(16.0, 36.0);
+    let at = Rect::from_center_size(
+        pos2(
+            area.right() - 14.0 - side / 2.0,
+            area.top() + 14.0 + side / 2.0,
+        ),
+        vec2(side, side),
+    );
+    painter.extend(icons::shapes(
+        kind,
+        at,
+        ink.gamma_multiply(theme::alpha::INK_QUIET),
+    ));
+}
+
+/// A built-in device's picture: its signature hue as a deep tinted screen, the
+/// same in both themes, and a still drawing of its one idea (DESIGN.md §7k).
+fn paint_idea(
+    painter: &egui::Painter,
+    area: Rect,
+    personality: crate::builtin::Identity,
+    muted: bool,
+) {
+    let mut hue = personality.colour;
+    if muted {
+        hue = theme::grey_of(hue);
+    }
+    let top = theme::personality::SCREEN.lerp_to_gamma(hue, theme::personality::SCREEN_TINT);
+    raised::gradient(
+        painter,
+        area,
+        f32::from(theme::radius::SMALL),
+        top,
+        theme::personality::SCREEN,
+    );
+    // A hairline of the signature colour round the screen, as the specimen's
+    // card does: the band is the device's even where the drawing is thin.
+    painter.rect_stroke(
+        area,
+        f32::from(theme::radius::SMALL),
+        Stroke::new(
+            theme::stroke::HAIRLINE,
+            hue.gamma_multiply(if muted {
+                theme::alpha::EDGE_DIM
+            } else {
+                theme::alpha::INK_QUIET
+            }),
+        ),
+        StrokeKind::Inside,
+    );
+    if personality.timing.name == lumen_devices::utility::NAME {
+        paint_prism(painter, area, muted);
+    }
+}
+
+/// Prism's idea: a beam of light enters from the left, the prism bends it, and
+/// the beams leave at the width it carries (DESIGN.md §7k).
+fn paint_prism(painter: &egui::Painter, area: Rect, muted: bool) {
+    let height = area.height();
+    if height < 24.0 {
+        return;
+    }
+    let centre = area.center().y;
+    let inset = (area.width() * 0.07).clamp(8.0, 22.0);
+    // The prism sits left of centre; its size follows the band so the picture
+    // reads at every height.
+    let half = (height * 0.20).clamp(7.0, 26.0);
+    let apex = pos2(area.left() + area.width() * 0.34, centre);
+    let foot = pos2(apex.x - half * 0.9, centre + half * 1.25);
+    let toe = pos2(apex.x + half * 1.25, centre + half * 1.25);
+    // The beam in, and the light where it lands.
+    painter.line_segment(
+        [
+            pos2(area.left() + inset, centre),
+            pos2(apex.x - half * 0.2, centre),
+        ],
+        Stroke::new(
+            theme::stroke::LIT,
+            Color32::WHITE.gamma_multiply(if muted { 0.25 } else { 0.85 }),
+        ),
+    );
+    // The beams out: five, fanning from the prism's right face to the edge.
+    let from = pos2(apex.x + half * 0.55, centre + half * 0.15);
+    let far = area.right() - inset;
+    let spread = (height * 0.42).clamp(9.0, 44.0);
+    for (index, colour) in theme::personality::PRISM_BEAMS.iter().enumerate() {
+        let step = index as f32 - 2.0;
+        let colour = if muted {
+            theme::grey_of(*colour).gamma_multiply(0.5)
+        } else {
+            *colour
+        };
+        painter.line_segment(
+            [from, pos2(far, centre + spread * step * 0.5 + half * 0.15)],
+            Stroke::new(theme::stroke::FOCUS, colour),
+        );
+    }
+    // The prism itself, over the beams.
+    painter.add(egui::Shape::convex_polygon(
+        vec![apex, foot, toe],
+        Color32::WHITE.gamma_multiply(if muted { 0.05 } else { 0.12 }),
+        Stroke::new(
+            theme::stroke::LIT,
+            Color32::WHITE.gamma_multiply(if muted { 0.3 } else { 0.8 }),
+        ),
+    ));
 }
 
 /// An icon centred in the picture.

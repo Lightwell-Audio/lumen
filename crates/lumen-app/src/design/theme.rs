@@ -583,6 +583,23 @@ pub mod personality {
     /// Prism, the utility device: a quiet steel grey, the one device that
     /// changes nothing of its own.
     pub const UTILITY: Color32 = Color32::from_rgb(0x9A, 0xA0, 0xAC);
+
+    /// The screen behind a built-in device's picture (DESIGN.md §7k): deep, and
+    /// the same in both themes, as a clip's colour is. Its top is the device's
+    /// signature colour, so the band stays the personality's.
+    pub const SCREEN: Color32 = Color32::from_rgb(0x0C, 0x0E, 0x12);
+    /// How much of the signature colour the screen's top carries.
+    pub const SCREEN_TINT: f32 = 0.20;
+
+    /// The light Prism splits (DESIGN.md §7k): the spectrum its beams fan into.
+    /// Content, not chrome, so the same in both themes.
+    pub const PRISM_BEAMS: [Color32; 5] = [
+        Color32::from_rgb(0xFF, 0x5A, 0x6E),
+        Color32::from_rgb(0xFF, 0xB5, 0x47),
+        Color32::from_rgb(0x5B, 0xE0, 0x7F),
+        Color32::from_rgb(0x4F, 0xA3, 0xFF),
+        Color32::from_rgb(0xB0, 0x7C, 0xFF),
+    ];
 }
 
 /// Spacing on a 4 pt grid (`DESIGN.md` §5).

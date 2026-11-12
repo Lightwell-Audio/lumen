@@ -14,6 +14,9 @@ pub(super) struct Row {
     pub(super) vst3: bool,
     /// Lumen's own effect (M8 slice B0): no host, no window, a table.
     pub(super) builtin: bool,
+    /// The built-in's effect is running in the mixer; false when the pool had
+    /// no room for it.
+    pub(super) running: bool,
     pub(super) instrument: bool,
     pub(super) bypass: bool,
     pub(super) face: OwnedFace,
@@ -156,6 +159,7 @@ impl App {
             identity,
             vst3: d.is_vst3(),
             builtin,
+            running: !(builtin && self.builtin.refused(d.id)),
             instrument: d.is_instrument(),
             bypass: d.bypass,
             face,

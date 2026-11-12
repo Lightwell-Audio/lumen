@@ -378,7 +378,9 @@ fn a_preset_is_saved_from_the_card_and_loaded_back_as_one_undo_step() {
         .type_text("Bright");
     lumen.key(Modifiers::NONE, Key::Enter);
     let root = format!("{} Presets", lumen_core::product::PRODUCT_NAME);
-    let folder = presets.join(root).join("Utility");
+    // The folder is the device's stable saved name, not its personality's: a
+    // renamed personality never orphans a person's presets (review L5).
+    let folder = presets.join(root).join("utility");
     lumen.wait_for("the preset file", move |_| {
         folder.join("Bright.lumenpreset").is_file()
     });
@@ -445,4 +447,146 @@ fn the_card_copies_to_another_track_with_its_values() {
     let gain = param(&lumen, copy, GAIN).expect("the copy's gain");
     // −12 dB of −60 to +24.
     assert!((gain - 0.571).abs() < 0.01, "{gain}");
+}
+
+/// M4: the track's own menu adds Prism, so the device is reachable without the
+/// browser or the palette — one undo step, as the command is.
+#[test]
+fn the_track_menu_adds_prism_to_that_track() {
+    let (mut lumen, track) = tone("builtin-menu");
+    lumen.frames(20);
+    let header = lumen.harness.get_by_label_contains("Track tone,").rect();
+    lumen.right_click(header.center());
+    lumen.frames(5);
+    assert!(lumen.shows("Add Prism (utility)"), "the row is there");
+    lumen.click("Add Prism (utility)");
+    lumen.wait_for("Prism's card", |app| {
+        app.project().tracks[0]
+            .devices
+            .iter()
+            .any(|d| matches!(d.plugin, PluginRef::Builtin { .. }))
+    });
+    let device = prism(&lumen, 0).expect("the device is on the track");
+    assert_eq!(lumen.app().undo_label(), Some("Add Prism"));
+    lumen.wait_for("the audio thread to have it", |app| {
+        app.builtin_attached(device)
+    });
+    // The device went to the track the menu was opened on.
+    assert_eq!(
+        lumen
+            .app()
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.id == track)
+            .map(|t| t.devices.len()),
+        Some(1)
+    );
+    assert!(lumen.shows("Prism on tone"));
+}
+
+/// M4: the tray's own menu offers Prism too — in its empty state and past the
+/// last card — so the chain panel can grow without the browser.
+#[test]
+fn the_device_trays_menu_adds_prism_too() {
+    let (mut lumen, track) = tone("builtin-tray-menu");
+    // Open the Devices tab and make the tray tall, as a person would.
+    lumen.show_whole_cards();
+    lumen.frames(20);
+    // The tray is empty: its menu offers Prism.
+    let browse = lumen.harness.get_by_label("Browse devices").rect();
+    let room = Pos2::new(browse.right() + 120.0, browse.center().y + 40.0);
+    lumen.right_click(room);
+    lumen.frames(5);
+    assert!(
+        lumen.shows("Add Prism (utility)"),
+        "the empty tray's menu has it"
+    );
+    lumen.click("Add Prism (utility)");
+    lumen.wait_for("Prism's card", |app| {
+        app.project().tracks[0]
+            .devices
+            .iter()
+            .any(|d| matches!(d.plugin, PluginRef::Builtin { .. }))
+    });
+    let device = prism(&lumen, 0).expect("the device is on the track");
+    assert_eq!(lumen.app().undo_label(), Some("Add Prism"));
+    assert_eq!(
+        lumen
+            .app()
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.id == track)
+            .map(|t| t.devices.len()),
+        Some(1)
+    );
+    // Past the last card the menu is there still.
+    lumen.show_whole_cards();
+    lumen.frames(20);
+    let card = lumen.harness.get_by_label_contains("Prism on tone").rect();
+    // Past the output chip, in the room the tray keeps after the last card.
+    let past = Pos2::new(card.right() + 300.0, card.center().y);
+    lumen.right_click(past);
+    lumen.frames(5);
+    assert!(
+        lumen.shows("Add Prism (utility)"),
+        "the tail's menu has it too"
+    );
+    lumen.key(Modifiers::NONE, Key::Escape);
+    assert!(lumen.app().is_builtin(device));
+}
+
+/// M1: the card's power button means something for a built-in too. Bypassed,
+/// the device is not run and the track plays its dry signal; turned on again it
+/// glides back in. Neither click clicks.
+#[test]
+fn the_power_button_bypasses_prism_and_the_dry_signal_comes_back() {
+    let (mut lumen, _, device) = launched("builtin-power");
+    // −12 dB, typed, so the device changes the sound plainly.
+    lumen
+        .harness
+        .get_by_label_contains("Gain, parameter")
+        .click();
+    lumen.frames(3);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(3);
+    lumen
+        .harness
+        .get_by_label("Gain: type a value")
+        .type_text("-12");
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(10);
+    assert!((param(&lumen, device, GAIN).unwrap() - 0.571).abs() < 0.01);
+
+    lumen.show_whole_cards();
+    lumen.frames(10);
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
+    let quiet = heard(&mut lumen);
+    assert!(quiet > 0.0, "the tone is heard through the device: {quiet}");
+
+    lumen.click("Power Prism");
+    lumen.frames(10);
+    assert!(
+        lumen.app().project().tracks[0]
+            .devices
+            .iter()
+            .any(|d| d.id == device && d.bypass),
+        "the power button bypassed it"
+    );
+    let loud = heard(&mut lumen);
+    assert!(
+        loud > quiet * 1.8,
+        "the dry signal is back: {quiet} then {loud}"
+    );
+
+    lumen.click("Power Prism");
+    lumen.frames(10);
+    let again = heard(&mut lumen);
+    assert!(
+        again < loud * 0.7,
+        "on again, it is quieter: {loud} then {again}"
+    );
+    lumen.key(Modifiers::NONE, Key::Space);
 }

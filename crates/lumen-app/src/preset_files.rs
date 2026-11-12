@@ -23,6 +23,10 @@ use lumen_project::model::Id;
 pub const EXTENSION: &str = "vstpreset";
 /// The extension of a built-in device's preset file.
 pub const BUILTIN_EXTENSION: &str = "lumenpreset";
+/// The only `version` a built-in device's preset file may say (M8 slice B0,
+/// review L4): a file a newer build wrote is refused with what it says, never
+/// half-read.
+pub const BUILTIN_VERSION: u64 = 1;
 
 /// The folder of the documents folder where the app's own devices keep their
 /// presets: its name is the product's, from `lumen_core`.
@@ -249,7 +253,7 @@ pub fn builtin_bytes(device: &str, values: &BTreeMap<u32, f64>) -> Vec<u8> {
         .collect();
     let json = serde_json::json!({
         "format": "lumen_builtin",
-        "version": 1,
+        "version": BUILTIN_VERSION,
         "device": device,
         "params": values,
     });
@@ -264,6 +268,17 @@ pub fn parse_builtin(bytes: &[u8]) -> Result<(String, BTreeMap<u32, f64>), Strin
         serde_json::from_slice(bytes).map_err(|e| format!("the file is not readable ({e})"))?;
     if json["format"] != "lumen_builtin" {
         return Err("the file is not a built-in device's preset".to_owned());
+    }
+    // A file a newer build wrote may mean something else by its values: it is
+    // refused, in full, rather than half-read (review L4). A file with no
+    // version is one a person wrote by hand, and is read as this version.
+    let version = json["version"].as_u64().unwrap_or(BUILTIN_VERSION);
+    if version != BUILTIN_VERSION {
+        return Err(format!(
+            "This preset was saved by a newer version of {} (version {version}; this version \
+             reads version {BUILTIN_VERSION}).",
+            lumen_core::product::PRODUCT_NAME
+        ));
     }
     let device = json["device"]
         .as_str()
@@ -674,6 +689,27 @@ mod tests {
         assert!(parse_builtin(bad).is_err());
         let wild = br#"{"format":"lumen_builtin","device":"utility","params":{"1":7}}"#;
         assert_eq!(parse_builtin(wild).unwrap().1[&1], 1.0, "brought in");
+    }
+
+    /// L4: a file a newer build wrote is refused with the whole reason, never
+    /// half-read; the version this build writes is the one it reads.
+    #[test]
+    fn a_preset_a_newer_build_wrote_is_refused_in_full() {
+        let values: BTreeMap<u32, f64> = [(1, 0.5)].into_iter().collect();
+        let newer = br#"{"format":"lumen_builtin","version":2,"device":"utility",
+            "params":{"1":0.5}}"#;
+        let why = parse_builtin(newer).unwrap_err();
+        assert!(why.contains("newer version"), "{why}");
+        assert!(
+            why.contains("version 2") && why.contains("version 1"),
+            "{why}"
+        );
+        assert!(why.ends_with('.'), "a full sentence: {why}");
+        // What this build writes reads back.
+        assert!(parse_builtin(&builtin_bytes("utility", &values)).is_ok());
+        // A hand-written file with no version is this version.
+        let bare = br#"{"format":"lumen_builtin","device":"utility","params":{"1":0.5}}"#;
+        assert_eq!(parse_builtin(bare).unwrap().1, values);
     }
 
     #[test]

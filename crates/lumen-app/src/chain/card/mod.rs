@@ -68,6 +68,9 @@ pub(super) struct Look<'a> {
     /// Whether the device reports a latency (a plugin does; the built-in
     /// synth has none to report, so its footer says nothing of one).
     pub reports_latency: bool,
+    /// The device runs: a built-in the mixer's pool had no room for does not,
+    /// and its footer says so (M8 slice B0, review M3).
+    pub running: bool,
     pub track_color: Color32,
     /// The picture's height now (0 when the tray is short).
     pub band: f32,
@@ -421,6 +424,22 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
             look.track_color,
         );
     }
+    // A built-in folded to a rail keeps its signature colour (DESIGN.md §7k):
+    // the narrowest form still says which device it is.
+    if let Some(personality) = crate::builtin::identity(look.identity) {
+        painter.rect_filled(
+            Rect::from_min_size(
+                rect.min + vec2(0.0, radius),
+                vec2(3.0, rect.height() - 2.0 * radius),
+            ),
+            0.0,
+            if look.bypass {
+                theme::grey_of(personality.colour)
+            } else {
+                personality.colour
+            },
+        );
+    }
     let power_rect = Rect::from_center_size(
         pos2(
             rect.center().x,
@@ -504,6 +523,7 @@ fn footer_words(look: &Look<'_>) -> (String, String) {
         Face::Failed { .. } | Face::Missing { .. } | Face::Safe { .. } => {
             ("bypassed".to_owned(), kept(&ms))
         }
+        Face::Ready if !look.running => ("not running".to_owned(), kept(&ms)),
         Face::Ready if look.bypass => ("bypassed".to_owned(), kept(&ms)),
         Face::Ready => (signal.to_owned(), ms),
     }

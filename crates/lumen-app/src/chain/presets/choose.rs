@@ -24,17 +24,17 @@ impl App {
     }
 
     /// The folders that may hold the presets of `device`: a plugin's under its
-    /// vendor and name, a built-in's in Lumen's own folder (M8 slice B0).
+    /// vendor and name, a built-in's in Lumen's own folder (M8 slice B0). A
+    /// built-in's folder is its stable saved name, never its personality's:
+    /// renaming a personality must not orphan every preset a person saved
+    /// (review L5).
     pub(super) fn preset_folders(&self, device: Id) -> Vec<(PathBuf, bool)> {
         let Some((_, d)) = find_device(self.document.project(), device) else {
             return Vec::new();
         };
         match &d.plugin {
             PluginRef::Vst3 { name, vendor, .. } => self.chain.presets.places.folders(vendor, name),
-            PluginRef::Builtin { name } => match crate::builtin::identity(name) {
-                Some(identity) => self.chain.presets.places.builtin_folders(identity.kind),
-                None => Vec::new(),
-            },
+            PluginRef::Builtin { name } => self.chain.presets.places.builtin_folders(name),
         }
     }
 
@@ -45,10 +45,7 @@ impl App {
             PluginRef::Vst3 { name, vendor, .. } => {
                 self.chain.presets.places.user_folder(vendor, name)
             }
-            PluginRef::Builtin { name } => {
-                let identity = crate::builtin::identity(name)?;
-                self.chain.presets.places.builtin_folder(identity.kind)
-            }
+            PluginRef::Builtin { name } => self.chain.presets.places.builtin_folder(name),
         }
     }
 

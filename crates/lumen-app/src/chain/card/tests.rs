@@ -16,6 +16,7 @@ fn look(face: Face<'_>, bypass: bool, instrument: bool) -> Look<'_> {
         face,
         latency_ms: 2.7,
         reports_latency: true,
+        running: true,
         track_color: Color32::WHITE,
         band: 96.0,
         folded: false,

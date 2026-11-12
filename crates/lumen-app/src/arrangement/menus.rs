@@ -130,6 +130,12 @@ impl Arrangement {
                 ui.close();
             }
         }
+        // What is on it (M8 slice B0, review M4): a built-in device can be
+        // added without leaving the arrangement, as a track can.
+        if item(ui, "Add Prism (utility)", Command::AddUtility) {
+            self.selected = targets.clone();
+            self.track_command = Some(Command::AddUtility);
+        }
         ui.separator();
 
         // What is made from it.
