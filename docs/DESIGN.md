@@ -1623,6 +1623,11 @@ only what the device *is* changes.
 - **Signature colour.** One hue per device in `theme::personality` (`UTILITY` for Prism, a quiet steel
   grey), the same in both themes, as a clip's colour is. It tints the card's picture band; it is never
   the only signal that a device is a device (the name and the subtitle always are).
+- **The picture band** is a deep tinted screen (`personality::SCREEN`, the signature hue at the top at
+  `SCREEN_TINT`), the same in both themes, with a hairline of the signature colour, and a **still
+  drawing of the device's one idea** in content colours (Prism splits a beam into
+  `PRISM_BEAMS`). A built-in has **no monogram**: its name is in the card's name row, and the band is
+  the picture, not another label (B0 review L8). Plugins keep their monogram and kind icon.
 - **Visual idea.** BF C: a drawn face where a picture is the control (an EQ's curve and analyzer, a
   compressor's transfer, a sampler's wave and pads); the generic eight-knob strip for the rest —
   Prism, the delay, the reverb, the synth. A device with a face keeps the card's chrome and still puts
@@ -1630,11 +1635,15 @@ only what the device *is* changes.
   B5).
 - **The strip** is the card's own (`chain/strip.rs`, eight knobs in two rows and the All button): a
   built-in's parameters come from its table, so they read in the device's words ("Width 100 %",
-  "Swap L/R Off") with no round trip. The masthead's window button is not offered (a built-in's
-  controls are its card and All parameters) and Learn is hidden with it; automation and controller
-  menus on each knob are the plugin's.
-- **Presets** use the card's field and menu, and Lumen's own folder (`Documents/Lumen Presets/<kind>`),
-  one folder per device, one `.lumenpreset` file per sound: JSON, so a person can read and edit it.
+  "Swap L/R Off") with no round trip. The knobs keep Lumen's accent, not the device's hue: the band
+  carries the personality, the controls stay Lumen's. The masthead's window button is not offered (a
+  built-in's controls are its card and All parameters) and Learn is hidden with it; automation and
+  controller menus on each knob are the plugin's.
+- **Presets** use the card's field and menu, and Lumen's own folder
+  (`Documents/Lumen Presets/<stable name>`, `utility` for Prism), one folder per device, one
+  `.lumenpreset` file per sound: JSON, so a person can read and edit it. The folder is the device's
+  **stable saved name**, never its personality's: renaming a personality must not orphan every preset
+  a person saved (B0 review L5).
 - Names are checked for trademark conflicts before release (M10).
 
 ## 8. Key flows
