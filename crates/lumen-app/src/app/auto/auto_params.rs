@@ -44,9 +44,9 @@ impl App {
                 let Target::Device { device, param } = target else {
                     continue;
                 };
-                if let Some(title) = self
-                    .hosting
-                    .parameters(device)
+                if let Some(title) = crate::document::find_device(project, device)
+                    .map(|(_, d)| self.device_parameters(d))
+                    .unwrap_or(&[])
                     .iter()
                     .find(|p| p.id == param)
                     .map(|p| p.title.clone())
@@ -115,14 +115,23 @@ impl App {
             }
         }
         // The answer for the point's own value, else the nearest kept one
-        // until it comes (as on a device card's knob).
+        // until it comes (as on a device card's knob). A built-in reads its
+        // table at once.
         let texts: std::collections::BTreeMap<_, _> = wanted
             .and_then(|(key, value)| {
-                let text = self
-                    .hosting
-                    .text(key.0, key.1, value)
-                    .or_else(|| self.hosting.nearest_text(key.0, key.1, value))?;
-                Some((key, (value, text.to_owned())))
+                let device = crate::document::find_device(self.document.project(), key.0)
+                    .map(|(_, d)| d.clone());
+                let text = match &device {
+                    Some(d) if crate::builtin::is_builtin(d) => {
+                        crate::builtin::text(d, key.1, value)
+                    }
+                    _ => self
+                        .hosting
+                        .text(key.0, key.1, value)
+                        .or_else(|| self.hosting.nearest_text(key.0, key.1, value))
+                        .map(str::to_owned),
+                }?;
+                Some((key, (value, text)))
             })
             .into_iter()
             .collect();
@@ -145,14 +154,17 @@ impl App {
         let plugins: Vec<Id> = track
             .devices
             .iter()
-            .filter(|d| d.is_vst3())
+            .filter(|d| (d.is_vst3() || crate::builtin::is_builtin(d)) && !d.is_instrument())
             .map(|d| d.id)
             .collect();
         if !plugins.contains(&chooser.device) {
             return;
         }
-        let list: Vec<ParamInfo> = self.hosting.parameters(chooser.device).to_vec();
-        let units: Vec<UnitInfo> = self.hosting.units(chooser.device).to_vec();
+        let held = crate::document::find_device(&project, chooser.device).map(|(_, d)| d.clone());
+        let (list, units) = match &held {
+            Some(d) => (self.device_parameters(d).to_vec(), self.device_units(d)),
+            None => (Vec::new(), Vec::new()),
+        };
         let base = automatable(&list);
         let title = format!(
             "Automate {}",

@@ -6,10 +6,12 @@ use super::*;
 
 impl App {
     /// What the field of `device`'s card shows; none for a card without one (a
-    /// built-in device, or a plugin that is not running).
+    /// device that cannot keep presets).
     pub(crate) fn field_look(&self, device: Id) -> Option<FieldLook> {
         let (_, d) = find_device(self.document.project(), device)?;
-        if !d.is_vst3() || !matches!(self.hosting.state(device), Some(State::Ready)) {
+        let usable = crate::builtin::is_builtin(d)
+            || (d.is_vst3() && matches!(self.hosting.state(device), Some(State::Ready)));
+        if !usable {
             return None;
         }
         let current = self.chain.presets.current.get(&device);
@@ -21,21 +23,43 @@ impl App {
         })
     }
 
+    /// The folders that may hold the presets of `device`: a plugin's under its
+    /// vendor and name, a built-in's in Lumen's own folder (M8 slice B0).
+    pub(super) fn preset_folders(&self, device: Id) -> Vec<(PathBuf, bool)> {
+        let Some((_, d)) = find_device(self.document.project(), device) else {
+            return Vec::new();
+        };
+        match &d.plugin {
+            PluginRef::Vst3 { name, vendor, .. } => self.chain.presets.places.folders(vendor, name),
+            PluginRef::Builtin { name } => match crate::builtin::identity(name) {
+                Some(identity) => self.chain.presets.places.builtin_folders(identity.kind),
+                None => Vec::new(),
+            },
+        }
+    }
+
+    /// Where a sound of `device` is saved.
+    pub(super) fn preset_folder(&self, device: Id) -> Option<PathBuf> {
+        let (_, d) = find_device(self.document.project(), device)?;
+        match &d.plugin {
+            PluginRef::Vst3 { name, vendor, .. } => {
+                self.chain.presets.places.user_folder(vendor, name)
+            }
+            PluginRef::Builtin { name } => {
+                let identity = crate::builtin::identity(name)?;
+                self.chain.presets.places.builtin_folder(identity.kind)
+            }
+        }
+    }
+
     /// Asks for the preset files of a plugin that has not been asked about.
     pub(in crate::chain) fn ensure_listed(&mut self, ctx: &egui::Context, device: Id) {
         if self.chain.presets.asked.contains(&device) {
             return;
         }
-        if let Some((vendor, plugin)) = self.plugin_vendor_name(device) {
-            self.chain.presets.relist(ctx, device, &vendor, &plugin);
-        }
-    }
-
-    pub(super) fn plugin_vendor_name(&self, device: Id) -> Option<(String, String)> {
-        let (_, d) = find_device(self.document.project(), device)?;
-        match &d.plugin {
-            PluginRef::Vst3 { name, vendor, .. } => Some((vendor.clone(), name.clone())),
-            PluginRef::Builtin { .. } => None,
+        let folders = self.preset_folders(device);
+        if !folders.is_empty() {
+            self.chain.presets.relist(ctx, device, folders);
         }
     }
 
@@ -135,7 +159,11 @@ impl App {
                     name,
                     result,
                 } => match result {
-                    Ok(preset) => self.load_preset(device, &name, preset),
+                    Ok(Sound::Vst3(preset)) => self.load_preset(device, &name, preset),
+                    Ok(Sound::Builtin {
+                        device: for_device,
+                        values,
+                    }) => self.load_builtin_preset(device, &name, &for_device, values),
                     Err(why) => {
                         self.chain.presets.refused(device);
                         self.say(format!("\u{201c}{name}\u{201d} cannot be used: {why}."));
@@ -175,8 +203,9 @@ impl App {
                 rev,
             },
         );
-        if let Some((vendor, plugin)) = self.plugin_vendor_name(device) {
-            self.chain.presets.relist(ctx, device, &vendor, &plugin);
+        let folders = self.preset_folders(device);
+        if !folders.is_empty() {
+            self.chain.presets.relist(ctx, device, folders);
         }
     }
 

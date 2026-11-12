@@ -134,7 +134,7 @@ impl App {
                 selected: selected == Some(row.id),
                 face: row.face.face(),
                 latency_ms: row.latency_ms,
-                reports_latency: row.vst3,
+                reports_latency: row.vst3 || row.builtin,
                 track_color: track_colour,
                 band: 0.0,
                 folded: folded[i],
@@ -314,7 +314,8 @@ impl App {
                         Some(Action::LoadOne) => events.load_one = Some(row.id),
                         None => {}
                     }
-                    let running = row.vst3 && matches!(row.face, OwnedFace::Ready);
+                    let ready = matches!(row.face, OwnedFace::Ready);
+                    let running = ready && (row.vst3 || row.builtin);
                     let menu = CardMenu {
                         id: row.id,
                         bypass: row.bypass,
@@ -323,11 +324,13 @@ impl App {
                         preset: row.field.as_ref().map(|f| f.name.clone()),
                         parameters: if running { row.parameters } else { 0 },
                         learning: row.learning,
-                        window: (running && !matches!(row.editor, strip::Editor::Unavailable(_)))
-                            .then_some(matches!(
-                                row.editor,
-                                strip::Editor::Open | strip::Editor::Opening
-                            )),
+                        window: (row.vst3
+                            && ready
+                            && !matches!(row.editor, strip::Editor::Unavailable(_)))
+                        .then_some(matches!(
+                            row.editor,
+                            strip::Editor::Open | strip::Editor::Opening
+                        )),
                     };
                     widgets::Menu::context(&out.body).show(|ui| {
                         self.card_menu(ui, track_id, &menu);

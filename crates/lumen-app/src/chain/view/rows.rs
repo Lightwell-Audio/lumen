@@ -12,6 +12,8 @@ pub(super) struct Row {
     pub(super) identity: String,
     /// A VST3 plugin: its class id is the identity.
     pub(super) vst3: bool,
+    /// Lumen's own effect (M8 slice B0): no host, no window, a table.
+    pub(super) builtin: bool,
     pub(super) instrument: bool,
     pub(super) bypass: bool,
     pub(super) face: OwnedFace,
@@ -75,6 +77,7 @@ impl App {
     }
 
     fn row_of(&self, d: &Device, rate: u32) -> Row {
+        let builtin = crate::builtin::is_builtin(d);
         let (name, vendor, identity) = match &d.plugin {
             PluginRef::Vst3 {
                 class_id,
@@ -82,14 +85,21 @@ impl App {
                 vendor,
                 ..
             } => (name.clone(), vendor.clone(), class_id.clone()),
-            // The vendor of a built-in device is a label: it names who made
-            // the device, as a plugin's vendor does, and is the product's
-            // name by `PRODUCT_NAME`, not text about the product.
-            PluginRef::Builtin { name } => (
-                crate::document::device_name(d),
-                PRODUCT_NAME.to_owned(),
-                name.clone(),
-            ),
+            // A built-in has a personality: its own name, with what it is
+            // under it (M8 slice B0, DESIGN §7k). A device without one (the
+            // synth) keeps its plain name and the product's.
+            PluginRef::Builtin { name } => match crate::builtin::identity(name) {
+                Some(identity) => (
+                    identity.name.to_owned(),
+                    identity.kind.to_owned(),
+                    name.clone(),
+                ),
+                None => (
+                    crate::document::device_name(d),
+                    PRODUCT_NAME.to_owned(),
+                    name.clone(),
+                ),
+            },
         };
         let (face, frames) = if d.is_vst3() {
             let face = match self.hosting.state(d.id) {
@@ -110,6 +120,10 @@ impl App {
                 .latency(d.id)
                 .or_else(|| d.reported.map(|r| r.latency_at(rate)));
             (face, frames.unwrap_or(0))
+        } else if builtin {
+            // What the device's own build reported, as the routing has it.
+            let frames = self.lanes.devices.builtin.get(&d.id).copied().unwrap_or(0);
+            (OwnedFace::Ready, frames)
         } else {
             (OwnedFace::Ready, 0)
         };
@@ -118,12 +132,18 @@ impl App {
         } else {
             frames as f32 / rate as f32 * 1000.0
         };
-        let (slots, parameters) = if d.is_vst3() && matches!(face, OwnedFace::Ready) {
+        let (slots, parameters) = if (d.is_vst3() || builtin) && matches!(face, OwnedFace::Ready) {
             self.strip_of(d)
         } else {
             (Vec::new(), 0)
         };
-        let editor = self.editor_look(d);
+        let editor = if builtin {
+            // A built-in's controls are its card and All parameters: there is
+            // no separate window.
+            strip::Editor::Unavailable("This device's controls are on its card".to_owned())
+        } else {
+            self.editor_look(d)
+        };
         Row {
             id: d.id,
             slots,
@@ -135,6 +155,7 @@ impl App {
             vendor,
             identity,
             vst3: d.is_vst3(),
+            builtin,
             instrument: d.is_instrument(),
             bypass: d.bypass,
             face,

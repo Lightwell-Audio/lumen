@@ -141,10 +141,15 @@ impl Presets {
         }
     }
 
-    /// Asks again for the files of the plugin of `device`.
-    pub(super) fn relist(&mut self, ctx: &egui::Context, device: Id, vendor: &str, plugin: &str) {
+    /// Asks again for the files of `device`, in `folders` (the user's first,
+    /// then any others).
+    pub(super) fn relist(
+        &mut self,
+        ctx: &egui::Context,
+        device: Id,
+        folders: Vec<(PathBuf, bool)>,
+    ) {
         self.asked.insert(device);
-        let folders = self.places.folders(vendor, plugin);
         if folders.is_empty() {
             self.listed.entry(device).or_default();
         } else {

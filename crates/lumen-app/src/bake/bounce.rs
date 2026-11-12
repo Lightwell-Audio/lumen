@@ -267,6 +267,7 @@ pub fn render_job(
     for r in &running {
         devices.hosted.insert(r.plugin.device, r.linked.latency);
     }
+    devices.builtin = crate::builtin::latencies(&project);
     let Some(mut routing) = routing::bounce_routing(&project, track, &devices, rate) else {
         return Err("The track is gone".to_owned());
     };
@@ -285,6 +286,7 @@ pub fn render_job(
     let (mut clip_handle, clip_play) = clip_player_for_render();
     let (mut midi_handle, midi_play) = midi_player();
     let (mut mixer_handle, mut source) = mixer(Layered(clip_play, midi_play));
+    crate::builtin::attach_all(&project, &mut mixer_handle)?;
     for Running { plugin, linked } in running {
         let latency = linked.latency;
         let guard = Guard::new(Box::new(linked.link), latency);

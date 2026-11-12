@@ -142,9 +142,39 @@ pub(crate) fn chips(
 }
 
 impl App {
+    /// The parameters of `d`: a plugin's as its host lists them, a built-in's
+    /// from its static table (M8 slice B0). The same shape either way, so the
+    /// strip, All parameters, lanes, MIDI learn and overrides are one code
+    /// path.
+    pub(crate) fn device_parameters(&self, d: &Device) -> &[ParamInfo] {
+        if crate::builtin::is_builtin(d) {
+            self.builtin.parameters(d.id)
+        } else {
+            self.hosting.parameters(d.id)
+        }
+    }
+
+    /// The groups `d`'s parameters sit in: a built-in has one, unnamed.
+    pub(crate) fn device_units(&self, d: &Device) -> Vec<UnitInfo> {
+        if crate::builtin::is_builtin(d) {
+            Vec::new()
+        } else {
+            self.hosting.units(d.id).to_vec()
+        }
+    }
+
+    /// The words of each step of a stepped parameter of `d`.
+    pub(crate) fn parameter_choices(&self, d: &Device, id: u32) -> Vec<String> {
+        if crate::builtin::is_builtin(d) {
+            crate::builtin::choices(d, id)
+        } else {
+            self.hosting.choices(d.id, id).to_vec()
+        }
+    }
+
     /// The knobs of `d`'s strip, and how many parameters it lists.
     pub(super) fn strip_of(&self, d: &Device) -> (Vec<Option<Slot>>, usize) {
-        let list = self.hosting.parameters(d.id);
+        let list = self.device_parameters(d);
         let count = list.iter().filter(|p| strip::offered(p)).count();
         if count == 0 {
             return (Vec::new(), 0);
@@ -166,13 +196,13 @@ impl App {
         Slot {
             id: p.id,
             name: p.title.clone(),
-            text: self.parameter_text(d.id, p, value),
+            text: self.parameter_text(d, p, value),
             value,
             default: p.default,
             steps: p.steps,
             read_only: p.read_only(),
             choices: if p.steps > 1 {
-                self.hosting.choices(d.id, p.id).to_vec()
+                self.parameter_choices(d, p.id)
             } else {
                 Vec::new()
             },
@@ -205,7 +235,6 @@ impl App {
             .or_else(|| self.hosting.value(d.id, p.id))
             .unwrap_or(p.default)
     }
-
     /// The track that holds `device`.
     fn track_of_device(&self, device: Id) -> Option<&lumen_project::model::Track> {
         let (id, _) = crate::document::find_device(self.document.project(), device)?;
@@ -272,15 +301,21 @@ impl App {
         })
     }
 
-    /// The plugin's own words for a value. The plugin is asked when the value
-    /// changes (not faster than every [`TEXT_EVERY`]); until it answers, the
-    /// answer to the nearest value kept stands, or a percentage. A value
-    /// asked about and not answered (its answer pushed out by other values',
-    /// a lane's among them) is asked again after [`TEXT_AGAIN`].
-    fn parameter_text(&self, device: Id, p: &ParamInfo, value: f64) -> String {
-        if let Some(text) = self.hosting.text(device, p.id, value) {
+    /// The device's own words for a value. A built-in reads its table at once;
+    /// a plugin is asked when the value changes (not faster than every
+    /// [`TEXT_EVERY`]); until it answers, the answer to the nearest value kept
+    /// stands, or a percentage. A value asked about and not answered (its
+    /// answer pushed out by other values', a lane's among them) is asked again
+    /// after [`TEXT_AGAIN`].
+    fn parameter_text(&self, d: &Device, p: &ParamInfo, value: f64) -> String {
+        if crate::builtin::is_builtin(d) {
+            return crate::builtin::text(d, p.id, value)
+                .unwrap_or_else(|| format!("{:.0} %", value * 100.0));
+        }
+        if let Some(text) = self.hosting.text(d.id, p.id, value) {
             return text.to_owned();
         }
+        let device = d.id;
         let mut asked = self.chain.text_asked.borrow_mut();
         // A plugin's words were forgotten (it named its controls anew):
         // what was asked before is asked again.
@@ -317,8 +352,7 @@ impl App {
                 // A click on a switch or a choice is a change of its own.
                 self.document.seal();
                 let title = self
-                    .hosting
-                    .parameters(device)
+                    .device_parameters_of(device)
                     .iter()
                     .find(|p| p.id == id)
                     .map_or_else(|| "parameter".to_owned(), |p| p.title.clone());
@@ -330,7 +364,7 @@ impl App {
                     None,
                 );
             }
-            strip::Output::Type(id, text) => self.hosting.ask_value(device, id, text),
+            strip::Output::Type(id, text) => self.type_parameter(device, id, text),
             strip::Output::Editor => self.toggle_editor(device),
             strip::Output::Learn => self.toggle_learn(device),
             strip::Output::Ask(id, ask) => self.answer_ask(device, id, ask),
@@ -347,18 +381,45 @@ impl App {
 
     /// The ids on `device`'s strip now.
     pub(crate) fn strip_ids(&self, device: Id) -> Vec<u32> {
-        strip::resolve(
-            self.hosting.parameters(device),
-            self.chain.shown.get(&device).map(Vec::as_slice),
-        )
+        let list = crate::document::find_device(self.document.project(), device)
+            .map(|(_, d)| self.device_parameters(d))
+            .unwrap_or(&[]);
+        strip::resolve(list, self.chain.shown.get(&device).map(Vec::as_slice))
+    }
+
+    /// A device's parameters by its id, for the callers that have only that.
+    pub(crate) fn device_parameters_of(&self, device: Id) -> Vec<ParamInfo> {
+        crate::document::find_device(self.document.project(), device)
+            .map(|(_, d)| self.device_parameters(d).to_vec())
+            .unwrap_or_default()
+    }
+
+    /// A value typed for a parameter: a plugin reads it and answers in a
+    /// moment; a built-in reads its own table at once, as one undo step (M8
+    /// slice B0).
+    fn type_parameter(&mut self, device: Id, id: u32, text: String) {
+        let Some((_, d)) = crate::document::find_device(self.document.project(), device) else {
+            return;
+        };
+        if !crate::builtin::is_builtin(d) {
+            self.hosting.ask_value(device, id, text);
+            return;
+        }
+        let d = d.clone();
+        match crate::builtin::value_of(&d, id, &text) {
+            Some(value) => self.set_parameter(device, id, value, "typed"),
+            None => {
+                let name = crate::document::device_name(&d);
+                self.say(format!("{name} did not understand \u{201c}{text}\u{201d}."));
+            }
+        }
     }
 
     /// Sets a parameter as one undo step per drag. `from` keeps the strip's
     /// drag and the panel's apart.
     fn set_parameter(&mut self, device: Id, id: u32, value: f64, from: &str) {
         let title = self
-            .hosting
-            .parameters(device)
+            .device_parameters_of(device)
             .iter()
             .find(|p| p.id == id)
             .map_or_else(|| "parameter".to_owned(), |p| p.title.clone());
@@ -387,11 +448,12 @@ impl App {
         self.chain.shown.insert(device, ids);
     }
 
-    /// Whether the chosen device is a running plugin that lists parameters.
+    /// Whether the chosen device lists parameters (a running plugin's, or a
+    /// built-in's table).
     pub(crate) fn chosen_has_parameters(&self) -> bool {
         self.chain
             .selected
-            .is_some_and(|d| !self.hosting.parameters(d).is_empty())
+            .is_some_and(|d| !self.device_parameters_of(d).is_empty())
     }
 
     /// Whether the chosen device is a plugin that is running, so it has a
@@ -420,8 +482,8 @@ impl App {
         else {
             return;
         };
-        let list: Vec<ParamInfo> = self.hosting.parameters(device.id).to_vec();
-        let units: Vec<UnitInfo> = self.hosting.units(device.id).to_vec();
+        let list: Vec<ParamInfo> = self.device_parameters(&device).to_vec();
+        let units: Vec<UnitInfo> = self.device_units(&device);
         let shown = self.strip_ids(device.id);
         let title = format!("{} parameters", crate::document::device_name(&device));
         let mut starred: Vec<u32> = Vec::new();
@@ -529,7 +591,7 @@ impl App {
             self.set_parameter(device.id, id, value, "panel");
         }
         if let Some((id, text)) = act.typed {
-            self.hosting.ask_value(device.id, id, text);
+            self.type_parameter(device.id, id, text);
         }
         if let Some((id, ask)) = act.ask {
             self.answer_ask(device.id, id, ask);
@@ -622,7 +684,7 @@ impl App {
             );
         }
         let value = self.parameter_value(device, p);
-        let text = self.parameter_text(device.id, p, value);
+        let text = self.parameter_text(device, p, value);
         let (response, out) = param_bar(
             ui,
             bar,

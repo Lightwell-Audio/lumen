@@ -21,6 +21,7 @@ use lumen_project::model::{Id, PluginRef};
 use crate::App;
 use crate::document::find_device;
 use crate::hosting::State;
+pub(crate) use crate::preset_files::Sound;
 use crate::preset_files::{Done, Entry, Files, NAME_LIMIT, Places};
 use crate::{theme, widgets};
 

@@ -574,6 +574,17 @@ pub const CLIP_TEXT: Color32 = Color32::WHITE;
 /// waveform stay readable in both themes.
 pub const CLIP_MUTED: Color32 = Color32::from_rgb(0x6C, 0x70, 0x78);
 
+/// Each built-in device's signature hue (M8 slice B0, `DESIGN.md` §7k): the
+/// colour of its picture and of its marks, the same in both themes, as a
+/// clip's colour is. A device keeps its identity wherever it is drawn.
+pub mod personality {
+    use super::Color32;
+
+    /// Prism, the utility device: a quiet steel grey, the one device that
+    /// changes nothing of its own.
+    pub const UTILITY: Color32 = Color32::from_rgb(0x9A, 0xA0, 0xAC);
+}
+
 /// Spacing on a 4 pt grid (`DESIGN.md` §5).
 pub mod space {
     /// Hairline gaps: inside a segmented control, between a strip's rails.

@@ -90,6 +90,8 @@ pub struct Devices {
     /// Frames of latency of each plugin, by device: what it last
     /// reported, or what the project saved while it loads or is missing.
     pub hosted: BTreeMap<Id, u32>,
+    /// Frames of latency of each built-in effect, by device (M8 slice B0).
+    pub builtin: BTreeMap<Id, u32>,
     /// The lanes the user has taken over (M7 slice A4a): they play nothing
     /// and the control's own value is heard.
     pub overridden: Overrides,
@@ -127,11 +129,11 @@ fn automation(
             .iter()
             .map(|send| on(Target::Send { to: send.to }))
             .collect(),
-        // The parameters of the track's plugin effects (slice A3). Those of a
-        // plugin instrument go with the track's MIDI (`midi_play`), and a
-        // built-in device's wait for the devices of M8.
+        // The parameters of the track's effects that lanes drive (slice A3;
+        // built-ins join them in M8 slice B0). Those of a plugin instrument go
+        // with the track's MIDI (`midi_play`).
         plugins: lane_bake::device_lanes(track, over, tempo, rate, |d| {
-            d.is_vst3() && !d.is_instrument()
+            (d.is_vst3() || crate::builtin::is_builtin(d)) && !d.is_instrument()
         })
         .into_iter()
         .map(|(device, lane)| (device.0, lane))
@@ -173,6 +175,8 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Ro
             project
         };
     let heard = lumen_project::solo::hearing(rules_project);
+    // What each built-in effect's parameters hold (M8 slice B0), by device.
+    let builtin_values = crate::builtin::routing_values(project);
     let nodes = rules::all_tracks(project)
         .map(|track| {
             // Only mono material pans by the project's law; stereo keeps
@@ -228,6 +232,27 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Ro
                                 latency: devices.hosted.get(&d.id).copied().unwrap_or(0),
                             }),
                     )
+                    // A built-in effect runs in the audio thread itself (M8
+                    // slice B0), found by its id; its reported latency keeps
+                    // every other path lined up with it.
+                    .chain(
+                        track
+                            .devices
+                            .iter()
+                            .filter(|d| crate::builtin::is_builtin(d))
+                            .map(|d| Device::Builtin {
+                                device: d.id.0,
+                                latency: devices.builtin.get(&d.id).copied().unwrap_or(0),
+                            }),
+                    )
+                    .collect(),
+                // What each built-in's parameters hold, carried with the
+                // routing so a knob reaches the audio thread with the next
+                // block.
+                values: builtin_values
+                    .iter()
+                    .filter(|(device, _)| track.devices.iter().any(|d| d.id.0 == *device))
+                    .cloned()
                     .collect(),
                 // A plugin instrument plays its notes as late as it last
                 // reported, and every other path waits for it (slice 6).
