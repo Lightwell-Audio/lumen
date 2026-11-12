@@ -213,6 +213,8 @@ pub struct App {
     autosave: Option<autosave::Autosave>,
     /// An autosave left by a crash, offered for recovery.
     leftover: Option<autosave::Leftover>,
+    /// The scan for those autosaves, on a worker (sweep M4a).
+    leftovers: app::recovery::Leftovers,
     /// A crash report from an earlier run not shown yet, and `--crash-test`.
     crash_report: Option<PathBuf>,
     crash_test: Option<crash::Test>,
@@ -571,6 +573,7 @@ impl eframe::App for App {
         self.poll_cache(&ctx);
         self.poll_collecting(&ctx);
         self.poll_templates(&ctx);
+        self.poll_leftovers(&ctx);
         self.autosave(&ctx);
         let rate = self.transport.state().sample_rate;
         let mut dropped: Vec<PathBuf> = ctx.input(|i| {

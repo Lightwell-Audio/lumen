@@ -485,7 +485,7 @@ fn a_crash_while_recording_leaves_a_take_the_next_start_puts_back() {
 
     let dir = lumen.crash();
     let mut again = Lumen::start_with(dir, |l| l.with_input_device());
-    again.click("Recover");
+    again.recover();
     again.wait_for("the recovered project and its takes", |app| {
         // The takes are read on a worker after the project opens.
         !app.is_busy() && !app.audio_takes_placing() && app.project().tracks.len() == 2
@@ -728,7 +728,7 @@ fn a_take_placed_and_not_yet_autosaved_survives_a_crash_and_a_second_one() {
             l.with_input_device()
                 .autosaving_after(Duration::from_secs(1))
         });
-        again.click("Recover");
+        again.recover();
         again.wait_for("the recovered take", |app| {
             !app.is_busy() && !app.audio_takes_placing() && app.project().tracks.len() == 2
         });
@@ -777,7 +777,7 @@ fn a_take_in_a_project_with_no_unsaved_changes_is_offered_back_after_a_crash() {
     let dir = lumen.crash();
 
     let mut again = Lumen::start_with(dir, |l| l.with_input_device());
-    again.click("Recover");
+    again.recover();
     again.wait_for("the recovered take", |app| {
         !app.is_busy() && !app.audio_takes_placing() && app.project().tracks.len() == 2
     });

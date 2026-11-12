@@ -407,7 +407,7 @@ fn recover_waits_while_the_open_project_has_unsaved_changes() {
     let mut again = Lumen::start_with(dir, |launch| launch);
     again.key(Modifiers::COMMAND, Key::T);
     again.key(Modifiers::COMMAND, Key::T);
-    again.frames(5);
+    again.run_until("the recovery banner", |lumen| lumen.shows("Recover"));
     assert!(
         again.shows("Recovering replaces the open project: save your changes to Untitled first.")
     );

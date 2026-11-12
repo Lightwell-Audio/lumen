@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
+use egui_kittest::kittest::Queryable;
 use lumen_app::testing::{PROJECT_EXTENSION, project_file};
 
 use super::{Lumen, wav};
@@ -80,7 +81,7 @@ fn work_survives_a_crash_through_the_autosave() {
     let dir = lumen.crash();
     let mut again = Lumen::start_with(dir, |launch| launch);
     assert!(again.track_names().is_empty());
-    again.click("Recover");
+    again.recover();
     again.wait_for("the recovered project", |app| {
         !app.is_busy() && app.project().tracks.len() == 2
     });
@@ -89,6 +90,47 @@ fn work_survives_a_crash_through_the_autosave() {
         again.app().is_dirty(),
         "recovered work is unsaved until saved"
     );
+}
+
+/// Discarding a crash's copy deletes it and offers the next one, newest
+/// first. The folder is read on a worker (sweep M4a), so the banner follows
+/// the scan's answer rather than the click.
+#[test]
+fn discarding_a_crash_copy_removes_it_and_offers_the_next_one() {
+    let dir = lumen_project::testing::TempDir::new("e2e-recover-discard");
+    let autosaves = dir.path().join("autosave");
+    std::fs::create_dir_all(&autosaves).unwrap();
+    let copy = |session: &str, name: &str, written: u64| {
+        let file = autosaves.join(format!("{session}.{PROJECT_EXTENSION}"));
+        std::fs::write(&file, b"{}").unwrap();
+        let note = format!("{{\"project\": null, \"name\": \"{name}\", \"written\": {written}}}");
+        std::fs::write(autosaves.join(format!("{session}.json")), note).unwrap();
+        file
+    };
+    let older = copy("one", "Alpha", 100);
+    let newer = copy("two", "Beta", 300);
+
+    let mut lumen = Lumen::start_with(dir, |launch| launch);
+    lumen.run_until("the newest leftover", |l| {
+        l.harness
+            .query_by_label_contains("Unsaved changes to Beta")
+            .is_some()
+    });
+    lumen.click("Discard");
+    lumen.run_until("the next leftover", |l| {
+        l.harness
+            .query_by_label_contains("Unsaved changes to Alpha")
+            .is_some()
+    });
+    assert!(!newer.exists(), "the discarded copy went with its note");
+    assert!(!autosaves.join("two.json").exists());
+    lumen.click("Discard");
+    lumen.run_until("no leftover at all", |l| {
+        l.harness
+            .query_by_label_contains("did not close normally")
+            .is_none()
+    });
+    lumen_testkit::wait_until("the last copy to go", || !older.exists());
 }
 
 /// A crash report from an earlier run is offered once (owner, M3 6c).

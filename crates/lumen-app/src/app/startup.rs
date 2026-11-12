@@ -220,6 +220,9 @@ impl App {
             owner: None,
             autosave: None,
             leftover: None,
+            leftovers: app::recovery::Leftovers::new(
+                launch.recover_latest && launch.open.is_none(),
+            ),
             crash_report: launch.crash_dir.as_deref().and_then(crash::unseen),
             crash_test: launch.crash_test,
             crash_dir: launch.crash_dir.clone(),
@@ -309,14 +312,7 @@ impl App {
         // Settled for the run: a folder chosen later is used from the next
         // start.
         app.cache.dir = app.chosen_cache_dir();
-        app.leftover = app.next_leftover();
         app.restore_place_folder();
-        if launch.recover_latest
-            && let Some(leftover) = app.leftover.take()
-        {
-            app.begin_opening(leftover.file.clone());
-            app.recovering = Some(leftover);
-        }
         // Projects open from File Explorer by default (M9 R8, ADR-0117).
         if app.association.is_system() {
             app.associate_at_start();

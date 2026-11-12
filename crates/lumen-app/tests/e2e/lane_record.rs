@@ -528,7 +528,7 @@ fn a_pass_under_way_when_the_app_stops_is_found_in_the_autosave() {
     // The app stops without closing: recovery offers the pass so far.
     let dir = lumen.crash();
     let mut again = Lumen::start_with(dir, |launch| launch);
-    again.click("Recover");
+    again.recover();
     again.wait_for("the recovered project", |app| {
         !app.is_busy() && app.project().tracks.len() == 1
     });
