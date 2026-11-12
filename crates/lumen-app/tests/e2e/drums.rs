@@ -71,6 +71,37 @@ fn loudest(lumen: &mut Lumen) -> f32 {
         .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()))
 }
 
+/// Waits until what the device plays is under `quiet`, and gives the level it
+/// reached: a note that ends and whose tail dies, waited for as a condition,
+/// never a count of frames (M8 D0 review L10).
+#[track_caller]
+fn until_quiet(lumen: &mut Lumen, quiet: f32, what: &str) -> f32 {
+    let deadline = lumen_testkit::Deadline::new();
+    loop {
+        let heard = loudest(lumen);
+        if heard < quiet {
+            return heard;
+        }
+        deadline.check(format_args!("{what}; still heard at {heard}"));
+        std::thread::sleep(lumen_testkit::POLL);
+    }
+}
+
+/// Waits until what the device plays is over `loud`, and gives the level it
+/// reached.
+#[track_caller]
+fn until_loud(lumen: &mut Lumen, loud: f32, what: &str) -> f32 {
+    let deadline = lumen_testkit::Deadline::new();
+    loop {
+        let heard = loudest(lumen);
+        if heard > loud {
+            return heard;
+        }
+        deadline.check(format_args!("{what}; only {heard} heard"));
+        std::thread::sleep(lumen_testkit::POLL);
+    }
+}
+
 fn play(lumen: &mut Lumen) {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.is_playing());
@@ -121,14 +152,12 @@ fn the_palette_attaches_a_kit_the_track_plays_it_and_a_muted_sound_is_heard_gone
     // Muting the kick (D1's editor row, driven through the document) silences
     // the track: nothing new sounds, and the note that played is let go.
     lumen.app_mut().mute_drum_sound(map.id, 36, true);
-    lumen.frames(30);
-    let after = loudest(&mut lumen);
+    let after = until_quiet(&mut lumen, 1e-4, "the muted sound to go");
     assert!(after < 1e-4, "the muted sound is gone: {after}");
 
     // Undo brings it back.
     lumen.key(Modifiers::COMMAND, Key::Z);
-    lumen.frames(30);
-    let back = loudest(&mut lumen);
+    let back = until_loud(&mut lumen, 0.01, "the undone sound");
     assert!(back > 0.01, "undone, it sounds again: {back}");
     stop(&mut lumen);
 }
