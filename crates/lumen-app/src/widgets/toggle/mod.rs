@@ -19,7 +19,7 @@ mod segmented;
 mod switch;
 mod tabs;
 
-pub use menu::{choice_row, menu_caption, menu_header};
+pub use menu::{choice_row, list_row, menu_caption, menu_header};
 pub use segmented::{Choice, segmented, segmented_full, segmented_tool, segmented_tool_width};
 pub use switch::{SWITCH_WIDTH, switch, switch_noted};
 pub use tabs::{Tab, TabsLayout, tab_divider, tabs_with};

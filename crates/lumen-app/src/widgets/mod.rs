@@ -52,9 +52,9 @@ pub use scroll_bar::{Axis, ScrollBar, scroll_bar};
 pub use signature::{parse as parse_signature, time_signature};
 pub use slider::*;
 pub use toggle::{
-    Choice, SWITCH_WIDTH, Tab, TabsLayout, choice_row, menu_caption, menu_header, segmented,
-    segmented_full, segmented_tool, segmented_tool_width, switch, switch_noted, tab_divider,
-    tabs_with, toggle_button, toggle_button_width,
+    Choice, SWITCH_WIDTH, Tab, TabsLayout, choice_row, list_row, menu_caption, menu_header,
+    segmented, segmented_full, segmented_tool, segmented_tool_width, switch, switch_noted,
+    tab_divider, tabs_with, toggle_button, toggle_button_width,
 };
 
 /// `text` as it is when it fits `width`, else cut to fit.

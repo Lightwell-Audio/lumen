@@ -210,11 +210,7 @@ impl Arrangement {
             };
             let main = self.outputs.main == Some(pair);
             if self.outputs.cue == Some(pair) {
-                ui.add_enabled(
-                    false,
-                    egui::Button::selectable(false, format!("{label} Cue")),
-                )
-                .on_disabled_hover_text(
+                widgets::menu_item(ui, &format!("{label} Cue"), None, false).on_hover_text(
                     "Used for cue: choose another Cue output in Audio settings to use it here",
                 );
                 continue;

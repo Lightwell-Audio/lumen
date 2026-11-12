@@ -105,3 +105,56 @@ pub fn choice_row(ui: &mut Ui, label: &str, on: bool) -> egui::Response {
     raised::focus_ring(painter, &response, rect);
     response
 }
+
+/// A row of a list too long for the room it has, the current one marked, as
+/// [`choice_row`] marks one: a label too long for the row ends in "…"
+/// instead of widening it (a name is shortened; its accessible name stays
+/// whole), and `dim` writes it as one not reached yet (a step that can be
+/// redone to). The row is a control high and fills the width it is given.
+pub fn list_row(ui: &mut Ui, label: &str, on: bool, dim: bool) -> egui::Response {
+    let palette = theme::p();
+    let enabled = ui.is_enabled();
+    let pad = theme::space::S;
+    let (rect, response) = ui.allocate_exact_size(
+        vec2(ui.available_width(), theme::size::CONTROL),
+        Sense::click(),
+    );
+    response
+        .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, on, label));
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+    let hover = motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());
+    let radius = theme::radius::for_height(rect.height());
+    let painter = ui.painter();
+    if on {
+        painter.rect_filled(rect, f32::from(radius), palette.accent_muted);
+    } else if hover > 0.0 {
+        painter.rect_filled(rect, f32::from(radius), palette.ember.gamma_multiply(hover));
+    }
+    let colour = match (enabled, on, dim) {
+        (false, ..) => palette.text_disabled,
+        (true, true, _) => palette.accent,
+        (true, false, true) => palette.text_hint,
+        (true, false, false) => palette.text,
+    };
+    let mut job = egui::text::LayoutJob::simple_singleline(
+        label.to_owned(),
+        FontId::proportional(theme::size::BODY),
+        colour,
+    );
+    job.wrap = egui::text::TextWrapping {
+        max_width: (rect.width() - 2.0 * pad).max(1.0),
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('\u{2026}'),
+    };
+    let galley = ui.painter().layout_job(job);
+    painter.galley_with_override_text_color(
+        pos2(rect.left() + pad, rect.center().y - galley.size().y / 2.0),
+        galley,
+        colour,
+    );
+    raised::focus_ring(painter, &response, rect);
+    response
+}

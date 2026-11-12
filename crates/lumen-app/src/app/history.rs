@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, Align2, RichText, pos2, vec2};
 
 use crate::widgets::Dialog;
-use crate::{App, motion, theme, trace};
+use crate::{App, motion, theme, trace, widgets};
 
 impl App {
     /// Undo (or redo) one step, with a brief note of what changed.
@@ -75,16 +75,7 @@ impl App {
                     .max_height(360.0)
                     .show(ui, |ui| {
                         let row = |ui: &mut egui::Ui, text: &str, current: bool, future: bool| {
-                            let text = if future {
-                                RichText::new(text).color(theme::p().text_hint)
-                            } else {
-                                RichText::new(text)
-                            };
-                            ui.add_sized(
-                                [ui.available_width(), 22.0],
-                                egui::Button::selectable(current, text),
-                            )
-                            .clicked()
+                            widgets::list_row(ui, text, current, future).clicked()
                         };
                         if row(ui, "Opened", done.is_empty(), false) {
                             jump = Some(0);
