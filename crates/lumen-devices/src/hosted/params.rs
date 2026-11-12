@@ -44,6 +44,13 @@ impl ParamBlock {
         }
     }
 
+    /// Whether this block has the room [`ParamBlock::new`] gives it. The
+    /// placeholder ([`ParamBlock::none`]) has none: nothing is ever copied
+    /// into it, because a copy would allocate on the audio thread.
+    pub fn has_room(&self) -> bool {
+        self.queues.capacity() >= MOST_QUEUES && self.points.capacity() >= MOST_POINTS
+    }
+
     /// A block with no room, for a call that has nothing to say. Allocates
     /// nothing.
     pub const fn none() -> Self {
@@ -157,6 +164,13 @@ impl ParamBlock {
 
     /// Becomes a copy of `other`, within its own room.
     pub fn copy_from(&mut self, other: &ParamBlock) {
+        // The destination is a block made by `ParamBlock::new`, never the
+        // zero-capacity placeholder: growing it here would allocate on the
+        // audio thread (sweep Low).
+        debug_assert!(
+            self.has_room() || other.is_empty(),
+            "an empty placeholder is never copied into: it has no room"
+        );
         self.queues.clear();
         self.points.clear();
         self.frames = other.frames;
@@ -275,5 +289,26 @@ mod tests {
         let p = ParamBlock::none();
         assert!(p.is_empty());
         assert_eq!(p.points.capacity(), 0);
+        assert!(!p.has_room());
+        assert!(ParamBlock::new().has_room());
+    }
+
+    /// The placeholder takes an empty block and nothing else: a non-empty one
+    /// was caught in debug builds before it could grow the placeholder, and
+    /// the instrument's `automate` never offers it one (sweep Low).
+    #[test]
+    fn a_placeholder_takes_only_an_empty_block() {
+        let mut placeholder = ParamBlock::none();
+        placeholder.copy_from(&ParamBlock::none());
+        assert!(placeholder.is_empty());
+        assert!(!placeholder.has_room());
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "an empty placeholder is never copied into")]
+    fn copying_into_a_placeholder_is_caught_in_debug_builds() {
+        let mut placeholder = ParamBlock::none();
+        placeholder.copy_from(&filled());
     }
 }

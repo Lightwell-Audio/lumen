@@ -11,6 +11,9 @@ pub enum StreamEvent {
     ResetRequested,
     /// No callbacks for longer than the watchdog allows.
     Stalled,
+    /// The driver missed `n` buffers (an overload): audio goes on, and they
+    /// count as dropouts.
+    Dropped(u64),
 }
 
 /// A failed open hands the callback back so nothing is lost.
