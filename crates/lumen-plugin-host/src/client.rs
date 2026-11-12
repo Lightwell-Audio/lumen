@@ -160,9 +160,10 @@ type Incoming = Result<Response, FrameError>;
 pub type NoticeSink = Box<dyn Fn(Response) + Send>;
 type Notices = std::sync::Arc<std::sync::Mutex<Option<NoticeSink>>>;
 
-/// What the host process said about itself on stderr (its own lines, marked
-/// with [`crate::process::LOG_PREFIX`]; anything else a plugin prints is
-/// read and dropped). Shared between the reader thread and whoever shows it.
+/// What the host process said about itself on stderr: its own lines, marked
+/// with the nonce this process chose (see [`crate::process::NONCE_ENV`]);
+/// anything else a plugin prints is read and dropped. Shared between the
+/// reader thread and whoever shows it.
 #[derive(Default)]
 pub struct HostLog {
     lines: std::sync::Mutex<std::collections::VecDeque<String>>,
@@ -205,6 +206,13 @@ impl HostLog {
     }
 }
 
+/// The host's own words in one line of its stderr, if the line is the host's.
+/// A plugin writes to the same pipe, so a line without this process's nonce is
+/// not the host's, however much it looks like one.
+fn host_line<'a>(line: &'a str, mark: &str) -> Option<&'a str> {
+    line.trim_end().strip_prefix(mark)
+}
+
 pub struct HostProcess {
     log: std::sync::Arc<HostLog>,
     child: Child,
@@ -230,6 +238,10 @@ impl HostProcess {
 
     /// Starts `exe` as a host, with `env` added to its environment.
     pub fn spawn(exe: &Path, env: &[(&str, &str)]) -> std::io::Result<Self> {
+        // The host shares its stderr with the plugin, so only lines marked with
+        // a nonce this process chose are the host's: a plugin that prints
+        // "lumen-host: ..." cannot pass itself off as one.
+        let nonce = crate::process::new_nonce();
         let mut command = Command::new(exe);
         command
             .stdin(Stdio::piped())
@@ -239,6 +251,9 @@ impl HostProcess {
         for (key, value) in env {
             command.env(key, value);
         }
+        // Last, so a caller cannot replace the nonce with one this side would
+        // not recognise.
+        command.env(crate::process::NONCE_ENV, &nonce);
         let mut child = command.spawn()?;
         #[cfg(windows)]
         if let Err(e) = end_with_lumen(&child) {
@@ -251,6 +266,7 @@ impl HostProcess {
         let log = std::sync::Arc::new(HostLog::default());
         let stderr = child.stderr.take().expect("piped stderr");
         let reader_log = log.clone();
+        let mark = crate::process::mark(&nonce);
         // Always drained, so a plugin that prints a lot never blocks on a
         // full pipe; only the host's own lines are kept.
         // Not joined with the others: a helper process a plugin started can keep
@@ -268,9 +284,7 @@ impl HostProcess {
                         Ok(0) | Err(_) => break,
                         Ok(_) => {
                             let text = String::from_utf8_lossy(&buf);
-                            if let Some(rest) =
-                                text.trim_end().strip_prefix(crate::process::LOG_PREFIX)
-                            {
+                            if let Some(rest) = host_line(&text, &mark) {
                                 reader_log.push(rest);
                             }
                         }
@@ -851,6 +865,28 @@ fn join_within(threads: impl Iterator<Item = JoinHandle<()>>, within: Duration) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The host shares its stderr with the plugin, so a line is only the
+    /// host's when it carries the nonce this process chose: one that merely
+    /// looks like a host line is a plugin's, and is dropped.
+    #[test]
+    fn only_a_line_with_this_hosts_nonce_is_the_hosts() {
+        let mark = crate::process::mark("4f2a");
+        assert_eq!(
+            host_line("lumen-host[4f2a]: crash in a plugin\n", &mark),
+            Some("crash in a plugin")
+        );
+        assert_eq!(host_line("lumen-host: crash in a plugin", &mark), None);
+        assert_eq!(
+            host_line("lumen-host[9c1d]: crash in a plugin", &mark),
+            None
+        );
+        assert_eq!(
+            host_line("a plugin wrote lumen-host[4f2a]: crash", &mark),
+            None
+        );
+        assert_eq!(host_line("", &mark), None);
+    }
 
     #[test]
     fn a_thread_that_does_not_end_is_let_go_not_waited_for() {

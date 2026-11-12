@@ -2,6 +2,7 @@
 //! start, before any plugin code.
 
 use std::fs::File;
+use std::time::Instant;
 
 /// Takes the process's real stdout for the protocol and points the stdout
 /// that plugin code writes to at stderr, so a plugin that prints cannot
@@ -102,7 +103,7 @@ mod macos {
         let queue = match arm_parent(parent) {
             Ok(queue) => queue,
             Err(error) => {
-                eprintln!("lumen-host: parent monitor failed: {error}");
+                eprintln!("{}parent monitor failed: {error}", super::log_prefix());
                 // SAFETY: do not continue into plugin code without the guard.
                 unsafe { libc::_exit(1) };
             }
@@ -111,7 +112,10 @@ mod macos {
             .name("lumen-parent-watch".into())
             .spawn(move || watch_parent(queue));
         if let Err(error) = started {
-            eprintln!("lumen-host: could not start parent monitor: {error}");
+            eprintln!(
+                "{}could not start parent monitor: {error}",
+                super::log_prefix()
+            );
             // SAFETY: do not continue into plugin code without the guard.
             unsafe { libc::_exit(1) };
         }
@@ -188,7 +192,7 @@ mod macos {
                 if error.kind() == io::ErrorKind::Interrupted {
                     continue;
                 }
-                eprintln!("lumen-host: parent monitor failed: {error}");
+                eprintln!("{}parent monitor failed: {error}", super::log_prefix());
                 // SAFETY: stopping the host avoids leaving an orphan.
                 unsafe { libc::_exit(1) };
             }
@@ -199,7 +203,7 @@ mod macos {
             }
             if ready == 1 && event.flags & libc::EV_ERROR != 0 {
                 let error = io::Error::from_raw_os_error(event.data as i32);
-                eprintln!("lumen-host: parent monitor failed: {error}");
+                eprintln!("{}parent monitor failed: {error}", super::log_prefix());
                 // SAFETY: stopping the host avoids leaving an orphan.
                 unsafe { libc::_exit(1) };
             }
@@ -226,12 +230,40 @@ pub fn end_now(code: u32) -> ! {
     std::process::exit(code as i32)
 }
 
-/// What the host says about itself on stderr, where Lumen collects it: one
-/// line, prefixed so it is told from what a plugin prints.
-pub const LOG_PREFIX: &str = "lumen-host: ";
+/// The environment variable that carries a host's log nonce: a word the
+/// process that started the host chose, so that a plugin cannot write a line
+/// that reads as the host's. Both share one stderr.
+pub const NONCE_ENV: &str = "LUMEN_HOST_LOG";
+
+/// A fresh nonce for one host, from the standard library's random hasher keys
+/// mixed with the clock and a stack address: 64 bits of hex, unpredictable to
+/// anything that did not choose it, and no new dependency.
+pub fn new_nonce() -> String {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hash, Hasher};
+
+    let here = 0_u8;
+    let mut hasher = RandomState::new().build_hasher();
+    Instant::now().hash(&mut hasher);
+    std::process::id().hash(&mut hasher);
+    (std::ptr::from_ref(&here) as usize).hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+/// The mark at the start of a host's own lines on stderr, for `nonce`.
+pub fn mark(nonce: &str) -> String {
+    format!("lumen-host[{nonce}]: ")
+}
+
+/// This host's mark, from [`NONCE_ENV`] (empty when it was started by hand).
+/// Resolved once: the crash filter reads it and must not allocate.
+pub fn log_prefix() -> &'static str {
+    static MARK: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    MARK.get_or_init(|| mark(&std::env::var(NONCE_ENV).unwrap_or_default()))
+}
 
 pub fn log(line: &str) {
-    eprintln!("{LOG_PREFIX}{line}");
+    eprintln!("{}{line}", log_prefix());
 }
 
 /// Asks Windows to run this process at full speed: high priority, so a
@@ -367,6 +399,10 @@ pub fn report_crashes() {
     };
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
 
+    // Resolve the log mark now: the filter runs with the crash's state and
+    // must not allocate.
+    let _ = log_prefix();
+
     /// A line built in a fixed buffer.
     struct Line {
         bytes: [u8; 512],
@@ -392,11 +428,14 @@ pub fn report_crashes() {
                 record,
             )
         };
+        // `report_crashes` resolved this before installing the filter, so this
+        // is a read, not an allocation.
+        let mark = log_prefix();
         let mut line = Line {
             bytes: [0; 512],
             len: 0,
         };
-        let _ = write!(line, "{LOG_PREFIX}crash in ");
+        let _ = write!(line, "{mark}crash in ");
         let mut module: HMODULE = std::ptr::null_mut();
         // SAFETY: a plain call; the flags ask for the module holding `at`
         // without taking a reference.
@@ -464,7 +503,7 @@ pub fn report_crashes() {
                 };
                 let _ = writeln!(
                     detail,
-                    "{LOG_PREFIX}regs rax={:x} rcx={:x} rdx={:x} rbx={:x} rsi={:x} rdi={:x} r8={:x} r9={:x}",
+                    "{mark}regs rax={:x} rcx={:x} rdx={:x} rbx={:x} rsi={:x} rdi={:x} r8={:x} r9={:x}",
                     context.Rax,
                     context.Rcx,
                     context.Rdx,
@@ -482,7 +521,7 @@ pub fn report_crashes() {
                     std::ptr::null_mut(),
                 );
                 detail.len = 0;
-                let _ = write!(detail, "{LOG_PREFIX}code ");
+                let _ = write!(detail, "{mark}code ");
                 // Some of the bytes before the fault and the ones after. The
                 // instruction pointer may be in memory that cannot be read at
                 // all (a jump to a wild address), so the window is copied
@@ -515,7 +554,7 @@ pub fn report_crashes() {
                 // damaged, so it is copied one page at a time through `probe`:
                 // a page that cannot be read is skipped.
                 detail.len = 0;
-                let _ = write!(detail, "{LOG_PREFIX}stack");
+                let _ = write!(detail, "{mark}stack");
                 let (base, size) = if found {
                     (module as usize, image_size(module as *const u8))
                 } else {
