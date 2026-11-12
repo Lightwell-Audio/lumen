@@ -11,10 +11,10 @@ use lumen_core::midi::{Event, Kind, Msg, cc};
 use lumen_core::time::Ticks;
 use lumen_devices::{Instrument, Preset, Synth};
 use lumen_engine::{
-    AUDITION, Command, Destination, Engine, EngineHandle, InstrumentSpec, KEYBOARD, Layered,
-    Listen, LiveIn, LiveInput, MidiClip, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack,
-    Mixer, MixerHandle, NodeSpec, Routing, Target, Timeline, clip_player, control_list, engine,
-    midi_player, mixer, note_list,
+    AUDITION, Command, Destination, DrumKit, Engine, EngineHandle, InstrumentSpec, KEYBOARD,
+    KitKey, Layered, Listen, LiveIn, LiveInput, MidiClip, MidiHandle, MidiNote, MidiOut,
+    MidiPlayer, MidiTrack, Mixer, MixerHandle, NodeSpec, Routing, Target, Timeline, clip_player,
+    control_list, engine, midi_player, mixer, note_list,
 };
 
 const MASTER: u64 = 100;
@@ -275,6 +275,7 @@ fn a_live_note_and_a_clip_note_on_one_key_each_end_by_their_own_off() {
             length: q(1),
             pitch: 60,
             velocity: 100,
+            channel: None,
         }]),
         controls: control_list(Vec::new()),
     };
@@ -307,6 +308,7 @@ fn an_audition_sounds_on_its_track_alone_and_never_ends_another_sources_note() {
             length: q(1),
             pitch: 60,
             velocity: 100,
+            channel: None,
         }]),
         controls: control_list(Vec::new()),
     };
@@ -405,6 +407,7 @@ fn a_preview_of_a_clip_notes_key_on_the_audition_channel_leaves_the_clip_note_so
             length: q(7),
             pitch: 60,
             velocity: 100,
+            channel: None,
         }]),
         controls: control_list(Vec::new()),
     };
@@ -643,4 +646,212 @@ fn clip_lists_sent_while_a_live_note_rings_are_still_taken() {
     }
     assert_eq!(refused, 0, "{refused} lists found the queue full");
     assert_eq!(rig.held_live(A), 1, "and the note still rings");
+}
+
+// ---------------------------------------------------------------- choke (M8 D0)
+
+/// A kit whose two hats choke each other (group 1), with a kick in none.
+fn hat_kit() -> Box<DrumKit> {
+    let mut kit = DrumKit::new();
+    for key in [42, 46, 36] {
+        kit.set(
+            key,
+            KitKey {
+                key,
+                channel: None,
+                silent: false,
+            },
+        );
+    }
+    kit.set_choke(42, 1);
+    kit.set_choke(46, 1);
+    Box::new(kit)
+}
+
+/// A track sent to MIDI output port 1, playing `kit` (its notes and frames
+/// are read back from the output queue).
+fn port_track(id: u64, clips: Vec<MidiClip>, kit: Box<DrumKit>) -> MidiTrack {
+    MidiTrack::new(
+        id,
+        Target::Port {
+            port: 0,
+            channel: 3,
+        },
+        None,
+        clips,
+    )
+    .listening(keys_on(None))
+    .playing_drums(Some(kit))
+}
+
+/// The notes the port was sent: `(device frame, note-on, key)`.
+fn sent(rig: &mut Rig) -> Vec<(u64, bool, u8)> {
+    let mut out = Vec::new();
+    while let Ok(message) = rig.output.pop() {
+        if let MidiOut::At { frame, msg, .. } = message {
+            match msg.kind() {
+                Kind::NoteOn { key, .. } => out.push((frame, true, key)),
+                Kind::NoteOff { key, .. } => out.push((frame, false, key)),
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// A one-track clip of `(start, length, pitch)` notes, from tick zero.
+fn drum_clip(notes: &[(Ticks, Ticks, u8)]) -> MidiClip {
+    MidiClip {
+        id: 9,
+        start: Ticks::ZERO,
+        length: Ticks::quarters(8),
+        period: None,
+        seams: Default::default(),
+        notes: note_list(
+            notes
+                .iter()
+                .map(|&(start, length, pitch)| MidiNote {
+                    start,
+                    length,
+                    pitch,
+                    velocity: 100,
+                    channel: None,
+                })
+                .collect(),
+        ),
+        controls: control_list(Vec::new()),
+    }
+}
+
+#[test]
+fn a_closed_hat_in_a_clip_ends_the_open_hat_at_the_same_sample() {
+    // 120 BPM at 48 kHz: a beat is 24,000 frames.
+    let q = Ticks::quarters;
+    let log = Log::default();
+    let clip = drum_clip(&[(q(0), q(4), 46), (q(1), q(1), 42), (q(2), q(1), 36)]);
+    let mut rig = rig(vec![port_track(A, vec![clip], hat_kit())], &log);
+    rig.transport.send(Command::Play).unwrap();
+    rig.run(4 * 24_000 + 128, 128);
+    assert_eq!(
+        sent(&mut rig),
+        vec![
+            (0, true, 46),
+            (24_000, false, 46),
+            (24_000, true, 42),
+            (48_000, false, 42),
+            (48_000, true, 36),
+            (72_000, false, 36),
+        ],
+        "the open hat's note-off lands on the closed hat's sample"
+    );
+}
+
+#[test]
+fn a_live_hat_chokes_a_clip_hat_and_a_clip_hat_chokes_a_live_one() {
+    let q = Ticks::quarters;
+    let log = Log::default();
+    // The clip's open hat runs from beat 1 to beat 5 (0 to 96,000). A played
+    // closed hat at 30,000 ends it and sounds itself.
+    let clip = drum_clip(&[(q(0), q(4), 46)]);
+    let mut rig = rig(vec![port_track(A, vec![clip], hat_kit())], &log);
+    rig.transport.send(Command::Play).unwrap();
+    rig.live.send(30_000, KEYS, Msg::note_on(0, 42, 100));
+    rig.live.send(40_000, KEYS, Msg::note_off(0, 42));
+    rig.run(50_000, 128);
+    assert_eq!(
+        sent(&mut rig),
+        vec![
+            (0, true, 46),
+            (30_000, false, 46),
+            (30_000, true, 42),
+            (40_000, false, 42),
+        ],
+        "the clip's open hat stops where the played closed hat starts"
+    );
+    assert_eq!(rig.held_live(A), 0, "the played hat was let go");
+}
+
+#[test]
+fn a_played_closed_hat_ends_a_played_open_hat_at_the_same_sample() {
+    let log = Log::default();
+    let mut rig = rig(vec![port_track(A, Vec::new(), hat_kit())], &log);
+    rig.run(128, 128);
+    rig.live.send(1_000, KEYS, Msg::note_on(0, 46, 100));
+    rig.live.send(2_000, KEYS, Msg::note_on(0, 42, 100));
+    rig.live.send(3_000, KEYS, Msg::note_off(0, 42));
+    rig.live.send(3_100, KEYS, Msg::note_off(0, 46));
+    rig.run(4_096, 128);
+    assert_eq!(
+        sent(&mut rig),
+        vec![
+            (1_000, true, 46),
+            (2_000, false, 46),
+            (2_000, true, 42),
+            (3_000, false, 42),
+        ],
+        "the open hat ends when the closed one is struck; its own off is a stray"
+    );
+    assert_eq!(rig.held_live(A), 0);
+}
+
+#[test]
+fn a_sound_the_map_silences_sounds_nothing_from_a_player() {
+    // A muted sound: the played note never reaches the instrument, and its
+    // note-off is not a stray either.
+    let log = Log::default();
+    let mut kit = DrumKit::new();
+    kit.set(
+        38,
+        KitKey {
+            key: 38,
+            channel: None,
+            silent: true,
+        },
+    );
+    kit.set(
+        36,
+        KitKey {
+            key: 36,
+            channel: None,
+            silent: false,
+        },
+    );
+    let mut rig = rig(vec![port_track(A, Vec::new(), Box::new(kit))], &log);
+    rig.live.send(0, KEYS, Msg::note_on(0, 38, 100));
+    rig.live.send(1_000, KEYS, Msg::note_on(0, 36, 100));
+    rig.live.send(2_000, KEYS, Msg::note_off(0, 38));
+    rig.live.send(3_000, KEYS, Msg::note_off(0, 36));
+    rig.run(4_096, 128);
+    assert_eq!(
+        sent(&mut rig),
+        vec![(1_000, true, 36), (3_000, false, 36)],
+        "only the heard note went out"
+    );
+    assert_eq!(rig.held_live(A), 0);
+}
+
+#[test]
+fn every_note_on_a_choking_track_is_answered_while_playing() {
+    // A short pattern where hats cut each other and a kick plays through:
+    // every note-on is answered by a note-off, at the end and at every stop.
+    let q = Ticks::quarters;
+    let log = Log::default();
+    let clip = drum_clip(&[
+        (q(0), q(4), 46),
+        (q(1), q(1), 42),
+        (q(1) + Ticks(1), q(1), 46),
+        (q(2), q(1), 36),
+        (q(2) + Ticks(1), q(4), 42),
+        (q(3), q(1), 46),
+    ]);
+    let mut rig = rig(vec![port_track(A, vec![clip], hat_kit())], &log);
+    rig.transport.send(Command::Play).unwrap();
+    rig.run(6 * 24_000, 128);
+    rig.transport.send(Command::Stop).unwrap();
+    rig.run(4_096, 128);
+    let notes = sent(&mut rig);
+    let ons = notes.iter().filter(|(_, on, _)| *on).count();
+    let offs = notes.iter().filter(|(_, on, _)| !*on).count();
+    assert_eq!(ons, offs, "{notes:?}");
+    assert!(ons >= 6, "the pattern played: {notes:?}");
 }

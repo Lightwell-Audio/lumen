@@ -169,7 +169,16 @@ impl MidiPlayer {
                     Target::Port { channel, .. } => Some(channel),
                     Target::Instrument => None,
                 };
-                if let Some(msg) = track.state.live.take(m.source, m.msg, out) {
+                if let Some(msg) = track
+                    .state
+                    .live
+                    .take(m.source, m.msg, out, track.kit.as_deref())
+                {
+                    // A hit of a choke group ends the other sounds of the
+                    // group at the same sample (M8 D0).
+                    if let Kind::NoteOn { key, .. } = msg.kind() {
+                        track.state.choke(track.kit.as_deref(), key, offset);
+                    }
                     let offset = apart_from_its_on(&mut track.state.events, msg, offset, last32);
                     floor = floor.max(offset);
                     // A live note-off ends a note the track holds (`take`

@@ -70,6 +70,7 @@ fn note(start: Ticks, length: Ticks, pitch: u8) -> MidiNote {
         length,
         pitch,
         velocity: 100,
+        channel: None,
     }
 }
 
