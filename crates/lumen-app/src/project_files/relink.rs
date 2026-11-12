@@ -17,7 +17,7 @@ use crate::files::Control;
 use crate::media::is_audio_file;
 
 /// Entries a folder search looks at before it stops and says so.
-pub const MAX_ENTRIES: usize = 200_000;
+const MAX_ENTRIES: usize = 200_000;
 
 /// What a candidate file is, measured against the media it would replace.
 #[derive(Debug, Clone, PartialEq, Eq)]

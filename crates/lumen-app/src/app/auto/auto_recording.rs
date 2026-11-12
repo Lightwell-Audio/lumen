@@ -394,7 +394,9 @@ fn pass_lane(
         } else {
             first
         };
-        base = Lane::new(vec![first]).expect("one point");
+        // A value that is not a number (a plugin may report one) makes no
+        // lane: the pass is dropped, as one too long is.
+        base = Lane::new(vec![first]).ok()?;
     }
     let (low, high) = target.range();
     recorded(
@@ -423,4 +425,23 @@ fn glide(project: &lumen_project::model::Project, at: Ticks, rate: u32) -> Ticks
     let from = tempo.sample_at(at, rate);
     let over = i64::from(rate) * GLIDE_MS / 1000;
     tempo.ticks_at_sample(from + over, rate) - at
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A plugin may report a value that is not a number; a pass that starts
+    /// from one is dropped rather than taking the app down.
+    #[test]
+    fn a_pass_whose_rest_is_not_a_number_is_dropped() {
+        let lane = pass_lane(
+            &Lane::default(),
+            &[],
+            Some(f32::NAN),
+            Target::Volume,
+            Release::Hold,
+        );
+        assert!(lane.is_none());
+    }
 }

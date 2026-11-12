@@ -52,9 +52,9 @@ pub use scroll_bar::{Axis, ScrollBar, scroll_bar};
 pub use signature::{parse as parse_signature, time_signature};
 pub use slider::*;
 pub use toggle::{
-    Choice, SWITCH_WIDTH, Tab, TabsLayout, choice_row, menu_caption, menu_header, segmented,
-    segmented_full, segmented_tool, segmented_tool_width, switch, switch_noted, tab_divider,
-    tabs_with, toggle_button, toggle_button_width,
+    Choice, SWITCH_WIDTH, Tab, TabsLayout, choice_row, list_row, menu_caption, menu_header,
+    segmented, segmented_full, segmented_tool, segmented_tool_width, switch, switch_noted,
+    tab_divider, tabs_with, toggle_button, toggle_button_width,
 };
 
 /// `text` as it is when it fits `width`, else cut to fit.
@@ -79,6 +79,26 @@ pub fn shorten(painter: &egui::Painter, text: &str, font: FontId, width: f32) ->
         }
     }
     format!("{cut}\u{2026}")
+}
+
+/// Whether a double-click landed on `response`'s control this frame, for a
+/// field that must return to its default on one. A `DragValue` begins
+/// editing on the first click, so its own response never sees the second
+/// one; the pointer's double-click is read against the field's rect
+/// instead. The edit the first click began ends too, so the reset value is
+/// what the field shows.
+pub fn double_click_reset(ui: &mut egui::Ui, response: &egui::Response) -> bool {
+    let hit = ui.input(|i| {
+        i.pointer
+            .button_double_clicked(egui::PointerButton::Primary)
+    }) && ui
+        .ctx()
+        .pointer_interact_pos()
+        .is_some_and(|at| response.rect.contains(at));
+    if hit {
+        ui.memory_mut(|m| m.surrender_focus(response.id));
+    }
+    hit
 }
 
 /// How wide and tall [`draw_arrow`]'s arrow is, for laying out beside it.

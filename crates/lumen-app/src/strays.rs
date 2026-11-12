@@ -204,7 +204,7 @@ pub struct Cleared {
 
 /// Moves `strays` (and the sidecars of unfinished takes) to the system's trash.
 /// A file the trash refuses stays where it is.
-pub fn clear(strays: &[Stray]) -> Cleared {
+pub(crate) fn clear(strays: &[Stray]) -> Cleared {
     clear_with(strays, |path| {
         trash::delete(path).map_err(|e| e.to_string())
     })
