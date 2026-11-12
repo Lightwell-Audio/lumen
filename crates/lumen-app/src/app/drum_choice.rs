@@ -101,9 +101,17 @@ impl App {
 
     /// Takes the map off the selected MIDI tracks that have one.
     pub(crate) fn detach_drum_map_command(&mut self) {
-        let tracks = self.selected_midi_tracks();
+        self.detach_drum_maps_of(&self.selected_midi_tracks());
+    }
+
+    /// Takes the map off every track in `tracks` that has one, saying what
+    /// happened. The chooser names its tracks when it opens, so a click on
+    /// another header while it is open detaches nothing of the kind
+    /// (M8 D0 review L1).
+    pub(crate) fn detach_drum_maps_of(&mut self, tracks: &[Id]) {
         let with: Vec<Id> = tracks
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|id| self.document.drum_map_of(*id).is_some())
             .collect();
         if with.is_empty() {
@@ -233,8 +241,9 @@ impl App {
         }
         let Some(picked) = attach else {
             if detach {
+                let tracks = choice.tracks.clone();
                 self.drum_choice = None;
-                self.detach_drum_map_command();
+                self.detach_drum_maps_of(&tracks);
                 return;
             }
             // The toggle lives while the window is open.

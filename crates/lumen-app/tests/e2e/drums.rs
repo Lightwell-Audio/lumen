@@ -133,9 +133,47 @@ fn the_palette_attaches_a_kit_the_track_plays_it_and_a_muted_sound_is_heard_gone
     stop(&mut lumen);
 }
 
+#[test]
+fn the_choosers_detach_takes_the_map_off_the_track_it_named() {
+    // The chooser is not modal: a click on another track's header while it is
+    // open moves the selection, and Detach must still act on the tracks the
+    // chooser named (M8 D0 review L1).
+    let mut project = mapped_song();
+    project.tracks.push(std::sync::Arc::new(midi_track(
+        3,
+        "Keys",
+        "pluck",
+        (0, 16),
+        None,
+        vec![note(0, 1, 60)],
+        vec![],
+    )));
+    let mut lumen = launch("drums-detach", &project);
+    lumen.harness.get_by_label_contains("Track Drums,").click();
+    lumen.frames(3);
+    palette(&mut lumen, "Drum map");
+    assert!(
+        lumen.shows("Detach the drum map"),
+        "the chooser offers Detach for the mapped track"
+    );
+    // Another header is clicked while the chooser stays open.
+    lumen.harness.get_by_label_contains("Track Keys,").click();
+    lumen.frames(3);
+    lumen.click("Detach the drum map");
+    lumen.frames(5);
+    let project = lumen.app().project();
+    assert_eq!(
+        project.tracks[0].drum_map, None,
+        "the track the chooser named lost its map"
+    );
+    assert_eq!(
+        lumen.app().note().as_deref(),
+        Some("Drum map detached: the notes play as they are")
+    );
+}
+
 /// A track of four mapped notes, with General MIDI attached in the saved file.
-fn mapped_song() -> Project {
-    let mut project = project_of(
+fn mapped_song() -> Project {    let mut project = project_of(
         "Mapped",
         vec![midi_track(
             1,
