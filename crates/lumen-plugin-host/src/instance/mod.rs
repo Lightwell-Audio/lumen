@@ -650,8 +650,9 @@ impl Drop for Instance {
                 controller_point.disconnect(component_point.as_ptr());
             }
 
-            // Steinberg's PlugProvider disconnects both connection points,
-            // terminates the component, then terminates a separate controller.
+            // The VST3 SDK's plug-provider helper disconnects both connection
+            // points, terminates the component, then terminates a separate
+            // controller; this is that order.
             self.component.terminate();
             if self.separate_controller
                 && let Some(controller) = &self.controller
