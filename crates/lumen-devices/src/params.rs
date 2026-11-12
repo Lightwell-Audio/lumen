@@ -144,6 +144,19 @@ pub fn value_of_param(
         .map_or(info.default, |&x| info.value(x as f32))
 }
 
+/// The normalised value `id` holds in a device's values ([`crate::effect::Values`]):
+/// what the project says, or the table's default for a parameter it does not
+/// name. What a device's latency or tail is worked out from.
+pub fn normalised_of(table: &[ParamInfo], id: u32, values: &[(u32, f32)]) -> f32 {
+    let Some(info) = table.iter().find(|p| p.id == id) else {
+        return 0.0;
+    };
+    values
+        .iter()
+        .find(|(known, _)| *known == id)
+        .map_or_else(|| info.normalised(info.default), |&(_, x)| x)
+}
+
 /// How long a value the interface moved takes to glide: 20 ms, as the mixer's
 /// own levels do (`GLIDE_SECONDS` there).
 pub const GLIDE_SECONDS: f32 = 0.02;
@@ -192,6 +205,13 @@ impl Glide {
         self.step = 0.0;
     }
 
+    /// Carries on towards where the value is heading, fills `out` with it, and
+    /// moves on: a block that does not name the parameter (the engine tells a
+    /// device a value only when it changed, review L6) still finishes a glide.
+    pub fn run(&mut self, out: &mut [f32], rate: u32) {
+        self.glide_to(self.target, out, rate);
+    }
+
     /// Fills `out` with a glide from where the value is to `target`, in a
     /// straight line over [`GLIDE_SECONDS`].
     fn glide_to(&mut self, target: f32, out: &mut [f32], rate: u32) {
@@ -235,8 +255,10 @@ pub fn values(out: &mut [f32], glide: &mut Glide, events: &ParamBlock, id: u32, 
         return;
     }
     match queues_for(events, id) {
-        // Nothing says where it is: it holds where the last block left it.
-        None => out.fill(glide.value()),
+        // Nothing says where it is: it carries on towards where it was going
+        // (a value the interface moved finishes its glide), and holds once it
+        // has arrived.
+        None => glide.run(out, rate),
         // Only the value the project holds: a knob the interface moved, which
         // glides.
         Some((at, 1)) => match events.queue(at).1 {

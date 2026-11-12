@@ -8,7 +8,7 @@
 //! block on crossfades, so nothing it does clicks. Its filters flush
 //! denormals, and it allocates nothing after its constructor.
 
-use crate::effect::{Block, Effect, Key, Stereo};
+use crate::effect::{Block, Description, Effect, Key, Stereo, Values};
 use crate::params::{self, Glide, ParamInfo, Taper};
 
 /// The device's stable name in `PluginRef::Builtin`, as a project saves it.
@@ -122,7 +122,7 @@ pub static TABLE: &[ParamInfo] = &[
     ),
     param(
         BASS_MONO,
-        "Bass mono",
+        "Mono <",
         "Hz",
         0.0,
         400.0,
@@ -186,6 +186,26 @@ pub static TABLE: &[ParamInfo] = &[
         on_off_parse,
     ),
 ];
+
+/// Prism's description: its table, and a timing that no value of its moves.
+/// Prism holds nothing back and rings on for nothing; a device whose latency
+/// or tail follows a setting says so here instead (M8 slice B0, review H1).
+pub static DESCRIPTION: Description = Description {
+    name: NAME,
+    table: TABLE,
+    latency,
+    tail,
+};
+
+/// Frames Prism's output trails its input: none, whatever its values say.
+pub fn latency(_values: Values<'_>) -> u32 {
+    0
+}
+
+/// Frames Prism rings on after its input stops: none.
+pub fn tail(_values: Values<'_>) -> u32 {
+    0
+}
 
 /// "0.0 dB", "−6.0 dB", "−∞ dB" under the floor.
 fn gain_text(db: f32) -> String {

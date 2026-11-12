@@ -15,6 +15,37 @@
 use lumen_core::pan::PanLaw;
 
 use crate::ParamBlock;
+use crate::params::ParamInfo;
+
+/// A device's parameter values as the project holds them: normalised, 0 to 1,
+/// by the table's stable id, every parameter the table names (a parameter the
+/// project does not is its default).
+///
+/// [`Description::latency`] and [`Description::tail`] are worked out from
+/// these, never from a running instance: a device's timing is a pure function
+/// of what its settings say (M8 slice B0, review H1), so changing a setting
+/// changes the routing's timing exactly as a plugin's reported latency change
+/// does, and an export or a bounce gets the same answer from the project with
+/// no device built.
+pub type Values<'a> = &'a [(u32, f32)];
+
+/// What a built-in effect is, apart from the audio it makes: its stable saved
+/// name, the parameter table the card and the lanes read, and how its latency
+/// and tail follow its values.
+#[derive(Clone, Copy)]
+pub struct Description {
+    /// The name a project saves (`PluginRef::Builtin.name`), never changed.
+    pub name: &'static str,
+    /// Its parameters, in the order its card shows them.
+    pub table: &'static [ParamInfo],
+    /// Frames the device's output trails its input at `values`, at the rate it
+    /// is running. Delay compensation counts it, and it is the length of the
+    /// node's fallback line, so it must be the device's own latency for the
+    /// same values.
+    pub latency: fn(Values<'_>) -> u32,
+    /// Frames it rings on after its input stops at `values`.
+    pub tail: fn(Values<'_>) -> u32,
+}
 
 /// A block's frames, left and right, to read and write.
 #[derive(Debug)]
@@ -75,9 +106,14 @@ pub trait Effect: Send {
     fn process(&mut self, block: &Block<'_>, io: Stereo<'_>, key: Option<Key<'_>>);
 
     /// Frames the device's output trails its input, at the rate it is running:
-    /// delay compensation lines every other path up to it. The plan reads this
-    /// when it is compiled, so a device whose latency depends on a setting must
-    /// also say so through its parameters' table. Zero by default.
+    /// delay compensation lines every other path up to it.
+    ///
+    /// The plan reads this from the device's [`Description`] and the values
+    /// the project holds, not from a running instance (M8 slice B0, review
+    /// H1), so a setting that changes the latency is a change of the routing's
+    /// timing — exactly as a plugin's reported latency change is. A device that
+    /// reports a latency here must report the same one from its description for
+    /// the same values, or its fallback line and the running instance disagree.
     fn latency(&self) -> u32 {
         0
     }
@@ -85,7 +121,8 @@ pub trait Effect: Send {
     /// Frames the device rings on after its input stops (a delay's echoes, a
     /// reverb's tail), at the rate it is running; 0 when it stops with the
     /// input. The engine keeps what it plays after a Stop for this long, and a
-    /// bounce and an export add it as the automatic tail.
+    /// bounce and an export add it as the automatic tail. Read as
+    /// [`Effect::latency`] is, from the description.
     fn tail(&self) -> u32 {
         0
     }

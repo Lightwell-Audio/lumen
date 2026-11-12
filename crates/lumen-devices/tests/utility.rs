@@ -438,3 +438,36 @@ fn the_table_names_the_device_it_is_for() {
     assert_eq!(utility::NAME, "utility");
     assert!(lumen_devices::effect_params(utility::NAME).is_some());
 }
+
+/// The table, pinned (M8 slice B0, review L1): each parameter's id, the name a
+/// person reads, and the normalised default. An id may not be reused or
+/// renumbered and a name may not change without moving this list on purpose: a
+/// project saves values by id, so a changed table is a changed sound.
+#[test]
+fn the_parameter_table_is_pinned_by_id_name_and_default() {
+    let pinned: Vec<(u32, &str, f32)> = vec![
+        (1, "Gain", 60.0 / 84.0),
+        (2, "Pan", 0.5),
+        (3, "Width", 0.5),
+        (4, "Mono <", 0.0),
+        (5, "Polarity L", 0.0),
+        (6, "Polarity R", 0.0),
+        (7, "Swap L/R", 0.0),
+        (8, "DC block", 0.0),
+    ];
+    let table: Vec<(u32, &str, f32)> = TABLE
+        .iter()
+        .map(|p| (p.id, p.name, p.normalised(p.default)))
+        .collect();
+    assert_eq!(table, pinned);
+    // The constants a project and a lane name are those ids.
+    assert_eq!(
+        [GAIN, PAN, WIDTH, BASS_MONO, POLARITY_L, POLARITY_R, SWAP],
+        [1, 2, 3, 4, 5, 6, 7]
+    );
+    assert_eq!(DC_BLOCK, 8);
+    // No id is reused and none is zero.
+    let ids: std::collections::BTreeSet<u32> = TABLE.iter().map(|p| p.id).collect();
+    assert_eq!(ids.len(), TABLE.len(), "an id is used twice");
+    assert!(!ids.contains(&0), "0 is not a parameter");
+}
