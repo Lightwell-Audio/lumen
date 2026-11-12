@@ -202,7 +202,8 @@ fn the_choosers_detach_takes_the_map_off_the_track_it_named() {
 }
 
 /// A track of four mapped notes, with General MIDI attached in the saved file.
-fn mapped_song() -> Project {    let mut project = project_of(
+fn mapped_song() -> Project {
+    let mut project = project_of(
         "Mapped",
         vec![midi_track(
             1,

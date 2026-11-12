@@ -415,7 +415,10 @@ mod tests {
     }
 
     /// A clip's notes and events as `project` holds them.
-    fn clip_content(project: &lumen_project::model::Project, clip: Id) -> Option<(Vec<Note>, Vec<ClipEvent>)> {
+    fn clip_content(
+        project: &lumen_project::model::Project,
+        clip: Id,
+    ) -> Option<(Vec<Note>, Vec<ClipEvent>)> {
         project
             .tracks
             .iter()
@@ -621,12 +624,12 @@ mod tests {
             }
             for step in steps {
                 do_step(&mut doc, track, step);
+                assert_eq!(notes_of(&doc, clip), notes, "round {round}, after {step:?}");
                 assert_eq!(
-                    notes_of(&doc, clip),
-                    notes,
+                    events_of(&doc, clip),
+                    events,
                     "round {round}, after {step:?}"
                 );
-                assert_eq!(events_of(&doc, clip), events, "round {round}, after {step:?}");
             }
             // Back to the first map, then off entirely: still bit-identical.
             if doc.drum_map_of(track).map(|m| m.id) != Some(first) {
@@ -812,7 +815,10 @@ mod tests {
 
     #[test]
     fn a_sound_edit_is_one_step_and_a_missing_map_or_sound_changes_nothing() {
-        let (mut doc, track, _) = kit_track(vec![Note::new(Ticks::ZERO, Ticks(120), 36, 100)], Vec::new());
+        let (mut doc, track, _) = kit_track(
+            vec![Note::new(Ticks::ZERO, Ticks(120), 36, 100)],
+            Vec::new(),
+        );
         let map = doc
             .attach_drum_map_preset(track, Preset::EIGHT_OH_EIGHT)
             .unwrap();

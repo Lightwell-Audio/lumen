@@ -634,12 +634,8 @@ impl Cache {
         }
         // A map the project no longer holds is let go of with its runs.
         if self.maps.len() > project.drum_maps.len() {
-            self.maps.retain(|id, _| {
-                project
-                    .drum_maps
-                    .iter()
-                    .any(|map| map.id == *id)
-            });
+            self.maps
+                .retain(|id, _| project.drum_maps.iter().any(|map| map.id == *id));
         }
     }
 }

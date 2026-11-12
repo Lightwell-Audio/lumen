@@ -855,7 +855,11 @@ mod tests {
             ],
         );
         project.drum_maps = vec![map.clone()];
-        let slot = project.tracks.iter_mut().find(|t| t.id == track_id).unwrap();
+        let slot = project
+            .tracks
+            .iter_mut()
+            .find(|t| t.id == track_id)
+            .unwrap();
         std::sync::Arc::make_mut(slot).drum_map = Some(map.id);
         let track = project.tracks.iter().find(|t| t.id == track_id).unwrap();
         let kit = kit_of(&project, track).expect("a mapped track");

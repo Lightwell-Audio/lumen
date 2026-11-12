@@ -213,8 +213,12 @@ fn a_map_a_project_may_not_hold_is_refused() {
         // instrument track.
         &|p: &mut Project| p.drum_maps[0].sounds[0].route = Route::Track(Id(999)),
         &|p: &mut Project| {
-            p.tracks
-                .push(Arc::new(Track::new(Id(99), "Audio", TrackKind::Audio, Color(0))));
+            p.tracks.push(Arc::new(Track::new(
+                Id(99),
+                "Audio",
+                TrackKind::Audio,
+                Color(0),
+            )));
             p.drum_maps[0].sounds[0].route = Route::Track(Id(99));
         },
     ] {

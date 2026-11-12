@@ -887,9 +887,7 @@ fn assert_every_note_answered(notes: &[(u64, bool, u8, u8)]) {
             sounding.push((channel, key));
             continue;
         }
-        let found = sounding
-            .iter()
-            .position(|&(c, k)| c == channel && k == key);
+        let found = sounding.iter().position(|&(c, k)| c == channel && k == key);
         assert!(
             found.is_some(),
             "note {key} on channel {channel} was let go at frame {frame} before it sounded: {notes:?}"
@@ -939,7 +937,11 @@ fn a_locate_into_two_overlapping_hats_answers_every_note() {
             .filter(|(_, on, _, k)| *on && *k == key)
             .count()
     };
-    assert_eq!(ons(42), 1, "the closed hat sounds after the locate: {notes:?}");
+    assert_eq!(
+        ons(42),
+        1,
+        "the closed hat sounds after the locate: {notes:?}"
+    );
     assert_eq!(
         ons(46),
         1,

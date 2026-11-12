@@ -973,7 +973,10 @@ fn a_pad_that_plays_another_note_wins_the_clip_note_its_sound_plays() {
         "the clip's note gives way where the pad's note sounds: {notes:?}"
     );
     assert_eq!(
-        notes.iter().filter(|(_, on, key)| *on && *key == 40).count(),
+        notes
+            .iter()
+            .filter(|(_, on, key)| *on && *key == 40)
+            .count(),
         2,
         "the clip's note, then the pad's: {notes:?}"
     );

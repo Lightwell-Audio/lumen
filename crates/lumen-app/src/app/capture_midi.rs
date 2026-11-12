@@ -81,7 +81,8 @@ impl App {
         // A take on a mapped track keeps the map's input notes, as a
         // recording does (M8 D0; review M2).
         let store = self.document.drum_map_of(track);
-        let Some(take) = played::take_of(&phrase, playhead, latency, &ticks, &timeline.meter, store)
+        let Some(take) =
+            played::take_of(&phrase, playhead, latency, &ticks, &timeline.meter, store)
         else {
             return;
         };
