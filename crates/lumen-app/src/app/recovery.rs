@@ -178,6 +178,7 @@ impl App {
                 }
             },
             || autosave::Note {
+                version: autosave::VERSION,
                 project: self
                     .document
                     .path
@@ -354,6 +355,7 @@ mod tests {
         let file = dir.join(format!("{session}.{}", files::EXTENSION));
         std::fs::write(&file, "{}").unwrap();
         let note = autosave::Note {
+            version: autosave::VERSION,
             project: None,
             name: session.into(),
             written,

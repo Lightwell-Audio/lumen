@@ -58,15 +58,87 @@ pub fn default_dir() -> Option<PathBuf> {
     Some(dir)
 }
 
+/// The note's shape version (sweep M9). A note written before the field
+/// existed has this shape, so it reads as version 1 ([`legacy_note_version`]).
+/// A note with a higher version was written by a newer build: this build
+/// still offers the autosave copy beside it (the copy is the person's work)
+/// and ignores the metadata it cannot read.
+pub const VERSION: u32 = 1;
+
 /// The note next to an autosave.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Note {
+    /// The shape this note is written in. Notes written before it was added
+    /// have exactly this shape, so they read as version 1.
+    #[serde(default = "legacy_note_version")]
+    pub version: u32,
     /// The project's own file, if it had been saved.
     pub project: Option<String>,
     /// Its name, for the recovery message.
     pub name: String,
     /// When the autosave was written (seconds since 1970).
     pub written: u64,
+}
+
+/// The version of a note written before the field existed: its shape is
+/// version 1's, so there is nothing to migrate.
+fn legacy_note_version() -> u32 {
+    VERSION
+}
+
+/// Reads the note at `path`. A note a newer build wrote is still read for
+/// what this build needs to offer its copy, its name and age, since the copy
+/// is the person's work; the fields this build cannot read are ignored.
+/// `None` when the file is not a note at all.
+fn read_note(path: &Path) -> Option<Note> {
+    /// The fields that say what a note is, whatever its version.
+    #[derive(Deserialize)]
+    struct Header {
+        #[serde(default)]
+        version: u32,
+        #[serde(default)]
+        project: Option<String>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        written: Option<u64>,
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    let header: Header = serde_json::from_str(&text).ok()?;
+    let version = if header.version == 0 {
+        VERSION
+    } else {
+        header.version
+    };
+    if version <= VERSION {
+        return serde_json::from_str(&text).ok();
+    }
+    let written = header.written.unwrap_or_else(|| modified_seconds(path));
+    let name = header
+        .name
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| {
+            path.file_stem().map_or_else(
+                || "Untitled".to_owned(),
+                |stem| stem.to_string_lossy().into_owned(),
+            )
+        });
+    Some(Note {
+        version,
+        project: header.project,
+        name,
+        written,
+    })
+}
+
+/// When `path` was last written (seconds since 1970): the age of a note
+/// whose own `written` this build cannot read.
+fn modified_seconds(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map_or_else(now_seconds, |since| since.as_secs())
 }
 
 /// An autosave left by a session that did not close normally.
@@ -355,7 +427,7 @@ pub fn leftovers(dir: &Path, own_session: Option<&str>) -> Vec<Leftover> {
             if !file.is_file() {
                 return None;
             }
-            let note = serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
+            let note = read_note(&path)?;
             Some(Leftover {
                 session,
                 file,
@@ -437,6 +509,116 @@ mod tests {
     use crate::document::{Document, Imported};
     use lumen_core::time::Ticks;
     use lumen_project::testing::TempDir;
+
+    /// A frozen fixture in the crate's `tests/fixtures`.
+    fn fixture(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name)
+    }
+
+    /// What both frozen note fixtures say.
+    fn frozen_note(version: u32) -> Note {
+        Note {
+            version,
+            project: Some("C:/Users/Ada/Documents/Lumen/Projects/Night Drive.lumen".into()),
+            name: "Night Drive".into(),
+            written: 1_762_310_400,
+        }
+    }
+
+    #[test]
+    fn a_legacy_note_without_a_version_still_says_which_project_it_copied() {
+        let note = read_note(&fixture("autosave-note-legacy.json")).expect("the legacy note reads");
+        assert_eq!(note, frozen_note(VERSION));
+        assert_eq!(
+            note.version, VERSION,
+            "an unversioned note is version 1's shape"
+        );
+    }
+
+    #[test]
+    fn a_version_1_note_says_which_project_it_copied() {
+        let note = read_note(&fixture("autosave-note-v1.json")).expect("the note reads");
+        assert_eq!(note, frozen_note(VERSION));
+    }
+
+    #[test]
+    fn a_leftover_is_offered_from_either_note_shape() {
+        for (name, session) in [
+            ("autosave-note-legacy.json", "legacy"),
+            ("autosave-note-v1.json", "version-1"),
+        ] {
+            let tmp = TempDir::new(&format!("autosave-{session}"));
+            std::fs::write(
+                tmp.path().join(format!("{session}.{}", files::EXTENSION)),
+                "{}",
+            )
+            .unwrap();
+            std::fs::copy(fixture(name), tmp.path().join(format!("{session}.json"))).unwrap();
+            let found = leftovers(tmp.path(), None);
+            assert_eq!(found.len(), 1, "{name}");
+            assert_eq!(found[0].note, frozen_note(VERSION), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_note_a_newer_version_wrote_still_offers_its_copy() {
+        let tmp = TempDir::new("autosave-newer-note");
+        let copy = tmp.path().join(format!("future.{}", files::EXTENSION));
+        std::fs::write(&copy, "{}").unwrap();
+        std::fs::write(
+            tmp.path().join("future.json"),
+            r#"{"version":2,"project":null,"name":"Night Drive","written":300,"a new field":true}"#,
+        )
+        .unwrap();
+        let found = leftovers(tmp.path(), None);
+        assert_eq!(
+            found.len(),
+            1,
+            "the copy is the person's work: still offered"
+        );
+        assert_eq!(found[0].file, copy, "the copy itself, not the note");
+        assert_eq!(found[0].note.version, 2);
+        assert_eq!(
+            (found[0].note.name.as_str(), found[0].note.written),
+            ("Night Drive", 300)
+        );
+        assert!(copy.exists(), "and its copy is kept");
+    }
+
+    #[test]
+    fn a_note_a_newer_version_wrote_whose_fields_changed_is_still_offered() {
+        let tmp = TempDir::new("autosave-changed-note");
+        let copy = tmp.path().join(format!("future.{}", files::EXTENSION));
+        std::fs::write(&copy, "{}").unwrap();
+        // A shape this build cannot read: its name and age come from the
+        // note's own file, so the copy is offered all the same.
+        std::fs::write(
+            tmp.path().join("future.json"),
+            r#"{"version":3,"title":{"text":"Night Drive"}}"#,
+        )
+        .unwrap();
+        let found = leftovers(tmp.path(), None);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].file, copy);
+        assert_eq!(found[0].note.name, "future", "named by its session");
+        assert!(found[0].note.written > 0, "aged from the note file");
+    }
+
+    #[test]
+    fn an_autosave_note_declares_its_version() {
+        let tmp = TempDir::new("autosave-versioned-note");
+        let doc = edited_document();
+        let autosave = autosaved(tmp.path(), &doc);
+        let path = tmp.path().join(format!("{}.json", autosave.session()));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"version\": 1"), "{text}");
+        drop(autosave);
+        let found = leftovers(tmp.path(), None);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].note.version, VERSION);
+    }
 
     #[test]
     fn the_interval_is_the_preference_shortened_while_recording() {
@@ -534,6 +716,7 @@ mod tests {
         let mut autosave = Autosave::new(Some(tmp.path().to_path_buf()));
         let start = Instant::now();
         let note = || Note {
+            version: VERSION,
             project: None,
             name: "Untitled".into(),
             written: now_seconds(),
@@ -565,6 +748,7 @@ mod tests {
         let mut autosave = Autosave::new(Some(tmp.path().to_path_buf()));
         let start = Instant::now();
         let note = || Note {
+            version: VERSION,
             project: None,
             name: "Untitled".into(),
             written: now_seconds(),
@@ -595,6 +779,7 @@ mod tests {
         let mut autosave = Autosave::new(Some(dir.to_path_buf()));
         let start = Instant::now();
         let note = || Note {
+            version: VERSION,
             project: None,
             name: "Untitled".into(),
             written: now_seconds(),
@@ -644,6 +829,7 @@ mod tests {
         recovering.adopt(&leftover);
         let start = Instant::now();
         let note = || Note {
+            version: VERSION,
             project: None,
             name: "Untitled".into(),
             written: now_seconds(),
@@ -660,6 +846,7 @@ mod tests {
         for (session, written) in [("a", 100), ("b", 300), ("c", 200)] {
             std::fs::write(tmp.path().join(format!("{session}.lumen")), "{}").unwrap();
             let note = Note {
+                version: VERSION,
                 project: Some(format!("C:/p/{session}.lumen")),
                 name: session.into(),
                 written,
