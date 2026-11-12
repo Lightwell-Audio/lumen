@@ -34,9 +34,9 @@ use lumen_project::edit::record::Take;
 use crate::recording::recorder::Capture;
 
 /// How long a message is kept.
-pub const KEPT_FOR: Duration = Duration::from_secs(10 * 60);
+const KEPT_FOR: Duration = Duration::from_secs(10 * 60);
 /// The most messages kept; the oldest go first.
-pub const MOST_MESSAGES: usize = 20_000;
+const MOST_MESSAGES: usize = 20_000;
 
 /// A message and the phrase it belongs to.
 #[derive(Debug, Clone, Copy)]
@@ -135,7 +135,7 @@ impl Played {
 
     #[cfg(test)]
     /// Whether any kept phrase of `track` has a note.
-    pub fn has_notes(&self, track: u64) -> bool {
+    fn has_notes(&self, track: u64) -> bool {
         self.entries
             .iter()
             .any(|e| e.message.track == track && is_note_on(&e.message))

@@ -49,7 +49,7 @@ pub struct Outputs {
 impl Outputs {
     /// The stream pair device pair `pair` plays on, when it is open: the
     /// main pair is 0, the cue pair 1, further ones after them.
-    pub fn stream_pair(&self, pair: u16) -> Option<u16> {
+    fn stream_pair(&self, pair: u16) -> Option<u16> {
         if self.main == Some(pair) {
             return Some(0);
         }

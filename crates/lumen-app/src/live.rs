@@ -175,7 +175,7 @@ struct Block {
 
 /// The audio side: hands the engine each part's live messages. A
 /// [`LiveInput`].
-pub struct LiveFeed {
+pub(crate) struct LiveFeed {
     input: Option<rtrb::Consumer<Timed>>,
     keys: rtrb::Consumer<Keyed>,
     clock: Arc<StreamClock>,
@@ -194,7 +194,7 @@ pub struct LiveFeed {
 
 /// The three ends: the feed for the engine, the keyboard's sender, and the
 /// interface's tap on the controllers.
-pub fn live(
+pub(crate) fn live(
     input: Option<rtrb::Consumer<Timed>>,
     clock: Arc<StreamClock>,
 ) -> (LiveFeed, LiveKeys, Tap) {

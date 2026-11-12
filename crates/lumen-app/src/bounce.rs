@@ -44,7 +44,7 @@ const LOAD_WAIT: Duration = Duration::from_secs(60);
 const LOAD_POLL: Duration = Duration::from_millis(5);
 
 /// The longest tail a bounce adds after its span.
-pub const MOST_TAIL_SECONDS: u32 = 10;
+const MOST_TAIL_SECONDS: u32 = 10;
 
 /// How much of the track's processing is in the file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

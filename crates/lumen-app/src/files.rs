@@ -202,7 +202,7 @@ pub fn collect(request: SaveRequest, control: Control) -> Receiver<Result<Saved,
 /// Saves on the calling thread: copies imported audio if asked, writes the
 /// media paths relative to the project folder, then writes the project
 /// atomically with a backup of the previous version.
-pub fn save_now(request: SaveRequest) -> Result<Saved, String> {
+pub(crate) fn save_now(request: SaveRequest) -> Result<Saved, String> {
     save_inner(request, None).map_err(|failure| failure.to_string())
 }
 
