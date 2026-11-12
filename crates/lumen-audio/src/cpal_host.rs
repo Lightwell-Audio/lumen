@@ -1,5 +1,5 @@
 //! Portable backend through cpal: CoreAudio on macOS, ALSA on Linux. Output
-//! only for now (input arrives with the device selector, M2 slice 8).
+//! only: this backend offers no input, and says so when one is asked for.
 //!
 //! Compiled and unit-tested in CI on macOS and Linux; not yet tested on
 //! hardware there (Windows is the first-class platform).
@@ -150,7 +150,7 @@ impl CpalBackend {
         }
         if !config.input_channels.is_empty() && !config.wants_all_inputs() {
             return Err(AudioError::Unsupported(
-                "audio input is not available yet; it arrives with the device selector".into(),
+                "audio input is not available on this backend".into(),
             ));
         }
         let cpal_id: cpal::DeviceId = id
