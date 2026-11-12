@@ -1024,7 +1024,7 @@ fn a_choking_drum_track_never_touches_the_heap() {
     let tracks = || -> Vec<MidiTrack> {
         (0..8_u64)
             .map(|id| {
-                let notes: Vec<MidiNote> = (0..64)
+                let mut notes: Vec<MidiNote> = (0..64)
                     .map(|n| MidiNote {
                         start: Ticks(n * 2_401 + id as i64 * 17),
                         length: Ticks::quarters(2),
@@ -1033,6 +1033,23 @@ fn a_choking_drum_track_never_touches_the_heap() {
                         channel: None,
                     })
                     .collect();
+                // Two hats overlapping, so a locate into them starts both in
+                // one pass, and two on one tick: the choke takes a note-on of
+                // that pass back (review H1).
+                for (start, pitch) in [
+                    (Ticks::ZERO, 46),
+                    (Ticks::quarters(2), 42),
+                    (Ticks::quarters(4), 46),
+                    (Ticks::quarters(4), 42),
+                ] {
+                    notes.push(MidiNote {
+                        start,
+                        length: Ticks::quarters(8),
+                        pitch,
+                        velocity: 100,
+                        channel: None,
+                    });
+                }
                 let clip = MidiClip {
                     id,
                     start: Ticks::ZERO,
