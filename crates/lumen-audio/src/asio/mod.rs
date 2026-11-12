@@ -85,7 +85,7 @@ unsafe extern "C" fn buffer_switch(index: i32, _direct: AsioBool) {
     let ok = unsafe {
         ((*(*state.driver).vtbl).get_sample_position)(state.driver, &mut position, &mut stamp)
     } == ffi::ASE_OK;
-    process(state, index, ok.then(|| position.get()));
+    guarded(state, index, ok.then(|| position.get()));
 }
 
 unsafe extern "C" fn buffer_switch_time_info(
@@ -108,17 +108,20 @@ unsafe extern "C" fn buffer_switch_time_info(
         (flags & ffi::K_SAMPLE_POSITION_VALID != 0).then(|| sample_position.get())
     };
     // SAFETY: as in `buffer_switch`.
-    process(unsafe { &mut *state }, index, position);
+    guarded(unsafe { &mut *state }, index, position);
     params
 }
 
 unsafe extern "C" fn sample_rate_did_change(_rate: f64) {
-    // A rate change invalidates the stream; treat it like a reset request.
-    RESET_REQUESTED.store(true, Ordering::Release);
+    // A rate change invalidates the stream; treat it like a reset request. The
+    // body is wrapped because a panic must not cross into the driver.
+    let _ = std::panic::catch_unwind(|| RESET_REQUESTED.store(true, Ordering::Release));
 }
 
 unsafe extern "C" fn asio_message(selector: i32, value: i32, _m: *mut c_void, _o: *mut f64) -> i32 {
-    match selector {
+    // A panic anywhere in here would end the process on the way out to the
+    // driver: it is caught and answered with "not supported" instead.
+    let body = std::panic::AssertUnwindSafe(|| match selector {
         ffi::K_ASIO_SELECTOR_SUPPORTED => i32::from(matches!(
             value,
             ffi::K_ASIO_ENGINE_VERSION
@@ -138,6 +141,37 @@ unsafe extern "C" fn asio_message(selector: i32, value: i32, _m: *mut c_void, _o
         }
         ffi::K_ASIO_LATENCIES_CHANGED | ffi::K_ASIO_SUPPORTS_TIME_INFO => 1,
         _ => 0,
+    });
+    std::panic::catch_unwind(body).unwrap_or(0)
+}
+
+/// One driver block, with a panic kept inside the driver boundary: a panic
+/// unwinding into driver code would end the process (sweep M5e). Real-time
+/// safe: `catch_unwind` allocates nothing when nothing panics.
+fn guarded(state: &mut StreamState, index: i32, position: Option<u64>) {
+    let body = std::panic::AssertUnwindSafe(|| process(state, index, position));
+    if std::panic::catch_unwind(body).is_err() {
+        faulted(state, index);
+    }
+}
+
+/// A block whose callback panicked: the stream is reported as stalled by the
+/// next [`AsioStream::poll`], and the driver gets silence rather than the
+/// half-written block the panic left.
+fn faulted(state: &mut StreamState, index: i32) {
+    FAULTED.store(true, Ordering::SeqCst);
+    state.output_buffer.fill(0.0);
+    let half = (index & 1) as usize;
+    let frames = state.frames;
+    for (i, channel) in state.outputs.iter().enumerate() {
+        // SAFETY: as in `process`, for each output's driver buffer.
+        unsafe {
+            write_samples(
+                channel.buffers[half],
+                channel.sample_type,
+                &state.output_buffer[i * frames..(i + 1) * frames],
+            );
+        }
     }
 }
 
@@ -834,5 +868,74 @@ mod tests {
         };
         drop(stream.shutdown());
         drop(stream.shutdown());
+    }
+
+    /// A state for the callback tests: one output whose driver buffer is
+    /// `raw`, and nothing else.
+    fn state(raw: &mut [f32], callback: Box<dyn AudioCallback>) -> StreamState {
+        let frames = raw.len();
+        let pointer = raw.as_mut_ptr().cast();
+        StreamState {
+            driver: ptr::null_mut(),
+            frames,
+            sample_rate: 48_000,
+            inputs: Vec::new(),
+            outputs: vec![Channel {
+                buffers: [pointer, pointer],
+                sample_type: ffi::ST_FLOAT32_LSB,
+            }],
+            input_buffer: Vec::new(),
+            output_buffer: vec![0.0; frames],
+            callback,
+            use_output_ready: false,
+            last_callback_ns: AtomicU64::new(0),
+            epoch: Instant::now(),
+        }
+    }
+
+    /// The callback path allocates nothing and writes what the callback made
+    /// (sweep M5e).
+    #[test]
+    fn a_block_runs_without_allocating() {
+        assert!(
+            lumen_rt::guard_is_active(),
+            "the guarded allocator is this test binary's"
+        );
+        let mut raw = vec![0.0_f32; 32];
+        let mut state = state(
+            &mut raw,
+            Box::new(|block: &mut Block<'_>| block.outputs.fill(0.5)),
+        );
+        let (_, allocated) = lumen_rt::count_rt_violations(|| guarded(&mut state, 0, Some(7)));
+        assert_eq!(allocated, 0, "the driver callback allocates nothing");
+        assert!(
+            raw.iter().all(|&x| x == 0.5),
+            "the block reached the driver"
+        );
+    }
+
+    /// A callback that panics must not unwind into the driver (that ends the
+    /// process); the driver gets silence rather than the half-written block,
+    /// and the next poll reports the stall (sweep M5e).
+    #[test]
+    fn a_panicking_callback_is_contained_and_leaves_silence() {
+        let mut raw = vec![0.0_f32; 32];
+        let mut state = state(
+            &mut raw,
+            Box::new(|block: &mut Block<'_>| {
+                block.outputs.fill(1.0);
+                panic!("a user callback bug");
+            }),
+        );
+        FAULTED.store(false, Ordering::SeqCst);
+        guarded(&mut state, 0, None);
+        assert!(
+            raw.iter().all(|&x| x == 0.0),
+            "the driver got silence, not the half-written block"
+        );
+        assert!(
+            FAULTED.swap(false, Ordering::SeqCst),
+            "the panic is remembered for the next poll"
+        );
     }
 }

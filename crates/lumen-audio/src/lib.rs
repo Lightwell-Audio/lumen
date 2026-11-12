@@ -34,3 +34,8 @@ pub use types::{
     ALL_INPUTS, AudioCallback, AudioError, Block, BufferSizes, DeviceId, DeviceInfo, DriverKind,
     MOST_INPUTS, StreamConfig, StreamInfo,
 };
+
+// The callbacks of this crate are real-time code: the tests count what they
+// allocate inside `lumen_rt::rt_section` (ADR-0010).
+#[cfg(test)]
+lumen_rt::install_guarded_allocator!();
