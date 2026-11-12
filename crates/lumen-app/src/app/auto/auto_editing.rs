@@ -14,9 +14,9 @@ use lumen_core::time::Ticks;
 use lumen_project::automation::Target;
 use lumen_project::model::Id;
 
-use super::editing::MenuFor;
-use super::info::{Held, Info, Mouse};
 use crate::App;
+use crate::app::editing::MenuFor;
+use crate::app::info::{Held, Info, Mouse};
 use crate::arrangement::auto_scale as scale;
 use crate::arrangement::auto_state::{Hands, Picked, Picks, Tool};
 use crate::arrangement::auto_view::Frame;

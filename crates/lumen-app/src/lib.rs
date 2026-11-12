@@ -81,12 +81,9 @@ mod song_lanes;
 mod spawn;
 mod strays;
 mod system;
-mod tap_tempo;
-mod templates;
 pub mod testing;
 mod timeline;
 mod transport;
-mod welcome;
 mod widgets;
 
 pub use system::launch::Launch;
@@ -98,6 +95,10 @@ pub(crate) use engine::{lane_bake, lanes, played, routing};
 pub(crate) use project_files::{autosave, files, relink};
 pub(crate) use system::{brand, crash, launch, owner, trace};
 pub(crate) use timeline::{canvas, playhead, position, ruler, timefmt, timeview};
+
+// The first-run window's state and rules, kept as `crate::welcome` while they
+// live in `app/welcome/` with the window that draws them (audit M11).
+pub(crate) use app::welcome;
 
 use std::path::PathBuf;
 use std::sync::Arc;

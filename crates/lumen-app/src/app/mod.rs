@@ -3,28 +3,13 @@
 //! M1).
 
 pub(crate) mod association;
+pub(crate) mod audio;
 pub(crate) mod audio_editor;
-pub(crate) mod audio_export;
-pub(crate) mod audio_inputs;
-pub(crate) mod audio_record;
-pub(crate) mod auto_editing;
-mod auto_gestures;
-mod auto_keys;
-mod auto_params;
-pub(crate) mod auto_recording;
+pub(crate) mod auto;
 mod bench_callback;
 pub(crate) mod cache_folder;
 pub(crate) mod capture_midi;
-pub(crate) mod clip_bounce;
-pub(crate) mod clip_card;
-mod clip_commands;
-pub(crate) mod clip_consolidate;
-pub(crate) mod clip_controls;
-mod clip_envelopes;
-pub(crate) mod clip_file;
-pub(crate) mod clip_header;
-pub(crate) mod clip_normalize;
-pub(crate) mod clip_warp;
+pub(crate) mod clip;
 pub(crate) mod clipboard_keys;
 mod commands;
 mod controller_requests;
@@ -74,5 +59,15 @@ mod tools_gestures;
 pub(crate) mod track_freeze;
 mod track_input;
 pub(crate) mod view;
-mod welcome;
+pub(crate) mod welcome;
 mod window_size;
+
+// The paths the rest of the app names as `crate::app::<name>`, kept now that
+// these files sit in folders (audit M11); the modules nothing names by path
+// are reached inside their folder.
+pub(crate) use audio::{audio_export, audio_inputs, audio_record};
+pub(crate) use auto::{auto_keys, auto_recording};
+pub(crate) use clip::{
+    clip_bounce, clip_card, clip_commands, clip_consolidate, clip_controls, clip_file, clip_header,
+    clip_normalize, clip_warp,
+};

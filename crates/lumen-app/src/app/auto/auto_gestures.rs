@@ -20,8 +20,8 @@ use lumen_project::automation::Target;
 use lumen_project::edit::automation as pure;
 use lumen_project::model::Id;
 
-use super::grid::draw_snap_guide;
 use crate::App;
+use crate::app::grid::draw_snap_guide;
 use crate::arrangement::auto_scale as scale;
 use crate::arrangement::auto_state::{
     Active, Bending, Boxing, Drawing, Gesture, Hands, Moving, Picked, Picks, Tool, Waving,
@@ -33,7 +33,7 @@ use crate::theme;
 
 impl App {
     /// The lane's points as the document holds them.
-    pub(super) fn lane_points_of(
+    pub(crate) fn lane_points_of(
         &self,
         track: Id,
         target: Target,

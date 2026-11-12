@@ -1,8 +1,9 @@
 //! Templates in the app (M9 slice R4, ADR-0105): Save as template, New from
 //! template and the templates folder. The folder's rules and its listing are
-//! `crate::templates`; writing the template is the copy worker
-//! (`app::copies`), which takes every audio file along and leaves the open
-//! project as it is.
+//! `folder.rs`; writing the template is the copy worker (`app::copies`),
+//! which takes every audio file along and leaves the open project as it is.
+
+mod folder;
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
@@ -12,9 +13,10 @@ use eframe::egui::{self, Align2, Key, RichText, WidgetInfo, WidgetType, pos2};
 use crate::app::copies::Purpose;
 use crate::app::projects::{self, Next};
 use crate::commands::Command;
-use crate::templates::{self, LONGEST_NAME, Listing};
 use crate::widgets::{self, Dialog, raised};
 use crate::{App, files, theme};
+
+use self::folder::{LONGEST_NAME, Listing};
 
 /// How much audio a template would hold, read on a worker.
 enum Size {
@@ -210,7 +212,7 @@ impl App {
                 let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
 
                 let typed = naming.name.trim().to_owned();
-                let kept = templates::safe(&typed);
+                let kept = folder::safe(&typed);
                 let exists = !typed.is_empty() && listing.has(&typed);
                 ui.add_space(theme::space::XS);
                 if typed.is_empty() {
@@ -273,7 +275,7 @@ impl App {
             if let Err(why) = self.copy_unavailable() {
                 self.say(format!("{why}. Try again in a moment"));
             } else {
-                let file = templates::file_for(&dir, &naming.name);
+                let file = folder::file_for(&dir, &naming.name);
                 self.start_save_for(Purpose::Template, file, false);
                 return;
             }

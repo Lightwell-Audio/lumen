@@ -1,16 +1,19 @@
 //! Tap tempo in the app (M9 R7): the Tap piece and the command time each tap
-//! by frame time and give it to the model (`crate::tap_tempo`); from the
-//! third tap the tempo of the segment where the run started follows, as one
-//! undo step per run. The run ends after 3 s without a tap, at any other
-//! edit or when another project is opened or made, and `sync_document` keeps
-//! the step open while it lasts.
+//! by frame time and give it to the model (`taps.rs`); from the third tap the
+//! tempo of the segment where the run started follows, as one undo step per
+//! run. The run ends after 3 s without a tap, at any other edit or when
+//! another project is opened or made, and `sync_document` keeps the step open
+//! while it lasts.
+
+mod taps;
 
 use eframe::egui;
 use lumen_core::time::Ticks;
 
 use crate::App;
 use crate::app::track_freeze::FROZEN_TIMING;
-use crate::tap_tempo::{GAP, Tap, Taps};
+
+use self::taps::{GAP, Tap, Taps};
 
 /// The run in progress, between frames.
 #[derive(Default)]
