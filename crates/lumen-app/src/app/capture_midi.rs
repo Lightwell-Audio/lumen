@@ -78,7 +78,10 @@ impl App {
         let timeline = &self.transport.timeline;
         let playhead = timeline.sample_at(snap.ticks, rate);
         let ticks = |sample: i64| timeline.ticks_at(sample, rate);
-        let Some(take) = played::take_of(&phrase, playhead, latency, &ticks, &timeline.meter)
+        // A take on a mapped track keeps the map's input notes, as a
+        // recording does (M8 D0; review M2).
+        let store = self.document.drum_map_of(track);
+        let Some(take) = played::take_of(&phrase, playhead, latency, &ticks, &timeline.meter, store)
         else {
             return;
         };

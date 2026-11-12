@@ -91,6 +91,34 @@ fn notes_played_while_stopped_become_a_clip_on_the_playhead_in_one_undo_step() {
 }
 
 #[test]
+fn a_phrase_on_a_mapped_track_keeps_the_maps_input_notes() {
+    // A kit whose kick plays note 40 for its input 36: a pad sends 40, and
+    // what is captured must be the note the clip stores, 36 (M8 D0 review M2).
+    use std::sync::Arc;
+
+    use lumen_project::model::{DrumIcon, DrumMap, Id, Sound};
+
+    let fake = keyboard();
+    let mut project = project_of("Capture mapped", vec![track(None, true)]);
+    let map = DrumMap::new(
+        Id(9),
+        "Kit",
+        vec![Sound::new("Kick", 36, 40, DrumIcon::Kick)],
+    );
+    project.drum_maps = vec![map.clone()];
+    Arc::make_mut(&mut project.tracks[0]).drum_map = Some(map.id);
+    let mut lumen = launch("mapped", &project, &fake);
+    let keys = Keys::new(&fake);
+
+    tap(&mut lumen, &keys, 40, Duration::from_millis(200));
+    shift_f9(&mut lumen);
+    let clips = clips_of(&lumen);
+    assert_eq!(clips.len(), 1, "{:?}", lumen.app().note());
+    let pitches: Vec<u8> = placed(&clips[0]).iter().map(|n| n.pitch).collect();
+    assert_eq!(pitches, [36], "the map's input note, not the pad's");
+}
+
+#[test]
 fn notes_played_while_the_song_moves_are_captured_with_the_song() {
     let (mut lumen, keys) = start("moving");
     lumen.key(Modifiers::NONE, Key::Space);
