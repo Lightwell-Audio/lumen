@@ -8,6 +8,7 @@
 
 mod driver;
 mod ffi;
+mod inflight;
 mod registry;
 
 use std::ffi::c_void;
@@ -22,6 +23,7 @@ use crate::types::{
 };
 use driver::{ComApartment, Driver, HiddenWindow, pump_messages};
 use ffi::{AsioBool, AsioBufferInfo, AsioCallbacks, AsioSampleType, AsioTime};
+use inflight::InFlight;
 
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
@@ -36,10 +38,15 @@ static CALLBACKS: AsioCallbacks = AsioCallbacks {
 
 /// The running stream's state, owned by the driver thread while active.
 static ACTIVE: AtomicPtr<StreamState> = AtomicPtr::new(ptr::null_mut());
+/// The driver callbacks running now: a stream frees its state only once this
+/// is zero, so a late callback never reads freed memory.
+static IN_FLIGHT: InFlight = InFlight::new();
 static RESET_REQUESTED: AtomicBool = AtomicBool::new(false);
 /// The driver lost sync (its sample position jumps): the next block reports
 /// no position, so the jump is not counted as dropouts.
 static RESYNC_REQUESTED: AtomicBool = AtomicBool::new(false);
+/// A callback panicked and its block was silenced: the next poll reports it.
+static FAULTED: AtomicBool = AtomicBool::new(false);
 
 struct Channel {
     buffers: [*mut c_void; 2],
@@ -62,7 +69,11 @@ struct StreamState {
 }
 
 unsafe extern "C" fn buffer_switch(index: i32, _direct: AsioBool) {
-    let state = ACTIVE.load(Ordering::Acquire);
+    // Counted before the state is looked at: `close` waits for this count to
+    // reach zero before it frees anything, so a callback that finds a state
+    // keeps it alive until it is done with it.
+    let _running = IN_FLIGHT.enter();
+    let state = ACTIVE.load(Ordering::SeqCst);
     if state.is_null() {
         return;
     }
@@ -82,7 +93,8 @@ unsafe extern "C" fn buffer_switch_time_info(
     index: i32,
     _direct: AsioBool,
 ) -> *mut AsioTime {
-    let state = ACTIVE.load(Ordering::Acquire);
+    let _running = IN_FLIGHT.enter();
+    let state = ACTIVE.load(Ordering::SeqCst);
     if state.is_null() {
         return params;
     }
@@ -530,6 +542,7 @@ impl Prepared {
         }));
         RESET_REQUESTED.store(false, Ordering::Release);
         RESYNC_REQUESTED.store(false, Ordering::Release);
+        FAULTED.store(false, Ordering::Release);
         ACTIVE.store(state, Ordering::Release);
         let started = self.driver.start().is_ok();
         Box::new(AsioStream {
@@ -556,6 +569,49 @@ impl AsioStream {
         let period = f64::from(self.info.buffer_frames) / f64::from(self.info.sample_rate.max(1));
         Duration::from_secs_f64((period * 50.0).max(0.5))
     }
+
+    /// Stops the driver and reclaims the state, waiting for a callback that is
+    /// still running to end first. Returns the callback; a silent one when a
+    /// callback would not end within the bound, in which case its state is
+    /// leaked rather than freed under it (sweep M5a).
+    ///
+    /// Runs once: the driver is taken, and a second call has nothing to do.
+    fn shutdown(&mut self) -> Box<dyn AudioCallback> {
+        let Some(driver) = self.driver.take() else {
+            return crate::backend::silent();
+        };
+        // A stop that fails is not fatal: the wait below is the proof that no
+        // callback is running, and a driver that would not stop is remembered
+        // in the fault flag the stream reports, rather than trusted silently.
+        if driver.stop().is_err() {
+            FAULTED.store(true, Ordering::SeqCst);
+        }
+        // No callback that starts now can reach the state. One that already
+        // did is counted in `IN_FLIGHT`, and the wait lets it finish.
+        ACTIVE.store(ptr::null_mut(), Ordering::SeqCst);
+        // A few periods is as long as a driver has ever taken to finish its
+        // last block; past it the state is leaked, which is safe, where
+        // freeing it is a use-after-free.
+        let period = f64::from(self.info.buffer_frames) / f64::from(self.info.sample_rate.max(1));
+        let bound = Duration::from_secs_f64(period * 3.0) + Duration::from_millis(10);
+        if !IN_FLIGHT.wait(bound) {
+            // A callback is still running: its state, the driver's buffers and
+            // the driver itself are left alone for good. Leaking a few
+            // kilobytes keeps the session up; freeing them would crash the
+            // process. The callback cannot be handed back (a running block is
+            // using it), so a silent one stands in.
+            std::mem::forget(driver);
+            self.state = ptr::null_mut();
+            return crate::backend::silent();
+        }
+        let _ = driver.dispose_buffers();
+        drop(driver);
+        // SAFETY: the state came from `Box::into_raw`, no callback can reach
+        // it now, and it is taken out exactly once.
+        let state = unsafe { Box::from_raw(self.state) };
+        self.state = ptr::null_mut();
+        state.callback
+    }
 }
 
 impl Stream for AsioStream {
@@ -571,6 +627,11 @@ impl Stream for AsioStream {
     }
 
     fn poll(&mut self) -> Option<StreamEvent> {
+        if FAULTED.swap(false, Ordering::SeqCst) {
+            // A callback panicked, or the driver would not stop: the stream is
+            // not to be trusted, and the supervisor closes and reopens it.
+            return Some(StreamEvent::Stalled);
+        }
         if RESET_REQUESTED.swap(false, Ordering::AcqRel) {
             return Some(StreamEvent::ResetRequested);
         }
@@ -585,17 +646,7 @@ impl Stream for AsioStream {
     }
 
     fn close(mut self: Box<Self>) -> Box<dyn AudioCallback> {
-        let driver = self.driver.take().expect("driver present until close");
-        let _ = driver.stop();
-        // Let an in-flight callback finish before reclaiming the state.
-        let period = f64::from(self.info.buffer_frames) / f64::from(self.info.sample_rate.max(1));
-        std::thread::sleep(Duration::from_secs_f64(period * 3.0) + Duration::from_millis(10));
-        ACTIVE.store(ptr::null_mut(), Ordering::Release);
-        let _ = driver.dispose_buffers();
-        drop(driver);
-        // SAFETY: no callback can reach the state any more; it came from Box::into_raw.
-        let state = unsafe { Box::from_raw(self.state) };
-        state.callback
+        self.shutdown()
     }
 }
 
