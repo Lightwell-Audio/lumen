@@ -174,6 +174,7 @@ impl App {
             instance: launch.instance,
             holding: None,
             association: crate::association::Association::new(launch.association),
+            association_status: app::association::Reported::default(),
             left_out: None,
             freeze_waiting: None,
             freezing: None,
@@ -313,10 +314,11 @@ impl App {
         // start.
         app.cache.dir = app.chosen_cache_dir();
         app.restore_place_folder();
-        // Projects open from File Explorer by default (M9 R8, ADR-0117).
-        if app.association.is_system() {
-            app.associate_at_start();
-        }
+        // Projects open from File Explorer by default (M9 R8, ADR-0117):
+        // registered once the association has been read on a worker, so
+        // start-up never waits on the registry (sweep M4b).
+        app.association_status
+            .start_registers(app.association.is_system());
         // `lumen <file>.lumen` (and opening a project from Explorer).
         if let Some(path) = launch.open {
             app.begin_opening(path);

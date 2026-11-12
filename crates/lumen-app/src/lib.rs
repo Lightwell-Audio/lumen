@@ -199,6 +199,8 @@ pub struct App {
     holding: Option<app::handover::Holding>,
     /// Opening `.lumen` files with this copy (M9 R8).
     association: association::Association,
+    /// Who opens them, as a worker last read it (sweep M4b).
+    association_status: app::association::Reported,
     /// The project a drop opened and how many files of the drop were left
     /// out, said again when that project opens.
     left_out: Option<(PathBuf, usize)>,
@@ -574,6 +576,7 @@ impl eframe::App for App {
         self.poll_collecting(&ctx);
         self.poll_templates(&ctx);
         self.poll_leftovers(&ctx);
+        self.poll_association(&ctx);
         self.autosave(&ctx);
         let rate = self.transport.state().sample_rate;
         let mut dropped: Vec<PathBuf> = ctx.input(|i| {

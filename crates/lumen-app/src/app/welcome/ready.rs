@@ -86,7 +86,9 @@ impl App {
                 self.settings.projects.associate_files = wish;
                 self.settings_changed = Some(std::time::Instant::now());
             }
-            if let crate::association::State::Other(path) = self.association.status().state {
+            if let Some(crate::association::State::Other(path)) =
+                self.association_status().map(|status| &status.state)
+            {
                 widgets::hint(
                     ui,
                     &format!(

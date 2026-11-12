@@ -115,9 +115,9 @@ impl App {
         if self.welcome.step == Step::Ready && crate::association::Association::supported() {
             use crate::association::State;
             let wish = self.settings.projects.associate_files;
-            match self.association.status().state {
-                State::Off if wish => self.set_association(true),
-                State::This if !wish => self.set_association(false),
+            match self.association_status().map(|status| status.state.clone()) {
+                Some(State::Off) if wish => self.set_association(true),
+                Some(State::This) if !wish => self.set_association(false),
                 _ => {}
             }
         }
