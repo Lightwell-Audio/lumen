@@ -46,8 +46,24 @@ fn note_heap_operation() {
     if in_rt {
         let _ = THREAD_VIOLATIONS.try_with(|count| count.set(count.get() + 1));
         TOTAL_VIOLATIONS.fetch_add(1, Ordering::Relaxed);
+        // TEMPORARY DIAGNOSTIC (macOS record-test failure): the first heap
+        // operation in a section prints its stack.
+        if !DIAG_DONE.swap(true, Ordering::Relaxed) {
+            let _ = RT_DEPTH.try_with(|depth| {
+                let saved = depth.get();
+                depth.set(0);
+                eprintln!(
+                    "FIRST RT HEAP OPERATION:
+{}",
+                    std::backtrace::Backtrace::force_capture()
+                );
+                depth.set(saved);
+            });
+        }
     }
 }
+
+static DIAG_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 // SAFETY: every method forwards to `System` with the caller's arguments
 // unchanged; the only addition is a counter update that never allocates.
