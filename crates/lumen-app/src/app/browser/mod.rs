@@ -3,5 +3,6 @@
 //! (`files`). The browser's own state, drawing and pure logic stay in
 //! `crate::browser`.
 
+mod files;
 mod media_tab;
 mod panel;
