@@ -637,9 +637,6 @@ pub fn clip_colour(index: usize) -> lumen_project::model::Color {
     crate::arrangement::color_from(crate::theme::CLIP_COLORS[index])
 }
 
-/// The clip editor (M5 slice 3c), for the end-to-end tests.
-impl App {}
-
 /// Export's task and report are visible as labels; these read-only looks let
 /// scenarios wait on completion without depending on worker timing.
 impl App {
@@ -656,10 +653,3 @@ impl App {
         self.export.reports.iter().map(|r| r.path.clone()).collect()
     }
 }
-
-impl App {}
-
-/// The tempo and meter lanes (M7 slice A6), for pressing and reading them.
-impl App {}
-
-impl App {}
