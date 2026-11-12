@@ -9,7 +9,7 @@
 
 use lumen_core::time::Ticks;
 
-use crate::model::{DrumMap, Note, Sound};
+use crate::model::{DrumMap, Sound};
 
 pub mod convert;
 pub mod icon;
@@ -36,25 +36,66 @@ impl Played {
 
 /// How `input` sounds through `map`: nothing for a muted sound, or any
 /// unsoloed sound while one is soloed; a note with no sound plays as written.
+/// One note at a time: a clip reads the map once with [`Playing`].
 pub fn played(map: &DrumMap, input: u8) -> Option<Played> {
-    match map.sound(input) {
-        Some(sound) if !map.heard(sound) => None,
-        Some(sound) => Some(Played {
-            key: sound.output,
-            channel: sound.channel,
-            length: sound.length,
-        }),
-        None => Some(Played {
-            key: input,
-            channel: None,
-            length: None,
-        }),
-    }
+    Playing::new(map).played(input)
 }
 
-/// How `note` sounds through a map.
-pub fn played_note(map: &DrumMap, note: Note) -> Option<Played> {
-    played(map, note.pitch())
+/// A map read for translating a whole clip: what each of the 128 input notes
+/// plays, and whether any sound is soloed, worked out once instead of for
+/// every note (M8 D0 review L7: a 100,000-note clip translates in O(notes)).
+/// Nothing is allocated: the table is 128 entries on the stack.
+#[derive(Clone, Copy)]
+pub struct Playing<'a> {
+    map: &'a DrumMap,
+    any_soloed: bool,
+    /// The index in the map's sounds of the first sound answering to each
+    /// input note (a map a file may hold can name one note twice).
+    sounds: [Option<u16>; 128],
+}
+
+impl<'a> Playing<'a> {
+    /// Reads `map` once.
+    pub fn new(map: &'a DrumMap) -> Self {
+        let mut sounds = [None; 128];
+        for (index, sound) in map.sounds.iter().enumerate() {
+            let slot = &mut sounds[usize::from(sound.input)];
+            if slot.is_none() {
+                *slot = Some(index.min(usize::from(u16::MAX)) as u16);
+            }
+        }
+        Self {
+            map,
+            any_soloed: map.any_soloed(),
+            sounds,
+        }
+    }
+
+    /// How `input` sounds: as [`played`].
+    pub fn played(&self, input: u8) -> Option<Played> {
+        match self.sound(input) {
+            Some(sound) if !self.heard(sound) => None,
+            Some(sound) => Some(Played {
+                key: sound.output,
+                channel: sound.channel,
+                length: sound.length,
+            }),
+            None => Some(Played {
+                key: input,
+                channel: None,
+                length: None,
+            }),
+        }
+    }
+
+    fn sound(&self, input: u8) -> Option<&'a Sound> {
+        self.sounds[usize::from(input)].and_then(|i| self.map.sounds.get(usize::from(i)))
+    }
+
+    /// Whether a sound is heard, with "any soloed" read once.
+    fn heard(&self, sound: &Sound) -> bool {
+        !sound.mute && (sound.solo || !self.any_soloed)
+    }
 }
 
 /// The key a recording keeps for a note that arrived as `key` (the owner's

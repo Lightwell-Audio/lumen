@@ -85,6 +85,25 @@ impl DrumIcon {
             .find(|icon| icon.name() == name)
             .unwrap_or(DrumIcon::Percussion)
     }
+
+    /// The colour of a sound's lane for this piece: the mixed track palette,
+    /// so a kit reads in blocks (kick, snare, hats, toms, cymbals,
+    /// percussion). It lives here, beside the icon, so a sound's colour does
+    /// not depend on the preset tables (review L5).
+    pub fn color(self) -> Color {
+        let index = match self {
+            DrumIcon::Kick => 0,
+            DrumIcon::Snare | DrumIcon::Rim => 4,
+            DrumIcon::Clap => 7,
+            DrumIcon::ClosedHat | DrumIcon::PedalHat | DrumIcon::OpenHat => 5,
+            DrumIcon::Tom | DrumIcon::FloorTom | DrumIcon::Cowbell => 3,
+            DrumIcon::Crash | DrumIcon::Ride => 8,
+            DrumIcon::Shaker => 9,
+            DrumIcon::Percussion => 2,
+            DrumIcon::Effect => 6,
+        };
+        Color::in_turn(index)
+    }
 }
 
 impl Serialize for DrumIcon {
@@ -175,7 +194,7 @@ impl Sound {
             solo: false,
             quantize: None,
             length: None,
-            color: crate::drums::presets::color_of(icon),
+            color: icon.color(),
             choke: None,
             icon,
         }

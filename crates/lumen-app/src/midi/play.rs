@@ -342,8 +342,14 @@ fn kit_of(project: &Project, track: &model::Track) -> Option<Box<lumen_engine::D
                 silent: !map.heard(sound),
             },
         );
-        if let Some(group) = sound.choke {
-            kit.set_choke(sound.output, group);
+    }
+    // A played note two sounds share is in the first sound's group, as a
+    // recording reads it back (`DrumMap::choke_of_output`, `store_key`). The
+    // kit is made when the track list is, never per note.
+    for output in 0..=u8::MAX {
+        let group = map.choke_of_output(output);
+        if group != 0 {
+            kit.set_choke(output, group);
         }
     }
     Some(Box::new(kit))
@@ -831,6 +837,30 @@ mod tests {
         assert_eq!(listening(&off, &sel, false), Listen::OFF);
         // A track sent to a muted or silenced output sends nothing.
         assert_eq!(listening(&on, &sel, true), Listen::OFF);
+    }
+
+    #[test]
+    fn two_sounds_that_play_one_note_are_in_the_first_ones_choke_group() {
+        use lumen_project::model::{DrumIcon, DrumMap, Sound};
+
+        // A kit whose snare and clap both play note 41: only the snare is in
+        // a group, and the map's first sound says which (review L5).
+        let (mut project, track_id) = project_with(midi_clip(Vec::new(), Vec::new()));
+        let map = DrumMap::new(
+            Id(500),
+            "Kit",
+            vec![
+                Sound::new("Snare", 38, 41, DrumIcon::Snare).choking(2),
+                Sound::new("Clap", 39, 41, DrumIcon::Clap),
+            ],
+        );
+        project.drum_maps = vec![map.clone()];
+        let slot = project.tracks.iter_mut().find(|t| t.id == track_id).unwrap();
+        std::sync::Arc::make_mut(slot).drum_map = Some(map.id);
+        let track = project.tracks.iter().find(|t| t.id == track_id).unwrap();
+        let kit = kit_of(&project, track).expect("a mapped track");
+        assert_eq!(kit.choke_group(41), 2, "the first sound's group");
+        assert_eq!(kit.choke_group(38), 0, "a note no sound plays");
     }
 
     #[test]
