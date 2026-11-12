@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) mod controls;
 pub(crate) mod files;
-mod list;
+pub(crate) mod list;
 mod media_tab;
-mod panel;
+pub(crate) mod panel;
 pub(crate) mod rows;
 pub(crate) mod view;
 

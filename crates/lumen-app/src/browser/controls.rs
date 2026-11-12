@@ -126,7 +126,7 @@ pub(crate) fn search(
 /// All, Instruments and Effects across the search field's width: in equal
 /// pieces where they fit so.
 /// Returns the choice made, if another.
-pub(super) fn type_filter(ui: &mut Ui, kind: TypeFilter) -> Option<TypeFilter> {
+pub(crate) fn type_filter(ui: &mut Ui, kind: TypeFilter) -> Option<TypeFilter> {
     widgets::segmented_full(
         ui,
         Id::new("browser type"),
@@ -159,7 +159,7 @@ const CHIPS_SHOWN: usize = 5;
 /// edge, the rest under "More ▾". A chip that is on turns off when clicked
 /// again. Returns the chip now chosen (`Chip::All` when the one on was
 /// clicked off).
-pub(super) fn chips(ui: &mut Ui, chosen: &Chip, categories: &[(String, usize)]) -> Option<Chip> {
+pub(crate) fn chips(ui: &mut Ui, chosen: &Chip, categories: &[(String, usize)]) -> Option<Chip> {
     let mut picked = None;
     // A chosen category stays in view even when it is not among the commonest.
     let mut shown: Vec<&(String, usize)> = categories.iter().take(CHIPS_SHOWN).collect();
@@ -227,7 +227,7 @@ pub(super) fn chips(ui: &mut Ui, chosen: &Chip, categories: &[(String, usize)]) 
 
 /// What the scan line asks for.
 #[derive(Default)]
-pub(super) struct ScanActions {
+pub(crate) struct ScanActions {
     pub rescan: bool,
     pub cancel: bool,
     pub dismiss_note: bool,
@@ -247,7 +247,7 @@ pub(super) fn ago(since: Duration) -> String {
 /// The list's header under a hairline: what is installed and when it was
 /// looked for, or how far a scan is; Rescan or Cancel as a bare word, like
 /// the chips; a card for a problem. Returns what was pressed.
-pub(super) fn scan_line(ui: &mut Ui, plugins: &Plugins) -> ScanActions {
+pub(crate) fn scan_line(ui: &mut Ui, plugins: &Plugins) -> ScanActions {
     let palette = *theme::p();
     let mut actions = ScanActions::default();
     let catalog = plugins.catalog();

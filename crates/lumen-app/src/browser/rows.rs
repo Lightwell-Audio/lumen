@@ -191,6 +191,16 @@ pub(crate) fn rows(
     }
 }
 
+/// Whether the catalog holds nothing of the person's own: only Lumen's
+/// devices, and nothing blocked. The browser's "no plugins found yet" case.
+pub(crate) fn none_found(catalog: &Catalog) -> bool {
+    catalog.blocked().is_empty()
+        && catalog
+            .devices()
+            .iter()
+            .all(|d| d.source == Source::Builtin)
+}
+
 /// What selecting `row` selects; `None` for a row that is not selectable (a
 /// blocked module's note).
 pub(crate) fn selection_of(catalog: &Catalog, row: &Row) -> Option<Selection> {
@@ -512,6 +522,17 @@ mod tests {
             "no step past the last"
         );
         assert_eq!(neighbour(&c, &[], None, 1), None);
+    }
+
+    #[test]
+    fn nothing_of_the_persons_own_is_what_the_no_plugins_yet_card_asks_about() {
+        let c = catalog();
+        assert!(
+            !none_found(&c),
+            "one module is blocked and two vendors were scanned"
+        );
+        let only_own = Catalog::build(&Cache::new(), builtin_devices());
+        assert!(none_found(&only_own));
     }
 
     #[test]

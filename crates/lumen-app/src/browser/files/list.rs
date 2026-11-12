@@ -85,7 +85,7 @@ pub(super) struct Out {
 
 impl App {
     /// Draws a file tab in `body`, under the tab strip.
-    pub(in crate::browser) fn files_tab(&mut self, ui: &mut Ui, body: Rect) {
+    pub(crate) fn files_tab(&mut self, ui: &mut Ui, body: Rect) {
         let ctx = ui.ctx().clone();
         self.files_ready(&ctx);
         let tab = self.browser.tab;

@@ -36,7 +36,7 @@ struct Out {
 
 impl App {
     /// Draws the Project media tab below the tabs, in `body`.
-    pub(super) fn media_tab(&mut self, ui: &mut Ui, body: Rect) {
+    pub(crate) fn media_tab(&mut self, ui: &mut Ui, body: Rect) {
         let ctx = ui.ctx().clone();
         let side = (theme::space::M - theme::space::S) as i8;
 

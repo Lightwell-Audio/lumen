@@ -33,7 +33,7 @@ const TAG_MIN_WIDTH: f32 = 200.0;
 pub(super) const ICON: f32 = 16.0;
 
 /// What the list is showing.
-pub(super) struct Input<'a> {
+pub(crate) struct Input<'a> {
     pub catalog: &'a Catalog,
     pub rows: &'a Rows,
     pub selected: Option<&'a Selection>,
@@ -49,7 +49,7 @@ pub(super) struct Input<'a> {
 
 /// What the pointer did.
 #[derive(Default)]
-pub(super) struct Out {
+pub(crate) struct Out {
     pub select: Option<Selection>,
     /// Double-clicked or Enter on a device: choose it.
     pub choose: Option<String>,
@@ -64,7 +64,7 @@ pub(super) struct Out {
     pub hover: Option<Hover>,
 }
 
-pub(super) enum Hover {
+pub(crate) enum Hover {
     Device(usize),
     Vendor(String),
     Blocked(usize),
@@ -113,7 +113,7 @@ fn note_height(painter: &Painter, blocked: &Blocked, width: f32) -> f32 {
 }
 
 /// Draws the list in `rect` and returns what happened.
-pub(super) fn show(ui: &mut Ui, rect: Rect, input: &Input<'_>) -> Out {
+pub(crate) fn show(ui: &mut Ui, rect: Rect, input: &Input<'_>) -> Out {
     let mut out = Out::default();
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
     child.set_clip_rect(rect.intersect(ui.clip_rect()));

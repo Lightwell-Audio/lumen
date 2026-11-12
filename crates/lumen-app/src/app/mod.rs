@@ -7,6 +7,7 @@ pub(crate) mod audio;
 pub(crate) mod audio_editor;
 pub(crate) mod auto;
 mod bench_callback;
+pub(crate) mod browser;
 pub(crate) mod cache_folder;
 pub(crate) mod capture_midi;
 pub(crate) mod clip;
