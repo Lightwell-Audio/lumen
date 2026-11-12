@@ -12869,3 +12869,39 @@ tempo `edit::set` call it, so each is still one undo step.
 10. *Tokens are named without a visual change.* `theme::stroke`, `theme::alpha`, new `motion` waits, `CLIP_DIMMED`, `UNDER_LANE` and `colour_of`; a test pins every level to the literal it replaced.
 
 **Consequences.** No format change, no protocol change (the plugin host stays at version 9, the shared-memory layout at 4). Every moved file was compared with its old self (only imports, signatures and visibility differ). Not run here: the WSL mirror, the performance gate, the macOS cross-target clippy, screenshots, any hardware or real plugin. The Windows crash filter and the editor window are compile-checked only. The ASIO changes have fake-driver tests only; the owner's Focusrite is the check. The smoke test that looks for the failed-allocation backtrace needs a build with symbols.
+
+## ADR-XXXX — Drum sound glyphs: fifteen icons on the 16-unit grid
+
+**Status.** Draft for the parent (M8 D1's icon part, branch
+`m8-sd1-drum-names`).
+
+**Context.** The owner asked for an icon per drum sound (M8 §2, IC) and
+approved round 3's drawing (`docs/specimens/m8/kit.html`, the `ICON` object).
+D1 needs the glyphs before the map editor and the lanes that draw them exist,
+and D0's `DrumIcon` is built in parallel on another branch.
+
+**Choices.**
+1. *The glyphs live beside the interface icons* (`design/icons/drums.rs`,
+   painted through `paint_drum_glyph`), on the same 16-unit grid, so the two
+   sets share one mapping (`geometry::Grid`) and one colour and rect API.
+   Each glyph is a shape list, tested inside its box at 12, 16, 20 and 28 pt.
+2. *A local `DrumGlyph` until D0 lands*: the fifteen variants in `DrumIcon`'s
+   order, `DrumGlyph::ALL` for the map editor's 5 x 3 grid, and `name()` for
+   the accessible names. D1 maps D0's enum onto it and deletes nothing.
+3. *The line keeps its point weight at every size* — `ICON 1.6` for the
+   ordinary line, `ICON_FINE 1.3` for a small detail and a new `ICON_HEAVY
+   2.2` for a cymbal's edge and a rim's strike — as round 3 drew them (1.5,
+   1.0 and 2.0–2.2 pt). Scaling the line with the box, as `Icon` does, made
+   the 12 pt glyphs thin and the 28 pt ones heavy in the sheet.
+4. *Three small coordinates move* so a stroke stays inside the glyph's box at
+   every size: the kick's two spurs end at y 15.4, the floor tom's legs at
+   y 15.3, and the crash's second sparkle at x 15.2. Every other coordinate
+   is the specimen's.
+
+**Consequences.** No format change, no command and no other UI: the map
+editor, the icon popover, the lanes and the piano roll's key column come with
+the rest of D1 and D2. `ICON_HEAVY` joins `DESIGN.md` §5. `shots::drum_icons`
+shows every glyph at the four sizes and in three track colours in both themes
+at 100, 150 and 200%. epaint's strokes are square-ended where the specimens'
+SVG had round caps; at these sizes the difference is under a pixel and no
+glyph depends on it.
