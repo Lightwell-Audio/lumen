@@ -88,6 +88,13 @@ impl Launch {
         self
     }
 
+    /// Starts as `--recover-latest` does: the newest leftover is opened at
+    /// once instead of offered.
+    pub fn recovering_latest(mut self) -> Self {
+        self.recover_latest = true;
+        self
+    }
+
     /// Starts with MIDI ports from `fake`, which the test plugs and
     /// unplugs.
     pub fn with_midi(mut self, fake: lumen_midi::fake::FakeControl) -> Self {
