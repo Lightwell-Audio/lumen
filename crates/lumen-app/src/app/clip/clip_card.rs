@@ -386,6 +386,12 @@ impl App {
             self.context_command(ui, Command::ClipEnvelope, label);
         }
         ui.separator();
+        // Converting a clip's notes to another map (M8 D0): only for clips
+        // on a track that has a map, and left out when there is no other.
+        if self.can_convert_drum_map() {
+            self.context_command(ui, Command::ConvertDrumMap, "Convert drum map\u{2026}");
+            ui.separator();
+        }
         // Listed only for MIDI clips (an audio selection never could be
         // written), greyed while an export or a file dialog is under way.
         let export = if several {

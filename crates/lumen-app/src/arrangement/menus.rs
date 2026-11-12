@@ -98,7 +98,7 @@ impl Arrangement {
         ui.separator();
 
         // What it plays and what it shows.
-        self.midi_menus(ui, doc, id, &targets);
+        self.midi_menus(ui, doc, id, &targets, keymap);
         self.audio_menus(ui, doc, id);
         // The lane over the clips (the header's A button until ADR-0101).
         let lane = if self.auto.shown.contains_key(&id) {
@@ -196,7 +196,14 @@ impl Arrangement {
     /// What plays a MIDI track (M5 slice 1): its instrument, or a MIDI
     /// output port and channel. Only on MIDI tracks; applies to every
     /// selected MIDI track.
-    fn midi_menus(&mut self, ui: &mut Ui, doc: &mut Document, id: Id, targets: &[Id]) {
+    fn midi_menus(
+        &mut self,
+        ui: &mut Ui,
+        doc: &mut Document,
+        id: Id,
+        targets: &[Id],
+        keymap: &Keymap,
+    ) {
         let project = doc.project();
         let Some(track) = project
             .tracks
@@ -217,6 +224,7 @@ impl Arrangement {
         let to = track.midi_to.clone();
         let from = track.midi_from.clone();
         let monitor = track.monitor;
+        let has_map = track.drum_map.is_some();
         widgets::submenu(ui, "Instrument", |ui| {
             for p in Preset::ALL {
                 if widgets::menu_toggle(ui, p.name(), None, to.is_none() && preset == Some(p))
@@ -239,6 +247,33 @@ impl Arrangement {
             midi_io::to_menu(ui, doc, &midi, &to);
         });
         midi_io::monitor_row(ui, doc, &midi, monitor);
+        // The map the notes are read through (M8 D0): the chooser lists
+        // Lumen's kits and the project's maps.
+        if widgets::menu_item(
+            ui,
+            "Drum map\u{2026}",
+            keymap.keys(Command::DrumMapAttach).as_ref(),
+            true,
+        )
+        .clicked()
+        {
+            self.selected = targets.to_vec();
+            self.track_command = Some(Command::DrumMapAttach);
+            ui.close();
+        }
+        if has_map
+            && widgets::menu_item(
+                ui,
+                "Detach drum map",
+                keymap.keys(Command::DrumMapDetach).as_ref(),
+                true,
+            )
+            .clicked()
+        {
+            self.selected = targets.to_vec();
+            self.track_command = Some(Command::DrumMapDetach);
+            ui.close();
+        }
     }
 
     /// What an audio track records (M9 slice R1): its input and when it is

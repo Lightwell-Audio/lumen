@@ -551,6 +551,18 @@ impl App {
         self.detail_audio_clip()
     }
 
+    /// Mutes or unmutes a drum sound, as D1's map editor will (M8 D0 ships no
+    /// editor, so the scenarios that hear a sound gone do it through this).
+    /// One undo step.
+    pub fn mute_drum_sound(&mut self, map: Id, input: u8, mute: bool) {
+        self.document.set_sound_mute(map, input, mute);
+    }
+
+    /// Whether the drum map chooser is open (M8 D0).
+    pub fn drum_choice_open(&self) -> bool {
+        self.drum_choice.is_some()
+    }
+
     /// Sets a clip's gain as the properties card does (one undo step).
     pub fn set_clip_gain_like_the_card(&mut self, clip: Id, db: f32) {
         self.document.set_clip_gain(&[clip], db, Some("card gain"));
