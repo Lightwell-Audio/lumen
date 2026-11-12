@@ -143,6 +143,17 @@ impl std::error::Error for SubmitError {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BadBlock(pub &'static str);
 
+/// One block, as [`Region::write_flagged`] takes it.
+pub struct Submission<'a, Q: ParamQueues + ?Sized> {
+    pub seq: u64,
+    pub generation: u32,
+    pub frames: u32,
+    pub input: &'a [&'a [f32]],
+    pub events: &'a [Event],
+    pub params: &'a Q,
+    pub flags: u32,
+}
+
 #[repr(C, align(64))]
 struct Line<T>(T);
 
@@ -390,26 +401,38 @@ impl Region {
         events: &[Event],
         params: &Q,
     ) -> Result<(), SubmitError> {
-        self.write_flagged(seq, generation, frames, input, events, params, 0)
+        self.write_flagged(Submission {
+            seq,
+            generation,
+            frames,
+            input,
+            events,
+            params,
+            flags: 0,
+        })
     }
 
     /// As [`Self::write_request`], with block flags ([`FLAG_FLUSH`]).
-    #[allow(clippy::too_many_arguments)]
     pub fn write_flagged<Q: ParamQueues + ?Sized>(
         &self,
-        seq: u64,
-        generation: u32,
-        frames: u32,
-        input: &[&[f32]],
-        events: &[Event],
-        params: &Q,
-        flags: u32,
+        block: Submission<'_, Q>,
     ) -> Result<(), SubmitError> {
+        let Submission {
+            seq,
+            generation,
+            frames,
+            input,
+            events,
+            params,
+            flags,
+        } = block;
         let layout = &self.layout;
         if frames == 0 || frames > layout.max_frames {
             return Err(SubmitError::Invalid("frame count"));
         }
         let n = frames as usize;
+        let max_queues = layout.max_queues as usize;
+        let max_points = layout.max_points as usize;
         if input.len() != usize::from(layout.inputs) || input.iter().any(|c| c.len() < n) {
             return Err(SubmitError::Invalid("input channels"));
         }
@@ -420,7 +443,7 @@ impl Region {
             return Err(SubmitError::Invalid("event offset"));
         }
         let queues = params.queue_count();
-        if queues > layout.max_queues as usize {
+        if queues > max_queues {
             return Err(SubmitError::Invalid("too many parameter queues"));
         }
         let mut points = 0_usize;
@@ -434,7 +457,7 @@ impl Region {
                 return Err(SubmitError::Invalid("point value"));
             }
         }
-        if points > layout.max_points as usize {
+        if points > max_points {
             return Err(SubmitError::Invalid("too many parameter points"));
         }
 
@@ -465,14 +488,30 @@ impl Region {
         let raw_points: *mut RawPoint = self.array(self.at.points);
         let mut next = 0;
         for i in 0..queues {
+            // This asks the queue for its points a second time, and trusts
+            // nothing it answers: `queue` is a public trait method, so an
+            // implementation may answer differently from the pass above. Every
+            // bound is rechecked here, before the slot it guards is written,
+            // and the block is not published if the two answers disagree.
+            if i >= max_queues {
+                return Err(SubmitError::Invalid("too many parameter queues"));
+            }
             let (id, list) = params.queue(i);
-            // SAFETY: `i < max_queues` and `next + len <= max_points`, checked above.
+            if list.len() > max_points - next {
+                return Err(SubmitError::Invalid("too many parameter points"));
+            }
+            // SAFETY: `i < max_queues`; the queue's own points are guarded
+            // one by one below, so `next` stays below `max_points` however
+            // long the list claims to be.
             unsafe {
                 raw_queues.add(i).write(RawQueue {
                     id,
                     points: list.len() as u32,
                 });
                 for &(offset, value) in list {
+                    if next >= max_points {
+                        return Err(SubmitError::Invalid("too many parameter points"));
+                    }
                     raw_points.add(next).write(RawPoint {
                         offset,
                         _pad: 0,
@@ -481,6 +520,9 @@ impl Region {
                     next += 1;
                 }
             }
+        }
+        if next != points {
+            return Err(SubmitError::Invalid("parameter points changed"));
         }
         let meta = &self.control().meta.0;
         meta.generation.store(generation, Ordering::Relaxed);
@@ -661,6 +703,7 @@ impl Region {
 mod tests {
     use super::*;
     use crate::shm::sys::{Names, remove_names};
+    use std::cell::Cell;
     use std::sync::atomic::AtomicU32 as Counter;
 
     fn region(layout: Layout) -> (Region, Names) {
@@ -806,6 +849,58 @@ mod tests {
             Err(SubmitError::Invalid("point value"))
         );
         // Nothing was published.
+        assert_eq!(r.request(), 0);
+    }
+
+    /// A `ParamQueues` that answers differently the second time it is asked,
+    /// as any implementation of the public trait could.
+    struct Lying {
+        calls: Cell<usize>,
+        then: Vec<(u32, f64)>,
+    }
+
+    impl ParamQueues for Lying {
+        fn queue_count(&self) -> usize {
+            1
+        }
+
+        fn queue(&self, _: usize) -> (u32, &[(u32, f64)]) {
+            let call = self.calls.get();
+            self.calls.set(call + 1);
+            if call == 0 { (7, &[]) } else { (7, &self.then) }
+        }
+    }
+
+    /// The write pass asks each queue for its points again. It must not trust
+    /// the second answer: a list longer than the block has room for is refused
+    /// before a point is written past the layout, and nothing is published.
+    #[test]
+    fn a_queue_that_answers_differently_the_second_time_is_refused() {
+        let layout = Layout {
+            max_points: 2,
+            max_queues: 1,
+            ..Layout::new(8, 0, 0)
+        };
+        let (r, names) = region(layout);
+        remove_names(&names);
+        let longer = Lying {
+            calls: Cell::new(0),
+            then: vec![(0, 0.5); 4],
+        };
+        assert_eq!(
+            r.write_request(1, 1, 8, &[], &[], &longer),
+            Err(SubmitError::Invalid("too many parameter points"))
+        );
+        assert_eq!(r.request(), 0);
+        // A second answer that fits, but is not the one that was validated.
+        let different = Lying {
+            calls: Cell::new(0),
+            then: vec![(0, 0.5), (1, 0.5)],
+        };
+        assert_eq!(
+            r.write_request(1, 1, 8, &[], &[], &different),
+            Err(SubmitError::Invalid("parameter points changed"))
+        );
         assert_eq!(r.request(), 0);
     }
 
