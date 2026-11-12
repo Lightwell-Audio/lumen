@@ -25,8 +25,21 @@ const KEYS: u8 = 3;
 /// One beat at 120 BPM and 48 kHz.
 const BEAT: u64 = 24_000;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct Script(Arc<Mutex<VecDeque<LiveIn>>>);
+
+impl Default for Script {
+    /// On macOS std's mutex allocates its lock on the first `lock`, which the
+    /// allocation guard in [`Rig::run`] would count if the first lock were
+    /// `pull`'s inside `process`. Locking it here, outside the guard, keeps
+    /// that allocation out of the render. (The engine's own live input is a
+    /// queue with no lock; this is the test's double.)
+    fn default() -> Self {
+        let queue = Arc::new(Mutex::new(VecDeque::new()));
+        drop(queue.lock().unwrap());
+        Self(queue)
+    }
+}
 
 impl Script {
     /// A message played at device frame `played`, heard at `frame`.
