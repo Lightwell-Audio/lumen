@@ -22,7 +22,7 @@ pub(crate) const ICON: f32 = 14.0;
 impl App {
     /// One row: a sound (play, name, picture, length), a project, or a
     /// folder.
-    pub(super) fn file_row(
+    pub(crate) fn file_row(
         &mut self,
         ui: &mut Ui,
         rect: Rect,
@@ -331,7 +331,7 @@ impl App {
 }
 
 /// How a row is drawn.
-pub(super) struct RowLook {
+pub(crate) struct RowLook {
     pub selected: bool,
     pub two: bool,
     pub pictures: bool,
@@ -347,7 +347,7 @@ pub(crate) fn row_id(path: &Path) -> egui::Id {
 }
 
 /// The folder a row is in, from the sample folder or place it is under.
-pub(super) fn folder_line(entry: &Entry, roots: &[PathBuf]) -> String {
+pub(crate) fn folder_line(entry: &Entry, roots: &[PathBuf]) -> String {
     let Some(parent) = entry.path.parent() else {
         return String::new();
     };
@@ -366,7 +366,7 @@ pub(super) fn folder_line(entry: &Entry, roots: &[PathBuf]) -> String {
         .unwrap_or_else(|| parent.display().to_string())
 }
 
-pub(super) fn heading(ui: &Ui, rect: Rect, text: &str) {
+pub(crate) fn heading(ui: &Ui, rect: Rect, text: &str) {
     let palette = theme::p();
     ui.painter().text(
         pos2(rect.left() + theme::space::S, rect.center().y + 2.0),
@@ -394,7 +394,7 @@ fn fit(
 
 /// A row's picture in `rect`: the waveform mirrored about its middle, the
 /// notes as bars, or a flat line.
-pub(super) fn paint_picture(
+pub(crate) fn paint_picture(
     painter: &egui::Painter,
     rect: Rect,
     picture: &Picture,

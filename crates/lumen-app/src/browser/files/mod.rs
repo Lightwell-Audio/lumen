@@ -13,10 +13,10 @@
 
 pub(crate) mod disk;
 pub(crate) mod head;
-mod list;
+pub(crate) mod list;
 pub(crate) mod preview;
 pub(crate) mod row;
-mod strip;
+pub(crate) mod strip;
 pub(crate) mod thumbs;
 pub(crate) mod walk;
 
@@ -182,7 +182,7 @@ pub(crate) struct Files {
     pub present: HashMap<PathBuf, bool>,
     pub(crate) present_ticket: u64,
     /// The rows last drawn, and what they were made from.
-    items: Option<(list::ItemsKey, Arc<[list::Item]>)>,
+    pub(crate) items: Option<(list::ItemsKey, Arc<[list::Item]>)>,
     /// The chosen row of each tab.
     pub selected: HashMap<Tab, PathBuf>,
     /// Each tab's words.

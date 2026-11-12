@@ -17,8 +17,8 @@ const LINE: f32 = 24.0;
 const WELL: f32 = 40.0;
 /// The ids of the strip's controls that use the arrow keys, which the
 /// list leaves to them while they have the keyboard.
-pub(super) const WELL_ID: &str = "browser preview position";
-pub(super) const LEVEL_ID: &str = "browser preview level";
+pub(crate) const WELL_ID: &str = "browser preview position";
+pub(crate) const LEVEL_ID: &str = "browser preview level";
 
 /// The level slider's width at most and at least, and Auto's room.
 const LEVEL: f32 = 104.0;
@@ -81,7 +81,7 @@ impl App {
 
     /// How tall the strip is in `tab` when it is `width` wide (0: there is
     /// none). Its message is measured, so a long one is read in full.
-    pub(super) fn strip_height(&self, ui: &Ui, tab: Tab, width: f32) -> f32 {
+    pub(crate) fn strip_height(&self, ui: &Ui, tab: Tab, width: f32) -> f32 {
         let Some((path, kind)) = self.strip_subject(tab) else {
             return 0.0;
         };
@@ -110,7 +110,7 @@ impl App {
     }
 
     /// Draws the strip in `rect`.
-    pub(super) fn files_strip(&mut self, ui: &mut Ui, rect: Rect, tab: Tab) {
+    pub(crate) fn files_strip(&mut self, ui: &mut Ui, rect: Rect, tab: Tab) {
         let Some((path, kind)) = self.strip_subject(tab) else {
             return;
         };

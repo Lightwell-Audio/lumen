@@ -4,7 +4,7 @@
 //! drawn, are `crate::browser::files`.
 
 mod head;
-
+mod list;
 use std::path::{Path, PathBuf};
 
 use eframe::egui;
