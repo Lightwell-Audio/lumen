@@ -293,6 +293,22 @@ fn a_host_that_hangs_is_failed_after_a_second_of_late_audio_and_forgetting_it_ki
 }
 
 #[test]
+fn a_link_counts_the_blocks_its_host_answers() {
+    // The count is how the device thread tells a host working on a long block
+    // from one that stopped answering its control calls (sweep M8).
+    let mut manager = manager();
+    manager.want(1, instrument("")).unwrap();
+    let mut linked = linked(&mut manager, 1);
+    let counts = linked.link.counts();
+    assert_eq!(counts.answered(), 0, "no block yet");
+    for block in 0..3 {
+        let (_, _, reply) = play(&mut linked.link, 64, &[], &pattern(block));
+        assert!(matches!(reply, Some(Reply::Ready { .. })), "block {block}");
+        assert_eq!(counts.answered(), block + 1);
+    }
+}
+
+#[test]
 fn a_host_that_stops_answering_control_calls_is_failed_and_killed() {
     // One thread in the host runs the plugin and answers Lumen: a plugin
     // stuck in `process` leaves every control call unanswered. Each waits its
