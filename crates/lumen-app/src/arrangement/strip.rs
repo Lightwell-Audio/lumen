@@ -359,7 +359,11 @@ impl Arrangement {
         );
         // Strips being dragged are dimmed, as their headers are.
         if self.is_dragged(track.id) {
-            painter.rect_filled(rect, 0.0, palette.header.gamma_multiply(0.6));
+            painter.rect_filled(
+                rect,
+                0.0,
+                palette.header.gamma_multiply(theme::alpha::EDGE_DIM),
+            );
         }
     }
 

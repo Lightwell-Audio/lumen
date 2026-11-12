@@ -414,11 +414,14 @@ impl Arrangement {
             let hot = motion::hover(&ctx, id.with("linked"), self.hot_return == Some(track.id));
             if hot > 0.0 {
                 let color = super::color_of(track.color);
-                painter.rect_filled(rect, 0.0, color.gamma_multiply(0.10 * hot));
+                painter.rect_filled(rect, 0.0, color.gamma_multiply(theme::alpha::WASH * hot));
                 painter.rect_stroke(
                     rect.shrink(0.5),
                     0.0,
-                    Stroke::new(theme::stroke::HAIRLINE, color.gamma_multiply(0.7 * hot)),
+                    Stroke::new(
+                        theme::stroke::HAIRLINE,
+                        color.gamma_multiply(theme::alpha::INK_DIM * hot),
+                    ),
                     egui::StrokeKind::Inside,
                 );
             }

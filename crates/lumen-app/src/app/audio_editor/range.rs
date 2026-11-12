@@ -210,9 +210,12 @@ impl App {
                 painter.rect_filled(
                     Rect::from_x_y_ranges(xa..=xb, body.y_range()),
                     0.0,
-                    palette.accent.gamma_multiply(0.16),
+                    palette.accent.gamma_multiply(theme::alpha::WASH_RANGE),
                 );
-                let edge = Stroke::new(theme::stroke::HAIRLINE, palette.accent.gamma_multiply(0.6));
+                let edge = Stroke::new(
+                    theme::stroke::HAIRLINE,
+                    palette.accent.gamma_multiply(theme::alpha::EDGE_DIM),
+                );
                 painter.vline(xa, body.y_range(), edge);
                 painter.vline(xb, body.y_range(), edge);
                 let stroke = Stroke::new(theme::stroke::EDGE, palette.accent);

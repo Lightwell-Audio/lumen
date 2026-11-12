@@ -242,13 +242,13 @@ impl App {
         }
         let span = Rect::from_x_y_ranges(left..=right, body.y_range());
         let painter = painter.with_clip_rect(span.intersect(painter.clip_rect()));
-        painter.rect_filled(span, 0.0, ink.gamma_multiply(0.05));
+        painter.rect_filled(span, 0.0, ink.gamma_multiply(theme::alpha::WASH_FAINT));
         painter.hline(
             left..=right,
             frame.y(target, target.default_value()),
             Stroke::new(
                 theme::stroke::HAIRLINE,
-                palette.border_strong.gamma_multiply(0.6),
+                palette.border_strong.gamma_multiply(theme::alpha::EDGE_DIM),
             ),
         );
         let lane = self.lane_points_of(track, target);

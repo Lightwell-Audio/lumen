@@ -240,7 +240,11 @@ impl Arrangement {
                     pos2(column.left(), column.top() + row.y - self.top),
                     vec2(column.width(), row.height),
                 );
-                painter.rect_filled(rect, 0.0, palette.header.gamma_multiply(0.6));
+                painter.rect_filled(
+                    rect,
+                    0.0,
+                    palette.header.gamma_multiply(theme::alpha::EDGE_DIM),
+                );
             }
         }
         // A drag follows rows laid out this frame: none if tracks changed.
@@ -671,7 +675,9 @@ fn arm_piece(ui: &Ui, rect: Rect, arm: Arm, hover: f32) {
                 ring - 0.5 + 0.5 * breath,
                 Stroke::new(
                     theme::stroke::LIT,
-                    palette.record.gamma_multiply(0.45 + 0.3 * breath),
+                    palette
+                        .record
+                        .gamma_multiply(theme::alpha::EDGE_SOFT + ARM_RING_GAIN * breath),
                 ),
             );
             p.circle_filled(center, PIECE_DOT, palette.record);
@@ -680,7 +686,10 @@ fn arm_piece(ui: &Ui, rect: Rect, arm: Arm, hover: f32) {
             p.rect_filled(rect, r, palette.record.gamma_multiply(ARM_BODY));
             p.add(egui::Shape::line(
                 half_ring(center, ring),
-                Stroke::new(theme::stroke::LIT, palette.record.gamma_multiply(0.6)),
+                Stroke::new(
+                    theme::stroke::LIT,
+                    palette.record.gamma_multiply(theme::alpha::EDGE_DIM),
+                ),
             ));
             p.circle_filled(center, PIECE_DOT, palette.record);
         }
@@ -741,6 +750,8 @@ const ARM_BREATH: f32 = motion::BREATH;
 const ARM_BODY: f32 = 0.25;
 /// How strong the resting dot's grey is.
 const ARM_REST_DOT: f32 = 0.55;
+/// How far the armed ring's alpha rises at the top of a breath.
+const ARM_RING_GAIN: f32 = 0.30;
 
 /// What a screen reader says for a header; a group adds how many tracks
 /// it holds and whether they are hidden: "Track Drums, Group track, 3

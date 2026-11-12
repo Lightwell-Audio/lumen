@@ -424,13 +424,21 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
             } else {
                 painter.line(
                     curve,
-                    Stroke::new(theme::stroke::HAIRLINE, palette.text.gamma_multiply(0.45)),
+                    Stroke::new(
+                        theme::stroke::HAIRLINE,
+                        palette.text.gamma_multiply(theme::alpha::EDGE_SOFT),
+                    ),
                 );
             }
             continue;
         }
         // What the fade takes away: a light wash above the curve.
-        wash_to(painter, &curve, h.wave.top(), accent.gamma_multiply(0.10));
+        wash_to(
+            painter,
+            &curve,
+            h.wave.top(),
+            accent.gamma_multiply(theme::alpha::WASH),
+        );
         glow_line(painter, curve, accent, hot == Some(Handle::Bend(edge)));
         if let Some(other) = other {
             glow_line(painter, other, accent, hot == Some(Handle::Bend(edge)));
@@ -449,7 +457,10 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
         } else {
             painter.line(
                 line,
-                Stroke::new(theme::stroke::HAIRLINE, accent.gamma_multiply(0.55)),
+                Stroke::new(
+                    theme::stroke::HAIRLINE,
+                    accent.gamma_multiply(theme::alpha::INK_QUIET),
+                ),
             );
         }
     }
@@ -464,14 +475,21 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
             0.0
         };
         if h.fade(edge).width() > 0.0 {
-            painter.circle_filled(at, HANDLE_RADIUS + 2.5 + big, accent.gamma_multiply(0.2));
+            painter.circle_filled(
+                at,
+                HANDLE_RADIUS + 2.5 + big,
+                accent.gamma_multiply(theme::alpha::HALO),
+            );
             painter.circle_filled(at, HANDLE_RADIUS + big, accent);
         } else {
             // No fade yet: an open ring waits in the corner.
             painter.circle_stroke(
                 at,
                 HANDLE_RADIUS - 0.5 + big,
-                Stroke::new(theme::stroke::LIT, accent.gamma_multiply(0.8)),
+                Stroke::new(
+                    theme::stroke::LIT,
+                    accent.gamma_multiply(theme::alpha::EDGE_LIT),
+                ),
             );
         }
         if let Some(dot) = h.bend_pos(edge).filter(|d| view.contains(d.x)) {
@@ -480,7 +498,11 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
             } else {
                 0.0
             };
-            painter.circle_filled(dot, BEND_RADIUS + 2.0 + big, accent.gamma_multiply(0.2));
+            painter.circle_filled(
+                dot,
+                BEND_RADIUS + 2.0 + big,
+                accent.gamma_multiply(theme::alpha::HALO),
+            );
             painter.circle(
                 dot,
                 BEND_RADIUS + big,
@@ -504,7 +526,12 @@ pub(crate) fn draw_hot_fade(painter: &Painter, h: &ClipHandles, edge: Edge, view
         glow_line(painter, incoming, accent, true);
         glow_line(painter, outgoing, accent, true);
     } else {
-        wash_to(painter, &curve, h.wave.top(), accent.gamma_multiply(0.10));
+        wash_to(
+            painter,
+            &curve,
+            h.wave.top(),
+            accent.gamma_multiply(theme::alpha::WASH),
+        );
         glow_line(painter, curve, accent, true);
     }
 }

@@ -331,7 +331,7 @@ impl App {
                                 y,
                                 egui::Stroke::new(
                                     theme::stroke::HAIRLINE,
-                                    theme::p().accent.gamma_multiply(0.5),
+                                    theme::p().accent.gamma_multiply(theme::alpha::EDGE),
                                 ),
                             );
                         }

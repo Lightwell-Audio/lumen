@@ -466,7 +466,10 @@ fn draw_comet(p: &Painter, rect: Rect, x: f32, hot: f32) {
     // A restrained glow (owner: too much): one soft ring, a little more
     // while the pointer is on it.
     let glow = 1.0 + 0.25 * hot;
-    for (radius, alpha) in [(r * 1.9 * glow, 0.10), (r * 1.4 * glow, 0.22)] {
+    for (radius, alpha) in [
+        (r * 1.9 * glow, theme::alpha::HALO_FAINT),
+        (r * 1.4 * glow, theme::alpha::HALO_WIDE),
+    ] {
         p.circle_filled(head, radius, palette.accent.gamma_multiply(alpha));
     }
     p.circle_filled(head, r, palette.core);

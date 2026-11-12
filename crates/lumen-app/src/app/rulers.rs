@@ -306,7 +306,11 @@ impl App {
                 rect.y_range(),
             )
             .intersect(rect);
-            painter.rect_filled(span, 0.0, palette.accent.gamma_multiply(0.22));
+            painter.rect_filled(
+                span,
+                0.0,
+                palette.accent.gamma_multiply(theme::alpha::WASH_SPAN),
+            );
         }
         painter.line_segment(
             [rect.left_top(), rect.right_top()],

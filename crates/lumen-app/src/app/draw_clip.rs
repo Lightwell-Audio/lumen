@@ -78,7 +78,7 @@ impl App {
         painter.rect_filled(
             outline,
             theme::radius::SMALL,
-            palette.accent.gamma_multiply(0.18),
+            palette.accent.gamma_multiply(theme::alpha::WASH_OUTLINE),
         );
         painter.rect_stroke(
             outline,

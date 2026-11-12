@@ -328,7 +328,11 @@ impl Arrangement {
             return;
         }
         let painter = painter.with_clip_rect(area.intersect(painter.clip_rect()));
-        painter.rect_filled(area, 0.0, palette.canvas.gamma_multiply(0.7));
+        painter.rect_filled(
+            area,
+            0.0,
+            palette.canvas.gamma_multiply(theme::alpha::INK_DIM),
+        );
         for row in rows.iter().filter(|r| r.zone != super::Zone::Main) {
             let span = self.zone_span(ctx, project, row.zone, canvas.y_range());
             let lane = Rect::from_min_size(
@@ -344,12 +348,19 @@ impl Arrangement {
                 super::RowKind::Track(index) => {
                     let track = &project.tracks[index];
                     if track.solo {
-                        painter.rect_filled(lane, 0.0, palette.accent.gamma_multiply(0.06));
+                        painter.rect_filled(
+                            lane,
+                            0.0,
+                            palette.accent.gamma_multiply(theme::alpha::WASH_LANE),
+                        );
                     }
                     painter.hline(
                         canvas.x_range(),
                         lane.bottom() - 0.5,
-                        Stroke::new(theme::stroke::HAIRLINE, palette.border.gamma_multiply(0.6)),
+                        Stroke::new(
+                            theme::stroke::HAIRLINE,
+                            palette.border.gamma_multiply(theme::alpha::EDGE_DIM),
+                        ),
                     );
                     if let Some((hot, t)) = self.hot_edge
                         && hot == track.id

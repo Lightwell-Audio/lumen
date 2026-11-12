@@ -116,7 +116,10 @@ fn loop_glyph(painter: &egui::Painter, centre: egui::Pos2, ink: Color32) {
 /// marked.
 fn crossing_glyph(painter: &egui::Painter, centre: egui::Pos2, ink: Color32) {
     let half = 6.0;
-    let line = egui::Stroke::new(theme::stroke::HAIRLINE, ink.gamma_multiply(0.6));
+    let line = egui::Stroke::new(
+        theme::stroke::HAIRLINE,
+        ink.gamma_multiply(theme::alpha::EDGE_DIM),
+    );
     painter.hline(centre.x - half..=centre.x + half, centre.y, line);
     let points: Vec<egui::Pos2> = (0..=16)
         .map(|i| {

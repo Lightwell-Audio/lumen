@@ -228,7 +228,7 @@ pub(crate) fn draw_snap_guide(painter: &egui::Painter, x: f32, area: Rect) {
             [pos2(x, area.top()), pos2(x, area.bottom())],
             Stroke::new(
                 theme::stroke::HAIRLINE,
-                theme::p().accent.gamma_multiply(0.5),
+                theme::p().accent.gamma_multiply(theme::alpha::EDGE),
             ),
         );
     }

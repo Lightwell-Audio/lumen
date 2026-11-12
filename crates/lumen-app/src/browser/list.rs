@@ -620,7 +620,10 @@ fn tag_blocked(painter: &Painter, rect: Rect, palette: &theme::Palette) -> f32 {
     painter.rect_stroke(
         tag,
         theme::radius::SMALL,
-        Stroke::new(theme::stroke::HAIRLINE, palette.warning.gamma_multiply(0.6)),
+        Stroke::new(
+            theme::stroke::HAIRLINE,
+            palette.warning.gamma_multiply(theme::alpha::EDGE_DIM),
+        ),
         StrokeKind::Inside,
     );
     painter.galley(

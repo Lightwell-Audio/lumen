@@ -89,7 +89,10 @@ pub(super) fn paint_picture(
             while x < area.right() {
                 clipped.line_segment(
                     [pos2(x, area.bottom()), pos2(x + area.height(), area.top())],
-                    Stroke::new(theme::stroke::HAIRLINE, palette.border.gamma_multiply(0.6)),
+                    Stroke::new(
+                        theme::stroke::HAIRLINE,
+                        palette.border.gamma_multiply(theme::alpha::EDGE_DIM),
+                    ),
                 );
                 x += step;
             }
@@ -117,7 +120,11 @@ pub(super) fn paint_picture(
                 ),
                 vec2(side, side),
             );
-            clipped.extend(icons::shapes(kind, at, ink.gamma_multiply(0.55)));
+            clipped.extend(icons::shapes(
+                kind,
+                at,
+                ink.gamma_multiply(theme::alpha::INK_QUIET),
+            ));
         }
     }
 }

@@ -218,7 +218,12 @@ impl App {
                 .map(|t| &t.picture)
             {
                 Some(picture) => paint_picture(&painter, at, picture, tint),
-                None => paint_picture(&painter, at, &Picture::Flat, dim.gamma_multiply(0.5)),
+                None => paint_picture(
+                    &painter,
+                    at,
+                    &Picture::Flat,
+                    dim.gamma_multiply(theme::alpha::EDGE),
+                ),
             }
             right = at.left() - theme::space::S;
         }

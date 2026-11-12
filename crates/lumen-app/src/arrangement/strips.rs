@@ -46,7 +46,9 @@ fn ghost_strip(ui: &mut Ui, area: Rect, keymap: &Keymap) -> bool {
     painter.rect_filled(
         rect,
         theme::radius::SMALL,
-        palette.control.gamma_multiply(0.35 * hover),
+        palette
+            .control
+            .gamma_multiply(theme::alpha::HOVER_STEP * hover),
     );
     let stroke = egui::Stroke::new(
         1.0,
@@ -248,7 +250,12 @@ impl Arrangement {
             let painter = ui.painter_at(strips);
             if self.mixer_offset > 0.5 {
                 let rect = Rect::from_min_size(strips.min, vec2(theme::space::L, strips.height()));
-                widgets::gradient(&painter, rect, ground, ground.gamma_multiply(0.0));
+                widgets::gradient(
+                    &painter,
+                    rect,
+                    ground,
+                    ground.gamma_multiply(theme::alpha::NONE),
+                );
             }
             if self.mixer_offset + strips.width() < width - 0.5 {
                 let shadow = Rect::from_min_max(
@@ -258,7 +265,7 @@ impl Arrangement {
                 widgets::gradient(
                     &painter,
                     shadow,
-                    palette.shadow.gamma_multiply(0.0),
+                    palette.shadow.gamma_multiply(theme::alpha::NONE),
                     palette.shadow,
                 );
             }
@@ -368,7 +375,7 @@ impl Arrangement {
                 }
                 Mark::Onto(x, width) => {
                     let rect = Rect::from_x_y_ranges(x..=x + width, strips.y_range());
-                    painter.rect_filled(rect, 0.0, accent.gamma_multiply(0.10));
+                    painter.rect_filled(rect, 0.0, accent.gamma_multiply(theme::alpha::WASH));
                     painter.rect_stroke(
                         rect.shrink(1.0),
                         0.0,
@@ -450,7 +457,11 @@ impl Arrangement {
         let bar = Rect::from_x_y_ranges(left..=left + 12.0, ys);
         raised::paint_sunken(&painter, bar, LUFS_BAR_RADIUS);
         let band = Rect::from_x_y_ranges(bar.x_range().expand(3.0), at(TARGET.1)..=at(TARGET.0));
-        painter.rect_filled(band, 0.0, palette.accent.gamma_multiply(0.14));
+        painter.rect_filled(
+            band,
+            0.0,
+            palette.accent.gamma_multiply(theme::alpha::WASH_BAND),
+        );
         if meters_heard(reading.short_term) {
             let top = at(reading.short_term);
             let color = if reading.short_term > -9.0 {
@@ -491,7 +502,10 @@ impl Arrangement {
         let target = graph.x_range().shrink(3.0);
         painter.with_clip_rect(graph).extend(Shape::dashed_line(
             &[pos2(target.min, at(-14.0)), pos2(target.max, at(-14.0))],
-            Stroke::new(theme::stroke::HAIRLINE, palette.accent.gamma_multiply(0.6)),
+            Stroke::new(
+                theme::stroke::HAIRLINE,
+                palette.accent.gamma_multiply(theme::alpha::EDGE_DIM),
+            ),
             3.0,
             3.0,
         ));
@@ -510,7 +524,10 @@ impl Arrangement {
         if measured {
             painter.with_clip_rect(graph).add(Shape::line(
                 points,
-                Stroke::new(theme::stroke::HAIRLINE, palette.accent.gamma_multiply(0.8)),
+                Stroke::new(
+                    theme::stroke::HAIRLINE,
+                    palette.accent.gamma_multiply(theme::alpha::EDGE_LIT),
+                ),
             ));
         } else {
             // Nothing heard yet: what fills it, wrapped inside the well.

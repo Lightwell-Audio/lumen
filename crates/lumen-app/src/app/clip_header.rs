@@ -373,7 +373,7 @@ fn colour_bar(row: &mut Ui, colour: Color32) -> Response {
     row.painter().rect_filled(
         Rect::from_min_size(bar.min, vec2(bar.width(), bar.height() / 2.0)),
         3.0,
-        Color32::WHITE.gamma_multiply(0.18),
+        theme::p().sheen,
     );
     response
 }

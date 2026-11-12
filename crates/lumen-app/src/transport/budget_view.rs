@@ -218,10 +218,10 @@ fn warning(ui: &mut Ui, missing: usize) {
         format!("the last {minutes} minutes")
     };
     egui::Frame::new()
-        .fill(p.warning.gamma_multiply(0.10))
+        .fill(p.warning.gamma_multiply(theme::alpha::WARN_FILL))
         .stroke(Stroke::new(
             theme::stroke::HAIRLINE,
-            p.warning.gamma_multiply(0.35),
+            p.warning.gamma_multiply(theme::alpha::WARN_EDGE),
         ))
         .corner_radius(theme::radius::MEDIUM)
         .inner_margin(egui::Margin::symmetric(

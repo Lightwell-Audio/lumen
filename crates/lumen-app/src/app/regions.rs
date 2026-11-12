@@ -216,7 +216,11 @@ pub(crate) fn draw_brace_hint(
         }
         Grab::Move => {
             let brace = Rect::from_x_y_ranges(a..=b, bottom - 7.0..=bottom).intersect(at.strip);
-            painter.rect_filled(brace, 0.0, palette.accent.gamma_multiply(0.35));
+            painter.rect_filled(
+                brace,
+                0.0,
+                palette.accent.gamma_multiply(theme::alpha::WASH_BRACE),
+            );
             Info::new("Loop")
                 .on(Held::NONE, Mouse::Drag, "move")
                 .on(Held::NONE, Mouse::Click, "turn on or off")

@@ -470,7 +470,7 @@ fn draw_preview(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
             painter.rect(
                 *rect,
                 theme::radius::SMALL,
-                palette.accent.gamma_multiply(0.12),
+                palette.accent.gamma_multiply(theme::alpha::WASH_SELECTED),
                 Stroke::new(theme::stroke::HAIRLINE, palette.accent),
                 StrokeKind::Inside,
             );

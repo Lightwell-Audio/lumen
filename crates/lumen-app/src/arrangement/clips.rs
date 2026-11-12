@@ -245,19 +245,29 @@ impl Arrangement {
                     lane.min,
                     vec2((lane.width() * 0.18).min(220.0), lane.height()),
                 );
-                painter.rect_filled(lane, 0.0, palette.record.gamma_multiply(0.05));
+                painter.rect_filled(
+                    lane,
+                    0.0,
+                    palette.record.gamma_multiply(theme::alpha::WASH_FAINT),
+                );
                 gradient(
                     painter,
                     fade,
-                    palette.record.gamma_multiply(0.12),
+                    palette.record.gamma_multiply(theme::alpha::WASH_SELECTED),
                     Color32::TRANSPARENT,
                 );
-                let edge =
-                    Stroke::new(theme::stroke::HAIRLINE, palette.record.gamma_multiply(0.45));
+                let edge = Stroke::new(
+                    theme::stroke::HAIRLINE,
+                    palette.record.gamma_multiply(theme::alpha::EDGE_SOFT),
+                );
                 painter.hline(canvas.x_range(), lane.top() + 0.5, edge);
                 painter.hline(canvas.x_range(), lane.bottom() - 1.5, edge);
             } else if track.solo {
-                painter.rect_filled(lane, 0.0, palette.accent.gamma_multiply(0.06));
+                painter.rect_filled(
+                    lane,
+                    0.0,
+                    palette.accent.gamma_multiply(theme::alpha::WASH_LANE),
+                );
             }
             if track.kind == TrackKind::Group {
                 super::nesting::draw_group_lane(painter, lane, canvas, project, index, time);
@@ -392,7 +402,11 @@ impl Arrangement {
                             );
                             let stroke = Stroke::new(
                                 1.0,
-                                theme::CLIP_TEXT.gamma_multiply(if heard { 0.7 } else { 0.3 }),
+                                theme::CLIP_TEXT.gamma_multiply(if heard {
+                                    theme::alpha::INK_DIM
+                                } else {
+                                    theme::alpha::INK_TRACE
+                                }),
                             );
                             let top = rect.top() + TITLE.min(rect.height());
                             let bottom = (top + WARP_TICK).min(rect.bottom());
@@ -509,7 +523,10 @@ impl Arrangement {
             painter.hline(
                 canvas.x_range(),
                 lane.bottom() - 0.5,
-                Stroke::new(theme::stroke::HAIRLINE, palette.border.gamma_multiply(0.6)),
+                Stroke::new(
+                    theme::stroke::HAIRLINE,
+                    palette.border.gamma_multiply(theme::alpha::EDGE_DIM),
+                ),
             );
             // The resize glow continues across the lane.
             if let (RowKind::Track(index), Some((hot, t))) = (row.kind, self.hot_edge)

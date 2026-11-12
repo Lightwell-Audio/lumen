@@ -165,9 +165,11 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `key_white` | `#C9CDD4` | `#FFFFFF` | Piano-roll white keys |
 | `key_black` | `#0E1013` | `#3A3F4A` | Piano-roll black keys |
 | `key_text` | `#3A3F4A` | `#5A6170` | The C labels on the keys |
+| `key_edge` | black at 19% | black at 19% | The line where the piano roll's keys meet its lanes |
 | `well` | `#141619` | `#D6DAE0` | Inset wells: fader grooves, meter and loudness backgrounds; below every surface in both themes (M4.5) |
 | `ground` | `#111316` | `#E7E9ED` | The deepest layer, under `well`: behind the window, scrims, the app icon's base |
 | `edge_light` | white at 7% | white at 80% | The 1 pt line along the top inside edge of every raised surface (§5a) |
+| `sheen` | white at 18% | white at 18% | The sheen along the top inside half of a clip's colour bar and of a note |
 | `shade` | black at 50% | `text` at 14% | The 1 pt lip along the top inside edge of a well or a pressed control (§5a) |
 | `ember` | `text` at 8% | `text` at 8% | Light level 1, washed over what the pointer is on: the hover of raised controls, rows and segmented pieces (§6a) |
 | `shadow` | black at 38% | black at 14% | The one shadow, under windows and popovers |
@@ -177,6 +179,45 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 
 Text on a filled control (a lit button) is chosen by the fill's brightness:
 near-black (`#0B0D10`) on light fills, white on dark ones (`theme::text_on`).
+
+**Opacity levels** (`theme::alpha`): a colour token is multiplied by one of
+these before it is laid over another surface, so what a colour is stays in
+the palette and how strongly it shows is named here. The same in both themes.
+
+| Level | Value | Use |
+|---|---|---|
+| `NONE` | 0 | Nothing: a gradient's far end |
+| `WASH_FAINT` | 5% | The faintest wash a lane or a span takes, just enough to say it is there |
+| `WASH_LANE` | 6% | A lane tinted with the accent to show what it holds |
+| `WASH_DROP` | 8% | The lane a dragged clip or file would land in |
+| `WASH_WRITE` | 9% | An automation lane while its mode writes |
+| `WASH` | 10% | A wash under something moving: an insertion band, a hovered row, the area a curve will fill |
+| `WARN_FILL` | 10% | A warning chip's fill |
+| `HALO_FAINT` | 10% | The faintest ring of a handle's halo |
+| `WASH_SELECTED` | 12% | A take's tint over its body, and a note or a box being drawn |
+| `WASH_BAND` | 14% | A band that marks a level: the loudness target, a hovered chip |
+| `GLOW` | 15% | The glow that spreads beside an accent edge |
+| `WASH_RANGE` | 16% | The band over a time range or a selection |
+| `WASH_OUTLINE` | 18% | The accent wash inside an outline while it is drawn |
+| `HALO` | 20% | The halo around a handle or a point |
+| `WASH_SPAN` | 22% | A span over a lane: a loop's or a stretch's |
+| `HALO_WIDE` | 22% | The halo around a handle or a point, one step wider than `HALO` |
+| `WASH_BODY` | 25% | A clip body's colour at a quarter, under its grid |
+| `INK_TRACE` | 30% | A line or a word that only hints |
+| `WASH_BRACE` | 35% | The loop brace's fill |
+| `HOVER_STEP` | 35% | One step of a piece's hover |
+| `WARN_EDGE` | 35% | A warning chip's edge |
+| `EDGE_FAINT` | 35% | A line that steps back: a return behind the one on top |
+| `EDGE_SOFT` | 45% | A mark's soft edge: a selection's outline, an armed lane's rim |
+| `EDGE` | 50% | A hairline's wash, and the ghost of a control that is not there |
+| `INK_QUIET` | 55% | Quiet ink: what is there but not speaking |
+| `EDGE_DIM` | 60% | A dimmed edge, or words that step back |
+| `WASH_CELL` | 60% | A wash over the cell about to be scrubbed |
+| `INK_DIM` | 70% | Ink that has stepped back: a clip that is not heard |
+| `EDGE_BRACE` | 75% | A loop brace's edge |
+| `EDGE_LIT` | 80% | A lit accent edge |
+| `WARN_INK` | 88% | A warning's words |
+| `TEXT_BRIGHT` | 90% | A clip's name at nine tenths |
 
 **Controls take their colours from the surface under them**
 (`theme::controls(selected)`). On most surfaces that is `control`,

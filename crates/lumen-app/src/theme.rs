@@ -97,6 +97,12 @@ pub struct Palette {
     pub thumb: Color32,
     /// The 1 pt line along the top inside edge of every raised surface.
     pub edge_light: Color32,
+    /// The sheen along the top inside half of a clip's colour bar and of a
+    /// note: white at 18%, in both themes.
+    pub sheen: Color32,
+    /// The line where the piano roll's keys meet its lanes: black at 19%,
+    /// in both themes.
+    pub key_edge: Color32,
     /// The 1 pt lip along the top inside edge of a well or a pressed
     /// control.
     pub shade: Color32,
@@ -162,6 +168,8 @@ pub const DARK: Palette = Palette {
     thumb_hi: Color32::from_rgb(0x4A, 0x51, 0x60),
     thumb: Color32::from_rgb(0x3E, 0x45, 0x51),
     edge_light: Color32::from_rgba_unmultiplied_const(0xFF, 0xFF, 0xFF, 0x12),
+    sheen: Color32::from_rgba_unmultiplied_const(0xFF, 0xFF, 0xFF, 46),
+    key_edge: Color32::from_black_alpha(48),
     shade: Color32::from_black_alpha(0x80),
     ember: Color32::from_rgba_unmultiplied_const(0xE6, 0xE8, 0xEC, 0x14),
     accent_hi: Color32::from_rgb(0x5D, 0xAE, 0xFF),
@@ -224,6 +232,8 @@ pub const LIGHT: Palette = Palette {
     thumb_hi: Color32::from_rgb(0xFF, 0xFF, 0xFF),
     thumb: Color32::from_rgb(0xF3, 0xF4, 0xF6),
     edge_light: Color32::from_rgba_unmultiplied_const(0xFF, 0xFF, 0xFF, 0xCC),
+    sheen: Color32::from_rgba_unmultiplied_const(0xFF, 0xFF, 0xFF, 46),
+    key_edge: Color32::from_black_alpha(48),
     shade: Color32::from_rgba_unmultiplied_const(0x1C, 0x1F, 0x24, 0x24),
     ember: Color32::from_rgba_unmultiplied_const(0x1C, 0x1F, 0x24, 0x14),
     accent_hi: Color32::from_rgb(0x2A, 0x74, 0xD4),
@@ -429,6 +439,78 @@ pub const WARP_TICK_GAIN: f32 = 0.4;
 pub const HANDLE_QUIET: f32 = 0.55;
 /// The audio editor's trim grips at rest: `text_secondary` at this strength.
 pub const GRIP_QUIET: f32 = 0.7;
+
+/// The opacities colours are laid over other surfaces at (`docs/DESIGN.md`
+/// §3): a colour token is multiplied by one of these before it is drawn, so
+/// the colours themselves stay in the palette. The same in both themes.
+pub mod alpha {
+    /// Nothing: a gradient's far end.
+    pub const NONE: f32 = 0.0;
+    /// The faintest wash a lane or a span takes, just enough to say it is
+    /// there.
+    pub const WASH_FAINT: f32 = 0.05;
+    /// A lane tinted with the accent to show what it holds.
+    pub const WASH_LANE: f32 = 0.06;
+    /// The lane a dragged clip or file would land in.
+    pub const WASH_DROP: f32 = 0.08;
+    /// An automation lane while its mode writes.
+    pub const WASH_WRITE: f32 = 0.09;
+    /// A wash under something moving: an insertion band, a hovered row, the
+    /// area a curve will fill.
+    pub const WASH: f32 = 0.10;
+    /// A warning chip's fill.
+    pub const WARN_FILL: f32 = 0.10;
+    /// The faintest ring of a handle's halo.
+    pub const HALO_FAINT: f32 = 0.10;
+    /// A take's tint over its body, and a note or a box being drawn.
+    pub const WASH_SELECTED: f32 = 0.12;
+    /// A band that marks a level: the loudness target, a hovered chip.
+    pub const WASH_BAND: f32 = 0.14;
+    /// The glow that spreads beside an accent edge.
+    pub const GLOW: f32 = 0.15;
+    /// The band over a time range or a selection.
+    pub const WASH_RANGE: f32 = 0.16;
+    /// The accent wash inside an outline while it is drawn.
+    pub const WASH_OUTLINE: f32 = 0.18;
+    /// The halo around a handle or a point.
+    pub const HALO: f32 = 0.20;
+    /// A span over a lane: a loop's or a stretch's.
+    pub const WASH_SPAN: f32 = 0.22;
+    /// The halo around a handle or a point, one step wider than [`HALO`].
+    pub const HALO_WIDE: f32 = 0.22;
+    /// A clip body's colour at a quarter, under its grid.
+    pub const WASH_BODY: f32 = 0.25;
+    /// A line or a word that only hints.
+    pub const INK_TRACE: f32 = 0.30;
+    /// The loop brace's fill.
+    pub const WASH_BRACE: f32 = 0.35;
+    /// One step of a piece's hover.
+    pub const HOVER_STEP: f32 = 0.35;
+    /// A warning chip's edge.
+    pub const WARN_EDGE: f32 = 0.35;
+    /// A line that steps back: a return behind the one on top.
+    pub const EDGE_FAINT: f32 = 0.35;
+    /// A mark's soft edge: a selection's outline, an armed lane's rim.
+    pub const EDGE_SOFT: f32 = 0.45;
+    /// A hairline's wash, and the ghost of a control that is not there.
+    pub const EDGE: f32 = 0.50;
+    /// Quiet ink: what is there but not speaking.
+    pub const INK_QUIET: f32 = 0.55;
+    /// A dimmed edge, or words that step back.
+    pub const EDGE_DIM: f32 = 0.60;
+    /// A wash over the cell about to be scrubbed.
+    pub const WASH_CELL: f32 = 0.60;
+    /// Ink that has stepped back: a clip that is not heard.
+    pub const INK_DIM: f32 = 0.70;
+    /// A loop brace's edge.
+    pub const EDGE_BRACE: f32 = 0.75;
+    /// A lit accent edge.
+    pub const EDGE_LIT: f32 = 0.80;
+    /// A warning's words.
+    pub const WARN_INK: f32 = 0.88;
+    /// A clip's name at nine tenths.
+    pub const TEXT_BRIGHT: f32 = 0.90;
+}
 
 /// A meter's colour at `db`: `base` (the accent, or the track's colour with
 /// the owner's M2 setting) up to [`METER_WARN_DB`], the warning colour up to
@@ -1172,6 +1254,53 @@ mod tests {
             assert!(contrast(c.text_secondary, c.control_hi) >= 4.0, "{name}");
         }
         assert!(luma(DARK.ground) < luma(DARK.well));
+    }
+
+    #[test]
+    fn the_opacity_levels_keep_the_values_the_interface_drew() {
+        // The levels that named existing literals (sweep M14): each equals
+        // the number it replaced, so nothing moves.
+        for (level, drawn) in [
+            (alpha::NONE, 0.0),
+            (alpha::WASH_FAINT, 0.05),
+            (alpha::WASH_LANE, 0.06),
+            (alpha::WASH_DROP, 0.08),
+            (alpha::WASH_WRITE, 0.09),
+            (alpha::WASH, 0.10),
+            (alpha::WARN_FILL, 0.10),
+            (alpha::HALO_FAINT, 0.10),
+            (alpha::WASH_SELECTED, 0.12),
+            (alpha::WASH_BAND, 0.14),
+            (alpha::GLOW, 0.15),
+            (alpha::WASH_RANGE, 0.16),
+            (alpha::WASH_OUTLINE, 0.18),
+            (alpha::HALO, 0.20),
+            (alpha::WASH_SPAN, 0.22),
+            (alpha::HALO_WIDE, 0.22),
+            (alpha::WASH_BODY, 0.25),
+            (alpha::INK_TRACE, 0.30),
+            (alpha::WASH_BRACE, 0.35),
+            (alpha::HOVER_STEP, 0.35),
+            (alpha::WARN_EDGE, 0.35),
+            (alpha::EDGE_FAINT, 0.35),
+            (alpha::EDGE_SOFT, 0.45),
+            (alpha::EDGE, 0.50),
+            (alpha::INK_QUIET, 0.55),
+            (alpha::EDGE_DIM, 0.60),
+            (alpha::WASH_CELL, 0.60),
+            (alpha::INK_DIM, 0.70),
+            (alpha::EDGE_BRACE, 0.75),
+            (alpha::EDGE_LIT, 0.80),
+            (alpha::WARN_INK, 0.88),
+            (alpha::TEXT_BRIGHT, 0.90),
+        ] {
+            assert_eq!(level, drawn);
+        }
+        // The two colours that were written out at the paint sites.
+        for c in [DARK, LIGHT] {
+            assert_eq!(c.sheen, Color32::WHITE.gamma_multiply(0.18));
+            assert_eq!(c.key_edge, Color32::from_black_alpha(48));
+        }
     }
 
     #[test]

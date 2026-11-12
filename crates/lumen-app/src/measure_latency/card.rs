@@ -254,7 +254,7 @@ fn trace(ui: &mut Ui, busy: bool, outcome: Option<&Outcome>) {
                 let colour = if k == 0 {
                     c.accent
                 } else {
-                    c.accent.gamma_multiply(0.35)
+                    c.accent.gamma_multiply(theme::alpha::EDGE_FAINT)
                 };
                 let points = back.iter().enumerate().map(|(i, s)| pos2(x(i), y(*s)));
                 painter.add(Shape::line(points.collect(), (1.4, colour)));

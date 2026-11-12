@@ -317,7 +317,7 @@ impl Arrangement {
                     pos2(area.left(), area.top() + top - self.top),
                     egui::vec2(area.width(), height),
                 );
-                painter.rect_filled(rect, 0.0, accent.gamma_multiply(0.10));
+                painter.rect_filled(rect, 0.0, accent.gamma_multiply(theme::alpha::WASH));
                 painter.rect_stroke(
                     rect.shrink(1.0),
                     0.0,
