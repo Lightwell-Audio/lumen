@@ -183,6 +183,8 @@ fn golden_v1_expected() -> Project {
     }
 }
 
+mod common;
+
 fn fixture(name: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
@@ -453,14 +455,7 @@ fn golden_v12_expected() -> Project {
 
 #[test]
 fn golden_v12_file_loads_forever() {
-    let path = fixture("v12/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 12 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v12_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v12 golden file must load");
-    assert_eq!(project, golden_v12_expected());
+    let project = common::golden("v12", golden_v12_expected);
     let bass = project.tracks.iter().find(|t| t.name == "Bass").unwrap();
     assert_eq!(bass.instrument().and_then(Device::preset), Some("keys"));
 }
@@ -488,14 +483,7 @@ fn golden_v13_expected() -> Project {
 
 #[test]
 fn golden_v13_file_loads_forever() {
-    let path = fixture("v13/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 13 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v13_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v13 golden file must load");
-    assert_eq!(project, golden_v13_expected());
+    common::golden("v13", golden_v13_expected);
 }
 
 /// The model the v14 golden file must always load as: v13 with the first
@@ -524,14 +512,7 @@ fn golden_v14_expected() -> Project {
 
 #[test]
 fn golden_v14_file_loads_forever() {
-    let path = fixture("v14/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 14 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v14_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v14 golden file must load");
-    assert_eq!(project, golden_v14_expected());
+    common::golden("v14", golden_v14_expected);
 }
 
 /// The model the v15 golden file must always load as: v14 with the MIDI
@@ -567,14 +548,7 @@ fn golden_v15_expected() -> Project {
 
 #[test]
 fn golden_v15_file_loads_forever() {
-    let path = fixture("v15/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 15 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v15_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v15 golden file must load");
-    assert_eq!(project, golden_v15_expected());
+    let project = common::golden("v15", golden_v15_expected);
     assert!(
         project
             .tracks
@@ -624,13 +598,7 @@ fn golden_v16_expected() -> Project {
 
 #[test]
 fn golden_v16_file_loads_forever() {
-    let path = fixture("v16/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v16_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v16 golden file must load");
-    assert_eq!(project, golden_v16_expected());
+    common::golden("v16", golden_v16_expected);
 }
 
 #[test]
@@ -704,128 +672,127 @@ fn midi_inputs_belong_on_midi_tracks_and_are_checked() {
 
 #[test]
 fn golden_v11_file_loads_forever() {
-    let path = fixture("v11/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 11 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v11_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v11 golden file must load");
-    assert_eq!(project, golden_v11_expected());
+    common::golden("v11", golden_v11_expected);
 }
 
 #[test]
 fn golden_v10_file_loads_forever() {
-    let path = fixture("v10/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 10 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v10_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v10 golden file must load");
-    assert_eq!(project, golden_v10_expected());
+    common::golden("v10", golden_v10_expected);
 }
 
 #[test]
 fn golden_v9_file_loads_forever() {
-    let path = fixture("v9/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 9 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v9_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v9 golden file must load");
-    assert_eq!(project, golden_v9_expected());
+    common::golden("v9", golden_v9_expected);
 }
 
 #[test]
 fn golden_v8_file_loads_forever() {
-    let path = fixture("v8/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 8 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v8_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v8 golden file must load");
-    assert_eq!(project, golden_v8_expected());
+    common::golden("v8", golden_v8_expected);
 }
 
 #[test]
 fn golden_v7_file_loads_forever() {
-    let path = fixture("v7/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 7 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v7_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v7 golden file must load");
-    assert_eq!(project, golden_v7_expected());
+    common::golden("v7", golden_v7_expected);
 }
 
 #[test]
 fn golden_v6_file_loads_forever() {
-    let path = fixture("v6/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 6 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v6_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v6 golden file must load");
-    assert_eq!(project, golden_v6_expected());
+    common::golden("v6", golden_v6_expected);
 }
 
 #[test]
 fn golden_v5_file_loads_forever() {
-    let path = fixture("v5/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 5 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v5_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v5 golden file must load");
-    assert_eq!(project, golden_v5_expected());
+    common::golden("v5", golden_v5_expected);
 }
 
 #[test]
 fn golden_v4_file_loads_forever() {
-    let path = fixture("v4/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 4 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v4_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v4 golden file must load");
-    assert_eq!(project, golden_v4_expected());
+    common::golden("v4", golden_v4_expected);
 }
 
 #[test]
 fn golden_v3_file_loads_forever() {
-    let path = fixture("v3/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 3 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v3_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v3 golden file must load");
-    assert_eq!(project, golden_v3_expected());
+    common::golden("v3", golden_v3_expected);
 }
 
 #[test]
 fn golden_v2_file_loads_forever() {
-    let path = fixture("v2/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when version 2 was introduced; never rewritten.
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v2_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v2 golden file must load");
-    assert_eq!(project, golden_v2_expected());
+    common::golden("v2", golden_v2_expected);
 }
 
 #[test]
 fn golden_v1_file_loads_forever() {
-    let project = load(&fixture("v1/golden.lumen")).expect("v1 golden file must load");
-    assert_eq!(project, golden_v1_expected());
+    common::golden("v1", golden_v1_expected);
+}
+
+/// FNV-1a 64 of `bytes`: a small, stable hash written here rather than
+/// pulled in as a dependency, so a golden's pin cannot drift with a library.
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// Every golden file is pinned by its bytes. A golden is frozen: one that
+/// differs from its pin was edited, and that is a deliberate act, never a
+/// test to refresh. Changing a golden means editing
+/// `fixtures/golden_hashes.txt` in the same commit, on purpose.
+#[test]
+fn every_golden_file_is_pinned_to_its_bytes() {
+    let manifest = fs::read_to_string(fixture("golden_hashes.txt")).expect("the pins");
+    let mut pinned: Vec<(String, u64)> = Vec::new();
+    for line in manifest.lines().filter(|line| !line.trim().is_empty()) {
+        let (version, hex) = line
+            .split_once(' ')
+            .expect("a pin line is `vN <FNV-1a-64 hex>`");
+        let hash = u64::from_str_radix(hex.trim(), 16).expect("a pin is 16 hex digits");
+        pinned.push((version.to_owned(), hash));
+    }
+    assert!(!pinned.is_empty(), "the fixtures/golden_hashes.txt pins");
+    let mut seen = BTreeSet::new();
+    for (version, _) in &pinned {
+        assert!(seen.insert(version.clone()), "{version} is pinned twice");
+    }
+    // Every golden on disk has a pin, and matches it.
+    for entry in fs::read_dir(fixture("")).expect("the fixtures folder") {
+        let dir = entry.unwrap().path();
+        let version = dir
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let golden = dir.join("golden.lumen");
+        if !dir.is_dir() || !version.starts_with('v') || !golden.is_file() {
+            continue;
+        }
+        let bytes = fs::read(&golden).unwrap();
+        let Some((_, hash)) = pinned.iter().find(|(pinned, _)| *pinned == version) else {
+            panic!(
+                "{version}/golden.lumen is not pinned: add `{version} {:016x}` to \
+                 tests/fixtures/golden_hashes.txt",
+                fnv1a64(&bytes)
+            );
+        };
+        assert_eq!(
+            fnv1a64(&bytes),
+            *hash,
+            "{version}/golden.lumen has changed. A golden file is frozen: it is the record of \
+             what older versions wrote, so it is never refreshed. Changing one means editing \
+             tests/fixtures/golden_hashes.txt in the same commit, on purpose, and saying why."
+        );
+    }
+    // Every pin has its golden.
+    for (version, _) in &pinned {
+        let path = fixture(&format!("{version}/golden.lumen"));
+        assert!(
+            path.is_file(),
+            "{} is pinned but missing: a golden file that has gone is a lost record",
+            path.display()
+        );
+    }
 }
 
 #[test]

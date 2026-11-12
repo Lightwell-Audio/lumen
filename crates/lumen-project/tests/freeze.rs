@@ -1,7 +1,6 @@
 //! Format v29: a track may be frozen, playing a rendered file in place of its
 //! clips and devices. Earlier formats have no frozen track.
 
-use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -12,6 +11,8 @@ use lumen_project::model::{
 };
 use lumen_project::testing::project_of;
 use lumen_project::{from_bytes, load, to_bytes, validate};
+
+mod common;
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -80,13 +81,7 @@ fn golden_v29_expected() -> Project {
 
 #[test]
 fn golden_v29_loads_and_round_trips() {
-    let path = fixture("v29/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v29_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v29 golden file must load");
-    assert_eq!(project, golden_v29_expected());
+    let project = common::golden("v29", golden_v29_expected);
     assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
 }
 

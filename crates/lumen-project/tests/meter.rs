@@ -2,7 +2,6 @@
 //! Older files hold the one signature they always had, as the first change at
 //! zero; a damaged map is refused with a reason.
 
-use std::fs;
 use std::path::PathBuf;
 
 use lumen_core::meter::{Meter, MeterPoint};
@@ -10,6 +9,8 @@ use lumen_core::time::{TempoPoint, Ticks};
 use lumen_project::model::{Project, TimeSignature, constant_meter};
 use lumen_project::testing::project_of;
 use lumen_project::{from_bytes, load, to_bytes};
+
+mod common;
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -57,13 +58,7 @@ fn golden_v24_expected() -> Project {
 
 #[test]
 fn golden_v24_file_loads_forever() {
-    let path = fixture("v24/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v24_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v24 golden file must load");
-    assert_eq!(project, golden_v24_expected());
+    common::golden("v24", golden_v24_expected);
 }
 
 #[test]

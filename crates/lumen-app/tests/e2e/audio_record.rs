@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
 use lumen_app::App;
-use lumen_app::testing::InputDeviceTurn;
+use lumen_app::testing::{InputDeviceTurn, PROJECT_EXTENSION};
 use lumen_core::time::Ticks;
 use lumen_project::model::{Clip, Color, Id, Project, Track, TrackKind};
 use lumen_project::testing::{TempDir, project_of};
@@ -790,6 +790,7 @@ fn a_take_in_a_project_with_no_unsaved_changes_is_offered_back_after_a_crash() {
 #[test]
 fn a_saved_take_lets_its_note_go() {
     let (mut lumen, _turn) = launch("note-saved", &project(), |l| l);
+
     record(&mut lumen, 4_800);
     let recordings = lumen.dir().join("Recordings");
     let notes = move || {
@@ -805,6 +806,55 @@ fn a_saved_take_lets_its_note_go() {
     lumen.key(Modifiers::COMMAND, Key::S);
     lumen.wait_for("the save", |app| !app.is_dirty() && !app.is_busy());
     lumen.run_until("the note to go", |_| notes() == 0);
+}
+
+/// Sweep M9: a take whose sidecar a newer version of the app wrote is not
+/// read, placed or deleted, and recovery says in plain words that it was
+/// kept for that version.
+#[test]
+fn a_take_a_newer_version_wrote_is_kept_and_recovery_says_why() {
+    let dir = TempDir::new("e2e-audio-record-newer-sidecar");
+    let autosaves = dir.path().join("autosave");
+    std::fs::create_dir_all(&autosaves).unwrap();
+    let copy = autosaves.join(format!("crashed.{PROJECT_EXTENSION}"));
+    lumen_project::save(&project(), &copy, &Default::default()).expect("save");
+    std::fs::write(
+        autosaves.join("crashed.json"),
+        r#"{"project":null,"name":"Take","written":100}"#,
+    )
+    .unwrap();
+    let recordings = dir.path().join("Recordings");
+    std::fs::create_dir_all(&recordings).unwrap();
+    let take = recordings.join("Vox.wav");
+    std::fs::write(&take, b"RIFF").unwrap();
+    // A shape this build would read, except that its version says a newer
+    // build wrote it.
+    let side =
+        r#"{"version":2,"session":"crashed","track":21,"start":0,"rate":48000,"channels":1}"#;
+    std::fs::write(recordings.join("Vox.wav.take"), side).unwrap();
+
+    let mut lumen = Lumen::start_with(dir, |l| l.with_input_device());
+    lumen.recover();
+    lumen.wait_for("the recovered project", |app| {
+        !app.is_busy() && app.project().tracks.len() == 2
+    });
+    lumen.run_until("recovery's word on the take", |app| {
+        app.app()
+            .file_notice()
+            .is_some_and(|word| word.contains("newer version"))
+    });
+    let notice = lumen.app().file_notice().unwrap_or_default();
+    assert!(
+        notice.contains("kept") || notice.contains("left it"),
+        "{notice}"
+    );
+    assert_eq!(clips_of(&lumen, VOX).len(), 0, "not adopted");
+    assert!(take.exists(), "the take is kept");
+    assert_eq!(
+        std::fs::read_to_string(recordings.join("Vox.wav.take")).unwrap(),
+        side,
+        "the sidecar is kept as the newer version wrote it"
+    );
 }
 
 /// M9.5 S4d (the owner's W A): a clip recorded in Lumen follows the song's

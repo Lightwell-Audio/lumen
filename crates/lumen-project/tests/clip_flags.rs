@@ -2,7 +2,6 @@
 //! polarity inverted. Older files hold neither; a flag on a MIDI clip is
 //! refused with a reason.
 
-use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -10,6 +9,8 @@ use lumen_core::time::Ticks;
 use lumen_project::model::{Clip, ClipContent, Color, Id, Media, Project, Track, TrackKind};
 use lumen_project::testing::project_of;
 use lumen_project::{from_bytes, load, to_bytes};
+
+mod common;
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -77,13 +78,7 @@ fn golden_v27_expected() -> Project {
 
 #[test]
 fn golden_v27_file_loads_forever_and_round_trips() {
-    let path = fixture("v27/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v27_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v27 golden file must load");
-    assert_eq!(project, golden_v27_expected());
+    let project = common::golden("v27", golden_v27_expected);
     assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
 }
 
