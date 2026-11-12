@@ -304,6 +304,48 @@ pub fn flush_denormals() {
     }
 }
 
+/// Copies `out.len()` bytes at `at` into `out`, or says it could not. A crash
+/// filter that faults again loses the report, so every read that may point
+/// anywhere (the faulting instruction, the stack) goes through this: the
+/// kernel refuses memory that is not mapped instead of raising a second
+/// exception.
+#[cfg(windows)]
+fn probe(at: *const u8, out: &mut [u8]) -> bool {
+    use windows_sys::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    let mut read = 0;
+    // SAFETY: reads this process's own memory (the pseudo-handle needs no
+    // closing) into a buffer of the length given; an address that cannot be
+    // read is reported, not faulted.
+    let ok = unsafe {
+        ReadProcessMemory(
+            GetCurrentProcess(),
+            at.cast(),
+            out.as_mut_ptr().cast(),
+            out.len(),
+            &mut read,
+        )
+    } != 0;
+    ok && read == out.len()
+}
+
+/// A little-endian `u32` at `at`, or `None` when it cannot be read.
+#[cfg(windows)]
+fn read_u32(at: *const u8) -> Option<u32> {
+    let mut word = [0_u8; 4];
+    probe(at, &mut word).then(|| u32::from_le_bytes(word))
+}
+
+/// The size the loaded image says it has, from its own PE header. 0 when the
+/// header cannot be read, which matches nothing in the stack scan.
+#[cfg(windows)]
+fn image_size(header: *const u8) -> usize {
+    let Some(pe) = read_u32(header.wrapping_add(0x3c)) else {
+        return 0;
+    };
+    read_u32(header.wrapping_add(pe as usize + 0x18 + 0x38)).unwrap_or(0) as usize
+}
+
 /// On Windows, says where a crash happened: the exception, the module the
 /// faulting code is in and its offset into it, and for an access violation
 /// what was touched. It tells Lumen whether the plugin or the host died, and
@@ -397,7 +439,8 @@ pub fn report_crashes() {
             );
         }
         let _ = line.write_char('\n');
-        // SAFETY: plain calls; the buffer holds `len` bytes.
+        // SAFETY: the writes are plain calls over buffers that hold `len`
+        // bytes; `TerminateProcess` ends this process, which is its own.
         unsafe {
             let mut written = 0;
             WriteFile(
@@ -412,6 +455,8 @@ pub fn report_crashes() {
             // way (x86-64 only).
             #[cfg(target_arch = "x86_64")]
             {
+                // SAFETY: the system passes the faulting thread's context
+                // with the exception pointers.
                 let context = &*(*info).ContextRecord;
                 let mut detail = Line {
                     bytes: [0; 512],
@@ -438,10 +483,21 @@ pub fn report_crashes() {
                 );
                 detail.len = 0;
                 let _ = write!(detail, "{LOG_PREFIX}code ");
-                let code_at = context.Rip as *const u8;
-                // Some of the bytes before the fault and the ones after.
+                // Some of the bytes before the fault and the ones after. The
+                // instruction pointer may be in memory that cannot be read at
+                // all (a jump to a wild address), so the window is copied
+                // through `probe`; a byte that cannot be read prints as `??`.
+                let mut window = [0_u8; 16];
+                let readable = probe(
+                    (context.Rip as usize).wrapping_sub(8) as *const u8,
+                    &mut window,
+                );
                 for i in -8_isize..8 {
-                    let _ = write!(detail, "{:02x}", *code_at.offset(i));
+                    if readable {
+                        let _ = write!(detail, "{:02x}", window[(i + 8) as usize]);
+                    } else {
+                        let _ = detail.write_str("??");
+                    }
                     if i == -1 {
                         let _ = detail.write_char('|');
                     }
@@ -455,26 +511,30 @@ pub fn report_crashes() {
                     std::ptr::null_mut(),
                 );
                 // Words on the stack that point into the module that died:
-                // the calls it was inside.
+                // the calls it was inside. The stack is what a plugin may have
+                // damaged, so it is copied one page at a time through `probe`:
+                // a page that cannot be read is skipped.
                 detail.len = 0;
                 let _ = write!(detail, "{LOG_PREFIX}stack");
                 let (base, size) = if found {
-                    let mut size = 0;
-                    let header = module as *const u8;
-                    // The PE header's image size, at a fixed offset.
-                    let pe = *(header.add(0x3c) as *const u32) as usize;
-                    size = size.max(*(header.add(pe + 0x18 + 0x38) as *const u32) as usize);
-                    (module as usize, size)
+                    (module as usize, image_size(module as *const u8))
                 } else {
                     (0, 0)
                 };
-                let sp = context.Rsp as *const usize;
                 let mut seen = 0;
-                for i in 0..512 {
-                    let word = *sp.add(i);
-                    if word > base && word < base + size && seen < 14 {
-                        let _ = write!(detail, " +{:x}", word - base);
-                        seen += 1;
+                let mut page = [0_u8; 512];
+                let stack = context.Rsp as *const u8;
+                for chunk in 0..8 {
+                    let at = stack.wrapping_add(chunk * page.len());
+                    if !probe(at, &mut page) {
+                        continue;
+                    }
+                    for word in page.as_chunks::<{ size_of::<usize>() }>().0 {
+                        let word = usize::from_le_bytes(*word);
+                        if word > base && word < base + size && seen < 14 {
+                            let _ = write!(detail, " +{:x}", word - base);
+                            seen += 1;
+                        }
                     }
                 }
                 let _ = detail.write_char('\n');
@@ -548,5 +608,28 @@ mod tests {
     #[test]
     fn a_host_with_no_parent_id_trusts_only_process_one() {
         assert!(!orphaned(7, None));
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::{probe, read_u32};
+
+    /// The crash filter's reads may point anywhere. `probe` reports memory it
+    /// cannot read instead of raising a second exception.
+    #[test]
+    fn a_read_the_crash_filter_cannot_make_is_reported() {
+        let mut out = [0_u8; 8];
+        assert!(!probe(std::ptr::null(), &mut out));
+        assert!(!probe(4 as *const u8, &mut out));
+    }
+
+    #[test]
+    fn a_read_the_crash_filter_can_make_copies_the_bytes() {
+        let value = 0x1234_5678_u32;
+        let mut out = [0_u8; 4];
+        assert!(probe((&raw const value).cast(), &mut out));
+        assert_eq!(u32::from_le_bytes(out), value);
+        assert_eq!(read_u32((&raw const value).cast()), Some(value));
     }
 }
