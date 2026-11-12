@@ -4,7 +4,7 @@
 //! and closing it in any way marks setup done. Esc goes to an open menu
 //! before it skips setup.
 
-use eframe::egui::{Key, Modifiers};
+use eframe::egui::{Key, Modifiers, vec2};
 use egui_kittest::kittest::Queryable;
 use lumen_project::testing::TempDir;
 
@@ -258,4 +258,23 @@ fn the_device_menus_in_preferences_and_setup_are_separate() {
         .query_all_by_label("Test device that refuses")
         .count();
     assert_eq!(options, 1, "one menu opened, not both");
+}
+
+#[test]
+fn a_narrow_welcome_window_wraps_its_hint_instead_of_cutting_its_end() {
+    // A notice wraps; only a name or a path may end in "�" (DESIGN �9).
+    let mut lumen = first_run("welcome-wrap");
+    let hint = |l: &Lumen| {
+        l.harness
+            .get_by_label("Tab moves between controls \u{b7} Esc skips")
+            .rect()
+    };
+    let wide = hint(&lumen);
+    lumen.harness.set_size(vec2(330.0, 400.0));
+    lumen.frames(10);
+    let narrow = hint(&lumen);
+    assert!(
+        narrow.height() > wide.height() * 1.5,
+        "the hint takes more lines rather than ending in an ellipsis: {wide:?} against {narrow:?}"
+    );
 }

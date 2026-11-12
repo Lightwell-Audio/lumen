@@ -274,7 +274,7 @@ impl App {
                     if enter && asked.is_none() {
                         asked = Some(footer);
                     }
-                    ui.add(egui::Label::new(RichText::new(KEYS_HINT).small().weak()).truncate());
+                    ui.add(egui::Label::new(RichText::new(KEYS_HINT).small().weak()).wrap());
                 });
             },
         );

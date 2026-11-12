@@ -138,13 +138,34 @@ impl App {
         }
         if let Some(waiting) = self.plugins.waiting() {
             for folder in waiting.folders() {
-                let folder = folder.display().to_string();
-                ui.add(
-                    egui::Label::new(RichText::new(format!("Waiting to check {folder}")).weak())
-                        .truncate(),
-                )
-                .on_hover_text(format!(
-                    "{folder} is checked as soon as the scan under way ends"
+                let whole = folder.display().to_string();
+                // The notice is whole; only the path in it is shortened,
+                // to the room it has after the sentence's words (DESIGN §9).
+                let font = egui::FontId::proportional(theme::size::BODY);
+                let lead = ui
+                    .painter()
+                    .layout_no_wrap(
+                        "Waiting to check ".to_owned(),
+                        font.clone(),
+                        theme::p().text,
+                    )
+                    .size()
+                    .x;
+                let room = (ui.available_width() - lead).max(40.0);
+                let shown = widgets::fit(ui.painter(), &whole, font, room);
+                let note = ui.add(
+                    egui::Label::new(RichText::new(format!("Waiting to check {shown}")).weak())
+                        .wrap(),
+                );
+                note.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Label,
+                        true,
+                        format!("Waiting to check {whole}"),
+                    )
+                });
+                note.on_hover_text(format!(
+                    "{whole} is checked as soon as the scan under way ends"
                 ));
             }
         }
