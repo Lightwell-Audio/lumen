@@ -233,9 +233,10 @@ pub fn read_all(audio: &ClipAudio) -> Result<Vec<Vec<f32>>, MediaError> {
 }
 
 /// `clips` with every streamed file read whole into memory, each file once.
-/// For a render the audio callback plays (a real-time export): an offline
-/// stream loads a missing page on the thread that plays it, which must
-/// never be the audio thread. Blocks on the disk.
+/// For a real-time export, whose blocks the audio callback plays: a page
+/// missing from memory would be read on the audio thread. An offline export
+/// does not need it: it renders on a worker and loads pages as it reads
+/// (`export::render`). Blocks on the disk.
 pub fn in_memory(clips: Vec<Clip>) -> Result<Vec<Clip>, String> {
     // A warped stream is the whole song up to its last clip: only the frames
     // its clips play are read. The clips of a stream that overlap or touch

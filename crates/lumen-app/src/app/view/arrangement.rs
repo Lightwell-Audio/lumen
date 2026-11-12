@@ -16,8 +16,6 @@ use crate::commands::Command;
 use crate::document::{DropInto, Places};
 use crate::{App, canvas, lanes, light, media, motion, ruler, theme, widgets};
 
-/// A glided position, or the exact one once the glide has settled: the
-/// glide runs in f32, which is pixels off at sample-level zoom.
 /// The mark above an empty arrangement's words (`text`), half risen
 /// until files that can be added are dragged over.
 fn empty_mark(painter: &egui::Painter, text: egui::Rect, look: widgets::mark::Look) {
@@ -34,6 +32,8 @@ fn empty_mark(painter: &egui::Painter, text: egui::Rect, look: widgets::mark::Lo
 /// The mark's size above an empty arrangement.
 const EMPTY_MARK_SIZE: f32 = 48.0;
 
+/// A glided position, or the exact one once the glide has settled: the
+/// glide runs in f32, which is pixels off at sample-level zoom.
 fn settled(glided: f32, exact: f64) -> f64 {
     if (f64::from(glided) - exact).abs() < 1e-3 {
         exact
