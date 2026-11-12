@@ -32,6 +32,40 @@ fn arrangement_tools() {
     }
 }
 
+/// M8 D1: the fifteen drum glyphs, at 12, 16, 20 and 28 pt and in three
+/// track colours, in both themes at three scales.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn drum_icons() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let look = appearance.to_owned();
+            let mut ready = false;
+            let mut h = Harness::builder()
+                .with_size(vec2(560.0, 820.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_ui(move |ui| {
+                    if !ready {
+                        lumen_app::testing::prepare_look(ui.ctx(), &look);
+                        ready = true;
+                        // The typefaces apply from the next frame.
+                        return;
+                    }
+                    lumen_app::testing::drum_icon_sheet(ui);
+                });
+            h.run_steps(4);
+            save(&mut h, &format!("drum-icons-{appearance}-{scale}"));
+        }
+    }
+}
+
 use std::path::PathBuf;
 
 use eframe::egui::{Event, Key, Modifiers, Pos2, Rect, pos2, vec2};

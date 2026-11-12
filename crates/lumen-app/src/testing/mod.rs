@@ -20,6 +20,7 @@ mod browser_files;
 pub(crate) mod coverage;
 mod devices;
 pub mod docs;
+mod drum_icons;
 mod editor;
 mod instance;
 mod launch;
@@ -36,6 +37,7 @@ pub use crate::audio::{
     TEST_LATE_DRIVER, TEST_REFUSES_DRIVER, TEST_SLOW_DRIVER, input_device, input_device_turn,
 };
 pub use crate::media::reversed_key;
+pub use drum_icons::{drum_icon_sheet, prepare_look};
 pub use editor::{AudioEditorShown, AudioHandlesShown, DetectionShown, PianoRollDemo};
 
 /// A note edit for tests (`App::edit_notes`).
