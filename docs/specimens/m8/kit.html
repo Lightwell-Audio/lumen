@@ -1,0 +1,176 @@
+<!doctype html>
+<!-- M8 specimens, round 3 (owner, 2026-11-12): an icon per drum sound, and the kit
+     silhouette that lights the piece being played. Open with ?light for the light theme. -->
+<html><head><meta charset="utf-8"><title>Lumen M8 specimens, round 3</title>
+<style>
+@font-face{font-family:Inter;src:url(../../../site/assets/fonts/Inter.woff2) format("woff2");font-weight:100 900}
+@font-face{font-family:Unbounded;src:url(../../../site/assets/fonts/Unbounded.woff2) format("woff2");font-weight:100 900}
+@font-face{font-family:Mono;src:url(../../../site/assets/fonts/MartianMono.woff2) format("woff2");font-stretch:75% 112.5%}
+body{margin:0;padding:28px 32px;font-family:Inter,sans-serif;width:1360px}
+h1{font-family:Unbounded;font-weight:560;font-size:22px;margin:0 0 4px}
+h2{font-family:Unbounded;font-weight:560;font-size:16px;margin:30px 0 4px}
+p.q{margin:0 0 12px;font-size:13px;max-width:1150px;line-height:1.45}
+.row{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+.v{display:flex;flex-direction:column;gap:6px}
+.lab{font-size:13px;font-weight:560}
+.note{font-size:11.5px;max-width:520px;line-height:1.4}
+svg text{font-family:Inter,sans-serif}
+svg .m{font-family:Mono;font-stretch:87.5%}
+svg .u{font-family:Unbounded}
+</style></head><body><div id="root"></div>
+<script>
+const LIGHT=location.search.includes('light');
+const D={app:'#17191D',canvas:'#1B1D22',raised:'#23262D',overlay:'#262A31',control:'#31353E',control_press:'#444A56',border:'#2E323A',border_strong:'#3C414B',
+ text:'#E6E8EC',text2:'#9AA0AC',hint:'#6E7480',accent:'#4FA3FF',accent_muted:'#243A55',grid_bar:'#343842',grid_sub:'#212329',header:'#1E2126',
+ selected_row:'#223449',clip_body:'#262A31',lane_black:'#16181C',well:'#141619',ground:'#111316',mute:'#C8CCD4',record:'#E5484D'};
+const L={app:'#F1F2F4',canvas:'#FAFAFB',raised:'#E9EBEE',overlay:'#FFFFFF',control:'#E2E5E9',control_press:'#CBD0D7',border:'#DADDE2',border_strong:'#C3C8CF',
+ text:'#1C1F24',text2:'#5A6170',hint:'#878D98',accent:'#1F6FD1',accent_muted:'#D5E5FA',grid_bar:'#D9DCE1',grid_sub:'#F3F4F6',header:'#ECEEF1',
+ selected_row:'#DBE7F8',clip_body:'#FFFFFF',lane_black:'#ECEEF1',well:'#D6DAE0',ground:'#E7E9ED',mute:'#5A6170',record:'#D33A40'};
+const C=LIGHT?L:D;
+const PAL=['#4C7A9E','#7A6A9E','#5E8C6A','#9E7A4C','#9E5A6A','#5A8E8E','#6A7EB0','#8E6A8E','#7E8E56','#A06E5A','#5686A0','#887660'];
+document.body.style.background=C.ground;document.body.style.color=C.text;
+let gid=0;const nid=()=>'k'+(gid++);
+const a=o=>Object.entries(o).map(([k,v])=>`${k}="${v}"`).join(' ');
+const rect=(x,y,w,h,f,o={})=>`<rect ${a({x,y,width:w,height:h,fill:f,...o})}/>`;
+const line=(x1,y1,x2,y2,s,w=1,o={})=>`<line ${a({x1,y1,x2,y2,stroke:s,'stroke-width':w,...o})}/>`;
+const text=(x,y,s,f,size=13,o={})=>`<text ${a({x,y,fill:f,'font-size':size,...o})}>${s}</text>`;
+const mono=(x,y,s,f,size=10,o={})=>text(x,y,s,f,size,{class:'m',...o});
+const svg=(w,h,b)=>`<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">${b}</svg>`;
+const hexA=(h,al)=>{const n=parseInt(h.slice(1),16);return `rgba(${n>>16},${(n>>8)&255},${n&255},${al})`;};
+const blur=sd=>{const i=nid();return [i,`<defs><filter id="${i}" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="${sd}"/></filter></defs>`];};
+function frame(label,s,note=''){return `<div class="v"><div class="lab">${label}</div>${s}${note?`<div class="note" style="color:${C.text2}">${note}</div>`:''}</div>`;}
+
+// ---------- icons: 16 pt glyphs on a 16 grid, drawn with 1.5 pt strokes ----------
+// Each draws into a box at (x,y) of size s; c is the stroke colour.
+const ICON={
+ kick:(c)=>`<circle cx="8" cy="8.5" r="6" fill="none" stroke="${c}"/><circle cx="8" cy="8.5" r="2.4" fill="${c}"/><path d="M3 14.5 l-1 1.2 M13 14.5 l1 1.2" stroke="${c}"/>`,
+ snare:(c)=>`<ellipse cx="8" cy="6" rx="6" ry="2" fill="none" stroke="${c}"/><path d="M2 6 v5 a6 2 0 0 0 12 0 v-5" fill="none" stroke="${c}"/><path d="M4 8.5 l2 3 M8 8.8 l0 3.4 M12 8.5 l-2 3" stroke="${c}" stroke-width="1"/>`,
+ clap:(c)=>`<path d="M5 14 c-2-3-2-7 0-10 M8 14 c-1.5-3-1.5-7 0-10" fill="none" stroke="${c}"/><path d="M11 3 l1.5-1.5 M12.5 6 l2 0 M11.5 9 l1.6 1.2" stroke="${c}"/>`,
+ hat_closed:(c)=>`<path d="M1.5 6.5 q6.5-3 13 0 M1.5 7.8 q6.5 3 13 0" fill="none" stroke="${c}"/><path d="M8 4 v-2.5 M8 9.5 v5.5" stroke="${c}"/>`,
+ hat_open:(c)=>`<path d="M1.5 5 q6.5-3 13 0 M1.5 9.5 q6.5 3 13 0" fill="none" stroke="${c}"/><path d="M8 2.5 v-1.5 M8 11.5 v3.5" stroke="${c}"/><path d="M4 7.2 h1 M7.5 7.2 h1 M11 7.2 h1" stroke="${c}"/>`,
+ hat_pedal:(c)=>`<path d="M1.5 4.5 q6.5-3 13 0 M1.5 5.8 q6.5 3 13 0" fill="none" stroke="${c}"/><path d="M8 7.5 v5 M4 15 l4-2.5 l4 2.5" fill="none" stroke="${c}"/>`,
+ tom:(c)=>`<ellipse cx="8" cy="5" rx="5" ry="1.8" fill="none" stroke="${c}"/><path d="M3 5 v6 a5 1.8 0 0 0 10 0 v-6" fill="none" stroke="${c}"/><path d="M5.5 7 v5.5 M10.5 7 v5.5" stroke="${c}" stroke-width="1"/>`,
+ floor_tom:(c)=>`<ellipse cx="8" cy="3.8" rx="5.5" ry="1.8" fill="none" stroke="${c}"/><path d="M2.5 3.8 v8 a5.5 1.8 0 0 0 11 0 v-8" fill="none" stroke="${c}"/><path d="M3.5 13.5 l-1 2 M12.5 13.5 l1 2" stroke="${c}"/>`,
+ crash:(c)=>`<path d="M1 9 L14.5 4.5" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/><path d="M8 7 v8" stroke="${c}"/><path d="M12 1.5 l1-1 M14.8 2.5 l1-.5" stroke="${c}" stroke-width="1"/>`,
+ ride:(c)=>`<path d="M1 7.5 q7-2.6 14 0 q-7 2.6-14 0 z" fill="none" stroke="${c}"/><circle cx="8" cy="7.5" r="1.4" fill="${c}"/><path d="M8 9.5 v5.5" stroke="${c}"/>`,
+ rim:(c)=>`<ellipse cx="8" cy="9" rx="6" ry="2" fill="none" stroke="${c}"/><path d="M3 2 L12 9" stroke="${c}" stroke-width="2" stroke-linecap="round"/>`,
+ cowbell:(c)=>`<path d="M5 3 h6 l2.5 10 h-11 z" fill="none" stroke="${c}" stroke-linejoin="round"/><path d="M8 3 v-2" stroke="${c}"/>`,
+ shaker:(c)=>`<rect x="4.5" y="2" width="7" height="12" rx="3.5" fill="none" stroke="${c}"/><circle cx="7" cy="6" r=".9" fill="${c}"/><circle cx="9" cy="8" r=".9" fill="${c}"/><circle cx="7" cy="10" r=".9" fill="${c}"/>`,
+ perc:(c)=>`<path d="M3 4 h10 l-1.5 10 h-7 z" fill="none" stroke="${c}" stroke-linejoin="round"/><ellipse cx="8" cy="4" rx="5" ry="1.4" fill="none" stroke="${c}"/>`,
+ fx:(c)=>`<path d="M8 1.5 l1.6 4.2 4.4.4-3.4 2.8 1.1 4.3L8 10.8 4.3 13.2l1.1-4.3L2 6.1l4.4-.4z" fill="none" stroke="${c}" stroke-linejoin="round"/>`,
+};
+function icon(name,x,y,s,c,w=1.5){return `<g transform="translate(${x} ${y}) scale(${s/16})" stroke-width="${w*16/s}" stroke-linecap="round" fill="none">${ICON[name](c)}</g>`;}
+const ICON_NAMES=[['kick','Kick'],['snare','Snare'],['rim','Rim'],['clap','Clap'],['hat_closed','Closed hat'],['hat_pedal','Pedal hat'],['hat_open','Open hat'],['tom','Tom'],['floor_tom','Floor tom'],['crash','Crash'],['ride','Ride'],['cowbell','Cowbell'],['shaker','Shaker'],['perc','Percussion'],['fx','Effect']];
+
+// ---------- the kit silhouette ----------
+// Pieces in a front view; each has the sound it plays. `lit` maps piece -> 0..1 (how hard it was just hit).
+const SOUNDS=[['Kick','kick',0],['Snare','snare',4],['Clap','clap',3],['Closed hat','hat_closed',5],['Open hat','hat_open',5],['High tom','tom',2],['Low tom','floor_tom',2],['Crash','crash',7],['Ride','ride',6]];
+function kit(W,H,lit={},{labels=false,focus=null,small=false}={}){
+  // drawn on a 300 x 190 design, scaled to W x H
+  const sc=Math.min(W/300,H/190),ox=(W-300*sc)/2,oy=(H-190*sc)/2;
+  const ink=small?hexA(C.text2,.75):C.text2, faint=hexA(C.text2,LIGHT?.35:.28);
+  const pieceCol=n=>PAL[SOUNDS.find(s=>s[0]===n)[2]];
+  let defs='',out='';
+  const glow=(n,shape)=>{const v=lit[n]||0;if(!v)return '';const [b,bd]=blur(small?3:7);defs+=bd;const c=pieceCol(n);
+    return `<g filter="url(#${b})" opacity="${.35+.6*v}">${shape(c,c)}</g>`+`<g opacity="${.45+.55*v}">${shape(hexA(c,.55),c)}</g>`;};
+  const piece=(n,shape)=>{const v=lit[n]||0;const isF=focus===n;
+    return glow(n,shape)+shape(v?'none':faint,v?(LIGHT?pieceCol(n):'#FFFFFF'):ink,v)+(isF?shape('none',C.accent,0,2.2):'');};
+  // stands
+  out+=`<g stroke="${faint}" stroke-width="2" fill="none" stroke-linecap="round">
+    <path d="M36 66 V176 M22 182 L36 170 L50 182"/><path d="M262 52 V176 M248 182 L262 170 L276 182"/>
+    <path d="M84 34 L96 176 M84 182 L96 172 L108 182"/><path d="M78 128 V178 M68 182 L78 174 L88 182"/><path d="M150 88 V100"/></g>`;
+  // shapes take (fill, stroke, lit, width)
+  const S={
+   'Crash':(f,s,v,w=1.6)=>`<path d="M44 44 Q84 22 124 34 Q84 36 44 44 Z" fill="${f}" stroke="${s}" stroke-width="${w}"/>`,
+   'Ride':(f,s,v,w=1.6)=>`<ellipse cx="250" cy="48" rx="42" ry="8" fill="${f}" stroke="${s}" stroke-width="${w}"/><circle cx="250" cy="47" r="5" fill="${f==='none'?'none':s}" stroke="${s}" stroke-width="${w}"/>`,
+   'Closed hat':(f,s,v,w=1.6)=>`<path d="M12 70 Q36 60 60 70 Q36 74 12 70 Z M12 72 Q36 82 60 72" fill="${f}" stroke="${s}" stroke-width="${w}"/>`,
+   'Open hat':(f,s,v,w=1.6)=>`<path d="M12 60 Q36 50 60 60 Q36 64 12 60 Z" fill="${f}" stroke="${s}" stroke-width="${w}" stroke-dasharray="${f==='none'&&!v?'3 2':'0'}"/>`,
+   'Snare':(f,s,v,w=1.6)=>`<ellipse cx="78" cy="116" rx="27" ry="7" fill="${f}" stroke="${s}" stroke-width="${w}"/><path d="M51 116 v16 a27 7 0 0 0 54 0 v-16" fill="${f}" stroke="${s}" stroke-width="${w}"/>`,
+   'Clap':(f,s,v,w=1.6)=>`<g transform="translate(118 140)"><path d="M0 18 c-5-7-5-15 0-22 M7 18 c-4-7-4-15 0-22" fill="none" stroke="${s}" stroke-width="${w}" stroke-linecap="round"/><path d="M12 -4 l3-3 M14 2 l4 0" stroke="${s}" stroke-width="${w}" stroke-linecap="round"/></g>`,
+   'High tom':(f,s,v,w=1.6)=>`<ellipse cx="150" cy="70" rx="22" ry="6" fill="${f}" stroke="${s}" stroke-width="${w}"/><path d="M128 70 v16 a22 6 0 0 0 44 0 v-16" fill="${f}" stroke="${s}" stroke-width="${w}"/>`,
+   'Low tom':(f,s,v,w=1.6)=>`<ellipse cx="226" cy="112" rx="28" ry="7" fill="${f}" stroke="${s}" stroke-width="${w}"/><path d="M198 112 v40 a28 7 0 0 0 56 0 v-40" fill="${f}" stroke="${s}" stroke-width="${w}"/><path d="M202 156 l-4 24 M250 156 l4 24" stroke="${faint}" stroke-width="2"/>`,
+   'Kick':(f,s,v,w=1.6)=>`<circle cx="150" cy="140" r="40" fill="${f}" stroke="${s}" stroke-width="${w}"/><circle cx="150" cy="140" r="14" fill="none" stroke="${s}" stroke-width="${w*.8}" opacity=".7"/>`,
+  };
+  // draw order: back to front
+  ['Ride','Crash','Low tom','Kick','High tom','Open hat','Closed hat','Snare'].forEach(n=>{
+    if(n==='Open hat'&&!(lit['Open hat'])&&lit['Closed hat']) return; // one hat at a time: the closed one shows while it plays
+    if(n==='Closed hat'&&lit['Open hat']) return;
+    out+=piece(n,S[n]);});
+  if(labels){const L2={Kick:[150,192],Snare:[78,154],Crash:[84,20],Ride:[250,32],'Closed hat':[36,92],'High tom':[150,58],'Low tom':[226,100]};
+    Object.entries(L2).forEach(([n,[x,y]])=>{out+=text(x,y,n,lit[n]?C.text:C.hint,13,{'text-anchor':'middle','font-weight':lit[n]?600:400});});}
+  return `<g transform="translate(${ox} ${oy}) scale(${sc})"><defs>${defs}</defs>${out}</g>`;}
+
+// ---------- 1. the icon set ----------
+function iconSheet(){const w=640,h=150;let s=rect(0,0,w,h,C.canvas,{rx:8});
+  ICON_NAMES.forEach(([n,label],i)=>{const x=20+(i%8)*76,y=18+Math.floor(i/8)*66;
+    s+=rect(x,y,56,40,C.raised,{rx:8})+icon(n,x+18,y+10,20,C.text,1.5)+text(x+28,y+54,label,C.text2,10,{'text-anchor':'middle'});});
+  return svg(w,h,s);}
+function iconScale(){const w=300,h=150;let s=rect(0,0,w,h,C.canvas,{rx:8});
+  [12,16,20,28].forEach((z,i)=>{const x=20+i*70;['kick','snare','hat_open'].forEach((n,j)=>{s+=icon(n,x,20+j*38,z,C.text,1.5);});s+=mono(x+z/2,140,`${z} pt`,C.hint,9,{'text-anchor':'middle'});});
+  return svg(w,h,s);}
+
+// ---------- 2. lanes with icons, and sound tracks with icons ----------
+const HITS=[];[0,6,8,16,22,24,27].forEach(s=>HITS.push([0,s,s%8?78:122]));[4,12,20,28].forEach(s=>HITS.push([1,s,100]));[12,28].forEach(s=>HITS.push([2,s,70]));
+for(let s=0;s<32;s+=2) if(s%8!==6) HITS.push([3,s,s%4?48:100]);[6,14,22,30].forEach(s=>HITS.push([4,s,88]));[29,30].forEach(s=>HITS.push([5,s,90]));[31].forEach(s=>HITS.push([6,s,110]));[0].forEach(s=>HITS.push([7,s,120]));
+function vd(cx,cy,r,col,vel,muted){const i=nid(),t=vel/127,top=cy+r-2*r*t;
+  return `<defs><clipPath id="${i}"><path d="M${cx} ${cy-r} L${cx+r} ${cy} L${cx} ${cy+r} L${cx-r} ${cy} Z"/></clipPath></defs><path d="M${cx} ${cy-r} L${cx+r} ${cy} L${cx} ${cy+r} L${cx-r} ${cy} Z" fill="${hexA(col,.18)}"/><g clip-path="url(#${i})">${rect(cx-r,top,2*r,cy+r-top,muted?hexA(col,.3):col)}</g><path d="M${cx} ${cy-r} L${cx+r} ${cy} L${cx} ${cy+r} L${cx-r} ${cy} Z" fill="none" stroke="${muted?hexA(C.text2,.5):col}" stroke-width="1.2"/>`;}
+function editorWithKit(){const kitW=290,nameW=168,w=kitW+680,rows=SOUNDS.length,rh=26,top=40,h=top+rows*rh;
+  let s=rect(0,0,w,h,C.canvas);
+  // header strip (shortened)
+  s+=rect(0,0,w,40,C.raised)+rect(0,0,4,40,PAL[0])+text(14,17,'Drums 1',C.text,13,{'font-weight':560})+mono(14,31,'2 bars · 808-style',C.hint,9);
+  s+=rect(130,6,170,28,C.well,{rx:7})+rect(132,8,54,24,C.control_press,{rx:6})+text(159,24.5,'Lanes',C.text,12,{'text-anchor':'middle','font-weight':560})+text(213,24.5,'Steps',C.text2,12,{'text-anchor':'middle'})+text(267,24.5,'Keys',C.text2,12,{'text-anchor':'middle'});
+  s+=rect(310,8,64,24,C.accent_muted,{rx:6,stroke:hexA(C.accent,.4)})+icon('kick',318,12,16,C.accent,1.5)+text(346,24.5,'Kit',C.accent,12,{'font-weight':560});
+  // kit panel
+  s+=rect(0,top,kitW,h-top,C.header)+line(kitW-.5,top,kitW-.5,h,C.border);
+  s+=kit(kitW-16,rows*rh-34,{Kick:1,'Closed hat':.7,Crash:.45},{labels:true,focus:'Snare'}).replace('<g transform="translate(','<g transform="translate(8 '+(top+4)+') "><g transform="translate(')+'</g>';
+  s+=text(kitW/2,h-10,'Click a piece to hear it',C.hint,10.5,{'text-anchor':'middle'});
+  // lanes
+  const gx=kitW+nameW,gw=w-gx,sw=gw/32;
+  SOUNDS.forEach(([n,ic,c],i)=>{const ry=top+i*rh,litRow=(i===0||i===3||i===7);
+    s+=rect(kitW,ry,nameW,rh,i===1?C.selected_row:C.header)+rect(kitW,ry,3,rh,PAL[c]);
+    s+=icon(ic,kitW+11,ry+5,16,litRow?PAL[c]:C.text2,1.5)+text(kitW+34,ry+rh/2+4.5,n,C.text,12);
+    if(litRow) s+=`<circle cx="${kitW+nameW-62}" cy="${ry+rh/2}" r="3" fill="${PAL[c]}"/>`;
+    const bx=kitW+nameW-52;s+=rect(bx,ry+rh/2-9,20,18,C.control,{rx:4})+text(bx+10,ry+rh/2+4,'M',C.text2,10,{'text-anchor':'middle','font-weight':560})+rect(bx+24,ry+rh/2-9,20,18,C.control,{rx:4})+text(bx+34,ry+rh/2+4,'S',C.text2,10,{'text-anchor':'middle','font-weight':560});
+    if(i%2)s+=rect(gx,ry,gw,rh,C.lane_black);s+=line(kitW,ry+rh-.5,w,ry+rh-.5,C.border);});
+  for(let k=0;k<=32;k++){const lx=gx+k*sw;s+=line(lx,top,lx,h,k%4===0?C.grid_bar:C.grid_sub,k%16===0?1.5:1);}
+  HITS.forEach(([si,st,v])=>{s+=vd(gx+st*sw+.5,top+si*rh+rh/2,Math.min(rh*.36,sw*.66),PAL[SOUNDS[si][2]],v,false);});
+  s+=line(gx+.6*sw,top,gx+.6*sw,h,C.accent,1.5);
+  return svg(w,h,s);}
+
+// ---------- 3. the drum track's header with a live mini kit, and the sound tracks D4 makes ----------
+function headers(){const w=520,h=64+5*34,hw=300;let s=rect(0,0,w,h,C.canvas);
+  const row=(y,hh,name,sub,col,ic,{lit=false,indent=0,kitMini=false,sel=false}={})=>{let r=rect(0,y,hw,hh,sel?C.selected_row:C.header)+rect(indent,y,3,hh,col)+line(0,y+hh-.5,w,y+hh-.5,C.border);
+    if(ic){r+=rect(indent+10,y+hh/2-11,22,22,lit?hexA(col,.3):hexA(C.text2,.08),{rx:6,stroke:lit?col:'none'})+icon(ic,indent+13,y+hh/2-8,16,lit?(LIGHT?col:'#FFFFFF'):C.text2,1.5);}
+    r+=text(indent+(ic?40:12),y+(sub?hh/2-1:hh/2+4.5),name,C.text,12.5,{'font-weight':560});
+    if(sub)r+=mono(indent+(ic?40:12),y+hh/2+13,sub,C.hint,9);
+    // M S and meter
+    const bx=hw-74;r+=rect(bx,y+hh/2-9,20,18,C.control,{rx:4})+text(bx+10,y+hh/2+4,'M',C.text2,10,{'text-anchor':'middle','font-weight':560})+rect(bx+24,y+hh/2-9,20,18,C.control,{rx:4})+text(bx+34,y+hh/2+4,'S',C.text2,10,{'text-anchor':'middle','font-weight':560});
+    r+=rect(hw-22,y+6,5,hh-12,C.well,{rx:2})+rect(hw-22,y+6+(lit?(hh-12)*.35:(hh-12)*.9),5,lit?(hh-12)*.65:(hh-12)*.1,lit?'#5BE07F':hexA('#5BE07F',.5),{rx:2});
+    if(kitMini){r+=rect(hw-176,y+6,96,hh-12,C.well,{rx:6})+kit(96,hh-12,{Kick:1,'Closed hat':.7,Crash:.4},{small:true}).replace('<g transform="translate(',`<g transform="translate(${hw-176} ${y+6})"><g transform="translate(`)+'</g>';}
+    return r;};
+  s+=row(0,64,'Drums','808-style · Shutter',PAL[0],null,{kitMini:true,sel:true});
+  [['Kick','out 3-4','kick',0,true],['Snare','out 5-6','snare',4,false],['Hats','out 7-8 · closed, open','hat_closed',5,true],['Toms','out 9-10','tom',2,false],['Cymbals','out 11-12','crash',7,true]]
+   .forEach(([n,sub,ic,c,lit],i)=>{s+=row(64+i*34,34,n,null,PAL[c],ic,{lit,indent:14});s+=mono(hw-130,64+i*34+21,sub.split(' · ')[0],C.hint,9,{'text-anchor':'end'});});
+  s+=line(8,64,8,h,hexA(C.text2,.35),2);
+  // clips
+  s+=rect(hw+8,6,w-hw-16,52,C.clip_body,{rx:5})+rect(hw+8,6,w-hw-16,13,PAL[0],{rx:5})+text(hw+14,16,'Verse beat','#FFFFFFE6',10,{'font-weight':560});
+  for(let r2=0;r2<5;r2++)for(let k=0;k<24;k++){const hit=HITS.find(hh=>hh[0]===r2&&hh[1]===k);s+=rect(hw+12+k*8.2,22+r2*7,6.5,5.5,hit?PAL[SOUNDS[r2][2]]:hexA(C.text2,.08),{rx:1});}
+  return svg(w,h,s);}
+
+// ---------- 4. the kit full size, three moments ----------
+function moments(){const w=900,h=220;let s=rect(0,0,w,h,C.canvas,{rx:8});
+  [[{},'At rest'],[{Kick:1,'Closed hat':.8,Crash:.5},'Beat 1: kick, closed hat and crash'],[{Snare:.9,'Open hat':.7,Ride:.6},'Beat 2: snare, open hat and ride']]
+   .forEach(([lit,cap],i)=>{const x=10+i*296;s+=rect(x,10,286,176,C.header,{rx:8})+kit(286,176,lit,{labels:false}).replace('<g transform="translate(',`<g transform="translate(${x} 10)"><g transform="translate(`)+'</g>'+text(x+143,206,cap,C.text2,11.5,{'text-anchor':'middle'});});
+  return svg(w,h,s);}
+
+let H=`<h1>M8 specimens, round 3 <span style="font-family:Mono;font-size:12px;color:${C.text2}">${LIGHT?'light':'dark'}</span></h1>
+<p class="q" style="color:${C.text2}">An icon for each drum sound, and a kit that lights the piece being played.</p>`;
+H+=`<h2>The icon set</h2><p class="q" style="color:${C.text2}">Fifteen icons, drawn in Lumen's line style (1.5 pt strokes on a 16 pt grid, as the track-type icons). A map's sound picks one; the presets and a sound added by name ("hat", "tom", "crash"…) get one automatically, and the map editor's icon column changes it.</p><div class="row">`;
+H+=frame('Every icon',iconSheet())+frame('At 12, 16, 20 and 28 pt',iconScale())+`</div>`;
+H+=`<h2>The kit in the drum editor</h2><p class="q" style="color:${C.text2}">A Kit panel at the left of Lanes (the Kit button in the header shows or hides it, and the choice is kept). The kit's pieces light in their sound's colour when they play, brighter for a harder hit, and fade over a beat; a lane's icon lights with them. Clicking a piece auditions it and picks its lane; Tab moves through the pieces, Space plays the focused one. Sounds with no piece on the kit (a cowbell, an effect) still light their lane's icon.</p><div class="row">`;
+H+=frame('Lanes with the Kit panel, at the start of bar 1 (kick, closed hat and crash sounding; snare focused)',editorWithKit())+`</div>`;
+H+=`<h2>On the track headers</h2><p class="q" style="color:${C.text2}">A drum track's header carries a small kit that lights as it plays, at the arrangement's normal track height and up. The tracks made for single sounds or groups of sounds (D4's routing) carry the sound's icon, lit while it plays, in place of the plain colour chip.</p><div class="row">`;
+H+=frame('A drum track and the sound tracks routed from it, playing',headers(),'At the smallest track height the mini kit folds away; the icons stay.')+`</div>`;
+H+=`<h2>The kit, full size</h2><div class="row">`+frame('',moments())+`</div>`;
+document.getElementById('root').innerHTML=H;
+</script></body></html>
