@@ -3,9 +3,10 @@
 //! words (the owner's choice B with a type filter). `view` is what is being
 //! shown, `rows` turns the catalog into rows, `list` paints them, `controls`
 //! are the search field, the switch, the chips and the scan line, and
-//! `panel` puts them in the pane and applies what was done. The Project media
-//! tab (M9 R4b) is `media_tab`; the strip of icon tabs over them all is the
-//! owner's L B (M9 R7c).
+//! `panel` draws the pane's own parts. What the app does with what was done
+//! is `app::browser` (audit M12). The Project media tab (M9 R4b) is
+//! `media_tab`; the strip of icon tabs over them all is the owner's L B
+//! (M9 R7c).
 
 use serde::{Deserialize, Serialize};
 

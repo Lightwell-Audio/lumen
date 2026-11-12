@@ -94,7 +94,7 @@ impl App {
             },
         );
         if response.has_focus() {
-            widgets::raised::paint_focus(ui.painter(), rect, theme::radius::MEDIUM);
+            widgets::raised::paint_focus(&ui.painter_at(rect), rect, theme::radius::MEDIUM);
         }
         if response.hovered() && !look.there {
             response.on_hover_text("This place is not there: an unplugged drive, or a folder that moved. Right-click to find it or remove it.");

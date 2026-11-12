@@ -183,11 +183,13 @@ impl App {
         let button = widgets::chip_button(ui, ui.id().with("sample folders"), &label, true)
             .on_hover_text("Narrow the list to one folder, or add a sample folder");
         let chosen = self.settings.browser.sample_folders.clone();
-        let roots = self.sample_folders();
         widgets::Menu::below(&button).show(|ui| {
             // The folders one level in, from what was read: looked for only
             // while the menu is open.
-            let inner = head::inner_sample_folders(&roots, &self.browser.files.samples.rows);
+            let inner = head::inner_sample_folders(
+                &self.sample_folders(),
+                &self.browser.files.samples.rows,
+            );
             if widgets::menu_toggle(ui, "All folders", None, narrow.is_none()).clicked() {
                 self.browser.files.narrow = None;
                 ui.close();
