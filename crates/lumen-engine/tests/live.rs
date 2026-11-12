@@ -1001,3 +1001,122 @@ fn two_pads_of_one_group_on_one_frame_answer_every_note() {
     );
     assert_eq!(rig.held_live(A), 0);
 }
+
+/// A clip of one note, as the app hands it to the engine: the sound's note and
+/// its channel.
+fn one_note_clip(start: Ticks, length: Ticks, pitch: u8, channel: u8) -> MidiClip {
+    let mut clip = drum_clip(&[]);
+    clip.length = Ticks::quarters(8);
+    clip.notes = note_list(vec![MidiNote {
+        start,
+        length,
+        pitch,
+        velocity: 100,
+        channel: Some(channel),
+    }]);
+    clip
+}
+
+#[test]
+fn a_clip_note_ends_on_the_channel_it_played_on_even_after_an_edit() {
+    // A sound may name a channel (M8 D0): the note goes out there, and its
+    // note-off does too, whatever the map says when the note ends (review
+    // L4).
+    let q = Ticks::quarters;
+    let log = Log::default();
+    let first = one_note_clip(Ticks::ZERO, q(4), 36, 5);
+    let mut rig = rig(vec![port_track(A, vec![first.clone()], hat_kit())], &log);
+    rig.transport.send(Command::Play).unwrap();
+    rig.run(24_000, 128);
+    // A map edit that changes the sound's note under it, as the app's rebuilt
+    // clip would: the old note is let go where it played, and the new one
+    // starts on the same channel.
+    let edited = one_note_clip(Ticks::ZERO, q(4), 37, 5);
+    rig.midi
+        .set(vec![port_track(A, vec![edited], hat_kit())])
+        .ok()
+        .unwrap();
+    rig.run(48_000, 128);
+    rig.transport.send(Command::Stop).unwrap();
+    rig.run(4_096, 128);
+    let notes = sent_channels(&mut rig);
+    assert_eq!(notes[0], (0, true, 5, 36), "the note plays on its channel");
+    assert_eq!(
+        notes
+            .iter()
+            .filter(|(_, on, _, key)| !*on && *key == 36)
+            .map(|(frame, _, channel, _)| (*frame, *channel))
+            .collect::<Vec<_>>(),
+        vec![(24_000, 5)],
+        "its note-off goes out on the channel it played on: {notes:?}"
+    );
+    assert_eq!(
+        notes
+            .iter()
+            .filter(|(frame, on, _, key)| *frame >= 24_000 && *on && *key == 37)
+            .map(|(_, _, channel, _)| *channel)
+            .collect::<Vec<_>>(),
+        vec![5],
+        "the note after the edit plays on the same channel: {notes:?}"
+    );
+}
+
+#[test]
+fn a_live_pad_ends_on_the_channel_it_played_on_even_after_an_edit() {
+    let log = Log::default();
+    // The kit's snare plays on channel 9, not the track's channel 3.
+    let mut kit = DrumKit::new();
+    kit.set(
+        38,
+        KitKey {
+            key: 38,
+            channel: Some(9),
+            silent: false,
+        },
+    );
+    let mut rig = rig(vec![port_track(A, Vec::new(), Box::new(kit))], &log);
+    rig.transport.send(Command::Play).unwrap();
+    rig.run(128, 128);
+    // A pad played and let go: the note and its end are both on channel 9.
+    rig.live.send(1_000, KEYS, Msg::note_on(0, 38, 100));
+    rig.live.send(2_000, KEYS, Msg::note_off(0, 38));
+    rig.run(2_000, 128);
+    // A second pad, held while the map changes under it (the sound now plays
+    // on channel 11): its note-off still goes out where its note-on did
+    // (review L4).
+    rig.live.send(3_000, KEYS, Msg::note_on(0, 38, 100));
+    rig.run(1_000, 128);
+    let mut edited = DrumKit::new();
+    edited.set(
+        38,
+        KitKey {
+            key: 38,
+            channel: Some(11),
+            silent: false,
+        },
+    );
+    rig.midi
+        .set(vec![port_track(A, Vec::new(), Box::new(edited))])
+        .ok()
+        .unwrap();
+    rig.run(2_000, 128);
+    rig.transport.send(Command::Stop).unwrap();
+    rig.run(4_096, 128);
+    let notes = sent_channels(&mut rig);
+    assert_eq!(
+        notes[..3],
+        [
+            (1_000, true, 9, 38),
+            (2_000, false, 9, 38),
+            (3_000, true, 9, 38)
+        ],
+        "the sound's channel, not the track's: {notes:?}"
+    );
+    assert_eq!(notes.len(), 4, "{notes:?}");
+    assert_eq!(
+        (notes[3].1, notes[3].2, notes[3].3),
+        (false, 9, 38),
+        "the edit's release goes out on the channel the note played on: {notes:?}"
+    );
+    assert_eq!(rig.held_live(A), 0);
+}
