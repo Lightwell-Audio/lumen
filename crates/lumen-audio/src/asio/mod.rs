@@ -47,6 +47,8 @@ static RESET_REQUESTED: AtomicBool = AtomicBool::new(false);
 static RESYNC_REQUESTED: AtomicBool = AtomicBool::new(false);
 /// A callback panicked and its block was silenced: the next poll reports it.
 static FAULTED: AtomicBool = AtomicBool::new(false);
+/// Buffers the driver said it missed since the last poll (an overload).
+static OVERLOADS: AtomicU64 = AtomicU64::new(0);
 
 struct Channel {
     buffers: [*mut c_void; 2],
@@ -122,27 +124,67 @@ unsafe extern "C" fn asio_message(selector: i32, value: i32, _m: *mut c_void, _o
     // A panic anywhere in here would end the process on the way out to the
     // driver: it is caught and answered with "not supported" instead.
     let body = std::panic::AssertUnwindSafe(|| match selector {
-        ffi::K_ASIO_SELECTOR_SUPPORTED => i32::from(matches!(
-            value,
-            ffi::K_ASIO_ENGINE_VERSION
-                | ffi::K_ASIO_RESET_REQUEST
-                | ffi::K_ASIO_RESYNC_REQUEST
-                | ffi::K_ASIO_LATENCIES_CHANGED
-                | ffi::K_ASIO_SUPPORTS_TIME_INFO
-        )),
+        ffi::K_ASIO_SELECTOR_SUPPORTED => i32::from(handles(value)),
         ffi::K_ASIO_ENGINE_VERSION => 2,
-        ffi::K_ASIO_RESET_REQUEST => {
-            RESET_REQUESTED.store(true, Ordering::Release);
-            1
-        }
-        ffi::K_ASIO_RESYNC_REQUEST => {
-            RESYNC_REQUESTED.store(true, Ordering::Release);
-            1
-        }
         ffi::K_ASIO_LATENCIES_CHANGED | ffi::K_ASIO_SUPPORTS_TIME_INFO => 1,
-        _ => 0,
+        // Everything else is a request, answered with whether it was taken.
+        _ => match request(selector) {
+            Request::Reset => {
+                RESET_REQUESTED.store(true, Ordering::Release);
+                1
+            }
+            Request::Resync => {
+                RESYNC_REQUESTED.store(true, Ordering::Release);
+                1
+            }
+            Request::Overload => {
+                OVERLOADS.fetch_add(1, Ordering::Relaxed);
+                1
+            }
+            Request::Nothing => 0,
+        },
     });
     std::panic::catch_unwind(body).unwrap_or(0)
+}
+
+/// What a driver message asks the running stream to do (sweep M5f).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Request {
+    /// Rebuild the stream: the driver was given another buffer size, or its
+    /// clock or rate changed. The new size is read from the driver when the
+    /// stream reopens, so the message's value is not kept.
+    Reset,
+    /// The driver lost sync: the next block reports no position, so the jump
+    /// is not counted as dropouts.
+    Resync,
+    /// The driver missed a buffer: audio goes on, and it counts as a dropout.
+    Overload,
+    /// Nothing this stream acts on.
+    Nothing,
+}
+
+fn request(selector: i32) -> Request {
+    match selector {
+        ffi::K_ASIO_RESET_REQUEST | ffi::K_ASIO_BUFFER_SIZE_CHANGE => Request::Reset,
+        ffi::K_ASIO_RESYNC_REQUEST => Request::Resync,
+        ffi::K_ASIO_OVERLOAD => Request::Overload,
+        _ => Request::Nothing,
+    }
+}
+
+/// Whether the stream answers `selector`, for the driver's
+/// `kAsioSelectorSupported` query.
+fn handles(selector: i32) -> bool {
+    matches!(
+        selector,
+        ffi::K_ASIO_ENGINE_VERSION
+            | ffi::K_ASIO_RESET_REQUEST
+            | ffi::K_ASIO_BUFFER_SIZE_CHANGE
+            | ffi::K_ASIO_RESYNC_REQUEST
+            | ffi::K_ASIO_LATENCIES_CHANGED
+            | ffi::K_ASIO_SUPPORTS_TIME_INFO
+            | ffi::K_ASIO_OVERLOAD
+    )
 }
 
 /// One driver block, with a panic kept inside the driver boundary: a panic
@@ -714,6 +756,12 @@ impl Stream for AsioStream {
         if RESET_REQUESTED.swap(false, Ordering::AcqRel) {
             return Some(StreamEvent::ResetRequested);
         }
+        let overloads = OVERLOADS.swap(0, Ordering::Relaxed);
+        if overloads > 0 {
+            // A buffer the driver missed: audio keeps playing, and the
+            // dropout counter shows it.
+            return Some(StreamEvent::Dropped(overloads));
+        }
         if self.failed_to_start {
             return Some(StreamEvent::Stalled);
         }
@@ -937,5 +985,60 @@ mod tests {
             FAULTED.swap(false, Ordering::SeqCst),
             "the panic is remembered for the next poll"
         );
+    }
+
+    /// A driver message maps to one request: a buffer size change rebuilds the
+    /// stream like a reset, an overload is a missed buffer, and the selectors
+    /// this stream answers are exactly those it acts on (sweep M5f).
+    #[test]
+    fn driver_messages_map_to_requests() {
+        assert_eq!(request(ffi::K_ASIO_RESET_REQUEST), Request::Reset);
+        assert_eq!(
+            request(ffi::K_ASIO_BUFFER_SIZE_CHANGE),
+            Request::Reset,
+            "a buffer size change needs the stream rebuilt"
+        );
+        assert_eq!(request(ffi::K_ASIO_RESYNC_REQUEST), Request::Resync);
+        assert_eq!(request(ffi::K_ASIO_OVERLOAD), Request::Overload);
+        assert_eq!(request(99), Request::Nothing);
+        for selector in [
+            ffi::K_ASIO_ENGINE_VERSION,
+            ffi::K_ASIO_RESET_REQUEST,
+            ffi::K_ASIO_BUFFER_SIZE_CHANGE,
+            ffi::K_ASIO_RESYNC_REQUEST,
+            ffi::K_ASIO_LATENCIES_CHANGED,
+            ffi::K_ASIO_SUPPORTS_TIME_INFO,
+            ffi::K_ASIO_OVERLOAD,
+        ] {
+            assert!(handles(selector), "selector {selector}");
+        }
+        assert!(
+            !handles(8),
+            "time code is not handled, so it is not claimed"
+        );
+    }
+
+    /// The wiring behind the mapping: an overload message is counted for the
+    /// next poll, and a buffer size change asks for a reset (sweep M5f).
+    #[test]
+    fn an_overload_is_counted_and_a_buffer_size_change_resets() {
+        OVERLOADS.store(0, Ordering::Relaxed);
+        RESET_REQUESTED.store(false, Ordering::Release);
+        // SAFETY: the callback touches only its atomics with these arguments.
+        let taken =
+            unsafe { asio_message(ffi::K_ASIO_OVERLOAD, 0, ptr::null_mut(), ptr::null_mut()) };
+        assert_eq!(taken, 1, "an overload is accepted");
+        assert_eq!(OVERLOADS.swap(0, Ordering::Relaxed), 1);
+        // SAFETY: as above.
+        let taken = unsafe {
+            asio_message(
+                ffi::K_ASIO_BUFFER_SIZE_CHANGE,
+                256,
+                ptr::null_mut(),
+                ptr::null_mut(),
+            )
+        };
+        assert_eq!(taken, 1);
+        assert!(RESET_REQUESTED.swap(false, Ordering::AcqRel), "a reset");
     }
 }

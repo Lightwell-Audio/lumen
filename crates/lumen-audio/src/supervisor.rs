@@ -670,12 +670,20 @@ impl<B: Backend> Supervisor<B> {
             if self.confirming.is_some() {
                 match event {
                     None => self.confirm_restore(),
+                    // A missed buffer is still audio flowing: the probation of
+                    // a reopened device goes on.
+                    Some(StreamEvent::Dropped(dropped)) => self.status.count_dropouts(dropped),
                     Some(_) => self.retry_later(),
                 }
                 return;
             }
             match event {
                 None => {}
+                Some(StreamEvent::Dropped(dropped)) => {
+                    // The driver says it missed buffers (an overload): audio
+                    // keeps playing and the dropout count shows it.
+                    self.status.count_dropouts(dropped);
+                }
                 Some(StreamEvent::ResetRequested) => {
                     self.close();
                     match self.try_open(&config) {

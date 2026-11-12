@@ -29,14 +29,10 @@ pub const ASE_NO_MEMORY: AsioError = -994;
 pub const K_ASIO_SELECTOR_SUPPORTED: i32 = 1;
 pub const K_ASIO_ENGINE_VERSION: i32 = 2;
 pub const K_ASIO_RESET_REQUEST: i32 = 3;
-#[allow(dead_code)] // part of the ABI; not handled yet
 pub const K_ASIO_BUFFER_SIZE_CHANGE: i32 = 4;
 pub const K_ASIO_RESYNC_REQUEST: i32 = 5;
 pub const K_ASIO_LATENCIES_CHANGED: i32 = 6;
 pub const K_ASIO_SUPPORTS_TIME_INFO: i32 = 7;
-#[allow(dead_code)] // part of the ABI; not handled yet
-pub const K_ASIO_SUPPORTS_TIME_CODE: i32 = 8;
-#[allow(dead_code)] // part of the ABI; not handled yet
 pub const K_ASIO_OVERLOAD: i32 = 15;
 
 // AsioTimeInfo flags.
