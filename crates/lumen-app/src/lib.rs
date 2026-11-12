@@ -46,8 +46,8 @@ mod audio;
 mod audio_editor;
 mod audition;
 mod autosave;
+mod bake;
 mod bench;
-mod bounce;
 mod brand;
 mod browser;
 mod callback_bench;
@@ -56,9 +56,7 @@ mod chain;
 #[cfg(test)]
 mod clip_flags_render;
 mod commands;
-mod consolidate;
 mod crash;
-mod crossfades;
 mod disk;
 mod document;
 mod engine;
@@ -77,7 +75,6 @@ mod media;
 mod meters;
 mod midi;
 mod motion;
-mod normalize;
 mod note_editor;
 mod owner;
 mod panels;
@@ -110,6 +107,7 @@ mod widgets;
 pub use launch::Launch;
 pub use timeview::TimeView;
 
+pub(crate) use bake::{bounce, consolidate, crossfades, normalize};
 pub(crate) use engine::{lane_bake, lanes, played, routing};
 
 use std::path::PathBuf;
