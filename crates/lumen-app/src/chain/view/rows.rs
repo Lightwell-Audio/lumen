@@ -1,0 +1,169 @@
+//! The shown track's devices as rows: what each card shows, how its plugin is
+//! running, and where Reload would start it and how long ago that was.
+
+use super::*;
+use crate::chain::{outputs, presets, sidechain};
+
+/// A device's row in the chain, with what the card needs (no state blobs).
+pub(super) struct Row {
+    pub(super) id: Id,
+    pub(super) name: String,
+    pub(super) vendor: String,
+    pub(super) identity: String,
+    /// A VST3 plugin: its class id is the identity.
+    pub(super) vst3: bool,
+    pub(super) instrument: bool,
+    pub(super) bypass: bool,
+    pub(super) face: OwnedFace,
+    pub(super) latency_ms: f32,
+    /// The strip's knobs and how many parameters the plugin offers.
+    pub(super) slots: Vec<Option<strip::Slot>>,
+    pub(super) parameters: usize,
+    /// The plugin's own window and Learn.
+    pub(super) editor: strip::Editor,
+    pub(super) learning: bool,
+    /// The preset field of a running plugin.
+    pub(super) field: Option<presets::FieldLook>,
+    /// The sidechain row of a plugin effect with a sidechain input.
+    pub(super) sidechain: Option<sidechain::Look>,
+    /// The outputs row of a plugin instrument with several outputs.
+    pub(super) outputs: Option<outputs::Look>,
+}
+
+pub(super) enum OwnedFace {
+    Ready,
+    Loading,
+    Failed {
+        words: String,
+        from: String,
+        keeps: bool,
+    },
+    Missing(usize),
+    Safe(usize),
+}
+
+impl OwnedFace {
+    pub(super) fn face(&self) -> Face<'_> {
+        match self {
+            OwnedFace::Ready => Face::Ready,
+            OwnedFace::Loading => Face::Loading,
+            OwnedFace::Failed { words, from, keeps } => Face::Failed(Failure {
+                words,
+                from,
+                keeps: *keeps,
+            }),
+            OwnedFace::Missing(saved) => Face::Missing { saved: *saved },
+            OwnedFace::Safe(saved) => Face::Safe { saved: *saved },
+        }
+    }
+}
+
+impl App {
+    /// The shown track's devices as rows, with how each is running.
+    pub(super) fn rows_of(&self, track: &Track, rate: u32) -> Vec<Row> {
+        let playing = self.transport.state().playing;
+        track
+            .devices
+            .iter()
+            .map(|d| {
+                let mut row = self.row_of(d, rate);
+                row.sidechain = self.sidechain_look(track.id, d, playing);
+                row.outputs = self.outputs_look(d);
+                row
+            })
+            .collect()
+    }
+
+    fn row_of(&self, d: &Device, rate: u32) -> Row {
+        let (name, vendor, identity) = match &d.plugin {
+            PluginRef::Vst3 {
+                class_id,
+                name,
+                vendor,
+                ..
+            } => (name.clone(), vendor.clone(), class_id.clone()),
+            // The vendor of a built-in device is a label: it names who made
+            // the device, as a plugin's vendor does, and is the product's
+            // name by `PRODUCT_NAME`, not text about the product.
+            PluginRef::Builtin { name } => (
+                crate::document::device_name(d),
+                PRODUCT_NAME.to_owned(),
+                name.clone(),
+            ),
+        };
+        let (face, frames) = if d.is_vst3() {
+            let face = match self.hosting.state(d.id) {
+                Some(State::Ready) => OwnedFace::Ready,
+                Some(State::Failed(words)) => OwnedFace::Failed {
+                    words: words.clone(),
+                    from: self.reload_source(d),
+                    keeps: self.hosting.keeps_failing(d.id),
+                },
+                Some(State::Missing) => {
+                    OwnedFace::Missing(d.state.len() + d.controller_state.len())
+                }
+                Some(State::Safe) => OwnedFace::Safe(d.state.len() + d.controller_state.len()),
+                Some(State::Loading) | None => OwnedFace::Loading,
+            };
+            let frames = self
+                .hosting
+                .latency(d.id)
+                .or_else(|| d.reported.map(|r| r.latency_at(rate)));
+            (face, frames.unwrap_or(0))
+        } else {
+            (OwnedFace::Ready, 0)
+        };
+        let latency_ms = if rate == 0 {
+            0.0
+        } else {
+            frames as f32 / rate as f32 * 1000.0
+        };
+        let (slots, parameters) = if d.is_vst3() && matches!(face, OwnedFace::Ready) {
+            self.strip_of(d)
+        } else {
+            (Vec::new(), 0)
+        };
+        let editor = self.editor_look(d);
+        Row {
+            id: d.id,
+            slots,
+            parameters,
+            editor,
+            learning: self.chain.learning == Some(d.id),
+            field: self.field_look(d.id),
+            name,
+            vendor,
+            identity,
+            vst3: d.is_vst3(),
+            instrument: d.is_instrument(),
+            bypass: d.bypass,
+            face,
+            latency_ms,
+            sidechain: None,
+            outputs: None,
+        }
+    }
+}
+
+impl App {
+    /// Where Reload would start a stopped plugin from, in words: the sound
+    /// last read from it and how long ago, or what the project holds.
+    fn reload_source(&self, d: &Device) -> String {
+        match self.hosting.last_good_age(d.id) {
+            Some(age) => format!("its sound from {} ago", ago(age)),
+            None if d.state.is_empty() => "the plugin as it was added".to_owned(),
+            None => "the sound saved in the project".to_owned(),
+        }
+    }
+}
+
+/// How long ago, roughly: "a moment", "40 s", "3 min", "2 h".
+pub(super) fn ago(age: std::time::Duration) -> String {
+    let seconds = age.as_secs();
+    match seconds {
+        0..5 => "a moment".to_owned(),
+        5..60 => format!("{seconds} s"),
+        60..3600 => format!("{} min", seconds / 60),
+        _ => format!("{} h", seconds / 3600),
+    }
+}
