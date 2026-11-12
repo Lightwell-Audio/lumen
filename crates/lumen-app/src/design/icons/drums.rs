@@ -14,6 +14,7 @@
 
 use eframe::egui::epaint::{CubicBezierShape, QuadraticBezierShape};
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Shape, Stroke, Vec2};
+use lumen_project::model::DrumIcon;
 
 use crate::theme;
 
@@ -88,6 +89,54 @@ impl DrumGlyph {
 pub fn paint_drum_glyph(painter: &Painter, rect: Rect, glyph: DrumGlyph, color: Color32) {
     for shape in shapes(glyph, rect, color) {
         painter.add(shape);
+    }
+}
+
+/// The glyph a sound's model icon is drawn with (D0's `DrumIcon`), so the
+/// map, the lanes and the piano roll's keys share one drawing.
+impl From<DrumIcon> for DrumGlyph {
+    fn from(icon: DrumIcon) -> Self {
+        match icon {
+            DrumIcon::Kick => DrumGlyph::Kick,
+            DrumIcon::Snare => DrumGlyph::Snare,
+            DrumIcon::Rim => DrumGlyph::Rim,
+            DrumIcon::Clap => DrumGlyph::Clap,
+            DrumIcon::ClosedHat => DrumGlyph::ClosedHat,
+            DrumIcon::PedalHat => DrumGlyph::PedalHat,
+            DrumIcon::OpenHat => DrumGlyph::OpenHat,
+            DrumIcon::Tom => DrumGlyph::Tom,
+            DrumIcon::FloorTom => DrumGlyph::FloorTom,
+            DrumIcon::Crash => DrumGlyph::Crash,
+            DrumIcon::Ride => DrumGlyph::Ride,
+            DrumIcon::Cowbell => DrumGlyph::Cowbell,
+            DrumIcon::Shaker => DrumGlyph::Shaker,
+            DrumIcon::Percussion => DrumGlyph::Percussion,
+            DrumIcon::Effect => DrumGlyph::Effect,
+        }
+    }
+}
+
+/// The model icon a drawing stands for (the icon popover picks a drawing and
+/// the map stores its icon).
+impl From<DrumGlyph> for DrumIcon {
+    fn from(glyph: DrumGlyph) -> Self {
+        match glyph {
+            DrumGlyph::Kick => DrumIcon::Kick,
+            DrumGlyph::Snare => DrumIcon::Snare,
+            DrumGlyph::Rim => DrumIcon::Rim,
+            DrumGlyph::Clap => DrumIcon::Clap,
+            DrumGlyph::ClosedHat => DrumIcon::ClosedHat,
+            DrumGlyph::PedalHat => DrumIcon::PedalHat,
+            DrumGlyph::OpenHat => DrumIcon::OpenHat,
+            DrumGlyph::Tom => DrumIcon::Tom,
+            DrumGlyph::FloorTom => DrumIcon::FloorTom,
+            DrumGlyph::Crash => DrumIcon::Crash,
+            DrumGlyph::Ride => DrumIcon::Ride,
+            DrumGlyph::Cowbell => DrumIcon::Cowbell,
+            DrumGlyph::Shaker => DrumIcon::Shaker,
+            DrumGlyph::Percussion => DrumIcon::Percussion,
+            DrumGlyph::Effect => DrumIcon::Effect,
+        }
     }
 }
 
@@ -317,6 +366,23 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), 15, "a name is used twice");
+    }
+
+    /// The model's fifteen icons and the fifteen drawings line up, in name
+    /// as well as in order (M8 D1): a new icon on either side fails here.
+    #[test]
+    fn the_models_icons_and_the_drawings_line_up_by_name() {
+        let spoken = |name: &str| name.replace('_', " ").to_lowercase();
+        assert_eq!(DrumIcon::ALL.len(), DrumGlyph::ALL.len());
+        for (icon, glyph) in DrumIcon::ALL.into_iter().zip(DrumGlyph::ALL) {
+            assert_eq!(
+                spoken(icon.name()),
+                glyph.name().to_lowercase(),
+                "{icon:?} is drawn as {glyph:?}"
+            );
+            assert_eq!(DrumGlyph::from(icon), glyph);
+            assert_eq!(DrumIcon::from(glyph), icon);
+        }
     }
 
     #[test]
