@@ -23,7 +23,7 @@ mod registry;
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use lumen_core::product::PRODUCT_NAME;
 
@@ -108,6 +108,16 @@ pub(crate) fn status(hive: &dyn Hive, exe: &Path) -> Status {
         chosen_elsewhere: choice.clone().filter(|c| !c.eq_ignore_ascii_case(&ours)),
         will_ask: state == State::Off && choice.is_some_and(|c| c.eq_ignore_ascii_case(&ours)),
         state,
+    }
+}
+
+/// The status when the hive cannot be read at all (a poisoned lock): as far
+/// as the interface can say, nothing is registered.
+pub(crate) fn unreadable() -> Status {
+    Status {
+        state: State::Off,
+        chosen_elsewhere: None,
+        will_ask: false,
     }
 }
 
@@ -306,7 +316,9 @@ pub(crate) enum Source {
 /// The association as the app holds it: the hive, this copy's path, and
 /// the last write's failure.
 pub(crate) struct Association {
-    hive: Mutex<Box<dyn Hive>>,
+    /// Shared with the worker that reads the status (sweep M4b): the
+    /// interface never waits on the registry.
+    hive: Arc<Mutex<Box<dyn Hive>>>,
     pub(crate) exe: PathBuf,
     /// The last write's failure, shown on the row until the next try.
     pub(crate) error: Option<String>,
@@ -338,12 +350,18 @@ impl Association {
 
     pub(crate) fn with(hive: Box<dyn Hive>, exe: PathBuf) -> Self {
         Self {
-            hive: Mutex::new(hive),
+            hive: Arc::new(Mutex::new(hive)),
             exe,
             error: None,
             system: false,
             default_apps_asked: 0,
         }
+    }
+
+    /// The hive, for reading the status on a worker (sweep M4b): drawing
+    /// reads the answer instead (`app::association::Reported`).
+    pub(crate) fn hive(&self) -> Arc<Mutex<Box<dyn Hive>>> {
+        Arc::clone(&self.hive)
     }
 
     /// Opens the system's Default apps page, where the person's own
@@ -371,14 +389,14 @@ impl Association {
         cfg!(windows)
     }
 
+    /// Who opens `.lumen` files, read now. Never call this while drawing
+    /// (sweep M4b): the app draws the answer a worker brought
+    /// (`app::association::Reported`). A write, or a test seeding the hive,
+    /// reads it here.
     pub(crate) fn status(&self) -> Status {
         match self.hive.lock() {
             Ok(hive) => status(hive.as_ref(), &self.exe),
-            Err(_) => Status {
-                state: State::Off,
-                chosen_elsewhere: None,
-                will_ask: false,
-            },
+            Err(_) => unreadable(),
         }
     }
 
@@ -386,9 +404,9 @@ impl Association {
     /// is kept for the row.
     pub(crate) fn set(&mut self, on: bool) {
         let exe = self.exe.clone();
-        let done = match self.hive.get_mut() {
-            Ok(hive) if on => register(hive.as_mut(), &exe),
-            Ok(hive) => unregister(hive.as_mut(), &exe),
+        let done = match self.hive.lock() {
+            Ok(mut hive) if on => register(hive.as_mut(), &exe),
+            Ok(mut hive) => unregister(hive.as_mut(), &exe),
             Err(_) => Err(io::Error::other("the association is unavailable")),
         };
         self.error = done.err().map(|e| {
@@ -401,7 +419,7 @@ impl Association {
     pub(crate) fn seed(&mut self, seed: impl FnOnce(&mut MapHive)) {
         let mut hive = MapHive::default();
         seed(&mut hive);
-        if let Ok(slot) = self.hive.get_mut() {
+        if let Ok(mut slot) = self.hive.lock() {
             *slot = Box::new(hive);
         }
         self.error = None;

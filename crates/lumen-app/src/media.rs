@@ -287,8 +287,13 @@ impl Library {
     /// before; turned off, clips of streamed files are silent (their disk
     /// thread has stopped).
     pub fn set_streaming(&mut self, streaming: Option<streaming::Streaming>) {
-        // The old disk thread stops here.
-        self.streaming = streaming;
+        let Some(old) = std::mem::replace(&mut self.streaming, streaming) else {
+            return;
+        };
+        // The old disk thread stops where it is, up to one page read, and
+        // its join does not belong in a frame (sweep M4d): it is dropped on
+        // a thread of its own.
+        crate::spawn::drop_later(old);
     }
 
     /// The pool, disk thread and cache while streaming is on.
@@ -315,65 +320,70 @@ impl Library {
         let (path, done, ctx) = (item.path.clone(), self.done_tx.clone(), ctx.clone());
         item.job = Some(job);
         crate::trace::log(|| format!("media: loading {} at {rate} Hz", path.display()));
-        std::thread::Builder::new()
-            .name("lumen-media-load".into())
-            .spawn(move || {
-                let mut shown = 0.0;
-                let mut report = |p: f32| {
-                    progress.store(p.to_bits(), Ordering::Relaxed);
-                    // Repaint for every 2% so the bar moves without
-                    // flooding the UI.
-                    if p - shown >= 0.02 {
-                        shown = p;
-                        ctx.request_repaint();
+        let spawned = crate::spawn::spawn_named("lumen-media-load", move || {
+            let mut shown = 0.0;
+            let mut report = |p: f32| {
+                progress.store(p.to_bits(), Ordering::Relaxed);
+                // Repaint for every 2% so the bar moves without
+                // flooding the UI.
+                if p - shown >= 0.02 {
+                    shown = p;
+                    ctx.request_repaint();
+                }
+            };
+            let size_bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
+            let tempo = stated_tempo(&path);
+            let started = std::time::Instant::now();
+            // A long file plays from disk when streaming is on (M B).
+            let header = cache
+                .as_ref()
+                .and_then(|_| lumen_media::probe(&path).ok())
+                .filter(streaming::streams);
+            let (source, result, peaks) = match (&cache, header) {
+                (Some(cache), Some(header)) => {
+                    match streaming::load(cache, &path, &header, rate, &cancel, &mut report) {
+                        Ok(streamed) => (
+                            Some(streamed.source),
+                            Ok(streaming::Loaded::Stream(streamed.prepared)),
+                            streamed.peaks,
+                        ),
+                        Err(why) => (None, Err(why), None),
                     }
-                };
-                let size_bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
-                let tempo = stated_tempo(&path);
-                let started = std::time::Instant::now();
-                // A long file plays from disk when streaming is on (M B).
-                let header = cache
-                    .as_ref()
-                    .and_then(|_| lumen_media::probe(&path).ok())
-                    .filter(streaming::streams);
-                let (source, result, peaks) = match (&cache, header) {
-                    (Some(cache), Some(header)) => {
-                        match streaming::load(cache, &path, &header, rate, &cancel, &mut report) {
-                            Ok(streamed) => (
-                                Some(streamed.source),
-                                Ok(streaming::Loaded::Stream(streamed.prepared)),
-                                streamed.peaks,
-                            ),
-                            Err(why) => (None, Err(why), None),
-                        }
-                    }
-                    _ => {
-                        let (source, result) = decode(&path, rate, &cancel, &mut report);
-                        let peaks = result.as_ref().ok().and_then(|audio| audio.peaks(&cancel));
-                        (source, result.map(streaming::Loaded::Memory), peaks)
-                    }
-                };
-                crate::trace::log(|| {
-                    format!(
-                        "media: {} loaded in {:.1} ms",
-                        path.display(),
-                        started.elapsed().as_secs_f64() * 1000.0
-                    )
-                });
-                report(1.0);
-                let _ = done.send(Done {
-                    id,
-                    rate,
-                    stream,
-                    source,
-                    size_bytes,
-                    tempo,
-                    result,
-                    peaks,
-                });
-                ctx.request_repaint();
-            })
-            .expect("spawn media loader");
+                }
+                _ => {
+                    let (source, result) = decode(&path, rate, &cancel, &mut report);
+                    let peaks = result.as_ref().ok().and_then(|audio| audio.peaks(&cancel));
+                    (source, result.map(streaming::Loaded::Memory), peaks)
+                }
+            };
+            crate::trace::log(|| {
+                format!(
+                    "media: {} loaded in {:.1} ms",
+                    path.display(),
+                    started.elapsed().as_secs_f64() * 1000.0
+                )
+            });
+            report(1.0);
+            let _ = done.send(Done {
+                id,
+                rate,
+                stream,
+                source,
+                size_bytes,
+                tempo,
+                result,
+                peaks,
+            });
+            ctx.request_repaint();
+        });
+        if let Err(error) = spawned {
+            // The item says why it will not play, rather than loading for
+            // ever with no worker behind it.
+            let why = crate::spawn::start_failed("loading the audio", &error);
+            crate::trace::log(|| format!("media: {why}"));
+            item.job = None;
+            item.state = State::Failed(why);
+        }
     }
 
     /// Applies finished loads, and loads ready files again when the device

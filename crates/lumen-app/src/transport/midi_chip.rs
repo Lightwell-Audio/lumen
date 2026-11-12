@@ -166,7 +166,11 @@ fn paint_light(ui: &Ui, centre: Pos2, resting: Resting, brightness: f32) {
             painter.circle_filled(centre, LIGHT, palette.text_hint);
         }
         Resting::Hollow => {
-            painter.circle_stroke(centre, LIGHT - 0.6, Stroke::new(1.2, palette.text_disabled));
+            painter.circle_stroke(
+                centre,
+                LIGHT - 0.6,
+                Stroke::new(theme::stroke::RING, palette.text_disabled),
+            );
         }
     }
     light::dot(

@@ -81,8 +81,9 @@ pub(super) fn coalesce(commands: Vec<Command>) -> Vec<Command> {
 
 /// How often a running host is asked for the edits made inside it.
 pub(super) const EDIT_POLL: Duration = Duration::from_millis(25);
-/// How long an ask for edits or text may take; a miss is only a miss (the
-/// audio side finds a host that has stopped answering).
+/// How long an ask for edits or text may take. One miss is only a miss, and a
+/// few in a row mean a host that stopped answering control calls: the device
+/// thread gives up on it (`run::UNANSWERED_LIMIT`).
 pub(super) const QUICK: Duration = Duration::from_millis(300);
 /// How often an open editor window is asked where it is.
 pub(super) const EDITOR_POLL: Duration = Duration::from_millis(100);

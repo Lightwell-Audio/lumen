@@ -365,7 +365,7 @@ pub fn param_bar(ui: &mut Ui, rect: Rect, id: EguiId, look: ParamLook<'_>) -> (R
         f32::from(radius),
         palette
             .text
-            .gamma_multiply(crate::light::EMBER_WASH * hot * 0.5),
+            .gamma_multiply(crate::light::EMBER_WASH * hot * theme::alpha::EDGE),
     );
     let font = FontId::monospace(theme::size::MONO_SMALL);
     let text = super::fit(ui.painter(), look.text, font.clone(), rect.width() - 10.0);

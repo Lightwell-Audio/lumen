@@ -59,6 +59,50 @@ impl Default for EditorTrack {
     }
 }
 
+/// How many control calls in a row a running host may leave unanswered before
+/// it is treated as unresponsive. Each one waits [`QUICK`] on this thread, and
+/// a plugin that answers none of them cannot be played live, saved or set up
+/// again: waiting for it for ever hides a hang the interface could recover
+/// from.
+pub(super) const UNANSWERED_LIMIT: u32 = 3;
+
+/// Counts the control calls a running host left unanswered, so a plugin that
+/// stopped answering them but has not exited is found out: the audio side only
+/// learns that the process is still there. A call that answers, a failure that
+/// is not a timeout (a refusal is an answer), or a block the host answered
+/// since the last call starts the count again: a plugin working on a long
+/// block (an offline render gives it seconds) is not hung.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Silence {
+    unanswered: u32,
+    /// The blocks the host had answered when the last call was counted.
+    answered: u32,
+}
+
+impl Silence {
+    /// Counts one control call's outcome, with the host's block count as the
+    /// audio thread has left it, and says whether the host has now left
+    /// [`UNANSWERED_LIMIT`] calls in a row unanswered.
+    pub(super) fn watch<T>(&mut self, result: &Result<T, HostError>, answered: u32) -> bool {
+        let progress = answered != self.answered;
+        self.answered = answered;
+        match result {
+            _ if progress => {
+                self.unanswered = 0;
+                false
+            }
+            Err(HostError::Timeout) => {
+                self.unanswered = self.unanswered.saturating_add(1);
+                self.unanswered >= UNANSWERED_LIMIT
+            }
+            _ => {
+                self.unanswered = 0;
+                false
+            }
+        }
+    }
+}
+
 /// Whether `error` means the host's window code is not answering (as against
 /// a refusal or a host that is gone).
 fn not_answering(error: &HostError) -> bool {
@@ -89,6 +133,13 @@ impl Run {
         (self.wake)();
     }
 
+    /// Whether a control call leaves the host looking unresponsive (see
+    /// [`Silence`]): the blocks the audio side has seen it answer count as
+    /// progress.
+    fn silent<T>(&self, silence: &mut Silence, result: &Result<T, HostError>) -> bool {
+        silence.watch(result, self.counts.answered())
+    }
+
     pub(super) fn run(self) {
         let loaded = {
             let _place = self.gate.permit();
@@ -107,6 +158,7 @@ impl Run {
         let d = self.start.deadlines;
         let mut polled = Instant::now();
         let mut editor = EditorTrack::default();
+        let mut silence = Silence::default();
         loop {
             let mut commands = match self.requests.recv_timeout(Duration::from_millis(10)) {
                 Ok(first) => vec![first],
@@ -133,16 +185,27 @@ impl Run {
                         }
                     }
                     Command::Set(id, value) => {
-                        let _ = up.host.set_param(id, value, QUICK);
+                        if self.silent(&mut silence, &up.host.set_param(id, value, QUICK)) {
+                            self.went_silent(&mut up);
+                            return;
+                        }
                     }
                     Command::Text(id, value) => {
-                        if let Ok(text) = up.host.param_text(id, value, QUICK) {
+                        let text = up.host.param_text(id, value, QUICK);
+                        if self.silent(&mut silence, &text) {
+                            self.went_silent(&mut up);
+                            return;
+                        }
+                        if let Ok(text) = text {
                             self.say(Happened::Text { id, value, text });
                         }
                     }
                     Command::Texts(id, values) => {
+                        let mut gone = false;
                         for value in values {
-                            match up.host.param_text(id, value, QUICK) {
+                            let answer = up.host.param_text(id, value, QUICK);
+                            gone = self.silent(&mut silence, &answer);
+                            match answer {
                                 Ok(text) => self.say(Happened::Text { id, value, text }),
                                 // A host that does not answer would take the
                                 // same time for each of the rest.
@@ -150,10 +213,22 @@ impl Run {
                                 Err(_) => {}
                             }
                         }
+                        if gone {
+                            self.went_silent(&mut up);
+                            return;
+                        }
                     }
                     Command::Typed(id, text) => {
-                        let value = up.host.param_value(id, &text, QUICK).ok();
-                        self.say(Happened::Typed { id, text, value });
+                        let value = up.host.param_value(id, &text, QUICK);
+                        if self.silent(&mut silence, &value) {
+                            self.went_silent(&mut up);
+                            return;
+                        }
+                        self.say(Happened::Typed {
+                            id,
+                            text,
+                            value: value.ok(),
+                        });
                     }
                     Command::OpenEditor(bounds) => {
                         if !editor.open {
@@ -214,7 +289,10 @@ impl Run {
                         self.say(Happened::Loaded(answer));
                     }
                     Command::Keys(keys) => {
-                        let _ = up.host.capture_keys(keys, QUICK);
+                        if self.silent(&mut silence, &up.host.capture_keys(keys, QUICK)) {
+                            self.went_silent(&mut up);
+                            return;
+                        }
                     }
                     Command::Quit => {
                         up.host.quit(d.quit);
@@ -224,7 +302,12 @@ impl Run {
             }
             if polled.elapsed() >= EDIT_POLL && !up.host.has_ended() {
                 polled = Instant::now();
-                if let Ok(taken) = up.host.take_edits(QUICK)
+                let taken = up.host.take_edits(QUICK);
+                if self.silent(&mut silence, &taken) {
+                    self.went_silent(&mut up);
+                    return;
+                }
+                if let Ok(taken) = taken
                     && (!taken.list.is_empty() || taken.dropped > 0 || taken.ignored > 0)
                 {
                     self.say(Happened::Edits(taken));
@@ -359,6 +442,14 @@ impl Run {
         }
         let (_, list) = up.host.parameters(d.state).map_err(|e| e.to_string())?;
         Ok(list.iter().map(|p| (p.id, p.value)).collect())
+    }
+
+    /// Ends a host that stopped answering the control calls this thread makes,
+    /// as a host that stopped running is ended: the device reads as failed and
+    /// the interface offers a reload, and the process is not left behind.
+    fn went_silent(&self, up: &mut Up) {
+        let failure = self.fail(&mut up.host, Step::Running, HostError::Timeout);
+        self.say(Happened::Failed(failure));
     }
 
     fn fail(&self, host: &mut HostProcess, step: Step, error: HostError) -> Failure {

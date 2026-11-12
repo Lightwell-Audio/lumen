@@ -7,6 +7,7 @@
 //! and drops connections for ports that went away.
 
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -54,6 +55,27 @@ struct Shared {
     unavailable: Option<String>,
 }
 
+/// What MIDI says when its worker thread cannot start: what did not start,
+/// why, and the way forward.
+fn start_failed(error: &io::Error) -> String {
+    format!("Could not start MIDI: {error}. Try again, or restart if this keeps happening.")
+}
+
+/// The worker a spawn gave, or none with the reason noted where
+/// [`MidiSystem::unavailable`] reads it.
+fn keep_worker(
+    spawned: io::Result<JoinHandle<()>>,
+    shared: &Arc<Mutex<Shared>>,
+) -> Option<JoinHandle<()>> {
+    match spawned {
+        Ok(worker) => Some(worker),
+        Err(error) => {
+            lock(shared).unavailable = Some(start_failed(&error));
+            None
+        }
+    }
+}
+
 enum Command {
     Use(PortId, Use),
     Send(PortId, Short),
@@ -97,22 +119,30 @@ impl MidiSystem {
         let (producer, input) = rtrb::RingBuffer::new(QUEUE);
         let activity = Arc::new(Activity::default());
         let worker = {
-            let shared = shared.clone();
-            let activity = activity.clone();
-            thread::Builder::new()
+            let worker_shared = shared.clone();
+            let worker_activity = activity.clone();
+            let spawned = thread::Builder::new()
                 .name("lumen-midi".into())
                 .spawn(move || {
                     match make() {
                         Ok(backend) => {
-                            let mut worker =
-                                Worker::new(backend, uses, shared, event_tx, producer, activity);
+                            let mut worker = Worker::new(
+                                backend,
+                                uses,
+                                worker_shared,
+                                event_tx,
+                                producer,
+                                worker_activity,
+                            );
                             worker.waker = waker;
                             worker.run(&command_rx, poll);
                         }
-                        Err(e) => lock(&shared).unavailable = Some(e.to_string()),
+                        Err(e) => lock(&worker_shared).unavailable = Some(e.to_string()),
                     };
-                })
-                .ok()
+                });
+            // A thread that cannot start leaves the system empty, as a driver
+            // that cannot open does, and says why (rule 5: errors are values).
+            keep_worker(spawned, &shared)
         };
         Self {
             commands,
@@ -497,6 +527,23 @@ mod tests {
         remote: false,
         sync: false,
     };
+
+    #[test]
+    fn a_worker_that_cannot_start_is_reported_not_hidden() {
+        let shared = Arc::new(Mutex::new(Shared::default()));
+        let error = io::Error::new(io::ErrorKind::WouldBlock, "no more threads");
+        let worker = keep_worker(Err(error), &shared);
+        assert!(worker.is_none());
+        let why = lock(&shared).unavailable.clone().expect("a reason");
+        assert!(
+            why.starts_with("Could not start MIDI: no more threads."),
+            "{why}"
+        );
+        assert!(
+            why.ends_with("Try again, or restart if this keeps happening."),
+            "a way forward: {why}"
+        );
+    }
 
     #[test]
     fn ports_appear_and_disappear_with_hot_plug() {

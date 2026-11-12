@@ -29,7 +29,7 @@ pub(super) fn record_offset(
         field.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, "Recording offset")
         });
-        if field.double_clicked() {
+        if crate::widgets::double_click_reset(ui, &field) {
             ms = 0.0;
         }
         if (ms - offset_ms).abs() > f32::EPSILON {

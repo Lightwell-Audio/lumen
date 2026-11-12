@@ -6,8 +6,12 @@ text, and `THIRD_PARTY_NOTICES.md` at the repository root lists them.
 
 | Folder | What | Version | Changes here |
 |---|---|---|---|
-| `signalsmith-stretch/` | time-stretch and pitch-shift | header version 1.3.2, upstream tag 1.4.0 | one line: `patches/0001-reanalyse-previous-block-off-by-one.patch` (upstream #35: the high band was lost at rates within about 0.1% of 1). Marked "LUMEN PATCH 0001" in the header; re-apply it after an update unless the new tag fixes it |
-| `signalsmith-linear/` | FFT and STFT used by the stretch library | fetched with the tag above; its own tag was not recorded, so record it the next time the files are updated | none |
+| `signalsmith-stretch/` | time-stretch and pitch-shift | header version 1.3.2, from the header's own `version[3]` constant; the upstream release tag is **not recorded** in the files | one line: `patches/0001-reanalyse-previous-block-off-by-one.patch` (upstream #35: the high band was lost at rates within about 0.1% of 1). Marked "LUMEN PATCH 0001" in the header; re-apply it after an update unless the new tag fixes it |
+| `signalsmith-linear/` | FFT and STFT used by the stretch library | **not recorded**: neither file carries a version string, so record the tag when the files are next updated | none |
+
+The header's version constant is what the file says about itself, not the
+release it was fetched from; the tags come from the fetch and go in this table
+when the files are updated.
 
 Our binding is `../src/stretch/shim.cpp` (a C interface over the library's
 class, with every call guarded against C++ exceptions) and

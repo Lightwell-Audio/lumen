@@ -86,7 +86,9 @@ impl App {
                 self.settings.projects.associate_files = wish;
                 self.settings_changed = Some(std::time::Instant::now());
             }
-            if let crate::association::State::Other(path) = self.association.status().state {
+            if let Some(crate::association::State::Other(path)) =
+                self.association_status().map(|status| &status.state)
+            {
                 widgets::hint(
                     ui,
                     &format!(
@@ -149,9 +151,9 @@ impl App {
             Scan::Failed(_) => "The scan could not run: see the Plugins step".to_owned(),
             Scan::Off => "Off for this run".to_owned(),
             Scan::Idle => {
-                let ready = welcome::plugins_ready(self.plugins.catalog());
+                let ready = rules::plugins_ready(self.plugins.catalog());
                 let blocked = self.plugins.catalog().blocked().len();
-                let mut line = format!("{} ready", welcome::count(ready, "plugin", "plugins"));
+                let mut line = format!("{} ready", rules::count(ready, "plugin", "plugins"));
                 if blocked > 0 {
                     line.push_str(&format!(" \u{b7} {blocked} blocked"));
                 }

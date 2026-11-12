@@ -27,13 +27,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 // Const-initialised and without a destructor, so accessing these from inside
 // the allocator never allocates.
 thread_local! {
-    // False positive in clippy 1.99: the initializers are already `const`.
-    #[allow(clippy::missing_const_for_thread_local)]
     static RT_DEPTH: Cell<u32> = const { Cell::new(0) };
-    #[allow(clippy::missing_const_for_thread_local)]
     static THREAD_VIOLATIONS: Cell<u64> = const { Cell::new(0) };
 }
-
 static TOTAL_VIOLATIONS: AtomicU64 = AtomicU64::new(0);
 
 /// Global allocator that counts heap operations made inside [`rt_section`].
@@ -88,7 +84,6 @@ static FAILURE_HOOK: std::sync::OnceLock<fn(usize)> = std::sync::OnceLock::new()
 thread_local! {
     // Set while the hook runs, so an allocation failing inside it does not
     // call it again.
-    #[allow(clippy::missing_const_for_thread_local)]
     static IN_FAILURE_HOOK: Cell<bool> = const { Cell::new(false) };
 }
 

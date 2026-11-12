@@ -10,5 +10,8 @@ publish.workspace = true
 [dependencies]
 lumen-core.workspace = true
 
+[dev-dependencies]
+lumen-rt.workspace = true
+
 [lints]
 workspace = true

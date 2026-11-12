@@ -185,7 +185,7 @@ impl App {
             Err(TryRecvError::Empty) => {
                 let shown = (progress * 100.0).floor() as u32;
                 self.say(format!("{} {shown}% \u{b7} Esc to stop", verb(purpose)));
-                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                ctx.request_repaint_after(crate::motion::PROGRESS_FAST);
             }
             Err(TryRecvError::Disconnected) => {
                 self.collecting = None;
@@ -225,6 +225,7 @@ impl App {
             copied,
             bytes,
             skipped,
+            backup_error,
         } = saved;
         let audio = match copied {
             0 => String::new(),
@@ -265,6 +266,11 @@ impl App {
             } else {
                 format!("Saved a copy as {called} ({audio})")
             }),
+        }
+        // The save committed even where the previous version could not be
+        // kept: say both, so the warning is not taken for a failed save.
+        if let Some(why) = &backup_error {
+            self.file_notice = Some(format!("Saved, but {why}. Your project itself was saved."));
         }
         match skipped.as_slice() {
             [] => {}

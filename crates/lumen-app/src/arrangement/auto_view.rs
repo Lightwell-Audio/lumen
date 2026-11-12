@@ -438,9 +438,16 @@ impl Arrangement {
         painter.rect_filled(
             rect,
             0.0,
-            tint.gamma_multiply(if writes { 0.09 } else { 0.05 }),
+            tint.gamma_multiply(if writes {
+                theme::alpha::WASH_WRITE
+            } else {
+                theme::alpha::WASH_FAINT
+            }),
         );
-        let edge = Stroke::new(theme::stroke::HAIRLINE, tint.gamma_multiply(0.45));
+        let edge = Stroke::new(
+            theme::stroke::HAIRLINE,
+            tint.gamma_multiply(theme::alpha::EDGE_SOFT),
+        );
         painter.hline(canvas_x, rect.top() + 0.5, edge);
         painter.hline(canvas_x, rect.bottom() - 1.5, edge);
         // Where the control rests, to read the curve against.
@@ -449,7 +456,7 @@ impl Arrangement {
             frame.y(target, target.default_value()),
             Stroke::new(
                 theme::stroke::HAIRLINE,
-                palette.border_strong.gamma_multiply(0.6),
+                palette.border_strong.gamma_multiply(theme::alpha::EDGE_DIM),
             ),
         );
         let Some(entry) = entry else {
@@ -716,7 +723,10 @@ pub(crate) fn draw_point(painter: &Painter, at: Pos2, ink: Color32, picked: bool
         painter.circle_stroke(
             at,
             radius + 3.0,
-            Stroke::new(theme::stroke::HAIRLINE, ink.gamma_multiply(0.6)),
+            Stroke::new(
+                theme::stroke::HAIRLINE,
+                ink.gamma_multiply(theme::alpha::EDGE_DIM),
+            ),
         );
     }
 }

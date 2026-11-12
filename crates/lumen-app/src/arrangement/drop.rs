@@ -183,11 +183,18 @@ impl Arrangement {
                 let Some(lane) = self.lane_of(ctx, project, pending, canvas, id) else {
                     return;
                 };
-                painter.rect_filled(lane, 0.0, palette.accent.gamma_multiply(0.08));
+                painter.rect_filled(
+                    lane,
+                    0.0,
+                    palette.accent.gamma_multiply(theme::alpha::WASH_DROP),
+                );
                 painter.rect_stroke(
                     lane,
                     0.0,
-                    Stroke::new(1.0, palette.accent.gamma_multiply(0.5)),
+                    Stroke::new(
+                        theme::stroke::HAIRLINE,
+                        palette.accent.gamma_multiply(theme::alpha::EDGE),
+                    ),
                     egui::StrokeKind::Inside,
                 );
                 let ghost = Rect::from_min_size(
@@ -197,7 +204,7 @@ impl Arrangement {
                 painter.rect_filled(
                     ghost,
                     theme::radius::SMALL,
-                    palette.accent.gamma_multiply(0.14),
+                    palette.accent.gamma_multiply(theme::alpha::WASH_BAND),
                 );
                 painter.add(egui::Shape::dashed_line(
                     &[
@@ -207,7 +214,7 @@ impl Arrangement {
                         ghost.left_bottom(),
                         ghost.left_top(),
                     ],
-                    Stroke::new(1.0, palette.accent),
+                    Stroke::new(theme::stroke::HAIRLINE, palette.accent),
                     4.0,
                     3.0,
                 ));
@@ -223,9 +230,16 @@ impl Arrangement {
                 painter.hline(
                     canvas.x_range(),
                     line,
-                    Stroke::new(6.0, palette.accent.gamma_multiply(0.15)),
+                    Stroke::new(
+                        theme::stroke::GLOW_WIDE,
+                        palette.accent.gamma_multiply(theme::alpha::GLOW),
+                    ),
                 );
-                painter.hline(canvas.x_range(), line, Stroke::new(2.0, palette.accent));
+                painter.hline(
+                    canvas.x_range(),
+                    line,
+                    Stroke::new(theme::stroke::EDGE, palette.accent),
+                );
                 let hint = group
                     .and_then(|g| project.tracks.iter().find(|t| t.id == g))
                     .map_or_else(

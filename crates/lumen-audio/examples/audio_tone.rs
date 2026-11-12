@@ -121,7 +121,8 @@ fn main() {
             phase = p;
         }
     };
-    let audio = AudioSystem::spawn(make, Box::new(callback), Timing::default());
+    let audio = AudioSystem::spawn(make, Box::new(callback), Timing::default())
+        .expect("the audio control thread starts");
     audio.configure(StreamConfig {
         device,
         sample_rate: value("--rate").and_then(|s| s.parse().ok()),

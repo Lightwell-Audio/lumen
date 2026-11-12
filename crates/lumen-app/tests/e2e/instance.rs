@@ -314,6 +314,32 @@ fn another_copy_is_named_and_use_this_copy_takes_it_over() {
 
 #[cfg(windows)]
 #[test]
+fn the_files_row_draws_the_status_a_worker_read() {
+    let mut lumen = files_page("instance-assoc-cache");
+    assert_eq!(lumen.app().association(), "off");
+    // Changed in Windows while the page shows: drawing keeps the answer the
+    // worker brought, and never reads the registry itself (sweep M4b).
+    let other = lumen.dir().join("Old").join("lumen.exe");
+    lumen.app_mut().change_association_hive(Some(&other));
+    lumen.frames(10);
+    assert_eq!(
+        lumen.app().association(),
+        "off",
+        "the row did not look again"
+    );
+    assert!(!lumen.is_on(SWITCH));
+    // A window opening asks again: the next answer shows.
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.run_until("Preferences closed", |l| !l.shows(SWITCH));
+    lumen.open_preferences("Files");
+    lumen.run_until("the worker's new answer", |l| {
+        l.app().association().starts_with("other: ")
+    });
+    assert!(lumen.shows("Use this copy"));
+}
+
+#[cfg(windows)]
+#[test]
 fn the_persons_own_choice_links_to_default_apps_and_a_failed_write_is_shown() {
     use egui_kittest::kittest::Queryable;
     let mut lumen = files_page("instance-assoc-choice");
@@ -407,7 +433,7 @@ fn recover_waits_while_the_open_project_has_unsaved_changes() {
     let mut again = Lumen::start_with(dir, |launch| launch);
     again.key(Modifiers::COMMAND, Key::T);
     again.key(Modifiers::COMMAND, Key::T);
-    again.frames(5);
+    again.run_until("the recovery banner", |lumen| lumen.shows("Recover"));
     assert!(
         again.shows("Recovering replaces the open project: save your changes to Untitled first.")
     );

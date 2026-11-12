@@ -24,7 +24,7 @@ impl fmt::Display for ReadError {
         match self {
             ReadError::Malformed(why) => write!(f, "not a readable MIDI file ({why})"),
             ReadError::Sequential => {
-                f.write_str("a type 2 MIDI file (separate songs), which Lumen does not read")
+                f.write_str("a type 2 MIDI file (separate songs), which this reader does not read")
             }
         }
     }

@@ -136,12 +136,12 @@ impl App {
         painter.hline(
             header.x_range(),
             header.top(),
-            Stroke::new(1.0, palette.border_strong),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
         );
         painter.hline(
             header.x_range(),
             header.bottom(),
-            Stroke::new(1.0, palette.border),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
         self.lane_header(ui, header, ed);
         ed.lane.sync(clip);

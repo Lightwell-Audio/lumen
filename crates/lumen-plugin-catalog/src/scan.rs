@@ -62,7 +62,8 @@ pub struct Summary {
     pub removed: usize,
     pub cancelled: bool,
     /// Set when no scan could start at all: the host binary is missing or
-    /// unusable. The message says what was tried.
+    /// unusable, or a thread the scan needs could not be started. The message
+    /// says what was tried.
     pub host_missing: Option<String>,
     /// Bundles skipped for having no binary for this platform.
     pub without_binary: usize,
@@ -170,35 +171,51 @@ impl Scanner {
         let abort = AtomicBool::new(false);
         let (tx, rx) = mpsc::channel::<(usize, ScanOutcome)>();
         let stop = || cancel.load(Ordering::Relaxed) || abort.load(Ordering::Relaxed);
+        let mut workers = 0;
+        let mut unstarted = None;
         std::thread::scope(|scope| {
-            for _ in 0..self.jobs.clamp(1, total) {
+            for worker in 0..self.jobs.clamp(1, total) {
                 let tx = tx.clone();
                 let (todo, next, stop) = (&todo, &next, &stop);
-                scope.spawn(move || {
-                    loop {
-                        if stop() {
-                            return;
+                let started = std::thread::Builder::new()
+                    .name(format!("lumen-scan-{worker}"))
+                    .spawn_scoped(scope, move || {
+                        loop {
+                            if stop() {
+                                return;
+                            }
+                            let index = next.fetch_add(1, Ordering::Relaxed);
+                            let Some((module, _)) = todo.get(index) else {
+                                return;
+                            };
+                            let env = self
+                                .child_env
+                                .as_ref()
+                                .map(|f| f(module))
+                                .unwrap_or_default();
+                            let env: Vec<(&str, &str)> =
+                                env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+                            let outcome =
+                                run_scan(&self.host, &module.path, self.deadline, &env, cancel);
+                            if tx.send((index, outcome)).is_err() {
+                                return;
+                            }
                         }
-                        let index = next.fetch_add(1, Ordering::Relaxed);
-                        let Some((module, _)) = todo.get(index) else {
-                            return;
-                        };
-                        let env = self
-                            .child_env
-                            .as_ref()
-                            .map(|f| f(module))
-                            .unwrap_or_default();
-                        let env: Vec<(&str, &str)> =
-                            env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-                        let outcome =
-                            run_scan(&self.host, &module.path, self.deadline, &env, cancel);
-                        if tx.send((index, outcome)).is_err() {
-                            return;
-                        }
+                    });
+                match started {
+                    Ok(_) => workers += 1,
+                    // A worker the system will not start costs the pool one of
+                    // its threads, not the scan: the others carry on, and a
+                    // pool with none is answered below.
+                    Err(error) => {
+                        unstarted.get_or_insert_with(|| error.to_string());
                     }
-                });
+                }
             }
             drop(tx);
+            if workers == 0 {
+                return;
+            }
 
             let mut done = 0;
             for (index, outcome) in rx {
@@ -232,8 +249,22 @@ impl Scanner {
                 cache.set(entry);
             }
         });
+        if workers == 0 {
+            // No module was tried, so none of them is blocked by this: the
+            // scan itself could not run.
+            summary.host_missing = Some(no_workers(unstarted.as_deref()));
+        }
         summary.cancelled = cancel.load(Ordering::Relaxed);
         summary
+    }
+}
+
+/// The message for a pool that could not start a thread, so that no module was
+/// tried at all.
+fn no_workers(why: Option<&str>) -> String {
+    match why {
+        Some(why) => format!("could not start a thread to scan with: {why}"),
+        None => "could not start a thread to scan with".to_string(),
     }
 }
 
@@ -293,4 +324,19 @@ fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::no_workers;
+
+    /// A pool with no worker thread says so: no module was tried, so none of
+    /// them is blocked by it.
+    #[test]
+    fn a_pool_that_could_not_start_says_why() {
+        let why = no_workers(Some("the system is out of threads"));
+        assert!(why.contains("thread"), "{why}");
+        assert!(why.contains("out of threads"), "{why}");
+        assert!(no_workers(None).contains("thread"));
+    }
 }

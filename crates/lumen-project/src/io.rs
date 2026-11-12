@@ -9,6 +9,7 @@
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lumen_core::product::{PRODUCT_NAME, display_name};
@@ -168,10 +169,34 @@ impl Default for SaveOptions {
     }
 }
 
+/// What a successful save did besides write the project.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SaveReport {
+    /// Why the previous version could not be copied into `Backups`. The save
+    /// itself committed: the project file holds the new content. A caller may
+    /// show this as a warning.
+    pub backup_error: Option<String>,
+}
+
 /// Saves atomically, keeping rolling backups of the previous file.
+///
+/// A backup that cannot be made is reported in [`SaveReport`] and does not
+/// stop the save: the new content replaces the old file either way, because
+/// losing the save is worse than losing one backup.
 pub fn save(project: &Project, path: &Path, options: &SaveOptions) -> Result<(), SaveError> {
+    save_with_report(project, path, options).map(|_| ())
+}
+
+/// [`save`], also saying whether the backup of the previous version was made.
+pub fn save_with_report(
+    project: &Project,
+    path: &Path,
+    options: &SaveOptions,
+) -> Result<SaveReport, SaveError> {
     let bytes = to_bytes(project)?;
-    write_atomically(path, &bytes, options, &mut |_| Ok(())).map_err(SaveError::Io)
+    let backup_error =
+        write_atomically(path, &bytes, options, &mut |_| Ok(())).map_err(SaveError::Io)?;
+    Ok(SaveReport { backup_error })
 }
 
 /// Writes any file (an exported MIDI file, M5 slice 7) by the project's
@@ -179,17 +204,19 @@ pub fn save(project: &Project, path: &Path, options: &SaveOptions) -> Result<(),
 /// the old one, so a crash leaves the old file or the new, never half.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let options = SaveOptions { keep_backups: 0 };
-    write_atomically(path, bytes, &options, &mut |_| Ok(()))
+    write_atomically(path, bytes, &options, &mut |_| Ok(())).map(|_| ())
 }
 
 /// The commit protocol. `before_commit` runs after the new content is safely
 /// on disk and before it replaces the old file (a test seam for failures).
+/// Returns why the backup of the previous version could not be made, if it
+/// could not: that is a warning, not a failure of the write.
 fn write_atomically(
     path: &Path,
     bytes: &[u8],
     options: &SaveOptions,
     before_commit: &mut dyn FnMut(&Path) -> io::Result<()>,
-) -> io::Result<()> {
+) -> io::Result<Option<String>> {
     let dir = path
         .parent()
         .filter(|d| !d.as_os_str().is_empty())
@@ -199,18 +226,25 @@ fn write_atomically(
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?
         .to_string_lossy()
         .into_owned();
-    let temp = dir.join(format!(".{name}.{}.saving", std::process::id()));
+    let temp = dir.join(temp_name(&name));
     let result = (|| {
         let mut file = File::create(&temp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         drop(file);
         before_commit(&temp)?;
-        if options.keep_backups > 0 && path.exists() {
-            back_up(path, dir, &name, options.keep_backups)?;
-        }
+        // Best effort: whatever happens to the backup, the new content is
+        // renamed into place below.
+        let backup_error = if options.keep_backups > 0 && path.exists() {
+            back_up(path, dir, &name, options.keep_backups)
+                .err()
+                .map(|error| format!("the previous version could not be backed up: {error}"))
+        } else {
+            None
+        };
         fs::rename(&temp, path)?;
-        sync_dir(dir)
+        sync_dir(dir)?;
+        Ok(backup_error)
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temp);
@@ -231,15 +265,40 @@ fn sync_dir(_dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// The temporary file a save writes before renaming it over the project:
+/// `.<name>.<pid>.<save>.saving`. The counter makes it unique per save
+/// within the process, so two saves of one path cannot share it. (Older
+/// names had only the process id; [`remove_stale_temp_files`] still
+/// recognises them.)
+fn temp_name(name: &str) -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    let save = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!(".{name}.{}.{save}.saving", std::process::id())
+}
+
+/// Whether `file` is a temporary file this module wrote for `name`, in the
+/// current `.<name>.<pid>.<save>.saving` shape or the older
+/// `.<name>.<pid>.saving` one. Its parts are all digits, so a file of a
+/// similar name that a person made is left alone.
+fn is_temp_name(file: &str, name: &str) -> bool {
+    file.strip_prefix(&format!(".{name}."))
+        .and_then(|rest| rest.strip_suffix(".saving"))
+        .is_some_and(|parts| {
+            !parts.is_empty()
+                && parts
+                    .split('.')
+                    .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+        })
+}
+
 /// Leftovers of saves that crashed before committing.
 fn remove_stale_temp_files(dir: &Path, name: &str) {
-    let prefix = format!(".{name}.");
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let file = entry.file_name().to_string_lossy().into_owned();
-        if file.starts_with(&prefix) && file.ends_with(".saving") {
+        if is_temp_name(&file, name) {
             let _ = fs::remove_file(entry.path());
         }
     }
@@ -415,6 +474,59 @@ mod tests {
             !stale.exists(),
             "stale temp file should be removed after a good save"
         );
+    }
+
+    #[test]
+    fn a_save_commits_even_when_the_backup_cannot_be_made() {
+        let dir = TempDir::new("backup-fails");
+        let path = dir.path().join("Song.lumen");
+        save(&small_project(1), &path, &SaveOptions::default()).unwrap();
+        // A file where the `Backups` folder would be: making the folder
+        // fails on every platform.
+        fs::write(dir.path().join("Backups"), b"not a folder").unwrap();
+
+        let report = save_with_report(&small_project(2), &path, &SaveOptions::default())
+            .expect("the save must win over a failed backup");
+        assert!(report.backup_error.is_some(), "the failure is reported");
+        assert_eq!(
+            load(&path).unwrap(),
+            small_project(2),
+            "the new content is on disk"
+        );
+        assert!(
+            dir.path().join("Backups").is_file(),
+            "the failed backup left what was there alone"
+        );
+        // The previous API keeps working the same way.
+        save(&small_project(3), &path, &SaveOptions::default()).expect("the save still wins");
+        assert_eq!(load(&path).unwrap(), small_project(3));
+    }
+
+    #[test]
+    fn temp_names_are_unique_per_save_and_both_shapes_are_cleaned() {
+        let first = temp_name("Song.lumen");
+        let second = temp_name("Song.lumen");
+        assert_ne!(first, second, "two saves cannot share a temp file");
+        assert!(is_temp_name(&first, "Song.lumen"));
+        assert!(
+            is_temp_name(".Song.lumen.99999.saving", "Song.lumen"),
+            "the older shape is still recognised"
+        );
+        assert!(!is_temp_name(".Song.lumen.notes.saving", "Song.lumen"));
+        assert!(!is_temp_name(&temp_name("Other.lumen"), "Song.lumen"));
+
+        let dir = TempDir::new("temp-names");
+        fs::write(dir.path().join(&first), b"new").unwrap();
+        fs::write(dir.path().join(".Song.lumen.99999.saving"), b"old").unwrap();
+        fs::write(dir.path().join(".Song.lumen.notes.txt"), b"keep").unwrap();
+        remove_stale_temp_files(dir.path(), "Song.lumen");
+        let mut left: Vec<String> = fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, [".Song.lumen.notes.txt"]);
     }
 
     #[test]

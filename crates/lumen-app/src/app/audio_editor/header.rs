@@ -97,7 +97,7 @@ fn loop_glyph(painter: &egui::Painter, centre: egui::Pos2, ink: Color32) {
     painter.rect_stroke(
         body,
         4.0,
-        egui::Stroke::new(1.5, ink),
+        egui::Stroke::new(theme::stroke::LIT, ink),
         egui::StrokeKind::Middle,
     );
     let tip = egui::pos2(centre.x + 2.0, body.top());
@@ -116,7 +116,10 @@ fn loop_glyph(painter: &egui::Painter, centre: egui::Pos2, ink: Color32) {
 /// marked.
 fn crossing_glyph(painter: &egui::Painter, centre: egui::Pos2, ink: Color32) {
     let half = 6.0;
-    let line = egui::Stroke::new(theme::stroke::HAIRLINE, ink.gamma_multiply(0.6));
+    let line = egui::Stroke::new(
+        theme::stroke::HAIRLINE,
+        ink.gamma_multiply(theme::alpha::EDGE_DIM),
+    );
     painter.hline(centre.x - half..=centre.x + half, centre.y, line);
     let points: Vec<egui::Pos2> = (0..=16)
         .map(|i| {
@@ -126,7 +129,10 @@ fn crossing_glyph(painter: &egui::Painter, centre: egui::Pos2, ink: Color32) {
             egui::pos2(x, y)
         })
         .collect();
-    painter.add(egui::Shape::line(points, egui::Stroke::new(1.25, ink)));
+    painter.add(egui::Shape::line(
+        points,
+        egui::Stroke::new(theme::stroke::GLYPH, ink),
+    ));
     painter.circle_filled(centre, 1.75, ink);
 }
 

@@ -11,12 +11,23 @@ pub enum StreamEvent {
     ResetRequested,
     /// No callbacks for longer than the watchdog allows.
     Stalled,
+    /// The driver missed `n` buffers (an overload): audio goes on, and they
+    /// count as dropouts.
+    Dropped(u64),
 }
 
 /// A failed open hands the callback back so nothing is lost.
 pub struct OpenError {
     pub error: AudioError,
     pub callback: Box<dyn AudioCallback>,
+}
+
+/// A callback that does nothing: for a stream whose real callback went with a
+/// thread that died before it could hand it back. Audio is silent and the
+/// failure is reported, rather than the app panicking over a callback it
+/// cannot recover.
+pub(crate) fn silent() -> Box<dyn AudioCallback> {
+    Box::new(|_: &mut crate::types::Block<'_>| {})
 }
 
 impl std::fmt::Debug for OpenError {

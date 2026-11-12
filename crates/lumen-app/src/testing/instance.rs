@@ -53,7 +53,12 @@ impl App {
 
     /// Who opens `.lumen` files: "off", "this" or "other: <path>".
     pub fn association(&self) -> String {
-        match self.association.status().state {
+        // A test may ask before the worker's first answer is in.
+        let status = self
+            .association_status()
+            .cloned()
+            .unwrap_or_else(|| self.association.status());
+        match status.state {
             State::Off => "off".to_owned(),
             State::This => "this".to_owned(),
             State::Other(path) => format!("other: {}", path.display()),
@@ -78,6 +83,22 @@ impl App {
                     .expect("a map takes writes");
             }
             hive.fail = fail.map(str::to_owned);
+        });
+        // The hive changed under the worker's feet: the answer it would give
+        // is taken at once, so the row and a normal start read it.
+        let status = self.association.status();
+        self.association_status.set(status);
+    }
+
+    /// The hive changes without the app seeing it, as a change made in
+    /// Windows while Lumen runs would: the worker's cache is left as it is,
+    /// so a test tells a row that draws the cache from one that reads the
+    /// registry every frame.
+    pub fn change_association_hive(&mut self, other: Option<&std::path::Path>) {
+        self.association.seed(|hive| {
+            if let Some(other) = other {
+                crate::association::register(hive, other).expect("a map takes writes");
+            }
         });
     }
 

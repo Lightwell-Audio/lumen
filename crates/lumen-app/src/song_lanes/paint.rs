@@ -81,7 +81,10 @@ fn corner(painter: &Painter, band: &Band, look: &Look<'_>) {
 fn wash(painter: &Painter, rect: Rect, strength: f32) {
     let palette = theme::p();
     painter.rect_filled(rect, 0.0, palette.accent.gamma_multiply(strength));
-    let edge = Stroke::new(theme::stroke::HAIRLINE, palette.accent.gamma_multiply(0.45));
+    let edge = Stroke::new(
+        theme::stroke::HAIRLINE,
+        palette.accent.gamma_multiply(theme::alpha::EDGE_SOFT),
+    );
     painter.hline(rect.x_range(), rect.top() + 0.5, edge);
     painter.hline(rect.x_range(), rect.bottom() - 0.5, edge);
 }
@@ -234,7 +237,7 @@ fn bar_lines(painter: &Painter, band: &Band, look: &Look<'_>) {
     }
     let stroke = Stroke::new(
         theme::stroke::HAIRLINE,
-        theme::p().border.gamma_multiply(0.6),
+        theme::p().border.gamma_multiply(theme::alpha::EDGE_DIM),
     );
     for bar in from..=to {
         let x = plane.x(map.bar_start(bar));

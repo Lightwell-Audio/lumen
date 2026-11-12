@@ -300,10 +300,20 @@ impl Audio {
         if let Some(system) = &self.system {
             system.configure(config.clone());
         } else if let Some(callback) = self.parked.take() {
-            let system = AudioSystem::spawn(found.make, callback, Timing::default());
-            system.configure(config.clone());
-            self.meters = Some(Arc::clone(system.status()));
-            self.system = Some(system);
+            match AudioSystem::spawn(found.make, callback, Timing::default()) {
+                Ok(system) => {
+                    system.configure(config.clone());
+                    self.meters = Some(Arc::clone(system.status()));
+                    self.system = Some(system);
+                }
+                Err(failed) => {
+                    // The callback comes back so audio can be tried again.
+                    // Audio stays off, and the bar says why.
+                    self.parked = Some(failed.callback);
+                    self.status = Status::Off(failed.error.to_string());
+                    return;
+                }
+            }
         }
         self.opened(found);
     }

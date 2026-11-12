@@ -149,7 +149,8 @@ fn main() {
         let (rate, channels, frames) = (block.sample_rate, block.output_channels, block.frames);
         engine.process(rate, block.outputs, channels, frames);
     };
-    let audio = AudioSystem::spawn(make, Box::new(callback), Timing::default());
+    let audio = AudioSystem::spawn(make, Box::new(callback), Timing::default())
+        .expect("the audio control thread starts");
     audio.configure(StreamConfig {
         device,
         sample_rate: None,

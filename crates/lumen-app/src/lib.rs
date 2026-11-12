@@ -45,72 +45,60 @@ mod association;
 mod audio;
 mod audio_editor;
 mod audition;
-mod autosave;
+mod bake;
 mod bench;
-mod bounce;
-mod brand;
 mod browser;
 mod callback_bench;
-mod canvas;
 mod chain;
 #[cfg(test)]
 mod clip_flags_render;
 mod commands;
-mod consolidate;
-mod crash;
-mod crossfades;
+mod design;
 mod disk;
 mod document;
+mod engine;
 mod export;
-mod files;
-mod fonts;
 mod hosting;
-mod icons;
 mod instance;
-mod lane_bake;
-mod lanes;
-mod launch;
-mod light;
 mod live;
 mod live_tap;
 mod measure_latency;
 mod media;
 mod meters;
 mod midi;
-mod motion;
-mod normalize;
 mod note_editor;
-mod owner;
 mod panels;
 mod piano_roll;
-mod played;
-mod playhead;
 mod plugins;
 mod pool;
-mod position;
 mod preferences;
 mod preset_files;
 mod probe;
+mod project_files;
 mod recording;
-mod relink;
-mod routing;
-mod ruler;
 mod settings;
 mod song_lanes;
+mod spawn;
 mod strays;
-mod tap_tempo;
-mod templates;
+mod system;
 pub mod testing;
-mod theme;
-mod timefmt;
-mod timeview;
-mod trace;
+mod timeline;
 mod transport;
-mod welcome;
 mod widgets;
 
-pub use launch::Launch;
-pub use timeview::TimeView;
+pub use system::launch::Launch;
+pub use timeline::timeview::TimeView;
+
+pub(crate) use bake::{bounce, consolidate, crossfades, normalize};
+pub(crate) use design::{fonts, icons, light, motion, theme};
+pub(crate) use engine::{lane_bake, lanes, played, routing};
+pub(crate) use project_files::{autosave, files, relink};
+pub(crate) use system::{brand, crash, launch, owner, trace};
+pub(crate) use timeline::{canvas, playhead, position, ruler, timefmt, timeview};
+
+// The first-run window's state and rules, kept as `crate::welcome` while they
+// live in `app/welcome/` with the window that draws them (audit M11).
+pub(crate) use app::welcome;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -198,6 +186,8 @@ pub struct App {
     holding: Option<app::handover::Holding>,
     /// Opening `.lumen` files with this copy (M9 R8).
     association: association::Association,
+    /// Who opens them, as a worker last read it (sweep M4b).
+    association_status: app::association::Reported,
     /// The project a drop opened and how many files of the drop were left
     /// out, said again when that project opens.
     left_out: Option<(PathBuf, usize)>,
@@ -212,6 +202,8 @@ pub struct App {
     autosave: Option<autosave::Autosave>,
     /// An autosave left by a crash, offered for recovery.
     leftover: Option<autosave::Leftover>,
+    /// The scan for those autosaves, on a worker (sweep M4a).
+    leftovers: app::recovery::Leftovers,
     /// A crash report from an earlier run not shown yet, and `--crash-test`.
     crash_report: Option<PathBuf>,
     crash_test: Option<crash::Test>,
@@ -570,6 +562,8 @@ impl eframe::App for App {
         self.poll_cache(&ctx);
         self.poll_collecting(&ctx);
         self.poll_templates(&ctx);
+        self.poll_leftovers(&ctx);
+        self.poll_association(&ctx);
         self.autosave(&ctx);
         let rate = self.transport.state().sample_rate;
         let mut dropped: Vec<PathBuf> = ctx.input(|i| {
@@ -879,9 +873,9 @@ impl eframe::App for App {
             ctx.request_repaint_after(app::audio_inputs::WATCH_EVERY);
         } else if self.transport.audio.waiting() {
             // A device change answers on its worker (ADR-0113).
-            ctx.request_repaint_after(Duration::from_millis(100));
+            ctx.request_repaint_after(crate::motion::WAIT_FRAME);
         } else {
-            ctx.request_repaint_after(Duration::from_secs(1));
+            ctx.request_repaint_after(crate::motion::IDLE_TICK);
         }
 
         self.test_modes_after(&ctx);

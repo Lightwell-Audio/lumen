@@ -558,7 +558,10 @@ impl Pump for WindowPump {
 fn bring_forward(app: Retained<NSApplication>, window: &NSWindow) {
     // The cooperative `activate` of newer systems does nothing unless the
     // active application yields, and Lumen does not.
-    #[allow(deprecated)]
+    #[allow(
+        deprecated,
+        reason = "the newer cooperative activate does nothing unless the active application yields, and Lumen does not"
+    )]
     app.activateIgnoringOtherApps(true);
     window.makeKeyAndOrderFront(None);
     window.orderFrontRegardless();

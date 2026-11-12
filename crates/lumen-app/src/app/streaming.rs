@@ -39,6 +39,14 @@ impl App {
                     self.slow_disk,
                 )
             });
+            if let Some(why) = streaming
+                .as_ref()
+                .and_then(|streaming| streaming.disk().failure())
+            {
+                // Streaming stays on so the next frame does not try again;
+                // long files play from memory when the preference is off.
+                self.say(why.to_owned());
+            }
             crate::trace::log(|| format!("streaming {}", if wanted { "on" } else { "off" }));
             self.lanes.library.set_streaming(streaming);
             self.disk_scene = None;

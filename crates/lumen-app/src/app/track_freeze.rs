@@ -246,7 +246,7 @@ impl App {
                 return;
             }
             if self.hosting.captures_pending() && waiting.since.elapsed() < PLUGIN_READ_WAIT {
-                ctx.request_repaint_after(std::time::Duration::from_millis(30));
+                ctx.request_repaint_after(crate::motion::WORK_FRAME);
                 return;
             }
             if let Some(waiting) = self.freeze_waiting.take() {

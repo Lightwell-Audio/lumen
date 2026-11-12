@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 
 pub const FLAG: &str = "--probe-asio";
 const TIMEOUT: Duration = Duration::from_secs(5);
+/// How often the helper is looked at while it runs.
+const POLL: Duration = Duration::from_millis(20);
 
 /// What the helper reports.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -148,7 +150,7 @@ pub fn probe_asio(clsid: &str) -> Result<DeviceInfo, String> {
                     TIMEOUT.as_secs()
                 ));
             }
-            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Ok(None) => std::thread::sleep(POLL),
             Err(e) => return Err(e.to_string()),
         }
     }

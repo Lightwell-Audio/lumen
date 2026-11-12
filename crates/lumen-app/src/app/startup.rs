@@ -174,6 +174,7 @@ impl App {
             instance: launch.instance,
             holding: None,
             association: crate::association::Association::new(launch.association),
+            association_status: app::association::Reported::default(),
             left_out: None,
             freeze_waiting: None,
             freezing: None,
@@ -220,6 +221,9 @@ impl App {
             owner: None,
             autosave: None,
             leftover: None,
+            leftovers: app::recovery::Leftovers::new(
+                launch.recover_latest && launch.open.is_none(),
+            ),
             crash_report: launch.crash_dir.as_deref().and_then(crash::unseen),
             crash_test: launch.crash_test,
             crash_dir: launch.crash_dir.clone(),
@@ -309,18 +313,12 @@ impl App {
         // Settled for the run: a folder chosen later is used from the next
         // start.
         app.cache.dir = app.chosen_cache_dir();
-        app.leftover = app.next_leftover();
         app.restore_place_folder();
-        if launch.recover_latest
-            && let Some(leftover) = app.leftover.take()
-        {
-            app.begin_opening(leftover.file.clone());
-            app.recovering = Some(leftover);
-        }
-        // Projects open from File Explorer by default (M9 R8, ADR-0117).
-        if app.association.is_system() {
-            app.associate_at_start();
-        }
+        // Projects open from File Explorer by default (M9 R8, ADR-0117):
+        // registered once the association has been read on a worker, so
+        // start-up never waits on the registry (sweep M4b).
+        app.association_status
+            .start_registers(app.association.is_system());
         // `lumen <file>.lumen` (and opening a project from Explorer).
         if let Some(path) = launch.open {
             app.begin_opening(path);

@@ -1,12 +1,13 @@
 //! Format v30: an audio track may name the device inputs it records from.
 //! Earlier formats route no input.
 
-use std::fs;
 use std::path::PathBuf;
 
 use lumen_project::model::{AudioInput, Color, Id, Project, Track, TrackKind};
 use lumen_project::testing::project_of;
 use lumen_project::{from_bytes, load, to_bytes, validate};
+
+mod common;
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -26,13 +27,7 @@ fn golden_v30_expected() -> Project {
 
 #[test]
 fn golden_v30_loads_and_round_trips() {
-    let path = fixture("v30/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, to_bytes(&golden_v30_expected()).unwrap()).unwrap();
-    }
-    let project = load(&path).expect("v30 golden file must load");
-    assert_eq!(project, golden_v30_expected());
+    let project = common::golden("v30", golden_v30_expected);
     assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
 }
 

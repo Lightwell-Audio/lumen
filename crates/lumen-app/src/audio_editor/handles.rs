@@ -333,7 +333,11 @@ fn draw_resting(
             let lit = hot == Some(Handle::Fade(edge));
             let ink = if lit { accent } else { quiet };
             if lit {
-                painter.circle_filled(at, handles::HANDLE_RADIUS + 2.5, accent.gamma_multiply(0.2));
+                painter.circle_filled(
+                    at,
+                    handles::HANDLE_RADIUS + 2.5,
+                    accent.gamma_multiply(theme::alpha::HALO),
+                );
             }
             if h.fade(edge).width() > 0.0 {
                 painter.circle_filled(at, handles::HANDLE_RADIUS - 0.5, ink);

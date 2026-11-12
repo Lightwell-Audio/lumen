@@ -14,6 +14,9 @@ use lumen_engine::{
     MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack, Mixer, MixerHandle, NodeSpec, Region,
     Routing, Target, Timeline, clip_player, control_list, engine, midi_player, mixer, note_list,
 };
+use lumen_rt::{count_rt_violations, guard_is_active};
+
+lumen_rt::install_guarded_allocator!();
 
 const MASTER: u64 = 100;
 const TRACK: u64 = 1;
@@ -91,6 +94,11 @@ struct Rig {
     log: Log,
     rate: u32,
     output: rtrb::Consumer<MidiOut>,
+    /// Whether the render is checked under the allocation guard. The probe
+    /// instrument logs what it is sent through a mutex and a `Vec` (it
+    /// allocates and locks, as a test's helper may), so only a rig whose
+    /// instrument is the built-in synth can be checked.
+    guarded: bool,
 }
 
 fn probe(log: &Log) -> Option<InstrumentSpec> {
@@ -132,10 +140,18 @@ fn rig(timeline: Timeline, rate: u32, tracks: Vec<MidiTrack>, log: &Log) -> Rig 
         log: Arc::clone(log),
         rate,
         output,
+        guarded: false,
     }
 }
 
 impl Rig {
+    /// Checks this rig's renders under the allocation guard: for a rig whose
+    /// instrument allocates nothing of its own.
+    fn guarded(mut self) -> Self {
+        self.guarded = true;
+        self
+    }
+
     /// Renders `frames` in blocks of `block`; returns the left channel and
     /// the frames of every impulse (+1 on, -1 off) from the first frame
     /// rendered by this call, counted from `base`.
@@ -145,7 +161,16 @@ impl Rig {
         let mut done = 0;
         while done < frames {
             let n = block.min(frames - done);
-            self.engine.process(self.rate, &mut data[..2 * n], 2, n);
+            let rate = self.rate;
+            if self.guarded {
+                // The render is the audio thread's work: nothing here may
+                // reach the heap (the allocation guard, `realtime.rs`).
+                let ((), heap) =
+                    count_rt_violations(|| self.engine.process(rate, &mut data[..2 * n], 2, n));
+                assert_eq!(heap, 0, "heap operation in process() at sample {done}");
+            } else {
+                self.engine.process(rate, &mut data[..2 * n], 2, n);
+            }
             out.extend_from_slice(&data[..n]);
             done += n;
         }
@@ -800,7 +825,7 @@ fn synth_rig(volume: f32, audible: bool) -> (Rig, Timeline) {
         )],
     );
     let timeline = Timeline::default();
-    let mut rig = rig(timeline.clone(), 48_000, vec![track], &log);
+    let mut rig = rig(timeline.clone(), 48_000, vec![track], &log).guarded();
     rig.routing
         .set(&Routing {
             nodes: vec![
@@ -820,6 +845,7 @@ fn synth_rig(volume: f32, audible: bool) -> (Rig, Timeline) {
 
 #[test]
 fn the_synth_plays_into_the_track_bus_from_its_exact_sample_and_the_mixer_applies() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     let (mut loud, timeline) = synth_rig(1.0, true);
     loud.play();
     let start = timeline.sample_at(Ticks::quarters(1) + Ticks(77), 48_000) as usize;
@@ -1237,7 +1263,7 @@ fn chord_rig(rate: u32) -> Rig {
         Some(synth),
         vec![clip(1, Ticks::ZERO, q(32), notes)],
     );
-    rig(Timeline::default(), rate, vec![track], &log)
+    rig(Timeline::default(), rate, vec![track], &log).guarded()
 }
 
 fn steepest_step(x: &[f32]) -> f32 {
@@ -1299,6 +1325,7 @@ fn pops(rate: u32, block: usize, wrap: bool) -> Vec<f32> {
 
 #[test]
 fn a_jump_or_loop_wrap_under_a_held_chord_does_not_pop() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     let mut bad = Vec::new();
     for rate in [44_100, 48_000, 96_000] {
         let steady = straight(rate);
@@ -1614,6 +1641,7 @@ fn replay_while_ringing(latency: u32) -> Replay {
 
 #[test]
 fn playing_again_while_the_synth_rings_out_does_not_click() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     for latency in [0, 256] {
         let replay = replay_while_ringing(latency);
         assert!(

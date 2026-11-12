@@ -311,28 +311,49 @@ pub enum Done {
 #[derive(Default)]
 pub struct Files {
     worker: Option<(Sender<Job>, Receiver<Done>)>,
+    /// Why the thread could not start; said once by the interface.
+    failure: Option<String>,
 }
 
 impl Files {
     fn send(&mut self, ctx: &egui::Context, job: Job) {
-        let (tx, _) = self.worker.get_or_insert_with(|| {
-            let (jobs_tx, jobs_rx) = mpsc::channel::<Job>();
-            let (done_tx, done_rx) = mpsc::channel::<Done>();
-            let ctx = ctx.clone();
-            std::thread::Builder::new()
-                .name("lumen-preset-files".into())
-                .spawn(move || {
-                    for job in jobs_rx {
-                        if done_tx.send(run(job)).is_err() {
-                            return;
-                        }
-                        ctx.request_repaint();
-                    }
-                })
-                .expect("spawn preset file thread");
-            (jobs_tx, done_rx)
-        });
-        let _ = tx.send(job);
+        if self.worker.is_none() {
+            match Self::start(ctx) {
+                Ok(worker) => self.worker = Some(worker),
+                Err(error) => {
+                    // The save or load the person asked for did not start:
+                    // say why rather than wait for an answer that is never
+                    // coming.
+                    let why = crate::spawn::start_failed("the preset files", &error);
+                    crate::trace::log(|| format!("presets: {why}"));
+                    self.failure = Some(why);
+                    return;
+                }
+            }
+        }
+        if let Some((tx, _)) = &self.worker {
+            let _ = tx.send(job);
+        }
+    }
+
+    fn start(ctx: &egui::Context) -> std::io::Result<(Sender<Job>, Receiver<Done>)> {
+        let (jobs_tx, jobs_rx) = mpsc::channel::<Job>();
+        let (done_tx, done_rx) = mpsc::channel::<Done>();
+        let ctx = ctx.clone();
+        crate::spawn::spawn_named("lumen-preset-files", move || {
+            for job in jobs_rx {
+                if done_tx.send(run(job)).is_err() {
+                    return;
+                }
+                ctx.request_repaint();
+            }
+        })?;
+        Ok((jobs_tx, done_rx))
+    }
+
+    /// Why a preset action could not start, once.
+    pub fn take_failure(&mut self) -> Option<String> {
+        self.failure.take()
     }
 
     /// Looks for `device`'s presets in `folders`.

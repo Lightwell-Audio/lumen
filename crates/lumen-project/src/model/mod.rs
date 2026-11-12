@@ -268,15 +268,6 @@ impl TimeSignature {
             denominator: self.denominator.into(),
         }
     }
-
-    /// The signature of `meter`, if a project can hold it (at most 64
-    /// beats to a bar).
-    pub fn of(meter: Meter) -> Option<TimeSignature> {
-        Some(TimeSignature {
-            numerator: u8::try_from(meter.numerator).ok().filter(|&n| n <= 64)?,
-            denominator: u8::try_from(meter.denominator).ok()?,
-        })
-    }
 }
 
 impl Project {
@@ -285,11 +276,6 @@ impl Project {
     pub fn meter_map(&self) -> MeterMap {
         MeterMap::new(self.meter.clone())
             .unwrap_or_else(|_| MeterMap::constant(Meter::FOUR_FOUR).expect("4/4 is valid"))
-    }
-
-    /// The time signature in force at `at`.
-    pub fn signature_at(&self, at: Ticks) -> TimeSignature {
-        TimeSignature::of(self.meter_map().meter_at(at)).unwrap_or(TimeSignature::FOUR_FOUR)
     }
 }
 

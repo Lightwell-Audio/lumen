@@ -368,7 +368,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         radius,
         palette
             .text
-            .gamma_multiply(crate::light::EMBER_WASH * hover * 0.5),
+            .gamma_multiply(crate::light::EMBER_WASH * hover * theme::alpha::EDGE),
     );
     let edge = if look.selected {
         Stroke::new(theme::stroke::LIT, palette.accent)
@@ -453,7 +453,7 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
         radius,
         palette
             .text
-            .gamma_multiply(crate::light::EMBER_WASH * hover * 0.5),
+            .gamma_multiply(crate::light::EMBER_WASH * hover * theme::alpha::EDGE),
     );
     let edge = if look.selected {
         Stroke::new(theme::stroke::LIT, palette.accent)

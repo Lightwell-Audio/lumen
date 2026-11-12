@@ -122,12 +122,11 @@ pub fn scan(inputs: &Inputs) -> Strays {
 }
 
 /// A take's sidecar whose session is gone for good: not this one, and with no
-/// autosave left that could recover it. One that cannot be read is not.
+/// autosave left that could recover it. One that cannot be read is not, and
+/// neither is one a newer build wrote: its shape may say something else, so
+/// it is left for that build (sweep M9).
 fn is_abandoned(sidecar: &Path, inputs: &Inputs) -> bool {
-    let Some(sidecar): Option<Sidecar> = std::fs::read(sidecar)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-    else {
+    let Some(sidecar) = known_sidecar(sidecar) else {
         return false;
     };
     if sidecar.session.is_empty() || inputs.session.as_deref() == Some(sidecar.session.as_str()) {
@@ -138,6 +137,14 @@ fn is_abandoned(sidecar: &Path, inputs: &Inputs) -> bool {
         .as_ref()
         .is_some_and(|dir| dir.join(format!("{}.lumen", sidecar.session)).is_file());
     !recoverable
+}
+
+/// The sidecar's contents, when it is this build's shape.
+fn known_sidecar(path: &Path) -> Option<Sidecar> {
+    match crate::recording::take_worker::read_sidecar(path) {
+        crate::recording::take_worker::SidecarRead::Known(sidecar) => Some(sidecar),
+        _ => None,
+    }
 }
 
 fn stray(path: PathBuf, place: Place, unfinished: bool) -> Stray {
@@ -197,7 +204,7 @@ pub struct Cleared {
 
 /// Moves `strays` (and the sidecars of unfinished takes) to the system's trash.
 /// A file the trash refuses stays where it is.
-pub fn clear(strays: &[Stray]) -> Cleared {
+pub(crate) fn clear(strays: &[Stray]) -> Cleared {
     clear_with(strays, |path| {
         trash::delete(path).map_err(|e| e.to_string())
     })
@@ -362,6 +369,7 @@ mod tests {
     fn take(recordings: &Path, name: &str, session: &str) {
         touch(&recordings.join(name), 10);
         let sidecar = Sidecar {
+            version: crate::recording::take_worker::VERSION,
             session: session.into(),
             track: 1,
             start: 0,
@@ -376,6 +384,26 @@ mod tests {
             serde_json::to_vec(&sidecar).unwrap(),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn a_take_a_newer_build_wrote_is_never_a_stray() {
+        let dir = TempDir::new("stray-newer-sidecar");
+        let recordings = dir.path().join("Recordings");
+        touch(&recordings.join("future.wav"), 10);
+        std::fs::write(
+            sidecar_path(&recordings.join("future.wav")),
+            br#"{"version":2,"session":"gone","track":1,"start":0,"rate":48000,"channels":1}"#,
+        )
+        .unwrap();
+        let inputs = Inputs {
+            recordings: Some(recordings),
+            ..Inputs::default()
+        };
+        assert!(
+            scan(&inputs).files.is_empty(),
+            "its shape may mean anything: left for the build that wrote it"
+        );
     }
 
     #[test]

@@ -12,9 +12,13 @@ value, the 12 clip colours and the size, radius, stroke and duration values
 agree; v3 adds the spacing steps `space_xl` (24), in the code as `theme::space::XL`
 since M9 R7b, and `space_2xl` (32), which the code does not have yet (add it
 to `theme::space` when a screen needs it, not before).
-Code: `crates/lumen-app/src/theme.rs` (colour, type, spacing, shape,
-strokes, the on states and the egui style built from them), `motion.rs`
-(motion), `light.rs` (light) and `widgets/raised.rs` (material, §5a).
+Code: `crates/lumen-app/src/design/theme.rs` (colour, type, spacing, shape,
+strokes, the on states and the egui style built from them), `design/motion.rs`
+(motion), `design/light.rs` (light), `design/fonts.rs`, `design/icons/` and
+`widgets/raised.rs` (material, §5a). Strokes and opacities have names
+(`theme::stroke`, `theme::alpha`; sweep M14, ADR-0141); shared controls are
+`widgets::list_row`, `raised::text_button` and `widgets::double_click_reset`:
+use them before writing a new row, text button or reset gesture.
 Every screen takes its values from there. A colour or duration written
 inline in UI code is a bug.
 
@@ -165,9 +169,11 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `key_white` | `#C9CDD4` | `#FFFFFF` | Piano-roll white keys |
 | `key_black` | `#0E1013` | `#3A3F4A` | Piano-roll black keys |
 | `key_text` | `#3A3F4A` | `#5A6170` | The C labels on the keys |
+| `key_edge` | black at 19% | black at 19% | The line where the piano roll's keys meet its lanes |
 | `well` | `#141619` | `#D6DAE0` | Inset wells: fader grooves, meter and loudness backgrounds; below every surface in both themes (M4.5) |
 | `ground` | `#111316` | `#E7E9ED` | The deepest layer, under `well`: behind the window, scrims, the app icon's base |
 | `edge_light` | white at 7% | white at 80% | The 1 pt line along the top inside edge of every raised surface (§5a) |
+| `sheen` | white at 18% | white at 18% | The sheen along the top inside half of a clip's colour bar and of a note |
 | `shade` | black at 50% | `text` at 14% | The 1 pt lip along the top inside edge of a well or a pressed control (§5a) |
 | `ember` | `text` at 8% | `text` at 8% | Light level 1, washed over what the pointer is on: the hover of raised controls, rows and segmented pieces (§6a) |
 | `shadow` | black at 38% | black at 14% | The one shadow, under windows and popovers |
@@ -177,6 +183,45 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 
 Text on a filled control (a lit button) is chosen by the fill's brightness:
 near-black (`#0B0D10`) on light fills, white on dark ones (`theme::text_on`).
+
+**Opacity levels** (`theme::alpha`): a colour token is multiplied by one of
+these before it is laid over another surface, so what a colour is stays in
+the palette and how strongly it shows is named here. The same in both themes.
+
+| Level | Value | Use |
+|---|---|---|
+| `NONE` | 0 | Nothing: a gradient's far end |
+| `WASH_FAINT` | 5% | The faintest wash a lane or a span takes, just enough to say it is there |
+| `WASH_LANE` | 6% | A lane tinted with the accent to show what it holds |
+| `WASH_DROP` | 8% | The lane a dragged clip or file would land in |
+| `WASH_WRITE` | 9% | An automation lane while its mode writes |
+| `WASH` | 10% | A wash under something moving: an insertion band, a hovered row, the area a curve will fill |
+| `WARN_FILL` | 10% | A warning chip's fill |
+| `HALO_FAINT` | 10% | The faintest ring of a handle's halo |
+| `WASH_SELECTED` | 12% | A take's tint over its body, and a note or a box being drawn |
+| `WASH_BAND` | 14% | A band that marks a level: the loudness target, a hovered chip |
+| `GLOW` | 15% | The glow that spreads beside an accent edge |
+| `WASH_RANGE` | 16% | The band over a time range or a selection |
+| `WASH_OUTLINE` | 18% | The accent wash inside an outline while it is drawn |
+| `HALO` | 20% | The halo around a handle or a point |
+| `WASH_SPAN` | 22% | A span over a lane: a loop's or a stretch's |
+| `HALO_WIDE` | 22% | The halo around a handle or a point, one step wider than `HALO` |
+| `WASH_BODY` | 25% | A clip body's colour at a quarter, under its grid |
+| `INK_TRACE` | 30% | A line or a word that only hints |
+| `WASH_BRACE` | 35% | The loop brace's fill |
+| `HOVER_STEP` | 35% | One step of a piece's hover |
+| `WARN_EDGE` | 35% | A warning chip's edge |
+| `EDGE_FAINT` | 35% | A line that steps back: a return behind the one on top |
+| `EDGE_SOFT` | 45% | A mark's soft edge: a selection's outline, an armed lane's rim |
+| `EDGE` | 50% | A hairline's wash, and the ghost of a control that is not there |
+| `INK_QUIET` | 55% | Quiet ink: what is there but not speaking |
+| `EDGE_DIM` | 60% | A dimmed edge, or words that step back |
+| `WASH_CELL` | 60% | A wash over the cell about to be scrubbed |
+| `INK_DIM` | 70% | Ink that has stepped back: a clip that is not heard |
+| `EDGE_BRACE` | 75% | A loop brace's edge |
+| `EDGE_LIT` | 80% | A lit accent edge |
+| `WARN_INK` | 88% | A warning's words |
+| `TEXT_BRIGHT` | 90% | A clip's name at nine tenths |
 
 **Controls take their colours from the surface under them**
 (`theme::controls(selected)`). On most surfaces that is `control`,
@@ -199,6 +244,10 @@ unselected header.
   have its own colour from the palette, or follow its track's.
 - **Dimmed:** `DIMMED` (45% opacity) is what steps back beside something
   lit, such as the info line's other actions while a modifier is held.
+- **Clips that step back:** `theme::CLIP_DIMMED` (42%) dims the clips of a
+  track that cannot be heard, and `theme::UNDER_LANE` (45%) shows how much
+  of a clip shows through the automation lane over it (§7h). Both are their
+  own tokens: they are close to `DIMMED` in value but are not the same thing.
 - **Muted clips:** `CLIP_MUTED` (`#6C7078`, both themes), a grey of the
   same lightness, so names and waveforms stay readable (the owner's M1).
 
@@ -276,9 +325,14 @@ Sentence case for every label ("Audio settings", not
   palette; `FULL` for pills (switches, lane tabs, chips). A piece inside a
   trough takes the trough's radius less its 2 pt inset.
 - **Strokes** (`theme::stroke`): `HAIRLINE 1` for separators, outlines,
-  edge lights and lips; `LIT 1.5` for a Lit or Flare line and icons;
-  `FOCUS 2` for the focus ring and a Beam; `UNDERLINE 2` for the accent
-  line under a toggle that is on.
+  edge lights and lips; `RING 1.2` around a status light; `GLYPH 1.25`
+  and `GLYPH_WIDE 1.4` for a hand-drawn glyph; `LIT 1.5` for a Lit or Flare
+  line and icons; `FOCUS 2` for the focus ring and a Beam; `UNDERLINE 2`
+  for the accent line under a toggle that is on; `EDGE 2` for the line of a
+  marker, a handle or a selection's edge; `HALO 3` and `GLOW_WIDE 6` for
+  the halo and the wide glow beside an accent edge. An icon's own line is
+  one of `ICON 1.6`, `ICON_FINE 1.3`, `ICON_BOLD 2.4` or `ICON_STRIKE 1.8`,
+  in units of its 16-unit grid.
 - **Elevation:** only windows and popovers float. They get `overlay` fill,
   a `border_strong` outline, the edge light and one soft shadow (offset
   0, 6, blur 18). The one other shadow is the mixer's pinned master,
@@ -1482,7 +1536,7 @@ bar ruler's right-click menu, as well as T.
 ## 7h. Automation lanes (M7 slice A1, ADR-0082, the owner's L1 B)
 
 A lane is drawn over its track's clip lane, not in a row of its own. While a track shows
-one: the clips behind it step back to 45% (`UNDER_LANE`, names too); the lane takes a faint
+one: the clips behind it step back to 45% (`theme::UNDER_LANE`, names too); the lane takes a faint
 accent wash with accent hairlines at its top and bottom and a hairline where the control
 rests (0 dB, centre); the line is the accent at `stroke::LIT`, and a lane that is off is
 `text_hint`. Points are `size::AUTO_POINT` circles: hollow at rest (the canvas colour

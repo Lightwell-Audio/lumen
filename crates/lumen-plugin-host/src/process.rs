@@ -2,6 +2,7 @@
 //! start, before any plugin code.
 
 use std::fs::File;
+use std::time::Instant;
 
 /// Takes the process's real stdout for the protocol and points the stdout
 /// that plugin code writes to at stderr, so a plugin that prints cannot
@@ -102,7 +103,7 @@ mod macos {
         let queue = match arm_parent(parent) {
             Ok(queue) => queue,
             Err(error) => {
-                eprintln!("lumen-host: parent monitor failed: {error}");
+                eprintln!("{}parent monitor failed: {error}", super::log_prefix());
                 // SAFETY: do not continue into plugin code without the guard.
                 unsafe { libc::_exit(1) };
             }
@@ -111,7 +112,10 @@ mod macos {
             .name("lumen-parent-watch".into())
             .spawn(move || watch_parent(queue));
         if let Err(error) = started {
-            eprintln!("lumen-host: could not start parent monitor: {error}");
+            eprintln!(
+                "{}could not start parent monitor: {error}",
+                super::log_prefix()
+            );
             // SAFETY: do not continue into plugin code without the guard.
             unsafe { libc::_exit(1) };
         }
@@ -188,7 +192,7 @@ mod macos {
                 if error.kind() == io::ErrorKind::Interrupted {
                     continue;
                 }
-                eprintln!("lumen-host: parent monitor failed: {error}");
+                eprintln!("{}parent monitor failed: {error}", super::log_prefix());
                 // SAFETY: stopping the host avoids leaving an orphan.
                 unsafe { libc::_exit(1) };
             }
@@ -199,7 +203,7 @@ mod macos {
             }
             if ready == 1 && event.flags & libc::EV_ERROR != 0 {
                 let error = io::Error::from_raw_os_error(event.data as i32);
-                eprintln!("lumen-host: parent monitor failed: {error}");
+                eprintln!("{}parent monitor failed: {error}", super::log_prefix());
                 // SAFETY: stopping the host avoids leaving an orphan.
                 unsafe { libc::_exit(1) };
             }
@@ -226,12 +230,40 @@ pub fn end_now(code: u32) -> ! {
     std::process::exit(code as i32)
 }
 
-/// What the host says about itself on stderr, where Lumen collects it: one
-/// line, prefixed so it is told from what a plugin prints.
-pub const LOG_PREFIX: &str = "lumen-host: ";
+/// The environment variable that carries a host's log nonce: a word the
+/// process that started the host chose, so that a plugin cannot write a line
+/// that reads as the host's. Both share one stderr.
+pub const NONCE_ENV: &str = "LUMEN_HOST_LOG";
+
+/// A fresh nonce for one host, from the standard library's random hasher keys
+/// mixed with the clock and a stack address: 64 bits of hex, unpredictable to
+/// anything that did not choose it, and no new dependency.
+pub fn new_nonce() -> String {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hash, Hasher};
+
+    let here = 0_u8;
+    let mut hasher = RandomState::new().build_hasher();
+    Instant::now().hash(&mut hasher);
+    std::process::id().hash(&mut hasher);
+    (std::ptr::from_ref(&here) as usize).hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+/// The mark at the start of a host's own lines on stderr, for `nonce`.
+pub fn mark(nonce: &str) -> String {
+    format!("lumen-host[{nonce}]: ")
+}
+
+/// This host's mark, from [`NONCE_ENV`] (empty when it was started by hand).
+/// Resolved once: the crash filter reads it and must not allocate.
+pub fn log_prefix() -> &'static str {
+    static MARK: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    MARK.get_or_init(|| mark(&std::env::var(NONCE_ENV).unwrap_or_default()))
+}
 
 pub fn log(line: &str) {
-    eprintln!("{LOG_PREFIX}{line}");
+    eprintln!("{}{line}", log_prefix());
 }
 
 /// Asks Windows to run this process at full speed: high priority, so a
@@ -304,6 +336,48 @@ pub fn flush_denormals() {
     }
 }
 
+/// Copies `out.len()` bytes at `at` into `out`, or says it could not. A crash
+/// filter that faults again loses the report, so every read that may point
+/// anywhere (the faulting instruction, the stack) goes through this: the
+/// kernel refuses memory that is not mapped instead of raising a second
+/// exception.
+#[cfg(windows)]
+fn probe(at: *const u8, out: &mut [u8]) -> bool {
+    use windows_sys::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    let mut read = 0;
+    // SAFETY: reads this process's own memory (the pseudo-handle needs no
+    // closing) into a buffer of the length given; an address that cannot be
+    // read is reported, not faulted.
+    let ok = unsafe {
+        ReadProcessMemory(
+            GetCurrentProcess(),
+            at.cast(),
+            out.as_mut_ptr().cast(),
+            out.len(),
+            &mut read,
+        )
+    } != 0;
+    ok && read == out.len()
+}
+
+/// A little-endian `u32` at `at`, or `None` when it cannot be read.
+#[cfg(windows)]
+fn read_u32(at: *const u8) -> Option<u32> {
+    let mut word = [0_u8; 4];
+    probe(at, &mut word).then(|| u32::from_le_bytes(word))
+}
+
+/// The size the loaded image says it has, from its own PE header. 0 when the
+/// header cannot be read, which matches nothing in the stack scan.
+#[cfg(windows)]
+fn image_size(header: *const u8) -> usize {
+    let Some(pe) = read_u32(header.wrapping_add(0x3c)) else {
+        return 0;
+    };
+    read_u32(header.wrapping_add(pe as usize + 0x18 + 0x38)).unwrap_or(0) as usize
+}
+
 /// On Windows, says where a crash happened: the exception, the module the
 /// faulting code is in and its offset into it, and for an access violation
 /// what was touched. It tells Lumen whether the plugin or the host died, and
@@ -324,6 +398,10 @@ pub fn report_crashes() {
         GetModuleFileNameW, GetModuleHandleExW,
     };
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
+
+    // Resolve the log mark now: the filter runs with the crash's state and
+    // must not allocate.
+    let _ = log_prefix();
 
     /// A line built in a fixed buffer.
     struct Line {
@@ -350,11 +428,14 @@ pub fn report_crashes() {
                 record,
             )
         };
+        // `report_crashes` resolved this before installing the filter, so this
+        // is a read, not an allocation.
+        let mark = log_prefix();
         let mut line = Line {
             bytes: [0; 512],
             len: 0,
         };
-        let _ = write!(line, "{LOG_PREFIX}crash in ");
+        let _ = write!(line, "{mark}crash in ");
         let mut module: HMODULE = std::ptr::null_mut();
         // SAFETY: a plain call; the flags ask for the module holding `at`
         // without taking a reference.
@@ -397,7 +478,8 @@ pub fn report_crashes() {
             );
         }
         let _ = line.write_char('\n');
-        // SAFETY: plain calls; the buffer holds `len` bytes.
+        // SAFETY: the writes are plain calls over buffers that hold `len`
+        // bytes; `TerminateProcess` ends this process, which is its own.
         unsafe {
             let mut written = 0;
             WriteFile(
@@ -412,6 +494,8 @@ pub fn report_crashes() {
             // way (x86-64 only).
             #[cfg(target_arch = "x86_64")]
             {
+                // SAFETY: the system passes the faulting thread's context
+                // with the exception pointers.
                 let context = &*(*info).ContextRecord;
                 let mut detail = Line {
                     bytes: [0; 512],
@@ -419,7 +503,7 @@ pub fn report_crashes() {
                 };
                 let _ = writeln!(
                     detail,
-                    "{LOG_PREFIX}regs rax={:x} rcx={:x} rdx={:x} rbx={:x} rsi={:x} rdi={:x} r8={:x} r9={:x}",
+                    "{mark}regs rax={:x} rcx={:x} rdx={:x} rbx={:x} rsi={:x} rdi={:x} r8={:x} r9={:x}",
                     context.Rax,
                     context.Rcx,
                     context.Rdx,
@@ -437,11 +521,22 @@ pub fn report_crashes() {
                     std::ptr::null_mut(),
                 );
                 detail.len = 0;
-                let _ = write!(detail, "{LOG_PREFIX}code ");
-                let code_at = context.Rip as *const u8;
-                // Some of the bytes before the fault and the ones after.
+                let _ = write!(detail, "{mark}code ");
+                // Some of the bytes before the fault and the ones after. The
+                // instruction pointer may be in memory that cannot be read at
+                // all (a jump to a wild address), so the window is copied
+                // through `probe`; a byte that cannot be read prints as `??`.
+                let mut window = [0_u8; 16];
+                let readable = probe(
+                    (context.Rip as usize).wrapping_sub(8) as *const u8,
+                    &mut window,
+                );
                 for i in -8_isize..8 {
-                    let _ = write!(detail, "{:02x}", *code_at.offset(i));
+                    if readable {
+                        let _ = write!(detail, "{:02x}", window[(i + 8) as usize]);
+                    } else {
+                        let _ = detail.write_str("??");
+                    }
                     if i == -1 {
                         let _ = detail.write_char('|');
                     }
@@ -455,26 +550,30 @@ pub fn report_crashes() {
                     std::ptr::null_mut(),
                 );
                 // Words on the stack that point into the module that died:
-                // the calls it was inside.
+                // the calls it was inside. The stack is what a plugin may have
+                // damaged, so it is copied one page at a time through `probe`:
+                // a page that cannot be read is skipped.
                 detail.len = 0;
-                let _ = write!(detail, "{LOG_PREFIX}stack");
+                let _ = write!(detail, "{mark}stack");
                 let (base, size) = if found {
-                    let mut size = 0;
-                    let header = module as *const u8;
-                    // The PE header's image size, at a fixed offset.
-                    let pe = *(header.add(0x3c) as *const u32) as usize;
-                    size = size.max(*(header.add(pe + 0x18 + 0x38) as *const u32) as usize);
-                    (module as usize, size)
+                    (module as usize, image_size(module as *const u8))
                 } else {
                     (0, 0)
                 };
-                let sp = context.Rsp as *const usize;
                 let mut seen = 0;
-                for i in 0..512 {
-                    let word = *sp.add(i);
-                    if word > base && word < base + size && seen < 14 {
-                        let _ = write!(detail, " +{:x}", word - base);
-                        seen += 1;
+                let mut page = [0_u8; 512];
+                let stack = context.Rsp as *const u8;
+                for chunk in 0..8 {
+                    let at = stack.wrapping_add(chunk * page.len());
+                    if !probe(at, &mut page) {
+                        continue;
+                    }
+                    for word in page.as_chunks::<{ size_of::<usize>() }>().0 {
+                        let word = usize::from_le_bytes(*word);
+                        if word > base && word < base + size && seen < 14 {
+                            let _ = write!(detail, " +{:x}", word - base);
+                            seen += 1;
+                        }
                     }
                 }
                 let _ = detail.write_char('\n');
@@ -548,5 +647,28 @@ mod tests {
     #[test]
     fn a_host_with_no_parent_id_trusts_only_process_one() {
         assert!(!orphaned(7, None));
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::{probe, read_u32};
+
+    /// The crash filter's reads may point anywhere. `probe` reports memory it
+    /// cannot read instead of raising a second exception.
+    #[test]
+    fn a_read_the_crash_filter_cannot_make_is_reported() {
+        let mut out = [0_u8; 8];
+        assert!(!probe(std::ptr::null(), &mut out));
+        assert!(!probe(4 as *const u8, &mut out));
+    }
+
+    #[test]
+    fn a_read_the_crash_filter_can_make_copies_the_bytes() {
+        let value = 0x1234_5678_u32;
+        let mut out = [0_u8; 4];
+        assert!(probe((&raw const value).cast(), &mut out));
+        assert_eq!(u32::from_le_bytes(out), value);
+        assert_eq!(read_u32((&raw const value).cast()), Some(value));
     }
 }

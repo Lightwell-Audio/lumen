@@ -154,6 +154,10 @@ impl IAttributeListTrait for HostAttributes {
         }
     }
 
+    #[allow(
+        clippy::unnecessary_cast,
+        reason = "`TChar` is `u16` on Windows and a narrower character type elsewhere, so the cast one platform needs is a no-op on the other"
+    )]
     unsafe fn setString(&self, id: AttrID, string: *const TChar) -> tresult {
         if string.is_null() {
             return kInvalidArgument;

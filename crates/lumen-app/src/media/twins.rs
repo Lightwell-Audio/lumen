@@ -153,19 +153,25 @@ impl Library {
             });
             let (done, ctx) = (self.twin_tx.clone(), ctx.clone());
             let cache = self.streaming.as_ref().map(|s| Arc::clone(s.cache()));
-            std::thread::Builder::new()
-                .name("lumen-media-reverse".into())
-                .spawn(move || {
-                    let (made, peaks) = make(&from, cache.as_deref(), &cancel);
-                    let _ = done.send(Mirrored {
-                        key,
-                        from,
-                        made,
-                        peaks,
-                    });
-                    ctx.request_repaint();
-                })
-                .expect("spawn media reverser");
+            let spawned = crate::spawn::spawn_named("lumen-media-reverse", move || {
+                let (made, peaks) = make(&from, cache.as_deref(), &cancel);
+                let _ = done.send(Mirrored {
+                    key,
+                    from,
+                    made,
+                    peaks,
+                });
+                ctx.request_repaint();
+            });
+            if let Err(error) = spawned {
+                // The reversed clip stays silent, as one whose file is
+                // missing does; it does not wait for a twin that never comes.
+                let why = crate::spawn::start_failed("reversing the audio", &error);
+                crate::trace::log(|| format!("media: {why}"));
+                if let Some(twin) = self.twins.last_mut() {
+                    twin.item.state = State::Failed(why);
+                }
+            }
         }
         dropped
     }

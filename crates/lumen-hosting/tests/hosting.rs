@@ -293,6 +293,73 @@ fn a_host_that_hangs_is_failed_after_a_second_of_late_audio_and_forgetting_it_ki
 }
 
 #[test]
+fn a_link_counts_the_blocks_its_host_answers() {
+    // The count is how the device thread tells a host working on a long block
+    // from one that stopped answering its control calls (sweep M8).
+    let mut manager = manager();
+    manager.want(1, instrument("")).unwrap();
+    let mut linked = linked(&mut manager, 1);
+    let counts = linked.link.counts();
+    assert_eq!(counts.answered(), 0, "no block yet");
+    for block in 0..3 {
+        let (_, _, reply) = play(&mut linked.link, 64, &[], &pattern(block));
+        assert!(matches!(reply, Some(Reply::Ready { .. })), "block {block}");
+        assert_eq!(counts.answered(), block + 1);
+    }
+}
+
+#[test]
+fn a_host_that_stops_answering_control_calls_is_failed_and_killed() {
+    // One thread in the host runs the plugin and answers Lumen: a plugin
+    // stuck in `process` leaves every control call unanswered. Each waits its
+    // own deadline; a run of them is a plugin no reload of the project could
+    // use, so it is given up on as a hang rather than waited for for ever.
+    let mut manager = manager();
+    manager.want(1, instrument("process_hang@0")).unwrap();
+    let mut linked = linked(&mut manager, 1);
+    let pid = linked.pid;
+    assert!(exists(pid));
+    // The first block never comes back.
+    let (mut left, mut right) = (vec![0.0; 64], vec![0.0; 64]);
+    assert!(
+        linked
+            .link
+            .submit(
+                64,
+                &[],
+                &[note_on(0, 69)],
+                &lumen_devices::ParamBlock::none()
+            )
+            .is_ok(),
+        "the block was taken"
+    );
+    let reply = linked.link.collect(
+        Instant::now() + Duration::from_millis(300),
+        &mut left,
+        &mut right,
+    );
+    assert!(matches!(reply, Reply::Late), "the plugin hung: {reply:?}");
+    // Control calls go unanswered too; past the limit the host is failed.
+    for n in 0..8 {
+        manager.set_param(1, LEVEL, f64::from(n) / 10.0);
+    }
+    let started = Instant::now();
+    let f = failure(&mut manager, 1);
+    assert_eq!(f.step, Step::Running);
+    assert!(f.hung(), "a host that stopped answering reads as hung: {f}");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "the host took {:?} to be given up on",
+        started.elapsed()
+    );
+    assert!(
+        gone_within(pid, Duration::from_secs(10)),
+        "the hung host is still running: {}",
+        describe(pid)
+    );
+}
+
+#[test]
 fn forgetting_and_reloading_leave_no_process_behind() {
     let mut manager = manager();
     manager.want(1, instrument("")).unwrap();

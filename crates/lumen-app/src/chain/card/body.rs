@@ -123,7 +123,7 @@ pub(super) fn paint_strip(
             // The card keeps its shape: the knobs stand there, greyed, and
             // the words and the one button take their place under them.
             let painter = ui.painter().with_clip_rect(area);
-            let ghost = palette.control_press.gamma_multiply(0.5);
+            let ghost = palette.control_press.gamma_multiply(theme::alpha::EDGE);
             let radius = theme::size::KNOB / 2.0;
             let step = area.width() / 4.0;
             for i in 0..4 {
@@ -131,7 +131,11 @@ pub(super) fn paint_strip(
                     area.left() + step * (i as f32 + 0.5),
                     area.top() + radius + 2.0,
                 );
-                painter.circle_stroke(centre, radius - 2.0, Stroke::new(3.0, ghost));
+                painter.circle_stroke(
+                    centre,
+                    radius - 2.0,
+                    Stroke::new(theme::stroke::HALO, ghost),
+                );
             }
             let below = Rect::from_min_max(
                 pos2(area.left(), area.top() + 2.0 * radius + 10.0),

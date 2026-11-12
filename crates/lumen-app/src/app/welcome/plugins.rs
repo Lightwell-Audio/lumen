@@ -40,7 +40,7 @@ impl App {
             warning(ui, OFF_THIS_RUN, 0.0);
             return;
         }
-        let ready = welcome::plugins_ready(self.plugins.catalog());
+        let ready = rules::plugins_ready(self.plugins.catalog());
         let blocked = self.plugins.catalog().blocked().len();
         match self.plugins.status().clone() {
             Scan::Off => {
@@ -77,7 +77,7 @@ impl App {
                         done as f32 / total as f32
                     },
                 );
-                ctx.request_repaint_after(std::time::Duration::from_millis(250));
+                ctx.request_repaint_after(crate::motion::SCAN_FRAME);
             }
             Scan::Failed(why) => {
                 warning(ui, &why, 0.0);
@@ -96,7 +96,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(format!(
                         "{} ready to use",
-                        welcome::count(ready, "plugin", "plugins")
+                        rules::count(ready, "plugin", "plugins")
                     ));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if self.plugins.waiting().is_none()
@@ -124,7 +124,7 @@ impl App {
                     .extend(icons::shapes(Icon::Warning, icon, theme::p().warning));
                 ui.label(format!(
                     "{} could not be loaded",
-                    welcome::count(blocked, "plugin", "plugins")
+                    rules::count(blocked, "plugin", "plugins")
                 ));
                 if ui
                     .link("See them")
@@ -138,13 +138,34 @@ impl App {
         }
         if let Some(waiting) = self.plugins.waiting() {
             for folder in waiting.folders() {
-                let folder = folder.display().to_string();
-                ui.add(
-                    egui::Label::new(RichText::new(format!("Waiting to check {folder}")).weak())
-                        .truncate(),
-                )
-                .on_hover_text(format!(
-                    "{folder} is checked as soon as the scan under way ends"
+                let whole = folder.display().to_string();
+                // The notice is whole; only the path in it is shortened,
+                // to the room it has after the sentence's words (DESIGN §9).
+                let font = egui::FontId::proportional(theme::size::BODY);
+                let lead = ui
+                    .painter()
+                    .layout_no_wrap(
+                        "Waiting to check ".to_owned(),
+                        font.clone(),
+                        theme::p().text,
+                    )
+                    .size()
+                    .x;
+                let room = (ui.available_width() - lead).max(40.0);
+                let shown = widgets::fit(ui.painter(), &whole, font, room);
+                let note = ui.add(
+                    egui::Label::new(RichText::new(format!("Waiting to check {shown}")).weak())
+                        .wrap(),
+                );
+                note.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Label,
+                        true,
+                        format!("Waiting to check {whole}"),
+                    )
+                });
+                note.on_hover_text(format!(
+                    "{whole} is checked as soon as the scan under way ends"
                 ));
             }
         }

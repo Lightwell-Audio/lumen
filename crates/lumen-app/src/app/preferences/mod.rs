@@ -10,7 +10,7 @@ mod window;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, RichText};
+use eframe::egui;
 use lumen_core::product::PRODUCT_NAME;
 
 use crate::app::projects::Next;
@@ -24,14 +24,13 @@ impl App {
         let before = self.settings.appearance.clone();
         // Lit while its menu shows, as egui's menu buttons are.
         let open = widgets::Menu::is_open_for(ui.ctx(), ui.next_auto_id());
-        let button = ui
-            .add(
-                egui::Button::new(
-                    RichText::new(PRODUCT_NAME).font(fonts::display(theme::size::WORDMARK)),
-                )
-                .selected(open),
-            )
-            .on_hover_text("Files, undo, appearance and preferences");
+        let button = widgets::raised::text_button(
+            ui,
+            PRODUCT_NAME,
+            fonts::display(theme::size::WORDMARK),
+            open,
+        )
+        .on_hover_text("Files, undo, appearance and preferences");
         widgets::Menu::below(&button).show(|ui| {
             let ctx = ui.ctx().clone();
             self.menu_command(ui, Command::NewProject, "New");
@@ -168,7 +167,7 @@ impl App {
         };
         // The clock is read once: read twice, the time can cross the end of
         // the wait between the reads and the subtraction underflows.
-        if let Some(left) = settle_left(changed.elapsed(), Duration::from_millis(500)) {
+        if let Some(left) = settle_left(changed.elapsed(), crate::motion::SETTLE) {
             ctx.request_repaint_after(left);
             return;
         }
@@ -199,7 +198,7 @@ mod settle_tests {
 
     #[test]
     fn a_change_waits_out_what_is_left_and_then_is_written() {
-        let settle = Duration::from_millis(500);
+        let settle = crate::motion::SETTLE;
         assert_eq!(
             settle_left(Duration::from_millis(120), settle),
             Some(Duration::from_millis(380))

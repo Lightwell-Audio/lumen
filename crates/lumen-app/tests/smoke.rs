@@ -229,7 +229,10 @@ fn a_failed_allocation_leaves_a_crash_report() {
         )),
         "{report}"
     );
-    assert!(report.contains("lumen_app::crash::fail"), "{report}");
+    assert!(
+        report.contains("lumen_app::system::crash::fail"),
+        "{report}"
+    );
 }
 
 /// Runs `lumen` with a deliberate failure (`flag`) and returns its report.

@@ -2,12 +2,18 @@
 //! D A, P A, M A and W A): a `Dialog` over the empty song with three steps,
 //! Sound, Plugins and Ready. The song behind stays usable; ✕, Esc and Skip
 //! setup close it and keep what was set. It opens on a first start until it
-//! is finished or closed, and from "Set up Lumen…". Its state is
-//! `welcome.rs`; the device and folder rows are the Preferences pages' own.
+//! is finished or closed, and from "Set up Lumen…". Its state and the rules
+//! the window shows are `rules.rs`; the device and folder rows are the
+//! Preferences pages' own.
 
 mod plugins;
 mod ready;
+mod rules;
 mod sound;
+
+/// The window's state and the rules it shows, as `crate::welcome` (the name
+/// startup and `App` still use).
+pub(crate) use self::rules::{Welcome, opens_at_start};
 
 use eframe::egui::{self, Align, Key, Layout, RichText, Ui, pos2, vec2};
 use lumen_core::product::PRODUCT_NAME;
@@ -19,9 +25,10 @@ use crate::icons::{self, Icon};
 use crate::plugins::Status as Scan;
 use crate::preferences::{Marks, audio};
 use crate::settings::{self, AudioSettings};
-use crate::welcome::{self, AsioOffer, Health, Mark, Step};
 use crate::widgets::{hint, row, section, warning};
 use crate::{App, fonts, theme, widgets};
+
+use self::rules::{AsioOffer, Health, Mark, Step};
 
 /// How much of a short window's height the window's top sits below the
 /// app's (at most `size::PREFERENCES_TOP`), as Preferences does.
@@ -115,9 +122,9 @@ impl App {
         if self.welcome.step == Step::Ready && crate::association::Association::supported() {
             use crate::association::State;
             let wish = self.settings.projects.associate_files;
-            match self.association.status().state {
-                State::Off if wish => self.set_association(true),
-                State::This if !wish => self.set_association(false),
+            match self.association_status().map(|status| status.state.clone()) {
+                Some(State::Off) if wish => self.set_association(true),
+                Some(State::This) if !wish => self.set_association(false),
                 _ => {}
             }
         }
@@ -160,8 +167,8 @@ impl App {
     fn step_mark(&self, step: Step) -> Mark {
         let seen = self.welcome.seen(step);
         match step {
-            Step::Sound => welcome::mark(self.sound_health(), seen),
-            Step::Plugins => welcome::mark(self.plugins_health(), seen),
+            Step::Sound => rules::mark(self.sound_health(), seen),
+            Step::Plugins => rules::mark(self.plugins_health(), seen),
             Step::Ready => Mark::None,
         }
     }
@@ -274,7 +281,7 @@ impl App {
                     if enter && asked.is_none() {
                         asked = Some(footer);
                     }
-                    ui.add(egui::Label::new(RichText::new(KEYS_HINT).small().weak()).truncate());
+                    ui.add(egui::Label::new(RichText::new(KEYS_HINT).small().weak()).wrap());
                 });
             },
         );

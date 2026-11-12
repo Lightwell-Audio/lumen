@@ -54,14 +54,21 @@ impl Arrangement {
                     continue;
                 }
                 let band = Rect::from_x_y_ranges(x0..=x1, lane(row).y_range());
-                painter.rect_filled(band, 0.0, palette.accent.gamma_multiply(0.16));
-                let edge = Stroke::new(1.0, palette.accent.gamma_multiply(0.6));
+                painter.rect_filled(
+                    band,
+                    0.0,
+                    palette.accent.gamma_multiply(theme::alpha::WASH_RANGE),
+                );
+                let edge = Stroke::new(
+                    theme::stroke::HAIRLINE,
+                    palette.accent.gamma_multiply(theme::alpha::EDGE_DIM),
+                );
                 painter.vline(x0, band.y_range(), edge);
                 painter.vline(x1, band.y_range(), edge);
                 top.get_or_insert(band.top());
             }
             if let Some(y) = top {
-                let stroke = Stroke::new(2.0, palette.accent);
+                let stroke = Stroke::new(theme::stroke::EDGE, palette.accent);
                 let y = y + 1.0;
                 painter.line_segment([pos2(x0, y), pos2(x1, y)], stroke);
                 for edge in [x0, x1] {
@@ -106,14 +113,17 @@ impl Arrangement {
                             if x >= canvas.left() {
                                 painter.add(egui::Shape::dashed_line(
                                     &[pos2(x, rect.top() + TITLE), pos2(x, rect.bottom())],
-                                    Stroke::new(1.0, palette.text.gamma_multiply(0.3)),
+                                    Stroke::new(
+                                        theme::stroke::HAIRLINE,
+                                        palette.text.gamma_multiply(theme::alpha::INK_TRACE),
+                                    ),
                                     2.0,
                                     2.0,
                                 ));
                                 painter.circle_filled(
                                     pos2(x, rect.top() + TITLE),
                                     2.0,
-                                    palette.text.gamma_multiply(0.6),
+                                    palette.text.gamma_multiply(theme::alpha::EDGE_DIM),
                                 );
                             }
                             at = at + period;
@@ -127,7 +137,7 @@ impl Arrangement {
                 let whole = Rect::from_x_y_ranges(left..=right, rect.y_range());
                 if locked && right - left >= 4.0 * CLAMP {
                     // K3: clamped at both ends; it has no handles to show.
-                    let clamp = palette.text.gamma_multiply(0.55);
+                    let clamp = palette.text.gamma_multiply(theme::alpha::INK_QUIET);
                     for x in [left, right - CLAMP] {
                         if (near_left..=near_right).contains(&x) {
                             let bar = Rect::from_x_y_ranges(x..=x + CLAMP, rect.y_range());
@@ -190,12 +200,18 @@ impl Arrangement {
                     painter.vline(
                         side,
                         rect.y_range(),
-                        Stroke::new(6.0, palette.accent.gamma_multiply(0.15)),
+                        Stroke::new(
+                            theme::stroke::GLOW_WIDE,
+                            palette.accent.gamma_multiply(theme::alpha::GLOW),
+                        ),
                     );
                     painter.vline(
                         side,
                         rect.y_range(),
-                        Stroke::new(3.0, palette.accent.gamma_multiply(0.6)),
+                        Stroke::new(
+                            theme::stroke::HALO,
+                            palette.accent.gamma_multiply(theme::alpha::EDGE_DIM),
+                        ),
                     );
                 } else if let Some(select::Hover {
                     region,
@@ -221,8 +237,11 @@ impl Arrangement {
             painter.rect(
                 area,
                 f32::from(theme::radius::MEDIUM),
-                palette.accent.gamma_multiply(0.12),
-                Stroke::new(1.0, palette.accent.gamma_multiply(0.6)),
+                palette.accent.gamma_multiply(theme::alpha::WASH_SELECTED),
+                Stroke::new(
+                    theme::stroke::HAIRLINE,
+                    palette.accent.gamma_multiply(theme::alpha::EDGE_DIM),
+                ),
                 egui::StrokeKind::Inside,
             );
         }

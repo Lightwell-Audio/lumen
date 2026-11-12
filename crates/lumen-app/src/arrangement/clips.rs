@@ -34,11 +34,6 @@ use crate::widgets::{draw_edge_glow, gradient};
 
 /// Space between a lane's edges and its clips.
 pub(super) const INSET: f32 = 3.0;
-/// The opacity of clips on tracks that cannot be heard.
-const DIMMED: f32 = 0.42;
-/// How much of a clip shows through the automation lane over it (M7 slice
-/// A1, the owner's L1 B: the clips step back while a lane is shown).
-const UNDER_LANE: f32 = 0.45;
 /// Space between the title bar and the waveform, and below it.
 pub(super) const WAVE_GAP: f32 = 2.0;
 /// Below this height (in points), stereo is drawn as one waveform.
@@ -245,18 +240,29 @@ impl Arrangement {
                     lane.min,
                     vec2((lane.width() * 0.18).min(220.0), lane.height()),
                 );
-                painter.rect_filled(lane, 0.0, palette.record.gamma_multiply(0.05));
+                painter.rect_filled(
+                    lane,
+                    0.0,
+                    palette.record.gamma_multiply(theme::alpha::WASH_FAINT),
+                );
                 gradient(
                     painter,
                     fade,
-                    palette.record.gamma_multiply(0.12),
+                    palette.record.gamma_multiply(theme::alpha::WASH_SELECTED),
                     Color32::TRANSPARENT,
                 );
-                let edge = Stroke::new(1.0, palette.record.gamma_multiply(0.45));
+                let edge = Stroke::new(
+                    theme::stroke::HAIRLINE,
+                    palette.record.gamma_multiply(theme::alpha::EDGE_SOFT),
+                );
                 painter.hline(canvas.x_range(), lane.top() + 0.5, edge);
                 painter.hline(canvas.x_range(), lane.bottom() - 1.5, edge);
             } else if track.solo {
-                painter.rect_filled(lane, 0.0, palette.accent.gamma_multiply(0.06));
+                painter.rect_filled(
+                    lane,
+                    0.0,
+                    palette.accent.gamma_multiply(theme::alpha::WASH_LANE),
+                );
             }
             if track.kind == TrackKind::Group {
                 super::nesting::draw_group_lane(painter, lane, canvas, project, index, time);
@@ -276,10 +282,10 @@ impl Arrangement {
                 let mut alpha = if audible(&project.tracks[index]) {
                     1.0
                 } else {
-                    DIMMED
+                    theme::CLIP_DIMMED
                 };
                 if self.auto.dims(project.tracks[index].id) {
-                    alpha *= UNDER_LANE;
+                    alpha *= theme::UNDER_LANE;
                 }
                 slots[index] = RowSlot::new(row.y * ppp, row.height * ppp, alpha);
             }
@@ -390,8 +396,12 @@ impl Arrangement {
                                 (canvas.left(), canvas.right()),
                             );
                             let stroke = Stroke::new(
-                                1.0,
-                                theme::CLIP_TEXT.gamma_multiply(if heard { 0.7 } else { 0.3 }),
+                                theme::stroke::HAIRLINE,
+                                theme::CLIP_TEXT.gamma_multiply(if heard {
+                                    theme::alpha::INK_DIM
+                                } else {
+                                    theme::alpha::INK_TRACE
+                                }),
                             );
                             let top = rect.top() + TITLE.min(rect.height());
                             let bottom = (top + WARP_TICK).min(rect.bottom());
@@ -412,10 +422,10 @@ impl Arrangement {
                         );
                         let mut look = look_of(clip, track, paint, lanes, ctx);
                         if !heard {
-                            look.alpha *= DIMMED;
+                            look.alpha *= theme::CLIP_DIMMED;
                         }
                         if self.auto.dims(track.id) {
-                            look.alpha *= UNDER_LANE;
+                            look.alpha *= theme::UNDER_LANE;
                         }
                         if row.clipped {
                             // Folding shut: the name stays inside the lane.
@@ -508,7 +518,10 @@ impl Arrangement {
             painter.hline(
                 canvas.x_range(),
                 lane.bottom() - 0.5,
-                Stroke::new(1.0, palette.border.gamma_multiply(0.6)),
+                Stroke::new(
+                    theme::stroke::HAIRLINE,
+                    palette.border.gamma_multiply(theme::alpha::EDGE_DIM),
+                ),
             );
             // The resize glow continues across the lane.
             if let (RowKind::Track(index), Some((hot, t))) = (row.kind, self.hot_edge)

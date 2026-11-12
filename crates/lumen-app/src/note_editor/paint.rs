@@ -93,7 +93,7 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
     // Time outside the clip is dimmed.
     let clip_left = view.x_of(Ticks::ZERO);
     let clip_right = view.x_of(scene.clip_length);
-    let dim = palette.app.gamma_multiply(0.55);
+    let dim = palette.app.gamma_multiply(theme::alpha::INK_QUIET);
     if clip_left > body.left() {
         painter.rect_filled(
             Rect::from_min_max(body.min, pos2(clip_left.min(body.right()), body.bottom())),
@@ -116,16 +116,12 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
             painter.rect_filled(
                 view.note_rect(*note),
                 NOTE_RADIUS,
-                palette.canvas.gamma_multiply(0.7),
+                palette.canvas.gamma_multiply(theme::alpha::INK_DIM),
             );
         }
     }
     if let Some(note) = scene.hover.and_then(|i| scene.notes.get(i)) {
-        painter.rect_filled(
-            view.note_rect(*note),
-            NOTE_RADIUS,
-            Color32::WHITE.gamma_multiply(0.18),
-        );
+        painter.rect_filled(view.note_rect(*note), NOTE_RADIUS, palette.sheen);
     }
     for &i in scene.boxed {
         if let Some(note) = scene.notes.get(i)
@@ -143,7 +139,11 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
     // dashed accent outline: no fill from the clip, so the lane shows through.
     for ghost in &scene.preview.ghosts {
         let rect = view.note_rect(*ghost).shrink2(vec2(0.0, 0.5));
-        painter.rect_filled(rect, NOTE_RADIUS, palette.accent.gamma_multiply(0.12));
+        painter.rect_filled(
+            rect,
+            NOTE_RADIUS,
+            palette.accent.gamma_multiply(theme::alpha::WASH_SELECTED),
+        );
         dashed_outline(
             &painter,
             rect,
@@ -178,14 +178,17 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
         painter.hline(
             from.left().min(to.left())..=from.left().max(to.left()),
             y,
-            Stroke::new(theme::stroke::HAIRLINE, palette.accent.gamma_multiply(0.6)),
+            Stroke::new(
+                theme::stroke::HAIRLINE,
+                palette.accent.gamma_multiply(theme::alpha::EDGE_DIM),
+            ),
         );
     }
     if let Some(rect) = scene.preview.marquee {
         painter.rect(
             rect,
             theme::radius::SMALL,
-            palette.accent.gamma_multiply(0.12),
+            palette.accent.gamma_multiply(theme::alpha::WASH_SELECTED),
             Stroke::new(theme::stroke::HAIRLINE, palette.accent),
             StrokeKind::Inside,
         );

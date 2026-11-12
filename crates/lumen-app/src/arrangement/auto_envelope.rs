@@ -180,7 +180,10 @@ impl Arrangement {
                     .with_clip_rect(span.intersect(painter.clip_rect()))
                     .extend(egui::Shape::dashed_line(
                         &line,
-                        Stroke::new(theme::stroke::LIT, palette.accent.gamma_multiply(0.55)),
+                        Stroke::new(
+                            theme::stroke::LIT,
+                            palette.accent.gamma_multiply(theme::alpha::INK_QUIET),
+                        ),
                         4.0,
                         4.0,
                     ));

@@ -1,7 +1,7 @@
 //! The transport (spec §5): what drives `lumen-engine` (play, stop, locate,
 //! scrub, Follow, the timeline it plays) here; the bar's controls (go to
 //! start, stop, play, record, loop, metronome, tempo, time signature, the
-//! position field) in `bar.rs`; the audio status, its panel and the
+//! position field) in `bar/`; the audio status, its panel and the
 //! settings window in `status.rs`. Keys are commands (`crate::commands`).
 
 mod bar;
@@ -17,7 +17,7 @@ mod status;
 #[cfg(test)]
 mod tests;
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_engine::{Command, MetronomeSettings, Region, Timeline, TransportSnapshot};
@@ -242,7 +242,7 @@ impl Transport {
     fn settle(&mut self) {
         // The engine applies commands at its next block (a few ms); the
         // margin covers large buffers.
-        self.settle_until = Some(Instant::now() + Duration::from_millis(300));
+        self.settle_until = Some(Instant::now() + crate::motion::ENGINE_SETTLE);
     }
 
     fn send(&mut self, mut command: Command) {

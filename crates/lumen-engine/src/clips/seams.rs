@@ -1,10 +1,20 @@
 //! Off-thread seam eligibility and allocation-free per-block seam resolution.
 
-use super::{Clip, ClipSet, FadeFrames};
+use super::clip::Clip;
+use super::fades::FadeFrames;
+use super::set::ClipSet;
 use crate::RenderContext;
 
 /// How far into a fade a bare start is taken to be: past any fade.
 pub(super) const BARE_LEAD: i64 = i64::MAX / 4;
+
+/// Precomputed edge state for one clip in a contiguous split chain.
+#[derive(Clone, Copy, Default)]
+pub(super) struct Seam {
+    pub(super) edges: [bool; 2],
+    pub(super) lead: i64,
+    pub(super) total: i64,
+}
 
 pub(super) fn envelopes_meet(left: &Clip, right: &Clip) -> bool {
     if left.shape.period.is_some() {
@@ -52,6 +62,9 @@ pub(super) fn fades_meet(left: &Clip, right: &Clip) -> bool {
     fade_in && fade_out
 }
 
+/// Resolves candidate split seams against this block's tempo map. This is a
+/// bounded linear pass over metadata built off the audio thread and allocates
+/// nothing. Locate and loop declick remain owned by the engine transport.
 pub(super) fn resolve(set: &mut ClipSet, cx: &RenderContext<'_>) {
     if set.adjacent.is_empty() {
         return;

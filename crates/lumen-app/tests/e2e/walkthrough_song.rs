@@ -228,7 +228,7 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
     // Recover: the saved edit and the interrupted take are both back, the
     // project is still the song, and it has unsaved changes.
     let mut lumen = Lumen::start_with(dir, |l| l.with_input_device());
-    lumen.click("Recover");
+    lumen.recover();
     lumen.wait_for("the recovered project and its takes", |app| {
         // The takes are read on a worker after the project opens.
         !app.is_busy() && !app.audio_takes_placing() && app.project().tracks.len() == 3

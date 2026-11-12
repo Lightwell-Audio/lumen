@@ -26,20 +26,49 @@ pub const MIGRATIONS: &[Migration] = &[
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
-/// state (`view`). Version 1 files get the defaults written out.
+/// state (`view`). Version 1 files get the defaults of the day written out.
+/// They are frozen here as literals: a migration never follows a later change
+/// to a default, so a v1 project always opens as it did in version 2.
 fn v1_to_v2(mut document: Value) -> Result<Value, String> {
     let project = document
         .get_mut("project")
         .and_then(Value::as_object_mut)
         .ok_or("missing project")?;
-    let defaults = |value: serde_json::Result<Value>| value.map_err(|e| e.to_string());
+    // Version 2's own words, frozen: four bars of 4/4 with the loop off, and
+    // the default view state as version 2 wrote it.
     project.insert(
         "transport".into(),
-        defaults(serde_json::to_value(crate::model::TransportState::default()))?,
+        serde_json::json!({
+            "loop_start": 0,
+            "loop_end": 22_579_200,
+            "loop_enabled": false,
+            "punch_in": false,
+            "punch_out": false,
+        }),
     );
     project.insert(
         "view".into(),
-        defaults(serde_json::to_value(crate::model::ViewState::default()))?,
+        serde_json::json!({
+            "left_beat": 0.0,
+            "px_per_beat": 24.0,
+            "browser_open": true,
+            "detail_open": true,
+            "browser_size": 220.0,
+            "detail_size": 220.0,
+            "top": 0.0,
+            "track_heights": {},
+            "expanded": [],
+            "grid": {
+                "fixed": false,
+                "width": "narrow",
+                "size": { "note": 16 },
+                "feel": "straight",
+                "snap": true,
+            },
+            "collapsed": [],
+            "header_width": 204.0,
+            "returns_folded": false,
+        }),
     );
     Ok(document)
 }
@@ -83,9 +112,14 @@ fn v3_to_v4(mut document: Value) -> Result<Value, String> {
         }
     }
     if let Some(view) = project.get_mut("view").and_then(Value::as_object_mut) {
-        view.entry("grid").or_insert(
-            serde_json::to_value(lumen_core::grid::Grid::default()).map_err(|e| e.to_string())?,
-        );
+        view.entry("grid").or_insert(serde_json::json!({
+            // Version 4's own words, frozen (the default grid of the day).
+            "fixed": false,
+            "width": "narrow",
+            "size": { "note": 16 },
+            "feel": "straight",
+            "snap": true,
+        }));
     }
     Ok(document)
 }
@@ -164,7 +198,9 @@ fn v5_to_v6(mut document: Value) -> Result<Value, String> {
 /// constant power (owner, M4): projects from before play 3 dB quieter at
 /// the centre.
 fn v6_to_v7(mut document: Value) -> Result<Value, String> {
-    let next_id = highest_id(&document)? + 1;
+    let next_id = highest_id(&document)?
+        .checked_add(1)
+        .ok_or("the highest id is the largest possible, so no id is free for the master track")?;
     let project = document
         .get_mut("project")
         .and_then(Value::as_object_mut)
@@ -717,6 +753,66 @@ mod tests {
     }
 
     #[test]
+    fn v1_and_v3_migrations_write_their_own_literals_not_live_defaults() {
+        // A later change to `TransportState::default`, `ViewState::default`
+        // or `Grid::default` must not change how an old file opens. This
+        // fails only if one of these migrations is edited.
+        let v1 = json!({ "format": "lumen-project", "version": 1, "project": { "name": "x" } });
+        let v2 = upgrade(v1, 1, FIRST_VERSION, &MIGRATIONS[..1]).unwrap();
+        assert_eq!(
+            v2["project"]["transport"],
+            json!({
+                "loop_start": 0,
+                "loop_end": 22_579_200,
+                "loop_enabled": false,
+                "punch_in": false,
+                "punch_out": false,
+            })
+        );
+        assert_eq!(
+            v2["project"]["view"],
+            json!({
+                "left_beat": 0.0,
+                "px_per_beat": 24.0,
+                "browser_open": true,
+                "detail_open": true,
+                "browser_size": 220.0,
+                "detail_size": 220.0,
+                "top": 0.0,
+                "track_heights": {},
+                "expanded": [],
+                "grid": {
+                    "fixed": false,
+                    "width": "narrow",
+                    "size": { "note": 16 },
+                    "feel": "straight",
+                    "snap": true,
+                },
+                "collapsed": [],
+                "header_width": 204.0,
+                "returns_folded": false,
+            })
+        );
+
+        let v3 = json!({
+            "format": "lumen-project",
+            "version": 3,
+            "project": { "transport": {}, "view": { "left_beat": 3.0 } }
+        });
+        let v4 = upgrade(v3, 3, FIRST_VERSION, &MIGRATIONS[..3]).unwrap();
+        assert_eq!(
+            v4["project"]["view"]["grid"],
+            json!({
+                "fixed": false,
+                "width": "narrow",
+                "size": { "note": 16 },
+                "feel": "straight",
+                "snap": true,
+            })
+        );
+    }
+
+    #[test]
     fn current_version_matches_the_registry() {
         assert_eq!(CURRENT_VERSION, FIRST_VERSION + MIGRATIONS.len() as u64);
     }
@@ -906,6 +1002,16 @@ mod tests {
         let v10 = json!({ "version": 10, "project": { "tracks": [{ "clips": [{ "content": clip.clone() }] }] } });
         let v11 = upgrade(v10, 10, FIRST_VERSION, MIGRATIONS).unwrap();
         assert_eq!(v11["project"]["tracks"][0]["clips"][0]["content"], clip);
+    }
+
+    #[test]
+    fn an_id_at_the_limit_leaves_no_room_for_a_master() {
+        let v6 = json!({ "version": 6, "project": { "tracks": [
+            { "id": "ffffffffffffffff", "kind": "audio" },
+        ] } });
+        let (version, message) = upgrade(v6, 6, FIRST_VERSION, MIGRATIONS).unwrap_err();
+        assert_eq!(version, 6);
+        assert!(message.contains("largest possible"), "{message}");
     }
 
     #[test]

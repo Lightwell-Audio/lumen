@@ -43,7 +43,8 @@ fn system(control: &FakeControl) -> (AudioSystem, Arc<AtomicU64>) {
         move || FakeBackend(backend_control),
         Box::new(callback),
         fast(),
-    );
+    )
+    .expect("the audio control thread starts in the test");
     (audio, blocks)
 }
 
@@ -266,6 +267,7 @@ fn spawn(control: &FakeControl, timing: Timing) -> AudioSystem {
         Box::new(|_: &mut Block<'_>| {}),
         timing,
     )
+    .expect("the audio control thread starts in the test")
 }
 
 fn wait_for_dropouts(audio: &AudioSystem, at_least: u64) {

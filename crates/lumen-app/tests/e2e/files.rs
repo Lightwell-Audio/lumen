@@ -1,11 +1,37 @@
 //! Files: importing audio, saving and opening, autosave and recovery.
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
+use egui_kittest::kittest::Queryable;
 use lumen_app::testing::{PROJECT_EXTENSION, project_file};
 
 use super::{Lumen, wav};
+
+/// An autosave `session` left behind, with a project whose one track is
+/// `track`, written at `written`.
+fn crashed_copy(dir: &Path, session: &str, track: &str, written: u64) -> PathBuf {
+    let autosaves = dir.join("autosave");
+    std::fs::create_dir_all(&autosaves).unwrap();
+    let project = lumen_project::testing::project_of(
+        track,
+        vec![lumen_project::model::Track::new(
+            lumen_project::model::Id(1),
+            track,
+            lumen_project::model::TrackKind::Audio,
+            lumen_project::model::Color(0x4F81BD),
+        )],
+    );
+    let copy = autosaves.join(format!("{session}.{PROJECT_EXTENSION}"));
+    lumen_project::save(&project, &copy, &Default::default()).expect("save");
+    std::fs::write(
+        autosaves.join(format!("{session}.json")),
+        format!(r#"{{"project":null,"name":"{track}","written":{written}}}"#),
+    )
+    .unwrap();
+    copy
+}
 
 /// The clips of every track, as (track name, clip count).
 fn clips(lumen: &Lumen) -> Vec<(String, usize)> {
@@ -80,7 +106,7 @@ fn work_survives_a_crash_through_the_autosave() {
     let dir = lumen.crash();
     let mut again = Lumen::start_with(dir, |launch| launch);
     assert!(again.track_names().is_empty());
-    again.click("Recover");
+    again.recover();
     again.wait_for("the recovered project", |app| {
         !app.is_busy() && app.project().tracks.len() == 2
     });
@@ -89,6 +115,102 @@ fn work_survives_a_crash_through_the_autosave() {
         again.app().is_dirty(),
         "recovered work is unsaved until saved"
     );
+}
+
+/// `--recover-latest` (sweep M4a: the folder is scanned on a worker): the
+/// newest leftover opens on the first answer, with no click.
+#[test]
+fn recover_latest_opens_the_newest_leftover_at_start() {
+    let dir = lumen_project::testing::TempDir::new("e2e-recover-latest");
+    crashed_copy(dir.path(), "older", "Alpha", 100);
+    crashed_copy(dir.path(), "newer", "Beta", 300);
+    let mut lumen = Lumen::start_with(dir, |launch| launch.recovering_latest());
+    lumen.wait_for("the newest leftover to open", |app| {
+        !app.is_busy() && app.project().tracks.iter().any(|t| t.name == "Beta")
+    });
+    lumen.frames(5);
+    assert!(
+        !lumen.shows("Recover"),
+        "it opened at once, so nothing is offered"
+    );
+}
+
+/// A project named on the command line wins over `--recover-latest`: it
+/// opens, and the leftover is offered rather than adopted silently.
+#[test]
+fn a_named_project_wins_over_recover_latest_and_the_leftover_stays_offered() {
+    let dir = lumen_project::testing::TempDir::new("e2e-recover-latest-named");
+    let leftover = crashed_copy(dir.path(), "newer", "Beta", 300);
+    let named = dir.path().join(format!("Named.{PROJECT_EXTENSION}"));
+    let project = lumen_project::testing::project_of(
+        "Named",
+        vec![lumen_project::model::Track::new(
+            lumen_project::model::Id(1),
+            "Named",
+            lumen_project::model::TrackKind::Audio,
+            lumen_project::model::Color(0x4F81BD),
+        )],
+    );
+    lumen_project::save(&project, &named, &Default::default()).expect("save");
+    let mut lumen = Lumen::start_with(dir, move |launch| {
+        launch.opening(named.clone()).recovering_latest()
+    });
+    lumen.wait_for("the named project", |app| {
+        !app.is_busy() && app.project().tracks.iter().any(|t| t.name == "Named")
+    });
+    lumen.run_until("the recovery banner", |lumen| lumen.shows("Recover"));
+    lumen.frames(5);
+    assert!(leftover.exists(), "the leftover is kept, not adopted");
+    assert!(
+        !lumen
+            .app()
+            .project()
+            .tracks
+            .iter()
+            .any(|t| t.name == "Beta"),
+        "the named project is what opened"
+    );
+}
+
+/// Discarding a crash's copy deletes it and offers the next one, newest
+/// first. The folder is read on a worker (sweep M4a), so the banner follows
+/// the scan's answer rather than the click.
+#[test]
+fn discarding_a_crash_copy_removes_it_and_offers_the_next_one() {
+    let dir = lumen_project::testing::TempDir::new("e2e-recover-discard");
+    let autosaves = dir.path().join("autosave");
+    std::fs::create_dir_all(&autosaves).unwrap();
+    let copy = |session: &str, name: &str, written: u64| {
+        let file = autosaves.join(format!("{session}.{PROJECT_EXTENSION}"));
+        std::fs::write(&file, b"{}").unwrap();
+        let note = format!("{{\"project\": null, \"name\": \"{name}\", \"written\": {written}}}");
+        std::fs::write(autosaves.join(format!("{session}.json")), note).unwrap();
+        file
+    };
+    let older = copy("one", "Alpha", 100);
+    let newer = copy("two", "Beta", 300);
+
+    let mut lumen = Lumen::start_with(dir, |launch| launch);
+    lumen.run_until("the newest leftover", |l| {
+        l.harness
+            .query_by_label_contains("Unsaved changes to Beta")
+            .is_some()
+    });
+    lumen.click("Discard");
+    lumen.run_until("the next leftover", |l| {
+        l.harness
+            .query_by_label_contains("Unsaved changes to Alpha")
+            .is_some()
+    });
+    assert!(!newer.exists(), "the discarded copy went with its note");
+    assert!(!autosaves.join("two.json").exists());
+    lumen.click("Discard");
+    lumen.run_until("no leftover at all", |l| {
+        l.harness
+            .query_by_label_contains("did not close normally")
+            .is_none()
+    });
+    lumen_testkit::wait_until("the last copy to go", || !older.exists());
 }
 
 /// A crash report from an earlier run is offered once (owner, M3 6c).
@@ -256,6 +378,47 @@ fn a_project_from_before_the_mixer_opens_with_a_master_and_saves_as_current() {
         "saved as version {version}"
     );
     assert!(saved.contains("\"master\": {"), "with its master");
+}
+
+/// The backup is best effort (sweep M1): with `Backups` taken by a file, the
+/// save still commits, says the previous version was not kept, and the saved
+/// project reopens.
+#[test]
+fn a_save_whose_backup_fails_still_saves_and_says_so() {
+    let mut lumen = Lumen::start("save-no-backup");
+    lumen.key(Modifiers::COMMAND, Key::T);
+    let path = project_file(lumen.dir(), "Song");
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
+
+    // A file where the backups folder would go: every backup fails.
+    let folder = path.parent().expect("the project's folder");
+    std::fs::write(folder.join("Backups"), b"not a folder").unwrap();
+    let name = lumen.track_names()[0].clone();
+    lumen.click(&format!("Mute {name}"));
+    assert!(lumen.app().is_dirty());
+    let saved = lumen.app().project().clone();
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
+
+    let notice = lumen.app().file_notice().unwrap_or_default().to_owned();
+    assert!(
+        notice.starts_with("Saved, but the previous version could not be backed up"),
+        "{notice}"
+    );
+    assert!(
+        notice.ends_with("Your project itself was saved."),
+        "{notice}"
+    );
+    assert!(!notice.contains('\u{2026}'), "read in full: {notice}");
+
+    // What was saved reopens as it was.
+    let dir = lumen.crash();
+    let mut again = Lumen::start_with(dir, |launch| launch.opening(path.clone()));
+    again.wait_for("the project to open", |app| !app.is_busy());
+    again.frames(5);
+    assert_eq!(again.app().project().tracks[0].mute, saved.tracks[0].mute);
+    assert!(!again.app().is_dirty());
 }
 
 #[test]

@@ -54,7 +54,7 @@ impl Arrangement {
         let name = format!("Re-enable {lane} of {}", track.name);
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
         let fill = if response.hovered() {
-            palette.warning.gamma_multiply(0.88)
+            palette.warning.gamma_multiply(theme::alpha::WARN_INK)
         } else {
             palette.warning
         };
@@ -204,8 +204,11 @@ impl Arrangement {
             painter.rect(
                 rect,
                 theme::radius::SMALL,
-                palette.accent.gamma_multiply(0.12),
-                Stroke::new(theme::stroke::HAIRLINE, palette.accent.gamma_multiply(0.7)),
+                palette.accent.gamma_multiply(theme::alpha::WASH_SELECTED),
+                Stroke::new(
+                    theme::stroke::HAIRLINE,
+                    palette.accent.gamma_multiply(theme::alpha::INK_DIM),
+                ),
                 egui::StrokeKind::Inside,
             );
         }
@@ -226,7 +229,7 @@ impl Arrangement {
             painter.circle_filled(
                 dot,
                 theme::size::AUTO_BEND + 3.0 + big,
-                palette.accent.gamma_multiply(0.22),
+                palette.accent.gamma_multiply(theme::alpha::HALO_WIDE),
             );
             painter.circle_filled(dot, theme::size::AUTO_BEND + big, palette.accent);
         }

@@ -5,7 +5,14 @@ below) and every milestone's report (at the end). Plans and slice lists are in
 `docs/milestones/`, the reasoning in `docs/DECISIONS.md`, by-hand test runs in
 `docs/manual-tests/`, open problems in `docs/KNOWN_ISSUES.md`.
 
-## Now (2026-11-03)
+## Now (2026-11-12)
+
+On branch `m9.5-architecture-sweep` (2026-11-12): the architecture sweep after M9.5 is fixed and waiting for the
+owner's review (report: "Architecture sweep after M9.5" below; ADR-0141; audit
+`docs/audits/2026-11-11-architecture-sweep.md`). M9.5 itself still waits for its docs pass, MT-CLIP-3 to 5,
+MT-PITCH-1 and the approval.
+
+The paragraphs below are older states, kept for their detail (M9, 2026-11-03):
 
 M9's slices R0 to R8 are merged (PR #60 to #89; formats v30 to v32). R9, the
 close, is on branch `m9-s9-closeout`: the combined walkthrough (E2E
@@ -354,14 +361,14 @@ macOS cross-clippy was attempted and stopped because the C++ compiler
 
 **Review.** `lumen-review` ran on 2026-11-10 (`docs/audits/2026-11-10-m9.5.md`): no High, four Medium, two Low. It
 swept M9.5's own diff by scans and reading, not every crate.
-- **M1:** `app/audio_editor/warp_markers.rs` is 941 production lines; split it by concern.
-- **M2 (a decision for the owner):** one warp marker moves the audio on both sides of it, so fixing one late hit
-  needs anchors on the hits either side, and nothing tells the user. Recommendation: a "Fix this hit" action in the
-  strip's menu that makes the three markers in one undo step.
-- **M3:** the WSL mirror (clippy and the performance gate) and the macOS cross-target clippy could not run on this
-  machine.
-- **M4:** the plan's allocation-guard test for warped playback with marker drags was not written. Covered by
-  argument only (a warped clip is a stream at the callback).
+- **M1** (fixed, ADR-0140): `app/audio_editor/warp_markers.rs` is a folder of six files.
+- **M2** (fixed, owner chose C, ADR-0140): one warp marker moves the audio on both sides of it; **Fix this hit** in the
+  strip's menu and the palette pins the hits either side and marks this one in one undo step.
+- **M3 (open):** the WSL mirror (clippy and the performance gate) and the macOS cross-target clippy could not run on
+  this machine.
+- **M4** (fixed, ADR-0140): an allocation-guard test plays warped clips while a marker is dragged and a clip is
+  transposed (`media::warped::tests`).
+- **M6** (fixed, owner chose A): detected hits on an unwarped clip are the strip's grey triangles.
 - **L1** (fixed): the "Audio clips do not follow tempo" row is removed from KNOWN_ISSUES. **L2:** the docs pass is
   owed.
 
@@ -395,7 +402,53 @@ swept M9.5's own diff by scans and reading, not every crate.
    `m9.5` added to `site/docs/data/docs_pass.txt`).
 3. The approval of 9.5, then **M8** (drum maps and built-in devices), as the owner ordered on 2026-10-23, then M10.
 
-**Waiting for the owner.** The decision on M2, the manual tests, and the approval of M9.5.
+**Waiting for the owner.** MT-CLIP-3 to MT-CLIP-5 and MT-PITCH-1 (the doubled transient, KNOWN_ISSUES), the
+docs pass, M3 (a machine with WSL), and the approval of M9.5. MT-M9.5-1 passed on 2026-11-11.
+
+### Architecture sweep after M9.5 — report (2026-11-12)
+**Status:** Fixed on `m9.5-architecture-sweep` and waiting for the owner's review; nothing pushed. The audit is
+`docs/audits/2026-11-11-architecture-sweep.md` (no High, sixteen Medium, a list of Low); its Status table says what
+each fix is and the commit. The decisions are ADR-0141.
+
+**Shipped.**
+- **Never lose work:** a save no longer fails because its backup failed, and says when the previous version could
+  not be kept (M1); the v1 and v3 migrations use frozen defaults, not the live ones (M2); the take sidecar and the
+  autosave note carry a version and a newer build's file is kept, counted and offered, never read as a take or
+  removed (M9); every golden project file is pinned to its bytes (M9).
+- **The audio path:** the ASIO stream counts the callbacks in flight and frees nothing under one, gives a driver its
+  buffers back when an open fails, tells a held driver from a missing one, keeps a callback panic inside the driver
+  boundary and acts on the driver's reset, resync and overload messages (M5); the portable backend hands its
+  callback to the audio thread without a lock (M6); the drift correction is clamped (M5g); a thread that cannot
+  start is a value (M7).
+- **The interface thread:** deletes, the crash-leftover scan, the association status, a dialog's folder and the
+  streaming state's drop moved off it (M3, M4); a host that stops answering control calls is failed and killed (M8).
+- **Structure:** every file over 800 production lines was split by concern except `theme.rs` (tokens stay in one
+  file) and `commands/run.rs` (one dispatch, 738 lines); 40 loose `src/` modules went into `engine/`, `bake/`,
+  `project_files/`, `system/`, `design/` and `timeline/`, and the `clip_*`, `auto_*` and `audio_*` files into
+  `app/clip/`, `app/auto/` and `app/audio/` (M10, M11); the `impl App` blocks left `browser/` (M12, a pilot); the
+  two plugin-host prototypes are deleted.
+- **Design tokens:** every stroke width, opacity and wait the interface used is named in `theme.rs` and `motion.rs`
+  with no visual change, pinned by a test (M14).
+- **Real-time coverage:** the clip, MIDI, mixer, metronome, meter, synth and hosted-instrument tests render under the
+  allocation guard, and the audio thread's clip player has no way to reach a page loader (M16, ADR-0141).
+
+**Verified** on Windows, 2026-11-12: `cargo fmt --check`; workspace clippy `-D warnings`; `cargo test --workspace`
+(4,166 passed, 0 failed, 134 ignored with reasons, the E2E suite included); the smoke tests (13; one needed its
+expected backtrace frame renamed for `system::crash`, and needs a build with symbols). Every moved file was
+compared with its old self line by line (only imports, signatures and `pub(super)` marks differ). The parent read
+the audio-thread, versioning, write-pass and crash-filter diffs.
+
+**Not verified.** Nothing ran on the Focusrite or on any real plugin; the WSL mirror and the performance gate, the
+macOS cross-target clippy and the screenshots at 100, 150 and 200% did not run on this machine; the Windows crash
+filter and the editor window code are compile-checked only; the ASIO changes have only fake-driver tests.
+
+**Left open and why.** M12 for `chain/` (12 files) and `note_editor/` (8): the pilot shows it is a real redesign,
+not a move, for little gain. The audit's Lows on `test-support` features, the MIDI activity-table slots and the
+`warp_transient` investigations. The docs pass of ARCHITECTURE.md (a table of where things moved went in; the long
+rows still use the old file names). The association write on a worker (a behaviour choice, below).
+
+**Owner questions.** (1) Move the registry write for the file association off the click, or leave it? (2) Do M12 for
+`chain/` and `note_editor/` now, or when each is next changed (the audit's own rule)?
 
 ### Milestone 9 — report (2026-11-03)
 **Status:** Built, not signed off. R0 to R8 are merged (PR #60 to #89; ADR-0099 to 0117; formats v30 to v32). R9,

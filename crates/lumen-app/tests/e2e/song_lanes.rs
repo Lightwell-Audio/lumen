@@ -244,6 +244,23 @@ fn the_bar_field_shows_the_tempo_at_the_playhead() {
 }
 
 #[test]
+fn a_double_click_on_the_tempo_field_returns_it_to_120() {
+    // Every control resets to its default on a double-click (DESIGN §5).
+    let mut lumen = Lumen::start("song-tempo-reset");
+    let field = lumen.harness.get_by_label("Tempo").rect().center();
+    click_at(&mut lumen, field);
+    lumen.frames(2);
+    lumen.key(Modifiers::COMMAND, Key::A);
+    lumen.harness.event(Event::Text("140".into()));
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(2);
+    assert_eq!(tempos(&lumen), [(Ticks::ZERO, 140.0)]);
+    lumen.double_click(field);
+    assert_eq!(tempos(&lumen), [(Ticks::ZERO, 120.0)]);
+    assert_eq!(lumen.app().undo_label(), Some("Change tempo"));
+}
+
+#[test]
 fn the_keyboard_reaches_the_lanes_through_the_palette() {
     let mut lumen = Lumen::start("song-keyboard");
     run_command(&mut lumen, "Add a tempo change at the playhead");

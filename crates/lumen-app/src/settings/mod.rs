@@ -737,20 +737,34 @@ impl Writer {
     pub fn start() -> Self {
         let (queue, jobs) = std::sync::mpsc::channel::<(PathBuf, Settings)>();
         let (report, errors) = std::sync::mpsc::channel();
-        let thread = std::thread::Builder::new()
-            .name("lumen-settings".into())
-            .spawn(move || {
-                for (path, settings) in jobs {
-                    if let Err(e) = save(&path, &settings) {
-                        let _ = report.send(e.to_string());
-                    }
+        let failed = report.clone();
+        let thread = crate::spawn::spawn_named("lumen-settings", move || {
+            for (path, settings) in jobs {
+                if let Err(e) = save(&path, &settings) {
+                    let _ = report.send(e.to_string());
                 }
-            })
-            .expect("spawn settings writer");
-        Self {
-            queue: Some(queue),
-            errors,
-            thread: Some(thread),
+            }
+        });
+        match thread {
+            Ok(thread) => Self {
+                queue: Some(queue),
+                errors,
+                thread: Some(thread),
+            },
+            Err(error) => {
+                // There is nothing to send the settings to: the line the
+                // interface already shows for a failed write carries this
+                // one, and nothing tries to save over it.
+                let _ = failed.send(format!(
+                    "its writer could not start: {error}. Try again, or restart if this keeps \
+                     happening."
+                ));
+                Self {
+                    queue: None,
+                    errors,
+                    thread: None,
+                }
+            }
         }
     }
 

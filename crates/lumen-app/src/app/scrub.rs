@@ -153,7 +153,7 @@ impl App {
                 painter.rect_filled(
                     Rect::from_x_y_ranges(x(start)..=x(end), zone.y_range()),
                     0.0,
-                    palette.accent_muted.gamma_multiply(0.6),
+                    palette.accent_muted.gamma_multiply(theme::alpha::WASH_CELL),
                 );
             }
             info.on(Held::NONE, Mouse::Drag, "listen to each step").on(

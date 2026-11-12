@@ -13,6 +13,9 @@ use lumen_engine::{
     Command, Destination, Engine, EngineHandle, FadeFrames, Mixer, NodeSpec, Region, Routing,
     Timeline, clip_player, engine, mixer,
 };
+use lumen_rt::{count_rt_violations, guard_is_active};
+
+lumen_rt::install_guarded_allocator!();
 
 const RATE: u32 = 48_000;
 /// 2 ms at 48 kHz: the edge and jump fade.
@@ -60,7 +63,10 @@ fn run(engine: &mut Player, frames: usize, block: usize) -> Vec<(f32, f32)> {
     let mut done = 0;
     while done < frames {
         let n = block.min(frames - done);
-        engine.process(RATE, &mut data[..2 * n], 2, n);
+        // The render is the audio thread's work: nothing here may reach the
+        // heap (the allocation guard, `realtime.rs`).
+        let ((), heap) = count_rt_violations(|| engine.process(RATE, &mut data[..2 * n], 2, n));
+        assert_eq!(heap, 0, "heap operation in process() at sample {done}");
         out.extend((0..n).map(|i| (data[i], data[n + i])));
         done += n;
     }
@@ -80,6 +86,7 @@ fn expected(audio: &ClipAudio, offset: i64, length: i64, pos: i64) -> (f32, f32)
 
 #[test]
 fn a_clip_plays_on_its_exact_samples_at_every_block_size() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     let audio = ramp(20_000, RATE);
     let (offset, length) = (100, 10_000);
     let clip = Clip {
@@ -881,6 +888,7 @@ fn dragging_a_playing_clip_crossfades_instead_of_clicking() {
     // Owner (after M3 slice 6c): dragging a clip while it played crackled.
     // Each new position made the audio under the playhead jump to another
     // point of the file, once per screen frame.
+    assert!(guard_is_active(), "guarded allocator not installed");
     let audio = tone(200_000);
     let clip = |start: Ticks| Clip {
         envelope: Default::default(),
@@ -1097,6 +1105,7 @@ fn fades_sound_as_drawn_in_every_shape_and_free_curve() {
 
 #[test]
 fn a_looping_clip_repeats_its_content_with_clean_seams() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     let audio = ramp(30_000, RATE);
     let (offset, period, length) = (100, 3_000, 10_000);
     let clip = Clip {

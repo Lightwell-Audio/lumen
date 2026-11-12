@@ -308,7 +308,7 @@ impl Arrangement {
                 if (area.top()..=area.bottom()).contains(&y) {
                     painter.line_segment(
                         [pos2(left, y), pos2(area.right(), y)],
-                        Stroke::new(2.0, accent),
+                        Stroke::new(theme::stroke::EDGE, accent),
                     );
                 }
             }
@@ -317,11 +317,11 @@ impl Arrangement {
                     pos2(area.left(), area.top() + top - self.top),
                     egui::vec2(area.width(), height),
                 );
-                painter.rect_filled(rect, 0.0, accent.gamma_multiply(0.10));
+                painter.rect_filled(rect, 0.0, accent.gamma_multiply(theme::alpha::WASH));
                 painter.rect_stroke(
                     rect.shrink(1.0),
                     0.0,
-                    Stroke::new(2.0, accent),
+                    Stroke::new(theme::stroke::EDGE, accent),
                     egui::StrokeKind::Inside,
                 );
             }

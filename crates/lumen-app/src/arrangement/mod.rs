@@ -399,7 +399,7 @@ fn fit_height(visible: f32, count: f32) -> f32 {
 }
 
 pub(crate) fn color_of(c: Color) -> Color32 {
-    Color32::from_rgb((c.0 >> 16) as u8, (c.0 >> 8) as u8, c.0 as u8)
+    crate::theme::colour_of(c.0)
 }
 
 /// The colour `clip` is drawn in: its own, or its track's, and grey while

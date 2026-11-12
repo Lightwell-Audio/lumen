@@ -426,7 +426,12 @@ impl App {
         let ground = theme::p().canvas;
         let edge = theme::space::L;
         let rect = Rect::from_min_max(pos2(body.right() - edge, body.top()), body.max);
-        widgets::gradient(painter, rect, ground.gamma_multiply(0.0), ground);
+        widgets::gradient(
+            painter,
+            rect,
+            ground.gamma_multiply(theme::alpha::NONE),
+            ground,
+        );
     }
 
     fn chip_text(&self, resolved: &Resolved, preview: &Preview, clip: &Clip) -> Option<String> {

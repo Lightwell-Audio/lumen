@@ -116,6 +116,9 @@ impl App {
     /// step, asks where an export made in the background goes, and reports
     /// one that finished.
     pub(crate) fn poll_midi_files(&mut self, ctx: &egui::Context) {
+        if let Some(why) = self.midi_reader.take_failure() {
+            self.lanes.say(why);
+        }
         // The dialog waits for any other to close: it would replace it.
         if self.dialog.is_none()
             && let Some(done) = self

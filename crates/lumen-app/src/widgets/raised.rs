@@ -312,12 +312,33 @@ pub fn button_inked(ui: &mut Ui, label: &str, ink: Option<Color32>) -> Response 
     button_face(ui, label, ink, None)
 }
 
+/// [`button`] whose letters are in `font` rather than the interface's body
+/// face, and lit while `on`: the app menu's wordmark, set in the display
+/// face, lights while its menu shows as a control that is on does.
+pub fn text_button(ui: &mut Ui, label: &str, font: egui::FontId, on: bool) -> Response {
+    button_face_in(ui, label, font, None, on.then_some(Tone::On))
+}
+
 fn button_face(ui: &mut Ui, label: &str, ink: Option<Color32>, lit: Option<Tone>) -> Response {
-    let galley = ui.painter().layout_no_wrap(
-        label.to_owned(),
+    button_face_in(
+        ui,
+        label,
         egui::FontId::proportional(theme::size::BODY),
-        theme::p().text,
-    );
+        ink,
+        lit,
+    )
+}
+
+fn button_face_in(
+    ui: &mut Ui,
+    label: &str,
+    font: egui::FontId,
+    ink: Option<Color32>,
+    lit: Option<Tone>,
+) -> Response {
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_owned(), font, theme::p().text);
     let size = vec2(
         galley.size().x + 2.0 * theme::space::M,
         theme::size::CONTROL,

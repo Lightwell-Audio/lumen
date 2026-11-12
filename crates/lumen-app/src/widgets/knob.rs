@@ -374,7 +374,7 @@ pub(super) fn draw(painter: &egui::Painter, rect: Rect, knob: &SendKnob<'_>, at:
             r + width + 1.5,
             Stroke::new(
                 theme::stroke::HAIRLINE,
-                knob.color.gamma_multiply(0.5 * hot),
+                knob.color.gamma_multiply(theme::alpha::EDGE * hot),
             ),
         );
     }
@@ -488,7 +488,7 @@ fn draw_slot(
             r,
             Stroke::new(
                 theme::stroke::HAIRLINE,
-                knob.color.gamma_multiply(0.7 * hot),
+                knob.color.gamma_multiply(theme::alpha::INK_DIM * hot),
             ),
             egui::StrokeKind::Inside,
         );

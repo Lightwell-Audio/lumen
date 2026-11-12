@@ -6,10 +6,6 @@
 //! Built as a module (`cdylib`) for scanning and hosting, and as a library
 //! so the same classes can be tested in process.
 
-// The bindings' enum constants are `i32` on Windows and `u32` elsewhere, so
-// a cast one platform needs is a no-op on the other.
-#![allow(clippy::unnecessary_cast)]
-
 #[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
 

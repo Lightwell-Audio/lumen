@@ -288,8 +288,14 @@ impl PreviewFeed {
     /// Sends a filled block to the player. The full ring holds every block,
     /// so this cannot fail for a block taken from [`Self::take`].
     pub fn send(&mut self, block: PreviewBlock) {
-        // Every block is in exactly one place; the ring has room for all.
-        let _ = self.full.push(block);
+        // Every block is in exactly one place; the ring has room for all. A
+        // failure would drop (and so free) one, here on whichever thread
+        // sends it, which the audio side's invariants forbid.
+        let sent = self.full.push(block);
+        debug_assert!(
+            sent.is_ok(),
+            "a sent block needs the room the empty ring guarantees"
+        );
     }
 }
 
@@ -478,8 +484,12 @@ impl PreviewPlayer {
 
     fn give_back(&mut self, block: PreviewBlock) {
         // The empty ring holds every block, so there is always room: the
-        // block is never dropped (freed) here.
-        let _ = self.empty.push(block);
+        // block is never dropped (freed) here, on the audio thread.
+        let given = self.empty.push(block);
+        debug_assert!(
+            given.is_ok(),
+            "a block going back needs the room every block's place guarantees"
+        );
     }
 }
 
@@ -514,21 +524,28 @@ mod tests {
         let (handle, mut f, mut player) = preview();
         run(&mut player, 64);
         let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // Reads the reader has made, so the loop below only starts once it is
+        // really reading: a thread that never ran proves nothing.
+        let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let reader = {
-            let (handle, done) = (handle.clone(), Arc::clone(&done));
+            let (handle, done, reads) = (handle.clone(), Arc::clone(&done), Arc::clone(&reads));
             std::thread::spawn(move || {
-                let mut reads = 0_u64;
+                let mut count = 0_u64;
                 while !done.load(Ordering::Relaxed) {
                     let heard = handle.heard();
                     assert!(
                         !(heard.ended && heard.generation % 2 == 0),
                         "{heard:?} read as ended"
                     );
-                    reads += 1;
+                    count += 1;
+                    reads.store(count, Ordering::Release);
                 }
-                reads
+                count
             })
         };
+        while reads.load(Ordering::Acquire) == 0 {
+            std::thread::yield_now();
+        }
         for _ in 0..1_000 {
             let g = handle.start();
             let ends = g % 2 == 1;

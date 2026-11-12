@@ -216,7 +216,7 @@ impl App {
             let fill = if lit {
                 palette.accent
             } else {
-                palette.accent.gamma_multiply(0.75)
+                palette.accent.gamma_multiply(theme::alpha::EDGE_BRACE)
             };
             let body = Rect::from_x_y_ranges(left..=right, band.top() + 2.0..=band.bottom() - 2.0);
             painter.rect_filled(body, theme::radius::for_height(body.height()), fill);

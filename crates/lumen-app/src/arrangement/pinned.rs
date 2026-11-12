@@ -195,12 +195,12 @@ impl Arrangement {
         painter.hline(
             divider.x_range(),
             divider.top() + 0.5,
-            Stroke::new(1.0, palette.border_strong),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
         );
         painter.hline(
             divider.x_range(),
             divider.bottom() - 0.5,
-            Stroke::new(1.0, palette.border_strong),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
         );
         let grip = Rect::from_center_size(divider.center(), vec2(28.0, 2.0));
         painter.rect_filled(grip, 1.0, palette.text_hint);
@@ -246,7 +246,7 @@ impl Arrangement {
             painter.hline(
                 rect.x_range(),
                 rect.bottom() - 0.5,
-                Stroke::new(1.0, palette.border),
+                Stroke::new(theme::stroke::HAIRLINE, palette.border),
             );
             let open = motion::glide(
                 &ctx,
@@ -328,7 +328,11 @@ impl Arrangement {
             return;
         }
         let painter = painter.with_clip_rect(area.intersect(painter.clip_rect()));
-        painter.rect_filled(area, 0.0, palette.canvas.gamma_multiply(0.7));
+        painter.rect_filled(
+            area,
+            0.0,
+            palette.canvas.gamma_multiply(theme::alpha::INK_DIM),
+        );
         for row in rows.iter().filter(|r| r.zone != super::Zone::Main) {
             let span = self.zone_span(ctx, project, row.zone, canvas.y_range());
             let lane = Rect::from_min_size(
@@ -344,12 +348,19 @@ impl Arrangement {
                 super::RowKind::Track(index) => {
                     let track = &project.tracks[index];
                     if track.solo {
-                        painter.rect_filled(lane, 0.0, palette.accent.gamma_multiply(0.06));
+                        painter.rect_filled(
+                            lane,
+                            0.0,
+                            palette.accent.gamma_multiply(theme::alpha::WASH_LANE),
+                        );
                     }
                     painter.hline(
                         canvas.x_range(),
                         lane.bottom() - 0.5,
-                        Stroke::new(1.0, palette.border.gamma_multiply(0.6)),
+                        Stroke::new(
+                            theme::stroke::HAIRLINE,
+                            palette.border.gamma_multiply(theme::alpha::EDGE_DIM),
+                        ),
                     );
                     if let Some((hot, t)) = self.hot_edge
                         && hot == track.id
@@ -361,7 +372,7 @@ impl Arrangement {
                     painter.hline(
                         canvas.x_range(),
                         lane.top() + 0.5,
-                        Stroke::new(1.0, palette.border),
+                        Stroke::new(theme::stroke::HAIRLINE, palette.border),
                     );
                 }
                 super::RowKind::Pending(_) => {}
@@ -591,7 +602,7 @@ impl Arrangement {
         painter.hline(
             rect.x_range(),
             rect.top() + 0.5,
-            Stroke::new(1.0, palette.border),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
     }
 }

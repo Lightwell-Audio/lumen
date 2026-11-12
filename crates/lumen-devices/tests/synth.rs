@@ -3,6 +3,9 @@
 
 use lumen_core::midi::{Event, Msg};
 use lumen_devices::{Instrument, Preset, Synth};
+use lumen_rt::{count_rt_violations, guard_is_active};
+
+lumen_rt::install_guarded_allocator!();
 
 const RATE: u32 = 48_000;
 
@@ -47,7 +50,12 @@ fn render(
                 msg: e.msg,
             })
             .collect();
-        synth.render(RATE, &local, &mut left[at..at + n], &mut right[at..at + n]);
+        // The synth is the audio thread's work: nothing here may reach the
+        // heap (the allocation guard, `realtime.rs`).
+        let ((), heap) = count_rt_violations(|| {
+            synth.render(RATE, &local, &mut left[at..at + n], &mut right[at..at + n]);
+        });
+        assert_eq!(heap, 0, "heap operation in the synth at frame {at}");
         at += n;
     }
     (left, right)
@@ -63,6 +71,7 @@ fn rms(x: &[f32]) -> f32 {
 
 #[test]
 fn a_note_begins_on_its_frame_and_not_before() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     for block in [64, 100, 480] {
         let mut synth = Synth::new(Preset::Poly);
         let (left, right) = render(&mut synth, &[on(1_000, 60, 100)], 4_000, block);
@@ -105,6 +114,7 @@ fn a_note_rings_then_releases_to_silence() {
 
 #[test]
 fn the_sustain_pedal_holds_released_keys() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     let mut synth = Synth::new(Preset::Poly);
     let events = [
         cc(0, 64, 127),
@@ -240,6 +250,7 @@ fn all_sound_off_cuts_and_all_notes_off_releases() {
 
 #[test]
 fn every_preset_stays_finite_and_bounded_under_a_random_storm() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     for preset in Preset::ALL {
         let mut synth = Synth::new(preset);
         let mut seed = 99_u32;

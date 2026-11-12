@@ -119,7 +119,7 @@ fn bar_and_label(look: &ClipLook<'_>, palette: &theme::Palette) -> (Color32, Str
     match look.state {
         ClipState::Ready => (look.color, name.to_owned()),
         ClipState::Loading => (
-            look.color.gamma_multiply(0.6),
+            look.color.gamma_multiply(theme::alpha::EDGE_DIM),
             format!(
                 "{name} \u{00B7} loading {:.0}%",
                 look.progress.unwrap_or(0.0) * 100.0
@@ -150,7 +150,7 @@ pub(super) fn clip_box(
         body: straight(body_color(&look.paint, palette, a)),
         bar: straight(bar.gamma_multiply(a)),
         border: straight(outline_color(&look.paint, look.color, a)),
-        fill: straight(look.color.gamma_multiply(0.25 * a)),
+        fill: straight(look.color.gamma_multiply(theme::alpha::WASH_BODY * a)),
         progress: match look.state {
             ClipState::Loading => look.progress.unwrap_or(0.0),
             _ => 0.0,
@@ -169,7 +169,11 @@ pub(super) fn draw_body(painter: &Painter, rect: Rect, look: &ClipLook<'_>) {
     painter.rect_filled(rect, radius, body_color(&look.paint, palette, alpha));
     if let (ClipState::Loading, Some(p)) = (look.state, look.progress) {
         let done = Rect::from_min_size(rect.min, vec2(rect.width() * p, rect.height()));
-        painter.rect_filled(done, radius, look.color.gamma_multiply(0.25 * alpha));
+        painter.rect_filled(
+            done,
+            radius,
+            look.color.gamma_multiply(theme::alpha::WASH_BODY * alpha),
+        );
     }
     let title = Rect::from_min_size(rect.min, vec2(rect.width(), TITLE.min(rect.height())));
     painter.rect_filled(
@@ -185,7 +189,10 @@ pub(super) fn draw_body(painter: &Painter, rect: Rect, look: &ClipLook<'_>) {
     painter.rect_stroke(
         rect,
         radius,
-        Stroke::new(1.0, outline_color(&look.paint, look.color, alpha)),
+        Stroke::new(
+            theme::stroke::HAIRLINE,
+            outline_color(&look.paint, look.color, alpha),
+        ),
         egui::StrokeKind::Inside,
     );
 }
@@ -226,12 +233,14 @@ pub(super) fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLo
         painter.extend(icons::shapes(
             icons::Icon::Lock,
             at,
-            theme::CLIP_TEXT.gamma_multiply(0.9 * alpha),
+            theme::CLIP_TEXT.gamma_multiply(theme::alpha::TEXT_BRIGHT * alpha),
         ));
         room.max.x = at.left() - 3.0;
     }
     let ink = if alpha < 0.9 {
-        palette.text_secondary.gamma_multiply(alpha.max(0.6))
+        palette
+            .text_secondary
+            .gamma_multiply(alpha.max(theme::alpha::EDGE_DIM))
     } else {
         theme::CLIP_TEXT.gamma_multiply(alpha)
     };

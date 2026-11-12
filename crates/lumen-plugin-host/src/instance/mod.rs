@@ -338,6 +338,10 @@ impl Instance {
 
     /// One call of the plugin's `process` over `span` of the buffers, checked
     /// by [`Self::process_into`].
+    #[allow(
+        clippy::unnecessary_cast,
+        reason = "the bindings' enum constants are `i32` on Windows and `u32` elsewhere, so the cast one platform needs is a no-op on the other"
+    )]
     fn process_span(
         &mut self,
         format: Format,
@@ -646,8 +650,9 @@ impl Drop for Instance {
                 controller_point.disconnect(component_point.as_ptr());
             }
 
-            // Steinberg's PlugProvider disconnects both connection points,
-            // terminates the component, then terminates a separate controller.
+            // The VST3 SDK's plug-provider helper disconnects both connection
+            // points, terminates the component, then terminates a separate
+            // controller; this is that order.
             self.component.terminate();
             if self.separate_controller
                 && let Some(controller) = &self.controller

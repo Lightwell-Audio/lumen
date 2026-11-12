@@ -385,6 +385,15 @@ impl Lumen {
         }
     }
 
+    /// Clicks the recovery banner's Recover, waiting for the worker that
+    /// scans the autosave folder to offer it (sweep M4a: the scan never runs
+    /// on the interface's thread, so the banner comes a frame or two later).
+    #[track_caller]
+    pub fn recover(&mut self) {
+        self.run_until("the recovery banner", |lumen| lumen.shows("Recover"));
+        self.click("Recover");
+    }
+
     /// Whether a control named `label` is on screen.
     pub fn shows(&self, label: &str) -> bool {
         self.harness.query_by_label(label).is_some()
