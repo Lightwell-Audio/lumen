@@ -10,7 +10,8 @@ use std::sync::Arc;
 
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_engine::{
-    ClipAudio, Command, Destination, NodeSpec, Routing, Timeline, clip_player, engine, mixer,
+    ClipAudio, Command, Destination, NodeSpec, Routing, Timeline, clip_player_for_render, engine,
+    mixer,
 };
 use lumen_project::model::{ClipContent, Id, Project};
 
@@ -106,7 +107,7 @@ fn render_file(
         let audio = if twin(id) { &backward } else { &forward };
         Some((audio.clone(), RATE))
     });
-    let (mut clips, player) = clip_player();
+    let (mut clips, player) = clip_player_for_render();
     clips.set(list).unwrap();
     let (mut routing, source) = mixer(player);
     routing

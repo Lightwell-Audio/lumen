@@ -4,7 +4,7 @@
 use crate::envelope::EnvelopeGains;
 use crate::mixer::{BUS_CHANNELS, Buses, TrackSource};
 use crate::source::{Jump, Mode, RenderContext};
-use crate::stream::PagePool;
+use crate::stream::{NoLoader, PageLoad, PagePool};
 use crate::timeline::Timeline;
 
 use super::crossfades::{Crossfade, Ramp, SWAP_PER_SECOND, Swap};
@@ -25,8 +25,14 @@ const LOOKAHEAD_PER_SECOND: u32 = 25;
 
 /// Audio side: plays the clips. A [`Source`] for the engine.
 ///
+/// `L` decides whether a streamed page it misses may be loaded: the audio
+/// thread's player is `ClipPlayer<NoLoader>` (what [`clip_player`] makes) and
+/// has no way to reach a loader at all; only an offline render's player may
+/// load ([`PageLoad`], sweep M16b).
+///
 /// [`Source`]: crate::source::Source
-pub struct ClipPlayer {
+/// [`clip_player`]: super::handle::clip_player
+pub struct ClipPlayer<L = NoLoader> {
     incoming: rtrb::Consumer<Box<ClipSet>>,
     retired: rtrb::Producer<Box<ClipSet>>,
     /// A replaced list that did not fit in the retired queue yet.
@@ -36,13 +42,15 @@ pub struct ClipPlayer {
     swap: Option<Swap>,
     /// The envelope gains of the clip being played.
     gains: EnvelopeGains,
+    /// What this player may load: nothing, for the audio thread's.
+    policy: std::marker::PhantomData<L>,
 }
 
 fn fade_length(rate: u32) -> u32 {
     (rate / FADE_PER_SECOND).max(1)
 }
 
-impl ClipPlayer {
+impl<L: PageLoad> ClipPlayer<L> {
     /// A player on `incoming`, handing replaced lists back through
     /// `retired`, starting with no clips. Allocates, so call it off the
     /// audio thread.
@@ -61,6 +69,7 @@ impl ClipPlayer {
             )),
             swap: None,
             gains: EnvelopeGains::new(),
+            policy: std::marker::PhantomData,
         }
     }
 }
@@ -93,8 +102,9 @@ struct ClipRender<'a> {
 
 /// Plays `clip` at its kept level into its track's bus in `buses`, faded
 /// by `ramp`. A tail (rendered ahead of a jump) reads the level but does
-/// not move it.
-fn play(
+/// not move it. `L` says whether a missing streamed page may be loaded: the
+/// audio thread's player passes [`NoLoader`], which cannot (sweep M16b).
+fn play<L: PageLoad>(
     clip: &Clip,
     kept: Kept<'_>,
     cx: &RenderContext<'_>,
@@ -134,7 +144,7 @@ fn play(
         // after is missing, it glides out (on audio it still has) and back in
         // once its pages are there. Each time it has to is one underrun.
         let ready = for_each_page(clip, start, a..b + block.ahead, stream.frames(), &mut |p| {
-            stream.ensure(p)
+            L::ensure(stream, p)
         });
         if !ready {
             goal = 0.0;
@@ -209,7 +219,7 @@ fn play(
             ClipAudio::Memory { channels, .. } => {
                 side_mix.run(target, channels[side.min(sources - 1)].as_slice())
             }
-            ClipAudio::Stream(stream) => side_mix.run(target, &stream.side(side)),
+            ClipAudio::Stream(stream) => side_mix.run(target, &stream.side_with::<L>(side)),
         };
     }
     *level = gain;
@@ -222,7 +232,7 @@ struct Kept<'a> {
     starved: &'a mut bool,
 }
 
-impl ClipPlayer {
+impl<L: PageLoad> ClipPlayer<L> {
     /// Takes a new clip list if one arrived and no crossfade is running.
     /// With `fade`, clips that moved crossfade into it. Real-time safe.
     fn take_new(&mut self, fade: bool) {
@@ -301,7 +311,7 @@ impl ClipPlayer {
     }
 }
 
-impl TrackSource for ClipPlayer {
+impl<L: PageLoad> TrackSource for ClipPlayer<L> {
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Buses<'_>) {
         if cx.mode == Mode::Ring {
             // Stopped, and only instrument and effect tails ring. The engine
@@ -345,7 +355,7 @@ impl TrackSource for ClipPlayer {
                 Some(x) if set.swapped[i] => Ramp::In(x),
                 _ => Ramp::Steady,
             };
-            play(
+            play::<L>(
                 &set.clips[i],
                 Kept {
                     level: &mut set.levels[i],
@@ -369,7 +379,7 @@ impl TrackSource for ClipPlayer {
             set_seams(&mut swap.old, cx);
             let old = &mut *swap.old;
             for i in (0..old.clips.len()).filter(|&i| old.swapped[i]) {
-                play(
+                play::<L>(
                     &old.clips[i],
                     Kept {
                         level: &mut old.levels[i],

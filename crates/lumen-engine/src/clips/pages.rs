@@ -2,7 +2,7 @@
 //! of them are asked of the pool, and the samples the player reads from a
 //! streamed side.
 
-use crate::stream::{PAGE, StreamSide};
+use crate::stream::{PAGE, PageLoad, StreamSide};
 
 use super::Clip;
 
@@ -19,7 +19,7 @@ impl Samples for &[f32] {
     }
 }
 
-impl Samples for &StreamSide<'_> {
+impl<L: PageLoad> Samples for &StreamSide<'_, L> {
     #[inline(always)]
     fn at(&self, frame: usize) -> Option<f32> {
         StreamSide::at(self, frame)

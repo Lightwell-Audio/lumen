@@ -7,7 +7,7 @@ use lumen_core::time::{TempoMap, TempoPoint, Ticks};
 use lumen_core::warp::Marker;
 use lumen_engine::{
     ClipAudio, ClipsHandle, Command, Destination, NodeSpec, PAGE, PagePool, Routing, StreamAudio,
-    Timeline, clip_player, engine, mixer,
+    Timeline, clip_player, clip_player_for_render, engine, mixer,
 };
 use lumen_media::MediaError;
 use lumen_project::edit::warp::Change;
@@ -337,7 +337,7 @@ fn render_with(
     );
     // As an export plays them: the streams load their own pages.
     let list = streams::offline(list, &Unread::default());
-    let (mut clips, player) = clip_player();
+    let (mut clips, player) = clip_player_for_render();
     clips.set(list).unwrap();
     let (mut routing, source) = mixer(player);
     routing

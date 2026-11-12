@@ -6,6 +6,7 @@ use super::Clip;
 use super::fades::Table;
 use super::player::ClipPlayer;
 use super::set::ClipSet;
+use crate::stream::{LoadPages, NoLoader, PageLoad};
 
 const QUEUE: usize = 4;
 
@@ -49,8 +50,21 @@ impl ClipsHandle {
 }
 
 /// Creates the clip pair, starting with no clips. Allocates, so call it off
-/// the audio thread.
+/// the audio thread. What it makes cannot load a streamed page: that is the
+/// audio thread's player (sweep M16b).
 pub fn clip_player() -> (ClipsHandle, ClipPlayer) {
+    clip_player_for::<NoLoader>()
+}
+
+/// As [`clip_player`], for an offline render: a page a streamed clip misses
+/// is loaded on the spot, on the rendering thread, so the render never
+/// starves. Never give its player to the audio thread.
+pub fn clip_player_for_render() -> (ClipsHandle, ClipPlayer<LoadPages>) {
+    clip_player_for::<LoadPages>()
+}
+
+/// As [`clip_player`], with `L` deciding whether a missing page is loaded.
+fn clip_player_for<L: PageLoad>() -> (ClipsHandle, ClipPlayer<L>) {
     let (incoming_tx, incoming_rx) = rtrb::RingBuffer::new(QUEUE);
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(QUEUE + 1);
     (
