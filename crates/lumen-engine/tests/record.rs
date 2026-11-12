@@ -469,6 +469,7 @@ fn a_held_key_uses_the_latency_compensated_record_start_for_playback() {
             length: q(4.0),
             pitch: 60,
             velocity: 100,
+            channel: None,
         }]
         .into(),
         controls: Vec::new().into(),
@@ -537,6 +538,7 @@ fn a_key_played_while_recording_ends_the_clips_note_on_that_key() {
         length: q(length),
         pitch: 60,
         velocity: 100,
+        channel: None,
     };
     let clip = MidiClip {
         id: 9,
@@ -601,6 +603,7 @@ fn a_key_played_after_punch_out_leaves_the_clips_notes_alone() {
         length: q(length),
         pitch: 60,
         velocity: 100,
+        channel: None,
     };
     let clip = MidiClip {
         id: 9,
@@ -666,6 +669,7 @@ fn a_key_played_inside_the_recording_window_still_wins_its_pitch() {
             length: q(4.0),
             pitch: 60,
             velocity: 100,
+            channel: None,
         }]
         .into(),
         controls: Vec::new().into(),
@@ -716,6 +720,7 @@ fn compensated_live_keys_follow_both_punch_edges() {
                 length: q(4.0),
                 pitch,
                 velocity: 100,
+                channel: None,
             })
             .collect::<Vec<_>>()
             .into(),
@@ -779,6 +784,7 @@ fn a_key_after_the_first_wrap_uses_the_saved_loop_window_before_ui_refresh() {
             length: q(1.0),
             pitch: 60,
             velocity: 100,
+            channel: None,
         }]
         .into(),
         controls: Vec::new().into(),

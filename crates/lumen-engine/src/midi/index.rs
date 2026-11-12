@@ -200,6 +200,7 @@ mod tests {
             length: Ticks(length),
             pitch: 60,
             velocity: 100,
+            channel: None,
         }
     }
 

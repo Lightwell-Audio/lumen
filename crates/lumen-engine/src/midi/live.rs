@@ -19,6 +19,7 @@
 use lumen_core::midi::{Event, Kind, Msg, cc};
 
 use super::hold::MAX_HELD;
+use super::kit::{DrumKit, KitKey};
 
 /// How many live sources there can be: inputs by slot, and the keyboard.
 pub const SOURCES: u8 = 64;
@@ -100,6 +101,8 @@ struct LiveHeld {
     key: u8,
     /// The channel it went out on.
     out: u8,
+    /// The note it went out as (a drum map's output note, or the key).
+    out_key: u8,
 }
 
 /// Per track: the live notes sounding, the pedal and the bend.
@@ -142,24 +145,39 @@ impl LiveState {
     /// Works out what `msg` from `source` sends, on outgoing channel `out`
     /// (`None` keeps the message's own), and remembers what it holds.
     /// `None` when nothing should go: a note-off for a note this track is
-    /// not holding (it was let go already), or a full tracker.
-    pub(super) fn take(&mut self, source: u8, msg: Msg, out: Option<u8>) -> Option<Msg> {
+    /// not holding (it was let go already), a note its drum map silences
+    /// (M8 D0), or a full tracker.
+    pub(super) fn take(
+        &mut self,
+        source: u8,
+        msg: Msg,
+        out: Option<u8>,
+        kit: Option<&DrumKit>,
+    ) -> Option<Msg> {
         let channel = msg.channel();
         let to = out.unwrap_or(channel) & 15;
         let sent = Msg([(msg.0[0] & 0xF0) | to, msg.0[1], msg.0[2]]);
         match msg.kind() {
-            Kind::NoteOn { key, .. } => {
+            Kind::NoteOn { key, velocity } => {
+                // What the track's map makes of it: its note, its channel, or
+                // nothing at all.
+                let played = kit.map_or(KitKey::as_written(key), |kit| kit.key(key));
+                if played.silent {
+                    return None;
+                }
                 if self.held.len() >= MAX_HELD {
                     self.dropped = self.dropped.saturating_add(1);
                     return None;
                 }
+                let out_channel = played.channel.map_or(to, |c| c & 15);
                 self.held.push(LiveHeld {
                     source,
                     channel,
                     key,
-                    out: to,
+                    out: out_channel,
+                    out_key: played.key,
                 });
-                Some(sent)
+                Some(Msg::note_on(out_channel, played.key, velocity))
             }
             Kind::NoteOff { key, .. } => {
                 let i = self
@@ -167,7 +185,7 @@ impl LiveState {
                     .iter()
                     .position(|h| h.source == source && h.channel == channel && h.key == key)?;
                 let held = self.held.swap_remove(i);
-                Some(Msg::note_off(held.out, held.key))
+                Some(Msg::note_off(held.out, held.out_key))
             }
             Kind::Controller { number, value } => {
                 if number == cc::SUSTAIN {
@@ -180,6 +198,21 @@ impl LiveState {
                 Some(sent)
             }
             _ => Some(sent),
+        }
+    }
+
+    /// Ends the live notes whose outgoing key `ends` says, pushing each
+    /// note-off: the sounds another of a choke group has just cut (M8 D0).
+    pub(super) fn choke(&mut self, mut ends: impl FnMut(u8) -> bool, mut push: impl FnMut(u8, u8)) {
+        let mut i = 0;
+        while i < self.held.len() {
+            let h = self.held[i];
+            if ends(h.out_key) {
+                push(h.out, h.out_key);
+                self.held.swap_remove(i);
+            } else {
+                i += 1;
+            }
         }
     }
 
@@ -198,7 +231,7 @@ impl LiveState {
         for held in self.held.drain(..) {
             push(Event {
                 offset: 0,
-                msg: Msg::note_off(held.out, held.key),
+                msg: Msg::note_off(held.out, held.out_key),
             });
         }
         if let Some(channel) = self.sustain.take() {
@@ -233,29 +266,32 @@ mod tests {
         for key in 0..MAX_HELD {
             let key = (key % 128) as u8;
             let source = (key as usize / 128) as u8;
-            assert!(live.take(source, Msg::note_on(0, key, 100), None).is_some());
+            assert!(
+                live.take(source, Msg::note_on(0, key, 100), None, None)
+                    .is_some()
+            );
         }
         assert_eq!(live.dropped, 0);
-        assert_eq!(live.take(9, Msg::note_on(0, 1, 100), None), None);
+        assert_eq!(live.take(9, Msg::note_on(0, 1, 100), None, None), None);
         assert_eq!(live.dropped, 1, "the refused note is counted");
         // A note-off for a note not held is not a drop.
-        assert_eq!(live.take(9, Msg::note_off(0, 1), None), None);
+        assert_eq!(live.take(9, Msg::note_off(0, 1), None, None), None);
         assert_eq!(live.dropped, 1);
     }
 
     #[test]
     fn a_live_note_the_queue_refused_is_not_held() {
         let mut live = LiveState::new();
-        let on = live.take(0, Msg::note_on(0, 60, 100), None).unwrap();
+        let on = live.take(0, Msg::note_on(0, 60, 100), None, None).unwrap();
         live.refused(on);
         assert_eq!(live.len(), 0, "a note that never sounded is not held");
         assert_eq!(
-            live.take(0, Msg::note_off(0, 60), None),
+            live.take(0, Msg::note_off(0, 60), None, None),
             None,
             "and owes no note-off"
         );
         // A refused pedal leaves the held notes alone.
-        live.take(0, Msg::note_on(0, 61, 100), None).unwrap();
+        live.take(0, Msg::note_on(0, 61, 100), None, None).unwrap();
         live.refused(Msg::controller(0, cc::SUSTAIN, 127));
         assert_eq!(live.len(), 1);
     }
@@ -285,25 +321,25 @@ mod tests {
     fn note_offs_end_only_the_notes_held_and_go_out_where_they_began() {
         let mut live = LiveState::new();
         assert_eq!(
-            live.take(1, Msg::note_on(0, 60, 90), Some(5)),
+            live.take(1, Msg::note_on(0, 60, 90), Some(5), None),
             Some(Msg::note_on(5, 60, 90))
         );
         // Another source's off for the same key is not this note's.
-        assert_eq!(live.take(2, Msg::note_off(0, 60), Some(5)), None);
+        assert_eq!(live.take(2, Msg::note_off(0, 60), Some(5), None), None);
         assert_eq!(
-            live.take(1, Msg::note_off(0, 60), Some(5)),
+            live.take(1, Msg::note_off(0, 60), Some(5), None),
             Some(Msg::note_off(5, 60))
         );
-        assert_eq!(live.take(1, Msg::note_off(0, 60), Some(5)), None);
+        assert_eq!(live.take(1, Msg::note_off(0, 60), Some(5), None), None);
         assert_eq!(live.len(), 0);
     }
 
     #[test]
     fn releasing_lets_go_of_notes_pedal_and_bend() {
         let mut live = LiveState::new();
-        live.take(0, Msg::note_on(2, 60, 90), None);
-        live.take(0, Msg::controller(2, cc::SUSTAIN, 127), None);
-        live.take(0, Msg::pitch_bend(2, 300), None);
+        live.take(0, Msg::note_on(2, 60, 90), None, None);
+        live.take(0, Msg::controller(2, cc::SUSTAIN, 127), None, None);
+        live.take(0, Msg::pitch_bend(2, 300), None, None);
         let mut out = Vec::new();
         live.release_all(|e| out.push(e.msg));
         assert_eq!(

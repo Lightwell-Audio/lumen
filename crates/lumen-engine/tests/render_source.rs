@@ -344,6 +344,7 @@ fn synth_mixer() -> (
                 length: Ticks::quarters(1),
                 pitch: 60,
                 velocity: 100,
+                channel: None,
             }]),
             controls: control_list(Vec::new()),
         }],

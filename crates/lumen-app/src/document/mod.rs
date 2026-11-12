@@ -26,6 +26,7 @@ mod clips;
 mod consolidate;
 mod crossfades;
 mod devices;
+mod drums;
 mod freeze;
 mod groups;
 mod import;
