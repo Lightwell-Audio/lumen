@@ -3,6 +3,7 @@
 //! (`crate::files`); file dialogs run on their own thread, owned by the main
 //! window (`crate::owner`).
 
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -84,9 +85,22 @@ pub(crate) const PROJECTS: &str = "Projects";
 /// The folder inside the user folder that holds the templates.
 pub(crate) const TEMPLATES: &str = "Templates";
 
-/// `dir`, made if it is not there yet, so a dialog can start in it (a small
-/// step, taken where the dialog is shown and not on the interface's thread).
+thread_local! {
+    /// Set on a file dialog's own thread by [`spawn_dialog`].
+    static DIALOG_THREAD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// `dir`, made if it is not there yet, so a dialog can start in it.
+///
+/// Call it inside a dialog's `show` closure, which [`spawn_dialog`] runs on a
+/// worker of its own: making the folder on the interface's thread would wait
+/// on the disk in a frame (sweep M4c). A debug build says so when it is
+/// called anywhere but a dialog's thread.
 pub(crate) fn made(dir: PathBuf) -> PathBuf {
+    debug_assert!(
+        DIALOG_THREAD.with(Cell::get),
+        "made() runs inside a file dialog's show closure, never on the interface's thread"
+    );
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -830,8 +844,46 @@ pub(crate) fn spawn_dialog(
     let (tx, rx) = std::sync::mpsc::channel();
     let ctx = ctx.clone();
     crate::spawn::spawn_named("lumen-file-dialog", move || {
+        // The dialog's worker: where a folder it starts in is made
+        // ([`made`], sweep M4c).
+        DIALOG_THREAD.with(|own| own.set(true));
         let _ = tx.send(show());
         ctx.request_repaint();
     })?;
     Ok(rx)
+}
+
+#[cfg(test)]
+mod tests {
+    use lumen_project::testing::TempDir;
+
+    use super::*;
+
+    /// The folder a dialog starts in is made on the dialog's own thread, so
+    /// the frame that opens it never waits on the disk (sweep M4c): a
+    /// projects folder that is not there yet is made there, and the dialog
+    /// is handed it.
+    #[test]
+    fn a_dialogs_folder_is_made_on_the_dialogs_thread() {
+        let dir = TempDir::new("dialog-folder");
+        let start = dir.path().join("Lumen").join("Projects");
+        assert!(!start.exists(), "nothing has made it yet");
+        let asked = start.clone();
+        let caller = std::thread::current().id();
+        let rx = spawn_dialog(&egui::Context::default(), move || {
+            assert_ne!(
+                std::thread::current().id(),
+                caller,
+                "the dialog runs on a thread of its own"
+            );
+            let folder = made(asked);
+            FileDialog::SaveAs(folder.is_dir().then_some(folder))
+        })
+        .expect("the dialog's thread starts");
+        let answer = rx
+            .recv_timeout(lumen_testkit::patience())
+            .expect("the dialog answers");
+        assert!(start.is_dir(), "the folder the dialog starts in");
+        assert!(matches!(answer, FileDialog::SaveAs(Some(_))));
+    }
 }
