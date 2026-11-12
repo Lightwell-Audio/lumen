@@ -816,8 +816,11 @@ per slice and move what is no longer current out of it.
   the close (Z); X1 to X4 ([S]) sit behind the cut line. Each slice is a
   self-contained brief in delegation.md's form; §4 says how the parent
   hands out briefs and merges the hot spots (command order, format numbers,
-  ADR numbers). Waits for the owner's choices (§2: DM, DV, DE, SQ, RT, SP,
-  BF, PR, CO, CL) and the approval of 9.5.
+  ADR numbers). Every §2 choice is made (2026-11-12; specimens in
+  `docs/specimens/m8/`): DV A with drum rows on the arrangement's clips, DE A
+  with velocity inside the hit, SQ A, BF C with a named personality per
+  device, the rest the recommendations; drum sound icons (IC) are in; the
+  lit kit is punted to X5. Waits for the approval of 9.5.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback
