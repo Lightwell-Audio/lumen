@@ -12,6 +12,16 @@
 #[cfg(windows)]
 pub mod asio;
 pub mod backend;
+// Its one user is the portable backend, which Windows does not build; the
+// slot's tests run on every platform, so it is compiled everywhere.
+#[cfg_attr(
+    windows,
+    allow(
+        dead_code,
+        reason = "the portable backend is the only user, and Windows builds other backends"
+    )
+)]
+mod callback_slot;
 mod convert;
 #[cfg(not(windows))]
 pub mod cpal_host;

@@ -4,19 +4,21 @@
 //! Compiled and unit-tested in CI on macOS and Linux; not yet tested on
 //! hardware there (Windows is the first-class platform).
 //!
-//! cpal owns the audio thread and wants the callback by value, so the
-//! callback lives in a shared slot. The audio thread takes it with
-//! `try_lock`, which never blocks: the only other user is `close`, after the
-//! stream has been dropped.
+//! cpal owns the audio thread and wants the callback by value, so the callback
+//! lives in a shared slot. The audio thread takes it for each block with a
+//! swap, runs it and puts it straight back, without a lock; a control thread
+//! holding it between blocks can never turn a block into silence. `close`
+//! takes it out once the stream has stopped.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, ErrorKind, SupportedBufferSize};
 
-use crate::backend::{Backend, OpenError, Stream, StreamEvent};
+use crate::backend::{Backend, OpenError, Stream, StreamEvent, silent};
+use crate::callback_slot::CallbackSlot;
 use crate::convert::interleave_f32;
 use crate::types::{
     AudioCallback, AudioError, Block, BufferSizes, DeviceId, DeviceInfo, DriverKind, StreamConfig,
@@ -119,30 +121,24 @@ impl Backend for CpalBackend {
         config: &StreamConfig,
         callback: Box<dyn AudioCallback>,
     ) -> Result<Box<dyn Stream>, OpenError> {
-        let slot = Arc::new(Mutex::new(Some(callback)));
+        let slot = Arc::new(CallbackSlot::new(callback));
         match self.start(config, &slot) {
             Ok(stream) => Ok(stream),
+            // The audio thread never started, so the callback is still in the
+            // slot.
             Err(error) => Err(OpenError {
                 error,
-                callback: take(&slot),
+                callback: slot.take().unwrap_or_else(silent),
             }),
         }
     }
-}
-
-/// Takes the callback back once no stream can be using it.
-fn take(slot: &Mutex<Option<Box<dyn AudioCallback>>>) -> Box<dyn AudioCallback> {
-    slot.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .take()
-        .expect("the callback is in its slot")
 }
 
 impl CpalBackend {
     fn start(
         &self,
         config: &StreamConfig,
-        slot: &Arc<Mutex<Option<Box<dyn AudioCallback>>>>,
+        slot: &Arc<CallbackSlot>,
     ) -> Result<Box<dyn Stream>, AudioError> {
         let id = &config.device.id;
         if config.device.kind != kind() {
@@ -199,13 +195,15 @@ impl CpalBackend {
         let capacity = (frames as usize).max(4096);
         let mut render = Render {
             slot: Arc::clone(slot),
-            shared: Arc::clone(&shared),
-            map: config.output_channels.clone(),
-            device_channels,
-            sample_rate,
-            outputs: vec![0.0; config.output_channels.len() * capacity],
-            capacity,
-            position: 0,
+            state: RenderState {
+                shared: Arc::clone(&shared),
+                map: config.output_channels.clone(),
+                device_channels,
+                sample_rate,
+                outputs: vec![0.0; config.output_channels.len() * capacity],
+                capacity,
+                position: 0,
+            },
         };
         let errors = Arc::clone(&shared);
         let stream = device
@@ -255,9 +253,27 @@ struct Shared {
     epoch: Instant,
 }
 
-/// State owned by cpal's audio thread.
+/// State owned by cpal's audio thread: the callback's slot, and everything the
+/// blocks it fills need. The two are separate fields so a block can borrow the
+/// one it runs while it uses the other.
 struct Render {
-    slot: Arc<Mutex<Option<Box<dyn AudioCallback>>>>,
+    slot: Arc<CallbackSlot>,
+    state: RenderState,
+}
+
+impl Render {
+    fn fill(&mut self, data: &mut [f32]) {
+        let slot = &self.slot;
+        let state = &mut self.state;
+        // The callback is taken for this block and put straight back: a
+        // control thread holding it between blocks can never silence one.
+        if slot.with(|callback| state.fill(callback, data)).is_none() {
+            data.fill(0.0);
+        }
+    }
+}
+
+struct RenderState {
     shared: Arc<Shared>,
     map: Vec<usize>,
     device_channels: usize,
@@ -268,16 +284,8 @@ struct Render {
     position: u64,
 }
 
-impl Render {
-    fn fill(&mut self, data: &mut [f32]) {
-        let Ok(mut guard) = self.slot.try_lock() else {
-            data.fill(0.0);
-            return;
-        };
-        let Some(callback) = guard.as_mut() else {
-            data.fill(0.0);
-            return;
-        };
+impl RenderState {
+    fn fill(&mut self, callback: &mut dyn AudioCallback, data: &mut [f32]) {
         let channels = self.device_channels;
         let total = data.len() / channels;
         let mut done = 0;
@@ -312,7 +320,7 @@ impl Render {
 
 struct CpalStream {
     stream: Option<cpal::Stream>,
-    slot: Arc<Mutex<Option<Box<dyn AudioCallback>>>>,
+    slot: Arc<CallbackSlot>,
     shared: Arc<Shared>,
     watchdog: Duration,
     info: StreamInfo,
@@ -335,13 +343,83 @@ impl Stream for CpalStream {
     fn close(mut self: Box<Self>) -> Box<dyn AudioCallback> {
         // Dropping the stream stops it; the audio thread no longer runs.
         drop(self.stream.take());
-        take(&self.slot)
+        // The last block may still be finishing: wait, bounded, for the
+        // callback to come back rather than leave it with a dead stream.
+        self.slot
+            .take_waiting(Duration::from_secs(1))
+            .unwrap_or_else(silent)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::sync::atomic::AtomicBool;
+
+    /// A render over `channels` channels of 64 frames, with `slot`'s callback.
+    fn render(slot: &Arc<CallbackSlot>, channels: usize) -> Render {
+        Render {
+            slot: Arc::clone(slot),
+            state: RenderState {
+                shared: Arc::new(Shared {
+                    reset: AtomicBool::new(false),
+                    last_callback_ns: AtomicU64::new(0),
+                    epoch: Instant::now(),
+                }),
+                map: (0..channels).collect(),
+                device_channels: channels,
+                sample_rate: 48_000,
+                outputs: vec![0.0; channels * 64],
+                capacity: 64,
+                position: 0,
+            },
+        }
+    }
+
+    /// Filling a block runs the callback (and allocates nothing, on the
+    /// allocation guard): a control thread between blocks cannot make this a
+    /// silent one, because the slot is taken and put back, not locked (sweep
+    /// M6).
+    #[test]
+    fn a_fill_runs_the_callback_without_allocating() {
+        assert!(
+            lumen_rt::guard_is_active(),
+            "the guarded allocator is this test binary's"
+        );
+        let slot = Arc::new(CallbackSlot::new(Box::new(|block: &mut Block<'_>| {
+            for channel in 0..block.output_channels {
+                block.output(channel).fill(0.25);
+            }
+        })));
+        let mut render = render(&slot, 2);
+        let mut data = vec![0.0_f32; 2 * 32];
+        let (_, allocated) = lumen_rt::count_rt_violations(|| render.fill(&mut data));
+        assert_eq!(allocated, 0, "filling a block allocates nothing");
+        assert!(data.iter().all(|&x| x == 0.25), "the callback was heard");
+        assert!(
+            slot.with(|_| ()).is_some(),
+            "the callback is back in its slot"
+        );
+    }
+
+    /// A block that finds the callback held elsewhere is silence, at once: it
+    /// never waits for the holder (sweep M6).
+    #[test]
+    fn a_fill_with_the_callback_held_elsewhere_is_silence() {
+        let slot = Arc::new(CallbackSlot::new(Box::new(|_: &mut Block<'_>| {})));
+        let held = slot.take().expect("the callback is in its slot");
+        let mut render = render(&slot, 1);
+        let mut data = vec![1.0_f32; 16];
+        let started = Instant::now();
+        render.fill(&mut data);
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "filling never waits for the callback"
+        );
+        assert!(data.iter().all(|&x| x == 0.0), "silence, not a stuck block");
+        drop(held);
+    }
 
     /// CI runners usually have no audio devices; this checks that
     /// enumeration is safe and consistent wherever it runs.
