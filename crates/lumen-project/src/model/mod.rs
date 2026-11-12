@@ -268,15 +268,6 @@ impl TimeSignature {
             denominator: self.denominator.into(),
         }
     }
-
-    /// The signature of `meter`, if a project can hold it (at most 64
-    /// beats to a bar).
-    pub fn of(meter: Meter) -> Option<TimeSignature> {
-        Some(TimeSignature {
-            numerator: u8::try_from(meter.numerator).ok().filter(|&n| n <= 64)?,
-            denominator: u8::try_from(meter.denominator).ok()?,
-        })
-    }
 }
 
 impl Project {
