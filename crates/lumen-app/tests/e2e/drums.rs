@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use eframe::egui::{Key, Modifiers};
+use eframe::egui::{Event, Key, Modifiers};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
 use lumen_project::drums::presets::Preset;
@@ -49,6 +49,7 @@ fn launch(name: &str, project: &Project) -> Lumen {
 
 /// A track with a kick on every beat, on the built-in synth.
 fn kick_track() -> Project {
+    let beats: Vec<Note> = (0..16).map(|beat| note(beat, 1, 36)).collect();
     project_of(
         "Drums",
         vec![midi_track(
@@ -57,7 +58,7 @@ fn kick_track() -> Project {
             "pluck",
             (0, 16),
             Some(1),
-            vec![note(0, 1, 36)],
+            beats,
             vec![],
         )],
     )
@@ -91,26 +92,31 @@ fn notes_of(lumen: &Lumen) -> Vec<Note> {
 }
 
 #[test]
-fn the_palette_attaches_a_kit_the_track_plays_it_and_a_muted_sound_is_heard_gone() {
+fn the_palette_opens_the_map_editor_and_a_kit_chosen_there_plays_the_track() {
     let mut lumen = launch("drums-attach-mute", &kick_track());
     lumen.harness.get_by_label_contains("Track Drums,").click();
     lumen.frames(3);
     play(&mut lumen);
     let before = loudest(&mut lumen);
-    assert!(before > 0.01, "the mapped track sounds: {before}");
+    assert!(before > 0.01, "the track sounds: {before}");
     let notes = notes_of(&lumen);
 
-    // The palette's "Drum map…" opens the chooser; its General MIDI row gives
-    // the track a copy of that kit.
+    // The palette's "Drum map…" opens the map editor; a track without a map
+    // gets the list of kits first, and the 808-style kit is picked there.
     palette(&mut lumen, "Drum map");
-    assert!(lumen.shows("General MIDI"), "the chooser lists the kits");
-    lumen.click("General MIDI");
+    assert!(lumen.app().drum_map_editor_open(), "the editor is drawn");
+    lumen.click("808 style (16 sounds)");
     lumen.frames(5);
     let project = lumen.app().project();
     let map = project.drum_maps[0].clone();
-    assert_eq!(map.name, "General MIDI");
+    assert_eq!(map.name, "808 style");
     assert_eq!(project.tracks[0].drum_map, Some(map.id));
-    assert_eq!(map.sounds.len(), 47);
+    assert_eq!(map.sounds.len(), 16);
+    assert_eq!(
+        lumen.app().drum_map_editor_map(),
+        Some(map.id),
+        "the editor shows the map it attached"
+    );
     assert_eq!(notes_of(&lumen), notes, "the notes never changed");
     assert_eq!(
         lumen.app().undo_label(),
@@ -118,17 +124,38 @@ fn the_palette_attaches_a_kit_the_track_plays_it_and_a_muted_sound_is_heard_gone
         "one undo step"
     );
 
-    // Muting the kick (D1's editor row, driven through the document) silences
-    // the track: nothing new sounds, and the note that played is let go.
-    lumen.app_mut().mute_drum_sound(map.id, 36, true);
+    // The map list offers the kits, this project's maps and the user's
+    // files; the map the track reads is in it.
+    lumen.click("Map: 808 style");
+    lumen.frames(3);
+    assert!(
+        lumen.shows("808 style (16 sounds)"),
+        "the project's map is listed"
+    );
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(3);
+
+    // Muting the kick in its row takes the track quiet.
+    lumen.click("Mute Kick");
     lumen.frames(30);
     let after = loudest(&mut lumen);
     assert!(after < 1e-4, "the muted sound is gone: {after}");
+    assert_eq!(lumen.app().undo_label(), Some("Mute drum sound"));
 
-    // Undo brings it back.
+    // Undo brings it back: playing from the start, the kick is heard again.
     lumen.key(Modifiers::COMMAND, Key::Z);
-    lumen.frames(30);
-    let back = loudest(&mut lumen);
+    lumen.frames(5);
+    stop(&mut lumen);
+    let back = lumen.listen_from(
+        |l| {
+            l.key(Modifiers::NONE, Key::Home);
+            l.key(Modifiers::NONE, Key::Space);
+        },
+        LISTEN,
+    );
+    let back = back
+        .iter()
+        .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()));
     assert!(back > 0.01, "undone, it sounds again: {back}");
     stop(&mut lumen);
 }
@@ -278,4 +305,238 @@ fn a_clip_converts_to_another_map_from_its_menu_and_keeps_every_hits_sound() {
         "one undo gives the notes back"
     );
     assert_eq!(lumen.app().project().tracks[0].drum_map, Some(Id(500)));
+}
+
+/// Types `text` into whatever field has the keyboard, as a person does.
+fn type_text(lumen: &mut Lumen, text: &str) {
+    lumen.harness.event(Event::Text(text.to_owned()));
+    lumen.frames(2);
+}
+
+/// Selects all in the focused field and replaces it with `text`.
+fn replace_text(lumen: &mut Lumen, text: &str) {
+    lumen.key(Modifiers::COMMAND, Key::A);
+    type_text(lumen, text);
+}
+
+/// The map the project holds under `id`.
+fn map_of(lumen: &Lumen, id: Id) -> lumen_project::model::DrumMap {
+    lumen
+        .app()
+        .project()
+        .drum_map(id)
+        .cloned()
+        .expect("the map is in the project")
+}
+
+/// The drum map editor of a mapped project, open on its track's map.
+fn editor(name: &str) -> (Lumen, Id) {
+    let mut lumen = launch(name, &mapped_song());
+    lumen.harness.get_by_label_contains("Track Drums,").click();
+    lumen.frames(3);
+    palette(&mut lumen, "Drum map");
+    assert!(lumen.app().drum_map_editor_open());
+    (lumen, Id(500))
+}
+
+/// A row of the track header's Drum map menu, on the "Drums" track.
+fn drum_map_menu(lumen: &mut Lumen, row: &str) {
+    lumen
+        .harness
+        .get_by_label_contains("Track Drums,")
+        .click_secondary();
+    lumen.frames(3);
+    lumen.click("Drum map");
+    lumen.frames(2);
+    lumen.click(row);
+    lumen.frames(3);
+}
+
+#[test]
+fn a_row_is_edited_from_the_keyboard_alone() {
+    let (mut lumen, map) = editor("drums-keyboard");
+    lumen.frames(5);
+    // The editor opens with the first row's name field focused: the kick's.
+    let focused = lumen.harness.ctx.memory(|m| m.focused());
+    assert!(focused.is_some(), "a field has the keyboard when it opens");
+    replace_text(&mut lumen, "Bass drum");
+    // Enter commits the name and moves to the next field (the input note).
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(3);
+    assert_eq!(
+        map_of(&lumen, map).sound(35).map(|s| s.name.clone()),
+        Some("Bass drum".to_owned()),
+        "the name changed"
+    );
+    assert_eq!(
+        lumen.app().undo_label(),
+        Some("Rename the drum sound"),
+        "one undo step"
+    );
+
+    // Type the new note and Enter: the sound answers there.
+    replace_text(&mut lumen, "90");
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(3);
+    assert!(map_of(&lumen, map).sound(35).is_none(), "it left note 35");
+    assert_eq!(
+        map_of(&lumen, map).sound(90).map(|s| s.name.clone()),
+        Some("Bass drum".to_owned())
+    );
+    assert_eq!(
+        lumen.app().undo_label(),
+        Some("Change the drum sound's note"),
+        "one undo step"
+    );
+    // Undo gives the note back.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    assert!(map_of(&lumen, map).sound(35).is_some());
+    assert!(map_of(&lumen, map).sound(90).is_none());
+}
+
+#[test]
+fn the_icon_grid_opens_and_chooses_from_the_keyboard() {
+    let (mut lumen, map) = editor("drums-icons");
+    lumen.frames(5);
+    // The first row's icon button, focused from the keyboard, opens the grid
+    // with Space; the arrows move and Enter chooses.
+    lumen.harness.get_by_label("Bass Drum 1 icon: Kick").focus();
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.frames(3);
+    assert!(
+        lumen.shows("Closed hat"),
+        "the grid is open with every glyph named"
+    );
+    lumen.key(Modifiers::NONE, Key::ArrowRight);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(3);
+    assert_eq!(
+        map_of(&lumen, map).sound(36).map(|s| s.icon),
+        Some(lumen_project::model::DrumIcon::Snare),
+        "one step right of the kick is the snare"
+    );
+    assert_eq!(
+        lumen.app().undo_label(),
+        Some("Change the drum sound's icon")
+    );
+}
+
+#[test]
+fn an_exported_map_imports_back_into_the_project() {
+    let (mut lumen, map) = editor("drums-export-import");
+    lumen.frames(5);
+    // A name only this project's map has, then the file.
+    replace_text(&mut lumen, "Kit on the desk");
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(3);
+    let path = lumen.dir().join("Desk kit.lumendrums");
+    lumen.app_mut().answer_next_dialog(vec![path.clone()]);
+    drum_map_menu(&mut lumen, "Export the drum map…");
+    lumen.wait_for("the export", |app| {
+        app.drum_map_notice()
+            .is_some_and(|notice| notice.contains("Exported to"))
+    });
+    let bytes = std::fs::read(&path).expect("the file was written");
+    let text = String::from_utf8(bytes).expect("text");
+    assert!(text.contains("\"version\": 1"), "versioned: {text}");
+    assert!(text.contains("Kit on the desk"), "the name is in it");
+
+    // Undo the rename, so only the file has it; then import it back.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    assert_eq!(
+        map_of(&lumen, map).sound(35).map(|s| s.name.clone()),
+        Some("Acoustic Bass Drum".to_owned())
+    );
+    lumen.app_mut().answer_next_dialog(vec![path]);
+    drum_map_menu(&mut lumen, "Import a drum map…");
+    lumen.wait_for("the import", |app| {
+        app.drum_map_notice()
+            .is_some_and(|notice| notice.contains("imported from"))
+    });
+    let project = lumen.app().project();
+    assert_eq!(project.drum_maps.len(), 2, "the import joined the project");
+    let imported = project.drum_maps[1].clone();
+    assert_eq!(
+        imported.sound(35).map(|s| s.name.clone()),
+        Some("Kit on the desk".to_owned()),
+        "the file's map came back as it was saved"
+    );
+    assert_eq!(
+        project.tracks[0].drum_map,
+        Some(imported.id),
+        "the selected track took it"
+    );
+    assert_eq!(lumen.app().undo_label(), Some("Import a drum map"));
+}
+
+#[test]
+fn a_damaged_file_is_refused_and_its_message_is_read_in_full() {
+    let (mut lumen, map) = editor("drums-damaged");
+    lumen.frames(5);
+    let path = lumen.dir().join("Broken.lumendrums");
+    std::fs::write(&path, b"{ \"version\": 1, \"name\": ").expect("the damaged file");
+    lumen.app_mut().answer_next_dialog(vec![path]);
+    drum_map_menu(&mut lumen, "Import a drum map…");
+    lumen.wait_for("the refusal", |app| {
+        app.drum_map_notice()
+            .is_some_and(|notice| notice.contains("is not a drum map"))
+    });
+    let notice = lumen.app().drum_map_notice().unwrap().to_owned();
+    assert!(
+        notice.starts_with("Broken.lumendrums is not a drum map"),
+        "{notice}"
+    );
+    assert!(
+        notice.contains("can read:"),
+        "the reader's words follow: {notice}"
+    );
+    assert!(!notice.ends_with('\u{2026}'), "in full: {notice}");
+    assert!(lumen.shows(&notice), "the window shows it whole");
+    assert_eq!(
+        lumen.app().project().drum_maps.len(),
+        1,
+        "nothing was added"
+    );
+    assert_eq!(lumen.app().project().tracks[0].drum_map, Some(map));
+}
+
+#[test]
+fn hide_unmapped_keys_folds_the_roll_to_the_maps_sounds() {
+    let (mut lumen, _map) = editor("drums-fold");
+    lumen.frames(5);
+    // The window closes, and the kick's clip opens in the clip editor.
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(3);
+    let clip = lumen.app().project().tracks[0].clips[0].id;
+    lumen.app_mut().select_clip(clip);
+    lumen.frames(3);
+    let ctx = lumen.harness.ctx.clone();
+    let rect = lumen
+        .app()
+        .clip_rect(&ctx, clip)
+        .expect("the clip is in view");
+    lumen.double_click(rect.center());
+    lumen.frames(6);
+    assert_eq!(
+        lumen.app().note_editor_rows(),
+        Some(128),
+        "the keyboard first"
+    );
+    // The editor's Keys button folds the column to the kit's sounds.
+    lumen.click("Keys");
+    lumen.frames(4);
+    assert!(lumen.app().hiding_unmapped_keys());
+    assert_eq!(
+        lumen.app().note_editor_rows(),
+        Some(47),
+        "the General MIDI kit's rows"
+    );
+    // And again shows every key.
+    lumen.click("Keys");
+    lumen.frames(4);
+    assert!(!lumen.app().hiding_unmapped_keys());
+    assert_eq!(lumen.app().note_editor_rows(), Some(128));
 }
