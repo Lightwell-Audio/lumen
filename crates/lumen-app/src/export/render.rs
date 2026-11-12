@@ -27,6 +27,8 @@ use crate::midi::runs::Cache;
 use crate::routing::{self, Cue, Devices};
 
 const LOAD_WAIT: Duration = Duration::from_secs(60);
+/// How often the wait for a plugin's host looks again.
+const LOAD_POLL: Duration = Duration::from_millis(5);
 const MAX_TAIL_SECONDS: u32 = 10;
 
 /// A snapshot to render. `clips` must be the engine clips translated from this
@@ -126,7 +128,7 @@ fn start_hosts(
         if Instant::now() > end {
             return Err(format!("{} took too long to load", waiting[0].name));
         }
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(LOAD_POLL);
     }
     Ok(Some(running))
 }

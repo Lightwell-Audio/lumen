@@ -500,7 +500,7 @@ impl App {
                     self.write(purpose, path, normalize);
                 }
             } else {
-                ctx.request_repaint_after(std::time::Duration::from_millis(30));
+                ctx.request_repaint_after(crate::motion::WORK_FRAME);
             }
         }
         if let Some(result) = self.dialog.as_ref().and_then(|rx| rx.try_recv().ok()) {

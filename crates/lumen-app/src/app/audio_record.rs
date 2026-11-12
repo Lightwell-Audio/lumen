@@ -401,7 +401,7 @@ impl App {
         let Some(finishing) = self.record.audio.finishing.as_ref() else {
             return;
         };
-        ctx.request_repaint_after(Duration::from_millis(16));
+        ctx.request_repaint_after(crate::motion::FADE_FRAME);
         if finishing.since.elapsed() > FINISH_WAIT {
             let Some(given_up) = self.record.audio.finishing.take() else {
                 return;
@@ -465,7 +465,7 @@ impl App {
             return;
         };
         let Ok((found, already)) = recovering.found.try_recv() else {
-            ctx.request_repaint_after(Duration::from_millis(16));
+            ctx.request_repaint_after(crate::motion::FADE_FRAME);
             return;
         };
         let Some(recovering) = self.record.audio.recovering.take() else {

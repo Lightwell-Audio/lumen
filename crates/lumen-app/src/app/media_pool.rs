@@ -492,7 +492,7 @@ impl App {
         };
         let Ok(result) = search.rx.try_recv() else {
             // Moves the progress bar.
-            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            ctx.request_repaint_after(crate::motion::PROGRESS_FRAME);
             return;
         };
         self.media_pool.search = None;

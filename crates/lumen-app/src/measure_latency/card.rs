@@ -220,8 +220,7 @@ impl Card {
             ui.scroll_to_rect(frame.response.rect, None);
         }
         if busy {
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(50));
+            ui.ctx().request_repaint_after(crate::motion::PROGRESS_FAST);
         }
         asked
     }

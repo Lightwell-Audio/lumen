@@ -26,6 +26,8 @@ pub(crate) const MARKER: &str = "plugin-loading.marker";
 
 /// How long closing waits for the marker to be removed.
 const CLOSING_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+/// How often the wait for the marker's removal looks again.
+const CLOSING_STEP: std::time::Duration = std::time::Duration::from_millis(2);
 
 pub(crate) struct SafeMode {
     /// No plugin is loaded (but those asked for one at a time).
@@ -97,7 +99,7 @@ impl SafeMode {
         if let Some(thread) = self.thread.take() {
             let end = std::time::Instant::now() + CLOSING_WAIT;
             while !thread.is_finished() && std::time::Instant::now() < end {
-                std::thread::sleep(std::time::Duration::from_millis(2));
+                std::thread::sleep(CLOSING_STEP);
             }
             if thread.is_finished() {
                 let _ = thread.join();

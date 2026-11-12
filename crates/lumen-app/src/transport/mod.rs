@@ -17,7 +17,7 @@ mod status;
 #[cfg(test)]
 mod tests;
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_engine::{Command, MetronomeSettings, Region, Timeline, TransportSnapshot};
@@ -242,7 +242,7 @@ impl Transport {
     fn settle(&mut self) {
         // The engine applies commands at its next block (a few ms); the
         // margin covers large buffers.
-        self.settle_until = Some(Instant::now() + Duration::from_millis(300));
+        self.settle_until = Some(Instant::now() + crate::motion::ENGINE_SETTLE);
     }
 
     fn send(&mut self, mut command: Command) {

@@ -283,7 +283,7 @@ impl App {
     pub(crate) fn poll_audio_export(&mut self, ctx: &egui::Context) {
         if let Some(waiting) = &self.export.waiting {
             if self.hosting.captures_pending() && waiting.since.elapsed() < READ_WAIT {
-                ctx.request_repaint_after(Duration::from_millis(30));
+                ctx.request_repaint_after(crate::motion::WORK_FRAME);
                 return;
             }
             if let Some(waiting) = self.export.waiting.take()
@@ -307,7 +307,7 @@ impl App {
                     format!("Exporting {}% · Esc to stop", (100.0 * progress) as u32),
                     Instant::now(),
                 ));
-                ctx.request_repaint_after(Duration::from_millis(50));
+                ctx.request_repaint_after(crate::motion::PROGRESS_FAST);
             }
             Poll::Done(reports) => {
                 self.export.task = None;

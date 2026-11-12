@@ -40,6 +40,8 @@ use crate::routing::{self, Devices};
 
 /// How long a plugin's host may take to load before the bounce gives up.
 const LOAD_WAIT: Duration = Duration::from_secs(60);
+/// How often the wait for a plugin's host looks again.
+const LOAD_POLL: Duration = Duration::from_millis(5);
 
 /// The longest tail a bounce adds after its span.
 pub const MOST_TAIL_SECONDS: u32 = 10;
@@ -181,7 +183,7 @@ fn start_hosts(
         if Instant::now() > end {
             return Err(format!("{} took too long to load", waiting[0].name));
         }
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(LOAD_POLL);
     }
     Ok(Some(running))
 }

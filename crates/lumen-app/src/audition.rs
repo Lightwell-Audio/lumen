@@ -31,6 +31,8 @@ use lumen_project::model::Id;
 
 /// How long a previewed note sounds if nothing lets it go sooner.
 pub(crate) const LENGTH: Duration = Duration::from_millis(250);
+/// How soon a preview tries again for a note it could not send.
+const RETRY: Duration = Duration::from_millis(16);
 
 /// The MIDI channel previews play on. Reserved: a clip's notes on an
 /// instrument track are on channel 0, so a preview of the same key never
@@ -274,7 +276,7 @@ impl Audition {
             .as_ref()
             .and_then(|c| c.until)
             .map(|until| until.saturating_duration_since(now));
-        let retry = (!self.owed.is_empty()).then_some(Duration::from_millis(16));
+        let retry = (!self.owed.is_empty()).then_some(RETRY);
         match (sounding, retry) {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),

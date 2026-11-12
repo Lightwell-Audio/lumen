@@ -74,8 +74,7 @@ pub fn page(ui: &mut Ui, shown: Shown<'_>, marks: &Marks, actions: &mut Vec<Acti
         }
     });
     // New devices appear while the page is open.
-    ui.ctx()
-        .request_repaint_after(std::time::Duration::from_millis(300));
+    ui.ctx().request_repaint_after(crate::motion::DEVICE_POLL);
 }
 
 /// A section's title with the captions of its two switch columns.

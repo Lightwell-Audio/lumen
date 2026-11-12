@@ -11,7 +11,7 @@ use crate::recording::audio_input;
 
 /// How often the input meters are redrawn while an input is being watched
 /// and nothing else is moving.
-pub(crate) const WATCH_EVERY: std::time::Duration = std::time::Duration::from_millis(33);
+pub(crate) const WATCH_EVERY: std::time::Duration = crate::motion::METER_FRAME;
 
 /// What the engine was last told, so it is told again only on change.
 #[derive(Debug, Default)]

@@ -17,6 +17,8 @@ use lumen_media::wav::{Sample, Spec, Writer};
 
 const AUDIO_QUEUE_FRAMES: usize = 1 << 15;
 const DEVICE_STALL_LIMIT: Duration = Duration::from_secs(5);
+/// How often the worker looks for the device's next callback.
+const STEP: Duration = Duration::from_millis(1);
 const LEAD_IN_MS: u64 = 100;
 const ERROR_NONE: u8 = 0;
 const ERROR_QUEUE: u8 = 1;
@@ -339,7 +341,7 @@ impl Handle {
                 cancelled.store(true, Ordering::Release);
                 return Err("Audio device stopped calling back during export".into());
             }
-            thread::sleep(Duration::from_millis(1));
+            thread::sleep(STEP);
         }
     }
 }

@@ -185,7 +185,7 @@ impl App {
             Err(TryRecvError::Empty) => {
                 let shown = (progress * 100.0).floor() as u32;
                 self.say(format!("{} {shown}% \u{b7} Esc to stop", verb(purpose)));
-                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                ctx.request_repaint_after(crate::motion::PROGRESS_FAST);
             }
             Err(TryRecvError::Disconnected) => {
                 self.collecting = None;

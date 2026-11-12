@@ -168,7 +168,7 @@ impl App {
         };
         // The clock is read once: read twice, the time can cross the end of
         // the wait between the reads and the subtraction underflows.
-        if let Some(left) = settle_left(changed.elapsed(), Duration::from_millis(500)) {
+        if let Some(left) = settle_left(changed.elapsed(), crate::motion::SETTLE) {
             ctx.request_repaint_after(left);
             return;
         }
@@ -199,7 +199,7 @@ mod settle_tests {
 
     #[test]
     fn a_change_waits_out_what_is_left_and_then_is_written() {
-        let settle = Duration::from_millis(500);
+        let settle = crate::motion::SETTLE;
         assert_eq!(
             settle_left(Duration::from_millis(120), settle),
             Some(Duration::from_millis(380))

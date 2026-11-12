@@ -77,7 +77,7 @@ impl App {
                         done as f32 / total as f32
                     },
                 );
-                ctx.request_repaint_after(std::time::Duration::from_millis(250));
+                ctx.request_repaint_after(crate::motion::SCAN_FRAME);
             }
             Scan::Failed(why) => {
                 warning(ui, &why, 0.0);

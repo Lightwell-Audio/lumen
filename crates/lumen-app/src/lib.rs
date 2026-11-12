@@ -886,9 +886,9 @@ impl eframe::App for App {
             ctx.request_repaint_after(app::audio_inputs::WATCH_EVERY);
         } else if self.transport.audio.waiting() {
             // A device change answers on its worker (ADR-0113).
-            ctx.request_repaint_after(Duration::from_millis(100));
+            ctx.request_repaint_after(crate::motion::WAIT_FRAME);
         } else {
-            ctx.request_repaint_after(Duration::from_secs(1));
+            ctx.request_repaint_after(crate::motion::IDLE_TICK);
         }
 
         self.test_modes_after(&ctx);

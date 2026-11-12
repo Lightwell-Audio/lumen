@@ -56,6 +56,31 @@ pub const SCROLL_BAR_LINGER: f64 = 0.8;
 pub const PROGRESS_FRAME: std::time::Duration = std::time::Duration::from_millis(100);
 /// A state read again after it changed while being read.
 pub const RECHECK: std::time::Duration = std::time::Duration::from_millis(50);
+/// While a job's progress is drawn (twenty a second): an export, a copy, a
+/// measurement.
+pub const PROGRESS_FAST: std::time::Duration = std::time::Duration::from_millis(50);
+/// While the interface waits for a plugin's captures or a save to finish
+/// (about thirty a second).
+pub const WORK_FRAME: std::time::Duration = std::time::Duration::from_millis(30);
+/// While the interface waits for a device's answer (ten a second).
+pub const WAIT_FRAME: std::time::Duration = std::time::Duration::from_millis(100);
+/// While an input meter is redrawn and nothing else moves (about thirty a
+/// second).
+pub const METER_FRAME: std::time::Duration = std::time::Duration::from_millis(33);
+/// While the first-run window's scan runs (four a second).
+pub const SCAN_FRAME: std::time::Duration = std::time::Duration::from_millis(250);
+/// A settings change waits this long before it is written, so a drag or a
+/// click train writes once.
+pub const SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
+/// How long the interface holds a control before asking the engine again:
+/// the engine applies commands at its next block, and the margin covers
+/// large buffers.
+pub const ENGINE_SETTLE: std::time::Duration = std::time::Duration::from_millis(300);
+/// How often an open page looks for a device that was just plugged in.
+pub const DEVICE_POLL: std::time::Duration = std::time::Duration::from_millis(300);
+/// While nothing moves: once a second, so a change that arrives without a
+/// frame is still seen.
+pub const IDLE_TICK: std::time::Duration = std::time::Duration::from_secs(1);
 /// Once a second: the age of a sound that Reload would use.
 pub const AGE_FRAME: std::time::Duration = std::time::Duration::from_secs(1);
 
