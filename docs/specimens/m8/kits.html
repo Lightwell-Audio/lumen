@@ -1,0 +1,175 @@
+<!doctype html>
+<!-- M8 specimens, round 3b (owner, 2026-11-12): the kit is built from the map.
+     Adding, removing or renaming sounds changes the kit drawn. Open with ?light. -->
+<html><head><meta charset="utf-8"><title>Lumen M8 specimens, round 3b</title>
+<style>
+@font-face{font-family:Inter;src:url(../../../site/assets/fonts/Inter.woff2) format("woff2");font-weight:100 900}
+@font-face{font-family:Unbounded;src:url(../../../site/assets/fonts/Unbounded.woff2) format("woff2");font-weight:100 900}
+@font-face{font-family:Mono;src:url(../../../site/assets/fonts/MartianMono.woff2) format("woff2");font-stretch:75% 112.5%}
+body{margin:0;padding:28px 32px;font-family:Inter,sans-serif;width:1360px}
+h1{font-family:Unbounded;font-weight:560;font-size:22px;margin:0 0 4px}
+h2{font-family:Unbounded;font-weight:560;font-size:16px;margin:28px 0 4px}
+p.q{margin:0 0 12px;font-size:13px;max-width:1180px;line-height:1.45}
+ol.q{margin:0 0 12px;font-size:13px;max-width:1180px;line-height:1.5;padding-left:20px}
+.row{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.v{display:flex;flex-direction:column;gap:6px}
+.lab{font-size:13px;font-weight:560}
+.note{font-size:11.5px;max-width:320px;line-height:1.4}
+svg text{font-family:Inter,sans-serif}
+svg .m{font-family:Mono;font-stretch:87.5%}
+</style></head><body><div id="root"></div>
+<script>
+const LIGHT=location.search.includes('light');
+const D={canvas:'#1B1D22',raised:'#23262D',border:'#2E323A',text:'#E6E8EC',text2:'#9AA0AC',hint:'#6E7480',accent:'#4FA3FF',header:'#1E2126',well:'#141619',ground:'#111316'};
+const L={canvas:'#FAFAFB',raised:'#E9EBEE',border:'#DADDE2',text:'#1C1F24',text2:'#5A6170',hint:'#878D98',accent:'#1F6FD1',header:'#ECEEF1',well:'#D6DAE0',ground:'#E7E9ED'};
+const C=LIGHT?L:D;
+const PAL=['#4C7A9E','#7A6A9E','#5E8C6A','#9E7A4C','#9E5A6A','#5A8E8E','#6A7EB0','#8E6A8E','#7E8E56','#A06E5A','#5686A0','#887660'];
+document.body.style.background=C.ground;document.body.style.color=C.text;
+let gid=0;const nid=()=>'k'+(gid++);
+const a=o=>Object.entries(o).map(([k,v])=>`${k}="${v}"`).join(' ');
+const rect=(x,y,w,h,f,o={})=>`<rect ${a({x,y,width:w,height:h,fill:f,...o})}/>`;
+const text=(x,y,s,f,size=13,o={})=>`<text ${a({x,y,fill:f,'font-size':size,...o})}>${s}</text>`;
+const mono=(x,y,s,f,size=10,o={})=>text(x,y,s,f,size,{class:'m',...o});
+const svg=(w,h,b)=>`<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">${b}</svg>`;
+const hexA=(h,al)=>{const n=parseInt(h.slice(1),16);return `rgba(${n>>16},${(n>>8)&255},${n&255},${al})`;};
+function frame(label,s,note=''){return `<div class="v"><div class="lab">${label}</div>${s}${note?`<div class="note" style="color:${C.text2}">${note}</div>`:''}</div>`;}
+
+// ---- icons (from round 3) ----
+const ICON={
+ kick:c=>`<circle cx="8" cy="8.5" r="6" stroke="${c}"/><circle cx="8" cy="8.5" r="2.4" fill="${c}"/>`,
+ snare:c=>`<ellipse cx="8" cy="6" rx="6" ry="2" stroke="${c}"/><path d="M2 6 v5 a6 2 0 0 0 12 0 v-5" stroke="${c}"/>`,
+ rim:c=>`<ellipse cx="8" cy="9" rx="6" ry="2" stroke="${c}"/><path d="M3 2 L12 9" stroke="${c}" stroke-width="2"/>`,
+ clap:c=>`<path d="M5 14 c-2-3-2-7 0-10 M8 14 c-1.5-3-1.5-7 0-10 M11 3 l1.5-1.5 M12.5 6 l2 0 M11.5 9 l1.6 1.2" stroke="${c}"/>`,
+ hat_closed:c=>`<path d="M1.5 6.5 q6.5-3 13 0 M1.5 7.8 q6.5 3 13 0 M8 4 v-2.5 M8 9.5 v5.5" stroke="${c}"/>`,
+ hat_open:c=>`<path d="M1.5 5 q6.5-3 13 0 M1.5 9.5 q6.5 3 13 0 M8 2.5 v-1.5 M8 11.5 v3.5" stroke="${c}"/>`,
+ hat_pedal:c=>`<path d="M1.5 4.5 q6.5-3 13 0 M1.5 5.8 q6.5 3 13 0 M8 7.5 v5 M4 15 l4-2.5 l4 2.5" stroke="${c}"/>`,
+ tom:c=>`<ellipse cx="8" cy="5" rx="5" ry="1.8" stroke="${c}"/><path d="M3 5 v6 a5 1.8 0 0 0 10 0 v-6" stroke="${c}"/>`,
+ floor_tom:c=>`<ellipse cx="8" cy="3.8" rx="5.5" ry="1.8" stroke="${c}"/><path d="M2.5 3.8 v8 a5.5 1.8 0 0 0 11 0 v-8 M3.5 13.5 l-1 2 M12.5 13.5 l1 2" stroke="${c}"/>`,
+ crash:c=>`<path d="M1 9 L14.5 4.5" stroke="${c}" stroke-width="2.2"/><path d="M8 7 v8" stroke="${c}"/>`,
+ ride:c=>`<path d="M1 7.5 q7-2.6 14 0 q-7 2.6-14 0 z" stroke="${c}"/><circle cx="8" cy="7.5" r="1.4" fill="${c}"/><path d="M8 9.5 v5.5" stroke="${c}"/>`,
+ cowbell:c=>`<path d="M5 3 h6 l2.5 10 h-11 z M8 3 v-2" stroke="${c}" stroke-linejoin="round"/>`,
+ shaker:c=>`<rect x="4.5" y="2" width="7" height="12" rx="3.5" stroke="${c}"/><circle cx="7" cy="6" r=".9" fill="${c}"/><circle cx="9" cy="8" r=".9" fill="${c}"/><circle cx="7" cy="10" r=".9" fill="${c}"/>`,
+ perc:c=>`<path d="M3 4 h10 l-1.5 10 h-7 z" stroke="${c}" stroke-linejoin="round"/><ellipse cx="8" cy="4" rx="5" ry="1.4" stroke="${c}"/>`,
+ fx:c=>`<path d="M8 1.5 l1.6 4.2 4.4.4-3.4 2.8 1.1 4.3L8 10.8 4.3 13.2l1.1-4.3L2 6.1l4.4-.4z" stroke="${c}" stroke-linejoin="round"/>`,
+};
+const icon=(n,x,y,s,c,w=1.5)=>`<g transform="translate(${x} ${y}) scale(${s/16})" stroke-width="${w*16/s}" stroke-linecap="round" fill="none">${ICON[n](c)}</g>`;
+
+// ---- the layout: a map's sounds -> kit pieces and a tray ----
+// Rules (the specimen of D5's kit::layout):
+//  - every Kick sound lights the one kick; Snare and Rim the one snare; every hat the one hi-hat;
+//    every Ride the one ride (a ride and its bell are one cymbal)
+//  - each Tom is its own rack tom (up to 4), each Floor tom its own floor tom (up to 3),
+//    each Crash its own cymbal (up to 4); in map order
+//  - everything else (clap, cowbell, shaker, percussion, effect, and any piece past the limits) is a pad in the tray
+const LIM={tom:4,floor_tom:3,crash:4};
+function layout(sounds){
+  const by=k=>sounds.filter(s=>k.includes(s.icon));
+  const P=[],tray=[];
+  const kick=by(['kick']),snare=by(['snare','rim']),hats=by(['hat_closed','hat_open','hat_pedal']),ride=by(['ride']);
+  const toms=by(['tom']),floors=by(['floor_tom']),crashes=by(['crash']);
+  toms.slice(LIM.tom).concat(floors.slice(LIM.floor_tom),crashes.slice(LIM.crash)).forEach(s=>tray.push(s));
+  sounds.filter(s=>['clap','cowbell','shaker','perc','fx'].includes(s.icon)).forEach(s=>tray.push(s));
+  const rack=toms.slice(0,LIM.tom),fl=floors.slice(0,LIM.floor_tom),cr=crashes.slice(0,LIM.crash);
+  if(kick.length)P.push({k:'kick',id:'kick',x:0,y:140,r:40,s:kick});
+  const n=rack.length;
+  rack.forEach((s,i)=>{const o=i-(n-1)/2;P.push({k:'rack',id:'rack'+i,x:o*46,y:66+4*Math.abs(o),rx:18+3*(i/Math.max(n-1,1)),d:16,s:[s],stand:!kick.length});});
+  const kickR=kick.length?40:(n?Math.max(...P.filter(p=>p.k==='rack').map(p=>p.x+p.rx)):0);
+  fl.forEach((s,i)=>P.push({k:'floor',id:'floor'+i,x:kickR+36+i*62,y:110+4*i,rx:28+2*i,d:40,s:[s]}));
+  const kickL=kick.length?-40:(n?Math.min(...P.filter(p=>p.k==='rack').map(p=>p.x-p.rx)):0);
+  const snX=kickL-35;
+  if(snare.length)P.push({k:'snare',id:'snare',x:snX,y:116,rx:27,d:16,s:snare});
+  const hatX=(snare.length?snX-27:kickL)-34;
+  if(hats.length)P.push({k:'hats',id:'hats',x:hatX,y:66,rx:25,s:hats});
+  const rightEdge=Math.max(kickR,...P.filter(p=>p.k==='floor'||p.k==='rack').map(p=>p.x+p.rx));
+  const rideX=rightEdge+30;
+  if(ride.length)P.push({k:'ride',id:'ride',x:rideX,y:50,rx:40,s:ride});
+  const leftRack=n?P.find(p=>p.id==='rack0').x:kickL;
+  const spots=[[Math.min(leftRack-34,hatX+40),32,-1],[ride.length?rideX-74:rightEdge-12,26,1],[hatX-26,20,-1],[ride.length?rideX+64:rightEdge+56,24,1]];
+  cr.forEach((s,i)=>P.push({k:'crash',id:'crash'+i,x:spots[i][0],y:spots[i][1],rx:34,tilt:spots[i][2],s:[s]}));
+  return {P,tray};
+}
+function extent(p){if(p.k==='kick')return [p.x-p.r,p.x+p.r,p.y-p.r];if(p.k==='crash')return [p.x-p.rx,p.x+p.rx,p.y-16];if(p.k==='ride'||p.k==='hats')return [p.x-p.rx,p.x+p.rx,p.y-10];return [p.x-p.rx,p.x+p.rx,p.y-p.rx*.3];}
+
+// ---- drawing ----
+function drawKit(sounds,W,H,lit={},{focus=null,added=null,trayH=30,small=false}={}){
+  const {P,tray}=layout(sounds);
+  const faint=hexA(C.text2,LIGHT?.32:.26),ink=C.text2;
+  let out='',defs='';
+  const hasTray=tray.length&&!small, kitH=hasTray?(P.length?H-trayH-6:0):H;
+  if(P.length){
+    const ex=P.map(extent);const x0=Math.min(...ex.map(e=>e[0]))-6,x1=Math.max(...ex.map(e=>e[1]))+6,y0=Math.min(...ex.map(e=>e[2]))-6,y1=186;
+    const sc=Math.min(W/(x1-x0),kitH/(y1-y0),small?9:1.0),ox=(W-(x1-x0)*sc)/2-x0*sc,oy=(kitH-(y1-y0)*sc)/2-y0*sc;
+    const col=p=>p.s[p.s.length-1].col;
+    const litV=p=>Math.max(0,...p.s.map(s=>lit[s.name]||0));
+    let st='';
+    const stand=(x,y)=>`<path d="M${x} ${y} V178 M${x-12} 184 L${x} 174 L${x+12} 184"/>`;
+    P.forEach(p=>{if(p.k==='crash'||p.k==='ride')st+=stand(p.x,p.y+3);if(p.k==='hats')st+=stand(p.x,p.y+8);if(p.k==='snare')st+=stand(p.x,p.y+p.d+8);if(p.stand)st+=stand(p.x,p.y+p.d+6);});
+    const shape=(p,f,s,w)=>{switch(p.k){
+      case 'kick':return `<circle cx="${p.x}" cy="${p.y}" r="${p.r}" fill="${f}" stroke="${s}" stroke-width="${w}"/><circle cx="${p.x}" cy="${p.y}" r="${p.r*.36}" fill="none" stroke="${s}" stroke-width="${w*.8}" opacity=".7"/>`;
+      case 'rack':case 'snare':case 'floor':return `<path d="M${p.x-p.rx} ${p.y} v${p.d} a${p.rx} ${p.rx*.26} 0 0 0 ${2*p.rx} 0 v-${p.d}" fill="${f}" stroke="${s}" stroke-width="${w}"/><ellipse cx="${p.x}" cy="${p.y}" rx="${p.rx}" ry="${p.rx*.26}" fill="${f}" stroke="${s}" stroke-width="${w}"/>`+(p.k==='floor'?`<path d="M${p.x-p.rx+4} ${p.y+p.d+6} l-4 ${178-p.y-p.d} M${p.x+p.rx-4} ${p.y+p.d+6} l4 ${178-p.y-p.d}" stroke="${faint}" stroke-width="2"/>`:'');
+      case 'crash':{const t=p.tilt*6;return `<path d="M${p.x-p.rx} ${p.y+t} Q${p.x} ${p.y-p.rx*.5} ${p.x+p.rx} ${p.y-t} Q${p.x} ${p.y+2} ${p.x-p.rx} ${p.y+t} Z" fill="${f}" stroke="${s}" stroke-width="${w}"/>`;}
+      case 'ride':return `<ellipse cx="${p.x}" cy="${p.y}" rx="${p.rx}" ry="7" fill="${f}" stroke="${s}" stroke-width="${w}"/><circle cx="${p.x}" cy="${p.y-1}" r="4.5" fill="${f==='none'?'none':s}" stroke="${s}" stroke-width="${w}"/>`;
+      case 'hats':{const open=p.s.some(s=>s.icon==='hat_open'&&lit[s.name]);const g=open?10:3;return `<path d="M${p.x-p.rx} ${p.y-g} Q${p.x} ${p.y-g-11} ${p.x+p.rx} ${p.y-g} Q${p.x} ${p.y-g+4} ${p.x-p.rx} ${p.y-g} Z" fill="${f}" stroke="${s}" stroke-width="${w}"/><path d="M${p.x-p.rx} ${p.y} Q${p.x} ${p.y+9} ${p.x+p.rx} ${p.y} Q${p.x} ${p.y-3} ${p.x-p.rx} ${p.y} Z" fill="${f}" stroke="${s}" stroke-width="${w}"/>`;}
+    }};
+    const order=['crash','ride','floor','kick','rack','hats','snare'];
+    let body=`<g stroke="${faint}" stroke-width="2" fill="none" stroke-linecap="round">${st}</g>`;
+    order.forEach(k=>P.filter(p=>p.k===k).forEach(p=>{const v=litV(p),c=col(p);
+      if(v){const b=nid();defs+=`<filter id="${b}" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="${small?3:7}"/></filter>`;
+        body+=`<g filter="url(#${b})" opacity="${.35+.6*v}">${shape(p,c,c,1.6)}</g><g opacity="${.45+.55*v}">${shape(p,hexA(c,.55),c,1.6)}</g>`;}
+      body+=shape(p,v?'none':faint,v?(LIGHT?c:'#FFFFFF'):ink,small?2.2:1.6);
+      if(focus===p.id)body+=shape(p,'none',C.accent,2.4);
+      if(added===p.id)body+=`<g opacity=".9">${shape(p,hexA(C.accent,.18),C.accent,2)}</g>`;}));
+    out+=`<g transform="translate(${ox} ${oy}) scale(${sc})">${body}</g>`;
+  }
+  if(hasTray){const ty=P.length?H-trayH:Math.max(0,(H-trayH*2)/2);const big=!P.length;const sz=big?44:trayH-4,gap=big?10:6;
+    const cols=big?Math.max(1,Math.floor((W+gap)/(sz+gap))):Math.floor((W+gap)/(sz+gap));
+    const shown=tray.slice(0,big?tray.length:cols-(tray.length>cols?1:0));
+    const rows=big?Math.ceil(shown.length/cols):1;const startY=big?(H-(rows*(sz+gap)-gap))/2:ty+2;
+    const rowW=Math.min(cols,shown.length+(shown.length<tray.length?1:0))*(sz+gap)-gap;let sx=(W-rowW)/2;
+    shown.forEach((s,i)=>{const cx=sx+(i%cols)*(sz+gap),cy=startY+Math.floor(i/cols)*(sz+gap),v=lit[s.name]||0;
+      out+=rect(cx,cy,sz,sz,v?hexA(s.col,.35):hexA(C.text2,.08),{rx:big?10:6,stroke:v?s.col:'none'})+icon(s.icon,cx+sz*.22,cy+(big?sz*.14:sz*.22),sz*.56,v?(LIGHT?s.col:'#FFFFFF'):C.text2);
+      if(big)out+=text(cx+sz/2,cy+sz-4,s.name.length>7?s.name.slice(0,6)+'…':s.name,C.hint,8,{'text-anchor':'middle'});});
+    if(shown.length<tray.length){const cx=sx+shown.length*(sz+gap);out+=rect(cx,ty+2,sz,sz,hexA(C.text2,.08),{rx:6})+mono(cx+sz/2,ty+2+sz/2+3.5,'+'+(tray.length-shown.length),C.text2,9,{'text-anchor':'middle'});}
+  }
+  return `<defs>${defs}</defs>${out}`;
+}
+function card(sounds,lit={},opt={},W=300,H=210){return svg(W,H,rect(0,0,W,H,C.header,{rx:8})+`<g transform="translate(8 8)">${drawKit(sounds,W-16,H-16,lit,opt)}</g>`);}
+
+// ---- maps ----
+let ci=0;const S=(name,ic,c)=>({name,icon:ic,col:PAL[c??(ci++%PAL.length)]});
+const SMALL=[S('Kick','kick',0),S('Snare','snare',4),S('Hat','hat_closed',5)];
+const STD=[S('Kick','kick',0),S('Snare','snare',4),S('Closed hat','hat_closed',5),S('Open hat','hat_open',5),S('High tom','tom',2),S('Mid tom','tom',2),S('Floor tom','floor_tom',2),S('Crash','crash',7),S('Ride','ride',6)];
+const GM=[S('Kick 1','kick',0),S('Kick 2','kick',0),S('Side stick','rim',4),S('Snare 1','snare',4),S('Clap','clap',3),S('Snare 2','snare',4),S('Low floor tom','floor_tom',2),S('Closed hat','hat_closed',5),S('High floor tom','floor_tom',2),S('Pedal hat','hat_pedal',5),S('Low tom','tom',2),S('Open hat','hat_open',5),S('Low-mid tom','tom',2),S('High-mid tom','tom',2),S('Crash 1','crash',7),S('High tom','tom',2),S('Ride 1','ride',6),S('China','crash',7),S('Ride bell','ride',6),S('Tambourine','shaker',9),S('Splash','crash',7),S('Cowbell','cowbell',9),S('Crash 2','crash',7),S('Vibraslap','perc',10),S('Ride 2','ride',6),S('Hi bongo','perc',10),S('Lo bongo','perc',10),S('Mute conga','perc',10),S('Open conga','perc',10),S('Low conga','perc',10),S('Hi timbale','perc',10),S('Lo timbale','perc',10),S('Hi agogo','perc',10),S('Lo agogo','perc',10),S('Cabasa','shaker',9),S('Maracas','shaker',9),S('Whistle','fx',11),S('Guiro','perc',10),S('Claves','perc',10),S('Wood block','perc',10),S('Cuica','perc',10),S('Triangle','perc',10)];
+const EIGHT=[S('Kick','kick',0),S('Rim','rim',4),S('Snare','snare',4),S('Clap','clap',3),S('Closed hat','hat_closed',5),S('Open hat','hat_open',5),S('Low tom','tom',2),S('Mid tom','tom',2),S('High tom','tom',2),S('Cymbal','crash',7),S('Cowbell','cowbell',9),S('Conga','perc',10),S('Maracas','shaker',9),S('Claves','perc',10)];
+const PERC=[S('Shaker','shaker',9),S('Tambourine','shaker',9),S('Conga low','perc',10),S('Conga high','perc',10),S('Bongo','perc',10),S('Cowbell','cowbell',9),S('Clap','clap',3),S('Snap','clap',3),S('Riser','fx',11)];
+const BIG=[S('Kick','kick',0),S('Snare','snare',4),S('Hats','hat_closed',5),S('Tom 1','tom',2),S('Tom 2','tom',2),S('Tom 3','tom',2),S('Tom 4','tom',2),S('Floor 1','floor_tom',2),S('Floor 2','floor_tom',2),S('Crash L','crash',7),S('Crash R','crash',7),S('Splash','crash',7),S('China','crash',7),S('Ride','ride',6)];
+const NOSNARE=STD.filter(s=>s.icon!=='snare');
+const PLUS=STD.slice(0,6).concat([S('Low tom','tom',2)],STD.slice(6));
+const TWOCR=STD.concat([S('Crash 2','crash',7)]);
+
+let H=`<h1>M8 specimens, round 3b <span style="font-family:Mono;font-size:12px;color:${C.text2}">${LIGHT?'light':'dark'}</span></h1>
+<p class="q" style="color:${C.text2}">The kit is built from the map, so it changes when the map changes. Nothing about the kit is saved: it is drawn from the sounds' icons each time.</p>
+<h2>The rules</h2><ol class="q" style="color:${C.text2}">
+<li><b style="color:${C.text}">One kick, one snare, one hi-hat, one ride.</b> Every Kick sound lights the same kick; Snare and Rim sounds light the snare; the closed, pedal and open hats are one hi-hat (it opens when an Open hat plays); a ride and its bell are one cymbal. A piece lit by several sounds takes the colour of the one just played.</li>
+<li><b style="color:${C.text}">Toms and crashes are counted.</b> Each Tom sound is a rack tom over the kick (up to 4, small to large in map order), each Floor tom a floor tom to the right (up to 3), each Crash its own cymbal on its own stand (up to 4: left, right, far left, far right). A China or Splash is a Crash sound with its own name.</li>
+<li><b style="color:${C.text}">The rest are pads.</b> Clap, cowbell, shaker, percussion and effect sounds, and any tom or crash past the limits, sit as icon pads in a tray under the kit. A map with no kit pieces at all shows only the pads, bigger.</li>
+<li><b style="color:${C.text}">Pieces close up.</b> A removed piece takes its space with it (no snare: the hi-hat moves in), and the kit is scaled to fit the panel, so a bigger kit is drawn smaller. On a map edit the pieces glide to their new places and a new one fades in (Reduce motion: it just changes).</li>
+<li><b style="color:${C.text}">Change an icon, change the kit.</b> Turning a sound's icon from Percussion to Tom adds a tom; the map editor is the one place to shape the kit.</li></ol>`;
+H+=`<h2>Maps and their kits</h2><div class="row">`;
+H+=frame('Three sounds',card(SMALL,{Kick:1}),'Kick, Snare, Hat. The smallest kit is drawn the largest.');
+H+=frame('A standard kit (9 sounds)',card(STD,{Kick:1,'Closed hat':.7,Crash:.5}));
+H+=frame('808-style (14 sounds)',card(EIGHT,{Kick:1,Clap:.8,'Closed hat':.6}),'Three toms over the kick; Clap, Cowbell, Conga, Maracas and Claves are pads. The Rim lights the snare.');
+H+=frame('General MIDI (47 sounds)',card(GM,{'Kick 1':1,'Ride bell':.8,Tambourine:.7}),'Two kicks are one kick, four toms and two floor toms, four crashes (Crash 1, Crash 2, China, Splash), one ride lit by Ride 1, Ride 2 and Ride bell. The tray holds what fits, then "+n"; in the drum editor it lists only sounds the clip uses when Hide unused is on.')+`</div>`;
+H+=`<div class="row" style="margin-top:14px">`;
+H+=frame('A big kit (14 sounds)',card(BIG,{'Tom 4':1,'China':.7,Kick:.5}),'At the limits: four toms, two floors, four crashes.');
+H+=frame('Percussion only (9 sounds)',card(PERC,{Conga_low:0,'Conga high':1,Shaker:.7}),'No kit piece: the panel is all pads, with names.');
+H+=frame('In the header, 808-style',svg(140,64,rect(0,0,140,64,C.well,{rx:6})+`<g transform="translate(4 4)">${drawKit(EIGHT,132,56,{Kick:1,'Closed hat':.7},{small:true})}</g>`),'The header kit draws only the kit; the pads are left out (no room). A sound with no piece lights its own track\'s icon instead.')+`</div>`;
+H+=`<h2>Editing the map</h2><p class="q" style="color:${C.text2}">Each pair is the standard kit before and after one edit in the map editor. The changed piece is outlined in the accent for a moment after the edit.</p><div class="row">`;
+const pair=(title,before,after,added,note)=>frame(title,`<div style="display:flex;align-items:center;gap:6px">${card(before,{},{},250,180)}<span style="color:${C.hint};font-size:18px">→</span>${card(after,{},{added},250,180)}</div>`,note);
+H+=pair('Add a tom',STD,PLUS,'rack2','The toms re-space over the kick; the new one is the largest in map order.');
+H+=pair('Add a second crash',STD,TWOCR,'crash1','The second crash takes the right-hand stand, between the toms and the ride.');
+H+=`</div><div class="row" style="margin-top:14px">`;
+H+=pair('Remove the snare',STD,NOSNARE,null,'The hi-hat moves in beside the kick.');
+H+=pair('Change Ride to Percussion',STD,STD.map(s=>s.icon==='ride'?{...s,icon:'perc'}:s),null,'The ride leaves the kit and becomes a pad.')+`</div>`;
+document.getElementById('root').innerHTML=H;
+</script></body></html>
