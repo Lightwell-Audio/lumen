@@ -2,11 +2,15 @@
 //! 16 × 16 grid, scaled to the target rectangle when painted, so it is sharp
 //! at every UI scale. They are drawn with egui's painter: at icon sizes that
 //! is crisp and cheap, and Vello stays reserved for dense canvases (ADR-0018).
+//! The fifteen drum sounds' glyphs (M8 D1) are beside the interface icons in
+//! `drums.rs` and share the grid.
 
+mod drums;
 mod geometry;
 mod tracks;
 mod widgets;
 
+pub use drums::{DrumGlyph, paint_drum_glyph};
 pub use geometry::shapes;
 pub use tracks::draw_type_icon;
 pub use widgets::{

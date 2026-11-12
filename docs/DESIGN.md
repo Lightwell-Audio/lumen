@@ -331,8 +331,9 @@ Sentence case for every label ("Audio settings", not
   for the accent line under a toggle that is on; `EDGE 2` for the line of a
   marker, a handle or a selection's edge; `HALO 3` and `GLOW_WIDE 6` for
   the halo and the wide glow beside an accent edge. An icon's own line is
-  one of `ICON 1.6`, `ICON_FINE 1.3`, `ICON_BOLD 2.4` or `ICON_STRIKE 1.8`,
-  in units of its 16-unit grid.
+  one of `ICON 1.6`, `ICON_FINE 1.3`, `ICON_BOLD 2.4`, `ICON_HEAVY 2.2` (the
+  drum glyphs' cymbal edge and rim strike, M8 D1) or `ICON_STRIKE 1.8`, in
+  units of its 16-unit grid.
 - **Elevation:** only windows and popovers float. They get `overlay` fill,
   a `border_strong` outline, the edge light and one soft shadow (offset
   0, 6, blur 18). The one other shadow is the mixer's pinned master,
