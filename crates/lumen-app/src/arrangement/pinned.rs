@@ -195,12 +195,12 @@ impl Arrangement {
         painter.hline(
             divider.x_range(),
             divider.top() + 0.5,
-            Stroke::new(1.0, palette.border_strong),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
         );
         painter.hline(
             divider.x_range(),
             divider.bottom() - 0.5,
-            Stroke::new(1.0, palette.border_strong),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
         );
         let grip = Rect::from_center_size(divider.center(), vec2(28.0, 2.0));
         painter.rect_filled(grip, 1.0, palette.text_hint);
@@ -246,7 +246,7 @@ impl Arrangement {
             painter.hline(
                 rect.x_range(),
                 rect.bottom() - 0.5,
-                Stroke::new(1.0, palette.border),
+                Stroke::new(theme::stroke::HAIRLINE, palette.border),
             );
             let open = motion::glide(
                 &ctx,
@@ -349,7 +349,7 @@ impl Arrangement {
                     painter.hline(
                         canvas.x_range(),
                         lane.bottom() - 0.5,
-                        Stroke::new(1.0, palette.border.gamma_multiply(0.6)),
+                        Stroke::new(theme::stroke::HAIRLINE, palette.border.gamma_multiply(0.6)),
                     );
                     if let Some((hot, t)) = self.hot_edge
                         && hot == track.id
@@ -361,7 +361,7 @@ impl Arrangement {
                     painter.hline(
                         canvas.x_range(),
                         lane.top() + 0.5,
-                        Stroke::new(1.0, palette.border),
+                        Stroke::new(theme::stroke::HAIRLINE, palette.border),
                     );
                 }
                 super::RowKind::Pending(_) => {}
@@ -591,7 +591,7 @@ impl Arrangement {
         painter.hline(
             rect.x_range(),
             rect.top() + 0.5,
-            Stroke::new(1.0, palette.border),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
     }
 }

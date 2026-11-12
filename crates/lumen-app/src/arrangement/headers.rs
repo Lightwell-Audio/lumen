@@ -173,7 +173,7 @@ impl Arrangement {
                 painter.hline(
                     column.x_range(),
                     rect.bottom() - 0.5,
-                    Stroke::new(1.0, palette.border),
+                    Stroke::new(theme::stroke::HAIRLINE, palette.border),
                 );
                 continue;
             };
@@ -229,7 +229,7 @@ impl Arrangement {
         painter.vline(
             column.right() - 0.5,
             column.y_range(),
-            Stroke::new(1.0, palette.border),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
         // Dragged tracks are dimmed; the line shows where they will land.
         for (n, row) in rows.iter().enumerate() {

@@ -105,7 +105,7 @@ impl Panes {
             ui.painter().rect_stroke(
                 rect.shrink(1.0),
                 theme::radius::SMALL,
-                Stroke::new(2.0, theme::p().accent),
+                Stroke::new(theme::stroke::FOCUS, theme::p().accent),
                 egui::StrokeKind::Inside,
             );
         }

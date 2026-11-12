@@ -720,7 +720,7 @@ impl App {
             crate::light::vline(&painter, crate::light::BEAM, x, y, colour, 1.0);
             crate::light::cap(&painter, x, ruler_top, colour);
         } else {
-            painter.vline(x, y, egui::Stroke::new(1.0, colour));
+            painter.vline(x, y, egui::Stroke::new(theme::stroke::HAIRLINE, colour));
             painter.add(egui::Shape::convex_polygon(
                 vec![
                     pos2(x - 5.0, ruler_top),

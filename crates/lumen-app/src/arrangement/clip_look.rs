@@ -185,7 +185,10 @@ pub(super) fn draw_body(painter: &Painter, rect: Rect, look: &ClipLook<'_>) {
     painter.rect_stroke(
         rect,
         radius,
-        Stroke::new(1.0, outline_color(&look.paint, look.color, alpha)),
+        Stroke::new(
+            theme::stroke::HAIRLINE,
+            outline_color(&look.paint, look.color, alpha),
+        ),
         egui::StrokeKind::Inside,
     );
 }

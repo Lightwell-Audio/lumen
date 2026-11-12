@@ -219,7 +219,7 @@ impl App {
             // The post down through the strip, the flag's point, the name.
             painter.line_segment(
                 [pos2(x, at.strip.top()), pos2(x, at.strip.bottom())],
-                Stroke::new(1.0, colour),
+                Stroke::new(theme::stroke::HAIRLINE, colour),
             );
             painter.add(egui::Shape::convex_polygon(
                 vec![

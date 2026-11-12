@@ -206,7 +206,7 @@ pub fn cap(painter: &Painter, x: f32, top: f32, color: Color32) {
     painter.add(egui::Shape::convex_polygon(
         points(0.0),
         theme::p().core,
-        Stroke::new(1.0, color),
+        Stroke::new(theme::stroke::HAIRLINE, color),
     ));
 }
 

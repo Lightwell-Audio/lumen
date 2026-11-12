@@ -93,7 +93,7 @@ fn ghost_strip(ui: &mut Ui, area: Rect, keymap: &Keymap) -> bool {
 
 /// A plus, for adding.
 fn plus(painter: &egui::Painter, at: egui::Pos2, colour: egui::Color32) {
-    let stroke = egui::Stroke::new(1.5, colour);
+    let stroke = egui::Stroke::new(theme::stroke::LIT, colour);
     painter.line_segment([at - vec2(6.0, 0.0), at + vec2(6.0, 0.0)], stroke);
     painter.line_segment([at - vec2(0.0, 6.0), at + vec2(0.0, 6.0)], stroke);
 }
@@ -360,7 +360,11 @@ impl Arrangement {
             let painter = ui.painter_at(strips);
             match at.mark {
                 Mark::Line(x) => {
-                    painter.vline(x, strips.y_range(), Stroke::new(2.0, accent));
+                    painter.vline(
+                        x,
+                        strips.y_range(),
+                        Stroke::new(theme::stroke::EDGE, accent),
+                    );
                 }
                 Mark::Onto(x, width) => {
                     let rect = Rect::from_x_y_ranges(x..=x + width, strips.y_range());
@@ -368,7 +372,7 @@ impl Arrangement {
                     painter.rect_stroke(
                         rect.shrink(1.0),
                         0.0,
-                        Stroke::new(2.0, accent),
+                        Stroke::new(theme::stroke::EDGE, accent),
                         egui::StrokeKind::Inside,
                     );
                 }
@@ -464,7 +468,7 @@ impl Arrangement {
             painter.hline(
                 bar.x_range(),
                 at(reading.momentary),
-                Stroke::new(2.0, palette.text),
+                Stroke::new(theme::stroke::EDGE, palette.text),
             );
         }
         for mark in [-6.0, -14.0, -23.0, -36.0] {
@@ -487,7 +491,7 @@ impl Arrangement {
         let target = graph.x_range().shrink(3.0);
         painter.with_clip_rect(graph).extend(Shape::dashed_line(
             &[pos2(target.min, at(-14.0)), pos2(target.max, at(-14.0))],
-            Stroke::new(1.0, palette.accent.gamma_multiply(0.6)),
+            Stroke::new(theme::stroke::HAIRLINE, palette.accent.gamma_multiply(0.6)),
             3.0,
             3.0,
         ));
@@ -506,7 +510,7 @@ impl Arrangement {
         if measured {
             painter.with_clip_rect(graph).add(Shape::line(
                 points,
-                Stroke::new(1.0, palette.accent.gamma_multiply(0.8)),
+                Stroke::new(theme::stroke::HAIRLINE, palette.accent.gamma_multiply(0.8)),
             ));
         } else {
             // Nothing heard yet: what fills it, wrapped inside the well.

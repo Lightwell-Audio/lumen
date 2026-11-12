@@ -55,13 +55,13 @@ impl Arrangement {
                 }
                 let band = Rect::from_x_y_ranges(x0..=x1, lane(row).y_range());
                 painter.rect_filled(band, 0.0, palette.accent.gamma_multiply(0.16));
-                let edge = Stroke::new(1.0, palette.accent.gamma_multiply(0.6));
+                let edge = Stroke::new(theme::stroke::HAIRLINE, palette.accent.gamma_multiply(0.6));
                 painter.vline(x0, band.y_range(), edge);
                 painter.vline(x1, band.y_range(), edge);
                 top.get_or_insert(band.top());
             }
             if let Some(y) = top {
-                let stroke = Stroke::new(2.0, palette.accent);
+                let stroke = Stroke::new(theme::stroke::EDGE, palette.accent);
                 let y = y + 1.0;
                 painter.line_segment([pos2(x0, y), pos2(x1, y)], stroke);
                 for edge in [x0, x1] {
@@ -106,7 +106,10 @@ impl Arrangement {
                             if x >= canvas.left() {
                                 painter.add(egui::Shape::dashed_line(
                                     &[pos2(x, rect.top() + TITLE), pos2(x, rect.bottom())],
-                                    Stroke::new(1.0, palette.text.gamma_multiply(0.3)),
+                                    Stroke::new(
+                                        theme::stroke::HAIRLINE,
+                                        palette.text.gamma_multiply(0.3),
+                                    ),
                                     2.0,
                                     2.0,
                                 ));
@@ -190,12 +193,15 @@ impl Arrangement {
                     painter.vline(
                         side,
                         rect.y_range(),
-                        Stroke::new(6.0, palette.accent.gamma_multiply(0.15)),
+                        Stroke::new(
+                            theme::stroke::GLOW_WIDE,
+                            palette.accent.gamma_multiply(0.15),
+                        ),
                     );
                     painter.vline(
                         side,
                         rect.y_range(),
-                        Stroke::new(3.0, palette.accent.gamma_multiply(0.6)),
+                        Stroke::new(theme::stroke::HALO, palette.accent.gamma_multiply(0.6)),
                     );
                 } else if let Some(select::Hover {
                     region,
@@ -222,7 +228,7 @@ impl Arrangement {
                 area,
                 f32::from(theme::radius::MEDIUM),
                 palette.accent.gamma_multiply(0.12),
-                Stroke::new(1.0, palette.accent.gamma_multiply(0.6)),
+                Stroke::new(theme::stroke::HAIRLINE, palette.accent.gamma_multiply(0.6)),
                 egui::StrokeKind::Inside,
             );
         }

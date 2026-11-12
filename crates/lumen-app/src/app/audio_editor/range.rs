@@ -212,10 +212,10 @@ impl App {
                     0.0,
                     palette.accent.gamma_multiply(0.16),
                 );
-                let edge = Stroke::new(1.0, palette.accent.gamma_multiply(0.6));
+                let edge = Stroke::new(theme::stroke::HAIRLINE, palette.accent.gamma_multiply(0.6));
                 painter.vline(xa, body.y_range(), edge);
                 painter.vline(xb, body.y_range(), edge);
-                let stroke = Stroke::new(2.0, palette.accent);
+                let stroke = Stroke::new(theme::stroke::EDGE, palette.accent);
                 let y = body.top() + 1.0;
                 painter.line_segment([pos2(xa, y), pos2(xb, y)], stroke);
                 for x in [xa, xb] {

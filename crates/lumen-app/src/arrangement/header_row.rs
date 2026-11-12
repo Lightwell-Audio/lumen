@@ -418,7 +418,7 @@ impl Arrangement {
                 painter.rect_stroke(
                     rect.shrink(0.5),
                     0.0,
-                    Stroke::new(1.0, color.gamma_multiply(0.7 * hot)),
+                    Stroke::new(theme::stroke::HAIRLINE, color.gamma_multiply(0.7 * hot)),
                     egui::StrokeKind::Inside,
                 );
             }
@@ -427,7 +427,7 @@ impl Arrangement {
         painter.hline(
             column.x_range(),
             rect.bottom() - 0.5,
-            Stroke::new(1.0, palette.border),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
     }
 

@@ -447,7 +447,10 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
         if hot == Some(Handle::Gain) {
             glow_line(painter, line, accent, true);
         } else {
-            painter.line(line, Stroke::new(1.0, accent.gamma_multiply(0.55)));
+            painter.line(
+                line,
+                Stroke::new(theme::stroke::HAIRLINE, accent.gamma_multiply(0.55)),
+            );
         }
     }
     for edge in [Edge::Start, Edge::End] {
@@ -468,7 +471,7 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
             painter.circle_stroke(
                 at,
                 HANDLE_RADIUS - 0.5 + big,
-                Stroke::new(1.5, accent.gamma_multiply(0.8)),
+                Stroke::new(theme::stroke::LIT, accent.gamma_multiply(0.8)),
             );
         }
         if let Some(dot) = h.bend_pos(edge).filter(|d| view.contains(d.x)) {
@@ -482,7 +485,7 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
                 dot,
                 BEND_RADIUS + big,
                 palette.clip_body,
-                Stroke::new(1.5, accent),
+                Stroke::new(theme::stroke::LIT, accent),
             );
         }
     }

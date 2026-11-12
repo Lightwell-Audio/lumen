@@ -72,7 +72,11 @@ pub(crate) fn lanes(painter: &Painter, rect: Rect, scroll: f32, row_height: f32)
             painter.rect_filled(row, 0.0, p.lane_black);
         }
         if split_on_top(pitch) {
-            painter.hline(rect.x_range(), top, Stroke::new(1.0, p.lane_split));
+            painter.hline(
+                rect.x_range(),
+                top,
+                Stroke::new(theme::stroke::HAIRLINE, p.lane_split),
+            );
         }
     }
 }
@@ -94,7 +98,7 @@ pub(crate) fn keys(painter: &Painter, rect: Rect, scroll: f32, row_height: f32) 
     let ivory = (p.key_white.lerp_to_gamma(Color32::BLACK, 0.09), p.key_white);
     widgets::gradient(&painter, rect, ivory.0, ivory.1);
     let black_width = (rect.width() * BLACK_KEY).round();
-    let divider = Stroke::new(1.0, p.key_text.gamma_multiply(0.5));
+    let divider = Stroke::new(theme::stroke::HAIRLINE, p.key_text.gamma_multiply(0.5));
     let rows = visible(rect, scroll, row_height, ppp);
     // White keys meet at B|C and E|F (a row's top edge) and behind each black
     // key (its row's middle).
@@ -139,7 +143,7 @@ pub(crate) fn keys(painter: &Painter, rect: Rect, scroll: f32, row_height: f32) 
     painter.vline(
         rect.right() - 0.5,
         rect.y_range(),
-        Stroke::new(1.0, Color32::from_black_alpha(48)),
+        Stroke::new(theme::stroke::HAIRLINE, Color32::from_black_alpha(48)),
     );
 }
 

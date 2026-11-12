@@ -632,7 +632,7 @@ report: {}",
                     pos2(mx, ruler.bottom() - 1.0),
                 ],
                 palette.start_marker,
-                Stroke::new(1.0, palette.canvas),
+                Stroke::new(theme::stroke::HAIRLINE, palette.canvas),
             ));
         }
 
@@ -647,7 +647,7 @@ report: {}",
                 light::vline(&painter, light::BEAM, x, ys, palette.accent, 1.0);
                 light::cap(&painter, x, ruler.top(), palette.accent);
             } else {
-                painter.vline(x, ys, Stroke::new(1.0, palette.accent));
+                painter.vline(x, ys, Stroke::new(theme::stroke::HAIRLINE, palette.accent));
                 painter.add(egui::Shape::convex_polygon(
                     vec![
                         pos2(x - 5.0, ruler.top()),
@@ -682,7 +682,7 @@ report: {}",
             painter.rect_stroke(
                 canvas.shrink(2.0),
                 4.0,
-                Stroke::new(2.0, color),
+                Stroke::new(theme::stroke::EDGE, color),
                 egui::StrokeKind::Inside,
             );
             let mut lines: Vec<String> = hovered

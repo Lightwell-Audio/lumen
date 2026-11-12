@@ -252,7 +252,8 @@ impl Arrangement {
                     palette.record.gamma_multiply(0.12),
                     Color32::TRANSPARENT,
                 );
-                let edge = Stroke::new(1.0, palette.record.gamma_multiply(0.45));
+                let edge =
+                    Stroke::new(theme::stroke::HAIRLINE, palette.record.gamma_multiply(0.45));
                 painter.hline(canvas.x_range(), lane.top() + 0.5, edge);
                 painter.hline(canvas.x_range(), lane.bottom() - 1.5, edge);
             } else if track.solo {
@@ -508,7 +509,7 @@ impl Arrangement {
             painter.hline(
                 canvas.x_range(),
                 lane.bottom() - 0.5,
-                Stroke::new(1.0, palette.border.gamma_multiply(0.6)),
+                Stroke::new(theme::stroke::HAIRLINE, palette.border.gamma_multiply(0.6)),
             );
             // The resize glow continues across the lane.
             if let (RowKind::Track(index), Some((hot, t))) = (row.kind, self.hot_edge)

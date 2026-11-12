@@ -419,7 +419,11 @@ pub fn value_slider_styled(
                 rect.top()..=rect.top() + 3.0,
                 rect.bottom() - 3.0..=rect.bottom(),
             ] {
-                p.vline(center, y, Stroke::new(1.0, palette.text_hint));
+                p.vline(
+                    center,
+                    y,
+                    Stroke::new(theme::stroke::HAIRLINE, palette.text_hint),
+                );
             }
             // The fill's moving edge, as the volume's handle.
             if (x - center).abs() >= 1.0 {
@@ -479,7 +483,7 @@ const HANDLE_OPENS_WITHIN: f32 = 8.0;
 /// audit's S2: the line ran through the value). Nothing animates by
 /// itself: the opening follows the handle.
 fn draw_handle(p: &Painter, x: f32, ys: Rangef, text: Rect) {
-    let stroke = Stroke::new(2.0, theme::p().text);
+    let stroke = Stroke::new(theme::stroke::EDGE, theme::p().text);
     for span in handle_spans(x, ys, text) {
         p.vline(x, span, stroke);
     }

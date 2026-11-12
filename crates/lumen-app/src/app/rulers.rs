@@ -81,13 +81,13 @@ impl App {
             painter.rect_filled(brace, 0.0, fill);
             painter.line_segment(
                 [brace.left_top(), brace.right_top()],
-                Stroke::new(2.0, edge),
+                Stroke::new(theme::stroke::EDGE, edge),
             );
             for x in [a, b] {
                 if (at.strip.left()..=at.strip.right()).contains(&x) {
                     painter.line_segment(
                         [pos2(x, brace.top()), pos2(x, brace.bottom())],
-                        Stroke::new(2.0, edge),
+                        Stroke::new(theme::stroke::EDGE, edge),
                     );
                 }
             }
@@ -310,7 +310,7 @@ impl App {
         }
         painter.line_segment(
             [rect.left_top(), rect.right_top()],
-            Stroke::new(1.0, palette.border),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
         let tempo = &self.transport.timeline.tempo;
         let view = at.view;
@@ -335,7 +335,7 @@ impl App {
             }
             painter.line_segment(
                 [pos2(x, rect.top()), pos2(x, rect.top() + 5.0)],
-                Stroke::new(1.0, palette.text_hint),
+                Stroke::new(theme::stroke::HAIRLINE, palette.text_hint),
             );
             painter.text(
                 pos2(x + 4.0, rect.center().y + 1.0),
@@ -353,7 +353,7 @@ impl App {
         ui.painter().rect_filled(rect, 0.0, palette.raised);
         ui.painter().line_segment(
             [rect.left_top(), rect.right_top()],
-            Stroke::new(1.0, palette.border),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
         let format = self.transport.time_format;
         let response = ui

@@ -195,7 +195,7 @@ pub(crate) fn draw_brace_hint(
     let (a, b) = (x(state.loop_start), x(state.loop_end));
     let bottom = at.strip.bottom();
     let top = bottom - super::rulers::BRACE_BAND - 4.0;
-    let stroke = Stroke::new(2.0, palette.accent);
+    let stroke = Stroke::new(theme::stroke::EDGE, palette.accent);
     let bracket = |edge: f32, inward: f32| {
         painter.line_segment([pos2(edge, top), pos2(edge, bottom)], stroke);
         painter.line_segment([pos2(edge, top), pos2(edge + inward, top)], stroke);
@@ -244,7 +244,7 @@ pub(crate) fn draw_punch(
         if on && (at.strip.left()..=at.strip.right()).contains(&x) {
             painter.line_segment(
                 [pos2(x, at.strip.top() + 4.0), pos2(x, at.strip.bottom())],
-                Stroke::new(2.0, colour),
+                Stroke::new(theme::stroke::EDGE, colour),
             );
             painter.circle_filled(pos2(x, at.strip.top() + 4.0), 3.0, colour);
         }

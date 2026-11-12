@@ -355,7 +355,7 @@ impl Arrangement {
         painter.vline(
             rect.right() - 0.5,
             rect.y_range(),
-            Stroke::new(1.0, palette.border),
+            Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
         // Strips being dragged are dimmed, as their headers are.
         if self.is_dragged(track.id) {

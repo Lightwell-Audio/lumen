@@ -136,7 +136,7 @@ pub(crate) fn paint_lane(painter: &Painter, view: &LaneView, scene: &LaneScene<'
             bend_dot(view, bend),
             BEND_RADIUS,
             palette.text,
-            Stroke::new(2.0, palette.accent),
+            Stroke::new(theme::stroke::EDGE, palette.accent),
         );
     }
 }

@@ -45,7 +45,7 @@ impl Arrangement {
                         ui.painter().rect_stroke(
                             r,
                             theme::radius::SMALL,
-                            Stroke::new(1.5, theme::p().text),
+                            Stroke::new(theme::stroke::LIT, theme::p().text),
                             egui::StrokeKind::Outside,
                         );
                     }

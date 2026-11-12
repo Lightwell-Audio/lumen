@@ -347,7 +347,7 @@ impl App {
                 x += value.size().x + gap;
                 // A down chevron, as in the mock-up.
                 let c = pos2((x + CHIP_ARROW / 2.0).round(), mid);
-                let stroke = egui::Stroke::new(1.5, palette.text_hint);
+                let stroke = egui::Stroke::new(theme::stroke::LIT, palette.text_hint);
                 painter.line_segment([c + vec2(-3.0, -1.5), c + vec2(0.0, 1.5)], stroke);
                 painter.line_segment([c + vec2(0.0, 1.5), c + vec2(3.0, -1.5)], stroke);
             }

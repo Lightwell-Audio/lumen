@@ -276,9 +276,14 @@ Sentence case for every label ("Audio settings", not
   palette; `FULL` for pills (switches, lane tabs, chips). A piece inside a
   trough takes the trough's radius less its 2 pt inset.
 - **Strokes** (`theme::stroke`): `HAIRLINE 1` for separators, outlines,
-  edge lights and lips; `LIT 1.5` for a Lit or Flare line and icons;
-  `FOCUS 2` for the focus ring and a Beam; `UNDERLINE 2` for the accent
-  line under a toggle that is on.
+  edge lights and lips; `RING 1.2` around a status light; `GLYPH 1.25`
+  and `GLYPH_WIDE 1.4` for a hand-drawn glyph; `LIT 1.5` for a Lit or Flare
+  line and icons; `FOCUS 2` for the focus ring and a Beam; `UNDERLINE 2`
+  for the accent line under a toggle that is on; `EDGE 2` for the line of a
+  marker, a handle or a selection's edge; `HALO 3` and `GLOW_WIDE 6` for
+  the halo and the wide glow beside an accent edge. An icon's own line is
+  one of `ICON 1.6`, `ICON_FINE 1.3`, `ICON_BOLD 2.4` or `ICON_STRIKE 1.8`,
+  in units of its 16-unit grid.
 - **Elevation:** only windows and popovers float. They get `overlay` fill,
   a `border_strong` outline, the edge light and one soft shadow (offset
   0, 6, blur 18). The one other shadow is the mixer's pinned master,

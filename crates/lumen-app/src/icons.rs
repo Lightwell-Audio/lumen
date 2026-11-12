@@ -187,7 +187,7 @@ impl Grid {
 /// The shapes for `icon` in `rect`.
 pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
     let g = Grid::new(rect);
-    let stroke = Stroke::new(1.6 * g.unit, color);
+    let stroke = Stroke::new(theme::stroke::ICON * g.unit, color);
     let none = Stroke::NONE;
     match icon {
         Icon::Pointer => vec![Shape::closed_line(
@@ -200,7 +200,7 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                 g.p(8.4, 9.2),
                 g.p(12.0, 9.2),
             ],
-            Stroke::new(1.3 * g.unit, color),
+            Stroke::new(theme::stroke::ICON_FINE * g.unit, color),
         )],
         Icon::Pencil => vec![
             Shape::closed_line(
@@ -211,11 +211,11 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                     g.p(13.0, 5.5),
                     g.p(6.5, 12.0),
                 ],
-                Stroke::new(1.3 * g.unit, color),
+                Stroke::new(theme::stroke::ICON_FINE * g.unit, color),
             ),
             Shape::line_segment(
                 [g.p(9.0, 4.5), g.p(11.5, 7.0)],
-                Stroke::new(1.3 * g.unit, color),
+                Stroke::new(theme::stroke::ICON_FINE * g.unit, color),
             ),
         ],
         Icon::Eraser => vec![
@@ -227,11 +227,11 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                     g.p(8.0, 13.0),
                     g.p(6.0, 13.0),
                 ],
-                Stroke::new(1.3 * g.unit, color),
+                Stroke::new(theme::stroke::ICON_FINE * g.unit, color),
             ),
             Shape::line_segment(
                 [g.p(8.0, 13.0), g.p(13.0, 13.0)],
-                Stroke::new(1.3 * g.unit, color),
+                Stroke::new(theme::stroke::ICON_FINE * g.unit, color),
             ),
         ],
         Icon::Split => vec![
@@ -319,7 +319,10 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                 }
                 shapes.push(Shape::mesh(mesh));
             }
-            shapes.push(Shape::closed_line(points, Stroke::new(1.3 * g.unit, color)));
+            shapes.push(Shape::closed_line(
+                points,
+                Stroke::new(theme::stroke::ICON_FINE * g.unit, color),
+            ));
             shapes
         }
         Icon::Keys => vec![
@@ -442,7 +445,7 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
         Icon::Magnet | Icon::MagnetOff => {
             // A horseshoe: two legs joined by a half circle on top, with
             // pole tips at the bottom.
-            let thick = Stroke::new(2.4 * g.unit, color);
+            let thick = Stroke::new(theme::stroke::ICON_BOLD * g.unit, color);
             let mut arch: Vec<Pos2> = (0..=12)
                 .map(|k| {
                     let a = PI + PI * k as f32 / 12.0;
@@ -555,7 +558,7 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             if icon == Icon::SpeakerOff {
                 shapes.push(Shape::line_segment(
                     [g.p(2.0, 14.0), g.p(14.0, 2.0)],
-                    Stroke::new(1.8 * g.unit, color),
+                    Stroke::new(theme::stroke::ICON_STRIKE * g.unit, color),
                 ));
             }
             shapes
@@ -929,7 +932,7 @@ pub fn close_button(ui: &mut Ui) -> Response {
             rect
         };
         let x = body.shrink(6.5);
-        let stroke = Stroke::new(1.5, face.text());
+        let stroke = Stroke::new(theme::stroke::LIT, face.text());
         ui.painter()
             .line_segment([x.left_top(), x.right_bottom()], stroke);
         ui.painter()
@@ -942,7 +945,7 @@ pub fn close_button(ui: &mut Ui) -> Response {
 /// Headphones, about 11 pt, for a cue button (M4 slice 4): a band over
 /// two ear cups.
 pub fn draw_headphones(painter: &Painter, center: Pos2, color: Color32) {
-    let stroke = Stroke::new(1.4, color);
+    let stroke = Stroke::new(theme::stroke::GLYPH_WIDE, color);
     let r = 4.6;
     let band: Vec<Pos2> = (0..=12)
         .map(|i| {
@@ -960,7 +963,7 @@ pub fn draw_headphones(painter: &Painter, center: Pos2, color: Color32) {
 /// A 14 pt icon for the track type: a waveform for audio, keys for MIDI,
 /// stacked bars for a group, a return arrow for a return.
 pub fn draw_type_icon(painter: &Painter, center: Pos2, kind: TrackKind, color: Color32) {
-    let stroke = Stroke::new(1.4, color);
+    let stroke = Stroke::new(theme::stroke::GLYPH_WIDE, color);
     let at = |x: f32, y: f32| center + vec2(x, y);
     match kind {
         TrackKind::Audio => {

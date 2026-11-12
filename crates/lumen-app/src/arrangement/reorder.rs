@@ -308,7 +308,7 @@ impl Arrangement {
                 if (area.top()..=area.bottom()).contains(&y) {
                     painter.line_segment(
                         [pos2(left, y), pos2(area.right(), y)],
-                        Stroke::new(2.0, accent),
+                        Stroke::new(theme::stroke::EDGE, accent),
                     );
                 }
             }
@@ -321,7 +321,7 @@ impl Arrangement {
                 painter.rect_stroke(
                     rect.shrink(1.0),
                     0.0,
-                    Stroke::new(2.0, accent),
+                    Stroke::new(theme::stroke::EDGE, accent),
                     egui::StrokeKind::Inside,
                 );
             }

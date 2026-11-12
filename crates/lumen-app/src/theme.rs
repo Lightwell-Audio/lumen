@@ -536,6 +536,13 @@ pub fn grey_of(colour: Color32) -> Color32 {
 pub mod stroke {
     /// Separators, outlines, edge lights and lips.
     pub const HAIRLINE: f32 = 1.0;
+    /// A thin ring around a status light: a step under a hairline.
+    pub const RING: f32 = 1.2;
+    /// A small hand-drawn glyph's line: between a hairline and a lit line.
+    pub const GLYPH: f32 = 1.25;
+    /// A hand-drawn glyph at a fixed size, a step above `GLYPH`:
+    /// headphones, a track type's icon.
+    pub const GLYPH_WIDE: f32 = 1.4;
     /// The crisp line of a Lit or Flare light, and icons.
     pub const LIT: f32 = 1.5;
     /// The keyboard focus ring, and a Beam's line.
@@ -543,6 +550,21 @@ pub mod stroke {
     /// The accent line under a toggle that is on (the palette and panel
     /// toggles).
     pub const UNDERLINE: f32 = 2.0;
+    /// The line of a marker, a handle or a selection's edge: a loop brace,
+    /// a drop line, a slider's handle, a reorder line.
+    pub const EDGE: f32 = 2.0;
+    /// The halo of a lit edge, and the ring of a control drawn as a ghost.
+    pub const HALO: f32 = 3.0;
+    /// The wide glow that spreads beside an accent edge.
+    pub const GLOW_WIDE: f32 = 6.0;
+    /// The line weight of an icon, in units of its 16-unit grid: the
+    /// ordinary line, a fine one for a small detail, a bold one for a mark
+    /// that must carry at a small size, and the strike through a switched-off
+    /// icon.
+    pub const ICON: f32 = 1.6;
+    pub const ICON_FINE: f32 = 1.3;
+    pub const ICON_BOLD: f32 = 2.4;
+    pub const ICON_STRIKE: f32 = 1.8;
 }
 
 /// Type sizes (`DESIGN.md` §4).
@@ -924,7 +946,7 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
     v.override_text_color = None;
     v.weak_text_color = Some(c.text_hint);
     v.selection.bg_fill = c.accent_muted;
-    v.selection.stroke = Stroke::new(1.0, c.accent);
+    v.selection.stroke = Stroke::new(stroke::HAIRLINE, c.accent);
 
     // egui's own widgets are 24 pt controls (`interact_size`).
     let radius = CornerRadius::same(radius::MEDIUM);
@@ -932,8 +954,8 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
     // Non-interactive: labels, separators, frames.
     w.noninteractive.bg_fill = c.app;
     w.noninteractive.weak_bg_fill = c.app;
-    w.noninteractive.bg_stroke = Stroke::new(1.0, c.border);
-    w.noninteractive.fg_stroke = Stroke::new(1.0, c.text);
+    w.noninteractive.bg_stroke = Stroke::new(stroke::HAIRLINE, c.border);
+    w.noninteractive.fg_stroke = Stroke::new(stroke::HAIRLINE, c.text);
     w.noninteractive.corner_radius = radius;
     // At rest. Buttons fill with `weak_bg_fill`; checkboxes, radios and
     // slider rails with `bg_fill`, a step stronger so they read as controls.
@@ -941,7 +963,7 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
     w.inactive.weak_bg_fill = c.control;
     // A raised control's 1 pt outline.
     w.inactive.bg_stroke = Stroke::new(stroke::HAIRLINE, c.border);
-    w.inactive.fg_stroke = Stroke::new(1.0, c.text);
+    w.inactive.fg_stroke = Stroke::new(stroke::HAIRLINE, c.text);
     w.inactive.corner_radius = radius;
     // Under the pointer.
     // Hover is Ember: the text colour washed over the fill, never another
@@ -963,8 +985,8 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
     // Open menus and combo boxes.
     w.open.bg_fill = c.control_press;
     w.open.weak_bg_fill = c.control_press;
-    w.open.bg_stroke = Stroke::new(1.0, c.border_strong);
-    w.open.fg_stroke = Stroke::new(1.0, c.text);
+    w.open.bg_stroke = Stroke::new(stroke::HAIRLINE, c.border_strong);
+    w.open.fg_stroke = Stroke::new(stroke::HAIRLINE, c.text);
     w.open.corner_radius = radius;
 }
 
