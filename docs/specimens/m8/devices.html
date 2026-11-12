@@ -1,0 +1,256 @@
+<!doctype html>
+<!-- M8 specimens, round 2 (owner, 2026-11-12): DV A with B's clip face, DE A with
+     velocity inside the hit, and BF with a personality per built-in device.
+     Open with ?light for the light theme. Mock-ups, not built UI. -->
+<html><head><meta charset="utf-8"><title>Lumen M8 specimens, round 2</title>
+<style>
+@font-face{font-family:Inter;src:url(../../../site/assets/fonts/Inter.woff2) format("woff2");font-weight:100 900}
+@font-face{font-family:Unbounded;src:url(../../../site/assets/fonts/Unbounded.woff2) format("woff2");font-weight:100 900}
+@font-face{font-family:Mono;src:url(../../../site/assets/fonts/MartianMono.woff2) format("woff2");font-stretch:75% 112.5%}
+body{margin:0;padding:28px 32px;font-family:Inter,sans-serif;width:1360px}
+h1{font-family:Unbounded;font-weight:560;font-size:22px;margin:0 0 4px}
+h2{font-family:Unbounded;font-weight:560;font-size:16px;margin:30px 0 4px}
+p.q{margin:0 0 12px;font-size:13px;max-width:1150px;line-height:1.45}
+.row{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.v{display:flex;flex-direction:column;gap:6px}
+.lab{font-size:13px;font-weight:560}
+.note{font-size:11.5px;max-width:320px;line-height:1.4}
+svg text{font-family:Inter,sans-serif}
+svg .m{font-family:Mono;font-stretch:87.5%}
+svg .u{font-family:Unbounded}
+</style></head><body><div id="root"></div>
+<script>
+const LIGHT=location.search.includes('light');
+const D={app:'#17191D',canvas:'#1B1D22',raised:'#23262D',overlay:'#262A31',control:'#31353E',control_hi:'#383C46',control_press:'#444A56',
+ border:'#2E323A',border_strong:'#3C414B',text:'#E6E8EC',text2:'#9AA0AC',hint:'#6E7480',accent:'#4FA3FF',accent_muted:'#243A55',
+ grid_bar:'#343842',grid_sub:'#212329',header:'#1E2126',clip_body:'#262A31',lane_black:'#16181C',well:'#141619',ground:'#111316',mute:'#C8CCD4'};
+const L={app:'#F1F2F4',canvas:'#FAFAFB',raised:'#E9EBEE',overlay:'#FFFFFF',control:'#E2E5E9',control_hi:'#EEF0F3',control_press:'#CBD0D7',
+ border:'#DADDE2',border_strong:'#C3C8CF',text:'#1C1F24',text2:'#5A6170',hint:'#878D98',accent:'#1F6FD1',accent_muted:'#D5E5FA',
+ grid_bar:'#D9DCE1',grid_sub:'#F3F4F6',header:'#ECEEF1',clip_body:'#FFFFFF',lane_black:'#ECEEF1',well:'#D6DAE0',ground:'#E7E9ED',mute:'#5A6170'};
+const C=LIGHT?L:D;
+const PAL=['#4C7A9E','#7A6A9E','#5E8C6A','#9E7A4C','#9E5A6A','#5A8E8E','#6A7EB0','#8E6A8E','#7E8E56','#A06E5A','#5686A0','#887660'];
+document.body.style.background=C.ground;document.body.style.color=C.text;
+let gid=0;const id=()=> 'i'+(gid++);
+const a=o=>Object.entries(o).map(([k,v])=>`${k}="${v}"`).join(' ');
+const rect=(x,y,w,h,f,o={})=>`<rect ${a({x,y,width:w,height:h,fill:f,...o})}/>`;
+const line=(x1,y1,x2,y2,s,w=1,o={})=>`<line ${a({x1,y1,x2,y2,stroke:s,'stroke-width':w,...o})}/>`;
+const text=(x,y,s,f,size=13,o={})=>`<text ${a({x,y,fill:f,'font-size':size,...o})}>${s}</text>`;
+const mono=(x,y,s,f,size=10,o={})=>text(x,y,s,f,size,{class:'m',...o});
+const circ=(cx,cy,r,f,o={})=>`<circle ${a({cx,cy,r,fill:f,...o})}/>`;
+const svg=(w,h,b)=>`<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">${b}</svg>`;
+const hexA=(h,al)=>{const n=parseInt(h.slice(1),16);return `rgba(${n>>16},${(n>>8)&255},${n&255},${al})`;};
+const lg=(stops,x2=0,y2=1)=>{const i=id();return [i,`<defs><linearGradient id="${i}" x1="0" y1="0" x2="${x2}" y2="${y2}">${stops.map(([o,c])=>`<stop offset="${o}" stop-color="${c}"/>`).join('')}</linearGradient></defs>`];};
+const rg=(stops,cx=.5,cy=.5,r=.5)=>{const i=id();return [i,`<defs><radialGradient id="${i}" cx="${cx}" cy="${cy}" r="${r}">${stops.map(([o,c])=>`<stop offset="${o}" stop-color="${c}"/>`).join('')}</radialGradient></defs>`];};
+const blur=(sd)=>{const i=id();return [i,`<defs><filter id="${i}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${sd}"/></filter></defs>`];};
+function frame(label,svgStr,note=''){return `<div class="v"><div class="lab">${label}</div>${svgStr}${note?`<div class="note" style="color:${C.text2}">${note}</div>`:''}</div>`;}
+
+// ---------- drum content ----------
+const SOUNDS=[['Kick',0],['Snare',4],['Clap',3],['Closed hat',5],['Open hat',5],['Low tom',2],['Ride',6]];
+const HITS=[];
+[0,6,8,16,22,24,27].forEach(s=>HITS.push([0,s,s%8?78:122]));
+[4,12,20,28].forEach(s=>HITS.push([1,s,s===28?127:100]));
+[12,28].forEach(s=>HITS.push([2,s,70]));
+for(let s=0;s<32;s+=2) if(s%8!==6) HITS.push([3,s,s%4?48:100]);
+[6,14,22,30].forEach(s=>HITS.push([4,s,88]));
+[29,30,31].forEach((s,i)=>HITS.push([5,s,60+i*20]));
+
+// DE A2: a diamond filled from the foot to its velocity, the outline in the sound's colour
+function vdiamond(cx,cy,r,col,vel,{muted=false,picked=false}={}){
+  const i=id(), t=vel/127, top=cy+r-2*r*t;
+  let s=`<defs><clipPath id="${i}"><path d="M${cx} ${cy-r} L${cx+r} ${cy} L${cx} ${cy+r} L${cx-r} ${cy} Z"/></clipPath></defs>`;
+  s+=`<path d="M${cx} ${cy-r} L${cx+r} ${cy} L${cx} ${cy+r} L${cx-r} ${cy} Z" fill="${hexA(col,muted?.08:.18)}"/>`;
+  s+=`<g clip-path="url(#${i})">${rect(cx-r,top,2*r,cy+r-top,muted?hexA(col,.3):col)}</g>`;
+  s+=`<path d="M${cx} ${cy-r} L${cx+r} ${cy} L${cx} ${cy+r} L${cx-r} ${cy} Z" fill="none" stroke="${muted?hexA(C.text2,.5):hexA(col,1)}" stroke-width="1.2"/>`;
+  if(picked) s+=`<path d="M${cx} ${cy-r-3.5} L${cx+r+3.5} ${cy} L${cx} ${cy+r+3.5} L${cx-r-3.5} ${cy} Z" fill="none" stroke="${C.accent}" stroke-width="1.6"/>`;
+  return s;}
+function lanes(w,{zoomTip=false}={}){const rows=SOUNDS.length,rh=28,nameW=150,steps=32,gw=w-nameW,sw=gw/steps,h=rows*rh;
+  let s=rect(0,0,w,h,C.canvas);
+  SOUNDS.forEach(([n,c],i)=>{const ry=i*rh;s+=rect(0,ry,nameW,rh,C.header)+rect(0,ry,3,rh,PAL[c])+text(12,ry+rh/2+4.5,n,C.text,12);
+    const bx=nameW-52;s+=rect(bx,ry+rh/2-9,20,18,i===4?C.mute:C.control,{rx:4})+text(bx+10,ry+rh/2+4,'M',i===4?(LIGHT?'#FFF':'#0B0D10'):C.text2,10,{'text-anchor':'middle','font-weight':560});
+    s+=rect(bx+24,ry+rh/2-9,20,18,C.control,{rx:4})+text(bx+34,ry+rh/2+4,'S',C.text2,10,{'text-anchor':'middle','font-weight':560});
+    if(i%2)s+=rect(nameW,ry,gw,rh,C.lane_black);s+=line(0,ry+rh-.5,w,ry+rh-.5,C.border);});
+  for(let k=0;k<=steps;k++){const lx=nameW+k*sw;s+=line(lx,0,lx,h,k%4===0?C.grid_bar:C.grid_sub,k%16===0?1.5:1);}
+  HITS.forEach(([si,st,v])=>{s+=vdiamond(nameW+st*sw+.5,si*rh+rh/2,Math.min(rh*.36,sw*.66),PAL[SOUNDS[si][1]],v,{muted:si===4,picked:si===1&&(st===12||st===20)});});
+  s+=line(nameW+9.5*sw,0,nameW+9.5*sw,h,C.accent,1.5);
+  if(zoomTip){const x=nameW+20*sw+16,y=rh+2;s+=rect(x,y,104,22,C.overlay,{rx:5,stroke:C.border_strong})+mono(x+8,y+15,'Snare · vel 100',C.text,9);}
+  return [s,h];}
+function deA2(){const w=640;const [s,h]=lanes(w,{zoomTip:true});
+  // drag hint: velocity is dragged on the hit itself
+  return svg(w,h,s);}
+function deZoom(){ // the hit enlarged, five velocities
+  const w=300,h=110;let s=rect(0,0,w,h,C.canvas,{rx:8});
+  [20,48,80,104,127].forEach((v,i)=>{const cx=34+i*58;s+=vdiamond(cx,46,22,PAL[4],v,{picked:i===3});s+=mono(cx,92,String(v),C.text2,9,{'text-anchor':'middle'});});
+  return svg(w,h,s);}
+
+// DV A + B's face on the arrangement clip
+function arrangementFace(){const w=760,h=150;let s=rect(0,0,w,h,C.canvas);
+  // ruler
+  s+=rect(0,0,w,22,C.raised);for(let b=0;b<5;b++){const x=150+b*152;s+=mono(x+4,15,String(b+1),C.text2,9)+line(x,14,x,22,C.text2);}
+  // track header
+  s+=rect(0,22,150,h-22,C.header)+rect(0,22,3,h-22,PAL[0])+text(12,44,'Drums',C.text,12,{'font-weight':560})+mono(12,60,'808-style map',C.hint,9);
+  // two clips: the second is selected
+  [[150,304,'Verse beat',0],[456,300,'Fill',1]].forEach(([cx,cw,name,sel])=>{
+    s+=rect(cx+1,28,cw-2,h-34,C.clip_body,{rx:5,stroke:sel?C.accent:'none','stroke-width':sel?1.5:0});
+    s+=`<path d="M${cx+1} ${33} a5 5 0 0 1 5 -5 h${cw-12} a5 5 0 0 1 5 5 v11 h-${cw-2} z" fill="${PAL[0]}"/>`;
+    s+=text(cx+8,40,name,'#FFFFFFE6',11,{'font-weight':560});
+    const rows=6,steps=32,sw=(cw-10)/steps,rh=(h-34-24)/rows;
+    for(let r=0;r<rows;r++)for(let k=0;k<steps;k++){const hit=HITS.find(hh=>hh[0]===r&&hh[1]===(sel?(k*7+r)%32:k));
+      const x=cx+5+k*sw,y=50+r*rh,cw2=sw-2,ch=rh-2;
+      s+=rect(x,y,cw2,ch,hexA(C.text2,LIGHT?.10:.08),{rx:1.5});
+      if(hit&&!(sel&&k<8)){const col=PAL[SOUNDS[r][1]],fh=Math.max(2,ch*hit[2]/127);s+=rect(x,y+ch-fh,cw2,fh,col,{rx:1.5});}}
+  });
+  s+=line(150+48,22,150+48,h,C.accent,1.5);
+  return svg(w,h,s);}
+
+// ---------- BF round 2: devices with identities ----------
+// Each device: a name of its own (Unbounded), what it is underneath (Inter caption), a signature hue
+// and a motif drawn in its face. The chain card's chrome and controls stay Lumen's.
+function card(w,h,{name,sub,hue,hue2},face){
+  const [gi,gd]=lg([[0,hexA(hue,.30)],[1,hexA(hue,0)]]);
+  let s=gd+rect(1,1,w-2,h-2,C.raised,{rx:14,stroke:C.border_strong});
+  s+=`<path d="M1 15 a14 14 0 0 1 14 -14 h${w-30} a14 14 0 0 1 14 14 v38 h-${w-2} z" fill="url(#${gi})"/>`;
+  s+=circ(22,27,9,hexA(hue,.22),{stroke:hexA(hue,.8)})+`<path d="M22 22 v5 M18.5 24 a5 5 0 1 0 7 0" stroke="${LIGHT?hue2||hue:'#FFFFFF'}" stroke-width="1.6" fill="none" stroke-linecap="round"/>`;
+  s+=text(40,27,name,C.text,15,{class:'u','font-weight':600,'letter-spacing':.4});
+  s+=text(40,43,sub,C.text2,11);
+  s+=rect(w-66,16,54,20,hexA(hue,.16),{rx:10,stroke:hexA(hue,.4)})+text(w-39,30,'Preset',C.text,11,{'text-anchor':'middle'});
+  s+=face;
+  return svg(w,h,s);}
+// a screen inside a card: deep, tinted, the same in both themes (content keeps its identity, as clips do)
+function screen(x,y,w,h,hue,{deep='#0C0E12',r=10}={}){const [gi,gd]=rg([[0,hexA(hue,.20)],[1,deep]],.5,.0,1.1);
+  return gd+rect(x,y,w,h,`url(#${gi})`,{rx:r,stroke:hexA(hue,.35)});}
+function dial(cx,cy,r,v,hue,name,val,{big=false}={}){ // a lit dial: tinted ring, a light trail and a bright head
+  const a0=Math.PI*.75,a1=Math.PI*2.25,av=a0+(a1-a0)*v,P=(an,rr)=>[cx+Math.cos(an)*rr,cy+Math.sin(an)*rr];
+  const arc=(s0,e,rr)=>{const [sx,sy]=P(s0,rr),[ex,ey]=P(e,rr);return `M${sx} ${sy} A${rr} ${rr} 0 ${e-s0>Math.PI?1:0} 1 ${ex} ${ey}`;};
+  const [bi,bd]=blur(2.2);const [fi,fd]=rg([[0,LIGHT?'#FFFFFF':'#3A3F4A'],[1,LIGHT?'#E2E5E9':'#22252B']],.4,.3,.7);
+  let s=bd+fd+circ(cx,cy,r-4,`url(#${fi})`,{stroke:hexA('#000000',LIGHT?.12:.4)});
+  s+=`<path d="${arc(a0,a1,r)}" stroke="${hexA(hue,.22)}" stroke-width="${big?4:3}" fill="none" stroke-linecap="round"/>`;
+  s+=`<path d="${arc(a0,av,r)}" stroke="${hue}" stroke-width="${big?6:4}" fill="none" stroke-linecap="round" filter="url(#${bi})" opacity=".8"/>`;
+  s+=`<path d="${arc(a0,av,r)}" stroke="${hue}" stroke-width="${big?3:2.5}" fill="none" stroke-linecap="round"/>`;
+  const [hx,hy]=P(av,r);s+=circ(hx,hy,big?4:3,'#FFFFFF');
+  const [px,py]=P(av,r-9);s+=line(cx,cy,px,py,LIGHT?'#3A3F4A':'#E6E8EC',2,{'stroke-linecap':'round'});
+  s+=text(cx,cy+r+14,name,C.text2,10.5,{'text-anchor':'middle'})+mono(cx,cy+r+26,val,C.text,9,{'text-anchor':'middle'});
+  return s;}
+
+// 1 · Iris — parametric EQ. Motif: an aperture of light; the curve is a spectrum, bands are coloured lights.
+function iris(){const w=380,h=330,hue='#7C8CFF';const x=14,y=60,sw=w-28,sh=176;let f=screen(x,y,sw,sh,hue);
+  const [sg,sd]=lg([[0,'#FF5A6E'],[.25,'#FFB547'],[.5,'#5BE07F'],[.75,'#4FA3FF'],[1,'#B07CFF']],1,0);f+=sd;
+  const g=t=>{const fr=20*Math.pow(1000,t);let db=-12*Math.max(0,Math.log2(40/fr));db+=5*Math.exp(-Math.pow(Math.log2(fr/180)/.8,2));db-=4*Math.exp(-Math.pow(Math.log2(fr/2500)/.6,2));db+=3/(1+Math.pow(8000/fr,2));return db;};
+  // analyzer as a soft mist
+  let pa=`M${x} ${y+sh}`;for(let i=0;i<=sw;i+=3){const t=i/sw,v=.5+.22*Math.sin(t*9)+.1*Math.sin(t*33)-t*.42;pa+=` L${x+i} ${y+sh-sh*Math.max(.04,v)*.7}`;}pa+=` L${x+sw} ${y+sh} Z`;
+  f+=`<path d="${pa}" fill="url(#${sg})" opacity=".13"/>`;
+  [100,1000,10000].forEach(fr=>{const lx=x+sw*Math.log10(fr/20)/3;f+=line(lx,y+8,lx,y+sh-8,'#FFFFFF',1,{opacity:.06})+mono(lx+3,y+sh-6,fr>=1000?fr/1000+'k':fr,'#FFFFFF',8,{opacity:.35});});
+  f+=line(x+8,y+sh/2,x+sw-8,y+sh/2,'#FFFFFF',1,{opacity:.08});
+  let pc='';for(let i=0;i<=sw;i+=2){pc+=(i?' L':'M')+(x+i)+' '+(y+sh/2-g(i/sw)*sh/32);}
+  const [bl,bd]=blur(4);f+=bd+`<path d="${pc} L${x+sw} ${y+sh/2} L${x} ${y+sh/2} Z" fill="url(#${sg})" opacity=".18"/>`;
+  f+=`<path d="${pc}" stroke="url(#${sg})" stroke-width="6" fill="none" filter="url(#${bl})" opacity=".7"/><path d="${pc}" stroke="url(#${sg})" stroke-width="2.2" fill="none"/>`;
+  const bands=[[40,0,'#FF5A6E'],[180,5,'#FFB547'],[2500,-4,'#4FA3FF'],[8000,3,'#B07CFF']];
+  bands.forEach(([fr,db,c],i)=>{const px=x+sw*Math.log10(fr/20)/3,py=y+sh/2-db*sh/32;const [hb,hd]=blur(5);
+    f+=hd+circ(px,py,i===1?14:9,c,{filter:`url(#${hb})`,opacity:.7})+circ(px,py,i===1?7.5:6,c,{stroke:'#FFFFFF','stroke-width':i===1?2:1});
+    // aperture blades on the picked band
+    if(i===1)for(let k=0;k<6;k++){const an=k*Math.PI/3+.3;f+=`<path d="M${px+Math.cos(an)*12} ${py+Math.sin(an)*12} L${px+Math.cos(an+.7)*17} ${py+Math.sin(an+.7)*17}" stroke="#FFFFFF" stroke-width="1.4" opacity=".7"/>`;}});
+  f+=rect(x+sw*Math.log10(180/20)/3-40,y+10,80,18,'#0C0E12',{rx:9,stroke:'#FFB547'})+mono(x+sw*Math.log10(180/20)/3,y+22.5,'180 Hz +5.0',"#FFFFFF",8.5,{'text-anchor':'middle'});
+  f+=dial(52,y+sh+42,15,.62,'#FFB547','Freq','180 Hz')+dial(124,y+sh+42,15,.7,'#FFB547','Gain','+5.0')+dial(196,y+sh+42,15,.35,'#FFB547','Q','0.9');
+  f+=`<g>${['1','2','3','4'].map((n,i)=>rect(244+i*30,y+sh+28,24,24,i===1?hexA(bands[i][2],.35):hexA(C.text2,.1),{rx:12,stroke:bands[i][2]})+text(256+i*30,y+sh+44,n,C.text,11,{'text-anchor':'middle','font-weight':600})).join('')}</g>`;
+  return card(w,h,{name:'Iris',sub:'Parametric EQ',hue,hue2:'#4A55C8'},f);}
+
+// 2 · Gravity — compressor. Motif: the signal is a body pulled into a well; the deeper it sinks, the more it is pressed.
+function gravity(){const w=380,h=330,hue='#B46CFF';const x=14,y=60,sw=w-28,sh=176;let f=screen(x,y,sw,sh,hue,{deep:'#0B0912'});
+  // warped grid (a well)
+  const cx=x+sw*.42,cy=y+sh*.52;
+  for(let k=-6;k<=6;k++){let p='';for(let i=0;i<=40;i++){const xx=x+i*sw/40,d=Math.exp(-Math.pow((xx-cx)/70,2));const yy=cy+k*13+d*18*(1-Math.abs(k)/7)*(k>=0?1:1)+d*14;p+=(i?' L':'M')+xx+' '+yy;}f+=`<path d="${p}" stroke="${hue}" stroke-width="1" fill="none" opacity="${.12+.06*(6-Math.abs(k))/6}"/>`;}
+  for(let k=-9;k<=9;k++){let p='';for(let i=0;i<=24;i++){const yy=y+i*sh/24,xx0=cx+k*20;const d=Math.exp(-Math.pow((yy-cy)/60,2));const xx=xx0-(xx0-cx)*d*.25;p+=(i?' L':'M')+xx+' '+yy;}f+=`<path d="${p}" stroke="${hue}" stroke-width="1" fill="none" opacity=".12"/>`;}
+  const [gb,gbd]=blur(10);const [bg,bgd]=rg([[0,'#FFFFFF'],[.35,'#E9D4FF'],[1,hue]],.35,.3,.7);
+  f+=gbd+bgd+circ(cx,cy+16,30,hue,{filter:`url(#${gb})`,opacity:.55})+circ(cx,cy+16,17,`url(#${bg})`);
+  // threshold ring and labels
+  f+=`<ellipse cx="${cx}" cy="${cy+18}" rx="74" ry="22" fill="none" stroke="#FFFFFF" stroke-dasharray="3 4" opacity=".45"/>`+mono(cx+78,cy+22,'-18 dB',"#FFFFFF",8.5,{opacity:.7});
+  // GR readout
+  f+=text(x+sw-14,y+30,'−4.1',"#FFFFFF",26,{class:'u','text-anchor':'end','font-weight':600})+mono(x+sw-14,y+46,'dB pulled',hue,9,{'text-anchor':'end'});
+  f+=rect(x+12,y+sh-30,150,20,'#0B0912',{rx:10,stroke:hexA(hue,.6)})+text(x+22,y+sh-16,'Keyed by Kick · post',"#FFFFFF",10,{opacity:.85});
+  f+=dial(48,y+sh+42,15,.6,hue,'Pull','-18 dB')+dial(112,y+sh+42,15,.45,hue,'Ratio','4:1')+dial(176,y+sh+42,15,.2,hue,'Attack','5 ms')+dial(240,y+sh+42,15,.5,hue,'Release','120 ms')+dial(304,y+sh+42,15,.7,hue,'Makeup','auto');
+  return card(w,h,{name:'Gravity',sub:'Compressor',hue,hue2:'#7A35C8'},f);}
+
+// 3 · Horizon — limiter. Motif: a sunset; the ceiling is the horizon line and the music the land under it.
+function horizon(){const w=300,h=330,hue='#FF8A4C';const x=14,y=60,sw=w-28,sh=176;
+  const [sk,skd]=lg([[0,'#1A0F2A'],[.55,'#5A2440'],[.78,'#E0603A'],[1,'#FFB86B']]);
+  let f=skd+rect(x,y,sw,sh,`url(#${sk})`,{rx:10,stroke:hexA(hue,.4)});
+  const hy=y+sh*.36;const [sb,sbd]=blur(8);f+=sbd+circ(x+sw*.62,hy,26,'#FFD27A',{filter:`url(#${sb})`,opacity:.8})+circ(x+sw*.62,hy,16,'#FFE3A8');
+  f+=rect(x,hy,sw,y+sh-hy,'#120A16',{opacity:.55});
+  let p=`M${x} ${y+sh}`;for(let i=0;i<=sw;i+=2){const v=.62+.3*Math.sin(i/9)*Math.sin(i/37)+.08*Math.sin(i/2.1);const yy=Math.max(hy+1,y+sh-v*(y+sh-hy)*1.25);p+=` L${x+i} ${yy}`;}p+=` L${x+sw} ${y+sh} Z`;
+  f+=`<path d="${p}" fill="#0E0810" stroke="${hue}" stroke-width="1.2"/>`;
+  f+=line(x,hy,x+sw,hy,'#FFE3A8',2)+mono(x+8,hy-6,'ceiling −0.3 dB','#FFE3A8',8.5);
+  // flattened peaks marked
+  [[52,1],[118,1],[196,1]].forEach(([px])=>{f+=circ(x+px,hy,2.5,'#FFFFFF');});
+  f+=dial(56,y+sh+42,15,.85,hue,'Ceiling','-0.3')+dial(124,y+sh+42,15,.3,hue,'Release','60 ms')+dial(192,y+sh+42,15,.4,hue,'Look','1.5 ms');
+  f+=rect(232,y+sh+26,52,20,hexA(hue,.2),{rx:10,stroke:hue})+text(258,y+sh+40,'True',C.text,10.5,{'text-anchor':'middle','font-weight':600});
+  return card(w,h,{name:'Horizon',sub:'Limiter',hue,hue2:'#C4561F'},f);}
+
+// 4 · Parallax — delay. Motif: echoes receding into depth, left and right lanes.
+function parallax(){const w=300,h=330,hue='#3FD6C6';const x=14,y=60,sw=w-28,sh=176;let f=screen(x,y,sw,sh,hue,{deep:'#07100F'});
+  const vx=x+sw/2,vy=y+28;// vanishing point
+  for(let k=0;k<=8;k++){const t=k/8;f+=line(x+sw*t,y+sh,vx,vy,hue,1,{opacity:.12});}
+  for(let k=1;k<=6;k++){const t=Math.pow(k/6,1.8),yy=vy+(y+sh-vy)*t;f+=line(vx-(vx-x)*t,yy,vx+(x+sw-vx)*t,yy,hue,1,{opacity:.10});}
+  const [bb,bbd]=blur(3);f+=bbd;
+  for(let i=0;i<7;i++){const t=.86-i/8.2,yy=vy+(y+sh-vy)*Math.pow(t,1.6),side=i%2?1:-1,xx=vx+side*(sw*.32)*Math.pow(t,1.6);const r=13*Math.pow(t,1.4)+2;
+    f+=circ(xx,yy,r*1.6,hue,{filter:`url(#${bb})`,opacity:.45*t})+circ(xx,yy,r,i?hue:'#FFFFFF',{opacity:.35+.65*t});}
+  f+=mono(x+10,y+18,'L',hue,9)+mono(x+sw-16,y+18,'R',hue,9)+text(x+sw-12,y+sh-12,'1/8 dotted',"#FFFFFF",13,{class:'u','text-anchor':'end'});
+  f+=dial(56,y+sh+42,15,.5,hue,'Time','1/8.')+dial(124,y+sh+42,15,.55,hue,'Feedback','45%')+dial(192,y+sh+42,15,.3,hue,'Mix','25%');
+  f+=rect(228,y+sh+26,58,20,hexA(hue,.2),{rx:10,stroke:hue})+text(257,y+sh+40,'Ping',C.text,10.5,{'text-anchor':'middle','font-weight':600});
+  return card(w,h,{name:'Parallax',sub:'Stereo delay',hue,hue2:'#178F84'},f);}
+
+// 5 · Afterglow — reverb. Motif: a light that lingers; the room is a glow whose size and fade you shape.
+function afterglow(){const w=300,h=330,hue='#FF6FA8';const x=14,y=60,sw=w-28,sh=176;let f=screen(x,y,sw,sh,hue,{deep:'#120910'});
+  const [gl,gld]=rg([[0,'#FFF1D6'],[.18,'#FFC08A'],[.5,hexA(hue,.55)],[1,hexA(hue,0)]],.5,.5,.5);
+  f+=gld+`<ellipse cx="${x+sw*.42}" cy="${y+sh*.55}" rx="118" ry="72" fill="url(#${gl})"/>`;
+  for(let k=1;k<=4;k++)f+=`<ellipse cx="${x+sw*.42}" cy="${y+sh*.55}" rx="${30*k+20}" ry="${18*k+12}" fill="none" stroke="#FFFFFF" opacity="${.22-.04*k}"/>`;
+  f+=text(x+sw-12,y+30,'2.4 s',"#FFFFFF",22,{class:'u','text-anchor':'end','font-weight':600})+mono(x+sw-12,y+46,'to silence','#FFC08A',9,{'text-anchor':'end'});
+  f+=dial(48,y+sh+42,15,.62,hue,'Space','62%')+dial(112,y+sh+42,15,.45,hue,'Fade','2.4 s')+dial(176,y+sh+42,15,.55,hue,'Warmth','5k')+dial(240,y+sh+42,15,.2,hue,'Mix','20%');
+  return card(w,h,{name:'Afterglow',sub:'Reverb',hue,hue2:'#C23A74'},f);}
+
+// 6 · Prism — utility. Motif: light split by a prism; width spreads the beams, mono folds them.
+function prism(){const w=300,h=290,hue='#E6E8EC';const x=14,y=60,sw=w-28,sh=136;let f=screen(x,y,sw,sh,'#9AA0AC');
+  const px=x+sw*.36,py=y+sh/2;f+=line(x+8,py,px-14,py,'#FFFFFF',3,{opacity:.9});
+  const cols=['#FF5A6E','#FFB547','#5BE07F','#4FA3FF','#B07CFF'];const [bb,bbd]=blur(2.5);f+=bbd;
+  cols.forEach((c,i)=>{const a=(i-2)*.12,L=x+sw-8-(px+10);f+=line(px+10,py,px+10+L,py+L*Math.tan(a),c,4,{filter:`url(#${bb})`,opacity:.7})+line(px+10,py,px+10+L,py+L*Math.tan(a),c,1.5);});
+  f+=`<path d="M${px-16} ${py+28} L${px+16} ${py+28} L${px} ${py-26} Z" fill="${hexA('#FFFFFF',.12)}" stroke="#FFFFFF" stroke-width="1.4"/>`;
+  f+=mono(x+sw-10,y+18,'width 130%','#FFFFFF',9,{'text-anchor':'end'});
+  f+=dial(44,y+sh+40,14,.5,'#9AA0AC','Gain','0.0')+dial(100,y+sh+40,14,.5,'#9AA0AC','Pan','C')+dial(156,y+sh+40,14,.65,'#B07CFF','Width','130%')+dial(212,y+sh+40,14,.3,'#9AA0AC','Bass mono','120');
+  f+=rect(248,y+sh+22,40,18,hexA('#9AA0AC',.18),{rx:9,stroke:'#9AA0AC'})+text(268,y+sh+35,'Ø L',C.text,10,{'text-anchor':'middle'});
+  return card(w,h,{name:'Prism',sub:'Utility · gain, width, mono',hue:'#9AA0AC',hue2:'#5A6170'},f);}
+
+// 7 · Flare — the polysynth. Motif: the oscillator's wave burning through a lens; the filter is the flare's size.
+function flare(){const w=380,h=330,hue='#FFC23D';const x=14,y=60,sw=w-28,sh=176;let f=screen(x,y,sw,sh,hue,{deep:'#110D05'});
+  const [fl,fld]=rg([[0,'#FFFFFF'],[.12,'#FFE6A3'],[.4,hexA(hue,.5)],[1,hexA(hue,0)]]);f+=fld+`<ellipse cx="${x+sw*.66}" cy="${y+sh*.5}" rx="92" ry="92" fill="url(#${fl})"/>`;
+  for(let k=0;k<8;k++){const an=k*Math.PI/4;f+=line(x+sw*.66,y+sh*.5,x+sw*.66+Math.cos(an)*120,y+sh*.5+Math.sin(an)*60,'#FFE6A3',1,{opacity:.25});}
+  let p='';for(let i=0;i<=sw*.62;i+=1.5){const ph=(i/34)%1;const v=ph<.5?ph*2:2-ph*2;const s2=Math.sin(i/34*2*Math.PI);const mix=.6*((ph*2)-1)+.4*s2;p+=(i?' L':'M')+(x+12+i)+' '+(y+sh*.5-mix*38*(1-i/(sw*.9)));}
+  const [wb,wbd]=blur(3);f+=wbd+`<path d="${p}" stroke="${hue}" stroke-width="5" fill="none" filter="url(#${wb})" opacity=".7"/><path d="${p}" stroke="#FFF3D1" stroke-width="2" fill="none"/>`;
+  f+=mono(x+12,y+18,'saw + sine · 8 voices','#FFE6A3',9);
+  f+=dial(46,y+sh+42,15,.5,hue,'Shape','saw/sin')+dial(108,y+sh+42,15,.68,hue,'Cutoff','4.2k')+dial(170,y+sh+42,15,.3,hue,'Reso','24%')+dial(232,y+sh+42,15,.15,hue,'Attack','8 ms')+dial(294,y+sh+42,15,.45,hue,'Release','380 ms');
+  return card(w,h,{name:'Flare',sub:'Polysynth',hue,hue2:'#B07A00'},f);}
+
+// 8 · Shutter — the sampler. Motif: a contact sheet; each pad is a frame of film with its moment of sound.
+function shutter(){const w=380,h=330,hue='#5AA9FF';const x=14,y=60,sw=w-28,sh=184;let f=rect(x,y,sw,sh,'#0A0C10',{rx:10,stroke:hexA(hue,.35)});
+  for(let i=0;i<22;i++){f+=rect(x+8+i*16,y+5,8,5,'#2A2E36',{rx:1.5})+rect(x+8+i*16,y+sh-10,8,5,'#2A2E36',{rx:1.5});}
+  const pads=['Kick','Snare','Clap','Closed hat','Open hat','Low tom','Ride','Crash'];const pw=78,ph=76;
+  pads.forEach((n,i)=>{const px=x+10+(i%4)*(pw+8),py=y+18+Math.floor(i/4)*(ph+6),col=PAL[(SOUNDS[i]||['',i+3])[1]],lit=i===1;
+    const [pg,pgd]=lg([[0,hexA(col,.35)],[1,'#0E1116']]);f+=pgd+rect(px,py,pw,ph,`url(#${pg})`,{rx:6,stroke:lit?'#FFFFFF':hexA(col,.7),'stroke-width':lit?2:1});
+    let wp='';for(let k=0;k<56;k++){const amp=Math.exp(-k/(i<2?14:i<4?6:22))*(k%2?1:-1)*16;wp+=(k?' L':'M')+(px+8+k*1.1)+' '+(py+36+amp);}
+    f+=`<path d="${wp}" stroke="${col}" stroke-width="1.3" fill="none"/>`+text(px+7,py+ph-9,n,'#FFFFFF',10,{'font-weight':560});
+    if(i===3||i===4)f+=rect(px+pw-30,py+6,24,14,hexA('#FFFFFF',.15),{rx:7})+mono(px+pw-18,py+16,'C1','#FFFFFF',8,{'text-anchor':'middle'});
+    if(i===0)f+=rect(px+pw-32,py+6,26,14,hexA('#FFFFFF',.15),{rx:7})+mono(px+pw-19,py+16,'3/4','#FFFFFF',8,{'text-anchor':'middle'});
+    if(lit)f+=circ(px+pw-10,py+ph-12,4,'#FF4D5E');});
+  f+=`<g>${['One shot','Zones','Pads'].map((t,i)=>rect(14+i*70,y+sh+12,64,22,i===2?hexA(hue,.25):hexA(C.text2,.1),{rx:11,stroke:i===2?hue:hexA(C.text2,.4)})+text(46+i*70,y+sh+27,t,C.text,10.5,{'text-anchor':'middle','font-weight':i===2?600:400})).join('')}</g>`;
+  f+=mono(w-14,y+sh+27,'Snare · +0 st · 0.0 dB',C.text2,9,{'text-anchor':'end'});
+  return card(w,h,{name:'Shutter',sub:'Sampler · one shot, zones, pads',hue,hue2:'#1F6FD1'},f);}
+
+// ---------- page ----------
+let H=`<h1>M8 specimens, round 2 <span style="font-family:Mono;font-size:12px;color:${C.text2}">${LIGHT?'light':'dark'}</span></h1>
+<p class="q" style="color:${C.text2}">Your answers: DV A with B's clip face, DE A with velocity inside the hit, SQ A. And BF again, with a personality for each device.</p>`;
+H+=`<h2>DV · A, with B's step face on the arrangement's drum clips</h2><p class="q" style="color:${C.text2}">A MIDI clip on a track with a drum map draws one row per sound instead of the mini piano roll, each hit a cell filled to its velocity (the step sequencer's look). It is a picture of the clip: editing stays in the Clip tab's Lanes and Steps, since a cell here is too small to aim at reliably. Double-click opens Steps when the clip fits the step grid, Lanes otherwise.</p><div class="row">`;
+H+=frame('A drum track with two clips (the second selected)',arrangementFace())+`</div>`;
+H+=`<h2>DE · A, the velocity drawn inside the hit</h2><p class="q" style="color:${C.text2}">A hit has no length, so the diamond's outline is the sound's colour and it fills from the foot up to its velocity, as a step does. Dragging up or down on a picked hit sets its velocity directly, with the value in a chip; the velocity lane under the lanes stays for drawing ramps across many hits.</p><div class="row">`;
+H+=frame('The lanes',deA2())+frame('One hit at velocity 20, 48, 80, 104 and 127 (104 picked)',deZoom())+`</div>`;
+H+=`<h2>BF · built-in devices with a personality</h2><p class="q" style="color:${C.text2}">Each built-in has a name of its own, set in Unbounded, with what it is underneath in plain words. Each has a signature colour and one visual idea drawn from light, Lumen's theme, and its controls are named for that idea where it reads clearly (Gravity's threshold is "Pull", Afterglow's size is "Space"); the plain name is in the tooltip, All parameters and automation ("Pull (threshold)"). The face is a deep tinted screen that looks the same in both themes, as clips do. The card's frame, power, preset and the way every control is dragged, typed and focused stay Lumen's.</p><div class="row">`;
+H+=frame('',iris())+frame('',gravity())+frame('',horizon())+frame('',parallax())+frame('',afterglow())+frame('',flare())+frame('',shutter())+frame('',prism());
+H+=`</div>`;
+document.getElementById('root').innerHTML=H;
+</script></body></html>
