@@ -6,13 +6,13 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use lumen_core::midi::Msg;
+use lumen_core::midi::{Kind, Msg};
 use lumen_core::time::Ticks;
 use lumen_engine::{
-    Captured, Command, Destination, Engine, EngineHandle, Heard, Layered, Listen, LiveIn,
-    LiveInput, MidiClip, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack, Mixer, MixerHandle,
-    NodeSpec, RecordTiming, Region, Routing, Target, Timeline, WRAP, clip_player, engine,
-    midi_player, mixer,
+    Captured, Command, Destination, DrumKit, Engine, EngineHandle, Heard, KitKey, Layered, Listen,
+    LiveIn, LiveInput, MidiClip, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack, Mixer,
+    MixerHandle, NodeSpec, RecordTiming, Region, Routing, Target, Timeline, WRAP, clip_player,
+    control_list, engine, midi_player, mixer, note_list,
 };
 use lumen_rt::{count_rt_violations, guard_is_active};
 
@@ -899,4 +899,82 @@ fn what_a_take_keeps_is_not_also_offered_to_capture() {
     rig.run(4_000, 128);
     assert_eq!(rig.taken().len(), 1);
     assert!(rig.played().is_empty());
+}
+
+/// The notes the port was sent: `(device frame, on, key)`.
+fn sent_notes(rig: &mut Rig) -> Vec<(u64, bool, u8)> {
+    let mut out = Vec::new();
+    while let Ok(message) = rig.output.pop() {
+        if let MidiOut::At { frame, msg, .. } = message {
+            match msg.kind() {
+                Kind::NoteOn { key, .. } => out.push((frame, true, key)),
+                Kind::NoteOff { key, .. } => out.push((frame, false, key)),
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn a_pad_that_plays_another_note_wins_the_clip_note_its_sound_plays() {
+    // Kick: input 36, played 40. The clip's note reaches the engine as the
+    // sound's note (40); a pad played as 36 sounds 40 too, so while recording
+    // it must take the clip's note of that pitch over at its own frame, or
+    // the part plays doubled until the take is committed (M8 D0 review M1).
+    let q = Ticks::quarters;
+    let mut kit = DrumKit::new();
+    kit.set(
+        36,
+        KitKey {
+            key: 40,
+            channel: None,
+            silent: false,
+        },
+    );
+    let clip = MidiClip {
+        id: 9,
+        start: Ticks::ZERO,
+        length: q(8),
+        period: None,
+        seams: Default::default(),
+        notes: note_list(vec![MidiNote {
+            start: Ticks::ZERO,
+            length: q(8),
+            pitch: 40,
+            velocity: 100,
+            channel: None,
+        }]),
+        controls: control_list(Vec::new()),
+    };
+    let track = MidiTrack::new(
+        A,
+        Target::Port {
+            port: 0,
+            channel: 3,
+        },
+        None,
+        vec![clip],
+    )
+    .listening(keys())
+    .recording(keys())
+    .playing_drums(Some(Box::new(kit)));
+    let mut rig = rig(vec![track]);
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    rig.run(BEAT as usize, 128);
+    // The pad strikes at beat 1, where the clip's long note still sounds. It
+    // is heard one block later, as the feed delivers it.
+    let heard = BEAT + 128;
+    rig.live.send(BEAT, heard, Msg::note_on(0, 36, 100));
+    rig.run(BEAT as usize, 128);
+    let notes = sent_notes(&mut rig);
+    assert!(
+        notes.contains(&(heard, false, 40)),
+        "the clip's note gives way where the pad's note sounds: {notes:?}"
+    );
+    assert_eq!(
+        notes.iter().filter(|(_, on, key)| *on && *key == 40).count(),
+        2,
+        "the clip's note, then the pad's: {notes:?}"
+    );
 }
