@@ -14,6 +14,9 @@ use lumen_engine::{
     NodeSpec, RecordTiming, Region, Routing, Target, Timeline, WRAP, clip_player, engine,
     midi_player, mixer,
 };
+use lumen_rt::{count_rt_violations, guard_is_active};
+
+lumen_rt::install_guarded_allocator!();
 
 const MASTER: u64 = 100;
 const A: u64 = 1;
@@ -121,7 +124,11 @@ impl Rig {
         let mut done = 0;
         while done < frames {
             let n = block.min(frames - done);
-            self.engine.process(48_000, &mut data[..2 * n], 2, n);
+            // The render is the audio thread's work: nothing here may reach
+            // the heap (the allocation guard, `realtime.rs`).
+            let ((), heap) =
+                count_rt_violations(|| self.engine.process(48_000, &mut data[..2 * n], 2, n));
+            assert_eq!(heap, 0, "heap operation in process() at sample {done}");
             out.extend_from_slice(&data[..n]);
             done += n;
         }
@@ -151,6 +158,7 @@ impl Rig {
 
 #[test]
 fn notes_are_kept_at_the_sample_they_were_played_whatever_the_block() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     for block in [64, 100, 128, 333, 1_024] {
         let mut rig = rig(vec![recorder(A)]);
         rig.transport.send(Command::Record { count_in: 0 }).unwrap();
@@ -207,6 +215,7 @@ fn only_recording_tracks_keep_input_and_only_while_recording() {
 
 #[test]
 fn the_count_in_holds_the_song_and_recording_starts_mid_block() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     let mut rig = rig(vec![recorder(A)]);
     rig.transport.send(Command::Record { count_in: 4 }).unwrap();
     // The first clicks sound with the metronome off.

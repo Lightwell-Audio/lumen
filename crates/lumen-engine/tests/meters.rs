@@ -10,6 +10,9 @@ use lumen_engine::{
     Clip, ClipAudio, ClipPlayer, Command, Destination, Engine, EngineHandle, Level, Mixer,
     MixerHandle, NodeSpec, Routing, SendSpec, Timeline, clip_player, engine, mixer,
 };
+use lumen_rt::{count_rt_violations, guard_is_active};
+
+lumen_rt::install_guarded_allocator!();
 
 const RATE: u32 = 48_000;
 const MASTER: u64 = 100;
@@ -84,7 +87,10 @@ impl Rig {
     fn run(&mut self, frames: usize) {
         let mut data = vec![0.0; 2 * 128];
         for _ in 0..frames.div_ceil(128) {
-            self.engine.process(RATE, &mut data, 2, 128);
+            // The render is the audio thread's work: nothing here may reach
+            // the heap (the allocation guard, `realtime.rs`).
+            let ((), heap) = count_rt_violations(|| self.engine.process(RATE, &mut data, 2, 128));
+            assert_eq!(heap, 0, "heap operation in process()");
         }
     }
 
@@ -101,6 +107,7 @@ fn db(linear: f32) -> f32 {
 
 #[test]
 fn a_full_scale_sine_reads_zero_db_peak_and_minus_3_rms() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     // 1 kHz at 48 kHz: every 12th sample lands on the crest.
     let tone = sine(1_000.0, 0.0, 2.0);
     let mut r = rig(vec![clip(1, &tone)], &routing(vec![to_master(1)]));
@@ -185,6 +192,7 @@ fn going_over_full_scale_latches_the_clip_until_read() {
 
 #[test]
 fn the_master_reads_an_ebu_reference_tone_at_minus_23_lufs() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     // EBU Tech 3341 case 1: a stereo 1 kHz tone at −23 dBFS.
     let tone = sine(1_000.0, -23.0, 12.0);
     let mut r = rig(vec![clip(1, &tone)], &routing(vec![to_master(1)]));

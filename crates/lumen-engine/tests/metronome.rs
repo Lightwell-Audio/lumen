@@ -5,6 +5,9 @@ use lumen_core::time::{TempoMap, Ticks};
 use lumen_engine::{
     ClickSound, Command, Engine, EngineHandle, MetronomeSettings, Region, Timeline, engine,
 };
+use lumen_rt::{count_rt_violations, guard_is_active};
+
+lumen_rt::install_guarded_allocator!();
 
 const RATE: u32 = 48_000;
 /// One beat at 120 BPM.
@@ -30,7 +33,10 @@ fn run(engine: &mut Engine<()>, frames: usize, block: usize) -> Vec<f32> {
     let mut done = 0;
     while done < frames {
         let n = block.min(frames - done);
-        engine.process(RATE, &mut data[..2 * n], 2, n);
+        // The render is the audio thread's work: nothing here may reach the
+        // heap (the allocation guard, `realtime.rs`).
+        let ((), heap) = count_rt_violations(|| engine.process(RATE, &mut data[..2 * n], 2, n));
+        assert_eq!(heap, 0, "heap operation in process() at sample {done}");
         out.extend_from_slice(&data[..n]);
         done += n;
     }
@@ -62,6 +68,7 @@ fn onsets(out: &[f32], gap: usize) -> Vec<usize> {
 
 #[test]
 fn clicks_start_on_the_exact_beat_at_every_block_size() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     for block in [1, 64, 333, 4_096] {
         let (mut handle, mut engine) = metronome(Timeline::default(), 0.5, ClickSound::Beep);
         handle.send(Command::Play).unwrap();
@@ -73,6 +80,7 @@ fn clicks_start_on_the_exact_beat_at_every_block_size() {
 
 #[test]
 fn the_downbeat_is_accented_and_volume_scales() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     let (mut handle, mut engine) = metronome(Timeline::default(), 0.5, ClickSound::Beep);
     handle.send(Command::Play).unwrap();
     let out = run(&mut engine, 5 * BEAT, 512);

@@ -11,6 +11,9 @@ use lumen_engine::{
     Mixer, MixerHandle, NodeSpec, Routing, RoutingError, SendSpec, Timeline, clip_player, engine,
     mixer,
 };
+use lumen_rt::{count_rt_violations, guard_is_active};
+
+lumen_rt::install_guarded_allocator!();
 
 const RATE: u32 = 48_000;
 const MASTER: u64 = 100;
@@ -95,8 +98,13 @@ impl Rig {
         let mut done = 0;
         while done < frames {
             let n = block.min(frames - done);
-            self.engine
-                .process(RATE, &mut data[..channels * n], channels, n);
+            // The render is the audio thread's work: nothing here may reach
+            // the heap (the allocation guard, `realtime.rs`).
+            let ((), heap) = count_rt_violations(|| {
+                self.engine
+                    .process(RATE, &mut data[..channels * n], channels, n);
+            });
+            assert_eq!(heap, 0, "heap operation in process() at sample {done}");
             out.extend((0..n).map(|i| (0..channels).map(|c| data[c * n + i]).collect()));
             done += n;
         }
@@ -127,6 +135,7 @@ fn steepest(out: &[Vec<f32>]) -> f32 {
 
 #[test]
 fn a_group_equals_the_sum_of_its_children() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     let (a, b) = (ramp(), steady(0.1, 0.2));
     let clips = vec![clip(1, 1, &a), clip(2, 2, &b)];
     let flat = Routing {
@@ -202,6 +211,7 @@ fn a_group_level_applies_to_all_its_children() {
 
 #[test]
 fn a_muted_track_is_silent_and_so_are_its_sends() {
+    assert!(guard_is_active(), "guarded allocator not installed");
     let audio = steady(0.5, 0.5);
     let mut track = to_master(1);
     track.audible = false;
