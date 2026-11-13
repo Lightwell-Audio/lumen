@@ -493,6 +493,17 @@ impl App {
             .collect()
     }
 
+    /// Why the command named `name` cannot run now, as the palette and the
+    /// menus say it; `None` when it can (the commands' own reasons, review
+    /// L4).
+    pub fn command_reason(&self, ctx: &egui::Context, name: &str) -> Option<&'static str> {
+        let info = crate::commands::ALL
+            .iter()
+            .find(|info| info.name == name)
+            .unwrap_or_else(|| panic!("no command named {name}"));
+        self.availability(ctx, info.command).err()
+    }
+
     /// The changed shortcuts the settings file will keep, by command id.
     pub fn saved_shortcuts(&self) -> std::collections::BTreeMap<String, Vec<String>> {
         self.settings.commands.shortcuts.clone()

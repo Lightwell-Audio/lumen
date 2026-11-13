@@ -525,3 +525,67 @@ fn quantize_says_the_lanes_grid_only_when_a_lane_had_one() {
     let toast = lumen.app().toast_text().unwrap_or_default().to_owned();
     assert!(toast.contains("each lane's own grid"), "{toast}");
 }
+
+#[test]
+fn the_view_commands_say_whether_the_map_or_the_view_is_missing() {
+    // Review L4: a clip on a track with no drum map is told that, not told
+    // that the lanes are the view already.
+    let notes = vec![Note::new(Ticks::ZERO, Ticks(60), 60, 100)];
+    let project = project_of(
+        "Plain",
+        vec![midi_track(1, "Keys", "pluck", (0, 8), None, notes, vec![])],
+    );
+    let clip = project.tracks[0].clips[0].id;
+    let dir = TempDir::new("e2e-drum-reasons");
+    let path = dir.path().join("plain.lumen");
+    lumen_project::save(&project, &path, &Default::default()).expect("save the test project");
+    let mut lumen = Lumen::start_with(dir, move |l| l.opening(path));
+    lumen.wait_for("the project", |app| app.project().tracks.len() == 1);
+    lumen.frames(10);
+    lumen.app_mut().open_clip_editor(clip);
+    lumen.frames(10);
+    let ctx = lumen.harness.ctx.clone();
+    for name in [
+        "Show the drum lanes",
+        "Show the piano roll (Keys)",
+        "Hide unused lanes",
+    ] {
+        assert_eq!(
+            lumen.app().command_reason(&ctx, name),
+            Some("Open a clip on a track with a drum map first"),
+            "{name}"
+        );
+    }
+    // On a mapped clip in Lanes, the lanes are the view already and Keys can
+    // be shown; in Keys it is the other way round, and Hide unused needs the
+    // lanes.
+    let (mut lumen, _) = launch("lanes-reasons");
+    let ctx = lumen.harness.ctx.clone();
+    assert_eq!(
+        lumen.app().command_reason(&ctx, "Show the drum lanes"),
+        Some("The drum lanes are the view already")
+    );
+    assert_eq!(
+        lumen
+            .app()
+            .command_reason(&ctx, "Show the piano roll (Keys)"),
+        None
+    );
+    assert_eq!(lumen.app().command_reason(&ctx, "Hide unused lanes"), None);
+    palette(&mut lumen, "Show the piano roll (Keys)");
+    lumen.frames(10);
+    assert_eq!(
+        lumen
+            .app()
+            .command_reason(&ctx, "Show the piano roll (Keys)"),
+        Some("The piano roll is the view already")
+    );
+    assert_eq!(
+        lumen.app().command_reason(&ctx, "Hide unused lanes"),
+        Some("Show the drum lanes first")
+    );
+    assert_eq!(
+        lumen.app().command_reason(&ctx, "Show the drum lanes"),
+        None
+    );
+}
