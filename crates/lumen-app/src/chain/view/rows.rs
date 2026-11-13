@@ -85,6 +85,18 @@ impl App {
             .collect()
     }
 
+    /// Stops every built-in's analyser (M8 slice B1): the Devices tab is the
+    /// one place they are read, so a tab that is not drawn silences them
+    /// rather than leaving them writing a window nothing looks at.
+    pub(super) fn silence_spectra(&mut self) {
+        for id in self.builtin.spectrum_ids() {
+            if let Some(reader) = self.builtin.spectrum(id) {
+                reader.set_on(false);
+            }
+            self.chain.analyzers.remove(&id);
+        }
+    }
+
     /// The drawn face of `d`, when it is a built-in that has one, with the
     /// values the project holds and the analyser's last picture (M8 slice B1).
     fn drawn_face(&self, d: &Device, rate: u32) -> Option<faces::eq::Look> {
