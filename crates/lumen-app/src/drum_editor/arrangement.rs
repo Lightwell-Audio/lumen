@@ -241,34 +241,43 @@ fn cells(
             }
             let lo = from.0.max(base);
             let hi = to.0.min(base + span);
+            let mut place = |note: &Note, local: i64| {
+                let start = Ticks(clip.start.0 + local).as_quarters();
+                visit(
+                    *note,
+                    Placed {
+                        index: 0,
+                        rep: 0,
+                        start,
+                        end: start,
+                    },
+                );
+            };
+            // A note that starts before the phase and still sounds across it
+            // is carried to the clip's start, as `ClipNotes::each_placed`
+            // places it; the rest of the notes before the phase are not
+            // heard. Only when the clip's start is in view.
+            if repeat == 0 && phase > 0 && from.0 <= 0 {
+                let before = notes.partition_point(|note| note.start() < Ticks(phase));
+                for note in &notes[..before] {
+                    let sounds_to = (note.start().0 + note.length().0).min(period);
+                    if note.start().0 >= 0 && sounds_to > phase {
+                        place(note, 0);
+                    }
+                }
+            }
             if hi >= lo {
-                // A carried note starts before the first repeat's phase.
-                let source_from = if repeat == 0 && phase > 0 {
-                    0
-                } else {
-                    lo - base + offset
-                };
+                // The repeat plays the source from `offset` for `span` ticks:
+                // a note starting at the window's end belongs to the next
+                // repeat, as in `each_placed`.
+                let source_from = lo - base + offset;
                 let source_to = hi - base + offset;
+                let source_end = offset + span;
                 let first = notes.partition_point(|note| note.start() < Ticks(source_from));
-                for note in notes[first..]
-                    .iter()
-                    .take_while(|note| note.start() <= Ticks(source_to))
-                {
-                    let local = if repeat == 0 && phase > 0 && note.start() < Ticks(phase) {
-                        0
-                    } else {
-                        base + (note.start().0 - offset)
-                    };
-                    let start = Ticks(clip.start.0 + local).as_quarters();
-                    visit(
-                        *note,
-                        Placed {
-                            index: 0,
-                            rep: 0,
-                            start,
-                            end: start,
-                        },
-                    );
+                for note in notes[first..].iter().take_while(|note| {
+                    note.start() <= Ticks(source_to) && note.start() < Ticks(source_end)
+                }) {
+                    place(note, base + (note.start().0 - offset));
                 }
             }
             repeat += 1;
@@ -639,6 +648,66 @@ mod tests {
             "the view bounds the work: {} visited",
             gathered.visited
         );
+    }
+
+    #[test]
+    fn the_ranged_loop_gather_places_hits_as_the_notes_do() {
+        // The ranged loop path must draw what `ClipNotes::each_placed` places:
+        // a phased loop carries only a note that sounds across the phase, a
+        // note before the phase that has ended is not heard, and a note at the
+        // loop's end belongs to no repeat.
+        let map = map();
+        let (kick, snare, hat) = (
+            map.sounds[0].input,
+            map.sounds[1].input,
+            map.sounds[2].input,
+        );
+        let beat = Ticks::quarters(1).0;
+        let notes = vec![
+            // Before the phase, ended before it: not heard in the first pass.
+            Note::new(Ticks(0), Ticks(beat / 8), snare, 70),
+            // Before the phase, still sounding across it: carried to 0.
+            Note::new(Ticks(beat / 4), Ticks(beat / 2), hat, 80),
+            Note::new(Ticks(beat / 2), Ticks(beat / 8), kick, 100),
+            Note::new(Ticks(3 * beat / 2), Ticks(beat / 8), snare, 110),
+            // At the loop's end: in no repeat.
+            Note::new(Ticks(2 * beat), Ticks(beat / 8), hat, 120),
+        ];
+        let mut clip = (*clip(notes)).clone();
+        clip.length = Ticks::quarters(7);
+        clip.loop_length = Some(Ticks(2 * beat));
+        clip.loop_phase = Ticks(3 * beat / 8);
+        let clip = Arc::new(clip);
+        let time = TimeView {
+            left: 0.0,
+            zoom: 96.0,
+        };
+        let body = Rect::from_min_max(pos2(0.0, 0.0), pos2(7.0 * 96.0, 60.0));
+        let notes = match &clip.content {
+            ClipContent::Midi { notes, .. } => notes.clone(),
+            _ => unreachable!(),
+        };
+        assert!(sorted(&notes));
+        let rows = rows(&map, &notes, body.height());
+        let key = |gathered: Gathered| {
+            let mut cells: Vec<(i64, usize, u8)> = gathered
+                .cells
+                .iter()
+                .map(|cell| ((cell.x * 100.0).round() as i64, cell.row, cell.velocity))
+                .collect();
+            cells.sort_unstable();
+            cells
+        };
+        // The whole clip, and a window that starts mid-way.
+        for visible in [
+            body,
+            Rect::from_min_max(pos2(2.5 * 96.0, 0.0), pos2(5.5 * 96.0, 60.0)),
+        ] {
+            let ranged = key(cells(&clip, &rows, &map, visible, body, time, true));
+            let placed = key(cells(&clip, &rows, &map, visible, body, time, false));
+            assert!(!ranged.is_empty());
+            assert_eq!(ranged, placed, "in {visible:?}");
+        }
     }
 
     #[test]
