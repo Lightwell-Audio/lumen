@@ -590,3 +590,28 @@ fn the_power_button_bypasses_prism_and_the_dry_signal_comes_back() {
     );
     lumen.key(Modifiers::NONE, Key::Space);
 }
+
+#[test]
+fn a_value_changed_on_prism_is_saved_with_the_project_and_is_back_after_a_reopen() {
+    let (mut lumen, _, device) = launched("builtin-save");
+    let knob = at(&lumen, "Gain, parameter");
+    lumen.drag(knob, knob + vec2(0.0, 60.0), Modifiers::NONE);
+    let changed = param(&lumen, device, GAIN).expect("the gain moved");
+    assert!(changed < 0.62, "dragged down: {changed}");
+
+    // The save is not refused for the values a built-in holds.
+    let path = lumen_app::testing::project_file(lumen.dir(), "Prism song");
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
+
+    let dir: TempDir = lumen.crash();
+    let mut again = Lumen::start_with(dir, |launch| launch.opening(path.clone()));
+    again.wait_for("the project to open", |app| !app.is_busy());
+    again.frames(10);
+    let device = prism(&again, 0).expect("Prism is on the reopened track");
+    let back = param(&again, device, GAIN).expect("the gain is saved");
+    assert!(
+        (back - changed).abs() < 1e-6,
+        "the value is back: {changed} then {back}"
+    );
+}
