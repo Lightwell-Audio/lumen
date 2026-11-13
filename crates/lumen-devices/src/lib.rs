@@ -6,8 +6,10 @@
 //! or blocking while rendering. Devices allocate in their constructors,
 //! which run on the UI side.
 
+pub mod analyzer;
 pub mod delay;
 pub mod effect;
+pub mod eq;
 pub mod hosted;
 pub mod instrument;
 mod line;
@@ -16,7 +18,9 @@ pub mod reverb;
 pub mod synth;
 pub mod utility;
 
+pub use analyzer::{Read, Reader, Tap};
 pub use effect::{Block, Description, Effect, Key, Stereo, Values};
+pub use eq::Eq;
 pub use hosted::{
     Cost, FAILED_AFTER_FRAMES, Guard, Hosted, HostedInstrument, MOST_FRAMES, MOST_POINTS,
     MOST_QUEUES, Mark, Outcome, ParamBlock, Refused, Reply, Status,
@@ -31,6 +35,7 @@ pub use utility::Utility;
 /// `builtin::identity`), which a test keeps in step with this list.
 pub static EFFECTS: &[&Description] = &[
     &utility::DESCRIPTION,
+    &eq::DESCRIPTION,
     &delay::DESCRIPTION,
     &reverb::DESCRIPTION,
 ];
@@ -83,12 +88,24 @@ pub fn effect_tail_at(name: &str, values: Values<'_>, bpm: f32, rate: u32) -> Op
 /// A built-in effect by the name a project saves. The constructor allocates:
 /// call it on the interface side, then hand the device to the audio thread.
 pub fn effect(name: &str) -> Option<Box<dyn Effect>> {
+    effect_tapped(name, None)
+}
+
+/// As [`effect`], with the spectrum tap a device that analyses its own audio
+/// writes into (M8 slice B1). A device that has no analyser ignores it.
+pub fn effect_tapped(name: &str, tap: Option<Tap>) -> Option<Box<dyn Effect>> {
     match name {
         utility::NAME => Some(Box::new(Utility::new())),
+        eq::NAME => Some(Box::new(Eq::with_tap(tap))),
         delay::NAME => Some(Box::new(delay::Delay::new())),
         reverb::NAME => Some(Box::new(reverb::Reverb::new())),
         _ => None,
     }
+}
+
+/// Whether the built-in effect called `name` fills a spectrum tap it is given.
+pub fn watches_spectrum(name: &str) -> bool {
+    name == eq::NAME
 }
 
 #[cfg(test)]
@@ -97,9 +114,16 @@ mod tests {
 
     #[test]
     fn every_built_in_effect_is_in_both_tables() {
-        let name = utility::NAME;
-        assert!(effect_params(name).is_some(), "{name} has a table");
-        assert!(effect(name).is_some(), "{name} is built");
+        assert_eq!(EFFECTS.len(), 2, "Prism and Iris");
+        for (name, watched) in [(utility::NAME, false), (eq::NAME, true)] {
+            assert!(effect_params(name).is_some(), "{name} has a table");
+            assert!(effect(name).is_some(), "{name} is built");
+            assert!(
+                effect_tapped(name, None).is_some(),
+                "{name} builds untapped"
+            );
+            assert_eq!(watches_spectrum(name), watched, "{name}");
+        }
         assert!(effect_params("nothing").is_none());
         assert!(effect("nothing").is_none());
     }

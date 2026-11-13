@@ -108,9 +108,22 @@ impl App {
         }
     }
 
-    /// Puts a built-in effect on the selected track after the chosen card, or
-    /// on a new audio track when no track fits (M8 slices B0 and B3): one undo
+    /// Puts Prism, the utility device, on the selected track after the chosen
+    /// card, or on a new audio track when no track fits (M8 slice B0): one
+    /// undo step, with the values its table gives it, and its card shown.
+    pub(crate) fn add_utility(&mut self) {
+        self.add_builtin(lumen_devices::utility::NAME);
+    }
+
+    /// Puts Iris, the equaliser, on the selected track after the chosen card,
+    /// or on a new audio track when no track fits (M8 slice B1): one undo
     /// step, with the values its table gives it, and its card shown.
+    pub(crate) fn add_eq(&mut self) {
+        self.add_builtin(lumen_devices::eq::NAME);
+    }
+
+    /// Adds the built-in effect `name` where a device of its kind goes, with
+    /// the values its table gives it, and shows its card.
     pub(crate) fn add_builtin(&mut self, name: &str) {
         let plugin = PluginRef::Builtin {
             name: name.to_owned(),

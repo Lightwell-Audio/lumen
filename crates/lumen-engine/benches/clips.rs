@@ -192,3 +192,81 @@ fn builtin_64(
     }
     bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
 }
+
+/// The same 64 tracks, each with Iris on it and every band on, as the worst
+/// case a person meets: eight bands of a parametric EQ an instance (M8 slice
+/// B1). The cuts are at their gentlest slope, which is one section each; a 48
+/// dB/octave slope would be six sections more an instance.
+#[divan::bench]
+fn engine_eq_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::eq::{self, Eq};
+    use lumen_engine::{Device, Slot};
+    const TRACKS: u64 = 64;
+    let audio = Arc::new(ClipAudio::Memory {
+        sample_rate: 48_000,
+        channels: vec![vec![0.1; 480_000], vec![-0.1; 480_000]],
+    });
+    let (mut handle, player) = clip_player();
+    handle
+        .set(
+            (0..TRACKS)
+                .map(|i| Clip {
+                    envelope: Default::default(),
+                    id: i,
+                    start: Ticks::ZERO,
+                    offset: 0,
+                    length: 480_000,
+                    gain: 0.5,
+                    track: i,
+                    audio: Arc::clone(&audio),
+                    shape: Default::default(),
+                })
+                .collect(),
+        )
+        .unwrap();
+    let (mut routing, source) = mixer(player);
+    let mut plan = routed(TRACKS, 0);
+    // Every band on, with a gain or a cut that makes each one work.
+    let band = |number: u32| {
+        let mut values = Vec::new();
+        let mut set = |id: u32, units: f32| {
+            let info = eq::TABLE.iter().find(|info| info.id == id).expect("an id");
+            values.push((id, info.normalised(units)));
+        };
+        set(eq::freq_of(number as usize), 100.0 * number as f32);
+        set(eq::on_of(number as usize), 1.0);
+        if number == 1 || number == 8 {
+            set(eq::gain_of(number as usize), 24.0);
+        } else {
+            set(eq::gain_of(number as usize), 6.0);
+        }
+        values
+    };
+    for node in plan.nodes.iter_mut().filter(|n| n.id < TRACKS) {
+        node.devices = vec![Device::Builtin {
+            device: 1_000 + node.id,
+            latency: 0,
+            bypass: false,
+        }];
+        let mut values = vec![(eq::OUTPUT, 0.5)];
+        for number in 1..=8 {
+            values.extend(band(number));
+        }
+        node.values = vec![(1_000 + node.id, values)];
+    }
+    for id in 0..TRACKS {
+        assert!(
+            routing
+                .attach_builtin(1_000 + id, Slot::new(Box::new(Eq::new())))
+                .is_ok()
+        );
+    }
+    assert!(routing.set(&plan).unwrap());
+    let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
+    transport.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 256];
+    for _ in 0..400 {
+        engine.process(48_000, &mut data, 2, 128);
+    }
+    bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
+}

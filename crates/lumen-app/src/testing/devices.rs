@@ -431,6 +431,19 @@ impl App {
             .is_some_and(|(_, d)| crate::builtin::is_builtin(d))
     }
 
+    /// Puts a picture in a built-in's analyser, as a live signal would, for a
+    /// screenshot: a shot has no project that plays, so this is the only way
+    /// its face can show a mist (M8 slice B1). The window itself is tested
+    /// with a real tone in `lumen-devices`.
+    pub fn pretend_spectrum(&mut self, device: Id, db: &[f32]) {
+        self.chain.pretend_spectrum = Some((device, db.to_vec()));
+    }
+
+    /// Picks band `index` (0-based) of a face, as clicking its point does.
+    pub fn pick_band(&mut self, device: Id, index: usize) {
+        self.chain.bands.insert(device, index);
+    }
+
     /// Puts exactly these parameters on the device's strip, as a person does
     /// from the panel.
     pub fn show_on_strip(&mut self, device: Id, ids: &[u32]) {

@@ -212,18 +212,26 @@ impl Plan {
                         });
                         self.host_scratch.params.start(frames);
                         // The values the project holds: only one that moved
-                        // since the device was last told opens a queue, and one
-                        // a lane drives always does, so the lane's points are
-                        // read as a lane rather than as a value at rest (M8
-                        // slice B0, review L6). A still device does no parameter
-                        // work then, and a device with many parameters never
-                        // fills the block's room.
+                        // since the device was last told opens a queue (M8
+                        // slice B0, review L6), so a still device does no
+                        // parameter work. A parameter a lane drives opens no
+                        // queue here at all: the lane's own queue carries
+                        // where it is (M8 slice B1, ADR-0146), so a device with
+                        // forty parameters and a lane on every one of them
+                        // still fits a block's room — which was one queue too
+                        // many for an eight-band EQ (B0's review N7).
                         for (index, &(id, value)) in device.values.iter().enumerate() {
-                            let driven = node
+                            if node
                                 .auto
                                 .as_deref()
-                                .is_some_and(|auto| auto.drives(device.builtin, id));
-                            if !driven && device.values_last[index] == value {
+                                .is_some_and(|auto| auto.drives(device.builtin, id))
+                            {
+                                // When the lane lets go, the value the project
+                                // holds is told again.
+                                device.values_last[index] = f32::NAN;
+                                continue;
+                            }
+                            if device.values_last[index] == value {
                                 continue;
                             }
                             // Room that is not there leaves the value where it

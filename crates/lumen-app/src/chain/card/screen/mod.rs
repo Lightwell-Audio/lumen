@@ -11,7 +11,7 @@ use eframe::egui::{self, Color32, CornerRadius, Rect, Response, Shadow, Stroke, 
 use lumen_devices::params::ParamInfo;
 
 use super::{Face, Look, Out};
-use crate::chain::face::{Drawing, Scene, Values};
+use crate::chain::face::{Drawing, Parts, Scene, Values};
 use crate::chain::geometry::Step;
 use crate::chain::strip::{self, Output};
 use crate::theme::personality::card as c;
@@ -22,6 +22,7 @@ mod chrome;
 mod controls;
 mod glass;
 mod handles;
+mod parts;
 mod plan;
 
 use controls::live;
@@ -37,6 +38,12 @@ pub(in crate::chain) struct Personal<'a> {
     pub step: Step,
     /// What the device hears, 0 to 1 (0 while motion is reduced).
     pub level: f32,
+    /// A drawing made of parts (Iris's bands), the one it has picked, the
+    /// device's live analysis when it has one and the rate the project runs at.
+    pub parts: Option<&'static Parts>,
+    pub picked: usize,
+    pub spectrum: Option<&'a [f32]>,
+    pub rate: u32,
 }
 
 /// A meter's peak (dB, both sides; silence is negative infinity) as a level, 0
@@ -132,7 +139,13 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     };
     let mut asked = Vec::new();
     let hot = handles::interact(ui, &plan, drawing, &values, id, &mut asked);
+    let parts = personal.parts;
+    let picked = parts.map_or(0, |p| personal.picked.min(p.count.saturating_sub(1)));
+    let part_hot = parts.map_or_else(parts::Hot::default, |p| {
+        parts::points(ui, &plan, drawing, p, &values, picked, id, &mut asked)
+    });
     let still = motion::reduced();
+    let mist = motion::fade(&ctx, id.with("mist"), personal.spectrum.is_some() && !still);
     let picture = painter.with_clip_rect(plan.picture);
     (drawing.draw)(&Scene {
         painter: &picture,
@@ -145,6 +158,11 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         still,
         handle_lit: hot.lit,
         settle: settle(&ctx, id, look),
+        picked,
+        parts_lit: part_hot.lit,
+        spectrum: personal.spectrum,
+        mist,
+        rate: personal.rate,
     });
 
     controls::paint(
@@ -155,8 +173,23 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         id,
         hue,
         power,
+        (parts, picked, &values),
         &mut asked,
     );
+    let mut pill_picked = None;
+    if let Some(p) = parts {
+        parts::pills(
+            ui,
+            &plan,
+            p,
+            &values,
+            picked,
+            id,
+            power,
+            &mut asked,
+            &mut pill_picked,
+        );
+    }
     if let Some((from, words)) = &hot.chip {
         handles::chip(&painter, &plan, *from, words, hue);
     }
@@ -191,6 +224,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         field: Some(field),
         name: None,
         step: None,
+        picked: part_hot.picked.or(pill_picked),
         action: None,
         strip: asked,
         sidechain: None,

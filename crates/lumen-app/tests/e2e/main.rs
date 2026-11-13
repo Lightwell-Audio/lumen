@@ -53,6 +53,7 @@ mod dropdown;
 mod drums;
 mod editing;
 mod editors;
+mod eq;
 mod fades;
 mod files;
 mod first_run;

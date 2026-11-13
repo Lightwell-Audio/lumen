@@ -13579,6 +13579,202 @@ Differences from the specimen that remain, from looking at crops of the shots ne
 - Whole, short and compact were looked at in crops, dark and light, at 150 % (and the short and
   compact steps at 200 % and 100 %).
 
+## ADR-0146 — Iris, the parametric EQ, and the spectrum window (M8 slice B1)
+
+**Status.** Proposed (M8 slice B1; the parent assigns the number). Brief:
+`docs/milestones/M8.md` §5 "B1 — Parametric EQ with analyzer"; decisions E6 and E7 in
+§6; B0's ADR-0145 (the effect path, the parameter table, the personality) and its review
+N7 (an automated parameter took two of a block's queues).
+
+**Context.** B0 gave Lumen an in-process effect path, a parameter table with stable ids
+and the utility Prism, and the owner asked (BF C) that built-in devices have drawn faces
+where a picture is the control. B1 is the first such device: eight bands of equalisation,
+a curve a person drags, and an analyser behind it that the later spectrum analyser (X2)
+reuses. Three things in the brief decide the shape of this work: the DSP is Lumen's own
+(E7) with permissive dependencies only; every device has golden renders, an allocation
+guard and a block-size invariance test at 64, 128, 512, 1024 and 97 frames (E6); and an
+eight-band EQ needs more parameter queues than a block had room for (B0's N7).
+
+**Options.**
+
+- **Where the coefficients come from.** (A) Recompute every sample from the settings.
+  (B) Compute once a block. (C) Compute on knots of the song's clock and glide the
+  coefficients straight between them.
+- **How a band turns on and off.** (A) A gate on the coefficients. (B) A dry/wet mix per
+  band driven by the `on` curve. (C) No switch at all.
+- **What the analyser is.** (A) A lock-free ring the device writes and the interface
+  reads, in `lumen-devices`, knowing nothing about devices. (B) An FFT in the app, fed by
+  an engine tap. (C) A new trait method so a device can hand frames back.
+- **The transform.** (A) A permissive FFT crate. (B) A radix-2 transform written here.
+- **The parameter count.** (A) Keep the table within 32 so two queues an automated
+  parameter fit. (B) Let a lane's queue replace the value's, one queue an automated
+  parameter, and let a queue say that it is a lane.
+- **The face's axis.** (A) A log frequency axis with a log-tapered frequency parameter.
+  (B) A linear axis.
+
+**Choices.**
+
+1. **Eight bands, and what they are.** `lumen-devices/src/eq/` is four files: the table
+   (`table.rs`: the ids and the words), the filter maths (`bands.rs`), the running device
+   (`device.rs`) and what the rest of the crate names (`mod.rs`), each under the 800-line
+   rule (ADR-0141; split in the review of this slice). The table: band 1 is
+   a low cut and band 8 a high cut (each 12 to 48 dB an octave, a Butterworth cascade of
+   one to four sections so the sum has no peak at the corner), bands 2 to 7 are a Bell, a
+   Shelf low, a Shelf high or a Notch, chosen by the band's own Type parameter. Every band
+   has a frequency, a Q (bell and notch), a gain (bell and shelf) and a switch; the two
+   cuts have a slope instead of a gain. The output gain is one parameter. The analyser's
+   side (Input or Output) is the last parameter. Thirty-eight ids, `10 × band + field`,
+   pinned by `the_parameter_table_is_pinned_by_id_name_and_default`: `1 Output`,
+   `11/12/15` the low cut's frequency, slope and switch, `21…` to `75…` the middle bands'
+   five each, `81/82/85` the high cut, `2 Analyzer`. Bands 2 to 7 start **on** with no
+   gain (a fresh Iris is live everywhere and exactly flat); the cuts start off, so a
+   fresh Iris is the audio it was given, to the last bit — a bell or shelf at exactly
+   0 dB has `b == a` coefficient for coefficient, so its transposed-form-II state stays
+   exactly zero and it passes the input through unchanged.
+2. **Coefficients glide on knots of the song's clock** (option 1C). Every 32 frames
+   (`KNOT`) each active band's settings are read at that sample and its target
+   coefficients worked out; the coefficients then move a thirty-second of the distance
+   towards the target every frame. The knots are where the song's own sample falls on a
+   multiple of 32, so a block boundary never moves one, and the coefficient at any sample
+   is the same whatever the block size. `Section::between` and `delta` are linear in the
+   coefficients, which is what makes a swept band smooth; a bell's own gain is in the
+   coefficients, so a lane on it needs no special case.
+3. **A band is mixed in and out, not gated** (option 2B). Each band's sections run between
+   a copy of the band's input and its output, mixed by the `on` curve: `out + (band −
+   out) × on`. The `on` value the interface moves glides over 20 ms as every parameter
+   does, so turning a band on or off fades it; a band whose `on` is at zero is skipped and
+   costs nothing. A cut or a notch cannot express "off" in its coefficients, which is why
+   the mix is there rather than a gate.
+4. **The analyser is device-independent** (option 3A):
+   `lumen-devices/src/analyzer.rs`. The audio side (`Tap`) writes the mono sum of the two
+   sides into a ring of `AtomicU32` and publishes how many frames it has written with a
+   release store; the interface side (`Reader`) copies the newest 2048-frame window into
+   a scratch buffer and folds it, throwing away a copy the writer lapped (up to four
+   tries) rather than showing a window that is two windows joined. When every try is
+   lapped it keeps the whole window it held and says [`Read::Stale`], so an analyser may
+   show an older window but never a wrong one — the promise is the code's, and
+   `a_reader_lapped_on_every_try_keeps_the_window_before` laps it on purpose to hold it
+   (review L1). Nothing allocates in `write`; the reader allocates
+   once in `pair()`. `is_on`/`set_on` let the interface stop the work: a device writes
+   nothing while no face is drawn, which is the brief's "the analyzer runs only while the
+   face is visible" - the tap is one relaxed load a block.
+5. **The transform is written here** (option 4B): an iterative radix-2 Cooley-Tukey of
+   2048 points, forty lines, no allocation, checked against a direct sum in
+   `the_transform_is_the_one_a_direct_sum_gives`. `microfft` would have done and is
+   permissive, but a new dependency for forty lines of arithmetic, in the crate the audio
+   thread runs, is not worth its licence and its review. (E7 asks only that a FFT crate be
+   permissive *if* one is used.)
+6. **One queue an automated parameter, and a queue says what it is** (option 5B). B0's
+   review N7 measured the problem: the plan sent every automated parameter twice (its
+   value and its lane), so a device with more than 32 of them lost lanes. `ParamBlock`
+   now records whether a queue is a lane's, `params::fill` opens lanes with `open_lane`,
+   the plan opens a resting value's queue only when no lane drives the parameter (and
+   forgets the last value it told, so the value is told again when the lane lets go), and
+   `params::values` reads the flag instead of counting queues — a lane with one point in a
+   block is a lane (a step moved over its millisecond), never a knob (a 20 ms glide).
+   Iris's 38 parameters therefore fit one block with a lane on every one of them, which
+   `a_full_table_of_lanes_fills_one_queue_each` holds. This is the change B0's review
+   asked B5 to consider, and it is tested here.
+7. **A log axis, and a log taper for it** (option 6A). `Taper::Log` was added to
+   `lumen-devices::params` (`low × (high/low)^x`): a frequency and a Q are heard as
+   ratios, so half a turn is the geometric mean. The face's axis and the frequency
+   parameters use the same 20 Hz to 20 kHz span (`eq::axis`, `eq::axis_hz`), so a point
+   dragged to a place on the screen lands on that frequency.
+8. **The face is the round-2 set piece** (`lumen-app/src/chain/face/eq.rs`, a `Drawing`
+   and a `Parts` on the round-2 card framework of ADR-0145; built to `iris()` in
+   `docs/specimens/m8/devices.html` and the Iris card of `round2-*.png`). The card is
+   380 x 330 with a 176 pt screen: the analyser's mist behind the summed response
+   (`lumen_devices::eq::band_db`, the filter's own coefficients, so the curve cannot
+   disagree with the sound) drawn as a wash, a soft glow and a line in the red-to-violet
+   sweep; a coloured point for each band, the picked one haloed with six blades and wearing
+   the value chip ("180 Hz +5.0"); "100", "1k" and "10k" on the graticule; and three lit
+   dials, Freq, Gain and Q, in the picked band's colour. **Reaching eight bands** (the
+   owner's brief left the design to the builder): a fixed 4 x 2 grid of numbered pills,
+   each in its band's colour (`personality::EQ_BANDS`, band 2 the specimen's amber), a
+   click picks and a double-click turns the band on or off; a click on a point picks it
+   as well, and so does Tab, so the three dials are always the picked band's and there
+   is one set of dials for eight bands. The dials are aimed by the drawing: Freq always,
+   Gain for a bell or a shelf (Slope for a cut), Q for a bell or a notch; a dial a band
+   has no use for is shown inert with a dash, never moved. Short, the pills are a row of
+   eight small ones under the screen; compact, the curve is a thin live band, its points
+   are small dots that pick, and the picked band's dials are named with their values.
+   On the screen: drag a point (frequency and gain, one undo step; Shift is a tenth as
+   far, a drag turns an off band on), the wheel is a bell's Q or a cut's slope,
+   double-click puts the gain back, Alt does not snap (nothing snaps, so it is the
+   same), right-click gives Reset, on/off and the Automate and Learn of the aimed
+   parameter, arrows move it, Page Up and Down are its width, Enter types a frequency
+   into the Freq dial's field; every point is a Tab stop with its band's own words
+   ("Band 3, bell, 1.20 kHz, +3.0 dB, Q 1.00"). The mist runs only while the track
+   plays or its meter reads something, on every Iris of the shown track that is not
+   folded, and is off (the screen still) while motion is reduced
+   (`rows::mist_runs`); its buffer is reused every frame. The framework change is
+   additive: `face::Parts` (per-part callbacks, registered in `PARTED` beside the
+   `DRAWINGS` line, so Prism's literal did not change), `Scene` gained `picked`,
+   `parts_lit`, `spectrum`, `mist` and `rate`, `Personal` and `Out` the same
+   (`Out::picked`), and `card/screen/parts.rs` draws the points and pills for any
+   device with parts. A non-picked band's slots are the cheap kind (value, default and
+   steps, no strings), so a card reads 38 values without asking for 38 words. Its
+   edits are the strip's own `Output`s, with two B1 added: `Moved` (a point's frequency
+   and gain together as one gesture) and `Reset` (a band's defaults as one step).
+9. **A save of a project with a built-in device was refused.** Found on the way, and
+   fixed here because B1 cannot ship a project that will not save: `validate::device_data`
+   refused *any* parameter values on a built-in, while B0 writes the table's defaults into
+   the device. A built-in's values are now held to a plugin's bounds (at most
+   `MOST_PARAMS`, each 0 to 1) and the rest of the plugin-only data is still refused;
+   `a_built_in_may_hold_its_parameter_values_and_nothing_else` holds both halves. To tell
+   its owner: B0's branch has the same defect, so a project saved with Prism there fails
+   the save.
+
+**Measured.** `cargo bench -p lumen-engine --bench clips` (this machine, release):
+`engine_builtin_64` (64 tracks, each with Prism) 87.3 µs fastest and 92.7 µs median a
+128-frame block; `engine_eq_64` (the same 64 tracks, each with Iris and all eight bands
+on, with a gain or a cut on every band) 452.4 µs fastest and 553.6 µs median. So 64
+instances of an eight-band EQ cost 365 µs a block beyond the bare mix — 13.7 % of the
+2.67 ms budget at 48 kHz, about 7.1 µs an instance, against Prism's 0.94. Per frame an
+instance is 55 ns: the parameter curves (38 of them a block), the coefficient glide (all
+14 sections a frame) and eight sections of two-channel filtering. A project with ten
+EQs spends about 2 % of the block on them. If it ever needs to be cheaper, the first
+saving is to skip the parameter curves of bands that are off and settled (the value is
+then a constant) — recorded, not needed at the quality bar.
+
+**Tests.** `lumen-devices`: the table pinned by id, name and normalised default (and no
+id reused or zero); every word it says read back; the face's axis; a fresh Iris passing
+the audio to the last bit; the drawn response as the bands added up; a band that is off
+out of it. `crates/lumen-devices/tests/eq.rs`: a rendered tone within a tenth of a
+decibel of the analytic biquad (the cookbook formulas written out again in the test) for
+three bells, a 24 dB/octave cut (24 dB an octave, measured octave by octave) and a
+shelf; the drawn curve agreeing with the rendered one; an output gain; a band that is off;
+a swept band never stepping the sound (its largest sample-to-sample step within a quarter
+of the same bell standing still); the same audio at 64, 97, 128 and 256 frames with five
+parameters automated; an allocation guard; and the analyser reading the side its parameter
+names, with a reader lapped on every try keeping the whole window it held (review L1).
+`crates/lumen-engine/tests/eq.rs`: the same render at 64, 97, 128, 512 and 1024
+frames through the plan; the golden render pinned by twenty samples, the sum of |x| and
+the sum of x² within a millionth (not by its bits: the platforms' maths libraries round a
+last bit apart); a full table of lanes filling one queue each; an allocation guard through
+the plan; and the power button heard. `lumen-project`: a built-in holding its values
+validates, and out-of-range or plugin-only data does not. `lumen-app`: the parts' words,
+the chip's pieces, the axis a drag reads, what the dials aim at, the wheel, the nudge,
+the resets, the pills inside the card, and the analyser's rule under Reduce motion
+(`the_analyser_runs_only_while_something_is_heard_and_motion_is_not_reduced`; an E2E
+may not flip the process-wide setting). E2E
+`crates/lumen-app/tests/e2e/eq.rs`: the command and the card's curve, its eight points in
+words and its chips' on/off; a point dragged (heard, one undo step; across and up, both values back by one undo);
+a pill picking the band the dials are aimed at; a frequency typed on a point; a lane driving a band with the drag taking it over; the power button heard; and a
+chip turning its band off. Shots `builtin_eq` (whole at rest, playing, short, compact, folded and the smallest
+window; `SHOT_FILTER` keeps some), each looked at beside the round-2 card in both themes at
+100, 150 and 200 %.
+
+**Consequences.** `lumen-devices::ParamBlock` gained a per-queue flag and `open_lane`, and
+`params::values` reads it; the plan opens one queue for a parameter a lane drives. B5's
+pads (B0's N7) inherit the fix. `Taper::Log` is new beside `Linear` and `Power`. No format
+change: a parameter the project does not name plays the table's default, and Iris's ids
+are new. Not verified here: the WSL performance gate (the new `engine_eq_64` scenario needs
+`perf-gate --update` when it is run there), the macOS cross-target clippy, and any hardware;
+Iris was heard only through the engine's and the E2E's test devices, and nothing has been
+judged by ear. The face is the round-2 set piece (choice 8); the owner has not yet judged
+it by eye in the running app.
+
 ## ADR-XXXX - Parallax and Afterglow: the delay and the reverb (M8 slice B3)
 
 **Status.** Proposed (M8 slice B3; the parent assigns the number). Brief:
