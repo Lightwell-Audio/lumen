@@ -69,7 +69,10 @@ pub(super) fn paint(ui: &Ui, rect: Rect, _id: egui::Id, face: &Face, hue: Color3
         crest.push(pos2(left + t, y));
         painter.line_segment(
             [pos2(left + t, y), pos2(left + t, rect.bottom())],
-            Stroke::new(2.0, personality::SCREEN.gamma_multiply(0.62)),
+            Stroke::new(
+                theme::stroke::FOCUS,
+                personality::SCREEN.gamma_multiply(0.62),
+            ),
         );
     }
     painter.add(Shape::line(crest, Stroke::new(theme::stroke::LIT, hue)));

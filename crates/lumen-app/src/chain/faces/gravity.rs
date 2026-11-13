@@ -55,10 +55,16 @@ pub(super) fn paint(ui: &Ui, rect: Rect, _id: egui::Id, face: &Face, hue: Color3
     for k in 0..=6 {
         let x = plot.left() + plot.width() * k as f32 / 6.0;
         let line = bow(pos2(x, plot.top()), pos2(x, plot.bottom()), 12, 1.0);
-        painter.add(Shape::line(line, Stroke::new(1.0, tint(hue, 0.14))));
+        painter.add(Shape::line(
+            line,
+            Stroke::new(theme::stroke::HAIRLINE, tint(hue, 0.14)),
+        ));
         let y = plot.top() + plot.height() * k as f32 / 6.0;
         let line = bow(pos2(plot.left(), y), pos2(plot.right(), y), 16, 1.0);
-        painter.add(Shape::line(line, Stroke::new(1.0, tint(hue, 0.14))));
+        painter.add(Shape::line(
+            line,
+            Stroke::new(theme::stroke::HAIRLINE, tint(hue, 0.14)),
+        ));
     }
     // The bottom and left edges, so the curve has an axis.
     painter.line_segment(
