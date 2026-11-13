@@ -1731,6 +1731,44 @@ band's three dials named with their values. **Folded**: the rail, as for every d
 38 parameters and builds a full slot (text and name) only for the ones the dials and the picked point aim
 at.
 
+**Parallax** (Stereo delay, M8 slice B3; 300 x 330, screen 176 pt, hue teal `DELAY`, deep `DELAY_DEEP`):
+echoes receding into depth. A floor of eight lines to a vanishing point and six lines across it (the hue at
+12 % and 10 %), and the echoes as lit circles that shrink and dim along it, the first white, the rest the hue,
+each a four-layer soft glow and a core, alternating left and right as the delay's Ping does (with Ping off they
+run straight back down the middle; the lanes slide with the same fade as the pill). What the picture says is
+the device's values: the **trail's width** is the real time (the log of the seconds from 30 ms to 4 s), the
+**number of echoes** is what Feedback leaves (the specimen's seven at 45 %, 2 to 12), and the hero in the foot
+corner (Unbounded 13) is the real time, a note ("1/8") while the delay follows the tempo and milliseconds
+("375 ms", "1.50 s") when it does not; "L" and "R" are in the top corners. **Alive:** while audio plays through
+the device, a light travels down the trail at the real delay time (the tempo under the playhead for a note,
+`Scene.bpm`), one echo each time the delay lasts, each echo as bright as what the feedback leaves of it; it is
+still at rest and with Reduce motion. **Playable:** the trail is one handle for two parameters: across is
+**Time** (the note while synced, so it snaps to the notes; the milliseconds while free) and up is **Feedback**
+(depth); one drag, one undo step, a chip ("1/8 · 45%") follows, double-click puts both back, the arrow keys
+move Time across and Feedback up and down, and it is a Tab stop named "Echo trail (Note and Repeats): 1/4, 35 %".
+Under the screen: dials **Time** (the note while synced and the milliseconds while free; its tooltip and
+accessible name say both, "Time (Note)"), **Feedback** (the table's Repeats) and **Mix**, the **Ping** pill where
+the specimen has it and a **Sync** pill under it (the one control beyond the specimen: without it the Time dial
+could never leave a note; on is a note other than Free, a click writes Free or the default note). Low cut, High cut
+and Freeze are in All parameters (Freeze would have been a pill, but there is no room for a third under the screen
+at the whole step). **Short:** the same picture in the smaller screen, the hero at 11 pt, the three dials on its
+lower edge and both pills under it. **Compact:** a band of echoes in a row, near to far, the lanes a little above
+and below the middle, with the light still travelling.
+
+**Afterglow** (Reverb, M8 slice B3; 300 x 330, screen 176 pt, hue pink `REVERB`, deep `REVERB_DEEP`): a light that
+lingers. A radial glow (the core `REVERB_CORE` to the amber `REVERB_WARM` at 18 % of the radius, the hue at 62 %
+at 50 %, then nothing) with four rings round it. **Space** is the glow's size (62 % is the specimen's 118 x 72
+half axes), **Fade** is how far the rings reach, **Warmth** (the damping) turns the core from cool white to
+amber, and **Mix** is the glow's strength; the hero in the top corner (Unbounded 22) is the real decay ("2.4 s")
+with "to silence" under it in `REVERB_WARM`. **Alive:** the glow swells with the level of what the device hears
+(wider, a brighter core, stronger rings) and, when the sound stops, falls away over the real decay (60 dB down in
+the Decay time); the state is the card's own, between frames, and it asks for a repaint only while the glow is
+moving. Still with Reduce motion. **Playable:** dragging the glow is **Space** (the glow's edge follows the
+pointer); dragging outward from it over the rings is **Fade** (the outer ring follows); each is the dial's edit as
+one undo step, with a chip ("62% of the room", "2.4 s to silence"), and each is a Tab stop. The dials are Space,
+Fade, Warmth and Mix; the pre-delay, the width and the early reflections are in All parameters. **Short:** the
+glow in the smaller screen, the hero at 16 pt. **Compact:** a band of the glow with its rings.
+
 - **Name and subtitle.** The card holds the personality's name ("Prism") and its kind ("Utility \·
   gain, width, mono"); menus, the lane chooser and tooltips use the same words. A device has one stable
   saved name (`PluginRef::Builtin.name`, `"utility"`), never the personality's: renaming a personality is

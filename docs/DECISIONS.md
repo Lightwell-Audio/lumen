@@ -13885,20 +13885,39 @@ ten seconds. This ADR records how both were done and what the DSP is.
    engine does not trust a plugin's reported tail (a plugin may misreport one).
 8. **Parameters and labels.** Stable ids: the delay 1 to 8 (Time, Note, Repeats, Ping,
    Low cut, High cut, Mix, Freeze), the reverb 1 to 7 (Pre, Size, Decay, Damp, Width,
-   Early, Mix), pinned by a test like Prism's. The labels are chosen to fit a strip cell
-   at 100 %: "Feedback" was cut to "Feedba...", so it is "Repeats" (feedback is the
-   meaning; All parameters and the tooltip give the device's words); "Pre-delay" is
-   "Pre", "Damping" is "Damp". No id is reused; a new meaning would get a new id.
-9. **The personality.** Parallax (subtitle "Stereo delay") is
-   `theme::personality::DELAY`, teal `#3FD6C6`; Afterglow ("Reverb") is `REVERB`, pink
-   `#FF6FA8`, both from round 2's specimen. Their bands are the shared deep tinted
-   screen with their own drawing: Parallax's a corridor of echoes receding and crossing
-   lane by lane, Afterglow's a lingering glow with its rings. The commands
+   Early, Mix), pinned by a test like Prism's. No id is reused; a new meaning would get
+   a new id. The cards name what the round-2 specimen names: Parallax's dials are Time,
+   Feedback and Mix and its pills Ping and Sync; Afterglow's are Space (Size), Fade
+   (Decay), Warmth (Damp) and Mix. A control's accessible name and tooltip give the idea
+   name with the parameter's own beside it ("Feedback (Repeats)", "Fade (Decay)"), and
+   every other parameter is in All parameters.
+9. **The personality and the set pieces.** Parallax (subtitle "Stereo delay") is
+   `theme::personality::DELAY`, teal `#3FD6C6`, deep `DELAY_DEEP`; Afterglow ("Reverb")
+   is `REVERB`, pink `#FF6FA8`, deep `REVERB_DEEP`, with `REVERB_CORE` and `REVERB_WARM`
+   for its light. Their screens are round 2's set pieces (`chain/face/parallax.rs`,
+   `afterglow.rs`, DESIGN section 7k): Parallax's receding echoes, alive with a light
+   that travels the trail at the real delay time, and playable (the trail is one handle
+   for Time across and Feedback up, one undo step); Afterglow's glow that swells with the
+   level and falls over the real decay, playable (the glow is Space, the outer ring is
+   Fade). The first attempt, a still drawing in `card/picture.rs`, is gone. The commands
    `devices.add_delay` ("Add Parallax (delay)") and `devices.add_reverb` ("Add
    Afterglow (reverb)") sit beside `devices.add_utility` at the end of `Command`, in the
    palette, the track header's menu and the device tray's, one undo step each, and both
    are tagged `@m8` in `undocumented.txt` (B6 writes the browser rows and factory
    presets).
+   *Additive changes to the face framework* (`chain/face/mod.rs`, with a test each):
+   `Control::follows` (a dial or pill that stands for another parameter while the values
+   say so: Time is the note while the delay follows the tempo and the milliseconds while
+   it does not; the widget is new when the parameter changes, so a drag in progress ends
+   cleanly), `Control::switch` (a pill over a choice: Sync is on for a note other than
+   Free), `Handle::follows` and `Handle::also` (a second parameter moved by the pointer's
+   other axis, one `Output::Moved`, one undo step; double-click is one `Output::Reset`),
+   `Scene::bpm` (the tempo at the playhead, for a picture that keeps time with the song)
+   and `Scene::id` (the card's own id, for the little state a glow keeps between frames).
+   `hue` and `still` are now read, so their `allow(dead_code)` is gone. A handle's
+   `value_at` may return more than 0 to 1 (Afterglow's, which is the pointer's distance
+   from the glow's middle): a drag is the change in it and the handle clamps what it
+   adds up to.
 10. **No format change.** As B0: a parameter the project does not name plays its
     table's default, so a project from before B3 opens with the devices it has and the
     values it holds.
@@ -13920,8 +13939,11 @@ golden renders pinned by twenty samples, the sum of |x| and the sum of x^2, each
 1e-6 relative (not by a hash of the bits: CI's platforms round `exp`/`powf` a last bit
 apart, the parent's correction to B0's golden). `lumen-app`: the automatic tail from the
 project (a reverb's decay is in it, a quiet chain adds nothing, the master's chain
-follows the track's). E2E `tests/e2e/delay_reverb.rs` (3): both commands, their
-personalities, the eight and seven knobs, one undo step each; a delay's echoes still
+follows the track's). E2E `tests/e2e/delay_reverb.rs` (6): both commands, their
+personalities, the cards' idea-named controls, one undo step each; the echo trail's
+across-and-up drag moving the note and the feedback in one undo step (and Time in
+milliseconds when free), double-click putting both back, the glow's drag as Space and the
+outer ring's as Fade, each one undo step; a delay's echoes still
 heard after Stop (`listen`); an export of a fifth of a second with a one-second reverb
 keeping its tail and not ten seconds of it.
 
@@ -13939,10 +13961,21 @@ here too.
 
 **Not verified here.** The WSL performance gate, the macOS cross-target clippy, and any
 hardware: nothing was heard by a human (MT-FX-4 waits), the ASIO path is untouched but
-untested here, and the look was checked by screenshot at 100 % in both themes for the
-whole card, folded, All parameters and the smallest window, and at 150 % and 200 % for
-the whole card (`target/shots-b3`, 108 pictures). A reverb's character is a taste
+untested here, and the look was checked by screenshot against round 2's cards (`shots`
+`builtin_card` and `builtin_card_playing`: whole, short, compact, folded, All parameters
+and the smallest window, and playing, in both themes at 100, 150 and 200 %). A reverb's character is a taste
 question MT-FX-4 asks the owner about.
+
+**The faces' choices (set pieces).** Freeze is in All parameters only: a pill would have
+been a third under Parallax's screen at the whole step, where there is room for Ping and
+Sync (Sync is the one control beyond the specimen). Drawing cost, release build
+(`set_piece_cost`, mean / worst per frame, idle and loud): Parallax whole 0.075 / 0.178 ms
+and 0.070 / 0.207, short 0.068 / 0.160 and 0.069 / 0.305, compact 0.059 / 0.141 and
+0.056 / 0.138; Afterglow whole 0.065 / 0.173 and 0.080 / 0.213, short 0.059 / 0.174 and
+0.070 / 0.147, compact 0.055 / 0.200 and 0.053 / 0.174; all under the 0.3 ms bar except one
+0.305 ms worst frame. Differences from round 2: the hero reads "1/8", not "1/8 dotted"
+(the delay has no dotted notes); Warmth shows "55%", not "5k"; the echo glows are stacked
+discs, not a true blur; nothing was heard.
 
 **Consequences.** `Block` gained `bpm` (a device that ignores it is unchanged); the
 mixer's internal `Pass` gained it; `lumen_devices::EFFECTS`, `effect()` and
