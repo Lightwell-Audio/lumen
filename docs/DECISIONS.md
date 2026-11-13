@@ -13268,13 +13268,51 @@ quantize, mute and solo, reorder, Hide unused, the view switch and the
 arrangement's rows. Screenshots `shots::drum_lanes` and
 `shots::arrangement_drum_rows` in both themes at 100, 150 and 200%; the bench
 `drum_lanes_bench::a_hundred_thousand_hits_in_the_lanes_beside_the_piano_roll`
-prints both frame times (100,000 hits: lanes p50 25.4 ms against the roll's
-23.3 ms in a debug build on the development machine, within 9%).
-`docs/DESIGN.md` gains §7m. Deviations from the specimen, by eye: the map's
-name sits in the name column's ruler slot (the specimen drew the grid's step
-count there, which is D3's); the velocity lane shows every hit; and the hit's
-fill is drawn over a wash of its own colour, so a low velocity still reads as
-a diamond.
+prints both frame times (100,000 hits: lanes p50 14.34 ms / p95 27.73 ms
+against the roll's 21.24 / 24.02 ms in a debug build on the development
+machine; the gate is the roll's p95 within 15%). `docs/DESIGN.md` gains §7m.
+Deviations from the specimen, by eye: the map's name sits in the name column's
+ruler slot (the specimen drew the grid's step count there, which is D3's); the
+velocity lane shows every hit; and the hit's fill is drawn over a wash of its
+own colour, so a low velocity still reads as a diamond.
+
+**Review round 1** (an independent review, 2026-11-13; every finding fixed
+here, each with the test that proves it). *The lanes now cost their picture,
+not the clip.* The frame gathers the hits once into `DrumState`'s caches —
+`lanes_for` (the map's lanes, keyed by the map, the clip and Hide unused) and
+`cells_for` (the hits, keyed by the clip, the rows, the picks, the hidden
+notes, the body, the time and the scroll, reusing its buffers) — and the hover,
+the length bars and the box read that cache instead of re-gathering per
+pointer move or per widget (H2). The arrangement's drum rows are gathered for
+the *visible* part of the clip only (`body.intersect(painter.clip_rect())`),
+found by range for a sorted clip (`partition_point`) and cached per clip in
+`Arrangement::drum_cache`, and a mark is capped at 3 pt, so a clip tens of
+thousands of points wide draws narrow marks rather than walls and does not
+gather its whole width each frame (H1). *A lane move takes each hit's own
+pitch.* `Resolved::MoveHits` carries one pitch per picked hit (the row it
+lands on, the block clamped so no hit leaves the lanes), committed by
+`Document::move_notes_to_pitches` through
+`edit::notes::move_to_pitches`; a semitone `pitch` delta used to land between
+rows (H3). *The rest:* a press below the last lane, or with no lanes, draws
+nothing (M1); a box in the lanes takes the diamonds (and the length bars, where
+they show) rather than the notes' length boxes (M2); a velocity drag is latched
+on its first frame past the threshold and moves from the hit's velocity at the
+press, so a 127 hit stays 127 and a drag never changes its mind half way (M3);
+the lanes' M and S are commands (`midi.mute_lane`, `midi.solo_lane`, tagged
+`@m8`, in the editor's menu) and Tab plus Space operates them, while a click
+leaves Space to the transport (M4); a drum clip no longer writes the roll's row
+height (M5); the empty lanes say which empty they are — a map with no sounds,
+or Hide unused hiding them all — and the second offers "Show every sound" (M6);
+a loop repeat's hits are no longer drawn muted (M7); the M/S block is measured
+from the name column's right edge (`BUTTONS_RIGHT`, two 20 pt toggles) with its
+icon at 10 pt, all in `theme::size` tokens (M8). *Small ones:* dead locals
+(L1), one row height constant and one length line (L2), the quantize toast says
+"each lane's own grid" only when a picked hit's lane had one (L3), the view
+commands say whether a drum map or the view is missing (L4), design sizes moved
+to `theme::size` (`LANE_*`, `DRUM_ROW_MIN`) (L6), `Rows::lanes` dedups with a
+seen set instead of assuming adjacent duplicates (L7), and a bar's grid has no
+triplet or dotted feel — the map editor does not offer one, `size_ticks` refuses
+one and a file that names one reads as straight (L8).
 
 **Not here.** Steps (D3), routing per sound (D4), step input and MIDI effects,
 a saved preference for the view, and auditioning a lane from a hardware pad
