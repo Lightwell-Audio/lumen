@@ -191,6 +191,28 @@ impl App {
         (slots, count)
     }
 
+    /// The drawing of a built-in that has one (M8; `chain/face/mod.rs`) with a
+    /// slot for each parameter it reads or has a control for, in
+    /// [`face::Drawing::params`] order.
+    pub(super) fn drawing_of(&self, d: &Device) -> Option<super::view::DrawingRow> {
+        let lumen_project::model::PluginRef::Builtin { name } = &d.plugin else {
+            return None;
+        };
+        let drawing = super::face::drawing_of(name)?;
+        let table = crate::builtin::table(name)?;
+        let list = self.device_parameters(d);
+        let slots = drawing
+            .params()
+            .into_iter()
+            .map(|id| list.iter().find(|p| p.id == id).map(|p| self.slot_of(d, p)))
+            .collect::<Option<Vec<_>>>()?;
+        Some(super::view::DrawingRow {
+            drawing,
+            slots,
+            table,
+        })
+    }
+
     fn slot_of(&self, d: &Device, p: &ParamInfo) -> Slot {
         let value = self.parameter_value(d, p);
         Slot {

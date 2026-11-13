@@ -825,8 +825,8 @@ per slice and move what is no longer current out of it.
   and B0 (ADR-0145, Prism) are merged. **Built-ins are set pieces** (owner,
   2026-11-12): round 2 of `docs/specimens/m8/devices.html` supersedes
   chosen.html's device section (per-device card sizes, a live screen that is
-  also a control, lit dials; four size steps); the framework and Prism are PR
-  #121, and each device's face is built by one Sonnet agent at a time.
+  also a control, lit dials; four size steps); the framework and Prism are merged (PR
+  #121), and each device's face is built by one Sonnet agent at a time.
 - **Branch `m8-sd2-drum-lanes`: M8 D2, the drum editor's lanes, is built**
   (ADR-0147; no format change; MT-DRUM-2 waits for the owner). Lanes is a
   view of the note editor (one gesture code), with the header's Lanes · Keys

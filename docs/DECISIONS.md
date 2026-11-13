@@ -13306,10 +13306,11 @@ All parameters, lanes, MIDI learn, overrides, presets, copy — must work identi
    instance, so delay compensation lines up with a device that holds its output back
    (B2's limiter) whether the song plays or a render runs.
 10. **The personality scheme** is in `DESIGN.md` §7k and implemented in
-    `theme::personality`, `builtin::Identity` and `chain/art.rs`: Prism is Utility's
-    personality (a steel grey; the band is the device's drawing and the name is in the card's
-    name row), the card's
-    chrome untouched.
+    `theme::personality`, `builtin::Identity` (name, subtitle, hue) and `chain/face/` (the
+    drawing, below): Prism is Utility's personality, a set piece built to the owner's
+    round-2 specimen (a hued header with the name in the display face and a Preset pill, a
+    deep screen that reacts to the signal and can be dragged, large lit dials, and
+    whole, short, compact and folded steps).
 
 **The trait on paper, against the five slices that depend on it.**
 
@@ -13416,7 +13417,8 @@ why:
   lane over it still plays — a cut, never silence or a panic. **L7** `Builtins::update` gates on one number hashed from the built-ins (id, name,
   bypass, values) and the frozen tracks, so a still project allocates nothing there and
   the latency map is only copied when it can differ.
-- **L8 — the band.** It is now the personality's: a deep tinted screen
+- **L8 — the band** (superseded by "Round 2: set pieces" below; it was a 72 pt picture
+  on a plain card, with the readout at the top left). It was the personality's: a deep tinted screen
   (`personality::SCREEN`, the signature hue at `SCREEN_TINT`), the same in both themes, a
   hairline of the signature colour, and Prism's own drawing — a beam in, the prism, five
   beams out in `personality::PRISM_BEAMS` — with no monogram (the card's name row has the
@@ -13505,6 +13507,78 @@ name row and type as every other card's does, and the specimen's "width 130 %" l
 left out because it is a value, not the idea. The `chosen-dark-100.png` and
 `chosen-light-100.png` the review names are not in `docs/specimens/m8/` (only the round 1
 to 3 sheets), so the comparison is against round 2's card.
+
+**Round 2: set pieces (owner, 2026-11-12).** Built-ins are set pieces: round 2 (owner,
+2026-11-12); chosen.html's device section is superseded. The owner's words: built-in devices
+should be "special and really set pieces", fun to use, "rare" and better than a third-party
+plugin. The authority is `docs/specimens/m8/devices.html` and `round2-{dark,light}.png`
+(Prism: 300 x 290 pt, a 136 pt screen). Two earlier builds were discarded: the chrome on the
+232 pt chain card (the "chosen card", which a correction had asked for and the owner then
+replaced), and a first big-face attempt that had no alive screen and no size steps (kept for
+reference in the parent's `backup-bigface`). What was built:
+
+- **One card for every built-in with a drawing** (`chain/card/screen/`, DESIGN.md §7k).
+  A device declares a `Drawing` in `chain/face/` (card size, screen height, deep colour, the
+  parameters it reads, `draw`, `controls`, `handles`) and adds one line to `DRAWINGS`, keyed
+  by its stable saved name; nothing else draws. `Identity` gained `subtitle`. A device
+  without a drawing (the synth) and every plugin keep the plain card.
+- **Alive.** The screen reads the track's meter level (`arrangement.meters`, mapped
+  -60..0 dB to 0..1 by `level_of`), so the audio path is untouched; the picture is calm at
+  rest and brighter with level, and still under Reduce motion (`seen(level, still)`, and the
+  panel passes level 0). Fades (power, hover, handle light, preset readouts) take their
+  durations from `design/motion.rs`. The card asks for no repaint itself.
+- **A control.** Prism's two outer beams end in a handle: dragging sets Width through the
+  same `Output::Set` as the dial, so it is one undo step (a drag merges), Shift is fine, Alt
+  is free, double-click resets, the arrow keys move it, a live chip follows the pointer, and
+  each handle is a Tab stop named "Beam spread, upper (Width): 130 %".
+- **Steps** (`geometry::Step`, 8 pt of give each way, one step remembered per device in
+  `Chain.steps`): whole (the device's own card), short (232 x 272: smaller screen, named dials on
+  its lower edge), compact (232 x 116: header, a thin band, four named lit dials under it) and the
+  folded rail (hue bar glowing with level, name set on end). `Layout::mixed` lays out cards
+  of their own sizes.
+- **Found on the way** (B1's review): `validate.rs` refused any `params` on a built-in, so a
+  project with Prism could not be saved. A built-in may hold its parameter values (at most
+  `MOST_PARAMS`, each in 0..=1) and nothing else (no controller state, plugin version,
+  reported values or sidechain). E2E: a value changed on Prism is saved and back after a
+  reopen.
+- **Tests.** Unit: `Step::of` (hysteresis), `Plan` per step, Prism's handle mapping and
+  clamps, `level_of`, `seen`. E2E (`tests/e2e/builtins.rs`): the on-screen drag is one undo
+  step, Shift is finer, the polarity pill, All parameters (the off-card switch), the Preset
+  pill and Power names. Reduce motion is a unit test only: an E2E that flips the
+  process-wide setting is against the suite's rules.
+- **Cost.** `chain::card::tests::set_piece_cost` (ignored; `cargo test --release -p lumen-app
+  --lib set_piece_cost -- --ignored --nocapture`) draws the card and tessellates it for 360
+  frames: whole 0.12 ms a frame (worst 1.5 ms once), short 0.06, compact 0.05, silent and
+  loud alike. Per-frame allocations are egui's own (shapes, galleys, the glass meshes);
+  Prism's glass polygon is a three-point `Vec` per frame. The audio thread allocates nothing
+  for it.
+- **Shots** (`target/shots-face`; `tests/shots.rs` `builtin_card` and `builtin_card_playing`):
+  whole, short, compact, folded and All parameters, dark and light, at 100, 150 and 200 %,
+  and one playing.
+
+Differences from the specimen that remain, from looking at crops of the shots next to
+`round2-dark.png` and `round2-light.png` (by eye; nothing was measured pixel for pixel):
+
+- The card has a quiet "All 8 ›" text button at the foot and two lit beam-tip handles; the
+  specimen has neither (the owner's brief adds both).
+- "Bass mono" reads "Off" at its default; the specimen reads "120" (a value it was drawn
+  with, not the device's default).
+- The card's edge is a 1 pt strong border (a selected card, a 1.5 pt accent line); the
+  specimen's is softer.
+- Pills and dials are Lumen's controls (focus ring, override ring, waiting ring), so a
+  switch's off state is a quiet ring where the specimen's is a flat chip.
+- The short and compact cards have no specimen; they are laid out from the whole card's parts
+  (parent review, 2026-11-13): short has four evenly spaced named dials on the screen's edge, the
+  polarity pill under the screen at the left, the Preset pill on the name's line only and the
+  subtitle across the card; compact has a 22 pt band, then four named dials (the first build put
+  nameless dials on the beams). `COMPACT_H` stays 116 (the panel's least height is unchanged).
+  "Bass mono" is "Bass" under a dial at these steps (`Control::short`, additive).
+- At a panel height between the short card and the whole card (about 18 pt for Prism, whose
+  whole card is 290 pt against the short card's 272) the short step lasts a sliver of the
+  panel's travel; devices with taller whole cards have more.
+- Whole, short and compact were looked at in crops, dark and light, at 150 % (and the short and
+  compact steps at 200 % and 100 %).
+
 ## ADR-0147 — The drum editor's lanes (M8 slice D2)
 
 **Status.** Proposed (M8 D2, `docs/milestones/M8.md` §5; the owner's DV A and

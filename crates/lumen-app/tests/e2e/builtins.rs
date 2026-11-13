@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use eframe::egui::{Event, Key, Modifiers, Pos2, vec2};
+use eframe::egui::{Event, Key, Modifiers, Pos2, pos2, vec2};
 use egui_kittest::kittest::Queryable;
 use lumen_core::automation::{Lane, Point};
 use lumen_core::time::Ticks;
@@ -209,11 +209,42 @@ fn all_parameters_lists_the_eight_and_a_star_puts_one_on_the_strip() {
 fn a_switch_reads_its_own_words_and_its_click_is_one_undo_step() {
     let (mut lumen, _, device) = launched("builtin-switch");
     lumen.show_whole_cards();
-    lumen.click("Swap L/R");
+    // The card's pill is the left polarity ("\u{00D8} L"); swap lives in All
+    // parameters.
+    lumen.click("\u{00D8} L (Polarity L)");
+    lumen.frames(10);
+    assert_eq!(param(&lumen, device, POLARITY_L), Some(1.0));
+    assert_eq!(lumen.app().undo_label(), Some("Change Polarity L"));
+    assert_eq!(
+        lumen.app().device_choices(device, POLARITY_L),
+        ["Normal", "Inverted"]
+    );
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(8);
+    assert_eq!(param(&lumen, device, POLARITY_L), Some(0.0));
+}
+
+#[test]
+fn a_switch_off_the_card_is_in_all_parameters_and_is_one_undo_step() {
+    let (mut lumen, _, device) = launched("builtin-swap");
+    lumen.show_whole_cards();
+    lumen.click("All parameters (8)");
+    lumen.frames(10);
+    // A row's bar is dragged: to its right end is On.
+    let bar = lumen
+        .harness
+        .get_by_label_contains("Swap L/R, parameter")
+        .rect();
+    lumen.drag(
+        pos2(bar.left() + 4.0, bar.center().y),
+        pos2(bar.right() + 10.0, bar.center().y),
+        Modifiers::NONE,
+    );
     lumen.frames(10);
     assert_eq!(param(&lumen, device, SWAP), Some(1.0));
     assert_eq!(lumen.app().undo_label(), Some("Change Swap L/R"));
-    assert_eq!(lumen.app().device_choices(device, SWAP), ["Off", "On"]);
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(4);
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(8);
     assert_eq!(param(&lumen, device, SWAP), Some(0.0));
@@ -613,5 +644,66 @@ fn a_value_changed_on_prism_is_saved_with_the_project_and_is_back_after_a_reopen
     assert!(
         (back - changed).abs() < 1e-6,
         "the value is back: {changed} then {back}"
+    );
+}
+
+#[test]
+fn the_set_pieces_all_link_opens_all_parameters_and_its_header_has_the_power_and_preset() {
+    let (mut lumen, _, _) = launched("builtin-footer");
+    lumen.show_whole_cards();
+    // The header: the power button and the Preset pill; the quiet "All 8"
+    // link opens every parameter.
+    assert!(lumen.harness.query_by_label("Power Prism").is_some());
+    assert!(lumen.harness.query_by_label("Preset of Prism").is_some());
+    lumen.click("All parameters (8)");
+    lumen.frames(10);
+    assert!(
+        lumen.shows("8 of 8 on the strip"),
+        "the link opens All parameters"
+    );
+}
+
+/// The two handles of Prism's beams are Tab stops with names; dragging one is
+/// the Width dial's own edit, as one undo step.
+#[test]
+fn dragging_the_beams_on_the_screen_sets_the_width_as_one_undo_step() {
+    let (mut lumen, _, device) = launched("builtin-beams");
+    lumen.show_whole_cards();
+    let was = param(&lumen, device, WIDTH).expect("the width is there");
+    let handle = at(&lumen, "Beam spread, upper (Width)");
+    // Up opens the fan, down closes it.
+    lumen.drag(handle, handle + vec2(0.0, -20.0), Modifiers::NONE);
+    let wider = param(&lumen, device, WIDTH).expect("the width moved");
+    assert!(wider > was, "dragged up: {was} then {wider}");
+    assert_eq!(lumen.app().undo_label(), Some("Change Width"));
+    // One undo takes the whole drag back.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(8);
+    let back = param(&lumen, device, WIDTH).expect("the width is still there");
+    assert!((back - was).abs() < 1e-6, "back at {was}: {back}");
+
+    // The lower handle moves the same Width the other way round.
+    let handle = at(&lumen, "Beam spread, lower (Width)");
+    lumen.drag(handle, handle + vec2(0.0, -20.0), Modifiers::NONE);
+    let narrower = param(&lumen, device, WIDTH).expect("the width moved");
+    assert!(narrower < was, "dragged up: {was} then {narrower}");
+}
+
+#[test]
+fn a_beam_handle_reads_the_dials_value_and_takes_a_fine_drag_with_shift() {
+    let (mut lumen, _, device) = launched("builtin-beams-fine");
+    lumen.show_whole_cards();
+    let was = param(&lumen, device, WIDTH).expect("the width is there");
+    let handle = at(&lumen, "Beam spread, upper (Width)");
+    lumen.drag(handle, handle + vec2(0.0, -30.0), Modifiers::NONE);
+    let coarse = param(&lumen, device, WIDTH).unwrap() - was;
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(8);
+    let handle = at(&lumen, "Beam spread, upper (Width)");
+    lumen.drag(handle, handle + vec2(0.0, -30.0), Modifiers::SHIFT);
+    let fine = param(&lumen, device, WIDTH).unwrap() - was;
+    assert!(
+        fine > 0.0 && fine < coarse * 0.5,
+        "Shift is finer: {fine} against {coarse}"
     );
 }
