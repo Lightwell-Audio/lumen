@@ -121,8 +121,9 @@ pub trait Effect: Send {
     /// Frames the device rings on after its input stops (a delay's echoes, a
     /// reverb's tail), at the rate it is running; 0 when it stops with the
     /// input. The engine keeps what it plays after a Stop for this long, and a
-    /// bounce and an export add it as the automatic tail. Read as
-    /// [`Effect::latency`] is, from the description.
+    /// bounce and an export add it as the automatic tail. The mixer reads the
+    /// running instance's; its [`Description`] must give the same number for
+    /// the same values (a test holds every device to it at its defaults).
     fn tail(&self) -> u32 {
         0
     }

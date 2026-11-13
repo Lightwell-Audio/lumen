@@ -13014,7 +13014,8 @@ All parameters, lanes, MIDI learn, overrides, presets, copy — must work identi
    (B2's limiter) whether the song plays or a render runs.
 10. **The personality scheme** is in `DESIGN.md` §7k and implemented in
     `theme::personality`, `builtin::Identity` and `chain/art.rs`: Prism is Utility's
-    personality (a steel grey; the picture band's monogram is in Unbounded), the card's
+    personality (a steel grey; the band is the device's drawing and the name is in the card's
+    name row), the card's
     chrome untouched.
 
 **The trait on paper, against the five slices that depend on it.**
@@ -13053,7 +13054,10 @@ All parameters, lanes, MIDI learn, overrides, presets, copy — must work identi
   plugin instrument's lanes, `engine/routing.rs` leaves an instrument's lanes out of
   `NodeAutomation.plugins`, and `midi::play::with_lanes` bakes them only for a VST3
   instrument. B4 must open both gates (the routing's chain filter and the MIDI bake) for
-  a built-in instrument, or its synth's controls will show lanes that play nothing.
+  a built-in instrument, or its synth's controls will show lanes that play nothing. A
+  third gate: the routing's built-in branch now leaves an instrument out of the chain
+  (`!d.is_instrument()`, as the hosted branch does), so B4 must give its synth a path of
+  its own rather than expect the chain to carry it.
 - **B5's sampler** is an `Instrument` with samples: it needs buffers handed across the
   audio thread (shared immutable pages, as the stream player has), not a new `Effect`
   member. Its pads' parameters are table entries with new ids; a pad's output pair is the
@@ -13144,6 +13148,27 @@ unchanged by construction, and the gate itself did not run here (no WSL). After 
 review round (the bypass glide, the values gate), `engine_builtin_64` is 88.0 µs fastest
 and 94.2 µs median — the same within noise: a device that is on and settled works where
 the audio already is, and only a device that fades in or out pays for a copy.
+
+**Review round 2 (2026-11-12, a re-check).** It confirmed every fix of round 1 and
+found one more High, fixed by the parent:
+- **N1 — the running app's latency.** `Builtins` worked a device's latency out only when
+  it first attached, so a setting that moves the latency changed exports but not the live
+  routing. Now every update works out every device's latency with the one function the
+  renders use (`sounding_latencies`); test
+  `the_running_app_s_latency_follows_a_setting_of_a_device_it_holds`.
+- **N2.** The running instance's latency and tail must equal the description's for the
+  same values; a `lumen-devices` test holds every device to it at its defaults (the
+  mixer reads the instance's tail after Stop, the routing the description's latency).
+- **N3.** The label is "Mono below" (it read "Mono <").
+- **N4.** DESIGN §7k and item 10 no longer say the band carries a monogram.
+- **N5.** A device the pool refused stops reading "not running" once it is attached again.
+  A render past the pool plays those devices dry and says nothing, as the app plays them
+  dry; that is accepted.
+- **N7, for B5.** Each automated parameter takes two of a block's 64 queues (its value
+  and its lane), so a device with more than 32 driven parameters loses lanes. B5's pads
+  must stay under that or make the lane's queue replace the value's.
+- Not changed: the right-click-only tray region's accessible role (N6) and the menu's
+  "Add Prism (utility)" wording are left for B6, which owns adding built-ins.
 
 **Tests.** `lumen-devices`: the tables (ids, defaults in range, text round trip, a choice
 snaps), `values` at any block size, and `crates/lumen-devices/tests/utility.rs` — pass

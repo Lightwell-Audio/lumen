@@ -449,7 +449,7 @@ fn the_parameter_table_is_pinned_by_id_name_and_default() {
         (1, "Gain", 60.0 / 84.0),
         (2, "Pan", 0.5),
         (3, "Width", 0.5),
-        (4, "Mono <", 0.0),
+        (4, "Mono below", 0.0),
         (5, "Polarity L", 0.0),
         (6, "Polarity R", 0.0),
         (7, "Swap L/R", 0.0),

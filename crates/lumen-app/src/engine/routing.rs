@@ -236,10 +236,12 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Ro
                         // A built-in's reported latency keeps every other path
                         // lined up with it; its power button glides the node to
                         // the dry fallback rather than being ignored.
-                        crate::builtin::is_builtin(d).then(|| Device::Builtin {
-                            device: d.id.0,
-                            latency: devices.builtin.get(&d.id).copied().unwrap_or(0),
-                            bypass: d.bypass,
+                        (crate::builtin::is_builtin(d) && !d.is_instrument()).then(|| {
+                            Device::Builtin {
+                                device: d.id.0,
+                                latency: devices.builtin.get(&d.id).copied().unwrap_or(0),
+                                bypass: d.bypass,
+                            }
                         })
                     }))
                     .collect(),

@@ -92,8 +92,13 @@ mod tests {
                 .iter()
                 .map(|p| (p.id, p.normalised(p.default)))
                 .collect();
-            assert_eq!(effect_latency(name, &defaults), Some(0));
-            assert_eq!(effect_tail(name, &defaults), Some(0));
+            // A fresh device holds its defaults, and its running instance
+            // reports what its description works out for them (re-check N2):
+            // the routing reads the one, the mixer's fallback and the tail
+            // after Stop the other.
+            let fresh = effect(name).unwrap();
+            assert_eq!(effect_latency(name, &defaults), Some(fresh.latency()));
+            assert_eq!(effect_tail(name, &defaults), Some(fresh.tail()));
         }
         assert_eq!(effect_latency("nothing", &[]), None);
         assert_eq!(effect_tail("nothing", &[]), None);

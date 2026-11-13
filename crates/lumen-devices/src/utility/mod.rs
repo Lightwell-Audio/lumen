@@ -122,7 +122,7 @@ pub static TABLE: &[ParamInfo] = &[
     ),
     param(
         BASS_MONO,
-        "Mono <",
+        "Mono below",
         "Hz",
         0.0,
         400.0,

@@ -182,8 +182,14 @@ pub fn routing_values(project: &Project) -> Vec<(u64, Vec<(u32, f32)>)> {
 /// A frozen track's devices do not play (its file does), so they are left out,
 /// as the routing leaves them out.
 pub fn latencies(project: &Project) -> BTreeMap<Id, u32> {
-    let sounding = lumen_project::edit::freeze::played(project);
-    all_tracks(&sounding)
+    sounding_latencies(&lumen_project::edit::freeze::played(project))
+}
+
+/// [`latencies`] of a project whose frozen tracks are already left out: the
+/// one function both the running app (`Builtins`) and the renders read, so the
+/// two cannot disagree (review H1's re-check, N1).
+fn sounding_latencies(sounding: &Project) -> BTreeMap<Id, u32> {
+    all_tracks(sounding)
         .flat_map(|track| track.devices.iter())
         .filter(|d| is_builtin(d))
         .filter_map(|d| {
@@ -368,9 +374,6 @@ impl Builtins {
                 }
                 let id = device.id;
                 if self.attached.contains_key(&id) {
-                    // A device the pool refused is tried again when the
-                    // project changes; one it holds keeps its place.
-                    self.refused.remove(&id);
                     continue;
                 }
                 let name = name_of(device);
@@ -378,18 +381,19 @@ impl Builtins {
                     continue;
                 };
                 self.attached.insert(id, name.to_owned());
-                // Its latency is a pure function of the values the project
-                // holds (review H1), so a setting that moves it is a new
-                // routing.
-                if let Some(identity) = identity(name) {
-                    self.latency
-                        .insert(id, (identity.timing.latency)(&values(device)));
-                }
+                // A device the pool refused is tried again when the project
+                // changes; if the pool refuses it again, `take_refused` says
+                // so again (re-check N5: it no longer reads "not running"
+                // after it starts).
+                self.refused.remove(&id);
                 self.waiting.push((id, Slot::new(effect)));
             }
         }
-        self.latency
-            .retain(|id, _| wanted.iter().any(|(known, _)| known == id));
+        // Every device's latency, attached or new, is worked out again from
+        // the values the project holds (review H1 and its re-check N1): a
+        // setting that moves it is a new routing with the new number, as an
+        // export of the same project has.
+        self.latency = sounding_latencies(project);
         // A refused device that left the project is forgotten with it.
         self.refused
             .retain(|id| wanted.iter().any(|(known, _)| known == id));
@@ -654,6 +658,38 @@ mod tests {
             [(1, 480)],
             "the track is the path that holds it back"
         );
+    }
+
+    /// The re-check's N1: the running app's latencies follow a setting of a
+    /// device that is already in the project, not only a new one, so the live
+    /// routing is the one an export of the same project builds.
+    #[test]
+    fn the_running_app_s_latency_follows_a_setting_of_a_device_it_holds() {
+        use lumen_engine::{clip_player, mixer};
+        let mut timed = device(TEST_DEVICE);
+        timed.params.insert(utility::GAIN, 0.0);
+        let project_with = |timed: &Device| {
+            let mut project = crate::empty_project();
+            let mut track = Track::new(Id(1), "Audio".to_owned(), TrackKind::Audio, Color(0));
+            track.devices = vec![timed.clone()];
+            project.tracks = vec![std::sync::Arc::new(track)];
+            project
+        };
+        let (_clips, player) = clip_player();
+        let (mut handle, _source) = mixer(player);
+        let mut builtins = Builtins::default();
+        let project = project_with(&timed);
+        assert!(builtins.update(&project, &mut handle));
+        assert_eq!(builtins.latencies().get(&timed.id), Some(&240));
+
+        timed.params.insert(utility::GAIN, 1.0);
+        let project = project_with(&timed);
+        assert!(
+            builtins.update(&project, &mut handle),
+            "a new value is a change"
+        );
+        assert_eq!(builtins.latencies().get(&timed.id), Some(&480));
+        assert_eq!(builtins.latencies(), &latencies(&project));
     }
 
     /// Every device the engine can run has a personality, and every personality

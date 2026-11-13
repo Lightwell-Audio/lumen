@@ -1617,7 +1617,7 @@ only what the device *is* changes.
 - **Name and subtitle.** The card's name row holds the personality's name ("Prism") in the place a
   plugin's name sits, and its kind ("Utility") under it where a plugin's vendor sits. Menus, the lane
   chooser and tooltips use the same two words: "Prism" for the device, "Utility" for what it is. The
-  name in the *picture band* is set in Unbounded (`fonts::display`), as every card's monogram is.
+  picture band carries the device's drawing, not its name (below).
   A device has one stable saved name (`PluginRef::Builtin.name`, `"utility"`), which is never the
   personality: renaming a personality is a design change, and old projects keep their sound.
 - **Signature colour.** One hue per device in `theme::personality` (`UTILITY` for Prism, a quiet steel
