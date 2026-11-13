@@ -13491,33 +13491,45 @@ multiply-adds a side a frame) — sample-peak mode is much cheaper. The numbers
 are noisy on this machine (a shared runner): the ranges are the fastest and the
 median of three runs.
 
-**Tests.** `lumen-devices/tests/dynamics.rs` (18): the static curve end to end
+**Tests.** `lumen-devices/tests/dynamics.rs` (29): the static curve end to end
 within a tenth of a decibel at seven levels across the knee, at four ratios and
 two knees; automatic make-up keeping the loud end where it was; the
 gain-reduction meter reading what was taken away; a key ducking the input,
-listen playing the filtered key, and the key's high-pass; block-size invariance
-at 64, 97, 128, 512 and 1024 frames with every parameter automated; an
-allocation guard over a block with automation and a key; the limiter's ceiling
-on sines, noise, a step and a burst at three ceilings and three releases;
-true-peak mode under the ceiling by the meter's own reading; the limiter's
-meter; its block-size invariance; a new lookahead delayed by exactly its frames;
-an allocation guard; the table pinned by id, name and default; the latency and
-the tail equal to the description's at four settings; and a golden render of
-each, pinned by twenty samples, the sum of the magnitudes and the sum of the
-squares within a millionth (not by bits: see `9574d13b` on B0, which this
-branch cherry-picked). `lumen-engine/tests/builtins.rs` gains two: a key from
-another track, whose own track is held back 240 frames, ducks the burst it keys
-on the sample it arrives (with the compensation in the compiled plan), and an
-impulse through a limiter lands on the same sample as a dry track beside it.
-`lumen-app`: the limiter's lookahead is its latency in the *running* app and
-follows a setting (the shape of the N1 test), and a compressor hands its meter
-to the interface while Prism has none. E2E `tests/e2e/dynamics.rs` (7): the two
-commands and their cards, the face's four controls and All parameters, a typed
-value, a lane driving the ceiling and a drag taking it over, the sidechain
-chooser on a built-in with its light, the power button, the track menu's rows, and
-the meter following real playback. Shots: 48 pictures in `target/shots-b2`
-(whole, small, folded and All parameters; both themes at 100, 150 and 200 %),
-looked at, with the placeholder caveat above.
+listen playing the filtered key, the key's high-pass, and a key shorter than the
+block read only as far as it goes; block-size invariance at 64, 97, 128, 512 and
+1024 frames with **every automatable parameter of the table** moved (and a key,
+so the filter's corner is under it); allocation guards over a block with
+automation and a key and over `reset()`; the limiter's ceiling on sines, noise, a
+step and a burst at three ceilings, three releases and three lookaheads (nought
+included), from each signal's onset; the lookahead of nought delaying by
+nothing; true-peak mode under the ceiling by a long reference interpolation; the
+limiter's meter; its block-size invariance; a new lookahead delayed by exactly
+its frames, and letting go of what the line held when it changes; a lane on the
+lookahead ignored; the ceiling lowered while a peak is in the window; the mix at
+0, 50 and 100 %; RMS detection against the curve; the attack and release time
+constants; offline against playback bit for bit; latency at 44.1, 48 and 96 kHz;
+the table pinned by id, name and default; the latency and the tail equal to the
+description's at four settings; and a golden render of each, pinned by twenty
+samples, the sum of the magnitudes and the sum of the squares within a millionth
+(not by bits: see `9574d13b` on B0, which this branch cherry-picked).
+`lumen-engine/tests/builtins.rs` gains four: a key from another track, whose own
+track is held back 240 frames, ducks the burst it keys on the sample it arrives
+(with the compensation in the compiled plan); an impulse through a limiter lands
+on the same sample as a dry track beside it; a bypassed limiter plays nothing of
+what it held; and a block names the value the project holds before a lane's
+points (`held_at_rest`'s order). `lumen-app`: the limiter's lookahead is its
+latency in the *running* app and follows a setting, a compressor hands its meter
+to the interface while Prism has none, and a controller cannot be mapped to a
+device's timing (nor does a mapping from a file move it). E2E
+`tests/e2e/dynamics.rs` (11): the two commands and their cards, the face's four
+controls and All parameters, a typed value, a lane driving the ceiling and a drag
+taking it over, the sidechain chooser on a built-in with its light, the power
+button, the track menu's rows, the meter following real playback, the lookahead
+dragged while playing re-timed once on release, no Automate or Learn on it in
+either menu, the tray's rows for both devices, and a face's All-parameters panel
+saying where its controls are. Shots: 48 pictures in `target/shots-b2` (whole,
+small, folded and All parameters; both themes at 100, 150 and 200 %), looked at,
+with the placeholder caveat above.
 
 **Consequences.** Two more entries in `EFFECTS` and `builtin::IDENTITIES`, and
 two more personalities in `theme::personality`; the face's shape is provisional
@@ -13548,3 +13560,49 @@ has been heard by a person (MT-FX-3 waits).
 - **L7.** `docs/ARCHITECTURE.md` gains `dynamics/` and `chain/faces/` in its module tables, and the All-parameters panel's note.
 - **L8.** The manual test stays MT-FX-3 (the parent renumbers).
 - **L6** (face allocations) is left to the face rebuild, as the parent asked.
+
+**Review round 2 (2026-11-13, a re-check: H1, M2, M4, M5, M6, L1 and L3 to L8 confirmed).**
+
+- **N1 (Medium).** The All-parameters panel's row menu still offered Automate and
+  Learn for the lookahead; it is gated exactly as the strip's, with the same
+  line. A controller mapping to a timing parameter is refused at the document
+  level (`MapRefusal::TimingParameter`), and a mapping a file holds for one is
+  ignored (`move_control` returns false). Tests: E2E
+  `the_lookahead_offers_no_automate_and_no_learn_in_either_menu` (both menus, and
+  the ceiling still offers Automate) and
+  `document::mappings::the_lookahead_cannot_be_mapped_and_a_mapping_to_it_is_ignored`.
+- **N2 (Medium).** The compressor's block-size test passed no key, so the key
+  filter's corner was never under it. It passes one now, and fails with a
+  per-block read (measured: block 64 frame 64 differs).
+- **N3 (Medium).** L2's test measured a quiet stretch after the burst, so it
+  could not see the bug. It puts a ceiling *lane* (a step) down while the burst
+  is in the line and measures the burst's own output: it fails with the old
+  window's semantics (the burst leaves at 0.9 against a 0.1 ceiling).
+- **N4 (Low).** While a timing parameter is being dragged, its value text, its
+  tooltip and its accessible value read the hand's value
+  (`parameter_value` reads the held change first).
+- **N5 (Low).** A typed value (or a preset, or the panel) drops a drag still
+  pending for the same parameter, and the held changes are dropped when a project
+  opens and when the device goes.
+- **N6 (Low).** A changed lookahead lets go of what the line held: the line and
+  the window are cleared, so the change is a short gap and never a frame replayed
+  from outside the window the gain covers. Test
+  `raising_the_lookahead_lets_go_of_what_the_line_held` (fails without the
+  clearing: the burst leaves at 0.977 against a 0.966 ceiling).
+- **N7 (Low).** Tests: the short-key clamp (`a_key_shorter_than_the_block_is_read_only_as_far_as_it_goes`),
+  `reset()` under the allocation guard (`a_reset_never_touches_the_heap`), the
+  strip's "Not automatable" line (in the E2E above, which right-clicks the card's
+  own knob), and the device tray's rows for both devices (E2E
+  `the_device_trays_menu_adds_gravity_and_horizon`).
+- **N8 (Low).** The lookahead E2E waits for the compensation with `wait_for`
+  instead of counting frames.
+- **N9 (Low).** This ADR's test counts are brought up to date, the reference
+  interpolation's doc line is repaired (25 taps, ends left out), and an engine
+  test pins the order `held_at_rest` relies on: a block names the value the
+  project holds first, then a lane's points
+  (`a_block_names_the_value_the_project_holds_before_a_lane`).
+
+The drag's release is now read from the pointer (`apply_deferred` applies when no
+button is down) rather than from "no new value this frame": with N4's change the
+knob stops re-reporting a value it already shows, and the old test would have
+applied a drag mid-way whenever the hand paused.
