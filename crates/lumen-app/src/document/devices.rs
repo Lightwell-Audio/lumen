@@ -237,7 +237,12 @@ impl Document {
             DeviceKind::Effect => TrackKind::Audio,
         };
         let id = self.fresh_id();
-        let device = with_values(fresh_device(id, plugin), values);
+        let mut device = with_values(fresh_device(id, plugin), values);
+        // A sampler arriving on a new track has its own sixteen pads, ready
+        // for the files they will be given (M8 slice B5).
+        if device.is_sampler() {
+            device.sampler = Some(lumen_project::model::Sampler::empty(None));
+        }
         let track = self.insert_track(kind, after, Some(device));
         Ok((track, id))
     }
@@ -278,9 +283,7 @@ impl Document {
         // the map the track names, the sixteen of its own when it names none.
         if device.is_sampler() {
             let map = drum_map.and_then(|map| self.drum_map(map)).cloned();
-            let mut sound = lumen_project::model::Sampler::default();
-            sound.keep_pads(&lumen_project::model::Sampler::pads_for(map.as_ref()));
-            device.sampler = Some(sound);
+            device.sampler = Some(lumen_project::model::Sampler::empty(map.as_ref()));
         }
         let name = name_of(&device);
         let label = match (kind, replaced) {

@@ -264,6 +264,16 @@ pub struct Sampler {
 }
 
 impl Sampler {
+    /// An empty sound: nothing to play yet, and a pad for every sound of
+    /// `map` (or the sixteen of its own when the track names none), so a
+    /// sampler that arrives is ready for the pads it will be given.
+    pub fn empty(map: Option<&DrumMap>) -> Self {
+        let mut sound = Self::default();
+        let notes = Self::pads_for(map);
+        sound.keep_pads(&notes);
+        sound
+    }
+
     /// The pad of `note`, if the sampler has one.
     pub fn pad(&self, note: u8) -> Option<&Pad> {
         self.pads.iter().find(|p| p.note == note)

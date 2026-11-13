@@ -134,7 +134,7 @@ impl Lanes {
     /// finished decoding are read here, and every file the project names is
     /// asked for if it is not loaded — an opened project decodes its samples
     /// as it decodes its clips, off the audio thread.
-    fn follow_samples(&mut self, doc: &Document, rate: u32) {
+    fn follow_samples(&mut self, doc: &Document, rate: u32) -> bool {
         self.samples.update(rate);
         for media in &doc.project().media {
             if self.samples.get(media.id).is_some() {
@@ -144,6 +144,9 @@ impl Lanes {
                 self.samples.load(media.id, path.clone(), rate);
             }
         }
+        // A sample that arrived is what a sampler plays, so the list that
+        // carries it is built again (a relinked file reaches the audio here).
+        self.samples.take_arrived()
     }
 
     /// Files are still loading for import.
@@ -430,7 +433,7 @@ impl Lanes {
         // The samples the project's samplers play (M8 slice B5): the files the
         // project holds are decoded off the audio thread, and a sound is made
         // for the list where they are ready.
-        self.follow_samples(doc, rate);
+        self.midi_dirty |= self.follow_samples(doc, rate);
         // Sent again when the project, the selection or the inputs change
         // (which tracks listen to what), never every frame.
         // The lanes of plugin instruments are baked for the device's rate.

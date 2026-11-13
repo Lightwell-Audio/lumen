@@ -29,6 +29,7 @@ pub use instance::{HandOver, not_answering_window};
 mod media_pool;
 mod midi;
 mod preferences;
+mod sampler;
 mod streaming;
 mod tools;
 mod welcome;

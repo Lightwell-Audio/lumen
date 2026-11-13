@@ -152,6 +152,9 @@ pub struct Library {
     /// Why a file could not be decoded, by media id and the path tried, until
     /// it is asked for at another place (a relink).
     failed: Vec<(Id, PathBuf, String)>,
+    /// A sample arrived since this was last read, so what the engine plays is
+    /// built again (a relinked file reaches the audio through this).
+    arrived: bool,
 }
 
 impl Library {
@@ -252,6 +255,7 @@ impl Library {
                         Ok(loaded) => {
                             self.loaded.insert(loaded.media, loaded.source.clone());
                             self.ready.push(loaded);
+                            self.arrived = true;
                         }
                         Err((path, why)) => self.failed.push((working.media, path, why)),
                     }
@@ -265,6 +269,12 @@ impl Library {
             }
         }
         self.working = still;
+    }
+
+    /// Whether a sample arrived since this was last asked, which is when what
+    /// the engine plays is built again.
+    pub fn take_arrived(&mut self) -> bool {
+        std::mem::take(&mut self.arrived)
     }
 
     /// The files that finished decoding, taken once.
@@ -291,6 +301,11 @@ impl Library {
     pub fn sound(&self, device: &Device, map: Option<&DrumMap>) -> Option<Arc<Sound>> {
         let held = device.sampler()?;
         Some(Arc::new(self.build(held, map)))
+    }
+
+    /// How many bytes of samples are held.
+    pub fn memory(&self) -> usize {
+        self.loaded.values().map(|s| s.sample.memory()).sum()
     }
 
     /// [`Library::sound`] for a sampler's sound without a device.
