@@ -13767,3 +13767,144 @@ no longer repeats the activation egui already reports (L9).
 a saved preference for the view, and auditioning a lane from a hardware pad
 (the lane's name auditions the sound; a pad plays the track already).
 
+
+## ADR-XXXX — Shutter, the built-in sampler (M8 slice B5)
+
+**Status.** Proposed (M8 slice B5; the parent assigns the number). Brief:
+`docs/milestones/M8.md` §5 "B5 — Sampler"; the owner's SP A, CO A and RT in §2;
+decisions E1, E2, E5, E6 and E7 in §6; open risk 4 in §8.
+
+**Context.** M8's device lane gives Lumen its own instruments and effects. B0 built
+the effect path (ADR-0145) and the synth is Lumen's first instrument (ADR-0045);
+nothing yet plays a user's files. The sampler is the milestone's exit-criterion
+instrument ("drop their own one-shots on its pads"), so it has to load samples,
+play them sample-exactly, answer a drum map's sounds on pads, and be part of the
+project's media in a way save, Collect and save, Relink and the media pool already
+understand. It is also the first built-in *instrument* on the device path, and the
+first device whose sound is data a worker has to decode.
+
+**Options.**
+
+- **How the decoded audio reaches the audio thread.** (A) A per-device lock-free
+  queue into the running instrument, with the retired sound pushed back for the
+  interface to free (the pattern the mixer's built-in pool uses). (B) The sound
+  travels with the MIDI track list, and the engine hands it to the instrument
+  when the list arrives, keeping the replaced one in the retired list. (C) The
+  instrument is rebuilt whenever its sound changes, keyed by a revision in
+  `InstrumentSpec::kind`.
+- **Where a sound's data lives in the model.** (A) A `sampler` field on the
+  `Device`, naming media ids. (B) A project-level list of sounds devices point
+  at. (C) The audio in the project file.
+- **What is a parameter and what is model data.** (A) The shared behaviours
+  (level, pitch, envelope, filter, velocity) are parameters in the device's
+  table, and the regions, zones and pads are model data. (B) Every pad's every
+  control a parameter. (C) All model data.
+- **What a drum pad does with a note-off.** (A) A pad in a choke group fades over
+  its choke fade; one outside a group plays its sample to its end. (B) Every pad
+  fades at every note-off. (C) Every pad ignores note-offs.
+
+**Choices.**
+
+1. **The sound travels with the track list** (option 1B). `MidiTrack` gains
+   `sound: Option<Arc<Sound>>` and `values: Vec<(u32, f32)>`; `carry` hands the
+   sound to the instrument through a new defaulted
+   `Instrument::load_sound(Arc<Sound>) -> Option<Arc<Sound>>`, which returns the
+   one it played before, and that handle is put into the **old** list, which the
+   interface frees (`MidiHandle::collect_garbage`). So no allocation, no free and
+   no lock ever happens on the audio thread, and the interface's decoded buffer
+   is never the last owner of a sample. A queue per device (1A) needs a consumer
+   that survives the instrument being rebuilt on every project edit, which the
+   player's carry does not give it; rebuilding the instrument per revision (1C)
+   would restart every sounding note when a knob's *value* changed, and could
+   not carry the note-on state. `attach_sounds` (`midi/play.rs`) is the one place
+   a sound reaches a list, and a bounce, a freeze and an export call it with the
+   samples their job carried, so a render hears what playback did.
+2. **The sound is model data on the device** (option 2A). `Device.sampler:
+   Option<Sampler>` (format v36) holds the face and its regions, zones and pads;
+   every sample is a media id, so the media pool lists it, Relink finds it, and
+   Collect and save copies it with no new code — `edit::media::users` counts a
+   sampler's media as used, which is what keeps a purge from dropping a pad's
+   file. Region positions are frames of the **file's** rate, as a waveform shows
+   them, and are mapped to the decoded buffer's rate when a sound is built.
+3. **Parameters are the shared behaviours; pads are model data** (option 3A).
+   `lumen_devices::sampler::TABLE` holds eleven stable ids: Level, Pitch, Fine,
+   Attack, Decay, Sustain, Release, Filter (off/low/high), Cutoff, Res and
+   Vel>Level. Their values travel to the instrument in the block's `ParamBlock`
+   (the mixer's path for a built-in's values, B0 choice 3, extended to
+   instruments: `gather_track` opens a queue for each and then adds the track's
+   lanes), so a knob and a lane are the same code. A pad's level, pan, tune,
+   output pair and choke fade are model data, because there can be up to 128 pads
+   and a block's queue room is 64: a parameter table of 400 entries could not be
+   automated at all.
+4. **A pad in a choke group honours a note-off; one outside a group rings to the
+   end of its sample** (option 4A). CO A has the engine send a note-off at the
+   choking hit's sample, so a pad in a group must honour it; a drum sampler's
+   other pads play their one-shot to its end, which is what makes a crash or a
+   kick sound natural at any note length. A pad struck again always takes its own
+   earlier hit with it, over the same fade. The fade is the pad's `choke_fade`
+   (5 ms by default, the owner's CO A), so nothing clicks. The sampler also
+   enforces a group's choke itself from the map's groups, so the hit is
+   click-free even if only one of the two paths is in play. Being one-shots, a
+   pad's voices ring out after a Stop; Panic silences them at once.
+5. **A sample at its root key is the file's frames, to the bit.** At unity gain,
+   a zero attack, 100 % sustain, no filter and no pan the render path is one
+   multiply by 1.0: the test
+   `a_sample_at_its_root_key_is_the_file_sample_for_sample` compares every frame.
+   Away from the root, a 4-point Catmull-Rom reads between frames, and
+   `a_pitched_render_follows_the_resampler_s_reference` pins the error below 1e-6
+   against an independent `f64` reference written in the test. That is this
+   device's golden: the effects' hashed renders are not available to an
+   instrument, whose output depends on the notes, so the reference *is* the pin,
+   and it is computed in `f64` rather than stored, which keeps it the same on
+   every platform.
+6. **Transcendentals are `f64`.** The pitch ratio is `2^(st/12)` in `f64` and the
+   SVF filter's `tan` is `f64`; nothing on the render path calls an `f32` `sin`,
+   `cos`, `tan`, `exp`, `ln` or `powf` (B1's lesson). The envelope, the pan
+   (balance, which is arithmetic) and the interpolation are arithmetic in `f32`.
+   Block-size invariance holds at 64, 128, 512, 1024 and 97 frames because a
+   voice counts its own frames for its pitch and filter knots and reads the
+   block's curves by frame.
+7. **The face is not built here.** The device registers as the framework's plain
+   built-in card — its name, subtitle ("Sampler") and hue (`#6FA8FF`, its deep
+   shade `#1F6FD1` beside it in `theme::personality`) — and every behaviour is
+   reachable through the palette, its menus and All parameters. The drawn face
+   (SP A's One shot, Zones and Pads) is built next; the functions it calls are
+   `Document::{set_sampler_face, next_sampler_face, set_sampler_loop,
+   set_sampler_reverse, set_sampler_region, set_sampler_zone,
+   remove_sampler_zone, set_sampler_pad, clear_sampler, add_samples}`,
+   `Document::{sampler_map, sampler_sound}`, and
+   `App::{chosen_sampler, choose_samples, load_sample_files, poll_sampler,
+   next_sampler_face, set_sampler_loop, set_sampler_reverse, clear_sampler}`.
+8. **Per-pad output pairs are the instrument's auxiliary outputs** (the owner's
+   RT). `lumen_devices::sampler::PAIRS` is 8; a pad's `output` picks one, and the
+   voices of each pair are summed into the pair's own buffers, handed out through
+   `Instrument::output` exactly as a multi-output plugin's are. `midi/play.rs`
+   maps every pair to the audio track whose `plugin_output` names that bus, or to
+   the instrument's own track when no track does, so a pad routed to a pair is
+   heard rather than lost before D4 makes the tracks. **How D4 hooks in:** its
+   Output column lists `Main`, `Pair 1` … `Pair 8` for a sampler track (the same
+   names it lists for a plugin's buses), writing `Sound.output` through
+   `Document::set_sampler_pad`; its track creation writes `Track.plugin_output {
+   device, bus: pair }`, which the sampler's mapping already honours, and its
+   "route all sounds" step is the same edit for every pad of the map in one undo
+   step. Nothing else in this slice needs changing for D4.
+
+**Not here.** A drawn face (the next slice); disk streaming of large sample sets
+(risk 4: everything is loaded in memory, and the library's `memory()` reports the
+total); MIDI-triggered slice maps; presets for the sampler beyond its parameters
+(B6 owns factory presets); a pad whose note length is overridden by the map
+(D0's `Sound.length` already does that); velocity layers beyond key and velocity
+zones (a zone is one file); looping points other than the region.
+
+**Consequences.** The model grows a device-local structure (format v36) whose
+media are ordinary project media, so nothing in the pool, Relink, Collect or the
+save path is new. The instrument path gains `load_sound` and values for a
+built-in instrument: the synth (B4) can use the same two for its own parameters
+without touching this code. A sampler's samples are held decoded for the session
+(a few hundred MB for a kit of long files), which the library's `memory()` makes
+visible. Voices are bounded at 64, and a voice keeps its own handle to its sample
+so a sound can be replaced under a sounding note.
+
+**Not run here.** The WSL performance gate and the macOS cross-target clippy
+cannot run on this machine; the device has no drawn face, so there are no
+screenshots at 100, 150 and 200 % in both themes.

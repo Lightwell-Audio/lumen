@@ -395,11 +395,6 @@ fn number_in(text: &str, units: &[&str]) -> Option<f32> {
         .filter(|value| value.is_finite())
 }
 
-/// The value of a normalised parameter in its own units.
-fn own(id: u32, x: f32) -> f32 {
-    params::find(TABLE, id).map_or(0.0, |info| info.value(x))
-}
-
 /// A gain in decibels, silent at the floor. Worked out in `f64`.
 fn db_to_gain(db: f32) -> f32 {
     if db <= FLOOR_DB {
@@ -557,6 +552,18 @@ impl Fx {
             v2
         }
     }
+}
+
+/// What every voice of one frame reads: the block's curves, worked out once.
+#[derive(Debug, Clone, Copy)]
+struct FrameValues {
+    pitch: f32,
+    fine: f32,
+    mode: u8,
+    cutoff: f32,
+    resonance: f32,
+    /// How much a note's velocity sets its level, 0 to 1.
+    velocity: f32,
 }
 
 /// One sounding note.
@@ -879,10 +886,9 @@ impl Sampler {
             9 => &self.curves.resonance,
             _ => &self.curves.velocity,
         };
-        own(
-            TABLE[index].id,
-            curve[frame.min(self.filled.saturating_sub(1))],
-        )
+        // The table's own row, not a search: this runs for every voice of
+        // every frame.
+        TABLE[index].value(curve[frame.min(self.filled.saturating_sub(1))])
     }
 
     /// The envelope's four times at `frame`.
@@ -895,10 +901,18 @@ impl Sampler {
         ]
     }
 
-    /// The gain a note of `velocity` gets, from the block's Vel>Level.
-    fn velocity_gain(&self, frame: usize, velocity: u8) -> f32 {
-        let amount = (self.at(frame, PARAMS - 1) / 100.0).clamp(0.0, 1.0);
-        1.0 - amount + amount * (f32::from(velocity) / 127.0)
+    /// What every voice of a frame reads: the pitch and fine offset, the
+    /// filter's settings and the velocity's share. Worked out once a frame,
+    /// not once a voice.
+    fn frame_values(&self, frame: usize) -> FrameValues {
+        FrameValues {
+            pitch: self.at(frame, 1),
+            fine: self.at(frame, 2),
+            mode: self.at(frame, 7).round().clamp(0.0, 2.0) as u8,
+            cutoff: self.at(frame, 8),
+            resonance: self.at(frame, 9) / 100.0,
+            velocity: (self.at(frame, PARAMS - 1) / 100.0).clamp(0.0, 1.0),
+        }
     }
 
     /// Strikes a note at `frame` of the block.
@@ -907,6 +921,7 @@ impl Sampler {
             self.release(key, frame);
             return;
         }
+        let values = self.frame_values(frame);
         let Some(source) = self.sound.voice_for(key, velocity) else {
             return;
         };
@@ -920,11 +935,9 @@ impl Sampler {
         );
         let (reversed, looping, root) = (region.reversed, region.looping, region.root);
         let (pan, tune, output) = (source.pan, source.tune, source.output);
-        let (choke, choke_fade, gain) = (
-            source.choke,
-            source.choke_fade,
-            source.gain * self.velocity_gain(frame, velocity),
-        );
+        let velocity_gain = 1.0 - values.velocity + values.velocity * (f32::from(velocity) / 127.0);
+        let (choke, choke_fade, gain) =
+            (source.choke, source.choke_fade, source.gain * velocity_gain);
         // A pad that is in a choke group ends its group's other notes at this
         // very frame, each over its own fade (the owner's CO A: the engine
         // sends the note-off too, and this makes it click-free either way); a
@@ -976,7 +989,7 @@ impl Sampler {
             cut: Fx::OFF,
             order: self.order,
         };
-        self.tune_voice(index, frame);
+        self.tune_voice(index, &values);
     }
 
     /// Ends the sounding voices of `note` at once, over their own choke fade
@@ -1020,12 +1033,7 @@ impl Sampler {
     }
 
     /// Reads a voice's pitch and filter at its `age`, and sets its step.
-    fn tune_voice(&mut self, index: usize, frame: usize) {
-        let pitch = self.at(frame, 1);
-        let fine = self.at(frame, 2);
-        let mode = self.at(frame, 7).round().clamp(0.0, 2.0) as u8;
-        let cutoff = self.at(frame, 8);
-        let resonance = self.at(frame, 9) / 100.0;
+    fn tune_voice(&mut self, index: usize, values: &FrameValues) {
         let rate = self.rate;
         let voice = &mut self.voices[index];
         let Some(sample) = voice.sample.as_ref() else {
@@ -1033,11 +1041,11 @@ impl Sampler {
         };
         let semitones = f64::from(i16::from(voice.key) - i16::from(voice.root))
             + f64::from(voice.tune)
-            + f64::from(pitch)
-            + f64::from(fine) / 100.0;
+            + f64::from(values.pitch)
+            + f64::from(values.fine) / 100.0;
         voice.semitones = semitones;
         voice.step = (semitones / 12.0).exp2() * f64::from(sample.rate()) / f64::from(rate.max(1));
-        voice.cut = Fx::new(mode, cutoff, resonance, rate);
+        voice.cut = Fx::new(values.mode, values.cutoff, values.resonance, rate);
     }
 
     /// A voice to strike: one that is done, else the oldest.
@@ -1056,16 +1064,23 @@ impl Sampler {
 
     /// Mixes one voice's frame into the block.
     #[inline]
-    fn mix(&mut self, index: usize, frame: usize, left: &mut [f32], right: &mut [f32]) {
+    fn mix(
+        &mut self,
+        index: usize,
+        frame: usize,
+        (times, values): ([f32; 4], &FrameValues),
+        left: &mut [f32],
+        right: &mut [f32],
+    ) {
         if !self.voices[index].playing() {
             return;
         }
         // The pitch and the filter are read at the voice's own knots, so a
         // block of any size plays the same frames.
         if self.voices[index].age.is_multiple_of(KNOT) {
-            self.tune_voice(index, frame);
+            self.tune_voice(index, values);
         }
-        let mut times = self.times(frame);
+        let mut times = times;
         if self.voices[index].release_seconds > 0.0 {
             times[3] = self.voices[index].release_seconds;
         }
@@ -1147,9 +1162,11 @@ impl Instrument for Sampler {
                 next += 1;
             }
             let level = self.level_gain(frame);
+            let values = self.frame_values(frame);
+            let times = self.times(frame);
             for index in 0..MAX_VOICES {
                 if self.voices[index].playing() {
-                    self.mix(index, frame, left, right);
+                    self.mix(index, frame, (times, &values), left, right);
                 }
             }
             let (l, r) = (left[frame], right[frame]);

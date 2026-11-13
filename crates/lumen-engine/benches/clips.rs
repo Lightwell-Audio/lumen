@@ -142,3 +142,70 @@ fn engine_builtin_64(bencher: divan::Bencher<'_, '_>) {
     }
     bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
 }
+
+/// One sampler with every one of its voices sounding (M8 slice B5): what 64
+/// pitched, filtered voices cost a block, and the share of a 128-sample
+/// block at 48 kHz that is (2.67 ms).
+#[divan::bench]
+fn sampler_64_voices_at_128_frames(bencher: divan::Bencher<'_, '_>) {
+    use lumen_core::midi::Event;
+    use lumen_devices::sampler::{self, Sample, Sampler, Sound};
+    use lumen_devices::{Instrument, ParamBlock};
+    use std::sync::Arc;
+
+    let frames = 48_000;
+    let sample = Arc::new(
+        Sample::new(
+            48_000,
+            2,
+            frames,
+            (0..frames * 2)
+                .map(|k| (k as f32 * 0.001).sin() * 0.3)
+                .collect(),
+        )
+        .expect("a stereo sample"),
+    );
+    let mut sound = Sound {
+        face: sampler::Face::Pads,
+        ..Sound::default()
+    };
+    for note in 0..64u8 {
+        sound.pads.push(sampler::Pad::new(
+            note,
+            Some(sampler::Region {
+                looping: true,
+                ..sampler::Region::whole(Arc::clone(&sample), note)
+            }),
+        ));
+    }
+    let mut device = Sampler::new(Arc::new(sound));
+    // All 64 notes struck in the first block, through the block's values.
+    let mut events = ParamBlock::new();
+    events.start(128);
+    for info in sampler::TABLE {
+        events.open(info.id);
+        events.point(0, f64::from(info.normalised(info.default)));
+    }
+    let mut struck = true;
+    let mut data = vec![0.0; 256];
+    bencher.bench_local(|| {
+        let mut left = [0.0_f32; 256];
+        let mut right = [0.0_f32; 256];
+        device.automate(&events);
+        let notes: Vec<Event> = if struck {
+            struck = false;
+            (0..64)
+                .map(|note| Event {
+                    offset: 0,
+                    msg: lumen_core::midi::Msg::note_on(0, note, 100),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        device.render(48_000, &notes, &mut left[..128], &mut right[..128]);
+        data[0] = left[0];
+        data[1] = right[0];
+        divan::black_box(&data);
+    });
+}
