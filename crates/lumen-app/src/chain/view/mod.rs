@@ -72,6 +72,8 @@ mod menu;
 mod paint;
 mod panel;
 mod rows;
+pub(in crate::chain) use rows::DrawingRow;
+use rows::personal_of;
 
 #[cfg(test)]
 mod tests;

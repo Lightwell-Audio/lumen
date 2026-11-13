@@ -33,6 +33,17 @@ pub(super) struct Row {
     pub(super) sidechain: Option<sidechain::Look>,
     /// The outputs row of a plugin instrument with several outputs.
     pub(super) outputs: Option<outputs::Look>,
+    /// A built-in with a drawing (M8): its card is a set piece, and these are
+    /// the values it reads.
+    pub(super) drawing: Option<DrawingRow>,
+}
+
+/// A built-in's drawing and its values: one slot for each parameter it reads or
+/// has a control or handle for, in [`face::Drawing::params`] order.
+pub(in crate::chain) struct DrawingRow {
+    pub(in crate::chain) drawing: &'static crate::chain::face::Drawing,
+    pub(in crate::chain) slots: Vec<strip::Slot>,
+    pub(in crate::chain) table: &'static [lumen_devices::params::ParamInfo],
 }
 
 pub(super) enum OwnedFace {
@@ -94,7 +105,7 @@ impl App {
             PluginRef::Builtin { name } => match crate::builtin::identity(name) {
                 Some(identity) => (
                     identity.name.to_owned(),
-                    identity.kind.to_owned(),
+                    identity.subtitle.to_owned(),
                     name.clone(),
                 ),
                 None => (
@@ -140,6 +151,11 @@ impl App {
         } else {
             (Vec::new(), 0)
         };
+        let drawing = if builtin && matches!(face, OwnedFace::Ready) {
+            self.drawing_of(d)
+        } else {
+            None
+        };
         let editor = if builtin {
             // A built-in's controls are its card and All parameters: there is
             // no separate window.
@@ -166,6 +182,7 @@ impl App {
             latency_ms,
             sidechain: None,
             outputs: None,
+            drawing,
         }
     }
 }
@@ -191,4 +208,23 @@ pub(super) fn ago(age: std::time::Duration) -> String {
         60..3600 => format!("{} min", seconds / 60),
         _ => format!("{} h", seconds / 3600),
     }
+}
+
+/// What a built-in's card adds to a plain one: its hue, its drawing with the
+/// values it reads, the step its card is at and what it hears (M8).
+pub(super) fn personal_of(
+    row: &Row,
+    step: crate::chain::geometry::Step,
+    level: f32,
+) -> Option<card::Personal<'_>> {
+    let identity = crate::builtin::identity(&row.identity).filter(|_| row.builtin)?;
+    let drawing = row.drawing.as_ref()?;
+    Some(card::Personal {
+        hue: identity.colour,
+        drawing: drawing.drawing,
+        slots: &drawing.slots,
+        table: drawing.table,
+        step,
+        level,
+    })
 }

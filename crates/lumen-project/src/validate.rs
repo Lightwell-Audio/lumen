@@ -79,13 +79,22 @@ fn device_data(device: &Device) -> Result<(), String> {
             }
         }
         PluginRef::Builtin { .. } => {
+            // A built-in has no plugin state of its own: no controller state,
+            // no version, no reported latency, no sidechain. Its values are
+            // the ones its table names, saved by id (M8 slice B0), so they are
+            // held to the same bounds as a plugin's — a file that says
+            // otherwise is damaged or crafted.
             if !device.controller_state.is_empty()
                 || !device.plugin_version.is_empty()
                 || device.reported.is_some()
-                || !device.params.is_empty()
                 || device.sidechain.is_some()
             {
                 return Err("a built-in device holds plugin-only data".into());
+            }
+            if device.params.len() > MOST_PARAMS
+                || device.params.values().any(|v| !(0.0..=1.0).contains(v))
+            {
+                return Err("a built-in's parameter values are out of range".into());
             }
         }
     }
@@ -636,8 +645,65 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::model::{Level, Send};
+    use crate::model::{Level, PluginRef, Send};
     use crate::testing::small_project;
+
+    /// A built-in device saves the values its table names, by id (M8 slice
+    /// B0), so a project holding them is valid; a value outside 0 to 1, or
+    /// plugin-only data, is not. A save of a project with a built-in was
+    /// refused before M8 slice B1 found it.
+    #[test]
+    fn a_built_in_may_hold_its_parameter_values_and_nothing_else() {
+        let project = small_project(3);
+        let check = |edit: &dyn Fn(&mut Device)| {
+            let mut p = project.clone();
+            let track = Arc::make_mut(&mut p.tracks[5]);
+            let mut device = Device::new(
+                Id(900),
+                PluginRef::Builtin {
+                    name: "eq".to_owned(),
+                },
+                false,
+                Vec::new(),
+            );
+            edit(&mut device);
+            track.devices.push(device);
+            validate(&p)
+        };
+        assert_eq!(
+            check(&|d: &mut Device| {
+                d.params.insert(1, 0.5);
+                d.params.insert(11, 0.25);
+            }),
+            Ok(())
+        );
+        // A value a file may have damaged: refused as a plugin's would be.
+        assert!(
+            check(&|d: &mut Device| {
+                d.params.insert(1, 1.5);
+            })
+            .unwrap_err()
+            .contains("out of range")
+        );
+        // Data only a plugin has: refused.
+        assert!(
+            check(&|d: &mut Device| {
+                d.plugin_version = "1.0".to_owned();
+            })
+            .unwrap_err()
+            .contains("plugin-only data")
+        );
+        assert!(
+            check(&|d: &mut Device| {
+                d.sidechain = Some(crate::model::Sidechain {
+                    from: Id(1),
+                    tap: crate::model::SidechainTap::default(),
+                });
+            })
+            .unwrap_err()
+            .contains("plugin-only data")
+        );
+    }
 
     #[test]
     fn outputs_and_sends_must_go_where_audio_can_go() {
