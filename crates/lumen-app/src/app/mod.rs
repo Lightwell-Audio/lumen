@@ -21,6 +21,7 @@ pub(crate) mod detail;
 mod draw_clip;
 pub(crate) mod drum_choice;
 pub(crate) mod drum_map_window;
+pub(crate) mod drum_routing;
 pub(crate) mod editing;
 pub(crate) mod follow_detect;
 pub(crate) mod grid;

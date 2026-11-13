@@ -303,6 +303,8 @@ pub(crate) enum Command {
     HideUnusedLanes,
     DrumMuteLane,
     DrumSoloLane,
+    DrumRouteAll,
+    DrumRouteClear,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -693,6 +695,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::HideUnusedLanes, "view.hide_unused_lanes", "Hide unused lanes", Area::View, &[], "In the drum editor's lanes, shows only the sounds the opened clip plays; again shows the map's every sound. A view only: no note and no map changes."),
     info(Command::DrumMuteLane, "midi.mute_lane", "Mute the picked lane", Area::Midi, &[], "Mutes the drum map's sound of the lane the picked hits are in, or unmutes it when all are muted. The map editor's M is the same switch; one undo step."),
     info(Command::DrumSoloLane, "midi.solo_lane", "Solo the picked lane", Area::Midi, &[], "Solos the drum map's sound of the lane the picked hits are in, so only it is heard, or unsolos it. The map editor's S is the same switch; one undo step."),
+    info(Command::DrumRouteAll, "track.drum_route_all", "Route all sounds to tracks", Area::Track, &[], "Gives the selected MIDI track's drum sounds an output track each, in the map's order, on the pairs its instrument has, and groups the kit and its tracks. A sound the instrument has no pair left for stays on the kit track. One undo step."),
+    info(Command::DrumRouteClear, "track.drum_route_clear", "Send the sounds back to the kit track", Area::Track, &[], "Sends every sound of the selected MIDI track's drum map back to the kit track in one undo step, taking away the output tracks that are left empty. A track holding clips or devices is kept."),
 ];
 
 const fn info(
@@ -756,7 +760,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::DrumSoloLane as usize + 1,
+            Command::DrumRouteClear as usize + 1,
             ALL.len(),
             "a command is missing"
         );
