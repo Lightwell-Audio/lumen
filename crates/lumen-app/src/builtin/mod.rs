@@ -34,9 +34,12 @@ use crate::theme;
 pub struct Identity {
     /// The name of its own ("Prism").
     pub name: &'static str,
-    /// What it is ("Utility"): the card's subtitle, and the plain name in
-    /// tooltips and the parameter list.
+    /// What it is ("Utility"): the plain name in tooltips and the parameter
+    /// list.
     pub kind: &'static str,
+    /// What the card says under its name: what it is, and what it does
+    /// ("Utility · gain, width, mono").
+    pub subtitle: &'static str,
     /// Its signature colour (`theme::personality`).
     pub colour: Color32,
     /// Its table, and how its latency and tail follow its values (M8 slice B0,
@@ -61,6 +64,7 @@ const IDENTITIES: &[(&str, Identity)] = &[
         Identity {
             name: "Prism",
             kind: "Utility",
+            subtitle: "Utility \u{00B7} gain, width, mono",
             colour: theme::personality::UTILITY,
             timing: &utility::DESCRIPTION,
         },
@@ -71,6 +75,7 @@ const IDENTITIES: &[(&str, Identity)] = &[
         Identity {
             name: "Test timer",
             kind: "Test",
+            subtitle: "Test",
             colour: theme::personality::UTILITY,
             timing: &TEST_TIMING,
         },
