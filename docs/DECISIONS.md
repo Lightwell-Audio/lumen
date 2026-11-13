@@ -13843,7 +13843,10 @@ missing was the route from a *sound* to that track, and from a sound to
    group that held only the tracks a routing edit takes away goes with them.
    The group holds the made tracks, not the kit track: the kit's own output
    stays where it was, which is where a multi-output instrument's own bus
-   belongs.
+   belongs. **Deleting a track a sound is sent to** sends that sound back to
+   its kit track in the same undo step (`forget_routes_to`), because
+   `validate` refuses a route that names no track and a save must never be
+   refused for a deletion's doing.
 7. **Routing is for the clips a sound plays; live pads and audition keep
    the kit's instrument.** A pad struck on a mapped track, or a lane's name
    auditioned, still plays the track's own instrument, because live input is

@@ -709,6 +709,30 @@ mod tests {
     }
 
     #[test]
+    fn deleting_the_track_a_sound_was_sent_to_sends_it_home_in_one_step() {
+        let (mut doc, kit, other, map, _) = kit();
+        let (input, _, _) = sound(&doc, map, 0);
+        doc.route_drum_sound(kit, map, input, Route::Track(other))
+            .unwrap();
+        doc.seal();
+        doc.delete_tracks(&[other]);
+        assert_eq!(
+            route_of(&doc, map, input),
+            Route::Main,
+            "a route names a track, and the track is gone"
+        );
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+        assert_eq!(doc.undo().as_deref(), Some("Delete track"));
+        assert_eq!(route_of(&doc, map, input), Route::Track(other));
+        assert_eq!(
+            doc.undo().as_deref(),
+            Some("Route the drum sound"),
+            "and the route before it"
+        );
+        assert_eq!(route_of(&doc, map, input), Route::Main);
+    }
+
+    #[test]
     fn a_group_at_the_deepest_level_is_not_made_but_the_tracks_are() {
         let (mut doc, kit, _, map, _) = kit();
         // Three groups around the kit track already.
