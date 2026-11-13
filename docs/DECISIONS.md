@@ -13502,8 +13502,7 @@ and 1024 frames with a lane; no allocation over blocks with automation; a new de
 tail before any block. `lumen-engine/tests/time_builtins.rs` (7): the tempo map reaching
 the device through the engine (a quarter at 120 and at 60 after a change at 96000); the
 same audio at five block sizes through the mixer; an offline render equal to playback
-(the delay's bit for bit; the reverb's within a ten-thousandth, since a render's
-lead-in seeds a last-bit difference in a recursive tail that the loop then carries);
+(both bit for bit, after the parent's review below);
 a delay's and a reverb's tails ringing after Stop (`Source::ringing`); and two
 golden renders pinned by twenty samples, the sum of |x| and the sum of x^2, each within
 1e-6 relative (not by a hash of the bits: CI's platforms round `exp`/`powf` a last bit
@@ -13539,3 +13538,12 @@ mixer's internal `Pass` gained it; `lumen_devices::EFFECTS`, `effect()` and
 two personalities; the export and the bounce read the project's tail. No format or
 settings change.
 
+**Parent's review (2026-11-13).** The handoff accepted a reverb render that differed from
+playback by up to 1e-4. The cause was not the recursion: both devices read their lines
+at `write as f32 - behind`, so the fraction a read interpolated by depended on how far the
+write point had travelled. A render's lead-in moved it, and the delay's 4 s line at
+192 kHz (768,000 frames) put the fraction on a grid of a sixteenth of a frame, which
+would have stepped a gliding delay time. Both now read through `line::read_behind`, which
+splits `behind` into whole frames and a fraction before touching the write index (test
+`a_read_does_not_depend_on_where_the_write_point_is`). The reverb's render now equals
+playback bit for bit, and Afterglow's golden pins moved by a millionth with it.

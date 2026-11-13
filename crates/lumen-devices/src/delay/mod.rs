@@ -569,14 +569,7 @@ impl Delay {
     /// The frame `behind` frames before the write point, read between the two
     /// frames it falls between.
     fn read(lines: &[Box<[f32]>; 2], write: usize, side: usize, behind: f32) -> f32 {
-        let line = &lines[side];
-        let len = line.len();
-        let position = (write as f32 - behind).rem_euclid(len as f32);
-        let first = (position as usize) % len;
-        let frac = position - first as f32;
-        let a = line[first];
-        let b = line[(first + 1) % len];
-        a + (b - a) * frac
+        crate::line::read_behind(&lines[side], write, behind)
     }
 }
 

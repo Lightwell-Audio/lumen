@@ -405,21 +405,16 @@ fn an_offline_render_plays_what_playback_plays_with_a_reverb() {
     );
     assert_eq!(ended, Ended::Done);
     assert_eq!(rendered.len(), 12_000);
-    // Within a hundredth of the amplitude rather than bit for bit: the
-    // reverb's recursive tail reads its lines at fractional positions, so the
-    // lead-in a render plays before the span can seed a last-bit difference
-    // that the loop then carries (the delay's wet-only render is
-    // bit-identical).
-    let mut worst = 0.0f32;
+    // Bit for bit, after the first few frames the render's fade-in shapes: the
+    // lines are read by whole frames and a fraction (`line::read_behind`), so
+    // the lead-in a render plays first cannot change what a read returns.
     for (frame, (a, b)) in live.iter().zip(&rendered).enumerate().skip(300) {
-        let difference = (a - b).abs();
-        assert!(
-            difference < 1e-4,
+        assert_eq!(
+            a.to_bits(),
+            b.to_bits(),
             "frame {frame}: {a} live against {b} rendered"
         );
-        worst = worst.max(difference);
     }
-    assert!(worst < 1e-4);
 }
 
 #[test]
@@ -625,15 +620,15 @@ fn a_golden_render_of_afterglow_is_pinned_to_its_samples() {
             -0.171_617_34,
             -0.122_880_295,
             -0.123_902_13,
-            0.045_193_6,
-            0.184_000_94,
-            0.087_535_17,
-            0.081_752_63,
-            -0.177_344_32,
-            -0.120_058_134,
+            0.045_193_586,
+            0.184_001_06,
+            0.087_535_135,
+            0.081_752_72,
+            -0.177_344_52,
+            -0.120_058_015,
         ],
-        level: 520.287_903_960_329_9,
-        energy: 72.267_926_613_704_26,
+        level: 520.287_967_291_662,
+        energy: 72.267_949_341_516_56,
     };
     check_golden(&heard, &golden, "afterglow");
 }

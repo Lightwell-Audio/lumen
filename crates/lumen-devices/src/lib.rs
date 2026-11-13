@@ -10,6 +10,7 @@ pub mod delay;
 pub mod effect;
 pub mod hosted;
 pub mod instrument;
+mod line;
 pub mod params;
 pub mod reverb;
 pub mod synth;

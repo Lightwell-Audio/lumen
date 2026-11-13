@@ -477,13 +477,7 @@ impl Reverb {
     /// The pre-delay line read `behind` frames before its write point, between
     /// the two frames it falls between.
     fn read(line: &[f32], write: usize, behind: f32) -> f32 {
-        let len = line.len();
-        let position = (write as f32 - behind).rem_euclid(len as f32);
-        let first = (position as usize) % len;
-        let frac = position - first as f32;
-        let a = line[first];
-        let b = line[(first + 1) % len];
-        a + (b - a) * frac
+        crate::line::read_behind(line, write, behind)
     }
 }
 
@@ -665,12 +659,7 @@ impl Effect for Reverb {
                 taps.map(|(fraction, _)| {
                     let behind =
                         (fraction * EARLY_SECONDS * rate as f32).min(early_len as f32 - 2.0);
-                    let position = (self.early_write as f32 - behind).rem_euclid(early_len as f32);
-                    let first = (position as usize) % early_len;
-                    let frac = position - first as f32;
-                    let a = self.early_line[first];
-                    let b = self.early_line[(first + 1) % early_len];
-                    a + (b - a) * frac
+                    crate::line::read_behind(&self.early_line, self.early_write, behind)
                 })
             });
             let mut early_pair = [0.0f32; 2];
