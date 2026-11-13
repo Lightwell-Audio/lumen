@@ -398,10 +398,22 @@ impl Limiter {
         self.meter.peek()
     }
 
-    /// Sets the lookahead. The window the minimum is taken over moves with it;
-    /// frames that fall out of it are dropped as the next frames are written.
+    /// Sets the lookahead. A change of it lets go of what the line held: the
+    /// frames already in it were played against one delay and would leave
+    /// against another, above the ceiling (review N6). The gap is short (the
+    /// length that changed) and never a sample over the ceiling.
     fn set_lookahead(&mut self, frames: usize) {
-        self.look_frames = frames.min(MOST_LOOK_FRAMES);
+        let frames = frames.min(MOST_LOOK_FRAMES);
+        if frames == self.look_frames {
+            return;
+        }
+        self.look_frames = frames;
+        for side in &mut self.line {
+            side.fill(0.0);
+        }
+        // The window starts again with the frames that are written from now on.
+        self.front = 0;
+        self.back = 0;
     }
 
     /// How many frames the gain's window covers: the lookahead's, and the one

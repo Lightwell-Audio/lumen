@@ -962,6 +962,77 @@ fn a_bypassed_limiter_does_not_play_what_it_held() {
     );
 }
 
+/// N9: the block a built-in is handed names the value the project holds
+/// **first**, then a lane's points on top of it (the order `held_at_rest`
+/// relies on to read a timing parameter no lane can drive).
+#[test]
+fn a_block_names_the_value_the_project_holds_before_a_lane() {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// What one block said about `GAIN`: the number of queues that name it, and
+    /// the first and last queues' points.
+    type Told = (usize, Vec<(u32, f64)>, Vec<(u32, f64)>);
+
+    /// Records those, block by block.
+    struct Queues(Arc<Mutex<Vec<Told>>>);
+
+    impl Effect for Queues {
+        fn process(&mut self, block: &lumen_devices::Block<'_>, _: Stereo<'_>, _: Option<Key<'_>>) {
+            let mut found = Vec::new();
+            for i in 0..block.events.len() {
+                let (id, points) = block.events.queue(i);
+                if id == GAIN {
+                    found.push(points.to_vec());
+                }
+            }
+            if found.is_empty() {
+                return;
+            }
+            let first = found.first().cloned().unwrap_or_default();
+            let last = found.last().cloned().unwrap_or_default();
+            self.0.lock().unwrap().push((found.len(), first, last));
+        }
+    }
+
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let lane = AutoLane::new(vec![
+        AutoPoint {
+            at: 0,
+            value: gain(-6.0),
+            shape: Shape::Linear,
+        },
+        AutoPoint {
+            at: 400,
+            value: gain(-30.0),
+            shape: Shape::Linear,
+        },
+    ])
+    .unwrap();
+    // The project holds −12 dB; the lane swings away from it.
+    let routing = routing(&[(GAIN, gain(-12.0))], 0, Some(lane));
+    let mut rig = rig(vec![clip(0.25)], &routing);
+    rig.attach(Box::new(Queues(Arc::clone(&seen))));
+    rig.play();
+    rig.run(1_024, 128);
+    let seen = seen.lock().unwrap();
+    assert!(!seen.is_empty(), "the device ran");
+    calls.store(seen.len(), Ordering::Relaxed);
+    for (named, first, last) in seen.iter() {
+        assert_eq!(*named, 2, "the value and the lane");
+        assert_eq!(first.len(), 1, "the held value is one point");
+        assert!(
+            (first[0].1 - f64::from(gain(-12.0))).abs() < 1e-6,
+            "the first queue is the value the project holds: {:?}",
+            first[0]
+        );
+        assert_eq!(first[0].0, 0, "on the block's first frame");
+        assert!(!last.is_empty(), "the lane's points come after it");
+        assert!((last[0].1 - f64::from(gain(-12.0))).abs() > 1e-3);
+    }
+}
+
 /// L2: the golden render of an automated Prism, pinned by its samples (twenty
 /// of them, its level and its energy). A golden is frozen: one that differs from
 /// its pin was changed on purpose, and the pin moves in the same commit.

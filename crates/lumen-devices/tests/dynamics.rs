@@ -486,6 +486,11 @@ fn gravity_is_the_same_at_any_block_size() {
         let x = k as f32 * 0.017;
         ((x * 31.0).sin() * 0.4, (x * 17.0).cos() * 0.3)
     };
+    // A key too, so the key filter's own corner is under the same test (review
+    // N2: without one the high-pass never ran).
+    let key: Vec<f32> = (0..frames)
+        .map(|k| (k as f32 * 0.011).sin() * 0.6)
+        .collect();
     let render = |block: usize| {
         let (mut left, mut right): (Vec<f32>, Vec<f32>) = (0..frames).map(input).unzip();
         let mut device = Compressor::new();
@@ -498,7 +503,7 @@ fn gravity_is_the_same_at_any_block_size() {
             block,
             &[],
             &moving,
-            None,
+            Some((&key, &key)),
         );
         left.into_iter().zip(right).collect::<Vec<(f32, f32)>>()
     };
@@ -703,12 +708,13 @@ fn the_limiter_never_lets_a_sample_past_its_ceiling() {
     }
 }
 
-/// True-peak mode measures the peaks between the samples: what leaves is under
 /// The peaks between the samples, found by a long reference interpolation: 64
-/// points between each pair of samples, each a Kaiser-windowed sinc of 27 taps
-/// (the design `lumen_core::loudness` measures true peaks with), so the grid
-/// between samples is 64 times finer than the limiter's own detector and a
-/// tolerance is not spent on that.
+/// points between each pair of samples, each a Kaiser-windowed sinc of 25 taps
+/// (the design `lumen_core::loudness` measures true peaks with, widened for the
+/// reference), so the grid between samples is 64 times finer than the limiter's
+/// own detector and a tolerance is not spent on that. The ends of the slice are
+/// left out: outside them the window reads zeros, and interpolating a signal cut
+/// off like that overshoots.
 fn reference_true_peak(samples: &[f32]) -> f32 {
     const PHASES: usize = 64;
     const TAPS: usize = 25;
@@ -832,70 +838,76 @@ fn true_peak_mode_keeps_the_points_between_the_samples_under_the_ceiling() {
     }
 }
 
-/// Lowering the ceiling takes effect at once, even while the window still holds
-/// a peak that was measured against the old one: the window keeps the *level*
-/// and the ceiling is divided in at the front (review L2).
+/// Lowering the ceiling holds the burst that is already in the window: the
+/// window keeps the *level* and the ceiling is divided in at the front, so a
+/// peak measured when the ceiling was high does not leave above the new one
+/// (review L2, N3).
+///
+/// The ceiling is moved by a lane — a step, which glides over a millisecond —
+/// at a frame where the burst is still in the ten-millisecond line, and what is
+/// measured is the burst's own output, not a quiet stretch after it.
 #[test]
 fn lowering_the_ceiling_holds_the_peak_already_in_the_window() {
-    let frames = 12_000;
+    let frames = 6_000;
     let look_ms = 10.0f32;
-    // A burst, then a quiet stretch; the ceiling comes down hard while the
-    // burst is still in the lookahead's window.
-    let mut left = vec![0.02f32; frames];
-    left[4_800..5_200].fill(0.9);
-    let mut right = left.clone();
-    let split = 5_100;
-    let mut device = Limiter::new();
-    // The first stretch at a ceiling of -0.3 dB: the burst passes just under it.
-    run(
-        &mut device,
-        &mut left[..split],
-        &mut right[..split],
-        limiter::TABLE,
-        256,
-        &[
-            (limiter::CEILING, at(limiter::TABLE, limiter::CEILING, -0.3)),
-            (limiter::LOOK, at(limiter::TABLE, limiter::LOOK, look_ms)),
-            (
-                limiter::RELEASE,
-                at(limiter::TABLE, limiter::RELEASE, 400.0),
-            ),
-        ],
-        &[],
-        None,
+    const BURST: usize = 1_000;
+    let latency =
+        limiter::latency(&[(limiter::LOOK, at(limiter::TABLE, limiter::LOOK, look_ms))]) as usize;
+    // A loud burst of 100 frames, then a quiet stretch. It leaves the line at
+    // BURST + latency, well after the ceiling has come down.
+    let mut quiet = vec![0.02f32; frames];
+    quiet[BURST..BURST + 100].fill(0.9);
+    let new_ceiling_db = -20.0f32;
+    let new_ceiling = 10f32.powf(new_ceiling_db / 20.0);
+    // The lane drops the ceiling to −20 dB at frame 1,200 (a step: over in a
+    // millisecond), while the burst is still inside the line.
+    let lane: Vec<(u32, f32)> = vec![
+        (0, at(limiter::TABLE, limiter::CEILING, -0.3)),
+        (1_200, at(limiter::TABLE, limiter::CEILING, -0.3)),
+        (1_201, at(limiter::TABLE, limiter::CEILING, new_ceiling_db)),
+    ];
+    let render = |ceiling_lane: Option<&[(u32, f32)]>| {
+        let (mut left, mut right) = (quiet.clone(), quiet.clone());
+        let mut device = Limiter::new();
+        let lanes: Vec<(u32, Vec<(u32, f32)>)> = ceiling_lane
+            .map(|points| vec![(limiter::CEILING, points.to_vec())])
+            .unwrap_or_default();
+        run(
+            &mut device,
+            &mut left,
+            &mut right,
+            limiter::TABLE,
+            256,
+            &[
+                (limiter::CEILING, at(limiter::TABLE, limiter::CEILING, -0.3)),
+                (limiter::LOOK, at(limiter::TABLE, limiter::LOOK, look_ms)),
+                (
+                    limiter::RELEASE,
+                    at(limiter::TABLE, limiter::RELEASE, 400.0),
+                ),
+            ],
+            &lanes,
+            None,
+        );
+        (left, right)
+    };
+    // The burst's own output frames, from where it leaves the line.
+    let leave = BURST + latency;
+    let span = leave..leave + 100;
+    let dropped = render(Some(&lane));
+    let loudest = peak(&dropped.0[span.clone()]).max(peak(&dropped.1[span.clone()]));
+    assert!(
+        loudest <= new_ceiling + 1e-6,
+        "the burst left at {loudest}, over the new ceiling of {new_ceiling}"
     );
-    // The ceiling comes down to -20 dB with the burst's last frames still in
-    // the line: nothing of them may come out above the new ceiling, once the
-    // ceiling's own glide is past.
-    let ceiling_db = -20.0f32;
-    let ceiling = 10f32.powf(ceiling_db / 20.0);
-    let mut rest_l = left[split..].to_vec();
-    let mut rest_r = right[split..].to_vec();
-    run(
-        &mut device,
-        &mut rest_l,
-        &mut rest_r,
-        limiter::TABLE,
-        128,
-        &[
-            (
-                limiter::CEILING,
-                at(limiter::TABLE, limiter::CEILING, ceiling_db),
-            ),
-            (limiter::LOOK, at(limiter::TABLE, limiter::LOOK, look_ms)),
-            (
-                limiter::RELEASE,
-                at(limiter::TABLE, limiter::RELEASE, 400.0),
-            ),
-        ],
-        &[],
-        None,
+    // And with the ceiling left alone the same burst is much louder: the
+    // silence above is the drop's doing, not the limiter's.
+    let held = render(None);
+    let before = peak(&held.0[span.clone()]).max(peak(&held.1[span]));
+    assert!(
+        before > 4.0 * new_ceiling,
+        "the burst is loud when the ceiling stays up: {before}"
     );
-    // The ceiling glides over 20 ms (960 frames), which is where the test's
-    // claim begins: after it has arrived, the burst's tail leaves under it.
-    let from = 1_000.min(rest_l.len() - 1);
-    let loudest = peak(&rest_l[from..]).max(peak(&rest_r[from..]));
-    assert!(loudest <= ceiling + 1e-6, "{loudest} against {ceiling}");
 }
 
 /// The meter the card's face reads follows what it took away.
@@ -1468,6 +1480,181 @@ fn a_lane_on_the_lookahead_is_ignored() {
             );
         }
     }
+}
+
+/// Raising the lookahead while a burst is in the line lets go of what the line
+/// held: a short gap, never a frame replayed from outside the window the gain
+/// covers (review N6).
+#[test]
+fn raising_the_lookahead_lets_go_of_what_the_line_held() {
+    let frames = 4_000;
+    const BURST: usize = 400;
+    const BURST_END: usize = 900;
+    const SPLIT: usize = 1_000;
+    let mut loud = vec![0.02f32; frames];
+    loud[BURST..BURST_END].fill(1.5);
+    let ceiling_db = -0.3f32;
+    let ceiling = 10f32.powf(ceiling_db / 20.0);
+    let mut left = loud.clone();
+    let mut right = loud.clone();
+    let mut device = Limiter::new();
+    // Short lookahead over the burst.
+    run(
+        &mut device,
+        &mut left[..SPLIT],
+        &mut right[..SPLIT],
+        limiter::TABLE,
+        256,
+        &[
+            (
+                limiter::CEILING,
+                at(limiter::TABLE, limiter::CEILING, ceiling_db),
+            ),
+            (limiter::LOOK, at(limiter::TABLE, limiter::LOOK, 1.5)),
+            (
+                limiter::RELEASE,
+                at(limiter::TABLE, limiter::RELEASE, 400.0),
+            ),
+        ],
+        &[],
+        None,
+    );
+    // Ten milliseconds of lookahead: the read jumps back into the line, where
+    // the burst still is.
+    let mut rest_l = left[SPLIT..].to_vec();
+    let mut rest_r = right[SPLIT..].to_vec();
+    run(
+        &mut device,
+        &mut rest_l,
+        &mut rest_r,
+        limiter::TABLE,
+        256,
+        &[
+            (
+                limiter::CEILING,
+                at(limiter::TABLE, limiter::CEILING, ceiling_db),
+            ),
+            (limiter::LOOK, at(limiter::TABLE, limiter::LOOK, 10.0)),
+            (
+                limiter::RELEASE,
+                at(limiter::TABLE, limiter::RELEASE, 400.0),
+            ),
+        ],
+        &[],
+        None,
+    );
+    // Nothing of the burst comes out above the ceiling...
+    let loudest = peak(&rest_l).max(peak(&rest_r));
+    assert!(
+        loudest <= ceiling + 1e-6,
+        "the burst was replayed at {loudest}, above {ceiling}"
+    );
+    // ...and the first frames are a gap, not the burst.
+    let first = peak(&rest_l[..64]);
+    assert!(first < 1e-4, "a short gap, not a replay: {first}");
+}
+
+/// A key shorter than the block keys the frames it has and no more: the
+/// compressor reads its own input for the rest, and never reads past the end of
+/// what it was handed (review L4, N7).
+#[test]
+fn a_key_shorter_than_the_block_is_read_only_as_far_as_it_goes() {
+    let frames = 256;
+    let short = 64;
+    let key = vec![1.0f32; short];
+    let mut keyed = (vec![0.05f32; frames], vec![0.05f32; frames]);
+    let mut unkeyed = keyed.clone();
+    let set = [
+        (
+            compressor::THRESHOLD,
+            at(compressor::TABLE, compressor::THRESHOLD, -30.0),
+        ),
+        (
+            compressor::RATIO,
+            at(compressor::TABLE, compressor::RATIO, 8.0),
+        ),
+        (compressor::KNEE, 0.0),
+        (compressor::MAKEUP, 0.0),
+    ];
+    let mut meter = None;
+    for (samples, with_key) in [(&mut keyed, true), (&mut unkeyed, false)] {
+        let mut effect = Compressor::new();
+        if with_key {
+            meter = Some(effect.meter());
+        }
+        let events = defaults(compressor::TABLE, frames, &set).build();
+        let block = Block {
+            rate: RATE,
+            start: 0,
+            law: PanLaw::Balance,
+            events: &events,
+        };
+        let key_side: Option<Key<'_>> = with_key.then_some(Key {
+            left: &key,
+            right: &key,
+        });
+        effect.process(
+            &block,
+            Stereo {
+                left: &mut samples.0,
+                right: &mut samples.1,
+            },
+            key_side,
+        );
+    }
+    // The key was read for the frames it covered...
+    let reading = meter.expect("a meter").take();
+    assert!(reading.input_db > -1.0, "the key was read: {reading:?}");
+    // ...and reading it no further than it goes is the point: past frame 64 the
+    // device keys on its own input rather than reading past the end of the
+    // slice it was handed (without the clamp this block would panic), and every
+    // frame it produced is a number.
+    assert!(
+        keyed.0.iter().chain(&keyed.1).all(|x| x.is_finite()),
+        "nothing broken past the key"
+    );
+    assert!(
+        keyed.0[..short]
+            .iter()
+            .zip(&unkeyed.0[..short])
+            .any(|(a, b)| (a - b).abs() > 1e-3),
+        "the key moved the frames it covered"
+    );
+}
+
+/// `reset()` is real-time safe: the audio thread calls it on a locate, so it
+/// may not touch the heap (review N7).
+#[test]
+fn a_reset_never_touches_the_heap() {
+    assert!(
+        lumen_rt::guard_is_active(),
+        "the guarded allocator is installed"
+    );
+    let mut gravity = Compressor::new();
+    let mut horizon = Limiter::new();
+    let mut left = vec![0.1f32; 256];
+    let mut right = vec![-0.1f32; 256];
+    let events = defaults(compressor::TABLE, 256, &[]).build();
+    let (_, violations) = lumen_rt::count_rt_violations(|| {
+        gravity.reset();
+        horizon.reset();
+        // And a block after each, so the state is walked as a locate leaves it.
+        let block = Block {
+            rate: RATE,
+            start: 0,
+            law: PanLaw::Balance,
+            events: &events,
+        };
+        gravity.process(
+            &block,
+            Stereo {
+                left: &mut left,
+                right: &mut right,
+            },
+            None,
+        );
+    });
+    assert_eq!(violations, 0, "the audio thread allocated");
 }
 
 // ---------------------------------------------------------------- golden
