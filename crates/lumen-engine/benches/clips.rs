@@ -142,3 +142,63 @@ fn engine_builtin_64(bencher: divan::Bencher<'_, '_>) {
     }
     bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
 }
+
+/// 64 MIDI tracks, each with Flare playing a four-note chord (M8 slice B4):
+/// what the built-in synth costs the audio thread when every one of them
+/// sounds, beside `routed_tracks_at_128_frames` without an instrument.
+#[divan::bench]
+fn engine_flare_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::{Preset, Synth, synth};
+    use lumen_engine::{
+        InstrumentSpec, Layered, MidiClip, MidiNote, MidiTrack, Target, midi_player,
+    };
+    const TRACKS: u64 = 64;
+    let (_clips, players) = clip_player();
+    let (mut midi, player) = midi_player();
+    let tracks: Vec<MidiTrack> = (0..TRACKS)
+        .map(|track| {
+            // A four-note chord held for the whole second.
+            let notes: Vec<MidiNote> = [48u8, 55, 60, 64]
+                .into_iter()
+                .enumerate()
+                .map(|(k, pitch)| MidiNote {
+                    start: Ticks(k as i64 * 10),
+                    length: Ticks(1_920_000 - k as i64 * 10),
+                    pitch,
+                    velocity: 100,
+                    channel: None,
+                })
+                .collect();
+            MidiTrack::new(
+                track,
+                Target::Instrument,
+                Some(InstrumentSpec {
+                    kind: synth::KIND,
+                    preset: Preset::Poly.number(),
+                    values: Preset::Poly.values(),
+                    instrument: Box::new(Synth::new(Preset::Poly)),
+                }),
+                vec![MidiClip {
+                    id: 1_000 + track,
+                    start: Ticks::ZERO,
+                    length: Ticks(1_920_000),
+                    period: None,
+                    notes: notes.into(),
+                    controls: Default::default(),
+                    seams: Default::default(),
+                }],
+            )
+        })
+        .collect();
+    midi.set(tracks).ok().unwrap();
+    let (mut routing, source) = mixer(Layered(players, player));
+    assert!(routing.set(&routed(TRACKS, 0)).unwrap());
+    let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
+    transport.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 256];
+    // Past the start of the notes and their attacks.
+    for _ in 0..100 {
+        engine.process(48_000, &mut data, 2, 128);
+    }
+    bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
+}
