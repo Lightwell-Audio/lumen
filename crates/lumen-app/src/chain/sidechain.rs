@@ -16,7 +16,7 @@ use eframe::egui::{
     self, Align2, Color32, FontId, Id as EguiId, Rect, Response, Sense, Ui, pos2, vec2,
 };
 use eframe::emath::GuiRounding as _;
-use lumen_project::model::{Device, Id, Sidechain, SidechainTap, TrackKind};
+use lumen_project::model::{Device, Id, PluginRef, Sidechain, SidechainTap, TrackKind};
 
 use crate::arrangement::color_of;
 use crate::document::find_device;
@@ -357,13 +357,17 @@ impl App {
     }
 
     /// The row of `device`'s card on `track`: none for a card that is not a
-    /// running plugin effect with a sidechain input.
+    /// running plugin effect, or a built-in effect, with a sidechain input.
     pub(super) fn sidechain_look(&self, track: Id, device: &Device, playing: bool) -> Option<Look> {
-        if !device.is_vst3()
-            || device.is_instrument()
-            || !matches!(self.hosting.state(device.id), Some(State::Ready))
-            || !self.hosting.takes_sidechain(device.id)
-        {
+        let takes = match &device.plugin {
+            PluginRef::Vst3 { .. } => {
+                !device.is_instrument()
+                    && matches!(self.hosting.state(device.id), Some(State::Ready))
+                    && self.hosting.takes_sidechain(device.id)
+            }
+            PluginRef::Builtin { name } => crate::builtin::takes_sidechain(name) == Some(true),
+        };
+        if !takes {
             return None;
         }
         let source = match device.sidechain {
@@ -407,8 +411,10 @@ impl App {
     /// Whether the chosen card has a sidechain row.
     pub(crate) fn chosen_has_sidechain(&self) -> bool {
         self.chain.selected.is_some_and(|d| {
-            find_device(self.document.project(), d)
-                .is_some_and(|(_, dev)| !dev.is_instrument() && self.hosting.takes_sidechain(d))
+            find_device(self.document.project(), d).is_some_and(|(_, dev)| match &dev.plugin {
+                PluginRef::Vst3 { .. } => !dev.is_instrument() && self.hosting.takes_sidechain(d),
+                PluginRef::Builtin { name } => crate::builtin::takes_sidechain(name) == Some(true),
+            })
         })
     }
 

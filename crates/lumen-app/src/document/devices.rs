@@ -340,17 +340,21 @@ impl Document {
 
     /// Sets which track keys `device` and where on it the signal is taken, or
     /// takes the sidechain away (`None`). Refused when `device` is not a
-    /// plugin effect, when the source is the device's own track, and when it
-    /// would make the routing feed back. A source that is not there is kept as
-    /// named, so undoing a track's removal restores the link. One undo step;
-    /// the same choice again records nothing.
+    /// plugin effect or a built-in with a sidechain input, when the source is
+    /// the device's own track, and when it would make the routing feed back. A
+    /// source that is not there is kept as named, so undoing a track's removal
+    /// restores the link. One undo step; the same choice again records nothing.
     pub fn set_sidechain(
         &mut self,
         device: Id,
         sidechain: Option<Sidechain>,
     ) -> Result<(), Refusal> {
         let (track, held) = find_device(self.project(), device).ok_or(Refusal::NoDevice)?;
-        if !matches!(held.plugin, PluginRef::Vst3 { .. }) || held.is_instrument() {
+        let takes = match &held.plugin {
+            PluginRef::Vst3 { .. } => !held.is_instrument(),
+            PluginRef::Builtin { name } => crate::builtin::takes_sidechain(name).unwrap_or(false),
+        };
+        if !takes {
             return Err(Refusal::NotAnEffect);
         }
         if held.sidechain == sidechain {

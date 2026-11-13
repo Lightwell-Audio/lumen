@@ -115,6 +115,14 @@ pub(super) fn default_shown(list: &[ParamInfo]) -> Vec<u32> {
         .collect()
 }
 
+/// The four parameters a face draws as its controls (M8 slice B2): the first
+/// four a person would move, as the strip's default shows them. The compact
+/// card folds a face back to exactly these, and every other parameter is in All
+/// parameters.
+pub(super) fn face_ids(list: &[ParamInfo]) -> Vec<u32> {
+    default_shown(list).into_iter().take(COLUMNS).collect()
+}
+
 /// The ids on the strip: the chosen ones the plugin still lists and offers,
 /// in order, at most [`SLOTS`]; or the default when nothing was chosen.
 pub(super) fn resolve(list: &[ParamInfo], chosen: Option<&[u32]>) -> Vec<u32> {

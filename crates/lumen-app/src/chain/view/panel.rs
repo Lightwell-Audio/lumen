@@ -47,10 +47,21 @@ impl App {
             return;
         };
         let rate = self.transport.state().sample_rate;
+        // What each built-in's meter published since the last frame, once a
+        // frame, before any card is drawn (M8 slice B2).
+        self.builtin.read_meters();
         // What arrives for the track's sidechain, for the cards' lights.
         let keyed = all_tracks(self.document.project())
             .find(|t| t.id == track_id)
-            .is_some_and(|t| t.devices.iter().any(|d| d.is_vst3() && !d.is_instrument()));
+            .is_some_and(|t| {
+                t.devices.iter().any(|d| {
+                    if crate::builtin::is_builtin(d) {
+                        crate::builtin::takes_sidechain(crate::builtin::name_of(d)) == Some(true)
+                    } else {
+                        d.is_vst3() && !d.is_instrument()
+                    }
+                })
+            });
         if keyed {
             let playing = self.transport.state().playing;
             self.read_sidechain(ui.ctx(), track_id, playing);
@@ -149,6 +160,7 @@ impl App {
                     changed: f.changed,
                 }),
                 sidechain: row.sidechain.as_ref(),
+                drawn: row.drawn.as_ref(),
                 outputs: row.outputs.as_ref(),
                 compact,
                 message: Default::default(),
@@ -246,6 +258,8 @@ impl App {
                     // The row lands on the track whose chain this is.
                     self.arrangement.selected = vec![track_id];
                     self.menu_command(ui, Command::AddUtility, "Add Prism (utility)");
+                    self.menu_command(ui, Command::AddCompressor, "Add Gravity (compressor)");
+                    self.menu_command(ui, Command::AddLimiter, "Add Horizon (limiter)");
                 });
                 if rows.is_empty() {
                     // The shared empty state (the interface audit's D1, the

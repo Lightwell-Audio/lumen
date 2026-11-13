@@ -420,6 +420,32 @@ impl App {
             .is_some_and(|(_, d)| crate::builtin::is_builtin(d))
     }
 
+    /// Sets what a built-in device's gain-reduction meter reads, as if the
+    /// audio thread had just published it (M8 slice B2): for a picture with
+    /// reduction showing, without playing anything.
+    pub fn pretend_reduction(&mut self, device: Id, decibels: f32, level_db: f32) {
+        self.builtin.pretend_reduction(
+            device,
+            lumen_devices::MeterReading {
+                reduction_db: decibels,
+                input_db: level_db,
+            },
+        );
+    }
+
+    /// Whether a built-in device has a gain-reduction meter (M8 slice B2).
+    pub fn has_meter(&self, device: Id) -> bool {
+        self.builtin.has_meter(device)
+    }
+
+    /// The gain reduction a built-in device's meter last read, in decibels
+    /// (M8 slice B2): what its face drew.
+    pub fn builtin_reduction(&self, device: Id) -> f32 {
+        self.builtin
+            .reading(device)
+            .map_or(0.0, |reading| reading.reduction_db)
+    }
+
     /// Puts exactly these parameters on the device's strip, as a person does
     /// from the panel.
     pub fn show_on_strip(&mut self, device: Id, ids: &[u32]) {

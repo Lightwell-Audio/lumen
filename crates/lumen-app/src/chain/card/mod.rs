@@ -11,6 +11,7 @@ use eframe::egui::{
 use eframe::emath::GuiRounding as _;
 
 use super::art;
+use super::faces;
 use super::geometry::{FOOTER, HEADER, PRESET};
 use super::outputs;
 use super::sidechain;
@@ -92,6 +93,9 @@ pub(super) struct Look<'a> {
     pub learning: bool,
     /// The sidechain row of a plugin effect that has a sidechain input.
     pub sidechain: Option<&'a sidechain::Look>,
+    /// The drawn face of a built-in device whose picture is its idea (M8
+    /// slice B2): it takes the strip's place.
+    pub drawn: Option<&'a faces::Face>,
     /// The outputs row of a plugin instrument that has more than one output.
     pub outputs: Option<&'a outputs::Look>,
     /// The tray is short: the card is the compact one (D2).

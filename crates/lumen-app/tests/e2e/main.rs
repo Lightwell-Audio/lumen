@@ -50,6 +50,7 @@ mod device_change;
 mod devices;
 mod dropdown;
 mod drums;
+mod dynamics;
 mod editing;
 mod editors;
 mod fades;

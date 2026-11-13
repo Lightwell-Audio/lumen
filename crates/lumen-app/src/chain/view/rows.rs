@@ -31,6 +31,8 @@ pub(super) struct Row {
     pub(super) field: Option<presets::FieldLook>,
     /// The sidechain row of a plugin effect with a sidechain input.
     pub(super) sidechain: Option<sidechain::Look>,
+    /// The drawn face of a built-in whose picture is its idea (M8 slice B2).
+    pub(super) drawn: Option<crate::chain::faces::Face>,
     /// The outputs row of a plugin instrument with several outputs.
     pub(super) outputs: Option<outputs::Look>,
 }
@@ -74,6 +76,7 @@ impl App {
                 let mut row = self.row_of(d, rate);
                 row.sidechain = self.sidechain_look(track.id, d, playing);
                 row.outputs = self.outputs_look(d);
+                row.drawn = self.face_of(d);
                 row
             })
             .collect()
@@ -166,6 +169,7 @@ impl App {
             latency_ms,
             sidechain: None,
             outputs: None,
+            drawn: None,
         }
     }
 }

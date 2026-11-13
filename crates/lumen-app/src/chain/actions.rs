@@ -112,10 +112,18 @@ impl App {
     /// card, or on a new audio track when no track fits (M8 slice B0): one
     /// undo step, with the values its table gives it, and its card shown.
     pub(crate) fn add_utility(&mut self) {
+        self.add_builtin(lumen_devices::utility::NAME);
+    }
+
+    /// Puts the built-in effect saved as `name` on the selected track after the
+    /// chosen card, or on a new audio track when no track fits: one undo step,
+    /// with the values its table gives it, and its card shown (M8 slices B0
+    /// and B2).
+    pub(crate) fn add_builtin(&mut self, name: &str) {
         let plugin = PluginRef::Builtin {
-            name: lumen_devices::utility::NAME.to_owned(),
+            name: name.to_owned(),
         };
-        let values = crate::builtin::defaults(lumen_devices::utility::NAME);
+        let values = crate::builtin::defaults(name);
         let place = place(
             self.document.project(),
             &self.arrangement.selected,

@@ -383,6 +383,8 @@ impl App {
             // Prism can always go somewhere: on the selected track, or on a
             // new audio track (M8 slice B0).
             Command::AddUtility => Ok(()),
+            Command::AddCompressor => Ok(()),
+            Command::AddLimiter => Ok(()),
             Command::TransposeClipUp | Command::TransposeClipDown => self.transpose_unavailable(),
             Command::SetTempoFromClip | Command::DoubleClipTempo | Command::HalveClipTempo => {
                 self.warped_unavailable()

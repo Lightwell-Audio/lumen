@@ -584,6 +584,26 @@ pub mod personality {
     /// changes nothing of its own.
     pub const UTILITY: Color32 = Color32::from_rgb(0x9A, 0xA0, 0xAC);
 
+    /// Gravity, the compressor (M8 slice B2): a violet, the colour of a body
+    /// pulled into a well (the owner's specimens, round 2).
+    pub const GRAVITY: Color32 = Color32::from_rgb(0xB4, 0x6C, 0xFF);
+
+    /// Horizon, the limiter (M8 slice B2): the orange of a sunset, where the
+    /// ceiling is the horizon line.
+    pub const HORIZON: Color32 = Color32::from_rgb(0xFF, 0x8A, 0x4C);
+
+    /// Horizon's sky, from the top of its screen down to the light at the
+    /// horizon. Content, not chrome: the same in both themes.
+    pub const HORIZON_SKY: [Color32; 3] = [
+        Color32::from_rgb(0x1A, 0x0F, 0x2A),
+        Color32::from_rgb(0x5A, 0x24, 0x40),
+        Color32::from_rgb(0xE0, 0x60, 0x3A),
+    ];
+
+    /// The sun at Horizon's horizon, and the line the ceiling draws: the
+    /// brightest light on that screen.
+    pub const HORIZON_LIGHT: Color32 = Color32::from_rgb(0xFF, 0xE3, 0xA8);
+
     /// The screen behind a built-in device's picture (DESIGN.md §7k): deep, and
     /// the same in both themes, as a clip's colour is. Its top is the device's
     /// signature colour, so the band stays the personality's.

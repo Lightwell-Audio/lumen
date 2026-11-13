@@ -173,13 +173,21 @@ impl App {
     }
 
     /// The knobs of `d`'s strip, and how many parameters it lists.
+    ///
+    /// A built-in whose picture is its idea draws a face instead (M8 slice
+    /// B2), and its strip is the four parameters the face draws: the compact
+    /// card folds back to exactly those, and every other parameter is in All
+    /// parameters.
     pub(super) fn strip_of(&self, d: &Device) -> (Vec<Option<Slot>>, usize) {
         let list = self.device_parameters(d);
         let count = list.iter().filter(|p| strip::offered(p)).count();
         if count == 0 {
             return (Vec::new(), 0);
         }
-        let ids = strip::resolve(list, self.chain.shown.get(&d.id).map(Vec::as_slice));
+        let ids = match crate::chain::faces::of(crate::builtin::name_of(d)) {
+            Some(_) => strip::face_ids(list),
+            None => strip::resolve(list, self.chain.shown.get(&d.id).map(Vec::as_slice)),
+        };
         let mut slots: Vec<Option<Slot>> = Vec::with_capacity(SLOTS);
         for id in ids {
             let Some(p) = list.iter().find(|p| p.id == id) else {
@@ -189,6 +197,25 @@ impl App {
         }
         slots.resize(SLOTS, None);
         (slots, count)
+    }
+
+    /// The drawn face of a built-in device whose picture is its idea (M8 slice
+    /// B2), or `None` for one that keeps the eight-knob strip: its four
+    /// controls at the values the project holds, and what its meter last read.
+    pub(super) fn face_of(&self, d: &Device) -> Option<crate::chain::faces::Face> {
+        use crate::chain::faces;
+        let kind = faces::of(crate::builtin::name_of(d))?;
+        let list = self.device_parameters(d);
+        let slots: Vec<Slot> = strip::face_ids(list)
+            .into_iter()
+            .filter_map(|id| list.iter().find(|p| p.id == id))
+            .map(|p| self.slot_of(d, p))
+            .collect();
+        Some(faces::Face {
+            kind,
+            slots,
+            reading: self.builtin.reading(d.id),
+        })
     }
 
     fn slot_of(&self, d: &Device, p: &ParamInfo) -> Slot {
@@ -381,10 +408,12 @@ impl App {
 
     /// The ids on `device`'s strip now.
     pub(crate) fn strip_ids(&self, device: Id) -> Vec<u32> {
-        let list = crate::document::find_device(self.document.project(), device)
-            .map(|(_, d)| self.device_parameters(d))
-            .unwrap_or(&[]);
-        strip::resolve(list, self.chain.shown.get(&device).map(Vec::as_slice))
+        let found = crate::document::find_device(self.document.project(), device);
+        let list = found.map(|(_, d)| self.device_parameters(d)).unwrap_or(&[]);
+        match found.and_then(|(_, d)| crate::chain::faces::of(crate::builtin::name_of(d))) {
+            Some(_) => strip::face_ids(list),
+            None => strip::resolve(list, self.chain.shown.get(&device).map(Vec::as_slice)),
+        }
     }
 
     /// A device's parameters by its id, for the callers that have only that.

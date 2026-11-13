@@ -61,22 +61,49 @@ pub(super) fn paint_strip(
             };
             (None, outputs)
         }
-        Face::Ready => (
-            None,
-            strip::paint(
-                ui,
-                area,
-                id,
-                look.slots,
-                look.selected,
-                strip::Buttons {
-                    editor: look.editor,
-                    learning: look.learning,
-                    parameters: look.parameters,
-                },
-                key_room,
-            ),
-        ),
+        Face::Ready => {
+            // A built-in whose picture is its idea draws it in the strip's
+            // room (M8 slice B2); the buttons row under it is the strip's.
+            if let Some(face) = look.drawn {
+                let face_area = Rect::from_min_max(
+                    area.min,
+                    pos2(
+                        area.right(),
+                        area.bottom() - strip::BUTTONS - strip::GAP - key_room,
+                    ),
+                );
+                let mut out = faces::paint(ui, face_area, id, face, look.selected);
+                let row =
+                    Rect::from_min_max(pos2(area.left(), area.bottom() - strip::BUTTONS), area.max);
+                out.extend(strip::buttons(
+                    ui,
+                    row,
+                    id,
+                    strip::Buttons {
+                        editor: look.editor,
+                        learning: look.learning,
+                        parameters: look.parameters,
+                    },
+                ));
+                return (None, out);
+            }
+            (
+                None,
+                strip::paint(
+                    ui,
+                    area,
+                    id,
+                    look.slots,
+                    look.selected,
+                    strip::Buttons {
+                        editor: look.editor,
+                        learning: look.learning,
+                        parameters: look.parameters,
+                    },
+                    key_room,
+                ),
+            )
+        }
         Face::Failed(ref failure) => {
             let (title, words, buttons): (_, String, Vec<(&str, Action)>) = if failure.keeps {
                 (
