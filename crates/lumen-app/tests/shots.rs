@@ -2497,11 +2497,39 @@ fn builtin_card() {
             8,
             &[(lumen_devices::utility::WIDTH, 0.65)],
         ),
-        (lumen_devices::delay::NAME, "parallax", 8, &[]),
-        (lumen_devices::reverb::NAME, "afterglow", 7, &[]),
+        // The specimen's: 1/8, 45 % feedback, 25 % mix, ping on; a 62 % room,
+        // 2.4 s, 55 % damping, 20 % mix (normalised by each table below).
+        (
+            lumen_devices::delay::NAME,
+            "parallax",
+            8,
+            &[
+                (lumen_devices::delay::NOTE, 0.5),
+                (lumen_devices::delay::FEEDBACK, 45.0),
+                (lumen_devices::delay::MIX, 25.0),
+                (lumen_devices::delay::PING, 1.0),
+            ],
+        ),
+        (
+            lumen_devices::reverb::NAME,
+            "afterglow",
+            7,
+            &[
+                (lumen_devices::reverb::SIZE, 62.0),
+                (lumen_devices::reverb::DECAY, 2.4),
+                (lumen_devices::reverb::DAMPING, 55.0),
+                (lumen_devices::reverb::MIX, 20.0),
+            ],
+        ),
     ];
+    // SHOT_FILTER=afterglow-dark-1 keeps the cases whose
+    // "device-appearance-scale-tag" holds it.
+    let only = std::env::var("SHOT_FILTER").unwrap_or_default();
     for (device_name, tag_name, parameters, values) in devices {
         for &(appearance, scale, size, tag, detail) in &cases {
+            if !format!("{tag_name}-{appearance}-{scale}-{tag}").contains(&only) {
+                continue;
+            }
             let dir = TempDir::new(&format!("shots-{tag_name}-{appearance}-{scale}-{tag}"));
             let track = Track::new(Id(1), "Keys".to_owned(), TrackKind::Audio, Color(0x5E8C6A));
             let mut track = track;
@@ -2515,8 +2543,21 @@ fn builtin_card() {
                 false,
                 Vec::new(),
             );
+            // Prism's value is saved normalised; the others are in their own
+            // units (a note and a switch are already normalised).
+            let table = lumen_devices::effect_params(device_name).expect("a built-in");
             for &(id, value) in values {
-                device.params.insert(id, value);
+                let own_units = device_name == lumen_devices::reverb::NAME
+                    || (device_name == lumen_devices::delay::NAME
+                        && id != lumen_devices::delay::NOTE
+                        && id != lumen_devices::delay::PING);
+                let norm = if own_units {
+                    let info = table.iter().find(|info| info.id == id).expect("an id");
+                    f64::from(info.normalised(value as f32))
+                } else {
+                    value
+                };
+                device.params.insert(id, norm);
             }
             track.devices = vec![device];
             let project = lumen_project::testing::project_of(tag_name, vec![track]);
@@ -2580,38 +2621,44 @@ fn builtin_card_playing() {
     use egui_kittest::kittest::Queryable;
     use lumen_project::model::Id;
 
-    for appearance in ["dark", "light"] {
-        for scale in [1.0_f32, 1.5, 2.0] {
-            let dir = TempDir::new(&format!("shots-prism-play-{appearance}-{scale}"));
-            let mut h =
-                lumen_looking_sized(&dir, appearance, scale, eframe::egui::vec2(1280.0, 900.0));
-            let first = h.state().project().tracks[0].id;
-            h.state_mut().select_tracks(&[first]);
-            h.run_steps(4);
-            // Add Prism by the palette, as a person does.
-            h.key_press_modifiers(Modifiers::COMMAND, Key::K);
-            h.run_steps(4);
-            h.event(Event::Text("Add Prism".into()));
-            h.run_steps(3);
-            h.key_press(Key::Enter);
-            h.run_steps(20);
-            h.get_all_by_label("Devices tab")
-                .last()
-                .expect("the tabs")
-                .click();
-            h.run_steps(4);
-            h.state_mut().set_detail_size(460.0);
-            h.run_steps(30);
-            let _ = Id(0);
-            h.key_press(Key::Space);
-            for _ in 0..4 {
-                std::thread::sleep(std::time::Duration::from_millis(60));
-                h.run_steps(1);
+    for (command, tag_name) in [
+        ("Add Prism", "prism"),
+        ("Add Parallax", "parallax"),
+        ("Add Afterglow", "afterglow"),
+    ] {
+        for appearance in ["dark", "light"] {
+            for scale in [1.0_f32, 1.5, 2.0] {
+                let dir = TempDir::new(&format!("shots-{tag_name}-play-{appearance}-{scale}"));
+                let mut h =
+                    lumen_looking_sized(&dir, appearance, scale, eframe::egui::vec2(1280.0, 900.0));
+                let first = h.state().project().tracks[0].id;
+                h.state_mut().select_tracks(&[first]);
+                h.run_steps(4);
+                // Add Prism by the palette, as a person does.
+                h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+                h.run_steps(4);
+                h.event(Event::Text(command.into()));
+                h.run_steps(3);
+                h.key_press(Key::Enter);
+                h.run_steps(20);
+                h.get_all_by_label("Devices tab")
+                    .last()
+                    .expect("the tabs")
+                    .click();
+                h.run_steps(4);
+                h.state_mut().set_detail_size(460.0);
+                h.run_steps(30);
+                let _ = Id(0);
+                h.key_press(Key::Space);
+                for _ in 0..4 {
+                    std::thread::sleep(std::time::Duration::from_millis(60));
+                    h.run_steps(1);
+                }
+                save(
+                    &mut h,
+                    &format!("{tag_name}-playing-{appearance}-{}", (scale * 100.0) as u32),
+                );
             }
-            save(
-                &mut h,
-                &format!("prism-playing-{appearance}-{}", (scale * 100.0) as u32),
-            );
         }
     }
 }
