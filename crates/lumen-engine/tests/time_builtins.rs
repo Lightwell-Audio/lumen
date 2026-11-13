@@ -360,6 +360,69 @@ fn an_offline_render_plays_what_playback_plays_with_a_delay() {
 }
 
 #[test]
+fn an_offline_render_plays_what_playback_plays_with_a_reverb() {
+    use lumen_engine::{Ended, SourceRender, render_source};
+    use std::sync::atomic::AtomicBool;
+    let values: Vec<(u32, f32)> = reverb::TABLE
+        .iter()
+        .map(|info| (info.id, info.normalised(info.default)))
+        .collect();
+    let routing = routing(values, None);
+    let mut rig = rig(
+        &Timeline::default(),
+        rich(TRACK),
+        &routing,
+        Box::new(reverb::Reverb::new()),
+    );
+    rig.play();
+    let live = rig.run(12_000, 128);
+
+    let (mut clips, player) = clip_player();
+    clips.set(vec![rich(TRACK)]).unwrap();
+    let (mut handle, mut source) = mixer(player);
+    assert!(handle.set(&routing).unwrap());
+    handle
+        .attach_builtin(DEVICE, Slot::new(Box::new(reverb::Reverb::new())))
+        .unwrap_or_else(|_| panic!("room in the pool"));
+    let timeline = Timeline::default();
+    let cancel = AtomicBool::new(false);
+    let mut rendered: Vec<f32> = Vec::new();
+    let ended = render_source(
+        &mut source,
+        SourceRender {
+            timeline: &timeline,
+            sample_rate: RATE,
+            from: 0,
+            frames: 12_000,
+            most_tail: 0,
+            block: 128,
+            wait: std::time::Duration::from_secs(1),
+        },
+        &cancel,
+        &mut || false,
+        &mut |_| {},
+        &mut |left, _right| rendered.extend_from_slice(left),
+    );
+    assert_eq!(ended, Ended::Done);
+    assert_eq!(rendered.len(), 12_000);
+    // Within a hundredth of the amplitude rather than bit for bit: the
+    // reverb's recursive tail reads its lines at fractional positions, so the
+    // lead-in a render plays before the span can seed a last-bit difference
+    // that the loop then carries (the delay's wet-only render is
+    // bit-identical).
+    let mut worst = 0.0f32;
+    for (frame, (a, b)) in live.iter().zip(&rendered).enumerate().skip(300) {
+        let difference = (a - b).abs();
+        assert!(
+            difference < 1e-4,
+            "frame {frame}: {a} live against {b} rendered"
+        );
+        worst = worst.max(difference);
+    }
+    assert!(worst < 1e-4);
+}
+
+#[test]
 fn a_delay_s_tail_rings_on_after_a_stop() {
     // A tone heard, then Stop: the echoes carry on, and the engine says it is
     // still sounding (the mixer's answer is the effect's tail).

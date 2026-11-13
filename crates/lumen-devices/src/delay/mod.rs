@@ -762,6 +762,20 @@ impl Effect for Delay {
         }
         self.write = 0;
         self.loops = [Loop::default(); 2];
+        // Playback jumped: the values are the project's, not a glide from the
+        // defaults, so a locate and a render agree on the first block.
+        for glide in [
+            &mut self.time,
+            &mut self.note,
+            &mut self.feedback,
+            &mut self.ping,
+            &mut self.low_cut,
+            &mut self.high_cut,
+            &mut self.mix,
+            &mut self.freeze,
+        ] {
+            glide.arrive();
+        }
         self.now = seconds_of(&self.held, self.bpm) * self.rate as f32;
         self.target = f32::NAN;
         self.step = 0.0;

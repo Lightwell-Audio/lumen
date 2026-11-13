@@ -22,7 +22,7 @@ use lumen_devices::params::{self, ParamInfo as Info};
 use lumen_devices::{Description, utility};
 use lumen_engine::{MixerHandle, Routing, Slot};
 use lumen_hosting::{FLAG_CAN_AUTOMATE, ParamInfo};
-use lumen_project::model::{Device, Id, PluginRef, Project};
+use lumen_project::model::{Device, Id, PluginRef, Project, Track};
 use lumen_project::routing::all_tracks;
 
 use crate::theme;
@@ -45,13 +45,12 @@ pub const MOST_TAIL_SECONDS: u32 = 10;
 pub fn tail_frames(project: &Project, rate: u32) -> u64 {
     let sounding = lumen_project::edit::freeze::played(project);
     let bpm = slowest_bpm(&sounding);
-    let master = &sounding.master;
-    let tracks = all_tracks(&sounding)
-        .filter(|track| track.id != master.id)
-        .map(|track| chain_tail(track, bpm, rate))
+    let master = sounding.master.id;
+    all_tracks(&sounding)
+        .map(|track| path_tail(&sounding, track, master, bpm, rate, 0))
         .max()
-        .unwrap_or(0);
-    (tracks + chain_tail(master, bpm, rate)).min(cap(rate))
+        .unwrap_or(0)
+        .min(cap(rate))
 }
 
 /// Frames `track`'s own devices ring on after its sound stops, at `rate`: the
@@ -62,6 +61,46 @@ pub fn track_tail_frames(project: &Project, track: Id, rate: u32) -> u64 {
     all_tracks(&sounding)
         .find(|known| known.id == track)
         .map_or(0, |track| chain_tail(track, bpm, rate))
+}
+
+/// Frames everything between `track` and the device outputs rings on: its own
+/// chain, its groups', the returns it sends into (and their paths), and the
+/// master's. `master` is the project's, and `depth` stops a loop the routing
+/// would have refused anyway.
+fn path_tail(project: &Project, track: &Track, master: Id, bpm: f32, rate: u32, depth: u32) -> u64 {
+    let mut frames = chain_tail(track, bpm, rate);
+    // Up through the groups it plays into.
+    let mut parent = track.parent;
+    let mut guard = 0;
+    while let Some(id) = parent {
+        guard += 1;
+        if guard > 8 {
+            break;
+        }
+        let Some(next) = all_tracks(project).find(|known| known.id == id) else {
+            break;
+        };
+        frames = frames.saturating_add(chain_tail(next, bpm, rate));
+        parent = next.parent;
+    }
+    // The returns its sends reach, and what they ring on for.
+    if depth < 8 {
+        let returns = track
+            .sends
+            .iter()
+            .filter_map(|send| all_tracks(project).find(|known| known.id == send.to))
+            .map(|ret| path_tail(project, ret, master, bpm, rate, depth + 1))
+            .max()
+            .unwrap_or(0);
+        frames = frames.saturating_add(returns);
+    }
+    // Everything reaches the master.
+    if track.id != master
+        && let Some(top) = all_tracks(project).find(|known| known.id == master)
+    {
+        frames = frames.saturating_add(chain_tail(top, bpm, rate));
+    }
+    frames.min(cap(rate))
 }
 
 /// The most frames a render adds as a tail, at `rate`.
@@ -79,13 +118,11 @@ fn chain_tail(track: &lumen_project::model::Track, bpm: f32, rate: u32) -> u64 {
                 frames +=
                     u64::from(lumen_devices::effect_tail_at(name, &values, bpm, rate).unwrap_or(0));
             }
-            // A plugin's tail is its own report: one that rings (or never
-            // stops) keeps the ten seconds a render always allowed it.
-            PluginRef::Vst3 { .. } => {
-                if device.reported.is_some_and(|reported| reported.tail > 0) {
-                    frames += cap(rate);
-                }
-            }
+            // A plugin's tail is its own word, and the engine does not trust
+            // it (a plugin may misreport one): a chain with a plugin keeps the
+            // ten seconds a render always allowed it. Only Lumen's own devices
+            // narrow the tail.
+            PluginRef::Vst3 { .. } => frames += cap(rate),
         }
     }
     frames.min(cap(rate))
@@ -916,7 +953,6 @@ mod tests {
     #[test]
     fn the_automatic_tail_is_what_the_project_s_devices_ring_on_for() {
         use lumen_devices::{delay, reverb};
-        use lumen_project::model::Track;
         let mut project = crate::empty_project();
         let one = |project: &mut Project, name: &str, id: u64| {
             let mut track = Track::new(Id(id), "Track".to_owned(), TrackKind::Audio, Color(0));

@@ -760,6 +760,23 @@ impl Effect for Reverb {
         for line in &mut self.place {
             line.low = 0.0;
         }
+        // Playback jumped: the values are the project's, not a glide from the
+        // defaults, so a locate and a render agree on the first block.
+        for glide in [
+            &mut self.predelay,
+            &mut self.size,
+            &mut self.decay,
+            &mut self.damping,
+            &mut self.width,
+            &mut self.early,
+            &mut self.mix,
+        ] {
+            glide.arrive();
+        }
+        self.pre_target = f32::NAN;
+        self.pre_step = 0.0;
+        self.pre_now = value(&self.held, PREDELAY) / 1000.0 * self.rate as f32;
+        self.size_target = f32::NAN;
     }
 }
 

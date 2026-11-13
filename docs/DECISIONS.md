@@ -13392,7 +13392,7 @@ ten seconds. This ADR records how both were done and what the DSP is.
   Crossfade two read points.
 - **The reverb.** (A) A feedback delay network: a handful of lines mixed through an
   orthogonal matrix, each damped and weighted so the whole falls 60 dB in the decay
-  time. (B) A Schroeder chain of combs and allpasses. (C) Convolution (out of scope: no
+  time. (B) A chain of comb and allpass filters. (C) Convolution (out of scope: no
   bundled libraries).
 - **How far a delay line reaches.** A line allocated for the longest note at the slowest
   tempo (four quarters at 20 BPM is 12 s) is 18 MB at 192 kHz an instance; four seconds
@@ -13405,9 +13405,11 @@ ten seconds. This ADR records how both were done and what the DSP is.
    internal `Pass` into `Block.bpm` (a compatible field: a device that ignores it
    compiles and plays unchanged). The deviation from B0's ADR is deliberate: `Routing`
    is built in 83 places in the workspace and is copied and compared per node; a
-   timeline read is one binary search per mixer part, is exactly the map the clips
+   tempo lookup per mixer part is exactly the map the clips
    follow (so a tempo change lands where the music does, not one routing rebuild later),
    and needs no lane baking, no rebuild on a tempo change and no new public field. The
+   read happens only when the plan holds a built-in (`Plan.builtins`), so a project with
+   none does the work it always did. The
    consequence is that the tempo is read at the part's first frame: a change inside a
    256-frame block is quantised to it, which B0's ADR already called inaudible for a
    delay time.
@@ -13443,7 +13445,7 @@ ten seconds. This ADR records how both were done and what the DSP is.
    matrix and a filter. Buffers are allocated in the constructor for the longest a
    setting can ask for at 192 kHz (a 200 ms pre-delay, a quarter-second early line,
    lines to 54 ms): about 0.8 MB an instance. The decay is verified by measurement: the
-   Schroeder energy decay between -5 dB and -35 dB gives an RT60 within 10 % of the
+   energy decay between -5 dB and -35 dB gives an RT60 within 10 % of the
    setting at 0.5, 1.5 and 4 s.
 6. **Tails.** A device's `Description::tail` must stay a pure function of its values
    (ADR-0145 review H1), but a tail in frames needs the rate, and a note-synced delay
@@ -13467,8 +13469,8 @@ ten seconds. This ADR records how both were done and what the DSP is.
    `track_tail_frames` is one track's for a bounce. `export/render.rs` and
    `export/worker.rs` (the real-time path) use the former, `bake/bounce.rs` the latter,
    in place of the flat ten seconds. A project with nothing that rings adds nothing; a
-   plugin that reports a tail keeps the ten seconds it always had, since its tail is its
-   own word.
+   chain with a plugin in it keeps the ten seconds a render always gave it, because the
+   engine does not trust a plugin's reported tail (a plugin may misreport one).
 8. **Parameters and labels.** Stable ids: the delay 1 to 8 (Time, Note, Repeats, Ping,
    Low cut, High cut, Mix, Freeze), the reverb 1 to 7 (Pre, Size, Decay, Damp, Width,
    Early, Mix), pinned by a test like Prism's. The labels are chosen to fit a strip cell
@@ -13499,8 +13501,10 @@ three decays; the stereo tail and width 0 as mono; the same audio at 64, 97, 128
 and 1024 frames with a lane; no allocation over blocks with automation; a new device's
 tail before any block. `lumen-engine/tests/time_builtins.rs` (7): the tempo map reaching
 the device through the engine (a quarter at 120 and at 60 after a change at 96000); the
-same audio at five block sizes through the mixer; an offline render bit-identical to
-playback; a delay's and a reverb's tails ringing after Stop (`Source::ringing`); and two
+same audio at five block sizes through the mixer; an offline render equal to playback
+(the delay's bit for bit; the reverb's within a ten-thousandth, since a render's
+lead-in seeds a last-bit difference in a recursive tail that the loop then carries);
+a delay's and a reverb's tails ringing after Stop (`Source::ringing`); and two
 golden renders pinned by twenty samples, the sum of |x| and the sum of x^2, each within
 1e-6 relative (not by a hash of the bits: CI's platforms round `exp`/`powf` a last bit
 apart, the parent's correction to B0's golden). `lumen-app`: the automatic tail from the
