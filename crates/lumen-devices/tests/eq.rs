@@ -501,7 +501,11 @@ fn the_analyser_reads_the_side_it_is_told_to() {
         run(&mut device, &mut left, &mut right, 256, &|_, n| {
             defaults(n, &set)
         });
-        assert!(reader.read(), "a window was written");
+        assert_eq!(
+            reader.read(),
+            lumen_devices::Read::Window,
+            "a window was written"
+        );
         let peak = peak_of(reader.window());
         if want_louder {
             assert!(peak > 1.5, "the output side hears the boost: {peak}");

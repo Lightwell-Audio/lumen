@@ -15,7 +15,7 @@ pub mod params;
 pub mod synth;
 pub mod utility;
 
-pub use analyzer::{Reader, Tap};
+pub use analyzer::{Read, Reader, Tap};
 pub use effect::{Block, Description, Effect, Key, Stereo, Values};
 pub use eq::Eq;
 pub use hosted::{

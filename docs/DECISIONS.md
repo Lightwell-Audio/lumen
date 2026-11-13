@@ -13398,7 +13398,10 @@ eight-band EQ needs more parameter queues than a block had room for (B0's N7).
 
 **Choices.**
 
-1. **Eight bands, and what they are.** `lumen-devices/src/eq/` holds the table: band 1 is
+1. **Eight bands, and what they are.** `lumen-devices/src/eq/` is four files: the table
+   (`table.rs`: the ids and the words), the filter maths (`bands.rs`), the running device
+   (`device.rs`) and what the rest of the crate names (`mod.rs`), each under the 800-line
+   rule (ADR-0141; split in the review of this slice). The table: band 1 is
    a low cut and band 8 a high cut (each 12 to 48 dB an octave, a Butterworth cascade of
    one to four sections so the sum has no peak at the corner), bands 2 to 7 are a Bell, a
    Shelf low, a Shelf high or a Notch, chosen by the band's own Type parameter. Every band
@@ -13429,12 +13432,16 @@ eight-band EQ needs more parameter queues than a block had room for (B0's N7).
 4. **The analyser is device-independent** (option 3A):
    `lumen-devices/src/analyzer.rs`. The audio side (`Tap`) writes the mono sum of the two
    sides into a ring of `AtomicU32` and publishes how many frames it has written with a
-   release store; the interface side (`Reader`) copies the newest 2048-frame window and
-   folds it, giving up on a copy the writer lapped (up to four tries) rather than showing
-   a window that is two windows joined. Nothing allocates in `write`; the reader allocates
+   release store; the interface side (`Reader`) copies the newest 2048-frame window into
+   a scratch buffer and folds it, throwing away a copy the writer lapped (up to four
+   tries) rather than showing a window that is two windows joined. When every try is
+   lapped it keeps the whole window it held and says [`Read::Stale`], so an analyser may
+   show an older window but never a wrong one — the promise is the code's, and
+   `a_reader_lapped_on_every_try_keeps_the_window_before` laps it on purpose to hold it
+   (review L1). Nothing allocates in `write`; the reader allocates
    once in `pair()`. `is_on`/`set_on` let the interface stop the work: a device writes
    nothing while no face is drawn, which is the brief's "the analyzer runs only while the
-   face is visible" — the tap is one relaxed load a block.
+   face is visible" - the tap is one relaxed load a block.
 5. **The transform is written here** (option 4B): an iterative radix-2 Cooley-Tukey of
    2048 points, forty lines, no allocation, checked against a direct sum in
    `the_transform_is_the_one_a_direct_sum_gives`. `microfft` would have done and is
@@ -13510,7 +13517,8 @@ shelf; the drawn curve agreeing with the rendered one; an output gain; a band th
 a swept band never stepping the sound (its largest sample-to-sample step within a quarter
 of the same bell standing still); the same audio at 64, 97, 128 and 256 frames with five
 parameters automated; an allocation guard; and the analyser reading the side its parameter
-names. `crates/lumen-engine/tests/eq.rs`: the same render at 64, 97, 128, 512 and 1024
+names, with a reader lapped on every try keeping the whole window it held (review L1).
+`crates/lumen-engine/tests/eq.rs`: the same render at 64, 97, 128, 512 and 1024
 frames through the plan; the golden render pinned by twenty samples, the sum of |x| and
 the sum of x² within a millionth (not by its bits: the platforms' maths libraries round a
 last bit apart); a full table of lanes filling one queue each; an allocation guard through

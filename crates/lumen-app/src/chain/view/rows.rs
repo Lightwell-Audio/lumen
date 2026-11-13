@@ -191,7 +191,7 @@ impl App {
                 .analyzers
                 .entry(id)
                 .or_insert_with(|| vec![lumen_devices::analyzer::MIN_DB; faces::eq::POINTS]);
-            if reader.read() {
+            if reader.read() == lumen_devices::Read::Window {
                 reader.points(rate.max(1), (faces::eq::LOW, faces::eq::HIGH), picture);
             }
         }

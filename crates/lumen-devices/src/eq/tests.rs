@@ -3,6 +3,10 @@
 
 use super::*;
 use crate::ParamBlock;
+use crate::effect::{Block, Effect, Stereo};
+use crate::eq::words::{
+    db_parse, kind_parse, kind_text, on_parse, on_text, q_parse, side_parse, side_text, slope_parse,
+};
 
 /// The table pinned by id, name and normalised default: an id may not be
 /// renamed, reused or renumbered without failing here (as Prism's is).

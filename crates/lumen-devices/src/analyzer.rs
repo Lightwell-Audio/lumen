@@ -14,8 +14,9 @@
 //!
 //! A reader can be lapped by the writer, and a window copied across a lap is
 //! torn; the copy is then thrown away and tried again, up to [`TRIES`] times.
-//! Later tries always win: an analyser may show an older window, never a
-//! wrong one that a person could read as a peak that is not there.
+//! An analyser may show an older window, never a wrong one that a person could
+//! read as a peak that is not there, so when every try is lapped the reader
+//! keeps the whole window it held and says [`Read::Stale`].
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -24,11 +25,26 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 pub const SIZE: usize = 2048;
 /// The bins a window's transform has, at or under the Nyquist frequency.
 pub const BINS: usize = SIZE / 2;
-/// How often a copy across a lap is tried before the last one is accepted:
-/// a display is worth a torn window sooner than a stalled interface.
+/// How often a copy across a lap is tried before the reader keeps what it has
+/// and says the window is old.
 pub const TRIES: usize = 4;
 
 const MASK: u64 = SIZE as u64 - 1;
+
+/// What a [`Reader::read`] found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Read {
+    /// A whole new window was copied: what the reader holds is the newest
+    /// sound.
+    Window,
+    /// The writer came round during every try, so nothing was copied: what
+    /// the reader holds is the window before, which is whole but old, and the
+    /// face may show it rather than a copy that is two windows joined.
+    Stale,
+    /// The writer has not filled a window yet, or has not moved since the
+    /// last read.
+    Nothing,
+}
 
 /// What the audio thread writes and the interface reads.
 struct Shared {
@@ -81,6 +97,9 @@ pub struct Reader {
     shared: Arc<Shared>,
     /// The newest whole window of mono frames.
     window: Vec<f32>,
+    /// Where a copy is made before it is known to be whole: a copy the writer
+    /// lapped is thrown away rather than shown.
+    scratch: Vec<f32>,
     /// The window's Hann taper, worked out once.
     taper: Vec<f32>,
     /// The window's transform, in dB a bin: a full-scale sine at a bin's
@@ -93,6 +112,10 @@ pub struct Reader {
     seen: u64,
     /// The newest window has not been transformed yet.
     stale: bool,
+    /// A lap the test asks for: the next copies look as if the writer came
+    /// round during each of them (M8 slice B1, review L1).
+    #[cfg(test)]
+    pretend_laps: usize,
 }
 
 /// A tap and its reader: the device holds the one, the interface the other.
@@ -109,6 +132,7 @@ pub fn pair() -> (Tap, Reader) {
         Reader {
             shared,
             window: vec![0.0; SIZE],
+            scratch: vec![0.0; SIZE],
             taper: (0..SIZE)
                 .map(|i| {
                     let phase = std::f32::consts::TAU * i as f32 / SIZE as f32;
@@ -120,6 +144,8 @@ pub fn pair() -> (Tap, Reader) {
             im: vec![0.0; SIZE],
             seen: 0,
             stale: true,
+            #[cfg(test)]
+            pretend_laps: 0,
         },
     )
 }
@@ -138,35 +164,59 @@ impl Reader {
         self.shared.on.load(Ordering::Relaxed)
     }
 
-    /// Copies the newest window out of the ring; true when the writer has
-    /// moved since the last copy, so a still writer costs a transform once,
-    /// not a frame.
-    pub fn read(&mut self) -> bool {
+    /// Copies the newest whole window out of the ring. A copy the writer came
+    /// round during is thrown away and tried again; when every try was lapped
+    /// the reader keeps the window before it held and says it is stale, rather
+    /// than showing a copy that is two windows joined.
+    pub fn read(&mut self) -> Read {
         let mut end = self.shared.written.load(Ordering::Acquire);
         if end < SIZE as u64 || end == self.seen {
-            return false;
+            return Read::Nothing;
         }
         for _ in 0..TRIES {
             let start = end - SIZE as u64;
-            for (i, sample) in self.window.iter_mut().enumerate() {
+            for (i, sample) in self.scratch.iter_mut().enumerate() {
                 let slot = ((start + i as u64) & MASK) as usize;
                 *sample = f32::from_bits(self.shared.ring[slot].load(Ordering::Relaxed));
             }
-            let after = self.shared.written.load(Ordering::Acquire);
+            let after = self.written_after(end);
             if after - end < SIZE as u64 {
+                self.window.copy_from_slice(&self.scratch);
                 self.seen = end;
                 self.stale = true;
-                return true;
+                return Read::Window;
             }
             // The writer came round while the copy was made: the frames
             // copied are two windows joined. Try again at the newer end.
             end = after;
         }
-        // Still racing after every try: the display takes the last window
-        // rather than stopping.
-        self.seen = end;
-        self.stale = true;
-        true
+        // Every try was lapped. What the reader holds is the whole window
+        // before this call, and it says so.
+        Read::Stale
+    }
+
+    /// How many frames the writer had written after a copy made at `end`.
+    #[cfg(not(test))]
+    fn written_after(&self, _end: u64) -> u64 {
+        self.shared.written.load(Ordering::Acquire)
+    }
+
+    /// [`Reader::written_after`], with the lap a test asks for.
+    #[cfg(test)]
+    fn written_after(&mut self, end: u64) -> u64 {
+        if self.pretend_laps > 0 {
+            self.pretend_laps -= 1;
+            return end + SIZE as u64;
+        }
+        self.shared.written.load(Ordering::Acquire)
+    }
+
+    /// Makes the next `laps` copies look as if the writer came round during
+    /// each of them, so what a reader does when it never sees a whole window
+    /// is a test and not a race (M8 slice B1, review L1).
+    #[cfg(test)]
+    fn pretend_laps(&mut self, laps: usize) {
+        self.pretend_laps = laps;
     }
 
     /// The copied window, oldest first.
@@ -298,7 +348,7 @@ mod tests {
         let (mut tap, mut reader) = pair();
         reader.set_on(true);
         tap.write(&samples, &samples);
-        assert!(reader.read());
+        assert_eq!(reader.read(), Read::Window);
         let spectrum = reader.spectrum();
         // 0.5 of full scale is −6 dB.
         assert!(
@@ -348,14 +398,14 @@ mod tests {
         let (mut tap, mut reader) = pair();
         assert!(!tap.is_on());
         tap.write(&[1.0; 64], &[1.0; 64]);
-        assert!(!reader.read(), "nothing was written");
+        assert_eq!(reader.read(), Read::Nothing, "nothing was written");
         reader.set_on(true);
         assert!(tap.is_on());
         tap.write(&[1.0; SIZE], &[1.0; SIZE]);
-        assert!(reader.read());
+        assert_eq!(reader.read(), Read::Window);
         assert!(reader.window().iter().all(|x| *x == 1.0));
         // A second read of a still writer finds nothing new.
-        assert!(!reader.read(), "the window has not moved");
+        assert_eq!(reader.read(), Read::Nothing, "the window has not moved");
     }
 
     /// The reader gets the newest window, not the first one.
@@ -365,7 +415,38 @@ mod tests {
         reader.set_on(true);
         tap.write(&vec![1.0; SIZE], &vec![1.0; SIZE]);
         tap.write(&vec![2.0; SIZE], &vec![2.0; SIZE]);
-        assert!(reader.read());
+        assert_eq!(reader.read(), Read::Window);
+        assert!(reader.window().iter().all(|x| *x == 2.0));
+    }
+
+    /// L1: a reader lapped on every try keeps the whole window it held and
+    /// says it is stale, never a copy that is two windows joined — the promise
+    /// the module makes is the one the code keeps.
+    #[test]
+    fn a_reader_lapped_on_every_try_keeps_the_window_before() {
+        let (mut tap, mut reader) = pair();
+        reader.set_on(true);
+        tap.write(&vec![1.0; SIZE], &vec![1.0; SIZE]);
+        assert_eq!(reader.read(), Read::Window);
+        assert!(reader.window().iter().all(|x| *x == 1.0));
+        let spectrum_before = reader.spectrum().to_vec();
+
+        // The writer moves on, and every try of the next read is lapped.
+        tap.write(&vec![2.0; SIZE], &vec![2.0; SIZE]);
+        reader.pretend_laps(TRIES);
+        assert_eq!(reader.read(), Read::Stale);
+        assert!(
+            reader.window().iter().all(|x| *x == 1.0),
+            "the window before is kept, not a torn one"
+        );
+        assert_eq!(
+            reader.spectrum(),
+            spectrum_before,
+            "and its spectrum is not worked out again"
+        );
+
+        // The next read, with no lap, takes the new window.
+        assert_eq!(reader.read(), Read::Window);
         assert!(reader.window().iter().all(|x| *x == 2.0));
     }
 
@@ -376,12 +457,12 @@ mod tests {
         let (mut tap, mut reader) = pair();
         reader.set_on(true);
         tap.write(&vec![0.0; SIZE], &vec![0.0; SIZE]);
-        assert!(reader.read());
+        assert_eq!(reader.read(), Read::Window);
         assert!(reader.spectrum().iter().all(|db| *db == MIN_DB));
 
         let samples = sine(1_000.0, rate as f32, SIZE, 0.5);
         tap.write(&samples, &samples);
-        assert!(reader.read());
+        assert_eq!(reader.read(), Read::Window);
         let mut points = [MIN_DB; 40];
         reader.points(rate, (20.0, 20_000.0), &mut points);
         let loudest = points
