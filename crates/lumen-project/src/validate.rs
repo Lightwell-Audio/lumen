@@ -9,8 +9,8 @@ use lumen_core::time::{TempoMap, Ticks};
 
 use crate::edit::maps::MOST_CHANGES;
 use crate::model::{
-    Clip, ClipContent, ClipEvent, Device, Id, MAX_DEVICE_STATE, MOST_NOTES_BYTES, Note, Output,
-    Pass, PluginRef, Project, Route, Takes, Track, TrackKind,
+    Clip, ClipContent, ClipEvent, Device, Id, MAX_DEVICE_STATE, MOST_NOTES_BYTES, MOST_SOUND_NAME,
+    Note, Output, Pass, PluginRef, Project, Route, Takes, Track, TrackKind,
 };
 
 /// The furthest a position or length may reach: about 3 billion beats, past
@@ -166,7 +166,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
         if !ids.insert(map.id) {
             return Err(format!("drum map {index} {:?}: duplicate id", map.name));
         }
-        if map.name.is_empty() || map.name.chars().count() > 64 {
+        if map.name.is_empty() || map.name.chars().count() > MOST_SOUND_NAME {
             return Err(format!("drum map {index}: its name is empty or too long"));
         }
         if map.sounds.len() > MOST_SOUNDS {
@@ -174,9 +174,9 @@ pub fn validate(project: &Project) -> Result<(), String> {
         }
         let mut inputs = HashSet::new();
         for sound in &map.sounds {
-            if sound.name.chars().count() > 64 {
+            if sound.name.trim().is_empty() || sound.name.chars().count() > MOST_SOUND_NAME {
                 return Err(format!(
-                    "drum map {index} {:?}: a sound's name is too long",
+                    "drum map {index} {:?}: a sound's name is empty or too long",
                     map.name
                 ));
             }
@@ -219,6 +219,25 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     "drum map {index} {:?}: an output pair must be 1 to {MOST_BUSES}",
                     map.name
                 ));
+            }
+            // A sound sent to another track (D4): that track must be there and
+            // play an instrument.
+            if let Route::Track(to) = sound.route {
+                match kinds.get(&to) {
+                    Some(TrackKind::Midi) => {}
+                    Some(_) => {
+                        return Err(format!(
+                            "drum map {index} {:?}: a sound plays on a track that is not an instrument track",
+                            map.name
+                        ));
+                    }
+                    None => {
+                        return Err(format!(
+                            "drum map {index} {:?}: a sound plays on a track that does not exist",
+                            map.name
+                        ));
+                    }
+                }
             }
         }
     }

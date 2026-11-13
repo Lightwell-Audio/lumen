@@ -11,7 +11,9 @@ use std::sync::Arc;
 
 use lumen_core::time::Ticks;
 use lumen_project::drums::{self, Converted, presets::Preset};
-use lumen_project::model::{ClipContent, DrumIcon, DrumMap, Id, Quantize, Route, Sound, TrackKind};
+use lumen_project::model::{
+    ClipContent, DrumIcon, DrumMap, Id, MOST_SOUND_NAME, Quantize, Route, Sound, TrackKind,
+};
 
 use super::Document;
 
@@ -188,7 +190,7 @@ impl Document {
     /// One undo step.
     pub fn set_sound_name(&mut self, map: Id, input: u8, name: &str) -> bool {
         let name = name.trim();
-        if name.is_empty() {
+        if name.is_empty() || name.chars().count() > MOST_SOUND_NAME {
             return false;
         }
         let icon = drums::icon_for_name(name);
@@ -225,7 +227,8 @@ impl Document {
     /// is empty.
     pub fn rename_drum_map(&mut self, map: Id, name: &str) -> bool {
         let name = name.trim();
-        if name.is_empty() || self.drum_map(map).is_none() {
+        if name.is_empty() || name.chars().count() > MOST_SOUND_NAME || self.drum_map(map).is_none()
+        {
             return false;
         }
         self.history.apply("Rename drum map", None, |project| {
@@ -342,9 +345,9 @@ impl Document {
 mod tests {
     use super::*;
     use lumen_core::grid::{Feel, Size};
-    use lumen_project::model::{Clip, Note, Track, TrackKind};
+    use lumen_project::model::{Clip, ClipEvent, EventKind, Note, Track, TrackKind};
 
-    fn midi_clip(id: u64, notes: Vec<Note>) -> Clip {
+    fn midi_clip(id: u64, notes: Vec<Note>, events: Vec<lumen_project::model::ClipEvent>) -> Clip {
         Clip {
             id: Id(id),
             name: "Kit".into(),
@@ -364,15 +367,16 @@ mod tests {
             envelopes: Default::default(),
             takes: None,
             warp: None,
-            content: ClipContent::Midi {
-                notes,
-                events: Vec::new(),
-            },
+            content: ClipContent::Midi { notes, events },
         }
     }
 
-    /// A project with one MIDI track holding `notes`, on no map yet.
-    fn kit_track(notes: Vec<Note>) -> (Document, Id, Id) {
+    /// A project with one MIDI track holding `notes` and `events`, on no map
+    /// yet.
+    fn kit_track(
+        notes: Vec<Note>,
+        events: Vec<lumen_project::model::ClipEvent>,
+    ) -> (Document, Id, Id) {
         let mut doc = Document::new(crate::empty_project());
         let track = doc.add_track(TrackKind::Midi, None);
         let clip = doc.fresh_id();
@@ -380,7 +384,7 @@ mod tests {
             let slot = project.tracks.iter_mut().find(|t| t.id == track).unwrap();
             std::sync::Arc::make_mut(slot)
                 .clips
-                .push(std::sync::Arc::new(midi_clip(clip.0, notes)));
+                .push(std::sync::Arc::new(midi_clip(clip.0, notes, events)));
         });
         doc.seal();
         (doc, track, clip)
@@ -399,6 +403,35 @@ mod tests {
             .expect("a MIDI clip")
     }
 
+    fn events_of(doc: &Document, clip: Id) -> Vec<ClipEvent> {
+        doc.project()
+            .tracks
+            .iter()
+            .flat_map(|t| t.clips.iter())
+            .find(|c| c.id == clip)
+            .and_then(|c| match &c.content {
+                ClipContent::Midi { events, .. } => Some(events.clone()),
+                ClipContent::Audio { .. } => None,
+            })
+            .expect("a MIDI clip")
+    }
+
+    /// A clip's notes and events as `project` holds them.
+    fn clip_content(
+        project: &lumen_project::model::Project,
+        clip: Id,
+    ) -> Option<(Vec<Note>, Vec<ClipEvent>)> {
+        project
+            .tracks
+            .iter()
+            .flat_map(|t| t.clips.iter())
+            .find(|c| c.id == clip)
+            .and_then(|c| match &c.content {
+                ClipContent::Midi { notes, events } => Some((notes.clone(), events.clone())),
+                ClipContent::Audio { .. } => None,
+            })
+    }
+
     /// A repeatable stream of numbers.
     fn rng(mut seed: u64) -> impl FnMut() -> u64 {
         move || {
@@ -409,21 +442,119 @@ mod tests {
         }
     }
 
+    /// One edit the property test makes, in the order the seeded numbers say.
+    #[derive(Clone, Copy, Debug)]
+    enum Step {
+        AttachPreset(Preset),
+        Attach(Id),
+        Detach,
+        Mute(Id, u8),
+        Unmute(Id, u8),
+        Solo(Id, u8),
+        Unsolo(Id, u8),
+        Output(Id, u8),
+        Length(Id, u8),
+        Channel(Id, u8),
+        Rename(Id, u8),
+        Icon(Id, u8),
+        Quantize(Id, u8),
+        Choke(Id, u8),
+        Route(Id, u8),
+    }
+
+    /// Does `step`, which may legitimately change nothing (detaching a track
+    /// with no map, renaming to the name it has).
+    fn do_step(doc: &mut Document, track: Id, step: Step) {
+        match step {
+            Step::AttachPreset(preset) => {
+                doc.attach_drum_map_preset(track, preset);
+            }
+            Step::Attach(map) => {
+                doc.attach_drum_map(track, map);
+            }
+            Step::Detach => doc.detach_drum_map(track),
+            Step::Mute(map, input) => {
+                doc.set_sound_mute(map, input, true);
+            }
+            Step::Unmute(map, input) => {
+                doc.set_sound_mute(map, input, false);
+            }
+            Step::Solo(map, input) => {
+                doc.set_sound_solo(map, input, true);
+            }
+            Step::Unsolo(map, input) => {
+                doc.set_sound_solo(map, input, false);
+            }
+            Step::Output(map, input) => {
+                doc.set_sound_output(map, input, 127 - (input % 60));
+            }
+            Step::Length(map, input) => {
+                doc.set_sound_length(map, input, Some(Ticks(240)));
+            }
+            Step::Channel(map, input) => {
+                doc.set_sound_channel(map, input, Some(9));
+            }
+            Step::Rename(map, input) => {
+                doc.set_sound_name(map, input, "A sound renamed");
+            }
+            Step::Icon(map, input) => {
+                doc.set_sound_icon(map, input, DrumIcon::Effect);
+            }
+            Step::Quantize(map, input) => {
+                doc.set_sound_quantize(
+                    map,
+                    input,
+                    Some(Quantize {
+                        size: Size::Note(16),
+                        feel: Feel::Triplet,
+                    }),
+                );
+            }
+            Step::Choke(map, input) => {
+                doc.set_sound_choke(map, input, Some(3));
+            }
+            Step::Route(map, input) => {
+                doc.set_sound_route(map, input, Route::Output(2));
+            }
+        }
+    }
+
     #[test]
     fn attach_swap_edit_and_detach_in_any_order_leave_every_note_as_it_was() {
         let mut next = rng(0x5eed_1234);
         for round in 0..6 {
+            // Notes of the clip, some muted, with controller events beside
+            // them: a map changes what plays, never what a clip holds.
             let notes: Vec<Note> = (0..24)
                 .map(|_| {
-                    Note::new(
+                    Note(
                         Ticks((next() % 8_000) as i64),
                         Ticks(1 + (next() % 900) as i64),
                         24 + (next() % 60) as u8,
-                        (next() % 128) as u8,
+                        1 + (next() % 127) as u8,
+                        next().is_multiple_of(3),
+                        true,
                     )
                 })
                 .collect();
-            let (mut doc, track, clip) = kit_track(notes.clone());
+            let events = vec![
+                ClipEvent {
+                    at: Ticks(120),
+                    kind: EventKind::Controller {
+                        number: 1,
+                        value: 64,
+                    },
+                },
+                ClipEvent {
+                    at: Ticks(480),
+                    kind: EventKind::PitchBend { value: -1_024 },
+                },
+                ClipEvent {
+                    at: Ticks(960),
+                    kind: EventKind::Pressure { value: 40 },
+                },
+            ];
+            let (mut doc, track, clip) = kit_track(notes.clone(), events.clone());
             let first = doc
                 .attach_drum_map_preset(track, Preset::GENERAL_MIDI)
                 .expect("a MIDI track takes a map");
@@ -437,8 +568,6 @@ mod tests {
                 doc.drum_map(first).map(|m| m.name.as_str()),
                 Some("General MIDI")
             );
-            // Swap to another preset, then edit the map it left behind: the
-            // notes never change.
             let second = doc
                 .attach_drum_map_preset(track, Preset::EIGHT_OH_EIGHT)
                 .expect("a MIDI track takes a map");
@@ -446,7 +575,20 @@ mod tests {
                 .attach_drum_map_preset(track, Preset::GENERAL_MIDI_2)
                 .unwrap();
             assert_eq!(doc.project().drum_maps.len(), 3);
-            for map in [first, second, third] {
+            // Every edit of every map, and the attach, swap and detach that
+            // reach them, in an order the seeded numbers choose: a fixed
+            // order hides what an edit after another one does.
+            let maps = [first, second, third];
+            let mut steps = vec![
+                Step::Detach,
+                Step::Attach(first),
+                Step::Attach(second),
+                Step::Attach(third),
+                Step::Detach,
+                Step::AttachPreset(Preset::EIGHT_OH_EIGHT),
+            ];
+            let mut inputs = Vec::new();
+            for map in maps {
                 let sounds: Vec<u8> = doc
                     .drum_map(map)
                     .unwrap()
@@ -454,56 +596,64 @@ mod tests {
                     .iter()
                     .map(|s| s.input)
                     .collect();
-                for (n, input) in sounds.iter().copied().enumerate() {
-                    let key = (round + n) as u8;
-                    match key % 5 {
-                        0 => {
-                            doc.set_sound_mute(map, input, true);
-                            doc.set_sound_mute(map, input, false);
-                        }
-                        1 => {
-                            doc.set_sound_solo(map, input, true);
-                            doc.set_sound_solo(map, input, false);
-                        }
-                        2 => {
-                            doc.set_sound_output(map, input, 127 - (input % 60));
-                            doc.set_sound_length(map, input, Some(Ticks(240)));
-                            doc.set_sound_channel(map, input, Some(9));
-                        }
-                        3 => {
-                            doc.set_sound_name(map, input, "A sound renamed");
-                            doc.set_sound_icon(map, input, DrumIcon::Effect);
-                            doc.set_sound_quantize(
-                                map,
-                                input,
-                                Some(Quantize {
-                                    size: Size::Note(16),
-                                    feel: Feel::Triplet,
-                                }),
-                            );
-                        }
-                        _ => {
-                            doc.set_sound_choke(map, input, Some(3));
-                            doc.set_sound_route(map, input, Route::Output(2));
-                        }
-                    }
-                    assert_eq!(notes_of(&doc, clip), notes, "round {round}, map {map:?}");
+                for input in sounds {
+                    inputs.push((map, input));
                 }
             }
+            for map in maps {
+                for _ in 0..6 {
+                    let (_, input) = inputs[(next() % inputs.len() as u64) as usize];
+                    steps.push(match next() % 13 {
+                        0 => Step::Mute(map, input),
+                        1 => Step::Unmute(map, input),
+                        2 => Step::Solo(map, input),
+                        3 => Step::Unsolo(map, input),
+                        4 => Step::Output(map, input),
+                        5 => Step::Length(map, input),
+                        6 => Step::Channel(map, input),
+                        7 => Step::Rename(map, input),
+                        8 => Step::Icon(map, input),
+                        9 => Step::Quantize(map, input),
+                        10 => Step::Choke(map, input),
+                        11 => Step::Route(map, input),
+                        _ => Step::Attach(if next().is_multiple_of(2) {
+                            first
+                        } else {
+                            second
+                        }),
+                    });
+                }
+            }
+            // Shuffle with the seeded numbers (Fisher–Yates).
+            for i in (1..steps.len()).rev() {
+                steps.swap(i, (next() % (i as u64 + 1)) as usize);
+            }
+            for step in steps {
+                do_step(&mut doc, track, step);
+                assert_eq!(notes_of(&doc, clip), notes, "round {round}, after {step:?}");
+                assert_eq!(
+                    events_of(&doc, clip),
+                    events,
+                    "round {round}, after {step:?}"
+                );
+            }
             // Back to the first map, then off entirely: still bit-identical.
-            assert!(doc.attach_drum_map(track, first));
+            if doc.drum_map_of(track).map(|m| m.id) != Some(first) {
+                assert!(doc.attach_drum_map(track, first));
+            }
             doc.detach_drum_map(track);
             assert!(doc.drum_map_of(track).is_none());
             assert_eq!(notes_of(&doc, clip), notes);
-            // The project it would save is one a later build reads.
+            // The project it would save is one a later build reads, and what
+            // it reads holds the same notes and events.
             assert_eq!(lumen_project::validate(doc.project()), Ok(()));
             let bytes = lumen_project::to_bytes(doc.project()).expect("a valid project");
+            let read = lumen_project::from_bytes(&bytes).expect("it reads again");
+            assert_eq!(read.drum_maps, doc.project().drum_maps);
             assert_eq!(
-                lumen_project::from_bytes(&bytes)
-                    .expect("it reads again")
-                    .drum_maps
-                    .len(),
-                doc.project().drum_maps.len()
+                clip_content(&read, clip),
+                Some((notes.clone(), events.clone())),
+                "the notes and events the file holds"
             );
         }
     }
@@ -511,7 +661,7 @@ mod tests {
     #[test]
     fn each_attach_and_detach_is_one_undo_step_and_keeps_the_notes() {
         let notes = vec![Note::new(Ticks(0), Ticks(240), 36, 100)];
-        let (mut doc, track, clip) = kit_track(notes.clone());
+        let (mut doc, track, clip) = kit_track(notes.clone(), Vec::new());
         let map = doc
             .attach_drum_map_preset(track, Preset::EIGHT_OH_EIGHT)
             .unwrap();
@@ -588,7 +738,7 @@ mod tests {
             Note::new(Ticks(240), Ticks(120), 42, 90),
             Note::new(Ticks(480), Ticks(120), 75, 80),
         ];
-        let (mut doc, track, clip) = kit_track(notes.clone());
+        let (mut doc, track, clip) = kit_track(notes.clone(), Vec::new());
         let single = doc
             .attach_drum_map_preset(track, Preset::EIGHT_OH_EIGHT)
             .unwrap();
@@ -641,7 +791,7 @@ mod tests {
     #[test]
     fn converting_can_keep_notes_the_target_lacks() {
         let notes = vec![Note::new(Ticks::ZERO, Ticks(120), 36, 100)];
-        let (mut doc, track, clip) = kit_track(notes.clone());
+        let (mut doc, track, clip) = kit_track(notes.clone(), Vec::new());
         let single = doc
             .attach_drum_map_preset(track, Preset::GENERAL_MIDI)
             .unwrap();
@@ -671,7 +821,10 @@ mod tests {
 
     #[test]
     fn a_sound_edit_is_one_step_and_a_missing_map_or_sound_changes_nothing() {
-        let (mut doc, track, _) = kit_track(vec![Note::new(Ticks::ZERO, Ticks(120), 36, 100)]);
+        let (mut doc, track, _) = kit_track(
+            vec![Note::new(Ticks::ZERO, Ticks(120), 36, 100)],
+            Vec::new(),
+        );
         let map = doc
             .attach_drum_map_preset(track, Preset::EIGHT_OH_EIGHT)
             .unwrap();
@@ -696,7 +849,7 @@ mod tests {
     #[test]
     fn a_track_that_is_not_midi_or_a_clip_on_no_map_is_left_alone() {
         let notes = vec![Note::new(Ticks::ZERO, Ticks(120), 36, 100)];
-        let (mut doc, track, clip) = kit_track(notes.clone());
+        let (mut doc, track, clip) = kit_track(notes.clone(), Vec::new());
         let map = doc
             .attach_drum_map_preset(track, Preset::GENERAL_MIDI)
             .unwrap();

@@ -82,20 +82,11 @@ impl Preset {
 }
 
 /// The colour of a sound's lane, by its piece: the mixed track palette, so a
-/// kit reads in blocks (kick, snare, hats, toms, cymbals, percussion).
+/// kit reads in blocks (kick, snare, hats, toms, cymbals, percussion). The
+/// rule lives on the icon (`DrumIcon::color`); this is the name the presets
+/// and the editors use.
 pub fn color_of(icon: DrumIcon) -> Color {
-    let index = match icon {
-        DrumIcon::Kick => 0,
-        DrumIcon::Snare | DrumIcon::Rim => 4,
-        DrumIcon::Clap => 7,
-        DrumIcon::ClosedHat | DrumIcon::PedalHat | DrumIcon::OpenHat => 5,
-        DrumIcon::Tom | DrumIcon::FloorTom | DrumIcon::Cowbell => 3,
-        DrumIcon::Crash | DrumIcon::Ride => 8,
-        DrumIcon::Shaker => 9,
-        DrumIcon::Percussion => 2,
-        DrumIcon::Effect => 6,
-    };
-    Color::in_turn(index)
+    icon.color()
 }
 
 /// General MIDI percussion (notes 35 to 81), on channel 10's notes. The

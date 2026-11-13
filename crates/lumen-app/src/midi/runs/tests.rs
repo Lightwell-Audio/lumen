@@ -691,3 +691,49 @@ fn a_note_left_out_of_a_window_or_muted_in_the_clip_never_reaches_the_map() {
         "the muted note and the one past the clip's end play nothing"
     );
 }
+
+#[test]
+fn one_kit_is_shared_by_every_run_that_plays_it() {
+    // A map is shared, not copied into every cached run: a project of many
+    // mapped clips holds one kit (M8 D0 review L7).
+    let map = kit();
+    let mut cache = Cache::default();
+    let first = cache.shared(Some(&map)).expect("a map");
+    let second = cache.shared(Some(&map)).expect("a map");
+    assert!(Arc::ptr_eq(&first, &second), "the same map is one copy");
+    // An edit is another copy, holding what the edit says.
+    let mut edited = map.clone();
+    edited.sounds[0].output = 61;
+    let third = cache.shared(Some(&edited)).expect("a map");
+    assert!(!Arc::ptr_eq(&first, &third));
+    assert_eq!(third.sounds[0].output, 61);
+    // A track with no map shares nothing.
+    assert!(cache.shared(None).is_none());
+}
+
+#[test]
+fn a_long_mapped_clip_reads_the_map_once_and_translates_every_note() {
+    // 100,000 notes through a 47-sound kit: the map is read once for the run
+    // (`Voice`), so the work is per note, not per note and sound
+    // (M8 D0 review L7).
+    use lumen_project::drums::presets::Preset;
+    let map = Preset::GENERAL_MIDI.map(Id(60));
+    let step = q(1).0 / 4;
+    let notes: Vec<Note> = (0..100_000)
+        .map(|i| Note::new(Ticks(i * step), Ticks(step), 36 + (i % 4) as u8, 100))
+        .collect();
+    let mut long = (*clip(1, 0, 0, Vec::new())).clone();
+    long.length = Ticks(100_001 * step);
+    long.content = ClipContent::Midi {
+        notes,
+        events: Vec::new(),
+    };
+    let long = Arc::new(long);
+    let out = run_notes(&voiced(std::slice::from_ref(&long), &map));
+    assert_eq!(out.len(), 100_000);
+    // Each note plays as its sound: General MIDI's kick, rim, snare and clap
+    // play the notes they answer to.
+    for n in &out {
+        assert_eq!(n.pitch, 36 + (n.start.0 / step % 4) as u8);
+    }
+}

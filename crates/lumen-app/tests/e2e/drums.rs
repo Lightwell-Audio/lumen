@@ -72,6 +72,37 @@ fn loudest(lumen: &mut Lumen) -> f32 {
         .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()))
 }
 
+/// Waits until what the device plays is under `quiet`, and gives the level it
+/// reached: a note that ends and whose tail dies, waited for as a condition,
+/// never a count of frames (M8 D0 review L10).
+#[track_caller]
+fn until_quiet(lumen: &mut Lumen, quiet: f32, what: &str) -> f32 {
+    let deadline = lumen_testkit::Deadline::new();
+    loop {
+        let heard = loudest(lumen);
+        if heard < quiet {
+            return heard;
+        }
+        deadline.check(format_args!("{what}; still heard at {heard}"));
+        std::thread::sleep(lumen_testkit::POLL);
+    }
+}
+
+/// Waits until what the device plays is over `loud`, and gives the level it
+/// reached.
+#[track_caller]
+fn until_loud(lumen: &mut Lumen, loud: f32, what: &str) -> f32 {
+    let deadline = lumen_testkit::Deadline::new();
+    loop {
+        let heard = loudest(lumen);
+        if heard > loud {
+            return heard;
+        }
+        deadline.check(format_args!("{what}; only {heard} heard"));
+        std::thread::sleep(lumen_testkit::POLL);
+    }
+}
+
 fn play(lumen: &mut Lumen) {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.is_playing());
@@ -137,25 +168,13 @@ fn the_palette_opens_the_map_editor_and_a_kit_chosen_there_plays_the_track() {
 
     // Muting the kick in its row takes the track quiet.
     lumen.click("Mute Kick");
-    lumen.frames(30);
-    let after = loudest(&mut lumen);
+    let after = until_quiet(&mut lumen, 1e-4, "the muted sound to go");
     assert!(after < 1e-4, "the muted sound is gone: {after}");
     assert_eq!(lumen.app().undo_label(), Some("Mute drum sound"));
 
-    // Undo brings it back: playing from the start, the kick is heard again.
+    // Undo brings it back: the kick is heard again as the loop plays on.
     lumen.key(Modifiers::COMMAND, Key::Z);
-    lumen.frames(5);
-    stop(&mut lumen);
-    let back = lumen.listen_from(
-        |l| {
-            l.key(Modifiers::NONE, Key::Home);
-            l.key(Modifiers::NONE, Key::Space);
-        },
-        LISTEN,
-    );
-    let back = back
-        .iter()
-        .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()));
+    let back = until_loud(&mut lumen, 0.01, "the undone sound");
     assert!(back > 0.01, "undone, it sounds again: {back}");
     stop(&mut lumen);
 }

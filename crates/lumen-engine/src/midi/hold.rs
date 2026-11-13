@@ -66,6 +66,9 @@ pub(super) struct Down {
     pub source: u8,
     pub channel: u8,
     pub key: u8,
+    /// The note the track's map plays of it: what the clips' notes carry and
+    /// what a played key wins (`TrackState::yields`, M8 D0 review M1).
+    pub played: u8,
     pub velocity: u8,
     /// It went down inside the recording window, so the take shows its
     /// note and it wins its pitch (`TrackState::yields`).
@@ -125,11 +128,14 @@ impl TrackState {
     }
 
     /// Notes a key of the recording input going down or up. `wins`: it went
-    /// down where the take shows it ([`Self::shows`]).
-    pub fn press(&mut self, source: u8, msg: Msg, wins: bool) {
+    /// down where the take shows it ([`Self::shows`]). `kit`: the track's drum
+    /// map, whose note the key plays, so it wins the pitch the clips' notes
+    /// carry rather than the one that came in (M8 D0 review M1).
+    pub fn press(&mut self, source: u8, msg: Msg, wins: bool, kit: Option<&DrumKit>) {
         match msg.kind() {
             Kind::NoteOn { key, velocity } => {
                 let channel = msg.channel();
+                let played = kit.map_or(key, |kit| kit.key(key).key);
                 self.down
                     .retain(|d| !(d.source == source && d.channel == channel && d.key == key));
                 if self.down.len() < MAX_HELD {
@@ -137,6 +143,7 @@ impl TrackState {
                         source,
                         channel,
                         key,
+                        played,
                         velocity,
                         wins,
                     });
@@ -157,22 +164,23 @@ impl TrackState {
     /// committed (`lumen_project::edit::record`), so the old note neither
     /// sounds under it nor ends it. Only inside the recording window, at
     /// tick `at`, and only for a key that went down there: outside it the
-    /// take keeps the played note hidden, so the clips play on.
+    /// take keeps the played note hidden, so the clips play on. `key` is what
+    /// the clips play ([`Down::played`]): a sound that remaps its note wins
+    /// the note it plays.
     pub fn yields(&self, key: u8, at: Ticks) -> bool {
-        self.shows(at) && self.down.iter().any(|d| d.wins && d.key == key)
+        self.shows(at) && self.down.iter().any(|d| d.wins && d.played == key)
     }
 
     /// Ends the clip notes sounding on `key` at `offset`: the recording
-    /// input has just played it.
+    /// input has just played it. A clip note chased in this same part has
+    /// not reached the instrument, so its note-on is taken back rather than
+    /// answered (M8 D0 review round 2).
     pub fn give_way(&mut self, key: u8, offset: u32) {
         let mut i = 0;
         while i < self.held.len() {
             let h = self.held[i];
             if h.key == key {
-                self.push_release(Event {
-                    offset,
-                    msg: Msg::note_off(h.channel, h.key),
-                });
+                self.end_before_it_sounded(h.channel, h.key, offset);
                 self.held.swap_remove(i);
             } else {
                 i += 1;
@@ -205,8 +213,9 @@ impl TrackState {
     }
 
     /// Sends a note-on at `offset` and holds the note. A note already held
-    /// on the key is released first, and the other sounds of its choke group
-    /// end at the same sample (M8 D0).
+    /// on the key is ended first (taken back rather than answered when it
+    /// has not reached the instrument yet), and the other sounds of its
+    /// choke group end at the same sample (M8 D0).
     pub fn start_note(&mut self, held: Held, velocity: u8, offset: u32, kit: Option<&DrumKit>) {
         if let Some(i) = self
             .held
@@ -214,10 +223,7 @@ impl TrackState {
             .position(|h| h.channel == held.channel && h.key == held.key)
         {
             let old = self.held.swap_remove(i);
-            self.push_release(Event {
-                offset,
-                msg: Msg::note_off(old.channel, old.key),
-            });
+            self.end_before_it_sounded(old.channel, old.key, offset);
         }
         self.choke(kit, held.key, offset);
         if self.held.len() >= MAX_HELD {
@@ -234,9 +240,45 @@ impl TrackState {
         }
     }
 
+    /// Ends the note on `channel` and `key` at `offset` for the instrument,
+    /// which has not been sent it yet if its note-on is still waiting in this
+    /// part: then the note-on is taken back instead, since a note-off for a
+    /// note the instrument never got would let go of nothing and the note
+    /// that took its place would ring on for ever (M8 D0 review H1).
+    fn end_before_it_sounded(&mut self, channel: u8, key: u8, offset: u32) {
+        if !self.cancel_queued_on(channel, key, offset) {
+            self.push_release(Event {
+                offset,
+                msg: Msg::note_off(channel, key),
+            });
+        }
+    }
+
+    /// Takes the note-on of `key` on `channel` at `offset` off this part's
+    /// queue if it is there: the note started in this pass and never reached
+    /// the instrument. A bounded scan of the part's events; nothing is made.
+    fn cancel_queued_on(&mut self, channel: u8, key: u8, offset: u32) -> bool {
+        let found = self.events.iter().rposition(|e| {
+            e.offset == offset
+                && e.msg.channel() == channel
+                && matches!(e.msg.kind(), Kind::NoteOn { key: k, .. } if k == key)
+        });
+        match found {
+            // Keeping the other events' order: the part is sorted after this.
+            Some(i) => {
+                self.events.remove(i);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Ends the other sounds of the choke group `key` is in, at `offset`: a
-    /// new hit of a group silences the rest of it, the owner's CO A. A note
-    /// of the same key is left to [`Self::start_note`], which retriggers it.
+    /// new hit of a group silences the rest of it, the owner's CO A. A sound
+    /// that started in this same part has not reached the instrument yet, so
+    /// its note-on is taken back rather than answered
+    /// ([`Self::end_before_it_sounded`]). A note of the same key is left to
+    /// [`Self::start_note`], which retriggers it.
     pub fn choke(&mut self, kit: Option<&DrumKit>, key: u8, offset: u32) {
         let Some(kit) = kit.filter(|k| k.chokes()) else {
             return;
@@ -249,10 +291,7 @@ impl TrackState {
         while i < self.held.len() {
             let h = self.held[i];
             if h.key != key && kit.choke_group(h.key) == group {
-                self.push_release(Event {
-                    offset,
-                    msg: Msg::note_off(h.channel, h.key),
-                });
+                self.end_before_it_sounded(h.channel, h.key, offset);
                 self.held.swap_remove(i);
             } else {
                 i += 1;
@@ -263,12 +302,7 @@ impl TrackState {
         let mut live = std::mem::replace(&mut self.live, LiveState::empty());
         live.choke(
             |out_key| out_key != key && kit.choke_group(out_key) == group,
-            |channel, out_key| {
-                self.push_release(Event {
-                    offset,
-                    msg: Msg::note_off(channel, out_key),
-                });
-            },
+            |channel, out_key| self.end_before_it_sounded(channel, out_key, offset),
         );
         self.live = live;
     }
@@ -1158,7 +1192,7 @@ mod tests {
     }
 
     /// Holds `key` from `at`, as a clip note would.
-    fn hold_key(state: &mut TrackState, key: u8, at: Ticks, kit: &DrumKit) {
+    fn hold_key_at(state: &mut TrackState, key: u8, at: Ticks, offset: u32, kit: &DrumKit) {
         state.start_note(
             Held {
                 channel: 0,
@@ -1168,9 +1202,14 @@ mod tests {
                 off_tick: Ticks(at.0 + 10_000),
             },
             100,
-            0,
+            offset,
             Some(kit),
         );
+    }
+
+    /// Holds `key` from `at`, at the first sample of its part.
+    fn hold_key(state: &mut TrackState, key: u8, at: Ticks, kit: &DrumKit) {
+        hold_key_at(state, key, at, 0, kit);
     }
 
     #[test]
@@ -1182,9 +1221,9 @@ mod tests {
         hold_key(&mut state, 36, Ticks(20), &kit);
         assert_eq!(state.held.len(), 2);
         assert_eq!(state.events.len(), 2, "both note-ons went out");
-        // The closed hat strikes: the open hat's off precedes its on, both at
-        // offset 0 of this part.
-        hold_key(&mut state, 42, Ticks(30), &kit);
+        // The closed hat strikes a part later: the open hat's off precedes its
+        // on, both at the new note's frame.
+        hold_key_at(&mut state, 42, Ticks(30), 100, &kit);
         let kinds: Vec<(u32, u8, Msg)> = state
             .events
             .iter()
@@ -1194,8 +1233,8 @@ mod tests {
         assert_eq!(
             kinds,
             vec![
-                (0, 0, Msg::note_off(0, 46)),
-                (0, 0, Msg::note_on(0, 42, 100))
+                (100, 0, Msg::note_off(0, 46)),
+                (100, 0, Msg::note_on(0, 42, 100))
             ],
             "the open hat ends where the closed one starts"
         );
@@ -1217,12 +1256,69 @@ mod tests {
     }
 
     #[test]
+    fn a_note_choked_before_its_part_plays_never_reaches_the_instrument() {
+        // A chase, a same-tick pair of clip notes or two pads on one frame
+        // start both sounds in one pass: the one that is choked has not been
+        // sent yet, so its note-on is taken back and no note-off is owed
+        // (M8 D0 review H1).
+        let kit = hat_kit();
+        let mut state = TrackState::new();
+        hold_key(&mut state, 46, Ticks(10), &kit);
+        hold_key(&mut state, 42, Ticks(10), &kit);
+        assert_eq!(
+            state.events.iter().map(|e| e.msg).collect::<Vec<_>>(),
+            vec![Msg::note_on(0, 42, 100)],
+            "only the sound that is heard went out"
+        );
+        assert_eq!(
+            state.held.iter().map(|h| h.key).collect::<Vec<_>>(),
+            vec![42],
+            "the open hat is not held: it never sounded"
+        );
+        state.release_all(0);
+        let offs = |key: u8| {
+            state
+                .events
+                .iter()
+                .filter(|e| e.msg == Msg::note_off(0, key))
+                .count()
+        };
+        assert_eq!((offs(46), offs(42)), (0, 1), "no stray note-off");
+    }
+
+    #[test]
+    fn a_clip_note_chased_in_the_pass_a_pad_wins_it_never_reaches_the_instrument() {
+        // A list rebuilt while recording chases the clip's note at offset 0,
+        // and a pad of that key wins it on the same frame: the chased note-on
+        // is taken back, not answered by an off that would sort before it
+        // (M8 D0 review round 2).
+        let kit = hat_kit();
+        let mut state = TrackState::new();
+        hold_key(&mut state, 44, Ticks(0), &kit);
+        state.give_way(44, 0);
+        assert!(
+            state.events.is_empty(),
+            "nothing reached the instrument: {:?}",
+            state.events
+        );
+        assert!(state.held.is_empty());
+        // A note that sounded in an earlier part still gets its real off.
+        hold_key(&mut state, 44, Ticks(0), &kit);
+        state.events.clear();
+        state.give_way(44, 0);
+        assert_eq!(
+            state.events.iter().map(|e| e.msg).collect::<Vec<_>>(),
+            vec![Msg::note_off(0, 44)]
+        );
+    }
+
+    #[test]
     fn a_choked_note_is_not_released_again_when_its_own_end_comes() {
         use lumen_core::meter::Meter;
         let kit = hat_kit();
         let mut state = TrackState::new();
         hold_key(&mut state, 46, Ticks(0), &kit);
-        hold_key(&mut state, 42, Ticks(5), &kit);
+        hold_key_at(&mut state, 42, Ticks(5), 100, &kit);
         state.events.clear();
         // The open hat's own end (tick 10,000) is gone from the tracker: no
         // second note-off for it when the part is read past it.
@@ -1255,7 +1351,7 @@ mod tests {
         let mut state = TrackState::new();
         hold_key(&mut state, 36, Ticks(0), &kit);
         hold_key(&mut state, 46, Ticks(1), &kit);
-        hold_key(&mut state, 42, Ticks(2), &kit);
+        hold_key_at(&mut state, 42, Ticks(2), 100, &kit);
         assert_eq!(
             state.held.iter().map(|h| h.key).collect::<Vec<_>>(),
             vec![36, 42],

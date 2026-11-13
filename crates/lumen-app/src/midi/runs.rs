@@ -45,25 +45,29 @@ pub(crate) struct Member<'a> {
     pub map: Option<&'a DrumMap>,
 }
 
-/// How a track's drum map plays its notes: the map, if any. A clip note with
-/// no map plays as written.
+/// How a track's drum map plays its notes: the map, if any, read once for the
+/// whole run so a clip's notes cost O(notes) (M8 D0 review L7). A clip note
+/// with no map plays as written.
 #[derive(Clone, Copy)]
 pub(crate) struct Voice<'a> {
-    map: Option<&'a DrumMap>,
+    playing: Option<drums::Playing<'a>>,
 }
 
 impl<'a> Voice<'a> {
     pub(crate) fn new(map: Option<&'a DrumMap>) -> Self {
-        Self { map }
+        Self {
+            playing: map.map(drums::Playing::new),
+        }
     }
 
     /// The note as played: the key, the channel (the track's when none) and
     /// the length (a sound's override, else the note's); none for a muted
     /// sound, or one no solo lets through.
     fn played(self, note: model::Note) -> Option<(u8, Option<u8>, Ticks)> {
-        match self.map {
+        match self.playing {
             None => Some((note.pitch(), None, note.length())),
-            Some(map) => drums::played(map, note.pitch())
+            Some(playing) => playing
+                .played(note.pitch())
                 .map(|p| (p.key, p.channel, p.length_of(note.length()))),
         }
     }
@@ -397,15 +401,17 @@ struct Pattern {
     /// The clips they were built from, and how much of each played (also
     /// keeps their addresses from being reused while the entry lives).
     members: Vec<(Arc<model::Clip>, Ticks)>,
-    /// The drum map they were read through (M8 D0), if any.
-    map: Option<DrumMap>,
+    /// The drum map they were read through (M8 D0), if any: one shared copy
+    /// for every run that plays it, not a whole kit per cached clip
+    /// (review L7).
+    map: Option<Arc<DrumMap>>,
     notes: Arc<[MidiNote]>,
     controls: Arc<[MidiControl]>,
 }
 
 impl Pattern {
-    fn matches(&self, run: &[Member<'_>]) -> bool {
-        self.map.as_ref() == run.first().and_then(|m| m.map)
+    fn matches(&self, run: &[Member<'_>], map: Option<&DrumMap>) -> bool {
+        self.map.as_deref() == map
             && self.members.len() == run.len()
             && self.members.iter().zip(run).all(|((clip, length), m)| {
                 *length == m.length && (Arc::ptr_eq(clip, m.clip) || **clip == **m.clip)
@@ -417,15 +423,20 @@ impl Pattern {
 /// stable.
 struct Cached {
     members: Vec<(Arc<model::Clip>, Ticks)>,
-    map: Option<DrumMap>,
+    map: Option<Arc<DrumMap>>,
     suppression: Option<Suppression>,
     clips: Vec<MidiClip>,
 }
 
 impl Cached {
-    fn matches(&self, run: &[Member<'_>], suppression: Option<Suppression>) -> bool {
+    fn matches(
+        &self,
+        run: &[Member<'_>],
+        map: Option<&DrumMap>,
+        suppression: Option<Suppression>,
+    ) -> bool {
         self.suppression == suppression
-            && self.map.as_ref() == run.first().and_then(|m| m.map)
+            && self.map.as_deref() == map
             && self.members.len() == run.len()
             && self.members.iter().zip(run).all(|((clip, length), m)| {
                 *length == m.length && (Arc::ptr_eq(clip, m.clip) || **clip == **m.clip)
@@ -440,9 +451,26 @@ impl Cached {
 pub struct Cache {
     runs: HashMap<Id, Cached>,
     patterns: HashMap<Id, Pattern>,
+    /// One shared copy of each drum map the runs were translated through, so
+    /// a project of 20,000 mapped clips holds one kit, not 20,000
+    /// (M8 D0 review L7).
+    maps: HashMap<Id, Arc<DrumMap>>,
 }
 
 impl Cache {
+    /// The shared copy of `map`, made once and kept while it is unchanged.
+    fn shared(&mut self, map: Option<&DrumMap>) -> Option<Arc<DrumMap>> {
+        let map = map?;
+        if let Some(known) = self.maps.get(&map.id)
+            && **known == *map
+        {
+            return Some(Arc::clone(known));
+        }
+        let fresh = Arc::new(map.clone());
+        self.maps.insert(map.id, Arc::clone(&fresh));
+        Some(fresh)
+    }
+
     /// The engine clip `run` plays as, optionally masking a bounded Replace
     /// interval. Cached note and control lists are rebuilt only when either
     /// the run or its suppression window changes.
@@ -452,15 +480,16 @@ impl Cache {
         suppression: Option<Suppression>,
     ) -> &[MidiClip] {
         let head = run[0].clip;
+        let map = self.shared(run[0].map);
         let cached_matches = self
             .runs
             .get(&head.id)
-            .is_some_and(|c| c.matches(run, suppression));
+            .is_some_and(|c| c.matches(run, map.as_deref(), suppression));
 
         if !cached_matches {
             let period = loop_period(run);
             let pattern = match self.patterns.get(&head.id) {
-                Some(cached) if cached.matches(run) => {
+                Some(cached) if cached.matches(run, map.as_deref()) => {
                     (Arc::clone(&cached.notes), Arc::clone(&cached.controls))
                 }
                 _ => {
@@ -486,7 +515,7 @@ impl Cache {
                         head.id,
                         Pattern {
                             members: run.iter().map(|m| (Arc::clone(m.clip), m.length)).collect(),
-                            map: run[0].map.cloned(),
+                            map: map.clone(),
                             notes: Arc::clone(&notes),
                             controls: Arc::clone(&controls),
                         },
@@ -578,7 +607,7 @@ impl Cache {
                 head.id,
                 Cached {
                     members: run.iter().map(|m| (Arc::clone(m.clip), m.length)).collect(),
-                    map: run[0].map.cloned(),
+                    map: map.clone(),
                     suppression,
                     clips: clips.clone(),
                 },
@@ -602,6 +631,11 @@ impl Cache {
         }
         if self.patterns.len() > live.len() {
             self.patterns.retain(|id, _| live.contains(id));
+        }
+        // A map the project no longer holds is let go of with its runs.
+        if self.maps.len() > project.drum_maps.len() {
+            self.maps
+                .retain(|id, _| project.drum_maps.iter().any(|map| map.id == *id));
         }
     }
 }

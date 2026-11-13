@@ -177,6 +177,14 @@ fn a_map_a_project_may_not_hold_is_refused() {
         f(&mut project);
         project
     };
+    // A sound routed to an instrument track of the project is fine: the
+    // kit track itself is id 8.
+    assert_eq!(
+        validate(&edit(&|p: &mut Project| {
+            p.drum_maps[0].sounds[0].route = Route::Track(Id(8));
+        })),
+        Ok(())
+    );
     for operation in [
         // Two maps with one id.
         &(|p: &mut Project| p.drum_maps.push(p.drum_maps[0].clone())) as &dyn Fn(&mut Project),
@@ -197,8 +205,22 @@ fn a_map_a_project_may_not_hold_is_refused() {
         &|p: &mut Project| {
             Arc::make_mut(&mut p.tracks[0]).kind = TrackKind::Audio;
         },
-        // A map with no name.
+        // A map with no name, and a sound with none (a rename refuses one).
         &|p: &mut Project| p.drum_maps[0].name.clear(),
+        &|p: &mut Project| p.drum_maps[0].sounds[0].name.clear(),
+        &|p: &mut Project| p.drum_maps[0].sounds[0].name = "   ".into(),
+        // A sound routed to a track that is not there, or that is not an
+        // instrument track.
+        &|p: &mut Project| p.drum_maps[0].sounds[0].route = Route::Track(Id(999)),
+        &|p: &mut Project| {
+            p.tracks.push(Arc::new(Track::new(
+                Id(99),
+                "Audio",
+                TrackKind::Audio,
+                Color(0),
+            )));
+            p.drum_maps[0].sounds[0].route = Route::Track(Id(99));
+        },
     ] {
         let project = edit(operation);
         assert!(

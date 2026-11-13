@@ -443,6 +443,43 @@ mod tests {
     }
 
     #[test]
+    fn a_mapped_track_keeps_the_input_note_of_the_note_a_sound_plays() {
+        use lumen_project::model::{DrumIcon, DrumMap, Id, Sound};
+
+        // The kit's kick answers to 36 and plays 40: a player's pads send the
+        // notes the kit plays, and the take keeps the map's input notes
+        // (M8 D0, review L3).
+        let map = DrumMap::new(
+            Id(1),
+            "Kit",
+            vec![Sound::new("Kick", 36, 40, DrumIcon::Kick)],
+        );
+        let mut c = Capture::new();
+        c.set_store_map(1, Some(&map));
+        c.push(&cap(1, 100, Msg::note_on(0, 40, 90)), 0, &ticks);
+        c.push(&cap(1, 200, Msg::note_off(0, 40)), 0, &ticks);
+        // A note no sound plays is kept as it came.
+        c.push(&cap(1, 300, Msg::note_on(0, 60, 80)), 0, &ticks);
+        c.push(&cap(1, 400, Msg::note_off(0, 60)), 0, &ticks);
+        assert_eq!(
+            c.take(1, range()).notes,
+            vec![note(1000, 1000, 36, 90), note(3000, 1000, 60, 80)]
+        );
+        // Another track, with no map: it keeps what came in.
+        c.push(&cap(2, 500, Msg::note_on(0, 40, 70)), 0, &ticks);
+        c.push(&cap(2, 600, Msg::note_off(0, 40)), 0, &ticks);
+        assert_eq!(c.take(2, range()).notes, vec![note(5000, 1000, 40, 70)]);
+        // Taking the map off a track stores its notes as they come again.
+        c.set_store_map(1, None);
+        c.push(&cap(1, 700, Msg::note_on(0, 40, 60)), 0, &ticks);
+        c.push(&cap(1, 800, Msg::note_off(0, 40)), 0, &ticks);
+        assert_eq!(
+            c.take(1, range()).notes.last().copied(),
+            Some(note(7000, 1000, 40, 60))
+        );
+    }
+
+    #[test]
     fn a_note_on_and_its_off_make_one_note() {
         let mut c = Capture::new();
         c.push(&cap(1, 100, Msg::note_on(0, 60, 90)), 0, &ticks);
