@@ -69,6 +69,8 @@ impl App {
                 FileDialog::SampleFolder(Some(folder)) => self.add_sample_folder(&folder),
                 FileDialog::Place(Some(folder)) => self.place_chosen(folder),
                 FileDialog::Place(None) => self.browser.files.finding = None,
+                FileDialog::DrumMapExport(path) => self.drum_map_export_chosen(path),
+                FileDialog::DrumMapImport(path) => self.drum_map_import_chosen(path),
                 // Cancelled: whatever was waiting on it is off too.
                 FileDialog::SaveAs(None) | FileDialog::Open(None) => self.after_save = None,
                 FileDialog::PluginFolder(None)

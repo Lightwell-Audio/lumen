@@ -200,7 +200,10 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
 /// black key stops where it does).
 pub(crate) fn paint_lit_key(painter: &Painter, view: &EditorView, column: Rect, pitch: i32) {
     let top = view.row_top(pitch);
-    let black = u8::try_from(pitch).is_ok_and(crate::piano_roll::draw::is_black);
+    // A mapped row has no black keys to shorten it for: the light covers the
+    // whole row.
+    let black =
+        view.rows.is_all() && u8::try_from(pitch).is_ok_and(crate::piano_roll::draw::is_black);
     let width = if black {
         column.width() * crate::piano_roll::draw::BLACK_KEY
     } else {
