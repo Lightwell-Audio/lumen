@@ -13532,8 +13532,8 @@ reference in the parent's `backup-bigface`). What was built:
   is free, double-click resets, the arrow keys move it, a live chip follows the pointer, and
   each handle is a Tab stop named "Beam spread, upper (Width): 130 %".
 - **Steps** (`geometry::Step`, 8 pt of give each way, one step remembered per device in
-  `Chain.steps`): whole (the device's own card), short (232 x 272: smaller screen, dials on
-  its lower edge), compact (232 x 116: header and four lit dials over a thin band) and the
+  `Chain.steps`): whole (the device's own card), short (232 x 272: smaller screen, named dials on
+  its lower edge), compact (232 x 116: header, a thin band, four named lit dials under it) and the
   folded rail (hue bar glowing with level, name set on end). `Layout::mixed` lays out cards
   of their own sizes.
 - **Found on the way** (B1's review): `validate.rs` refused any `params` on a built-in, so a
@@ -13567,10 +13567,14 @@ Differences from the specimen that remain, from looking at crops of the shots ne
   specimen's is softer.
 - Pills and dials are Lumen's controls (focus ring, override ring, waiting ring), so a
   switch's off state is a quiet ring where the specimen's is a flat chip.
-- The short card's subtitle is cut ("gain, width, ...") at 232 pt beside the Preset pill; the
-  specimen has only the whole card.
+- The short and compact cards have no specimen; they are laid out from the whole card's parts
+  (parent review, 2026-11-13): short has four evenly spaced named dials on the screen's edge, the
+  polarity pill under the screen at the left, the Preset pill on the name's line only and the
+  subtitle across the card; compact has a 22 pt band, then four named dials (the first build put
+  nameless dials on the beams). `COMPACT_H` stays 116 (the panel's least height is unchanged).
+  "Bass mono" is "Bass" under a dial at these steps (`Control::short`, additive).
 - At a panel height between the short card and the whole card (about 18 pt for Prism, whose
   whole card is 290 pt against the short card's 272) the short step lasts a sliver of the
   panel's travel; devices with taller whole cards have more.
-- The light theme was looked at at 100 and 200 %, dark at 100 %; 150 % was rendered and
-  looked at only as thumbnails.
+- Whole, short and compact were looked at in crops, dark and light, at 150 % (and the short and
+  compact steps at 200 % and 100 %).

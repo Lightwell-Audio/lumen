@@ -14,11 +14,8 @@ use crate::widgets::param::{DialLook, ParamLook, param_dial, start_typing};
 use crate::widgets::raised;
 use crate::{motion, theme, widgets};
 
-/// How wide a dial's name and value may be.
-const LABEL_ROOM: f32 = 56.0;
-
 /// The ink of the names and values under the dials: the card's on the whole
-/// card, the screen's white on the short one.
+/// and the compact card, the screen's white on the short one.
 #[derive(Clone, Copy)]
 pub(super) struct Ink {
     pub name: Color32,
@@ -33,11 +30,16 @@ impl Ink {
                 value: Color32::WHITE,
             }
         } else {
-            let palette = theme::p();
-            Self {
-                name: palette.text_secondary,
-                value: palette.text,
-            }
+            Self::card()
+        }
+    }
+
+    /// The card's own ink, for what sits on the card and not on the screen.
+    pub(super) fn card() -> Self {
+        let palette = theme::p();
+        Self {
+            name: palette.text_secondary,
+            value: palette.text,
         }
     }
 }
@@ -85,7 +87,8 @@ pub(super) fn paint(
                 let colour = control.lit.map_or(hue, |own| live(own, power));
                 dial(ui, plan, control, slot, cell, id, colour, ink, out);
             }
-            Kind::Pill => pill(ui, control, slot, cell, id, hue, ink, out),
+            // A pill sits on the card, under the screen, at every step.
+            Kind::Pill => pill(ui, control, slot, cell, id, hue, Ink::card(), out),
         }
     }
 }
@@ -137,27 +140,32 @@ fn dial(
         let painter = ui.painter();
         let x = cell.center().x;
         let foot = cell.center().y + plan.dial_radius;
-        let name_font = FontId::proportional(c::DIAL_NAME_SIZE);
-        let idea = widgets::fit(painter, control.name, name_font.clone(), LABEL_ROOM);
+        let labels = plan.labels;
+        let name_font = FontId::proportional(labels.name);
+        let shown_name = match plan.step {
+            crate::chain::geometry::Step::Whole => control.name,
+            _ => control.short.unwrap_or(control.name),
+        };
+        let idea = widgets::fit(painter, shown_name, name_font.clone(), labels.room);
         on_baseline(
             painter,
-            pos2(x, foot + c::DIAL_NAME_BASELINE),
+            pos2(x, foot + labels.name_under),
             Align::Center,
             idea,
             name_font,
             ink.name,
             0.0,
         );
-        let value_font = FontId::monospace(c::DIAL_VALUE_SIZE);
+        let value_font = FontId::monospace(labels.value);
         let value = widgets::fit(
             painter,
             &(control.shown)(&slot.text),
             value_font.clone(),
-            LABEL_ROOM,
+            labels.room,
         );
         on_baseline(
             painter,
-            pos2(x, foot + c::DIAL_VALUE_BASELINE),
+            pos2(x, foot + labels.value_under),
             Align::Center,
             value,
             value_font,

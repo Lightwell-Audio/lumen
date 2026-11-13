@@ -130,6 +130,13 @@ pub(super) fn titles(painter: &Painter, plan: &Plan, look: &Look<'_>, muted: boo
         plan.link.left()
     };
     let room = right - theme::space::S - left;
+    // On the short card the pill is high enough to sit on the name's line only,
+    // so the subtitle under it has the card's whole width.
+    let subtitle_room = if plan.step == crate::chain::geometry::Step::Short {
+        plan.card.right() - c::PRESET_INSET - left
+    } else {
+        room
+    };
     let name_font = fonts::display(plan.name_size);
     let name = widgets::fit(painter, look.name, name_font.clone(), room);
     on_baseline(
@@ -147,7 +154,7 @@ pub(super) fn titles(painter: &Painter, plan: &Plan, look: &Look<'_>, muted: boo
     );
     if plan.has_subtitle() {
         let font = FontId::proportional(c::SUBTITLE_SIZE);
-        let subtitle = widgets::fit(painter, look.vendor, font.clone(), room);
+        let subtitle = widgets::fit(painter, look.vendor, font.clone(), subtitle_room);
         on_baseline(
             painter,
             pos2(left, plan.card.top() + c::SUBTITLE_BASELINE),

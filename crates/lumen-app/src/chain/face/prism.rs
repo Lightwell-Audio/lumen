@@ -58,8 +58,6 @@ const FAN_MARGIN: f32 = 8.0;
 const GRAB: Vec2 = Vec2::new(20.0, 14.0);
 const TIP_DOT: f32 = 3.0;
 const TIP_REST: f32 = 0.5;
-/// How strong the picture stays under the compact card's dials.
-const BAND_DIM: f32 = 0.45;
 
 /// The card: 300 x 290 with a 136 pt screen, as the specimen draws it.
 const WHOLE: Vec2 = Vec2::new(300.0, 290.0);
@@ -81,7 +79,9 @@ pub(crate) static DRAWING: Drawing = Drawing {
         Control::knob(device::WIDTH, "Width", |c| dial(c, 2))
             .lit(p::PRISM_BEAMS[4])
             .showing(without_space),
-        Control::knob(device::BASS_MONO, "Bass mono", |c| dial(c, 3)).showing(without_unit),
+        Control::knob(device::BASS_MONO, "Bass mono", |c| dial(c, 3))
+            .short("Bass")
+            .showing(without_unit),
         Control::pill(device::POLARITY_L, "\u{00D8} L", |c| {
             Rect::from_min_size(
                 pos2(c.left() + PILL.0, c.top() + PILL.1),
@@ -149,7 +149,8 @@ impl Frame {
         let from = glass_x + BEAMS_FROM * scale;
         let length = (rect.right() - BEAMS_TO - from).max(1.0);
         let widest = length * fan(WIDEST, 2.0).tan();
-        let room = (rect.height() / 2.0 - FAN_MARGIN).max(1.0);
+        // The margin shrinks with the picture, so a thin band still fans.
+        let room = (rect.height() / 2.0 - FAN_MARGIN * scale).max(1.0);
         Self {
             centre: rect.center().y,
             glass_x,
@@ -216,10 +217,9 @@ fn draw(scene: &Scene<'_>) {
     let frame = Frame::new(rect);
     let (centre, scale) = (frame.centre, frame.scale);
     let white = scene.ink(Color32::WHITE);
-    // Under the compact card's dials the picture is a calm band: no tips, no
-    // readout, the beams dimmer.
+    // On the compact card the picture is a thin band over the dials' row: the
+    // same beams and glass, but no tips and no readout.
     let band = scene.step == Step::Compact;
-    let calm = if band { BAND_DIM } else { 1.0 };
     let lively = 1.0 + LEVEL_GROWTH * scene.level;
     // The beam in.
     painter.line_segment(
@@ -229,7 +229,7 @@ fn draw(scene: &Scene<'_>) {
         ],
         Stroke::new(
             BEAM_IN_WIDTH * scale.max(0.6) * (1.0 + 0.3 * scene.level),
-            white.gamma_multiply((BEAM_IN_ALPHA * lively).min(1.0) * calm),
+            white.gamma_multiply((BEAM_IN_ALPHA * lively).min(1.0)),
         ),
     );
     // The beams out: five, fanning with the width, brighter with the level.
@@ -245,11 +245,11 @@ fn draw(scene: &Scene<'_>) {
                 [from, to],
                 Stroke::new(
                     line * scale.max(0.6) * lively,
-                    colour.gamma_multiply((alpha * lively).min(1.0) * calm),
+                    colour.gamma_multiply((alpha * lively).min(1.0)),
                 ),
             );
         }
-        painter.line_segment([from, to], Stroke::new(CORE, colour.gamma_multiply(calm)));
+        painter.line_segment([from, to], Stroke::new(CORE, colour));
     }
     // The handles' tips: a dot at rest, lit under the pointer.
     for (index, upper) in [(0, true), (1, false)]
@@ -290,8 +290,8 @@ fn draw(scene: &Scene<'_>) {
             ),
             pos2(frame.glass_x, centre - GLASS_ABOVE * scale),
         ],
-        white.gamma_multiply(GLASS_FILL * (1.0 + 0.5 * scene.level) * calm),
-        Stroke::new(GLASS_EDGE, white.gamma_multiply(calm)),
+        white.gamma_multiply(GLASS_FILL * (1.0 + 0.5 * scene.level)),
+        Stroke::new(GLASS_EDGE, white),
     ));
     // The readout, from the device's own value; it comes back with a changed
     // preset.

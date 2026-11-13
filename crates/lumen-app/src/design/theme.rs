@@ -696,9 +696,20 @@ pub mod personality {
         pub const SHORT_BOTTOM: f32 = 26.0;
         pub const SHORT_DIALS_BAND: f32 = 84.0;
         pub const SHORT_DIAL_FROM_FOOT: f32 = 56.0;
+        /// The Preset pill on the short card sits a little higher, so the subtitle
+        /// under the name can run beneath it without touching.
+        pub const SHORT_PRESET_TOP: f32 = 13.0;
+        /// The short card's names and values under the dials (size, size, the
+        /// baselines from a dial's foot): a little smaller than the whole card's,
+        /// so four fit across the screen.
+        pub const SHORT_NAME_SIZE: f32 = 9.5;
+        pub const SHORT_VALUE_SIZE: f32 = 8.5;
+        pub const SHORT_NAME_BASELINE: f32 = 12.0;
+        pub const SHORT_VALUE_BASELINE: f32 = 23.0;
         /// The compact card (116 tall): the header's height, the power, the name
-        /// and the Preset pill at their smaller sizes, the band of the screen
-        /// (from the header, with this margin below) and the small dials.
+        /// and the Preset pill at their smaller sizes, a thin band of the picture
+        /// under it (this far from the header, this tall) and, under the band, four
+        /// small dials (this gap below it) with their names and values.
         pub const COMPACT_HEADER: f32 = 38.0;
         pub const COMPACT_POWER_Y: f32 = 19.0;
         pub const COMPACT_NAME_SIZE: f32 = 13.0;
@@ -706,9 +717,14 @@ pub mod personality {
         pub const COMPACT_PRESET: (f32, f32) = (46.0, 18.0);
         pub const COMPACT_PRESET_TOP: f32 = 10.0;
         pub const COMPACT_PRESET_TEXT: f32 = 10.0;
-        pub const COMPACT_BAND_GAP: f32 = 4.0;
-        pub const COMPACT_BAND_MARGIN: f32 = 8.0;
-        pub const COMPACT_DIAL_RADIUS: f32 = 11.0;
+        pub const COMPACT_BAND_GAP: f32 = 2.0;
+        pub const COMPACT_BAND_HEIGHT: f32 = 22.0;
+        pub const COMPACT_DIAL_GAP: f32 = 6.0;
+        pub const COMPACT_DIAL_RADIUS: f32 = 10.0;
+        pub const COMPACT_NAME_LABEL: f32 = 9.5;
+        pub const COMPACT_VALUE_LABEL: f32 = 8.5;
+        pub const COMPACT_NAME_BASELINE_UNDER: f32 = 11.0;
+        pub const COMPACT_VALUE_BASELINE_UNDER: f32 = 21.0;
 
         /// A folded card: the hue's bar (inset from the top and bottom, width),
         /// the name's baseline from the rail's left, its size, and how bright
