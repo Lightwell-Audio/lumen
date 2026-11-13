@@ -101,6 +101,41 @@ fn device_data(device: &Device) -> Result<(), String> {
     Ok(())
 }
 
+/// What a sampler may hold (format v36): its regions in order and inside the
+/// files they name, its ranges inside the note range, and its pads at levels,
+/// pans, tunes and fades a person could have set. Only a sampler holds one.
+fn sampler_data(device: &Device, project: &Project) -> Result<(), &'static str> {
+    let Some(sampler) = &device.sampler else {
+        return Ok(());
+    };
+    if !device.is_sampler() {
+        return Err("a device that is not a sampler holds a sampler's sound");
+    }
+    if !sampler.valid() {
+        return Err("the sampler's ranges, levels or times are out of range");
+    }
+    let frames = |id: Id| project.media.iter().find(|m| m.id == id).map(|m| m.frames);
+    for region in sampler.one_shot.region.iter() {
+        let Some(frames) = frames(region.media) else {
+            return Err("the sampler's sample is missing from the media");
+        };
+        if !region.fits(frames) {
+            return Err("the sampler's region is outside its file");
+        }
+    }
+    for zone in &sampler.zones {
+        if frames(zone.media).is_none() {
+            return Err("a zone's sample is missing from the media");
+        }
+    }
+    for pad in &sampler.pads {
+        if pad.media.is_some_and(|id| frames(id).is_none()) {
+            return Err("a pad's sample is missing from the media");
+        }
+    }
+    Ok(())
+}
+
 pub fn validate(project: &Project) -> Result<(), String> {
     if project.view.shown_params.len() > MOST_VIEWED
         || project.view.folded_devices.len() > MOST_VIEWED
@@ -378,6 +413,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 }
             }
             device_data(device).map_err(|why| format!("{}: {why}", at()))?;
+            sampler_data(device, project).map_err(|why| format!("{}: {why}", at()))?;
             // A source that was deleted stays named: the row says so and the
             // engine plays no sidechain, so undoing the delete brings it back.
             if device.sidechain.is_some_and(|s| s.from == track.id) {

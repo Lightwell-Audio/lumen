@@ -24,6 +24,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 mod clip;
 mod device;
 mod drum_map;
+mod sampler;
 mod takes;
 mod track;
 mod warp;
@@ -31,6 +32,7 @@ mod warp;
 pub use clip::*;
 pub use device::*;
 pub use drum_map::*;
+pub use sampler::*;
 pub use takes::*;
 pub use track::*;
 pub use warp::*;
@@ -336,4 +338,12 @@ fn default_auto_crossfade() -> bool {
 
 fn is_zero(x: &f32) -> bool {
     *x == 0.0
+}
+
+fn is_zero_u32(x: &u32) -> bool {
+    *x == 0
+}
+
+fn is_zero_u64(x: &u64) -> bool {
+    *x == 0
 }

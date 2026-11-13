@@ -74,6 +74,11 @@ impl ParamBlock {
         self.queues.is_empty()
     }
 
+    /// How many frames the block covers (what [`ParamBlock::start`] was told).
+    pub fn frames(&self) -> usize {
+        self.frames as usize
+    }
+
     /// How many parameters change.
     pub fn len(&self) -> usize {
         self.queues.len()

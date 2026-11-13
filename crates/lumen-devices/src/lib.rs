@@ -10,6 +10,7 @@ pub mod effect;
 pub mod hosted;
 pub mod instrument;
 pub mod params;
+pub mod sampler;
 pub mod synth;
 pub mod utility;
 
@@ -20,8 +21,28 @@ pub use hosted::{
 };
 pub use instrument::Instrument;
 pub use params::ParamInfo;
+pub use sampler::Sampler;
 pub use synth::{Preset, Synth};
 pub use utility::Utility;
+
+/// Every built-in instrument this build knows, in the order they were added:
+/// its stable saved name and its parameter table. Each one has a personality
+/// in the interface (`lumen-app`'s `builtin::identity`), which a test keeps
+/// in step with this list.
+pub static INSTRUMENTS: &[(&str, &[ParamInfo])] = &[
+    // The synth's stable name, as `lumen_project::model::SYNTH` saves it.
+    ("synth", &[]),
+    (sampler::NAME, sampler::TABLE),
+];
+
+/// The parameters of the built-in instrument called `name`, or `None` when no
+/// instrument has that name.
+pub fn instrument_params(name: &str) -> Option<&'static [ParamInfo]> {
+    INSTRUMENTS
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map(|(_, table)| *table)
+}
 
 /// Every built-in effect this build knows, in the order they were added.
 /// Each one has a personality in the interface (`lumen-app`'s

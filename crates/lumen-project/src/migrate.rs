@@ -53,6 +53,7 @@ pub const MIGRATIONS: &[Migration] = &[
     v32_to_v33,
     v33_to_v34,
     add_drum_maps,
+    add_sampler_samples,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -576,6 +577,14 @@ fn v33_to_v34(document: Value) -> Result<Value, String> {
 /// maps and every track plays its notes as written, as every older project
 /// did.
 fn add_drum_maps(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
+/// v36 (M8 B5) adds the built-in sampler's sound, `sampler`, to a device,
+/// written only when a device is one. A file without it holds no sample, and
+/// the sampler a later project has plays nothing until one is loaded, as a
+/// device of an older build could not have.
+fn add_sampler_samples(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
