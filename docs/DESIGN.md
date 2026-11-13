@@ -1615,7 +1615,46 @@ a 96 pt label column (`size::LABEL_COLUMN`) for chosen values, and on/off settin
 - **Blocked plugins:** one row per plugin: the warning shape (`MENU_ICON`), the name cut short with
   "…", and Retry at the right edge (named "Retry <name>"). An empty list says so in a sentence.
 
-## 7k. The drum map editor (M8 slice D1)
+## 7k. Built-in devices and their personalities (M8 slice B0; the owner's BF C)
+
+Every built-in device Lumen ships is a **personality**: a name of its own, with what it is under it, a
+signature colour and one visual idea (owner, 2026-11-12, approved from round 2 of `docs/specimens/m8/`).
+The chain card, its frame, power, preset field, focus ring and every control's gesture stay Lumen's;
+only what the device *is* changes.
+
+- **Name and subtitle.** The card's name row holds the personality's name ("Prism") in the place a
+  plugin's name sits, and its kind ("Utility") under it where a plugin's vendor sits. Menus, the lane
+  chooser and tooltips use the same two words: "Prism" for the device, "Utility" for what it is. The
+  picture band carries the device's drawing, not its name (below).
+  A device has one stable saved name (`PluginRef::Builtin.name`, `"utility"`), which is never the
+  personality: renaming a personality is a design change, and old projects keep their sound.
+- **Signature colour.** One hue per device in `theme::personality` (`UTILITY` for Prism, a quiet steel
+  grey), the same in both themes, as a clip's colour is. It tints the card's picture band; it is never
+  the only signal that a device is a device (the name and the subtitle always are).
+- **The picture band** is a deep tinted screen (`personality::SCREEN`, the signature hue at the top at
+  `SCREEN_TINT`), the same in both themes, with a hairline of the signature colour, and a **still
+  drawing of the device's one idea** in content colours (Prism splits a beam into
+  `PRISM_BEAMS`). A built-in has **no monogram**: its name is in the card's name row, and the band is
+  the picture, not another label (B0 review L8). Plugins keep their monogram and kind icon.
+- **Visual idea.** BF C: a drawn face where a picture is the control (an EQ's curve and analyzer, a
+  compressor's transfer, a sampler's wave and pads); the generic eight-knob strip for the rest —
+  Prism, the delay, the reverb, the synth. A device with a face keeps the card's chrome and still puts
+  every parameter in All parameters. B0 builds the strip; the faces arrive with their devices (B1, B2,
+  B5).
+- **The strip** is the card's own (`chain/strip.rs`, eight knobs in two rows and the All button): a
+  built-in's parameters come from its table, so they read in the device's words ("Width 100 %",
+  "Swap L/R Off") with no round trip. The knobs keep Lumen's accent, not the device's hue: the band
+  carries the personality, the controls stay Lumen's. The masthead's window button is not offered (a
+  built-in's controls are its card and All parameters) and Learn is hidden with it; automation and
+  controller menus on each knob are the plugin's.
+- **Presets** use the card's field and menu, and Lumen's own folder
+  (`Documents/Lumen Presets/<stable name>`, `utility` for Prism), one folder per device, one
+  `.lumenpreset` file per sound: JSON, so a person can read and edit it. The folder is the device's
+  **stable saved name**, never its personality's: renaming a personality must not orphan every preset
+  a person saved (B0 review L5).
+- Names are checked for trademark conflicts before release (M10).
+
+## 7l. The drum map editor (M8 slice D1)
 
 One `widgets::Dialog`, 780 pt wide, opening top-centre: the track it acts on in
 a quiet line, the map's **Name** field and the **map list** (a raised button
@@ -1634,7 +1673,7 @@ one lit, its ring opening on it and the arrows moving it. A track without a
 map opens the same window on the list of maps to choose first. A notice under
 the table says what a file did, in full.
 
-## 7l. The drum map's key column (M8 slice D1)
+## 7m. The drum map's key column (M8 slice D1)
 
 On a track with a drum map the piano roll's key column is the kit instead of
 the keyboard: `KEY_WIDTH_DRUMS`, 176 pt (the lanes' name column), each sound

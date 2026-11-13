@@ -12870,43 +12870,7 @@ tempo `edit::set` call it, so each is still one undo step.
 
 **Consequences.** No format change, no protocol change (the plugin host stays at version 9, the shared-memory layout at 4). Every moved file was compared with its old self (only imports, signatures and visibility differ). Not run here: the WSL mirror, the performance gate, the macOS cross-target clippy, screenshots, any hardware or real plugin. The Windows crash filter and the editor window are compile-checked only. The ASIO changes have fake-driver tests only; the owner's Focusrite is the check. The smoke test that looks for the failed-allocation backtrace needs a build with symbols.
 
-## ADR-XXXX — Drum sound glyphs: fifteen icons on the 16-unit grid
-
-**Status.** Draft for the parent (M8 D1's icon part, branch
-`m8-sd1-drum-names`).
-
-**Context.** The owner asked for an icon per drum sound (M8 §2, IC) and
-approved round 3's drawing (`docs/specimens/m8/kit.html`, the `ICON` object).
-D1 needs the glyphs before the map editor and the lanes that draw them exist,
-and D0's `DrumIcon` is built in parallel on another branch.
-
-**Choices.**
-1. *The glyphs live beside the interface icons* (`design/icons/drums.rs`,
-   painted through `paint_drum_glyph`), on the same 16-unit grid, so the two
-   sets share one mapping (`geometry::Grid`) and one colour and rect API.
-   Each glyph is a shape list, tested inside its box at 12, 16, 20 and 28 pt.
-2. *A local `DrumGlyph` until D0 lands*: the fifteen variants in `DrumIcon`'s
-   order, `DrumGlyph::ALL` for the map editor's 5 x 3 grid, and `name()` for
-   the accessible names. D1 maps D0's enum onto it and deletes nothing.
-3. *The line keeps its point weight at every size* — `ICON 1.6` for the
-   ordinary line, `ICON_FINE 1.3` for a small detail and a new `ICON_HEAVY
-   2.2` for a cymbal's edge and a rim's strike — as round 3 drew them (1.5,
-   1.0 and 2.0–2.2 pt). Scaling the line with the box, as `Icon` does, made
-   the 12 pt glyphs thin and the 28 pt ones heavy in the sheet.
-4. *Three small coordinates move* so a stroke stays inside the glyph's box at
-   every size: the kick's two spurs end at y 15.4, the floor tom's legs at
-   y 15.3, and the crash's second sparkle at x 15.2. Every other coordinate
-   is the specimen's.
-
-**Consequences.** No format change, no command and no other UI: the map
-editor, the icon popover, the lanes and the piano roll's key column come with
-the rest of D1 and D2. `ICON_HEAVY` joins `DESIGN.md` §5. `shots::drum_icons`
-shows every glyph at the four sizes and in three track colours in both themes
-at 100, 150 and 200%. epaint's strokes are square-ended where the specimens'
-SVG had round caps; at these sizes the difference is under a pixel and no
-glyph depends on it.
-
-## ADR-XXXX — Drum maps: model, translation and choke (M8 slice D0)
+## ADR-0142 — Drum maps: model, translation and choke (M8 slice D0)
 
 **Status.** Proposed (M8 D0, `docs/milestones/M8.md` §5; the owner's DM A, CO A and E3/E4, 2026-11-12).
 
@@ -13057,7 +13021,43 @@ refused by the `Document` edits as well as by `validate`, so a long name typed
 in an editor can no longer make a save fail. The same-sample tie in a choke
 group is stated in item 5.
 
-## ADR-XXXX — The drum map editor and drum names (M8 slice D1)
+## ADR-0143 — Drum sound glyphs: fifteen icons on the 16-unit grid
+
+**Status.** Draft for the parent (M8 D1's icon part, branch
+`m8-sd1-drum-names`).
+
+**Context.** The owner asked for an icon per drum sound (M8 §2, IC) and
+approved round 3's drawing (`docs/specimens/m8/kit.html`, the `ICON` object).
+D1 needs the glyphs before the map editor and the lanes that draw them exist,
+and D0's `DrumIcon` is built in parallel on another branch.
+
+**Choices.**
+1. *The glyphs live beside the interface icons* (`design/icons/drums.rs`,
+   painted through `paint_drum_glyph`), on the same 16-unit grid, so the two
+   sets share one mapping (`geometry::Grid`) and one colour and rect API.
+   Each glyph is a shape list, tested inside its box at 12, 16, 20 and 28 pt.
+2. *A local `DrumGlyph` until D0 lands*: the fifteen variants in `DrumIcon`'s
+   order, `DrumGlyph::ALL` for the map editor's 5 x 3 grid, and `name()` for
+   the accessible names. D1 maps D0's enum onto it and deletes nothing.
+3. *The line keeps its point weight at every size* — `ICON 1.6` for the
+   ordinary line, `ICON_FINE 1.3` for a small detail and a new `ICON_HEAVY
+   2.2` for a cymbal's edge and a rim's strike — as round 3 drew them (1.5,
+   1.0 and 2.0–2.2 pt). Scaling the line with the box, as `Icon` does, made
+   the 12 pt glyphs thin and the 28 pt ones heavy in the sheet.
+4. *Three small coordinates move* so a stroke stays inside the glyph's box at
+   every size: the kick's two spurs end at y 15.4, the floor tom's legs at
+   y 15.3, and the crash's second sparkle at x 15.2. Every other coordinate
+   is the specimen's.
+
+**Consequences.** No format change, no command and no other UI: the map
+editor, the icon popover, the lanes and the piano roll's key column come with
+the rest of D1 and D2. `ICON_HEAVY` joins `DESIGN.md` §5. `shots::drum_icons`
+shows every glyph at the four sizes and in three track colours in both themes
+at 100, 150 and 200%. epaint's strokes are square-ended where the specimens'
+SVG had round caps; at these sizes the difference is under a pixel and no
+glyph depends on it.
+
+## ADR-0144 — The drum map editor and drum names (M8 slice D1)
 
 **Status.** Proposed (M8 D1, `docs/milestones/M8.md` §5; the owner's DM A,
 IC, 2026-11-12).
@@ -13148,7 +13148,7 @@ without touching a note, and to give maps a life outside one project.
 
 **Consequences.** No format change: the maps and the track's field are D0's
 (v35), and nothing D1 keeps is saved. The map editor, the table, the key
-column and the icon grid are new UI; `docs/DESIGN.md` gains §7k and §7l.
+column and the icon grid are new UI; `docs/DESIGN.md` gains §7l and §7m (§7k is B0's personalities).
 D0's `#[allow(dead_code)]`s on the sound edits are gone; the one-track
 attach/detach helpers and `set_sound_route` carry a narrow allow with the
 reason (D2, D4). Tests: the file format (round trip, a damaged file, a later
@@ -13163,7 +13163,349 @@ here, on purpose: routing per sound (D4), the lanes and the step sequencer
 (D2, D3), drum maps in the browser, and a saved preference for the folded
 view.
 
-## ADR-XXXX — The drum editor's lanes (M8 slice D2)
+## ADR-0145 — The built-in effect path (M8 slice B0)
+
+**Status.** Proposed (M8 slice B0; the parent assigns the number). Brief:
+`docs/milestones/M8.md` §5 "B0 — The built-in effect path and Utility"; decisions E1,
+E2, E6 and E7 in §6; open risk 1 in §8.
+
+**Context.** Lumen has two kinds of device: a built-in synth that only makes sound, and
+VST3 plugins that run in a child process. Nothing else processes audio, so no built-in
+effect exists, and every other slice of the device lane (B1 EQ, B2 dynamics, B3 time,
+B4 the synth's controls, B5 the sampler, B6 the browser) waits on one path. Risk 1 of
+M8's plan says it plainly: if the trait or the parameter path is wrong, five slices
+inherit it, so it is tried against those five on paper below before they start.
+
+The requirements that shape it: built-ins run in-process (E1); a parameter is a stable
+`u32` with a static table, and automation stays `Target::Device { device, param }` (E2);
+golden renders, an allocation guard and block-size invariance at 64, 128, 512, 1024 and
+97 frames (E6); DSP is Lumen's own (E7); and everything a plugin's card does — strip,
+All parameters, lanes, MIDI learn, overrides, presets, copy — must work identically.
+
+**Options.**
+
+- **How a device reaches the audio thread.** (A) A built-in is built by the interface
+  and handed over through a lock-free queue, as a plugin's host is; the plan refers to it
+  by device id. (B) The plan carries the device itself (`Box<dyn Effect>` in
+  `NodeSpec`), so every routing rebuild moves the object and its state. (C) Every
+  built-in is a fixed enum the engine constructs, with no handover at all.
+- **How a parameter's *value* reaches it.** (A) A message per change, as a plugin's
+  parameter changes go over its control channel. (B) With the routing: the node's
+  `values` hold every built-in's normalised values, copied into the compiled plan as an
+  `Arc<[(u32, f32)]>`. (C) Only lanes inside the block, with the value at rest read from
+  the spec each block.
+- **What a parameter event means.** (A) Reuse `ParamBlock` (the shape a plugin gets:
+  sample-stamped points, straight between them). (B) A new type with one value per block.
+  (C) A control-rate value every N frames.
+- **Whether a built-in has a persisted `version`.**
+- **Where the personality lives** (name, subtitle, signature colour).
+
+**Choices.**
+
+1. **The trait.** `lumen_devices::effect::Effect` (E1):
+
+   ```rust
+   fn process(&mut self, block: &Block<'_>, io: Stereo<'_>, key: Option<Key<'_>>);
+   fn latency(&self) -> u32 { 0 }
+   fn tail(&self) -> u32 { 0 }
+   fn reset(&mut self) {}
+   ```
+
+   `Block` carries the rate, the timeline sample of the first frame, the track's pan law
+   (a device that pans follows the track, as the brief asks) and the block's
+   `ParamBlock`. `Stereo` is two `&mut [f32]` of the same length; `Key` is the helper's
+   sidechain, two `&[f32]`. `latency`, `tail` and `reset` default, so a device says only
+   what it has. **Review H1** moved where the plan reads the first two: a device's
+   `Description` (beside its table, `lumen_devices::effect_description`) carries
+   `latency: fn(Values) -> u32` and `tail: fn(Values) -> u32`, pure functions of the
+   values the project holds, and `Effect::latency`/`tail` stay for what the running
+   instance says about itself (the tail the mixer waits for after a Stop). The brief's `io: &mut [&mut [f32]; 2]` became two named fields: a
+   slice-of-slices cannot be built from two borrows without unsafe, and every device
+   would repeat the same `[0]`/`[1]` indexing. The substance (process, sidechain,
+   latency, tail, reset, parameters in the block) is unchanged.
+2. **The audio thread is handed built objects, by id** (option 1A). The interface builds
+   the effect (its constructor allocates), wraps it in a `lumen_engine::Slot` and pushes
+   it to a fixed-size `BuiltinPool` through a lock-free queue; a replaced slot goes back
+   to the interface thread to be freed, exactly as a plugin host does. The plan names
+   `Device::Builtin { device, latency }`, the id being the model's `Device.id`, so
+   adding, removing, undoing or moving a device never moves the effect, and a plan can be
+   compiled without one.
+3. **A built-in's values travel with the plan** (option 2B). `NodeSpec.values` holds each
+   of the node's built-ins' normalised values (the project's, or the table's default for
+   any it does not name), and `compile` copies them into the plan's `Dev` as an
+   `Arc<[(u32, f32)]>`. A knob turn reaches the audio thread with the next block, as a
+   fader does through the routing, and it is atomic with the rest of the routing: no
+   per-parameter messages, no retry when a queue is full, and an export, a bounce or a
+   freeze gets it for free (`export/render.rs` and `bake/bounce.rs` build their routing
+   from the same project). Cost: a knob drag while playing recompiles the plan, which a
+   fader drag already does (`engine_latent_swaps_64` in the perf gate measures it).
+   Values are **not** part of the plan's topology hash, so a knob never crossfades.
+4. **Parameters arrive as `ParamBlock` points** (option 3A): the same lanes, curve and
+   knots a plugin is given (`mixer/params.rs`). Each block the mixer emits every value the
+   project holds as a one-point queue, then the lanes' points on top; a device reads the
+   *last* queue for a parameter, which is the lane's when one plays.
+   `lumen_devices::params::values(out, glide, events, id, rate)` turns that into a
+   per-frame curve: straight between points, exact on a point's own frame; a value the
+   interface moved (a single point) glides over 20 ms, as the mixer's own levels do; a
+   step (two points a frame apart) is moved over 1 ms, as the mixer's own lanes do. It is
+   a pure function of the block's place on the timeline and of where the last block left
+   off, which is what makes it block-size invariant. The utility reads its curves into
+   arrays allocated at construction (one per parameter, `[f32; MOST_FRAMES]`, 7 KB an
+   instance) and reads them per frame; a value that does not move is worked out once (the
+   dB→gain and the pan law's gains are cached), so a static device costs a comparison a
+   frame.
+5. **The parameter tables** (`lumen_devices::params::ParamInfo`, E2). Each device
+   declares a `static` table: a stable `u32` id (never reused; a new meaning gets a new
+   id), the name a person reads, the unit, the range and a taper (linear, or a power for a
+   frequency), the default, the steps and their words, and two functions — the value's
+   text, and a value from what a person typed. `lumen-app/src/builtin` turns a table into
+   the same `lumen_hosting::ParamInfo` a plugin's parameters arrive in, so the card strip,
+   All parameters, the lane chooser, MIDI learn and overrides are one code path for both
+   kinds of device. Each table's ids are pinned by a test: an id may not be renamed,
+   reused or renumbered without failing it.
+6. **No `version` field, and no format change.** A parameter the project does not name
+   plays the table's default, so a build that *adds* a parameter reads every older project
+   correctly with no migration. A build that *changes* a parameter's meaning (the one case
+   a version could help) is better served by giving it a new id — the rule above — or,
+   for a device whose state changes shape as a whole (B4's synth presets), by the
+   migration the format version already carries. The project therefore stays at whatever
+   version the drum lane takes (M8 §4), and `history::unchanged` is untouched. A fresh
+   built-in device is still created *with* all its values written (the table's defaults,
+   in the same undo step as the add, `Document::add_device_with`), so a control a lane
+   takes over shows the value that was there.
+7. **The card, the strip and the automation are the plugin's, by data.** `row_of` marks a
+   built-in's row, gives it the personality's name and subtitle and an
+   `Editor::Unavailable` ("This device's controls are on its card"), so the header shows
+   the kind badge and the strip shows only All parameters. `App::device_parameters`,
+   `device_units`, `parameter_choices`, `parameter_text` and `type_parameter` read a table
+   for a built-in and the host for a plugin; a typed value for a built-in is read at once
+   (one undo step, or a note saying what it did not understand), not asked of anyone.
+8. **Presets** are the chain's own field and menu, in Lumen's folder: `Places.builtin`
+   (`Documents/Lumen Presets`, and the same idea on macOS and Linux), one folder per
+   device, a `.lumenpreset` file of JSON — the device's stable name and its values by id
+   (`{ "format": "lumen_builtin", "version": 1, "device": "utility", "params": {...} }`).
+   `preset_files::Sound` is either a plugin's state or a built-in's values, and the listing
+   accepts both extensions. Loading fills every parameter (those the file omits go back to
+   the table's default) as one undo step, "Load <name>"; a file for another device is
+   refused with a note.
+9. **A built-in has a fallback and a tail.** Like a hosted device, every built-in has a
+   delay line as long as its reported latency: while the effect is not attached yet, or
+   for a block rendered ahead of a jump (a declick tail), the node plays the dry signal
+   through that line, so timing never shifts and the device never hears audio it would
+   then have to un-hear. **Review M1** made the power button mean something: a bypassed
+   device is not asked for blocks at all once nothing of it is left to hear, and the node
+   glides between the device's output and the dry fallback over 20 ms as a host does, so
+   bypassing and turning on never click; the same glide covers an attach, which is what
+   answered the KNOWN_ISSUES row about a step. `tail()` answers the KNOWN_ISSUES row
+   "built-in effects have no tails": the mixer's `ringing()` keeps asking a built-in for
+   blocks after a Stop until its output has been quiet for two seconds or its reported
+   tail has run out (at most ten seconds), which is what the engine and `render_source`'s
+   automatic tail already do for hosts. `reset()` is called on a locate, as hosts are
+   flushed. The latency the routing uses is read from the device's description and the
+   project's values by `lumen-app/src/builtin` (review H1), never from a throwaway
+   instance, so delay compensation lines up with a device that holds its output back
+   (B2's limiter) whether the song plays or a render runs.
+10. **The personality scheme** is in `DESIGN.md` §7k and implemented in
+    `theme::personality`, `builtin::Identity` and `chain/art.rs`: Prism is Utility's
+    personality (a steel grey; the band is the device's drawing and the name is in the card's
+    name row), the card's
+    chrome untouched.
+
+**The trait on paper, against the five slices that depend on it.**
+
+- **B2's compressor with a sidechain.** `process` takes `key: Option<Key>` whose slices
+  are the node's sidechain bus, sample-aligned by the existing tap and compensation
+  (ADR-0041) — the mixer already has the bus where a device is handed its block (the host
+  path passes the same two slices). A device that takes no key ignores it. A "Listen"
+  button mixes the key into the output, which is the device's own business. No new trait
+  member.
+- **B2's limiter with lookahead.** `latency()` reports the lookahead in frames; the
+  routing's built-in latency map feeds `Device::Builtin.latency`, so compensation counts
+  it and the fallback line keeps the node's timing while the effect is missing. The
+  device keeps its own delay line internally; nothing in the trait changes. Its latency
+  follows its lookahead setting through `Description::latency`, a pure function of the
+  values (review H1): the interface reads it from the model every time the values change,
+  so a new lookahead is a new routing, exactly as a host's reported latency change is,
+  and the running instance is told the same values it was measured from.
+- **B3's tempo-synced delay and its tail.** `tail()` is how the delay's echoes ring out
+  after a Stop and how a bounce or an export adds its automatic tail; the block's `start`
+  and the rate let a device line its echoes up on the sample. What the trait does not yet
+  carry is the **tempo** at the block, and a synced delay needs it. B3 adds it in one
+  place: `Routing.tempo: Option<Arc<AutoLane>>` (the project's tempo baked to the sample
+  clock once per routing, as lanes already are) and a `bpm` field on `Block`, read by the
+  plan at the block's first frame. A `Block` field is a compatible addition (devices that
+  ignore it compile unchanged), and a tempo change inside a block quantised to the block
+  is inaudible for a delay time; a device that needs it sample-exact reads the tempo as
+  its own parameter lane. B3's other needs (freeze, ping-pong) are internal.
+- **B4's synth parameters.** An instrument is not an `Effect`; the synth keeps the
+  `Instrument` trait. Its *controls* are a `ParamInfo` table read exactly as the utility's
+  are (the table → `ParamInfo` path is per device, not per kind), and its lanes reach it
+  through the same `ParamBlock` the MIDI path already gives a hosted instrument's
+  automation. The trait is not in its way; B4 must add `automate` to the synth, which it
+  would need with or without B0. **B4's note (review):** parameter automation of an
+  *instrument* is today wired only for hosted instruments — `midi/tracks.rs` fills a
+  plugin instrument's lanes, `engine/routing.rs` leaves an instrument's lanes out of
+  `NodeAutomation.plugins`, and `midi::play::with_lanes` bakes them only for a VST3
+  instrument. B4 must open both gates (the routing's chain filter and the MIDI bake) for
+  a built-in instrument, or its synth's controls will show lanes that play nothing. A
+  third gate: the routing's built-in branch now leaves an instrument out of the chain
+  (`!d.is_instrument()`, as the hosted branch does), so B4 must give its synth a path of
+  its own rather than expect the chain to carry it.
+- **B5's sampler** is an `Instrument` with samples: it needs buffers handed across the
+  audio thread (shared immutable pages, as the stream player has), not a new `Effect`
+  member. Its pads' parameters are table entries with new ids; a pad's output pair is the
+  existing `Track.plugin_output` / `output(pair)` path.
+- **B1's EQ and analyzer** need nothing new: coefficients are smoothed inside the device,
+  and the analyzer is a lock-free ring the device writes and the interface reads (the
+  meter bank's pattern), outside the trait.
+
+**Review round 1 (2026-11-12).** An independent review found two High, four Medium and
+nine Low findings; every one is fixed on the same branch, and this is what changed and
+why:
+
+- **H1 — a latency that follows a setting.** `latency()` was read once from a throwaway
+  instance, so a device whose latency follows a parameter could never be compensated.
+  **The decision: latency and tail are pure functions of the device's values.** Each
+  device's `Description` (beside its table) carries `latency: fn(Values) -> u32` and
+  `tail: fn(Values) -> u32`; `lumen-app/src/builtin` reads them from the model's values
+  when they change and puts the result in the routing, and `latencies()` — what export and
+  bounce use, with no interface behind them — reads the same function from the project.
+  So a changed setting is a new routing's timing, exactly as a host's reported latency
+  change is, and the running instance is told the same values it was measured at. Tests:
+  an app test with a device whose latency follows a gain (240 at the bottom, 480 at the
+  top) whose routing and compiled plan follow the change, and an engine test where that
+  device plays beside a dry path and both impulses land on the same sample at both
+  settings.
+- **H2 — a render of more than 64 built-ins was refused.** The device queue was the host
+  queue's 64. It is now `MAX_BUILTINS` deep, `attach_all` drains it by idling the mixer
+  whenever it is full, and it attaches only the built-ins the render's routing names (a
+  bounce builds one track's devices, not the project's). Test: a project of
+  `MAX_BUILTINS + 4` devices attaches, and the four past the pool come back as refused.
+- **M1 — the power button did nothing.** `Device::Builtin` gained `bypass`; the node
+  glides between the device's output and the dry fallback over 20 ms (the host's own
+  glide), and a bypassed device is not asked for a block at all once its output has faded
+  out. The same glide makes an attach smooth, which answers the B0 KNOWN_ISSUES row. Tests:
+  an engine test (asked while on, asked only while fading, no step, not asked while off)
+  and an E2E that listens after the click.
+- **M2 — the chain played plugins first.** The routing now makes one pass over the track's
+  devices in card order, so a built-in before a plugin is played before it. A unit test
+  pins `[Builtin, Hosted]` and the reverse.
+- **M3 — a full pool was silent.** The pool holds 2048 slots (2048 × 24 B, about 48 KiB,
+  allocated once with the mixer; the refusal queue and the device queue add about 32 KiB
+  each), and a refusal is reported: the audio thread gives the slot back with its id, the
+  interface frees it, says which device is not running in a full sentence, and the card's
+  footer reads "not running". Tests: the pool's own refusal, and the H2 test above.
+- **M4 — no menu entry for Prism.** "Add Prism (utility)" is in the track's menu and in
+  the device tray's own menu (its empty state and the room past the last card). E2E: the
+  track menu's row adds it to that track, one undo step.
+- **L1** the parameter table's `(id, name, normalised default)` is pinned by a test, with
+  the id constants and a check that no id is reused or zero. **L2** the automated Prism
+  render is pinned by twenty of its samples, its level and its energy, each within a
+  millionth (a changed pin is a deliberate act). A hash of its bits was tried first and
+  failed on Linux CI: the platforms' `exp` and `powf` differ in the last bit, so a
+  built-in's golden render is pinned within a tolerance, as the engine's other goldens are. **L3** an allocation-guard test takes a new plan, an attach and a
+  detach in one audio block. **L4** a preset a newer build wrote is refused in full
+  (`version` is read, `1` is what this build writes). **L5** a built-in's preset folder is
+  its stable saved name (`utility`), never its personality's, so renaming a personality
+  cannot orphan a preset. **L6** the engine opens a queue only for a value that changed or
+  that a lane drives (so a lane's points are never mistaken for a value at rest), a device
+  holds the last value it was told, and a table that does not fit `MOST_QUEUES` fails a
+  test. The room is shared by the values and the lanes of one device, so a device with as
+  many parameters as lanes (B5's pads, if every one is automated at once) could still be
+  cut: the point that does not fit is skipped, the device holds the value it had, and a
+  lane over it still plays — a cut, never silence or a panic. **L7** `Builtins::update` gates on one number hashed from the built-ins (id, name,
+  bypass, values) and the frozen tracks, so a still project allocates nothing there and
+  the latency map is only copied when it can differ.
+- **L8 — the band.** It is now the personality's: a deep tinted screen
+  (`personality::SCREEN`, the signature hue at `SCREEN_TINT`), the same in both themes, a
+  hairline of the signature colour, and Prism's own drawing — a beam in, the prism, five
+  beams out in `personality::PRISM_BEAMS` — with no monogram (the card's name row has the
+  name). The knobs keep Lumen's accent, as DESIGN §7k says: the band carries the
+  personality, the controls stay Lumen's. "Bass mono" reads "Mono below" so it fits the
+  strip at 100%; the id is unchanged.
+- **L9 — offline against real time.** The two differed by up to a thousandth because the
+  render pre-rolled 100 ms, which is not a whole number of blocks, so every block was cut
+  at a different place and the same lane line was interpolated along different stretches.
+  The pre-roll is now rounded up to a whole block: past the play fade-in the render is
+  **bit-identical** to playback (the test compares the bits). Playback's own settle on a
+  locate puts a built-in at its power's position rather than fading in at play, which is
+  what makes the two agree.
+- **The nit:** the unrelated "−90 dBFS" spelling in KNOWN_ISSUES is back, and the three
+  trailing blank lines in ARCHITECTURE.md are gone.
+
+**Measured.** `cargo bench -p lumen-engine --bench clips` (this machine, release): the
+64-track mix without built-ins is 29.9 µs per 128-frame block; `engine_builtin_64` (the
+same 64 tracks, each with Prism at −4 dB, pan 10% right, 150% width) is 89.9 µs, so 64
+utility instances cost 60 µs a block — 2.25% of the 2.67 ms budget at 48 kHz, about
+0.94 µs an instance a block. A project with no built-in costs the node loop one
+comparison per device (`builtin != NO_BUILTIN`); the perf gate's `engine_*` scenarios are
+unchanged by construction, and the gate itself did not run here (no WSL). After the
+review round (the bypass glide, the values gate), `engine_builtin_64` is 88.0 µs fastest
+and 94.2 µs median — the same within noise: a device that is on and settled works where
+the audio already is, and only a device that fades in or out pays for a copy.
+
+**Review round 2 (2026-11-12, a re-check).** It confirmed every fix of round 1 and
+found one more High, fixed by the parent:
+- **N1 — the running app's latency.** `Builtins` worked a device's latency out only when
+  it first attached, so a setting that moves the latency changed exports but not the live
+  routing. Now every update works out every device's latency with the one function the
+  renders use (`sounding_latencies`); test
+  `the_running_app_s_latency_follows_a_setting_of_a_device_it_holds`.
+- **N2.** The running instance's latency and tail must equal the description's for the
+  same values; a `lumen-devices` test holds every device to it at its defaults (the
+  mixer reads the instance's tail after Stop, the routing the description's latency).
+- **N3.** The label is "Mono below" (it read "Mono <").
+- **N4.** DESIGN §7k and item 10 no longer say the band carries a monogram.
+- **N5.** A device the pool refused stops reading "not running" once it is attached again.
+  A render past the pool plays those devices dry and says nothing, as the app plays them
+  dry; that is accepted.
+- **N7, for B5.** Each automated parameter takes two of a block's 64 queues (its value
+  and its lane), so a device with more than 32 driven parameters loses lanes. B5's pads
+  must stay under that or make the lane's queue replace the value's.
+- Not changed: the right-click-only tray region's accessible role (N6) and the menu's
+  "Add Prism (utility)" wording are left for B6, which owns adding built-ins.
+
+**Tests.** `lumen-devices`: the tables (ids, defaults in range, text round trip, a choice
+snaps), `values` at any block size, and `crates/lumen-devices/tests/utility.rs` — pass
+through at defaults, gain in dB, pan by each law, width 0 and 200%, polarity per side,
+swap, bass mono (the low end centred, the high end kept), the DC block, the same audio at
+64/97/128/256 frames with five parameters automated, and an allocation guard over a block
+with automation. `lumen-engine/tests/builtins.rs`: the project's values played, the
+fallback when nothing is attached, a lane's gain sample-exact and the same at 64, 128,
+512, 1024 and 97 frames (the golden render), a latency of 240 frames compensated, an
+allocation guard over a block with automation, a lane point heard on its own sample, and
+an offline render of the same routing playing what playback plays **frame for frame** once
+the play fade-in is past (the render's pre-roll is a whole number of blocks, so the blocks
+are cut where playback cuts them — review L9).
+`lumen-engine/src/mixer/builtins.rs`: the pool, and a device with a tail that rings on
+after a Stop (the answer to the KNOWN_ISSUES row). `lumen-app`: the table → `ParamInfo`
+path, the personality, values for the routing. E2E
+`crates/lumen-app/tests/e2e/builtins.rs` (twelve scenarios): the command and the card's
+eight knobs, a drag heard and undone in one step, a typed value, All parameters and
+starring, a switch, a lane driving the gain with the drag taking it over and Re-enable
+giving it back, the lane's name from the table, MIDI learn on the knob, save and load
+from the card's field, copy to another track with its values, the power button heard (its
+review M1) and the track menu's row (its M4).
+
+**Consequences.** The engine's `Dev` lost `Copy` (it holds an `Arc` of values) and
+`NodeSpec` gained `values`; `Hosting` carries the built-in pool beside the host pool;
+`NodeAutomation.plugins` names a built-in as well as a host (one `match` in
+`NodeStages::new`). No format change; no settings change. The utility's `powf` a frame
+for its gain is the cost above; if later slices make ten devices a track common, a
+segment-wise exponential is the optimisation (recorded, not needed at 64 tracks). Not
+verified here: the WSL performance gate (a new scenario needs `perf-gate --update`), the
+macOS cross-clippy, and any hardware; the utility was heard only through the E2E test
+device. The card was looked at in both themes at 100, 150 and 200%, whole, folded and in
+the smallest window (review round 1: `target/shots-b0-r1`, 36 pictures; the first round's
+`target/shots-b0` had no drawn band), against `docs/specimens/m8/devices.html` and
+`round2-dark.png`: Prism's card carries the name and subtitle, the strip, and now a deep
+steel-tinted screen with the prism drawing (review L8), the same in both themes; the
+specimen's Unbounded name sits in the picture band, while Lumen's keeps the card's own
+name row and type as every other card's does, and the specimen's "width 130 %" label is
+left out because it is a value, not the idea. The `chosen-dark-100.png` and
+`chosen-light-100.png` the review names are not in `docs/specimens/m8/` (only the round 1
+to 3 sheets), so the comparison is against round 2's card.
+## ADR-0147 — The drum editor's lanes (M8 slice D2)
 
 **Status.** Proposed (M8 D2, `docs/milestones/M8.md` §5; the owner's DV A and
 DE A with the velocity inside the hit, 2026-11-12).

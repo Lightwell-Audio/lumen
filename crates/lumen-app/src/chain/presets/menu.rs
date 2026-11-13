@@ -21,8 +21,8 @@ impl App {
             naming: offered,
             ..MenuState::default()
         };
-        if let Some((vendor, plugin)) = self.plugin_vendor_name(device) {
-            self.chain.presets.relist(ctx, device, &vendor, &plugin);
+        if let Some(folders) = Some(self.preset_folders(device)).filter(|f| !f.is_empty()) {
+            self.chain.presets.relist(ctx, device, folders);
         }
         widgets::Menu::open_for(ctx, field_id(device));
     }
@@ -49,8 +49,9 @@ impl App {
                 focus: Focus::Search,
                 ..MenuState::default()
             };
-            if let Some((vendor, plugin)) = self.plugin_vendor_name(device) {
-                self.chain.presets.relist(&ctx, device, &vendor, &plugin);
+            let folders = self.preset_folders(device);
+            if !folders.is_empty() {
+                self.chain.presets.relist(&ctx, device, folders);
             }
         }
         let mut menu = std::mem::take(&mut self.chain.presets.menu);
@@ -102,7 +103,7 @@ impl App {
                     self.say("Give the preset a name first.".to_owned());
                 } else {
                     let name: String = typed.trim().chars().take(NAME_LIMIT).collect();
-                    self.begin_preset_save(device, name, None);
+                    self.begin_preset_save(&ctx, device, name, None);
                     close = true;
                 }
             }
@@ -142,7 +143,7 @@ impl App {
             Some(Act::Save) => match self.save_over(device) {
                 Some((name, path)) => {
                     close = true;
-                    self.begin_preset_save(device, name, Some(path));
+                    self.begin_preset_save(&ctx, device, name, Some(path));
                 }
                 // No file of the user's own to write over: ask for a name.
                 None => {
@@ -192,7 +193,7 @@ impl App {
     ) -> Option<Choice> {
         if shown.is_empty() {
             let words = if all.is_empty() {
-                "This plugin lists no presets, and none are saved for it."
+                "This device lists no presets, and none are saved for it."
             } else {
                 "No preset matches. Clear the search to see them all."
             };

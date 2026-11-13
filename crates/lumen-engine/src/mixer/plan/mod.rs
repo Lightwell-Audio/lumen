@@ -11,6 +11,7 @@ pub(super) use node::{Dev, NO_DEV, NO_METER, NO_SIDE, Node, Out, Pass, Ramp, Sen
 
 use std::sync::Arc;
 
+use super::builtins::NO_BUILTIN;
 use super::delay::Lines;
 use super::hosts::{HostScratch, NO_HOST};
 use super::meter::{MeterBank, keep};
@@ -225,13 +226,17 @@ impl Plan {
                         new.carry(was);
                     }
                     // A hosted device keeps where it was in the glide
-                    // between its host and its fallback.
+                    // between its host and its fallback; a built-in keeps where
+                    // it was between its dry signal and its own.
                     let mine =
                         node.first_device as usize..(node.first_device + node.devices) as usize;
                     let theirs = before.first_device as usize
                         ..(before.first_device + before.devices) as usize;
                     for (dev, was) in self.devices[mine].iter_mut().zip(&old.devices[theirs]) {
                         if dev.host != NO_HOST && dev.host == was.host {
+                            dev.wet.carry(&was.wet);
+                        }
+                        if dev.builtin != NO_BUILTIN && dev.builtin == was.builtin {
                             dev.wet.carry(&was.wet);
                         }
                     }
@@ -278,6 +283,16 @@ impl Plan {
         }
         for send in &mut self.sends {
             send.gain.settle();
+        }
+        // A built-in is where its power says it is: playback starts (or jumps)
+        // with the device heard or not, not fading in from silence, which is
+        // what makes an export play what playback plays frame for frame
+        // (M8 slice B0, review L9).
+        for dev in &mut self.devices {
+            if dev.builtin != NO_BUILTIN {
+                dev.wet.set(if dev.bypass { 0.0 } else { 1.0 });
+                dev.wet.settle();
+            }
         }
         self.cue_volume.settle();
     }

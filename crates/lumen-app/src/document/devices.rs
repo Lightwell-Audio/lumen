@@ -84,7 +84,10 @@ pub fn name_of(device: &Device) -> String {
     match &device.plugin {
         PluginRef::Vst3 { name, .. } => name.clone(),
         PluginRef::Builtin { name } if name == SYNTH => "Synth".to_owned(),
-        PluginRef::Builtin { name } => name.clone(),
+        // A built-in effect has a personality: its own name (M8 slice B0).
+        PluginRef::Builtin { name } => crate::builtin::identity(name)
+            .map(|identity| identity.name.to_owned())
+            .unwrap_or_else(|| name.clone()),
     }
 }
 
@@ -195,6 +198,14 @@ fn fresh_device(id: Id, plugin: PluginRef) -> Device {
     }
 }
 
+/// `device` with the values its table gives it (M8 slice B0).
+fn with_values(mut device: Device, values: &[(u32, f32)]) -> Device {
+    for &(param, value) in values {
+        device.params.insert(param, f64::from(value));
+    }
+    device
+}
+
 impl Document {
     /// Makes a track for `plugin` (a MIDI track for an instrument, an audio
     /// track for an effect) after `after`, with the plugin as its first
@@ -203,6 +214,17 @@ impl Document {
     pub fn add_device_on_new_track(
         &mut self,
         plugin: PluginRef,
+        after: Option<Id>,
+    ) -> Result<(Id, Id), Refusal> {
+        self.add_device_on_new_track_with(plugin, &[], after)
+    }
+
+    /// As [`Document::add_device_on_new_track`], with the values a built-in
+    /// device starts from (M8 slice B0).
+    pub fn add_device_on_new_track_with(
+        &mut self,
+        plugin: PluginRef,
+        values: &[(u32, f32)],
         after: Option<Id>,
     ) -> Result<(Id, Id), Refusal> {
         if let PluginRef::Vst3 { class_id, name, .. } = &plugin
@@ -215,7 +237,8 @@ impl Document {
             DeviceKind::Effect => TrackKind::Audio,
         };
         let id = self.fresh_id();
-        let track = self.insert_track(kind, after, Some(fresh_device(id, plugin)));
+        let device = with_values(fresh_device(id, plugin), values);
+        let track = self.insert_track(kind, after, Some(device));
         Ok((track, id))
     }
 
@@ -225,6 +248,19 @@ impl Document {
     /// effect goes at `slot`, never before the instrument. Returns the new
     /// device's id.
     pub fn add_device(&mut self, track: Id, plugin: PluginRef, slot: Slot) -> Result<Id, Refusal> {
+        self.add_device_with(track, plugin, &[], slot)
+    }
+
+    /// As [`Document::add_device`], with the values a built-in device starts
+    /// from (M8 slice B0): its table's defaults, saved with the device so a
+    /// control a lane takes over shows the value that was there.
+    pub fn add_device_with(
+        &mut self,
+        track: Id,
+        plugin: PluginRef,
+        values: &[(u32, f32)],
+        slot: Slot,
+    ) -> Result<Id, Refusal> {
         if let PluginRef::Vst3 { class_id, name, .. } = &plugin
             && !valid_vst3(class_id, name)
         {
@@ -235,7 +271,7 @@ impl Document {
         let replaced = current.devices.iter().any(|d| d.is_instrument());
         let index = place_in(current, kind, slot)?;
         let id = self.fresh_id();
-        let device = fresh_device(id, plugin);
+        let device = with_values(fresh_device(id, plugin), values);
         let name = name_of(&device);
         let label = match (kind, replaced) {
             (DeviceKind::Instrument, true) => format!("Replace instrument with {name}"),

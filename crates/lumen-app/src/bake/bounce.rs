@@ -24,8 +24,8 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use lumen_devices::{Guard, HostedInstrument, Status};
 use lumen_engine::{
-    Clip, Ended, InstrumentSpec, Layered, NodeAutomation, NodeSpec, OFFLINE_WAIT, SourceRender,
-    Timeline, clip_player_for_render, midi_player, mixer, render_source,
+    Clip, Ended, InstrumentSpec, Layered, NodeAutomation, NodeSpec, OFFLINE_WAIT, Source,
+    SourceRender, Timeline, clip_player_for_render, midi_player, mixer, render_source,
 };
 use lumen_hosting::{Happened, Manager};
 use lumen_media::wav::{Sample, Spec, Writer};
@@ -267,6 +267,7 @@ pub fn render_job(
     for r in &running {
         devices.hosted.insert(r.plugin.device, r.linked.latency);
     }
+    devices.builtin = crate::builtin::latencies(&project);
     let Some(mut routing) = routing::bounce_routing(&project, track, &devices, rate) else {
         return Err("The track is gone".to_owned());
     };
@@ -285,6 +286,12 @@ pub fn render_job(
     let (mut clip_handle, clip_play) = clip_player_for_render();
     let (mut midi_handle, midi_play) = midi_player();
     let (mut mixer_handle, mut source) = mixer(Layered(clip_play, midi_play));
+    // Only this track's built-ins (the routing names them), and any number of
+    // them: an idle block drains the queue when it is full (M8 slice B0,
+    // review H2).
+    crate::builtin::attach_all(&project, &routing, &mut mixer_handle, || {
+        source.idle(rate, 256)
+    })?;
     for Running { plugin, linked } in running {
         let latency = linked.latency;
         let guard = Guard::new(Box::new(linked.link), latency);

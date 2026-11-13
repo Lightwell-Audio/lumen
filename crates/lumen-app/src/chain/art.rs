@@ -17,9 +17,12 @@ pub(super) fn swatch(identity: &str) -> usize {
     hash as usize % CLIP_COLORS.len()
 }
 
-/// The colour of `identity`'s picture.
+/// The colour of `identity`'s picture: a built-in device's signature hue (M8
+/// slice B0), else the clip colour its identity hashes to.
 pub(super) fn colour(identity: &str) -> Color32 {
-    CLIP_COLORS[swatch(identity)]
+    crate::builtin::identity(identity)
+        .map(|identity| identity.colour)
+        .unwrap_or_else(|| CLIP_COLORS[swatch(identity)])
 }
 
 /// The letter a picture is built on: the first letter or digit of the name.

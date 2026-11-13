@@ -27,6 +27,7 @@ mod barfit;
 mod bench_callback;
 mod bounce;
 mod browser_files;
+mod builtins;
 mod capture_midi;
 mod chrome;
 mod clip_badges;
