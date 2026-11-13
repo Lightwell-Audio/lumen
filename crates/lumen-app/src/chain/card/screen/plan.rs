@@ -9,10 +9,12 @@ use crate::theme::personality::card as c;
 
 /// The most dials the compact card keeps.
 const COMPACT_DIALS: usize = 4;
-/// A pill on the short card: how far in from the screen's corner, and the gap
-/// between pills.
-const PILL_INSET: f32 = 8.0;
+/// The gap between pills on the short card.
 const PILL_GAP: f32 = 6.0;
+/// What a dial's name leaves of its column's pitch on the short and compact
+/// cards, and the whole card's room for a name.
+const LABEL_GAP: f32 = 2.0;
+const WHOLE_LABEL_ROOM: f32 = 56.0;
 /// The compact card's "All n" link, and the room between it and the pill.
 const COMPACT_LINK: Vec2 = Vec2::new(44.0, 16.0);
 const COMPACT_LINK_GAP: f32 = 6.0;
@@ -34,6 +36,18 @@ pub(super) struct Plan {
     pub preset: Rect,
     pub link: Rect,
     pub dial_radius: f32,
+    pub labels: Labels,
+}
+
+/// How the names and values under the dials are set at one step: their sizes,
+/// their baselines under a dial's foot and the room each may take.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Labels {
+    pub name: f32,
+    pub value: f32,
+    pub name_under: f32,
+    pub value_under: f32,
+    pub room: f32,
 }
 
 impl Plan {
@@ -55,9 +69,11 @@ impl Plan {
                 pos2(card.left() + side, card.top() + c::SCREEN_TOP),
                 pos2(card.right() - side, card.bottom() - c::SHORT_BOTTOM),
             ),
-            Step::Compact => Rect::from_min_max(
+            // A thin band of the picture under the header; the dials and their
+            // names are under it, never over it.
+            Step::Compact => Rect::from_min_size(
                 pos2(card.left() + side, header.bottom() + c::COMPACT_BAND_GAP),
-                pos2(card.right() - side, card.bottom() - c::COMPACT_BAND_MARGIN),
+                vec2(card.width() - 2.0 * side, c::COMPACT_BAND_HEIGHT),
             ),
         };
         let picture = if step == Step::Short {
@@ -70,6 +86,8 @@ impl Plan {
         };
         let (preset_size, preset_top) = if compact {
             (c::COMPACT_PRESET, c::COMPACT_PRESET_TOP)
+        } else if step == Step::Short {
+            (c::PRESET_SIZE_PT, c::SHORT_PRESET_TOP)
         } else {
             (c::PRESET_SIZE_PT, c::PRESET_TOP)
         };
@@ -129,6 +147,38 @@ impl Plan {
             } else {
                 c::DIAL_RADIUS
             },
+            labels: {
+                let dials = drawing.dials().count().max(1);
+                let dials = if compact {
+                    dials.min(COMPACT_DIALS)
+                } else {
+                    dials
+                };
+                let pitch = screen.width() / dials as f32 - LABEL_GAP;
+                match step {
+                    Step::Whole => Labels {
+                        name: c::DIAL_NAME_SIZE,
+                        value: c::DIAL_VALUE_SIZE,
+                        name_under: c::DIAL_NAME_BASELINE,
+                        value_under: c::DIAL_VALUE_BASELINE,
+                        room: WHOLE_LABEL_ROOM,
+                    },
+                    Step::Short => Labels {
+                        name: c::SHORT_NAME_SIZE,
+                        value: c::SHORT_VALUE_SIZE,
+                        name_under: c::SHORT_NAME_BASELINE,
+                        value_under: c::SHORT_VALUE_BASELINE,
+                        room: pitch,
+                    },
+                    Step::Compact => Labels {
+                        name: c::COMPACT_NAME_LABEL,
+                        value: c::COMPACT_VALUE_LABEL,
+                        name_under: c::COMPACT_NAME_BASELINE_UNDER,
+                        value_under: c::COMPACT_VALUE_BASELINE_UNDER,
+                        room: pitch,
+                    },
+                }
+            },
         }
     }
 
@@ -137,10 +187,9 @@ impl Plan {
         self.step != Step::Compact
     }
 
-    /// The idea names and values are drawn under the dials (not on the compact
-    /// card, where the dials sit over the band).
+    /// The idea names and values are drawn under the dials at every step.
     pub(super) fn has_labels(&self) -> bool {
-        self.step != Step::Compact
+        true
     }
 
     /// The names sit on the deep screen (on the short card), not on the card.
@@ -175,7 +224,8 @@ impl Plan {
                 let y = if self.step == Step::Short {
                     self.screen.bottom() - c::SHORT_DIAL_FROM_FOOT
                 } else {
-                    self.screen.center().y
+                    // Under the band, with room below for a name and a value.
+                    self.screen.bottom() + c::COMPACT_DIAL_GAP + self.dial_radius
                 };
                 Some(Rect::from_center_size(
                     pos2(x, y),
@@ -186,11 +236,13 @@ impl Plan {
                 if self.step != Step::Short {
                     return None;
                 }
+                // Pills sit in the strip under the screen, at the left, level
+                // with the "All n" link at the right: nothing on the picture.
                 let size = (control.place)(self.card).size();
                 Some(Rect::from_min_size(
                     pos2(
-                        self.screen.left() + PILL_INSET + before as f32 * (size.x + PILL_GAP),
-                        self.screen.top() + PILL_INSET,
+                        self.screen.left() + before as f32 * (size.x + PILL_GAP),
+                        self.card.bottom() - c::ALL_FROM_BOTTOM - size.y / 2.0,
                     ),
                     size,
                 ))
@@ -230,6 +282,7 @@ mod tests {
         let plan = Plan::new(card(Step::Short), prism(), Step::Short);
         assert!(plan.card.height() < 280.0);
         assert!(plan.picture.bottom() < plan.screen.bottom());
+        let mut last_right = f32::NEG_INFINITY;
         for index in 0..4 {
             let cell = plan.cell(prism(), index).expect("a dial");
             assert!(
@@ -240,21 +293,49 @@ mod tests {
                 cell.top() >= plan.picture.bottom() - 1.0,
                 "under the picture"
             );
+            // Even spacing: each column is one pitch wide, and a name has
+            // that pitch to itself.
+            assert!(cell.left() >= last_right - 1.0, "dial {index} is clear");
+            last_right = cell.right();
         }
-        // The pill goes on the screen's corner.
+        assert!(plan.labels.room <= plan.screen.width() / 4.0);
+        // The pill is on the card, in the strip under the screen: nothing of the
+        // picture, the dials or their names is under it.
         let pill = plan.cell(prism(), 4).expect("the pill");
-        assert!(plan.picture.contains_rect(pill));
+        assert!(plan.card.contains_rect(pill));
+        assert!(pill.top() >= plan.screen.bottom(), "under the screen");
+        assert!(pill.right() < plan.link.left(), "left of the link");
+        // The Preset pill is on the name's line, above the subtitle.
+        assert!(
+            plan.preset.bottom() - plan.card.top() < c::SUBTITLE_BASELINE - c::SUBTITLE_SIZE * 0.7
+        );
     }
 
     #[test]
-    fn the_compact_card_keeps_four_dials_over_the_band_and_no_pill() {
+    fn the_compact_card_puts_four_named_dials_under_a_thin_band() {
         let plan = Plan::new(card(Step::Compact), prism(), Step::Compact);
         assert_eq!(plan.card.height(), 116.0);
         assert_eq!(plan.picture, plan.screen);
+        assert!(plan.screen.bottom() <= plan.card.top() + 64.0);
+        let mut last_right = f32::NEG_INFINITY;
         for index in 0..4 {
             let cell = plan.cell(prism(), index).expect("a dial");
-            assert!(plan.screen.contains_rect(cell));
+            // Under the band: no dial covers the glass or the beam's start.
+            assert!(
+                cell.top() >= plan.screen.bottom(),
+                "dial {index} is under the band"
+            );
+            assert!(plan.card.contains_rect(cell));
+            assert!(cell.left() >= last_right - 1.0, "dial {index} is clear");
+            last_right = cell.right();
+            // Its name and value fit between its foot and the card's edge.
+            let foot = cell.center().y + plan.dial_radius;
+            assert!(
+                foot + plan.labels.value_under + 2.0 <= plan.card.bottom(),
+                "dial {index}'s value is on the card"
+            );
         }
+        assert!(plan.has_labels());
         assert_eq!(plan.cell(prism(), 4), None);
         // The header's parts do not overlap.
         assert!(plan.link.right() < plan.preset.left());

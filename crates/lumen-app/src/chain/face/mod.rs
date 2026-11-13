@@ -148,6 +148,9 @@ pub(crate) struct Control {
     /// How its value is worded under a dial: the parameter's own words, or
     /// less of them.
     pub shown: fn(&str) -> String,
+    /// A shorter idea name for the short and compact cards, where a column
+    /// is about 50 pt wide; the tooltip and accessible name keep `name`.
+    pub short: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +170,7 @@ impl Control {
             place,
             lit: None,
             shown: whole,
+            short: None,
         }
     }
 
@@ -178,7 +182,14 @@ impl Control {
             place,
             lit: None,
             shown: whole,
+            short: None,
         }
+    }
+
+    /// Names it `short` under a dial on the short and the compact card.
+    pub(crate) const fn short(mut self, short: &'static str) -> Self {
+        self.short = Some(short);
+        self
     }
 
     /// Lit in `colour` instead of the device's hue.

@@ -1681,12 +1681,16 @@ way so dragging the panel's edge never flickers) and stays a set piece at each s
 
 - **Whole**: the device's own card as above.
 - **Short** (232 x 272, the chain's own width): a smaller screen, the picture redrawn for it, a hero
-  readout, and the lit dials **on the screen's lower edge** (names on the screen); pills at the screen's
-  top left. The header, the Unbounded name and the Preset pill stay; the subtitle stays.
-- **Compact** (232 x 116): the hued header with the Unbounded name, "All n" and the Preset pill; four lit
-  hue dials (radius 11, no names) over a thin live band of the picture, which a drawing dims so the dials
-  read. Handles are off at this step (the dials are what is touched); the picture's own readout is left
-  out.
+  readout, and four evenly spaced lit dials **on the screen's lower edge**, each under its idea name and
+  value (9.5 / 8.5 pt, in a column of the screen's width over four; a control may give a `short` name for
+  it, the tooltip keeps the full one). Pills sit on the card in the strip under the screen, at the left,
+  level with "All n"; nothing on the picture. The header, the Unbounded name and the Preset pill stay,
+  the pill high (`SHORT_PRESET_TOP`) on the name's line only, so the subtitle has the card's whole width.
+- **Compact** (232 x 116, `COMPACT_H` unchanged): the hued header with the Unbounded name, "All n" and
+  the Preset pill; a thin band of the picture (22 pt, undimmed) under it; **under the band**, four lit hue
+  dials (radius 10), each with its idea name and value in mono (9.5 / 8.5 pt) as in the whole card's
+  row, shrunk. No dial covers the glass or the beam's start. Handles are off at this step (the band is
+  too thin to grab a tip; the dials are what is touched); the picture's own readout is left out.
 - **Folded** (48 pt rail): the hue's bar down the left, which glows with the level (and rests at
   `RAIL_BAR_REST`), the name in Unbounded set on end, and the power. Reduce motion leaves the bar at rest.
 

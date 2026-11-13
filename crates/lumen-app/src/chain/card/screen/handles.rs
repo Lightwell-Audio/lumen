@@ -38,8 +38,8 @@ pub(super) fn interact(
     out: &mut Vec<Output>,
 ) -> Hot {
     let mut hot = Hot::default();
-    // On the compact card the dials stand over the picture: they are what is
-    // touched there.
+    // The compact card's picture is a band too thin to grab a tip on: the dials
+    // under it are what is touched there.
     if plan.step == crate::chain::geometry::Step::Compact {
         return hot;
     }
