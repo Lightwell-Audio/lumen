@@ -13,6 +13,23 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// Controller messages waiting for the interface.
 pub(crate) const TAP_QUEUE: usize = 1024;
 
+/// One note the inputs played, for the map editor's Learn (M8 D1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Played {
+    /// The input's slot.
+    pub source: u8,
+    /// The MIDI channel, 0 to 15.
+    pub channel: u8,
+    /// The note, 0 to 127.
+    pub key: u8,
+    /// Its velocity, 0 to 127.
+    pub velocity: u8,
+}
+
+/// Notes waiting for the interface: the editor's Learn needs only the next
+/// one, so the queue is short.
+pub(crate) const NOTE_QUEUE: usize = 64;
+
 /// One controller message an input played.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Heard {
@@ -84,10 +101,11 @@ impl Shared {
     }
 }
 
-/// The interface's side: the controller messages heard, and which numbers
-/// the mappings take.
+/// The interface's side: the controller messages heard, which numbers the
+/// mappings take, and the notes heard (for the drum map's Learn).
 pub struct Tap {
     pub(crate) rx: rtrb::Consumer<Heard>,
+    pub(crate) notes: rtrb::Consumer<Played>,
     pub(crate) shared: Arc<Shared>,
 }
 
@@ -96,6 +114,13 @@ impl Tap {
     pub fn drain(&mut self, mut each: impl FnMut(Heard)) {
         while let Ok(heard) = self.rx.pop() {
             each(heard);
+        }
+    }
+
+    /// Gives each note-on heard since the last call, oldest first.
+    pub fn drain_notes(&mut self, mut each: impl FnMut(Played)) {
+        while let Ok(played) = self.notes.pop() {
+            each(played);
         }
     }
 

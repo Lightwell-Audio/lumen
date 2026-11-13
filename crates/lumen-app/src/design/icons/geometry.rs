@@ -13,14 +13,15 @@ use super::Icon;
 /// line).
 const FAINT: f32 = 0.45;
 
-/// Maps the 16-unit icon grid onto a square centred in `rect`.
-struct Grid {
-    origin: Pos2,
-    unit: f32,
+/// Maps the 16-unit icon grid onto a square centred in `rect`. The drum
+/// glyphs (`drums.rs`) share it, so every picture in the set has one scale.
+pub(super) struct Grid {
+    pub(super) origin: Pos2,
+    pub(super) unit: f32,
 }
 
 impl Grid {
-    fn new(rect: Rect) -> Self {
+    pub(super) fn new(rect: Rect) -> Self {
         let side = rect.width().min(rect.height());
         Self {
             origin: rect.center() - Vec2::splat(side / 2.0),
@@ -28,11 +29,11 @@ impl Grid {
         }
     }
 
-    fn p(&self, x: f32, y: f32) -> Pos2 {
+    pub(super) fn p(&self, x: f32, y: f32) -> Pos2 {
         self.origin + Vec2::new(x, y) * self.unit
     }
 
-    fn rect(&self, x0: f32, y0: f32, x1: f32, y1: f32) -> Rect {
+    pub(super) fn rect(&self, x0: f32, y0: f32, x1: f32, y1: f32) -> Rect {
         Rect::from_min_max(self.p(x0, y0), self.p(x1, y1))
     }
 }

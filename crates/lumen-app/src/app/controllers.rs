@@ -71,8 +71,14 @@ impl App {
     /// before the recorder, so the moves are this frame's.
     pub(crate) fn update_controllers(&mut self, ctx: &egui::Context) {
         let mut heard = Vec::new();
+        let mut notes = Vec::new();
         if let Some(tap) = &mut self.controllers.tap {
             tap.drain(|h| heard.push(h));
+            tap.drain_notes(|n| notes.push(n.key));
+        }
+        // The map editor's Learn takes the next note played (M8 D1).
+        for key in notes {
+            self.drum_map_heard(key);
         }
         self.keep_taken_from_engine();
         let mut latest: Vec<(Mapping, u8)> = Vec::new();
