@@ -13400,8 +13400,10 @@ why:
   track menu's row adds it to that track, one undo step.
 - **L1** the parameter table's `(id, name, normalised default)` is pinned by a test, with
   the id constants and a check that no id is reused or zero. **L2** the automated Prism
-  render is pinned by an FNV-1a hash of its samples (the golden files' rule: a changed pin
-  is a deliberate act). **L3** an allocation-guard test takes a new plan, an attach and a
+  render is pinned by twenty of its samples, its level and its energy, each within a
+  millionth (a changed pin is a deliberate act). A hash of its bits was tried first and
+  failed on Linux CI: the platforms' `exp` and `powf` differ in the last bit, so a
+  built-in's golden render is pinned within a tolerance, as the engine's other goldens are. **L3** an allocation-guard test takes a new plan, an attach and a
   detach in one audio block. **L4** a preset a newer build wrote is refused in full
   (`version` is read, `1` is what this build writes). **L5** a built-in's preset folder is
   its stable saved name (`utility`), never its personality's, so renaming a personality
