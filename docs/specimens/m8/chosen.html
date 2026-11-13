@@ -1,0 +1,839 @@
+<!doctype html>
+<!-- M8 specimens, slice P: the CHOSEN variants redrawn at 100, 150 and 200%
+     (`?scale=1.5`, `?scale=2`), dark and light (`?light`).
+     The owner chose, 2026-11-12: DV A with B's look on the arrangement (a MIDI
+     clip on a mapped track draws one row per sound, each hit a cell filled to
+     its velocity), DE A with the velocity inside the hit, SQ A, BF C with a
+     named personality per device, IC drum icons. Only those are drawn.
+     Sizes come from crates/lumen-app/src/chain/geometry.rs, the clip header
+     (app/clip/clip_header.rs) and the note editor; every SVG is drawn at the
+     requested scale (viewBox in points, width and height in device points), so
+     nothing is bitmap-upscaled. Mock-ups, not screenshots of built UI. -->
+<html><head><meta charset="utf-8"><title>Lumen M8 · the chosen variants</title>
+<style>
+@font-face{font-family:Inter;src:url(../../../site/assets/fonts/Inter.woff2) format("woff2");font-weight:100 900}
+@font-face{font-family:Unbounded;src:url(../../../site/assets/fonts/Unbounded.woff2) format("woff2");font-weight:100 900}
+@font-face{font-family:Mono;src:url(../../../site/assets/fonts/MartianMono.woff2) format("woff2");font-stretch:75% 112.5%}
+:root{--s:1}
+body{margin:0;padding:calc(28px*var(--s)) calc(32px*var(--s));font-family:Inter,sans-serif;
+ width:calc(1360px*var(--s));font-size:calc(13px*var(--s))}
+h1{font-family:Unbounded;font-weight:560;font-size:calc(22px*var(--s));margin:0 0 calc(6px*var(--s))}
+h2{font-family:Unbounded;font-weight:560;font-size:calc(16px*var(--s));margin:calc(34px*var(--s)) 0 calc(6px*var(--s))}
+p.q{margin:0 0 calc(14px*var(--s));font-size:calc(13px*var(--s));max-width:calc(1180px*var(--s));line-height:1.5}
+.row{display:flex;gap:calc(20px*var(--s));flex-wrap:wrap;align-items:flex-start}
+.v{display:flex;flex-direction:column;gap:calc(6px*var(--s))}
+.card{width:calc(232px*var(--s))}
+.rails{width:calc(228px*var(--s))}
+.lab{font-size:calc(12.5px*var(--s));font-weight:560;line-height:1.35}
+.sub{font-family:Mono;font-size:calc(10px*var(--s));font-stretch:87.5%;color:#8A909C}
+.note{font-size:calc(11.5px*var(--s));line-height:1.45;max-width:calc(620px*var(--s))}
+.rec{font-size:calc(10.5px*var(--s));padding:calc(1px*var(--s)) calc(8px*var(--s));border-radius:calc(9px*var(--s));font-weight:560;white-space:nowrap}
+.specs{display:grid;grid-template-columns:1fr 1fr;gap:calc(4px*var(--s)) calc(40px*var(--s));font-size:calc(11.5px*var(--s));max-width:calc(1180px*var(--s));line-height:1.5}
+.specs b{font-family:Mono;font-stretch:87.5%;font-weight:400}
+svg text{font-family:Inter,sans-serif}
+svg .m{font-family:Mono;font-stretch:87.5%}
+svg .u{font-family:Unbounded;font-weight:560}
+svg .md{font-weight:560}
+</style></head><body><div id="root"></div>
+<script>
+// ---------- the page ----------
+const Q = new URLSearchParams(location.search);
+const S = Math.max(0.5, Math.min(4, parseFloat(Q.get('scale') || '1')));
+const LIGHT = Q.has('light');
+document.documentElement.style.setProperty('--s', S);
+
+// ---------- tokens (design/theme.rs DARK and LIGHT, docs/DESIGN.md §3) ----------
+const D = {app:'#17191D',canvas:'#1B1D22',raised:'#23262D',overlay:'#262A31',control:'#31353E',
+ control_hi:'#383C46',control_press:'#444A56',thumb_hi:'#4A5160',thumb:'#3E4551',border:'#2E323A',
+ border_strong:'#3C414B',text:'#E6E8EC',text2:'#9AA0AC',hint:'#6E7480',accent:'#4FA3FF',
+ accent_muted:'#243A55',accent_hi:'#5DAEFF',accent_lo:'#3F8FEA',on_accent:'#06182E',warning:'#F2B14C',
+ grid_bar:'#343842',grid_beat:'#262930',grid_sub:'#212329',lane:'#1B1D22',header:'#1E2126',
+ selected_row:'#223449',clip_body:'#262A31',lane_black:'#16181C',well:'#141619',ground:'#111316',
+ record:'#E5484D',mute:'#C8CCD4',on_mute:'#0B0D10',sheen:'#FFFFFF2E'};
+const L = {app:'#F1F2F4',canvas:'#FAFAFB',raised:'#E9EBEE',overlay:'#FFFFFF',control:'#E2E5E9',
+ control_hi:'#EEF0F3',control_press:'#CBD0D7',thumb_hi:'#FFFFFF',thumb:'#F3F4F6',border:'#DADDE2',
+ border_strong:'#C3C8CF',text:'#1C1F24',text2:'#5A6170',hint:'#878D98',accent:'#1F6FD1',
+ accent_muted:'#D5E5FA',accent_hi:'#2A74D4',accent_lo:'#1A62BD',on_accent:'#FFFFFF',warning:'#A86400',
+ grid_bar:'#D9DCE1',grid_beat:'#ECEEF1',grid_sub:'#F3F4F6',lane:'#F6F7F8',header:'#ECEEF1',
+ selected_row:'#DBE7F8',clip_body:'#FFFFFF',lane_black:'#ECEEF1',well:'#D6DAE0',ground:'#E7E9ED',
+ record:'#D33A40',mute:'#5A6170',on_mute:'#FFFFFF',sheen:'#FFFFFFCC'};
+const C = LIGHT ? L : D;
+// Color::PALETTE (model/colour.rs): tracks, clips and drum sounds.
+const PAL = ['#4C7A9E','#7A6A9E','#5E8C6A','#9E7A4C','#9E5A6A','#5A8E8E','#6A7EB0','#8E6A8E',
+ '#7E8E56','#A06E5A','#5686A0','#887660'];
+document.body.style.background = C.ground; document.body.style.color = C.text;
+
+// ---------- tiny SVG kit (as the earlier pages) ----------
+let gid = 0; const uid = p => p + (gid++);
+const at = o => Object.entries(o).map(([k, v]) => `${k}="${v}"`).join(' ');
+const rect = (x, y, w, h, f, o = {}) => `<rect ${at({x, y, width:w, height:h, fill:f, ...o})}/>`;
+const line = (x1, y1, x2, y2, s, w = 1, o = {}) => `<line ${at({x1, y1, x2, y2, stroke:s, 'stroke-width':w, ...o})}/>`;
+const text = (x, y, s, f, size = 13, o = {}) => `<text ${at({x, y, fill:f, 'font-size':size, ...o})}>${s}</text>`;
+const mono = (x, y, s, f, size = 10, o = {}) => text(x, y, s, f, size, {class:'m', ...o});
+const circ = (cx, cy, r, f, o = {}) => `<circle ${at({cx, cy, r, fill:f, ...o})}/>`;
+// Every drawing is laid out in points; the width and height carry the scale,
+// so the browser rasterises the vectors (and their text) at the target size.
+const svg = (w, h, b) => `<svg width="${w * S}" height="${h * S}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">${b}</svg>`;
+const mid = (y, h, size = 13) => y + h / 2 + size * 0.35;
+const hexA = (hex, al) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${al})`; };
+const lg = (stops, x2 = 0, y2 = 1) => { const i = uid('l'); return [i, `<defs><linearGradient id="${i}" x1="0" y1="0" x2="${x2}" y2="${y2}">${stops.map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join('')}</linearGradient></defs>`]; };
+const rg = (stops, cx = .5, cy = .5, r = .5) => { const i = uid('r'); return [i, `<defs><radialGradient id="${i}" cx="${cx}" cy="${cy}" r="${r}">${stops.map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join('')}</radialGradient></defs>`]; };
+const blur = sd => { const i = uid('b'); return [i, `<defs><filter id="${i}" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="${sd}"/></filter></defs>`]; };
+// raised, sunk, filled: the material of design system §5a
+function raised(x, y, w, h, r = 6) { const [i, d] = lg([[0, C.control_hi], [1, C.control]]); return d + rect(x, y, w, h, `url(#${i})`, {rx:r, stroke:C.border_strong, 'stroke-width':.75}); }
+function filled(x, y, w, h, r = 6) { const [i, d] = lg([[0, C.accent_hi], [1, C.accent_lo]]); return d + rect(x, y, w, h, `url(#${i})`, {rx:r}); }
+function thumb(x, y, w, h, r = 6) { const [i, d] = lg([[0, C.thumb_hi], [1, C.thumb]]); return d + rect(x, y, w, h, `url(#${i})`, {rx:r}); }
+// a segmented control: a well, one thumb, the others plain (pointer/draw, tabs)
+function seg(x, y, items, chosen, {w = 54, h = 30, accent = false} = {}) {
+  let s = rect(x - 2, y - 2, items.length * w + 4, h + 4, C.well, {rx:8});
+  items.forEach((it, i) => {
+    const cx = x + i * w;
+    if (i === chosen) s += accent ? filled(cx, y, w, h, 6) : thumb(cx, y, w, h, 6);
+    const col = i === chosen ? (accent ? C.on_accent : C.text) : C.text2;
+    s += text(cx + w / 2, mid(y, h, 12), it, col, 12, {'text-anchor':'middle', 'font-weight':i === chosen ? 560 : 400});
+  });
+  return s;
+}
+// pills (lane tabs): chosen is accent_muted with an accent edge, as §7f
+function pill(x, y, w, h, label, chosen) {
+  const s = chosen
+    ? rect(x, y, w, h, C.accent_muted, {rx:h / 2, stroke:hexA(C.accent, .55), 'stroke-width':.75})
+    : raised(x, y, w, h, h / 2);
+  return s + text(x + w / 2, mid(y, h, 11), label, chosen ? C.accent : C.text2, 11,
+    {'text-anchor':'middle', 'font-weight':chosen ? 560 : 400});
+}
+// a comet knob, as the send knob and the chain's strip (KNOB 24 uses r = 12)
+function knob(x, y, v, name, val, r = 12) {
+  const a0 = Math.PI * .75, a1 = Math.PI * 2.25, av = a0 + (a1 - a0) * v;
+  const P = (an, rr) => [x + Math.cos(an) * rr, y + Math.sin(an) * rr];
+  const arc = (s0, e, rr) => { const [sx, sy] = P(s0, rr), [ex, ey] = P(e, rr); return `M${sx} ${sy} A${rr} ${rr} 0 ${e - s0 > Math.PI ? 1 : 0} 1 ${ex} ${ey}`; };
+  let s = circ(x, y, r - 4, C.control, {stroke:hexA(C.border_strong, 1)});
+  s += `<path d="${arc(a0, a1, r)}" stroke="${C.control_press}" stroke-width="3" fill="none" stroke-linecap="round"/>`;
+  s += `<path d="${arc(a0, av, r)}" stroke="${C.accent}" stroke-width="3" fill="none" stroke-linecap="round"/>`;
+  const [hx, hy] = P(av, r); s += circ(hx, hy, 3.2, C.accent);
+  s += mono(x, y + 3.2, val, C.text, 7.5, {'text-anchor':'middle'});
+  s += text(x, y + r + 12, name, C.text2, 10, {'text-anchor':'middle'});
+  return s;
+}
+
+// ---------- the drum sound icons (round 3, IC) ----------
+// 16 pt grid, 1.5 pt strokes, as the track-type icons; `s` is the drawn size.
+const ICON = {
+ kick: c => `<circle cx="8" cy="8.5" r="6" fill="none" stroke="${c}"/><circle cx="8" cy="8.5" r="2.4" fill="${c}"/><path d="M3 14.5 l-1 1.2 M13 14.5 l1 1.2" stroke="${c}"/>`,
+ snare: c => `<ellipse cx="8" cy="6" rx="6" ry="2" fill="none" stroke="${c}"/><path d="M2 6 v5 a6 2 0 0 0 12 0 v-5" fill="none" stroke="${c}"/><path d="M4 8.5 l2 3 M8 8.8 l0 3.4 M12 8.5 l-2 3" stroke="${c}" stroke-width="1"/>`,
+ rim: c => `<ellipse cx="8" cy="9" rx="6" ry="2" fill="none" stroke="${c}"/><path d="M3 2 L12 9" stroke="${c}" stroke-width="2" stroke-linecap="round"/>`,
+ clap: c => `<path d="M5 14 c-2-3-2-7 0-10 M8 14 c-1.5-3-1.5-7 0-10" fill="none" stroke="${c}"/><path d="M11 3 l1.5-1.5 M12.5 6 l2 0 M11.5 9 l1.6 1.2" stroke="${c}"/>`,
+ hat_closed: c => `<path d="M1.5 6.5 q6.5-3 13 0 M1.5 7.8 q6.5 3 13 0" fill="none" stroke="${c}"/><path d="M8 4 v-2.5 M8 9.5 v5.5" stroke="${c}"/>`,
+ hat_pedal: c => `<path d="M1.5 4.5 q6.5-3 13 0 M1.5 5.8 q6.5 3 13 0" fill="none" stroke="${c}"/><path d="M8 7.5 v5 M4 15 l4-2.5 l4 2.5" fill="none" stroke="${c}"/>`,
+ hat_open: c => `<path d="M1.5 5 q6.5-3 13 0 M1.5 9.5 q6.5 3 13 0" fill="none" stroke="${c}"/><path d="M8 2.5 v-1.5 M8 11.5 v3.5" stroke="${c}"/><path d="M4 7.2 h1 M7.5 7.2 h1 M11 7.2 h1" stroke="${c}"/>`,
+ tom: c => `<ellipse cx="8" cy="5" rx="5" ry="1.8" fill="none" stroke="${c}"/><path d="M3 5 v6 a5 1.8 0 0 0 10 0 v-6" fill="none" stroke="${c}"/><path d="M5.5 7 v5.5 M10.5 7 v5.5" stroke="${c}" stroke-width="1"/>`,
+ floor_tom: c => `<ellipse cx="8" cy="3.8" rx="5.5" ry="1.8" fill="none" stroke="${c}"/><path d="M2.5 3.8 v8 a5.5 1.8 0 0 0 11 0 v-8" fill="none" stroke="${c}"/><path d="M3.5 13.5 l-1 2 M12.5 13.5 l1 2" stroke="${c}"/>`,
+ crash: c => `<path d="M1 9 L14.5 4.5" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/><path d="M8 7 v8" stroke="${c}"/><path d="M12 1.5 l1-1 M14.8 2.5 l1-.5" stroke="${c}" stroke-width="1"/>`,
+ ride: c => `<path d="M1 7.5 q7-2.6 14 0 q-7 2.6-14 0 z" fill="none" stroke="${c}"/><circle cx="8" cy="7.5" r="1.4" fill="${c}"/><path d="M8 9.5 v5.5" stroke="${c}"/>`,
+ cowbell: c => `<path d="M5 3 h6 l2.5 10 h-11 z" fill="none" stroke="${c}" stroke-linejoin="round"/><path d="M8 3 v-2" stroke="${c}"/>`,
+ shaker: c => `<rect x="4.5" y="2" width="7" height="12" rx="3.5" fill="none" stroke="${c}"/><circle cx="7" cy="6" r=".9" fill="${c}"/><circle cx="9" cy="8" r=".9" fill="${c}"/><circle cx="7" cy="10" r=".9" fill="${c}"/>`,
+ perc: c => `<path d="M3 4 h10 l-1.5 10 h-7 z" fill="none" stroke="${c}" stroke-linejoin="round"/><ellipse cx="8" cy="4" rx="5" ry="1.4" fill="none" stroke="${c}"/>`,
+ fx: c => `<path d="M8 1.5 l1.6 4.2 4.4.4-3.4 2.8 1.1 4.3L8 10.8 4.3 13.2l1.1-4.3L2 6.1l4.4-.4z" fill="none" stroke="${c}" stroke-linejoin="round"/>`,
+};
+const ICONS = [['kick', 'Kick'], ['snare', 'Snare'], ['rim', 'Rim'], ['clap', 'Clap'],
+ ['hat_closed', 'Closed hat'], ['hat_pedal', 'Pedal hat'], ['hat_open', 'Open hat'],
+ ['tom', 'Tom'], ['floor_tom', 'Floor tom'], ['crash', 'Crash'], ['ride', 'Ride'],
+ ['cowbell', 'Cowbell'], ['shaker', 'Shaker'], ['perc', 'Percussion'], ['fx', 'Effect']];
+// Icons are centred on the text's optical middle, not on the box (as the header does).
+// The stroke scales with the icon, as the app draws it (design/icons,
+// `stroke::ICON * side / 16`), so 16 pt is designed weight and 28 pt is bolder.
+function icon(name, x, y, s, c, w = 1.6) {
+  return `<g transform="translate(${x} ${y}) scale(${s / 16})" stroke-width="${w}" stroke-linecap="round" fill="none">${ICON[name](c)}</g>`;
+}
+
+// ---------- the clip (one drum performance throughout) ----------
+// [sound index, step (16ths over 2 bars), velocity 0..127]
+const SOUNDS = [
+ ['Kick', 'kick', 0], ['Snare', 'snare', 4], ['Clap', 'clap', 3], ['Closed hat', 'hat_closed', 5],
+ ['Open hat', 'hat_open', 5], ['Low tom', 'tom', 2], ['Ride', 'ride', 6]];
+const HITS = [];
+[0, 6, 8, 16, 22, 24, 27].forEach(s => HITS.push([0, s, s % 8 ? 78 : 122]));
+[4, 12, 20, 28].forEach(s => HITS.push([1, s, s === 28 ? 127 : 100]));
+[12, 28].forEach(s => HITS.push([2, s, 70]));
+for (let s = 0; s < 32; s += 2) if (s % 8 !== 6) HITS.push([3, s, s % 4 ? 48 : 100]);
+[6, 14, 22, 30].forEach(s => HITS.push([4, s, 88]));
+[29, 30, 31].forEach((s, i) => HITS.push([5, s, 60 + i * 20]));
+HITS.push([6, 6, 62]);
+const hitAt = (si, st) => HITS.find(h => h[0] === si && h[1] === st);
+const MUTED_ROW = 4;   // the open hat is muted
+const PICKED_ROW = 1;  // the snare lane is picked
+
+// DE A: a diamond at the hit's start; its outline is the sound's colour and it
+// fills from the foot up to the velocity (owner, 2026-11-12).
+function diamond(cx, cy, r, col, vel, {muted = false, picked = false} = {}) {
+  const id = uid('c'), t = Math.max(0, Math.min(1, vel / 127)), top = cy + r - 2 * r * t;
+  const d = `M${cx} ${cy - r} L${cx + r} ${cy} L${cx} ${cy + r} L${cx - r} ${cy} Z`;
+  let s = `<defs><clipPath id="${id}"><path d="${d}"/></clipPath></defs>`;
+  s += `<path d="${d}" fill="${hexA(col, muted ? .07 : .16)}"/>`;
+  s += `<g clip-path="url(#${id})">${rect(cx - r, top, 2 * r, cy + r - top, muted ? hexA(col, .32) : col)}</g>`;
+  s += `<path d="${d}" fill="none" stroke="${muted ? hexA(C.text2, .5) : col}" stroke-width="1.2"/>`;
+  if (picked) s += `<path d="M${cx} ${cy - r - 3} L${cx + r + 3} ${cy} L${cx} ${cy + r + 3} L${cx - r - 3} ${cy} Z" fill="none" stroke="${C.accent}" stroke-width="1.6"/>`;
+  return s;
+}
+
+// ---------- the clip editor's shared header (40 pt, clip_header.rs) ----------
+const HEADER = 40;
+function tabButton(x, y, glyph) { // a 24 pt raised icon button (icon_toggle)
+  const body = raised(x, y, 24, 24, 6), m = y + 12;
+  return body + glyph(x + 12, m);
+}
+// the two tool glyphs, on the 12 pt grid of an icon
+const pointerGlyph = (x, y, c) => `<path d="M${x} ${y - 6} l0 12 l3 -3 l2.4 4.6 l2.6 -1.3 l-2.4 -4.5 l4.2 -.4 z" fill="${c}" stroke="${c}" stroke-width="1" stroke-linejoin="round"/>`;
+const pencilGlyph = (x, y, c) => `<path d="M${x - 5} ${y + 5} l1 -3.4 l7.6 -7.6 l2.4 2.4 l-7.6 7.6 z" fill="none" stroke="${c}" stroke-width="1.3" stroke-linejoin="round"/>`;
+function headerStrip(w, which) { // which: 0 Lanes, 1 Steps
+  let s = rect(0, 0, w, HEADER, C.raised);
+  s += line(0, HEADER - .5, w, HEADER - .5, C.border, 1);
+  // the colour bar, the name over its caption, a rule
+  s += rect(12, 9, 8, 22, PAL[0], {rx:3}) + rect(12, 9, 8, 11, C.sheen, {rx:3});
+  s += text(26, 19, 'Drums 1', C.text, 13, {class:'md'});
+  s += mono(26, 33, `2 bars · ${HITS.length} hits · 808-style`, C.hint, 10);
+  s += rect(254, 8, 1, 24, C.border);
+  // Lanes · Steps · Keys (DV A: one clip editor, three views, one click apart)
+  s += seg(266, 5, ['Lanes', 'Steps', 'Keys'], which, {w:54, h:30});
+  // Pointer · Draw (the arrangement's tool rule: only Draw is lit)
+  s += rect(444, 3, 148, 34, C.well, {rx:8}) + thumb(446, 5, 70, 30, 6);
+  s += pointerGlyph(460, 20, C.text);
+  s += text(472, 24, 'Pointer', C.text, 11.5);
+  s += pencilGlyph(528, 20, C.text2);
+  s += text(540, 24, 'Draw', C.text2, 11.5);
+  // the grid chip: magnet, "Grid", the value, a chevron
+  s += raised(596, 8, 96, 24, 6);
+  s += `<path d="M604 25 v-4 a4.6 4.6 0 0 1 9.2 0 v4" fill="none" stroke="${C.accent}" stroke-width="2" stroke-linecap="butt"/>`;
+  s += `<path d="M603 23.4 h3.2 M611.6 23.4 h3.2" stroke="${C.accent}" stroke-width="3"/>`;
+  s += text(621, 24, 'Grid', C.text2, 12);
+  s += mono(647, 24, '1/16', C.text, 10);
+  s += `<path d="M678 19 l3 3 l3 -3" stroke="${C.text2}" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
+  // the editor's own action
+  s += raised(700, 8, 68, 24, 6) + text(734, 24, 'Quantize', C.text2, 11, {'text-anchor':'middle'});
+  // the right-hand group: lane, more, pop out (drawn first in the app)
+  s += tabButton(808, 8, (cx, cy) => rect(cx + 1, cy - 8, 10, 16, 'none', {rx:2, stroke:C.text2, 'stroke-width':1.5}) + line(cx + 1, cy + 3, cx + 11, cy + 3, C.text2, 1.2));
+  s += tabButton(836, 8, (cx, cy) => circ(cx - 5, cy, 1.6, C.text2) + circ(cx, cy, 1.6, C.text2) + circ(cx + 5, cy, 1.6, C.text2));
+  s += tabButton(864, 8, (cx, cy) => rect(cx - 7, cy - 8, 14, 12, 'none', {rx:2, stroke:C.text2, 'stroke-width':1.4}) + `<path d="M${cx - 1} ${cy + 8} v-8 M${cx - 4} ${cy + 2} l3 -3 l3 3" stroke="${C.text2}" stroke-width="1.4" fill="none" stroke-linecap="round"/>`);
+  return s;
+}
+
+// ---------- Lanes (the drum editor, DV A) ----------
+const EW = 900;        // the editor's example width (it is fluid)
+const NAME_W = 176;    // invented: icon + name + M/S (the piano roll's keys are 56)
+const LANE_H = 28;     // 2 * space::M + space::XS
+const RULER_H = 20;    // note_editor/view.rs RULER_HEIGHT
+function laneRuler(w) {
+  let s = rect(0, 0, w, RULER_H, C.canvas) + rect(0, 0, NAME_W, RULER_H, C.header);
+  s += mono(12, 14, '1/16 · 32 steps', C.hint, 9);
+  const gw = w - NAME_W;
+  for (let b = 0; b < 2; b++) {
+    const x = NAME_W + b * gw / 2;
+    s += mono(x + 5, 14, String(b + 1), C.text2, 9);
+    s += line(x, 12, x, RULER_H, C.text2, 1);
+    for (let q = 1; q < 4; q++) s += line(x + q * gw / 8, 16, x + q * gw / 8, RULER_H, C.grid_bar, 1);
+  }
+  s += line(0, RULER_H - .5, w, RULER_H - .5, C.border, 1);
+  return s;
+}
+function lanesBody(w, h, {rows = 7, hits = HITS, picked = PICKED_ROW, muted = MUTED_ROW, playhead = 9.5} = {}) {
+  const gw = w - NAME_W, sw = gw / 32, rh = h / rows;
+  const r = Math.min(rh * .34, sw * .46);
+  let s = rect(0, 0, w, h, C.canvas);
+  for (let i = 0; i < rows; i++) {
+    const ry = i * rh, pickedRow = i === picked;
+    if (i % 2) s += rect(NAME_W, ry, gw, rh, C.lane_black);
+    if (pickedRow) s += rect(NAME_W, ry, gw, rh, hexA(C.accent, .05));
+    s += rect(0, ry, NAME_W, rh, pickedRow ? C.selected_row : C.header);
+    s += rect(0, ry, 3, rh, PAL[SOUNDS[i][2]]);
+    const lit = pickedRow || i === 0 || i === 3;
+    s += icon(SOUNDS[i][1], 10, ry + rh / 2 - 8, 16, lit ? PAL[SOUNDS[i][2]] : C.text2);
+    s += text(34, mid(ry, rh, 12), SOUNDS[i][0], C.text, 12);
+    // M and S, 20 x 18
+    const bx = NAME_W - 52, on = i === muted;
+    s += rect(bx, ry + rh / 2 - 9, 20, 18, on ? C.mute : C.control, {rx:4, stroke:hexA(C.border_strong, .9), 'stroke-width':.75});
+    s += text(bx + 10, mid(ry + rh / 2 - 9, 18, 10), 'M', on ? C.on_mute : C.text2, 10, {'text-anchor':'middle', 'font-weight':560});
+    s += rect(bx + 24, ry + rh / 2 - 9, 20, 18, C.control, {rx:4, stroke:hexA(C.border_strong, .9), 'stroke-width':.75});
+    s += text(bx + 34, mid(ry + rh / 2 - 9, 18, 10), 'S', C.text2, 10, {'text-anchor':'middle', 'font-weight':560});
+    s += line(0, ry + rh - .5, w, ry + rh - .5, C.border, 1);
+  }
+  for (let k = 0; k <= 32; k++) {
+    const x = NAME_W + k * sw;
+    s += line(x, 0, x, h, k % 16 === 0 ? C.grid_bar : k % 4 === 0 ? C.grid_beat : C.grid_sub, k % 16 === 0 ? 1.5 : 1);
+  }
+  // the hits: the outline is the sound's colour, the fill its velocity
+  hits.forEach(([si, st, vel]) => {
+    const cy = si * rh + rh / 2, cx = NAME_W + st * sw + r; // the diamond's left tip is the onset
+    s += diamond(cx, cy, r, PAL[SOUNDS[si][2]], vel,
+      {muted: si === muted, picked: si === picked && (st === 12 || st === 20)});
+  });
+  // the value chip on the picked hit (a drag up or down sets it)
+  s += line(NAME_W + playhead * sw, 0, NAME_W + playhead * sw, h, C.accent, 1.5);
+  return s;
+}
+// The velocity lane: a 32 pt header (lane HEADER) over a 96 pt plot; stems are
+// 2 pt with a 4 pt head (DESIGN §7f), the picked stem lit.
+function velocityLane(w, hh = 128) {
+  const head = 32, plot = hh - head;
+  let s = rect(0, 0, w, hh, C.canvas);
+  s += rect(0, 0, w, head, C.header);
+  s += line(0, .5, w, .5, C.border_strong, 1) + line(0, head - .5, w, head - .5, C.border, 1);
+  s += pill(12, 4, 66, 24, 'Velocity', true) + pill(82, 4, 78, 24, 'Pitch bend', false) + pill(164, 4, 72, 24, 'Pressure', false);
+  // Pencil · Line · Curve, as icons (the lane's tools)
+  const tx = w - 132;
+  s += rect(tx, 4, 122, 24, C.well, {rx:6}) + thumb(tx + 2, 6, 38, 20, 4);
+  s += pencilGlyph(tx + 21, 16, C.text);
+  [['line', tx + 40], ['curve', tx + 78]].forEach(([g, x]) => {
+    if (g === 'line') s += line(x + 7, 21, x + 31, 11, C.text2, 1.4) + circ(x + 7, 21, 1.7, C.text2) + circ(x + 31, 11, 1.7, C.text2);
+    else s += `<path d="M${x + 7} 21 q12 -12 24 0" stroke="${C.text2}" stroke-width="1.4" fill="none" stroke-linecap="round"/>` + circ(x + 19, 14, 1.7, C.text2);
+  });
+  // the scale column keeps the name column's width
+  s += rect(0, head, NAME_W, plot, C.header);
+  s += mono(NAME_W - 12, head + 14, '127', C.text2, 9, {'text-anchor':'end'});
+  s += mono(NAME_W - 12, head + plot / 2 + 3, '64', C.text2, 9, {'text-anchor':'end'});
+  s += mono(NAME_W - 12, head + plot - 8, '0', C.text2, 9, {'text-anchor':'end'});
+  s += line(NAME_W - .5, head, NAME_W - .5, hh, C.border, 1);
+  const gw = w - NAME_W, sw = gw / 32, rest = hh - 8;
+  for (let k = 0; k <= 32; k++) {
+    const x = NAME_W + k * sw;
+    s += line(x, head, x, hh, k % 16 === 0 ? C.grid_bar : k % 4 === 0 ? C.grid_beat : C.grid_sub, 1);
+  }
+  s += line(NAME_W, rest, w, rest, C.border, 1);
+  HITS.filter(hh2 => hh2[0] === PICKED_ROW).forEach(([, st, vel]) => {
+    const x = NAME_W + st * sw + Math.min(28 * .34, sw * .46), top = rest - (plot - 22) * vel / 127;
+    const lit = st === 12;
+    s += line(x, rest, x, top, lit ? C.accent : PAL[4], 2);
+    s += circ(x, top, lit ? 5 : 4, lit ? C.text : PAL[4], lit ? {stroke:C.accent, 'stroke-width':1.5} : {});
+  });
+  return s;
+}
+function editorLanes() {
+  const rowsH = 7 * LANE_H, h = HEADER + RULER_H + rowsH + 128;
+  let s = headerStrip(EW, 0);
+  s += `<g transform="translate(0 ${HEADER})">${laneRuler(EW)}</g>`;
+  s += `<g transform="translate(0 ${HEADER + RULER_H})">${lanesBody(EW, rowsH)}</g>`;
+  s += `<g transform="translate(0 ${HEADER + RULER_H + rowsH})">${velocityLane(EW)}</g>`;
+  // the readout while a picked hit is dragged: in the ruler, on a leader to the hit
+  const sw = (EW - NAME_W) / 32, r = Math.min(LANE_H * .34, sw * .46);
+  const hx = NAME_W + 12 * sw + r, hy = HEADER + RULER_H + LANE_H + LANE_H / 2;
+  s += line(hx, HEADER + 16, hx, hy, hexA(C.accent, .55), 1);
+  s += rect(hx, HEADER + 2, 86, 17, C.overlay, {rx:5, stroke:C.border_strong});
+  s += mono(hx + 8, HEADER + 14, 'Snare · vel 100', C.text, 8.5);
+  return svg(EW, h, s);
+}
+// the five velocities, enlarged: the fill rule at a glance
+function diamondZoom() {
+  const w = 340, h = 110;
+  let s = rect(0, 0, w, h, C.canvas, {rx:8});
+  [20, 48, 80, 104, 127].forEach((v, i) => {
+    const cx = 40 + i * 65;
+    s += diamond(cx, 48, 22, PAL[4], v, {picked:i === 3});
+    s += mono(cx, 96, String(v), C.text2, 9, {'text-anchor':'middle'});
+  });
+  return svg(w, h, s);
+}
+
+// ---------- Steps (the step sequencer, SQ A) ----------
+function stepsStrip(w) {
+  let s = rect(0, 0, w, 34, C.header) + line(0, .5, w, .5, C.border_strong, 1) + line(0, 33.5, w, 33.5, C.border, 1);
+  s += seg(12, 6, ['16', '32'], 0, {w:34, h:22});
+  s += text(88, 22, 'steps', C.text2, 11);
+  s += raised(140, 6, 56, 22, 5) + mono(168, 21, '1/16', C.text, 10, {'text-anchor':'middle'});
+  s += text(202, 22, 'grid', C.text2, 11);
+  s += text(748, 22, 'Page', C.text2, 11, {'text-anchor':'end'});
+  s += seg(758, 6, ['1', '2'], 0, {w:30, h:22});
+  s += mono(824, 22, 'of 2', C.hint, 9);
+  return s;
+}
+function stepsBody(w, h, {steps = 16, rows = 7, beat = 9} = {}) {
+  const gw = w - NAME_W, sw = gw / steps, rh = h / rows, inset = 3;
+  let s = rect(0, 0, w, h, C.canvas);
+  for (let i = 0; i < rows; i++) {
+    const ry = i * rh, pickedRow = i === PICKED_ROW;
+    if (i % 2) s += rect(NAME_W, ry, gw, rh, C.lane_black);
+    if (pickedRow) s += rect(NAME_W, ry, gw, rh, hexA(C.accent, .05));
+    s += rect(0, ry, NAME_W, rh, pickedRow ? C.selected_row : C.header);
+    s += rect(0, ry, 3, rh, PAL[SOUNDS[i][2]]);
+    const lit = pickedRow || i === 0 || i === 3;
+    s += icon(SOUNDS[i][1], 10, ry + rh / 2 - 8, 16, lit ? PAL[SOUNDS[i][2]] : C.text2);
+    s += text(34, mid(ry, rh, 12), SOUNDS[i][0], C.text, 12);
+    const bx = NAME_W - 52, on = i === MUTED_ROW;
+    s += rect(bx, ry + rh / 2 - 9, 20, 18, on ? C.mute : C.control, {rx:4, stroke:hexA(C.border_strong, .9), 'stroke-width':.75});
+    s += text(bx + 10, mid(ry + rh / 2 - 9, 18, 10), 'M', on ? C.on_mute : C.text2, 10, {'text-anchor':'middle', 'font-weight':560});
+    s += rect(bx + 24, ry + rh / 2 - 9, 20, 18, C.control, {rx:4, stroke:hexA(C.border_strong, .9), 'stroke-width':.75});
+    s += text(bx + 34, mid(ry + rh / 2 - 9, 18, 10), 'S', C.text2, 10, {'text-anchor':'middle', 'font-weight':560});
+    s += line(0, ry + rh - .5, w, ry + rh - .5, C.border, 1);
+  }
+  // the playing column: a wash and a light at the foot
+  s += rect(NAME_W + beat * sw, 0, sw, h, hexA(C.accent, .10));
+  for (let i = 0; i < rows; i++) {
+    const ry = i * rh;
+    for (let k = 0; k < steps; k++) {
+      const cx = NAME_W + k * sw + inset, cy = ry + inset, cw = sw - 2 * inset, ch = rh - 2 * inset;
+      s += rect(cx, cy, cw, ch, Math.floor(k / 4) % 2
+        ? hexA(C.well, LIGHT ? .3 : .75) : hexA(C.well, LIGHT ? .5 : 1), {rx:4});
+      const hit = hitAt(i, k);
+      if (hit) {
+        const col = PAL[SOUNDS[i][2]], t = hit[2] / 127, fh = Math.max(6, ch * t);
+        s += rect(cx, cy + ch - fh, cw, fh, i === MUTED_ROW ? hexA(col, .35) : col, {rx:4});
+        s += rect(cx, cy, cw, ch, 'none', {rx:4, stroke:hexA(col, i === MUTED_ROW ? .4 : .85), 'stroke-width':1});
+      }
+      // accent: a rim (Shift-click), not a taller cell
+      const accented = (i === 0 && k === 0) || (i === 1 && k === 12) || (i === 3 && k === 8);
+      if (accented) s += rect(cx - 1.5, cy - 1.5, cw + 3, ch + 3, 'none', {rx:6, stroke:C.warning, 'stroke-width':2});
+    }
+  }
+  s += rect(NAME_W + beat * sw + 2, h - 1, sw - 4, 3, C.accent, {rx:1.5});
+  return s;
+}
+function editorSteps() {
+  const rowsH = 7 * 34, h = HEADER + 34 + rowsH;
+  let s = headerStrip(EW, 1);
+  s += `<g transform="translate(0 ${HEADER})">${stepsStrip(EW)}</g>`;
+  s += `<g transform="translate(0 ${HEADER + 34})">${stepsBody(EW, rowsH)}</g>`;
+  return svg(EW, h, s);
+}
+
+// ---------- the arrangement: a mapped track's MIDI clip as drum rows ----------
+// Track rows: HEADER_COLUMN 204, UNFOLDED 4 * TRACK_STEP = 88; a clip's title
+// bar is 15 with INSET 3 and WAVE_GAP 2 on each side (arrangement/clips.rs).
+const HW = 204, RULER = 22, TITLE = 15, INSET = 3, WAVE_GAP = 2;
+function trackHeader(y, hh, name, cap, on) {
+  let s = rect(0, y, HW, hh, C.header) + rect(0, y, 3, hh, PAL[0]) + line(0, y + hh - .5, HW, y + hh - .5, C.border, 1);
+  s += icon('kick', 10, y + hh / 2 - 8, 16, on ? PAL[0] : C.text2);
+  s += text(34, y + hh / 2 - 2, name, C.text, 13, {class:'md'});
+  s += mono(34, y + hh / 2 + 13, cap, C.hint, 9);
+  const bx = HW - 74;
+  s += rect(bx, y + hh / 2 - 9, 20, 18, C.control, {rx:4, stroke:hexA(C.border_strong, .9), 'stroke-width':.75});
+  s += text(bx + 10, mid(y + hh / 2 - 9, 18, 10), 'M', C.text2, 10, {'text-anchor':'middle', 'font-weight':560});
+  s += rect(bx + 24, y + hh / 2 - 9, 20, 18, C.control, {rx:4, stroke:hexA(C.border_strong, .9), 'stroke-width':.75});
+  s += text(bx + 34, mid(y + hh / 2 - 9, 18, 10), 'S', C.text2, 10, {'text-anchor':'middle', 'font-weight':560});
+  const lv = hh - 12, fill = lv * .55;
+  s += rect(HW - 18, y + 6, 5, lv, C.well, {rx:2});
+  s += rect(HW - 18, y + 6 + lv - fill, 5, fill, C.accent, {rx:2});
+  s += rect(HW - 18, y + 6 + lv - fill - 6, 5, 1.5, hexA(C.text, .65));
+  return s;
+}
+function drumClip(x, y, cw, chh, name, sel, from, to) {
+  const body = rect(x, y, cw, chh, C.clip_body, {rx:5, stroke:sel ? C.accent : 'none', 'stroke-width':sel ? 1.5 : 0});
+  const titleH = TITLE;
+  let s = body;
+  s += `<path d="M${x} ${y + 5} a5 5 0 0 1 5 -5 h${cw - 10} a5 5 0 0 1 5 5 v${titleH - 5} h-${cw} z" fill="${PAL[0]}"/>`;
+  s += text(x + 8, y + 11.5, name, '#FFFFFFE6', 11, {class:'md'});
+  const top = y + INSET + titleH + WAVE_GAP, bottom = y + chh - INSET - WAVE_GAP;
+  const room = bottom - top, rows = SOUNDS.length, rh = room / rows, sw = (cw - 2 * INSET) / 32;
+  // a line between sounds, so the clip reads as one row per sound
+  for (let i = 1; i < rows; i++) {
+    s += line(x + INSET, top + i * rh, x + cw - INSET, top + i * rh, hexA(C.text2, LIGHT ? .12 : .09), 1);
+  }
+  for (let i = 0; i < rows; i++) {
+    const ry = top + i * rh;
+    for (let k = 0; k < 32; k++) {
+      const hit = hitAt(i, k + from);
+      if (!hit || k + from >= to) continue;
+      const cellH = Math.max(1.5, (rh - 1.4) * hit[2] / 127);
+      s += rect(x + INSET + k * sw + .5, ry + rh - 1.4 - cellH, Math.max(1.5, sw - 1.6), cellH,
+        hexA(PAL[SOUNDS[i][2]], i === MUTED_ROW ? .35 : .95), {rx:1});
+    }
+  }
+  return s;
+}
+function arrangement() {
+  const W = 900, H = RULER + 88 + 154, gw = W - HW, bar = gw / 4;
+  let s = rect(0, 0, W, H, C.canvas);
+  s += rect(0, 0, W, RULER, C.raised) + line(0, RULER - .5, W, RULER - .5, C.border, 1);
+  for (let b = 0; b < 5; b++) { const x = HW + b * bar; s += mono(x + 5, 15, String(b + 1), C.text2, 9) + line(x, 12, x, RULER, C.text2, 1); }
+  s += line(HW - .5, 0, HW - .5, H, C.border, 1);
+  // track at 88 pt: rows of 9 pt — legible, the smallest that works
+  s += trackHeader(RULER, 88, 'Drums', '808-style · 7 sounds', true);
+  s += drumClip(HW + 1, RULER + INSET, bar * 2 - 2, 88 - 2 * INSET, 'Verse beat', false, 0, 32);
+  s += drumClip(HW + bar * 2 + 1, RULER + INSET, bar - 2, 88 - 2 * INSET, 'Fill', true, 0, 16);
+  // the same track at 154 pt (= 7 * TRACK_STEP)
+  s += trackHeader(RULER + 88, 154, 'Drums', '808-style · 7 sounds', true);
+  s += drumClip(HW + 1, RULER + 88 + INSET, bar * 3 - 2, 154 - 2 * INSET, 'Verse beat + fill', false, 0, 32);
+  s += line(0, RULER + 88 - .5, W, RULER + 88 - .5, C.border, 1);
+  s += line(HW + bar * 1.5, RULER, HW + bar * 1.5, H, C.accent, 1.5);
+  return svg(W, H, s);
+}
+
+// ---------- BF: the built-in faces at the card's real sizes ----------
+// chain/geometry.rs: CARD_W 232, CARD_H 344, HEADER 48, BAND 72, PRESET 34,
+// BODY 158 + PRESET, FOOTER 32, COMPACT_H 116, RAIL_W 48.
+const CARD_W = 232, CARD_H = 344, CARD_NORMAL = 272, CARD_COMPACT = 116, RAIL_W = 48;
+const C_HEADER = 48, C_PRESET = 34, C_FOOTER = 32;
+// a light behind the power button; the light in the light theme is the hue dark
+const inkOf = hue => LIGHT ? hue : '#FFFFFF';
+// the face: a screen deep and tinted, the same in both themes (as a clip is)
+function screen(x, y, w, h, hue, {deep = '#0C0E12', r = 10} = {}) {
+  const [i, d] = rg([[0, hexA(hue, .20)], [1, deep]], .5, 0, 1.15);
+  return d + rect(x, y, w, h, `url(#${i})`, {rx:r, stroke:hexA(hue, .35)});
+}
+// a lit dial inside a face: a tinted ring, a glowing trail and a bright head
+function dial(cx, cy, r, v, hue, name, val) {
+  const a0 = Math.PI * .75, a1 = Math.PI * 2.25, av = a0 + (a1 - a0) * v;
+  const P = (an, rr) => [cx + Math.cos(an) * rr, cy + Math.sin(an) * rr];
+  const arc = (s0, e, rr) => { const [sx, sy] = P(s0, rr), [ex, ey] = P(e, rr); return `M${sx} ${sy} A${rr} ${rr} 0 ${e - s0 > Math.PI ? 1 : 0} 1 ${ex} ${ey}`; };
+  const [bi, bd] = blur(2.2);
+  const [fi, fd] = rg([[0, LIGHT ? '#FFFFFF' : '#3A3F4A'], [1, LIGHT ? '#E2E5E9' : '#22252B']], .4, .3, .7);
+  let s = bd + fd + circ(cx, cy, r - 4, `url(#${fi})`, {stroke:hexA('#000000', LIGHT ? .12 : .4)});
+  s += `<path d="${arc(a0, a1, r)}" stroke="${hexA(hue, .25)}" stroke-width="3" fill="none" stroke-linecap="round"/>`;
+  s += `<path d="${arc(a0, av, r)}" stroke="${hue}" stroke-width="4" fill="none" stroke-linecap="round" filter="url(#${bi})" opacity=".75"/>`;
+  s += `<path d="${arc(a0, av, r)}" stroke="${hue}" stroke-width="2.4" fill="none" stroke-linecap="round"/>`;
+  const [hx, hy] = P(av, r); s += circ(hx, hy, 2.6, '#FFFFFF');
+  s += mono(cx, cy + 3, val, '#FFFFFF', 7.5, {'text-anchor':'middle'});
+  s += text(cx, cy + r + 11, name, hexA('#FFFFFF', .62), 9.5, {'text-anchor':'middle'});
+  return s;
+}
+// the card: picture (a face), header, preset row, footer — the chain's chrome
+function card(w, h, {name, sub, hue, badge = 'FX', all = 41}, face, footer) {
+  const [gi, gd] = lg([[0, hexA(hue, .22)], [1, hexA(hue, 0)]]);
+  let s = gd + rect(0, 0, w, h, C.raised, {rx:12, stroke:C.border_strong, 'stroke-width':1});
+  s += `<path d="M0 12 a12 12 0 0 1 12 -12 h${w - 24} a12 12 0 0 1 12 12 v36 h-${w} z" fill="url(#${gi})"/>`;
+  s += line(0, C_HEADER - .5, w, C_HEADER - .5, C.border, 1);
+  s += circ(24, 24, 9, hexA(hue, .22), {stroke:hexA(hue, .8), 'stroke-width':1});
+  s += `<path d="M24 19.5 v4.5 M21 21.5 a4.6 4.6 0 1 0 6 0" stroke="${inkOf(hue)}" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
+  s += text(40, 23, name, C.text, 14, {class:'u'});
+  s += text(40, 38, sub, C.text2, 10.5);
+  s += rect(w - 48, 16, 36, 16, hexA(hue, .18), {rx:8, stroke:hexA(hue, .45), 'stroke-width':.75});
+  s += mono(w - 30, 27, badge, LIGHT ? hue : '#FFFFFF', 8, {'text-anchor':'middle'});
+  // the preset row (PR A: the chain's preset files)
+  s += raised(12, C_HEADER + 6, w - 24, 22, 6);
+  s += text(22, C_HEADER + 21, 'Preset', C.text2, 10);
+  s += mono(64, C_HEADER + 21, 'Init', C.text, 9.5);
+  s += `<path d="M${w - 30} ${C_HEADER + 14} l3 3 l3 -3" stroke="${C.text2}" stroke-width="1.4" fill="none" stroke-linecap="round"/>`;
+  s += `<g transform="translate(12 ${C_HEADER + C_PRESET})">${face(w - 24, h - C_HEADER - C_PRESET - C_FOOTER)}</g>`;
+  // the footer: what it is and its latency, and All parameters (a face has no strip)
+  s += `<path d="M0 ${h - C_FOOTER} H${w} V${h - 12} A12 12 0 0 1 ${w - 12} ${h} H12 A12 12 0 0 1 0 ${h - 12} Z" fill="${C.header}"/>`;
+  s += line(0, h - C_FOOTER + .5, w, h - C_FOOTER + .5, C.border, 1);
+  s += mono(12, h - 13, footer, C.hint, 9);
+  s += raised(w - 80, h - 26, 68, 18, 5) + mono(w - 46, h - 13, `All ${all} ▸`, C.text2, 8.5, {'text-anchor':'middle'});
+  return s;
+}
+// 1 · Iris — the parametric EQ: the curve is the control, the analyzer behind it
+function faceIris(w, h) {
+  const hue = '#7C8CFF', deep = '#0C0E12';
+  const px = 8, py = 8, pw = w - 16, ph = h - 50, midY = py + ph / 2;
+  const bands = [[40, 0, '#FF5A6E'], [180, 5, '#FFB547'], [2500, -4, '#4FA3FF'], [8000, 3, '#B07CFF']];
+  const fx = f => px + pw * Math.log10(f / 20) / 3;
+  const gy = db => midY - db * ph / 56;
+  let s = screen(0, 0, w, h, hue, {deep});
+  const [sp, spd] = lg([[0, '#FF5A6E'], [.25, '#FFB547'], [.5, '#5BE07F'], [.75, '#4FA3FF'], [1, '#B07CFF']], 1, 0);
+  s += spd;
+  // the analyzer: a spectrum mist behind the curve
+  let pa = `M${px} ${py + ph}`;
+  for (let i = 0; i <= pw; i += 3) {
+    const t = i / pw, v = .5 + .22 * Math.sin(t * 9) + .1 * Math.sin(t * 33) - t * .42;
+    pa += ` L${px + i} ${py + ph - ph * Math.max(.04, v) * .62}`;
+  }
+  pa += ` L${px + pw} ${py + ph} Z`;
+  s += `<path d="${pa}" fill="url(#${sp})" opacity=".13"/>`;
+  // the graticule: 100 Hz, 1 k, 10 k and 0 dB
+  [100, 1000, 10000].forEach(f => {
+    s += line(fx(f), py + 6, fx(f), py + ph - 6, '#FFFFFF', 1, {opacity:.07});
+    s += mono(fx(f) + 3, py + ph - 5, f >= 1000 ? f / 1000 + 'k' : f, '#FFFFFF', 7.5, {opacity:.35});
+  });
+  s += line(px + 6, midY, px + pw - 6, midY, '#FFFFFF', 1, {opacity:.09});
+  // the curve
+  const g = t => {
+    const f = 20 * Math.pow(1000, t);
+    let db = -12 * Math.max(0, Math.log2(40 / f));
+    db += 5 * Math.exp(-Math.pow(Math.log2(f / 180) / .8, 2));
+    db -= 4 * Math.exp(-Math.pow(Math.log2(f / 2500) / .6, 2));
+    db += 3 / (1 + Math.pow(8000 / f, 2));
+    return db;
+  };
+  let pc = '';
+  for (let i = 0; i <= pw; i += 2) pc += (i ? ' L' : 'M') + (px + i) + ' ' + gy(g(i / pw));
+  const [bi, bd] = blur(3.5);
+  s += bd + `<path d="${pc} L${px + pw} ${midY} L${px} ${midY} Z" fill="url(#${sp})" opacity=".16"/>`;
+  s += `<path d="${pc}" stroke="url(#${sp})" stroke-width="5" fill="none" filter="url(#${bi})" opacity=".6"/><path d="${pc}" stroke="url(#${sp})" stroke-width="2.1" fill="none"/>`;
+  bands.forEach(([f, db, c], i) => {
+    const bx = fx(f), by = gy(db), pickedBand = i === 1;
+    const [hb, hbd] = blur(pickedBand ? 5 : 3);
+    s += hbd + circ(bx, by, pickedBand ? 11 : 7, c, {filter:`url(#${hb})`, opacity:.6}) +
+         circ(bx, by, pickedBand ? 6 : 5, LIGHT ? deep : c, {stroke:'#FFFFFF', 'stroke-width':pickedBand ? 2 : 1.2});
+    if (pickedBand) for (let k = 0; k < 6; k++) {
+      const an = k * Math.PI / 3 + .3;
+      s += `<path d="M${bx + Math.cos(an) * 10} ${by + Math.sin(an) * 10} L${bx + Math.cos(an + .6) * 14} ${by + Math.sin(an + .6) * 14}" stroke="#FFFFFF" stroke-width="1.3" opacity=".7"/>`;
+    }
+  });
+  // the picked band's value, over the curve
+  const chipX = Math.min(Math.max(fx(180) - 42, px + 4), px + pw - 90);
+  s += rect(chipX, py + 5, 88, 16, deep, {rx:8, stroke:'#FFB547'});
+  s += mono(chipX + 44, py + 16, '180 Hz · +5.0', '#FFFFFF', 8, {'text-anchor':'middle'});
+  // the controls: four bands and Q — the dots are the gain and frequency
+  bands.forEach(([, , c], i) => {
+    const bx = 6 + i * 30, on = i === 1;
+    s += rect(bx, h - 34, 26, 22, on ? hexA(c, .35) : hexA('#FFFFFF', .08), {rx:11, stroke:c, 'stroke-width':on ? 1.5 : .9});
+    s += text(bx + 13, h - 19, String(i + 1), on ? '#FFFFFF' : hexA('#FFFFFF', .8), 10.5, {'text-anchor':'middle', 'font-weight':560});
+  });
+  s += mono(140, h - 19, 'Q 0.90 · 24 dB', hexA('#FFFFFF', .7), 8.5);
+  return s;
+}
+// 2 · Gravity — the compressor: the transfer curve is a body's orbit, the well
+// is the grid; the GR meter sits at the right
+function faceGravity(w, h) {
+  const hue = '#B46CFF', deep = '#0B0912';
+  const px = 8, py = 8, meterW = 20, pw = w - 16 - meterW - 8, ph = h - 50;
+  const cx = px + pw * .45, cy = py + ph * .55;
+  let s = screen(0, 0, w, h, hue, {deep});
+  // the graticule, pulled into a well
+  for (let k = 0; k <= 6; k++) {
+    const bx = px + pw * k / 6;
+    let p = '';
+    for (let i = 0; i <= 24; i++) {
+      const yy = py + ph * i / 24, d = Math.exp(-Math.pow((yy - cy) / (ph * .34), 2));
+      const xx = bx - (bx - cx) * d * .22;
+      p += (i ? ' L' : 'M') + xx + ' ' + yy;
+    }
+    s += `<path d="${p}" stroke="${hue}" stroke-width="1" fill="none" opacity=".14"/>`;
+  }
+  for (let k = 0; k <= 6; k++) {
+    const by = py + ph * k / 6;
+    let p = '';
+    for (let i = 0; i <= 24; i++) {
+      const xx = px + pw * i / 24, d = Math.exp(-Math.pow((xx - cx) / (pw * .34), 2));
+      const yy = by + d * 7;
+      p += (i ? ' L' : 'M') + xx + ' ' + yy;
+    }
+    s += `<path d="${p}" stroke="${hue}" stroke-width="1" fill="none" opacity=".14"/>`;
+  }
+  // input −36..0 dB left to right, output −36..0 dB bottom to top, so the knee sits mid-screen
+  const ix = db => px + pw * (db + 36) / 36, oy = db => py + ph - ph * (db + 36) / 36;
+  s += line(ix(-36), oy(-36), ix(0), oy(0), '#FFFFFF', 1, {opacity:.3, 'stroke-dasharray':'3 3'});
+  const th = -18, ratio = 4, knee = 6;
+  const out = db => db <= th - knee ? db : db >= th + knee ? th + (db - th) / ratio
+    : db + (1 / ratio - 1) * Math.pow(db - th + knee, 2) / (4 * knee);
+  let pc = '';
+  for (let db = -36; db <= 0; db += 1.5) pc += (db === -36 ? 'M' : ' L') + ix(db) + ' ' + oy(out(db));
+  const [bi, bd] = blur(3);
+  s += bd + `<path d="${pc}" stroke="${hue}" stroke-width="5" fill="none" filter="url(#${bi})" opacity=".55"/><path d="${pc}" stroke="${hue}" stroke-width="2.1" fill="none"/>`;
+  // the body at the operating point, and the threshold line
+  const opx = ix(-8), opy = oy(out(-8));
+  const [gi, gd] = rg([[0, '#FFFFFF'], [.35, '#E9D4FF'], [1, hue]], .35, .3, .7);
+  const [gb, gbd] = blur(7);
+  s += gbd + gd + circ(opx, opy, 15, hue, {filter:`url(#${gb})`, opacity:.55}) + circ(opx, opy, 7.5, `url(#${gi})`);
+  s += line(ix(th), py + 4, ix(th), py + ph - 4, '#FFFFFF', 1, {opacity:.32, 'stroke-dasharray':'3 4'});
+  s += mono(ix(th) + 4, py + 12, '−18', '#FFFFFF', 7.5, {opacity:.65});
+  s += mono(px + pw - 2, py + 12, '4:1', hexA('#FFFFFF', .55), 7.5, {'text-anchor':'end'});
+  // the gain reduction meter (GR 4.1 of 12 dB), with its two lines under the bar
+  const mx = w - 8 - meterW, barH = ph - 26;
+  s += rect(mx, py, meterW, barH, deep, {rx:5, stroke:hexA(hue, .5), 'stroke-width':.9});
+  s += rect(mx + 3, py + 3, meterW - 6, Math.max(6, (barH - 6) * .34), hue, {rx:3});
+  s += mono(mx + meterW / 2, py + barH + 11, 'GR', hexA('#FFFFFF', .5), 7, {'text-anchor':'middle'});
+  s += mono(mx + meterW / 2, py + barH + 22, '−4.1', '#FFFFFF', 8, {'text-anchor':'middle'});
+  // the controls
+  const ky = h - 30;
+  s += dial(30, ky, 12, .6, hue, 'Pull', '−18');
+  s += dial(80, ky, 12, .45, hue, 'Ratio', '4:1');
+  s += dial(130, ky, 12, .2, hue, 'Attack', '5 ms');
+  s += dial(180, ky, 12, .5, hue, 'Release', '120');
+  return s;
+}
+// 3 · Horizon — the limiter: the ceiling is the horizon, the music is the land
+function faceHorizon(w, h) {
+  const hue = '#FF8A4C', deep = '#120A16';
+  const px = 7, py = 7, pw = w - 14, ph = h - 50;
+  const hy = py + ph * .36;
+  let s = screen(0, 0, w, h, hue, {deep});
+  const [sk, skd] = lg([[0, '#1A0F2A'], [.55, '#5A2440'], [.78, '#E0603A'], [1, '#FFB86B']]);
+  s += skd + rect(px, py, pw, ph, `url(#${sk})`, {rx:9, stroke:hexA(hue, .4)});
+  const [sb, sbd] = blur(8);
+  s += sbd + circ(px + pw * .62, hy, pw * .13, '#FFD27A', {filter:`url(#${sb})`, opacity:.8}) + circ(px + pw * .62, hy, pw * .08, '#FFE3A8');
+  s += rect(px, hy, pw, py + ph - hy, deep, {opacity:.5});
+  // the wave, flattened at the ceiling
+  let p = `M${px} ${py + ph}`;
+  const peaks = [];
+  for (let i = 0; i <= pw; i += 2) {
+    const v = .62 + .3 * Math.sin(i / 9) * Math.sin(i / 37) + .08 * Math.sin(i / 2.1);
+    let yy = py + ph - v * (py + ph - hy) * 1.3;
+    if (yy < hy + 1) { yy = hy + 1; peaks.push(px + i); }
+    p += ` L${px + i} ${yy}`;
+  }
+  p += ` L${px + pw} ${py + ph} Z`;
+  s += `<path d="${p}" fill="#0E0810" stroke="${hue}" stroke-width="1.2"/>`;
+  s += line(px, hy, px + pw, hy, '#FFE3A8', 2);
+  s += mono(px + 5, hy - 5, 'ceiling −0.3 dB', '#FFE3A8', 7.5);
+  peaks.filter((_, i) => i % 3 === 0).slice(0, 4).forEach(x => { s += circ(x, hy, 2.2, '#FFFFFF'); });
+  s += circ(px + pw * .78, hy, 4, 'none', {stroke:'#FFFFFF', 'stroke-width':1.2}) + mono(px + pw * .78, hy - 7, 'TP', '#FFFFFF', 7, {'text-anchor':'middle'});
+  // controls
+  const ky = h - 30;
+  s += dial(32, ky, 12, .85, hue, 'Ceiling', '−0.3');
+  s += dial(84, ky, 12, .3, hue, 'Release', '60');
+  s += dial(136, ky, 12, .4, hue, 'Look', '1.5');
+  s += rect(170, ky - 10, 40, 20, hexA(hue, .2), {rx:10, stroke:hue, 'stroke-width':.9});
+  s += text(190, ky + 3, 'True', '#FFFFFF', 9.5, {'text-anchor':'middle', 'font-weight':560});
+  return s;
+}
+// 4 · Shutter — the sampler's Pads face: a contact sheet of the map's sounds
+function faceShutter(w, h) {
+  const hue = '#5AA9FF', deep = '#0A0C10';
+  const px = 7, py = 7, pw = w - 14, ph = h - 46;
+  let s = screen(0, 0, w, h, hue, {deep});
+  // the film's sprockets
+  for (let i = 0; i < 13; i++) {
+    s += rect(px + 6 + i * 15, py + 5, 7, 5, '#2A2E36', {rx:1.5});
+    s += rect(px + 6 + i * 15, py + ph - 10, 7, 5, '#2A2E36', {rx:1.5});
+  }
+  const pads = ['Kick', 'Snare', 'Clap', 'Closed…', 'Open…', 'Low tom', 'Ride', 'Cowbell'];
+  const padW = (pw - 16 - 3 * 4) / 4, top = py + 14, room = ph - 22, padH = (room - 4) / 2;
+  pads.forEach((n, i) => {
+    const x = px + 8 + (i % 4) * (padW + 4), y = top + Math.floor(i / 4) * (padH + 4);
+    const col = PAL[SOUNDS[i] ? SOUNDS[i][2] : 0], lit = i === 1;
+    const [pg, pgd] = lg([[0, hexA(col, .38)], [1, '#0E1116']]);
+    s += pgd + rect(x, y, padW, padH, `url(#${pg})`, {rx:5, stroke:lit ? '#FFFFFF' : hexA(col, .7), 'stroke-width':lit ? 2 : 1});
+    let wp = '';
+    for (let k = 0; k < 40; k++) {
+      const amp = Math.exp(-k / (i < 2 ? 12 : i < 4 ? 6 : 20)) * (k % 2 ? 1 : -1) * Math.min(12, padH * .26);
+      wp += (k ? ' L' : 'M') + (x + 5 + k * (padW - 10) / 40) + ' ' + (y + padH * .58 + amp);
+    }
+    s += `<path d="${wp}" stroke="${hexA(col, .95)}" stroke-width="1.2" fill="none"/>`;
+    s += text(x + 5, y + 12, n, '#FFFFFF', 8.5, {class:'md'});
+    if (i === 3 || i === 4) s += mono(x + padW - 4, y + padH - 4, 'choke 1', hexA('#FFFFFF', .5), 6.5, {'text-anchor':'end'});
+    if (i === 0) s += mono(x + padW - 4, y + padH - 4, 'out 3-4', hexA('#FFFFFF', .5), 6.5, {'text-anchor':'end'});
+    if (lit) s += circ(x + padW - 6, y + 7, 2.6, '#FFFFFF');
+  });
+  // the mode strip: one device, three faces (SP A)
+  ['One shot', 'Zones', 'Pads'].forEach((t, i) => {
+    const x = 6 + i * 58, on = i === 2;
+    s += rect(x, h - 31, 54, 22, on ? hexA(hue, .3) : hexA('#FFFFFF', .07), {rx:11, stroke:on ? hue : hexA('#FFFFFF', .25), 'stroke-width':on ? 1.2 : .8});
+    s += text(x + 27, h - 17, t, on ? '#FFFFFF' : hexA('#FFFFFF', .65), 9, {'text-anchor':'middle', 'font-weight':on ? 560 : 400});
+  });
+  return s;
+}
+// Prism on the generic eight-knob strip (BF C: the strip for the rest)
+function prismFace(w, h, footer) {
+  const hue = '#9AA0AC';
+  let s = '';
+  const ks = [['Gain', '0.0', .5], ['Pan', 'C', .5], ['Width', '130%', .65], ['Bass', '120', .3],
+    ['Mono', 'off', 0], ['Flip L', 'off', 0], ['Flip R', 'off', 0], ['Swap', 'off', 0]];
+  ks.forEach(([n, v, p], i) => {
+    s += knob(34 + (i % 4) * 52, 22 + Math.floor(i / 4) * 58, p, n, v, 12);
+  });
+  s += raised(12, h - 44, w - 24, 20, 5) + text(w / 2, h - 30, 'All 9 parameters', C.text2, 10.5, {'text-anchor':'middle'});
+  return s;
+}
+// a folded card: a 48 pt rail (RAIL_W), its power and its name set on end
+function rail(h, name, sub, hue) {
+  let s = rect(0, 0, RAIL_W, h, C.raised, {rx:12, stroke:C.border_strong, 'stroke-width':1});
+  s += rect(3, 14, 3, h - 28, hue, {rx:1.5, opacity:.9});
+  s += circ(24, 26, 9, hexA(hue, .22), {stroke:hexA(hue, .8), 'stroke-width':1});
+  s += `<path d="M24 21.5 v4.5 M21 23.5 a4.6 4.6 0 1 0 6 0" stroke="${inkOf(hue)}" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
+  s += `<g transform="rotate(-90 22 ${h / 2})">${text(22, h / 2, name, C.text, 13, {class:'u', 'text-anchor':'middle'})}</g>`;
+  s += `<g transform="rotate(-90 35 ${h / 2})">${mono(35, h / 2, sub, C.text2, 8, {'text-anchor':'middle'})}</g>`;
+  return s;
+}
+// a card at its compact height (116): the four first parameters as knobs
+function compactCard(name, sub, hue, ks, footer) {
+  const h = CARD_COMPACT, [gi, gd] = lg([[0, hexA(hue, .22)], [1, hexA(hue, 0)]]);
+  let s = gd + rect(0, 0, CARD_W, h, C.raised, {rx:12, stroke:C.border_strong, 'stroke-width':1});
+  s += `<path d="M0 12 a12 12 0 0 1 12 -12 h${CARD_W - 24} a12 12 0 0 1 12 12 v24 h-${CARD_W} z" fill="url(#${gi})"/>`;
+  s += line(0, 36 - .5, CARD_W, 36 - .5, C.border, 1);
+  s += circ(24, 18, 8, hexA(hue, .22), {stroke:hexA(hue, .8), 'stroke-width':1});
+  s += `<path d="M24 14 v4 M21.4 15.6 a4 4 0 1 0 5.2 0" stroke="${inkOf(hue)}" stroke-width="1.4" fill="none" stroke-linecap="round"/>`;
+  s += text(38, 17, name, C.text, 12.5, {class:'u'});
+  s += text(38, 30, sub, C.text2, 9.5);
+  s += rect(CARD_W - 44, 12, 32, 14, hexA(hue, .18), {rx:7, stroke:hexA(hue, .45), 'stroke-width':.75});
+  s += mono(CARD_W - 28, 22, 'FX', LIGHT ? hue : '#FFFFFF', 7, {'text-anchor':'middle'});
+  ks.forEach(([n, v, p], i) => { s += knob(38 + i * 52, 62, p, n, v, 9); });
+  s += `<path d="M0 ${h - 24} H${CARD_W} V${h - 12} A12 12 0 0 1 ${CARD_W - 12} ${h} H12 A12 12 0 0 1 0 ${h - 12} Z" fill="${C.header}"/>`;
+  s += line(0, h - 24 + .5, CARD_W, h - 24 + .5, C.border, 1);
+  s += mono(12, h - 9, footer, C.hint, 8.5);
+  s += mono(CARD_W - 12, h - 9, 'All 41 ▸', C.text2, 8.5, {'text-anchor':'end'});
+  return s;
+}
+
+// ---------- the page ----------
+const DEV = [
+  {name:'Iris', sub:'Parametric EQ', hue:'#7C8CFF', face:faceIris, all:41, footer:'audio → audio · 0 ms'},
+  {name:'Gravity', sub:'Compressor', hue:'#B46CFF', face:faceGravity, all:12, footer:'audio → audio · keyed'},
+  {name:'Horizon', sub:'Limiter', hue:'#FF8A4C', face:faceHorizon, all:8, footer:'audio → audio · 1.5 ms'},
+  {name:'Shutter', sub:'Sampler · pads', hue:'#5AA9FF', face:faceShutter, all:64, footer:'MIDI → audio · 8 pads'},
+];
+const chosen = `<span class="rec" style="background:${C.accent_muted};color:${C.accent}">Chosen</span>`;
+const sub = s => `<span class="sub">${s}</span>`;
+const frame = (label, svgStr, note = '', cls = '') =>
+  `<div class="v ${cls}"><div class="lab">${label}</div>${svgStr}${note ? `<div class="note" style="color:${C.text2}">${note}</div>` : ''}</div>`;
+
+let H = `<h1>M8 · the chosen variants <span style="font-family:Mono;font-stretch:87.5%;font-size:calc(13px*var(--s));color:${C.text2}">${LIGHT ? 'light' : 'dark'} · ${Math.round(S * 100)}%</span></h1>
+<p class="q" style="color:${C.text2}">Your choices of 2026-11-12, drawn once each: <b>DV A</b> with the arrangement's drum rows, <b>DE A</b> with the velocity inside the hit, <b>SQ A</b>, <b>BF C</b> with a name and a personality per built-in, and the <b>drum icons</b>. Nothing new is offered here; this is the reference the drum editor (D2) and the device faces (B1) are built from. Every drawing is laid out in points and rasterised at ${Math.round(S * 100)}%, so type and strokes are crisp; the same page at <span style="font-family:Mono;font-stretch:87.5%">?scale=1.5</span>, <span style="font-family:Mono;font-stretch:87.5%">?scale=2</span> and <span style="font-family:Mono;font-stretch:87.5%">?light</span>.</p>
+<div class="specs" style="color:${C.text2}">
+<div><b>40</b> · clip header <span style="color:${C.hint}">clip_header.rs HEADER</span></div>
+<div><b>20 / 22</b> · editor ruler / arrangement ruler <span style="color:${C.hint}">note_editor RULER_HEIGHT · app/rulers.rs</span></div>
+<div><b>28</b> · a Lanes row <span style="color:${C.hint}">2 × space::M + space::XS</span></div>
+<div><b>176</b> · the lanes' name column <span style="color:${C.hint}">invented (the piano roll's keys are 56)</span></div>
+<div><b>32 + 96</b> · velocity lane header + plot <span style="color:${C.hint}">lane HEADER · 28% of the editor, 48–150</span></div>
+<div><b>204 / 88 / 154</b> · track header, track rows <span style="color:${C.hint}">HEADER_COLUMN · 4 and 7 × TRACK_STEP</span></div>
+<div><b>232</b> wide, <b>344 / 272 / 116</b> tall <span style="color:${C.hint}">chain/geometry.rs CARD_W · CARD_H, no picture, COMPACT_H</span></div>
+<div><b>48 / 72 / 34 / 158 / 32</b> · rail, band, preset, strip, footer <span style="color:${C.hint}">geometry.rs RAIL_W, BAND, PRESET, BODY, FOOTER</span></div>
+</div>`;
+
+// 1 · the clip editor, Lanes
+H += `<h2>Clip editor · Lanes (DV A) and the hit (DE A) ${chosen}</h2>
+<p class="q" style="color:${C.text2}">DV A: one clip editor whose shared header switches <b>Lanes</b>, <b>Steps</b> and <b>Keys</b> for the same clip, so all three views of a drum clip are one click apart; a clip on a mapped track opens in Lanes. A lane is one sound: its icon, its name, its colour, M and S. DE A draws a hit as a diamond whose outline is the sound's colour and whose fill runs from the foot up to its velocity; the diamond's left tip sits on the onset, as a note's left edge does. The picked hit shows its value while a drag changes it. The velocity lane stays for drawing ramps across many hits.</p>
+<div class="row">${frame(`The lanes of a 2-bar, 7-sound clip ${sub('900 × 384 pt')}`, editorLanes(),
+  'Open hat is muted (the M is lit), the snare lane is picked, two snare hits are picked and the playhead is in bar 1. Per-lane quantize is in the lane menu and the header\'s Quantize acts on the picked lane.')}
+${frame(`One hit at 20, 48, 80, 104 and 127 ${sub('the fill rule')}`, diamondZoom(),
+  'The foot is the rest line: a hit at 0 would be an outline only, one at 127 is full. Dragging a picked hit up or down sets it.')}</div>`;
+
+// 2 · Steps
+H += `<h2>Clip editor · Steps (SQ A) ${chosen}</h2>
+<p class="q" style="color:${C.text2}">SQ A: the same clip as a step grid — one row per visible lane, 16 steps to a page (8 to 64, any resolution of the grid list, triplets included), a page strip when the clip is longer than a page. Velocity is the fill height, an accent is a rim, and the step being played is lit at the foot. A click toggles, a vertical drag sets velocity, Shift-click toggles the accent.</p>
+<div class="row">${frame(`Page 1 of a 2-bar clip ${sub('900 × 312 pt')}`, editorSteps(),
+  'The accent rims are on the kick, the snare and a closed hat, so the rim reads apart from the velocity; the lit column is the playing step.')}</div>`;
+
+// 3 · the arrangement
+H += `<h2>Arrangement · a mapped track's clip (DV A) ${chosen}</h2>
+<p class="q" style="color:${C.text2}">DV A with B's look: on a track with a drum map, a MIDI clip draws one row per sound instead of the mini piano roll, each hit a cell filled to its velocity. It is a picture of the clip — editing stays in Lanes and Steps. Rows are the clip's body divided by the map's sounds, so a short track thins them: 7 sounds leave 9 pt rows at 88 pt and 18 pt at 154 pt.</p>
+<div class="row">${frame(`Two clips at 88 pt, the same track at 154 pt ${sub('900 × 264 pt')}`, arrangement(),
+  'Below about 6 pt a row stops being a picture; a shorter track draws the rows that fit and the map\'s order decides which, with the count of the rest in the clip\'s caption (D2 decides the exact rule).')}</div>`;
+
+// 4 · the device faces
+H += `<h2>Device faces (BF C) · folded, without the picture, and whole ${chosen}</h2>
+<p class="q" style="color:${C.text2}">BF C with a personality each: the name is its own, what it is sits underneath, and a signature hue tints a deep screen that stays the same in both themes, as a clip does. The card's frame, power, preset row, focus ring and every gesture stay Lumen's, and every parameter is still in All parameters (the footer's button). A face takes the parameter strip: 158 pt on a card without its picture, and the picture's 72 pt too on a whole card, so the face has 230 pt for its light. Shutter's pads are the track's map, which here holds the clip's seven sounds and one the clip does not play (a cowbell), the way Lanes can hide an unused sound.</p>
+<div class="row">`;
+DEV.forEach(d => { H += frame(`${d.name} ${sub(`232 × 272 · no picture`)}`, svg(CARD_W, CARD_NORMAL, card(CARD_W, CARD_NORMAL, d, d.face, d.footer)), '', 'card'); });
+H += `</div><div class="row" style="margin-top:calc(22px*var(--s))">`;
+DEV.forEach(d => { H += frame(`${d.name} ${sub(`232 × 344 · whole card (the picture's 72 pt)`)}`, svg(CARD_W, CARD_H, card(CARD_W, CARD_H, d, d.face, d.footer)), '', 'card'); });
+H += `</div><div class="row" style="margin-top:calc(22px*var(--s))">`;
+H += frame(`Folded ${sub('48 × 344 · the rail')}`,
+  svg(DEV.length * RAIL_W + 3 * 12, CARD_H, DEV.map((d, i) =>
+    `<g transform="translate(${i * (RAIL_W + 12)} 0)">${rail(CARD_H, d.name, d.sub, d.hue)}</g>`).join('')),
+  'A folded card keeps its power and its name set on end; the hue tells the devices apart at a glance.', 'rails');
+H += frame(`Compact ${sub('232 × 116 · COMPACT_H')}`,
+  svg(CARD_W, CARD_COMPACT, compactCard('Iris', 'Parametric EQ', '#7C8CFF',
+    [['1 Freq', '40', .15], ['2 Gain', '+5.0', .65], ['3 Gain', '−4.0', .4], ['Output', '0.0', .5]],
+    'audio → audio · 0 ms')),
+  'A card at the least height keeps its header, four knobs and footer (the chain\'s own rule), so a face folds back to its first four parameters.', 'card');
+H += frame(`Prism, the generic strip ${sub('232 × 272')}`,
+  svg(CARD_W, CARD_NORMAL, card(CARD_W, CARD_NORMAL, {name:'Prism', sub:'Utility · gain, width, mono', hue:'#9AA0AC', all:9},
+    (w, h) => prismFace(w, h), 'audio → audio · 0 ms')),
+  'The strip for the rest: the same eight comet knobs as a plugin\'s card, its own name, subtitle and hue above.', 'card');
+H += `</div>`;
+
+// 5 · the icons
+H += `<h2>Drum sound icons (IC) ${chosen}</h2>
+<p class="q" style="color:${C.text2}">One line icon per sound, drawn on a 16 pt grid with 1.6 pt strokes and centred on the text's optical middle, as the track-type icons are. They sit on the drum editor's lanes, in the map editor's icon column and on the tracks D4 makes for a sound. The stroke is the grid's, so it scales with the icon: 16 pt is the weight they were drawn at, 12 pt runs lighter and 28 pt bolder with more detail. 12 pt is the floor — the closed hat and the tom lose their detail there — which is why the lanes and the map editor use 16.</p>
+<div class="row">${frame(`Every icon at 12, 16, 20 and 28 pt ${sub('15 icons × 4 sizes')}`, iconSheet())}</div>`;
+function iconSheet() {
+  const w = 700, row = 34, top = 30, h = top + ICONS.length * row + 4;
+  const cols = [190, 300, 420, 580], sizes = [12, 16, 20, 28];
+  let s = rect(0, 0, w, h, C.canvas, {rx:8});
+  s += mono(12, 19, 'sound', C.hint, 9);
+  sizes.forEach((z, i) => { s += mono(cols[i], 19, `${z} pt`, C.hint, 9); });
+  ICONS.forEach(([ic, name], r) => {
+    const cy = top + r * row + row / 2;
+    if (r % 2) s += rect(0, top + r * row, w, row, hexA(C.text2, .04));
+    s += text(12, cy + 4, name, C.text, 12);
+    sizes.forEach((z, i) => { s += icon(ic, cols[i], cy - z / 2, z, C.text2); });
+  });
+  s += line(0, top, w, top, C.border, 1);
+  return svg(w, h, s);
+}
+document.getElementById('root').innerHTML = H;
+</script></body></html>
+<!-- Not drawn here: the lit kit (the owner punted it to X5 on 2026-11-12; it is
+     redrawn from scratch if it comes back), and every variant the owner did not
+     choose. The card heights are CARD_H (344, with the picture), CARD_H − BAND
+     (272, without it) and COMPACT_H (116); a folded card is RAIL_W (48) wide.
+     The page is drawn at ?scale=1, 1.5 or 2 and re-lays out in points, so no
+     bitmap is scaled up. -->
