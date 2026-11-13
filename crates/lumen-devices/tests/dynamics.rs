@@ -456,27 +456,32 @@ fn the_key_high_pass_takes_the_low_end_out_of_the_key() {
     );
 }
 
-/// Every parameter moving at once (a lane for each) plays the same audio at
-/// every block size.
+/// Every automatable parameter moving at once (a lane for each, from the table
+/// itself, so a parameter added later is covered) plays the same audio at every
+/// block size.
 #[test]
 fn gravity_is_the_same_at_any_block_size() {
     let frames = 4_800;
-    let lane = |scale: f32| {
-        (0..40)
-            .map(|k| {
-                (
-                    (k * 120) as u32,
-                    (0.3 + 0.5 * ((k as f32 * scale).sin() * 0.5 + 0.5)).clamp(0.0, 1.0),
-                )
+    // A lane for every automatable parameter of the table, each moving.
+    let lanes = |scale: f32| -> Vec<(u32, Vec<(u32, f32)>)> {
+        compressor::TABLE
+            .iter()
+            .filter(|p| lumen_devices::automatable(compressor::NAME, p.id))
+            .enumerate()
+            .map(|(i, p)| {
+                let scale = scale + i as f32 * 0.37;
+                let points = (0..40)
+                    .map(|k| {
+                        (
+                            (k * 120) as u32,
+                            (0.3 + 0.5 * ((k as f32 * scale).sin() * 0.5 + 0.5)).clamp(0.0, 1.0),
+                        )
+                    })
+                    .collect();
+                (p.id, points)
             })
-            .collect::<Vec<(u32, f32)>>()
+            .collect()
     };
-    let threshold = lane(0.7);
-    let ratio = lane(1.1);
-    let attack = lane(1.7);
-    let release = lane(0.4);
-    let knee = lane(2.3);
-    let mix = lane(1.3);
     let input = |k: usize| {
         let x = k as f32 * 0.017;
         ((x * 31.0).sin() * 0.4, (x * 17.0).cos() * 0.3)
@@ -484,14 +489,7 @@ fn gravity_is_the_same_at_any_block_size() {
     let render = |block: usize| {
         let (mut left, mut right): (Vec<f32>, Vec<f32>) = (0..frames).map(input).unzip();
         let mut device = Compressor::new();
-        let lanes = [
-            (compressor::THRESHOLD, threshold.clone()),
-            (compressor::RATIO, ratio.clone()),
-            (compressor::ATTACK, attack.clone()),
-            (compressor::RELEASE, release.clone()),
-            (compressor::KNEE, knee.clone()),
-            (compressor::MIX, mix.clone()),
-        ];
+        let moving = lanes(0.7);
         run(
             &mut device,
             &mut left,
@@ -499,7 +497,7 @@ fn gravity_is_the_same_at_any_block_size() {
             compressor::TABLE,
             block,
             &[],
-            &lanes,
+            &moving,
             None,
         );
         left.into_iter().zip(right).collect::<Vec<(f32, f32)>>()
@@ -601,93 +599,183 @@ fn horizon_reports_the_lookahead_it_runs_at() {
     }
 }
 
-/// The ceiling holds: on sines, noise, steps and a burst, at several ceilings
-/// and releases, no sample leaves above it.
+/// The ceiling holds: on sines, noise, steps and a burst, at several ceilings,
+/// releases and lookaheads — including none — no sample leaves above it.
+///
+/// Every signal is silent for the first [`SETTLE`] frames, which is longer than
+/// the 20 ms glide from the table's default ceiling to the value asked for, so
+/// what is measured is the setting, onset and all.
 #[test]
 fn the_limiter_never_lets_a_sample_past_its_ceiling() {
+    const SETTLE: usize = 4_800;
     let frames = 24_000;
     let signals: Vec<(&str, Vec<f32>)> = vec![
         (
             "a full-scale sine",
             (0..frames)
-                .map(|k| (std::f32::consts::TAU * 997.0 * k as f32 / RATE as f32).sin())
+                .map(|k| {
+                    if k < SETTLE {
+                        0.0
+                    } else {
+                        (std::f32::consts::TAU * 997.0 * k as f32 / RATE as f32).sin()
+                    }
+                })
                 .collect(),
         ),
         (
             "a sine at +6 dB",
             (0..frames)
-                .map(|k| 2.0 * (std::f32::consts::TAU * 3_100.0 * k as f32 / RATE as f32).sin())
+                .map(|k| {
+                    if k < SETTLE {
+                        0.0
+                    } else {
+                        2.0 * (std::f32::consts::TAU * 3_100.0 * k as f32 / RATE as f32).sin()
+                    }
+                })
                 .collect(),
         ),
         ("a step", {
-            let mut v = vec![0.1; frames];
+            let mut v = vec![0.0; frames];
             for (k, x) in v.iter_mut().enumerate() {
-                *x = if (4_000..8_000).contains(&k) {
-                    1.5
-                } else {
+                *x = if k < SETTLE {
+                    0.0
+                } else if k < SETTLE + 4_000 {
                     0.1
+                } else {
+                    1.5
                 };
             }
             v
         }),
         ("noise", {
             let mut seed = 0x2545_f491u32;
-            (0..frames)
+            let mut v: Vec<f32> = (0..frames)
                 .map(|_| {
                     seed ^= seed << 13;
                     seed ^= seed >> 17;
                     seed ^= seed << 5;
                     (seed as f32 / u32::MAX as f32 - 0.5) * 4.0
                 })
-                .collect()
+                .collect();
+            v[..SETTLE].fill(0.0);
+            v
         }),
     ];
     for ceiling_db in [-0.3f32, -6.0, -18.0] {
         for release in [10.0f32, 60.0, 400.0] {
-            let ceiling = 10f32.powf(ceiling_db / 20.0);
-            for (name, samples) in &signals {
-                let mut left = samples.clone();
-                let mut right = samples.clone();
-                let mut device = Limiter::new();
-                run(
-                    &mut device,
-                    &mut left,
-                    &mut right,
-                    limiter::TABLE,
-                    256,
-                    &[
-                        (
-                            limiter::CEILING,
-                            at(limiter::TABLE, limiter::CEILING, ceiling_db),
-                        ),
-                        (
-                            limiter::RELEASE,
-                            at(limiter::TABLE, limiter::RELEASE, release),
-                        ),
-                    ],
-                    &[],
-                    None,
-                );
-                // Past the 20 ms glide from the table's default to the value
-                // the project holds (every built-in's values glide), so what is
-                // measured is the setting that was asked for.
-                let settled = &left[4_800..];
-                let loudest = peak(settled).max(peak(&right[4_800..]));
-                assert!(
-                    loudest <= ceiling + 1e-6,
-                    "{name} at {ceiling_db} dB, {release} ms: {loudest} against {ceiling}"
-                );
+            for look_ms in [0.0f32, 1.5, 10.0] {
+                let ceiling = 10f32.powf(ceiling_db / 20.0);
+                for (name, samples) in &signals {
+                    let mut left = samples.clone();
+                    let mut right = samples.clone();
+                    let mut device = Limiter::new();
+                    run(
+                        &mut device,
+                        &mut left,
+                        &mut right,
+                        limiter::TABLE,
+                        256,
+                        &[
+                            (
+                                limiter::CEILING,
+                                at(limiter::TABLE, limiter::CEILING, ceiling_db),
+                            ),
+                            (
+                                limiter::RELEASE,
+                                at(limiter::TABLE, limiter::RELEASE, release),
+                            ),
+                            (limiter::LOOK, at(limiter::TABLE, limiter::LOOK, look_ms)),
+                        ],
+                        &[],
+                        None,
+                    );
+                    // From the onset on: the whole span after the glide.
+                    let settled = &left[SETTLE..];
+                    let loudest = peak(settled).max(peak(&right[SETTLE..]));
+                    assert!(
+                        loudest <= ceiling + 1e-6,
+                        "{name} at {ceiling_db} dB, {release} ms, look {look_ms}: {loudest} \
+                         against {ceiling}"
+                    );
+                }
             }
         }
     }
 }
 
 /// True-peak mode measures the peaks between the samples: what leaves is under
-/// the ceiling by the meter's own true peak (within the fifth of a decibel the
-/// acceptance allows).
+/// The peaks between the samples, found by a long reference interpolation: 64
+/// points between each pair of samples, each a Kaiser-windowed sinc of 27 taps
+/// (the design `lumen_core::loudness` measures true peaks with), so the grid
+/// between samples is 64 times finer than the limiter's own detector and a
+/// tolerance is not spent on that.
+fn reference_true_peak(samples: &[f32]) -> f32 {
+    const PHASES: usize = 64;
+    const TAPS: usize = 25;
+    let length = PHASES * (TAPS - 1) + 1;
+    let centre = (length - 1) as f64 / 2.0;
+    let beta = 12.0;
+    let i0 = |x: f64| {
+        let (mut sum, mut term, mut k) = (1.0, 1.0, 1.0);
+        while term > 1e-12 * sum {
+            term *= (x / (2.0 * k)).powi(2);
+            sum += term;
+            k += 1.0;
+        }
+        sum
+    };
+    // Each phase's taps, newest sample last, normalised to a gain of one.
+    let phase_taps = |p: usize| -> [f64; TAPS] {
+        let mut taps = [0.0f64; TAPS];
+        for (j, tap) in taps.iter_mut().enumerate() {
+            let n = j * PHASES + p;
+            if n >= length {
+                continue;
+            }
+            let x = (n as f64 - centre) / PHASES as f64;
+            let sinc = if x == 0.0 {
+                1.0
+            } else {
+                (std::f64::consts::PI * x).sin() / (std::f64::consts::PI * x)
+            };
+            let r = (n as f64 - centre) / centre;
+            *tap = sinc * i0(beta * (1.0 - r * r).max(0.0).sqrt()) / i0(beta);
+        }
+        let sum: f64 = taps.iter().sum();
+        for tap in &mut taps {
+            *tap /= sum;
+        }
+        taps
+    };
+    let phases: Vec<[f64; TAPS]> = (0..PHASES).map(phase_taps).collect();
+    let mut most = 0.0f32;
+    // The ends are left out: outside them the window reads zeros, and the
+    // interpolation of a signal cut off like that overshoots.
+    for k in TAPS..samples.len().saturating_sub(TAPS) {
+        for phase in &phases {
+            let mut value = 0.0f64;
+            for (j, weight) in phase.iter().enumerate() {
+                // Tap `j` is the oldest of the window, so it reads before `k`.
+                let index = k as isize + j as isize - (TAPS as isize - 1);
+                let x = if index < 0 || index as usize >= samples.len() {
+                    0.0
+                } else {
+                    f64::from(samples[index as usize])
+                };
+                value += x * weight;
+            }
+            most = most.max(value.abs() as f32);
+        }
+    }
+    most
+}
+
+/// True-peak mode measures the peaks between the samples: what leaves is under
+/// the ceiling by a long reference interpolation (a twentieth of a decibel),
+/// with the four-phase meter kept as a second, looser check.
 #[test]
 fn true_peak_mode_keeps_the_points_between_the_samples_under_the_ceiling() {
-    let frames = 24_000;
+    let frames = 6_000;
     // A high tone whose peaks fall between the samples.
     for frequency in [11_000.0f32, 15_000.0, 19_000.0] {
         let tone: Vec<f32> = (0..frames)
@@ -714,21 +802,100 @@ fn true_peak_mode_keeps_the_points_between_the_samples_under_the_ceiling() {
                 &[],
                 None,
             );
-            let mut meter = TruePeak::new();
             // Past the glide from the default ceiling to the one asked for.
-            let between = meter
-                .process(&left[4_800..])
-                .max(meter.process(&right[4_800..]));
-            let over = db_of(between) - ceiling_db;
-            let allowed = if detect >= 0.5 { 0.2 } else { 1.0 };
+            let settled = &left[2_400..];
+            let right_settled = &right[2_400..];
+            let ceiling = 10f32.powf(ceiling_db / 20.0);
+            // The reference: the waveform itself, between the samples.
+            let reference = reference_true_peak(settled).max(reference_true_peak(right_settled));
+            let over = db_of(reference) - ceiling_db;
+            let allowed = if detect >= 0.5 { 0.05 } else { 1.0 };
             assert!(
                 over <= allowed,
-                "{frequency} Hz, detect {detect}: {over} dB over the ceiling"
+                "{frequency} Hz, detect {detect}: {over} dB over the ceiling by the reference \
+                 ({reference} against {ceiling})"
             );
             // And the samples themselves are always under it.
-            assert!(peak(&left[4_800..]) <= 10f32.powf(ceiling_db / 20.0) + 1e-6);
+            assert!(peak(settled) <= ceiling + 1e-6);
+            // The four-phase meter — the one the master's true-peak reading
+            // uses — is the second, coarser check: it reads near the reference
+            // (within half a decibel; it is a little short at the top of the
+            // band and a little over on a hard-limited waveform).
+            let mut meter = TruePeak::new();
+            let read = meter.process(settled).max(meter.process(right_settled));
+            let apart = 20.0 * (read / reference.max(1e-9)).log10();
+            assert!(
+                apart.abs() <= 0.5,
+                "{frequency} Hz: the meter reads {read}, {apart} dB from the reference {reference}"
+            );
         }
     }
+}
+
+/// Lowering the ceiling takes effect at once, even while the window still holds
+/// a peak that was measured against the old one: the window keeps the *level*
+/// and the ceiling is divided in at the front (review L2).
+#[test]
+fn lowering_the_ceiling_holds_the_peak_already_in_the_window() {
+    let frames = 12_000;
+    let look_ms = 10.0f32;
+    // A burst, then a quiet stretch; the ceiling comes down hard while the
+    // burst is still in the lookahead's window.
+    let mut left = vec![0.02f32; frames];
+    left[4_800..5_200].fill(0.9);
+    let mut right = left.clone();
+    let split = 5_100;
+    let mut device = Limiter::new();
+    // The first stretch at a ceiling of -0.3 dB: the burst passes just under it.
+    run(
+        &mut device,
+        &mut left[..split],
+        &mut right[..split],
+        limiter::TABLE,
+        256,
+        &[
+            (limiter::CEILING, at(limiter::TABLE, limiter::CEILING, -0.3)),
+            (limiter::LOOK, at(limiter::TABLE, limiter::LOOK, look_ms)),
+            (
+                limiter::RELEASE,
+                at(limiter::TABLE, limiter::RELEASE, 400.0),
+            ),
+        ],
+        &[],
+        None,
+    );
+    // The ceiling comes down to -20 dB with the burst's last frames still in
+    // the line: nothing of them may come out above the new ceiling, once the
+    // ceiling's own glide is past.
+    let ceiling_db = -20.0f32;
+    let ceiling = 10f32.powf(ceiling_db / 20.0);
+    let mut rest_l = left[split..].to_vec();
+    let mut rest_r = right[split..].to_vec();
+    run(
+        &mut device,
+        &mut rest_l,
+        &mut rest_r,
+        limiter::TABLE,
+        128,
+        &[
+            (
+                limiter::CEILING,
+                at(limiter::TABLE, limiter::CEILING, ceiling_db),
+            ),
+            (limiter::LOOK, at(limiter::TABLE, limiter::LOOK, look_ms)),
+            (
+                limiter::RELEASE,
+                at(limiter::TABLE, limiter::RELEASE, 400.0),
+            ),
+        ],
+        &[],
+        None,
+    );
+    // The ceiling glides over 20 ms (960 frames), which is where the test's
+    // claim begins: after it has arrived, the burst's tail leaves under it.
+    let from = 1_000.min(rest_l.len() - 1);
+    let loudest = peak(&rest_l[from..]).max(peak(&rest_r[from..]));
+    assert!(loudest <= ceiling + 1e-6, "{loudest} against {ceiling}");
 }
 
 /// The meter the card's face reads follows what it took away.
@@ -883,6 +1050,426 @@ fn horizon_never_touches_the_heap() {
     assert_eq!(violations, 0, "the audio thread allocated");
 }
 
+// ------------------------------------------------------- behaviour (review L5)
+
+/// Mix at 0, 50 and 100 %: none of the compressed signal, half of it, all of it.
+#[test]
+fn the_mix_is_plain_compressed_half_and_all() {
+    let frames = 48_000;
+    let amplitude = 1.0f32;
+    let at_mix = |mix: f32| {
+        let (mut left, mut right) = level(frames, amplitude);
+        let mut device = Compressor::new();
+        run(
+            &mut device,
+            &mut left,
+            &mut right,
+            compressor::TABLE,
+            256,
+            &[
+                (
+                    compressor::THRESHOLD,
+                    at(compressor::TABLE, compressor::THRESHOLD, -18.0),
+                ),
+                (
+                    compressor::RATIO,
+                    at(compressor::TABLE, compressor::RATIO, 4.0),
+                ),
+                (compressor::KNEE, 0.0),
+                (compressor::MAKEUP, 0.0),
+                (compressor::MIX, at(compressor::TABLE, compressor::MIX, mix)),
+            ],
+            &[],
+            None,
+        );
+        left[frames - 1]
+    };
+    let dry = at_mix(0.0);
+    let wet = at_mix(100.0);
+    let half = at_mix(50.0);
+    assert!((dry - amplitude).abs() < 1e-3, "dry: {dry}");
+    // −18 dB at 4:1 takes 13.5 dB away at full scale.
+    let want = amplitude * 10f32.powf(-13.5 / 20.0);
+    assert!((wet - want).abs() < 2e-3, "wet: {wet} against {want}");
+    let mid = 0.5 * (dry + wet);
+    assert!((half - mid).abs() < 5e-3, "half: {half} against {mid}");
+}
+
+/// A step reaches 63 % of its way to the gain the computer wants in one attack
+/// time, and back again in one release time: the times in the table mean what
+/// they say.
+#[test]
+fn the_attack_and_release_take_their_time_to_get_there() {
+    // The threshold is −30 dB and the ratio 20:1, so 0.5 (−6 dBFS) wants
+    // (23.98 dB over the threshold) × (1 − 1/20) = 22.78 dB taken away.
+    let set = |attack_ms: f32, release_ms: f32| {
+        [
+            (
+                compressor::THRESHOLD,
+                at(compressor::TABLE, compressor::THRESHOLD, -30.0),
+            ),
+            (
+                compressor::RATIO,
+                at(compressor::TABLE, compressor::RATIO, 20.0),
+            ),
+            (compressor::KNEE, 0.0),
+            (compressor::MAKEUP, 0.0),
+            (
+                compressor::ATTACK,
+                at(compressor::TABLE, compressor::ATTACK, attack_ms),
+            ),
+            (
+                compressor::RELEASE,
+                at(compressor::TABLE, compressor::RELEASE, release_ms),
+            ),
+        ]
+    };
+    let reduction = |input: f32, samples: &mut (Vec<f32>, Vec<f32>)| {
+        let at = samples.0.len() - 1;
+        let gain = samples.0[at] / input;
+        -20.0 * gain.max(1e-9).log10()
+    };
+    // The attack: a step onto the input, measured one attack time later.
+    let attack_ms = 20.0f32;
+    let frames = 960 + 8; // one 20 ms time constant, and a block's worth
+    let mut samples = level(frames, 0.5);
+    let mut device = Compressor::new();
+    run(
+        &mut device,
+        &mut samples.0,
+        &mut samples.1,
+        compressor::TABLE,
+        8,
+        &set(attack_ms, 2_000.0),
+        &[],
+        None,
+    );
+    let early = reduction(0.5, &mut samples);
+    // The settled reduction, far past the attack.
+    let mut settled = level(48_000, 0.5);
+    let mut device = Compressor::new();
+    run(
+        &mut device,
+        &mut settled.0,
+        &mut settled.1,
+        compressor::TABLE,
+        256,
+        &set(attack_ms, 2_000.0),
+        &[],
+        None,
+    );
+    let full = reduction(0.5, &mut settled);
+    let want_full = (20.0 * 0.5f32.log10() + 30.0) * (1.0 - 1.0 / 20.0);
+    assert!(
+        (full - want_full).abs() < 0.2,
+        "the gain computer's answer: {full} against {want_full}"
+    );
+    let want = 0.632 * full;
+    assert!(
+        (early - want).abs() < 0.15 * full,
+        "attack {attack_ms} ms: {early} of {full} (63 % is {want})"
+    );
+
+    // The release: settle, then drop the input well under the threshold and
+    // measure one release time later.
+    let release_ms = 120.0f32;
+    let mut settled = level(48_000, 0.5);
+    let mut device = Compressor::new();
+    run(
+        &mut device,
+        &mut settled.0,
+        &mut settled.1,
+        compressor::TABLE,
+        256,
+        &set(0.05, release_ms),
+        &[],
+        None,
+    );
+    let before = reduction(0.5, &mut settled);
+    let mut quiet = level(5_760 + 8, 0.02);
+    run(
+        &mut device,
+        &mut quiet.0,
+        &mut quiet.1,
+        compressor::TABLE,
+        8,
+        &set(0.05, release_ms),
+        &[],
+        None,
+    );
+    let after = reduction(0.02, &mut quiet);
+    let want = 0.368 * before;
+    assert!(
+        (after - want).abs() < 0.15 * before,
+        "release {release_ms} ms: {after} of {before} (37 % is {want})"
+    );
+}
+
+/// RMS detection reads the mean level, which is 3 dB under a sine's peak, so a
+/// sine of the same amplitude is pulled down 3 dB less than peak detection
+/// pulls it.
+#[test]
+fn rms_detection_reads_the_mean_and_not_the_peak() {
+    let frames = 96_000;
+    let amplitude = 0.5f32; // −6 dBFS peak, −9 dBFS RMS
+    let settle = |detect: f32| {
+        let (mut left, mut right): (Vec<f32>, Vec<f32>) = (0..frames)
+            .map(|k| {
+                let x =
+                    amplitude * (std::f32::consts::TAU * 1_000.0 * k as f32 / RATE as f32).sin();
+                (x, x)
+            })
+            .unzip();
+        let mut device = Compressor::new();
+        run(
+            &mut device,
+            &mut left,
+            &mut right,
+            compressor::TABLE,
+            256,
+            &[
+                (
+                    compressor::THRESHOLD,
+                    at(compressor::TABLE, compressor::THRESHOLD, -20.0),
+                ),
+                (
+                    compressor::RATIO,
+                    at(compressor::TABLE, compressor::RATIO, 4.0),
+                ),
+                (compressor::KNEE, 0.0),
+                (compressor::MAKEUP, 0.0),
+                // A long release, so the gain settles instead of following the
+                // wave.
+                (
+                    compressor::RELEASE,
+                    at(compressor::TABLE, compressor::RELEASE, 2_000.0),
+                ),
+                (compressor::DETECT, detect),
+            ],
+            &[],
+            None,
+        );
+        // The peak of the last 1,000 frames.
+        peak(&left[frames - 1_000..])
+    };
+    let peak_detection = settle(0.0);
+    let rms_detection = settle(1.0);
+    // Peak detection reads the wave's peak, −6 dBFS; RMS reads its mean,
+    // −9 dBFS, three decibels lower, so it takes that much less away.
+    let want = |level_db: f32| {
+        let gain_db = compressor::curve_db(level_db, -20.0, 4.0, 0.0) - level_db;
+        amplitude * 10f32.powf(gain_db / 20.0)
+    };
+    let want_peak = want(20.0 * amplitude.log10());
+    let want_rms = want(20.0 * (amplitude / std::f32::consts::SQRT_2).log10());
+    assert!(
+        (peak_detection - want_peak).abs() < 0.02,
+        "peak detection: {peak_detection} against {want_peak}"
+    );
+    assert!(
+        (rms_detection - want_rms).abs() < 0.02,
+        "RMS detection: {rms_detection} against {want_rms}"
+    );
+    assert!(rms_detection > peak_detection);
+}
+
+/// Offline is real time: the same buffer, processed in one pass and in blocks of
+/// various sizes, is bit for bit the same — which is what makes a bounce and an
+/// export play what was heard.
+#[test]
+fn offline_rendering_is_bit_for_bit_what_playback_plays() {
+    let frames = 4_800;
+    let (mut source_l, mut source_r) = (vec![0.0f32; frames], vec![0.0f32; frames]);
+    for k in 0..frames {
+        let x = k as f32 * 0.019;
+        source_l[k] = (x * 23.0).sin() * 0.7;
+        source_r[k] = (x * 11.0).cos() * 0.6;
+    }
+    for device_kind in ["gravity", "horizon"] {
+        let render = |block: usize| {
+            let (mut left, mut right) = (source_l.clone(), source_r.clone());
+            let (table, set): (&'static [lumen_devices::ParamInfo], Vec<(u32, f32)>) =
+                if device_kind == "gravity" {
+                    (
+                        compressor::TABLE,
+                        vec![
+                            (
+                                compressor::THRESHOLD,
+                                at(compressor::TABLE, compressor::THRESHOLD, -24.0),
+                            ),
+                            (
+                                compressor::RATIO,
+                                at(compressor::TABLE, compressor::RATIO, 6.0),
+                            ),
+                        ],
+                    )
+                } else {
+                    (
+                        limiter::TABLE,
+                        vec![
+                            (limiter::CEILING, at(limiter::TABLE, limiter::CEILING, -6.0)),
+                            (limiter::LOOK, at(limiter::TABLE, limiter::LOOK, 1.5)),
+                        ],
+                    )
+                };
+            let mut device: Box<dyn Effect> = if device_kind == "gravity" {
+                Box::new(Compressor::new())
+            } else {
+                Box::new(Limiter::new())
+            };
+            run(
+                device.as_mut(),
+                &mut left,
+                &mut right,
+                table,
+                block,
+                &set,
+                &[],
+                None,
+            );
+            left.into_iter().zip(right).collect::<Vec<(f32, f32)>>()
+        };
+        let one_pass = render(256);
+        for block in [64usize, 97, 128, 512, 1024] {
+            let in_blocks = render(block);
+            for (frame, (a, b)) in one_pass.iter().zip(&in_blocks).enumerate() {
+                assert!(
+                    a.0.to_bits() == b.0.to_bits() && a.1.to_bits() == b.1.to_bits(),
+                    "{device_kind}, block {block}, frame {frame}: {a:?} against {b:?}"
+                );
+            }
+        }
+    }
+}
+
+/// Horizon's latency is the same number of frames at any rate (the description
+/// has no rate to ask) and the device delays by exactly those frames at 44.1
+/// and 96 kHz too.
+#[test]
+fn the_limiter_delays_by_its_frames_at_any_rate() {
+    for rate in [44_100u32, 48_000, 96_000] {
+        let frames = 1_024;
+        let look = at(limiter::TABLE, limiter::LOOK, 1.5);
+        let latency = limiter::latency(&[(limiter::LOOK, look)]) as usize;
+        assert_eq!(latency, 72, "the description's frames");
+        let mut left = vec![0.0f32; frames];
+        let mut right = vec![0.0f32; frames];
+        left[0] = 0.5;
+        right[0] = 0.5;
+        let mut device = Limiter::new();
+        let events = defaults(limiter::TABLE, 256, &[(limiter::LOOK, look)]).build();
+        let mut done = 0;
+        while done < frames {
+            let n = 256.min(frames - done);
+            let block = Block {
+                rate,
+                start: done as i64,
+                law: PanLaw::Balance,
+                events: &events,
+            };
+            device.process(
+                &block,
+                Stereo {
+                    left: &mut left[done..done + n],
+                    right: &mut right[done..done + n],
+                },
+                None,
+            );
+            done += n;
+        }
+        assert_eq!(device.latency(), latency as u32, "the device at {rate} Hz");
+        let first = left
+            .iter()
+            .position(|x| x.abs() > 1e-6)
+            .expect("the impulse came out");
+        assert_eq!(first, latency, "at {rate} Hz");
+    }
+}
+
+/// A lookahead of none delays by nothing: the frame written now is the frame
+/// played now (review H1: reading the line before writing it played a frame
+/// from a whole line ago, 482 frames late, with the ceiling broken).
+#[test]
+fn no_lookahead_delays_by_nothing_and_still_holds_the_ceiling() {
+    let frames = 1_024;
+    let (mut left, mut right) = level(frames, 0.0);
+    left[0] = 0.5;
+    right[0] = 0.5;
+    let mut device = Limiter::new();
+    run(
+        &mut device,
+        &mut left,
+        &mut right,
+        limiter::TABLE,
+        64,
+        &[
+            (limiter::LOOK, at(limiter::TABLE, limiter::LOOK, 0.0)),
+            (limiter::CEILING, at(limiter::TABLE, limiter::CEILING, -6.0)),
+            (limiter::RELEASE, at(limiter::TABLE, limiter::RELEASE, 10.0)),
+        ],
+        &[],
+        None,
+    );
+    assert_eq!(device.latency(), 0);
+    let first = left
+        .iter()
+        .position(|x| x.abs() > 1e-6)
+        .expect("the impulse came out");
+    assert_eq!(first, 0, "the impulse is at the frame it was played on");
+    // −6 dB of a 0.5 impulse: just under the ceiling.
+    let ceiling = 10f32.powf(-6.0 / 20.0);
+    assert!(left[0] <= ceiling + 1e-6, "{}", left[0]);
+    assert!(left[0] > 0.2, "it is not silent either: {}", left[0]);
+}
+
+/// A lane on the lookahead changes nothing: the device reads the value the
+/// project holds (review M1), so its delay is the routing's number and the
+/// audio is the same at any block size.
+#[test]
+fn a_lane_on_the_lookahead_is_ignored() {
+    let frames = 4_800;
+    // A lane that sweeps the lookahead from nothing to the top.
+    let lane: Vec<(u32, f32)> = (0..40)
+        .map(|k| ((k * 120) as u32, (k as f32 / 40.0).clamp(0.0, 1.0)))
+        .collect();
+    let held = at(limiter::TABLE, limiter::LOOK, 1.5);
+    let input = |k: usize| {
+        let x = k as f32 * 0.021;
+        ((x * 23.0).sin() * 0.9, (x * 13.0).cos() * 0.9)
+    };
+    let render = |block: usize| {
+        let (mut left, mut right): (Vec<f32>, Vec<f32>) = (0..frames).map(input).unzip();
+        let mut device = Limiter::new();
+        run(
+            &mut device,
+            &mut left,
+            &mut right,
+            limiter::TABLE,
+            block,
+            &[(limiter::LOOK, held)],
+            &[(limiter::LOOK, lane.clone())],
+            None,
+        );
+        assert_eq!(
+            device.lookahead(),
+            limiter::latency(&[(limiter::LOOK, held)]) as usize,
+            "the held value, not the lane's"
+        );
+        assert_eq!(device.latency(), 72);
+        left.into_iter().zip(right).collect::<Vec<(f32, f32)>>()
+    };
+    let whole = render(256);
+    for block in [64usize, 128] {
+        let parts = render(block);
+        for (frame, (a, b)) in whole.iter().zip(&parts).enumerate() {
+            assert!(
+                a.0.to_bits() == b.0.to_bits() && a.1.to_bits() == b.1.to_bits(),
+                "block {block} frame {frame}: {a:?} against {b:?}"
+            );
+        }
+    }
+}
+
 // ---------------------------------------------------------------- golden
 
 /// What a golden render is pinned by: twenty samples at fixed frames, the sum
@@ -1015,13 +1602,13 @@ fn a_golden_render_of_horizon_is_pinned_to_its_samples() {
     let (samples, level, energy) = pinned(&left);
     const PINS: [f32; 20] = [
         0.0,
-        0.484_289_85,
-        0.286_868_63,
-        -0.766_592_6,
-        0.631_628_2,
-        -0.071_009_22,
-        -0.507_196,
-        0.702_269_9,
+        0.477_397_05,
+        0.285_880_83,
+        -0.752_835,
+        0.627_081,
+        -0.070_977_48,
+        -0.507_191_2,
+        0.702_264_25,
         -0.366_780_88,
         -0.245_726_72,
         0.672_628,
@@ -1038,8 +1625,8 @@ fn a_golden_render_of_horizon_is_pinned_to_its_samples() {
     for (k, want) in PINS.iter().enumerate() {
         close(f64::from(samples[k]), f64::from(*want));
     }
-    close(level, 1.838_242_918_986_012_2e3);
-    close(energy, 1.068_494_766_356_381_4e3);
+    close(level, 1.833_519_686_036_379_4e3);
+    close(energy, 1.062_318_475_213_476_9e3);
 }
 
 /// The tables, pinned (M8 §6 E2): each parameter's id, the name a person reads

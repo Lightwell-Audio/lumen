@@ -53,6 +53,11 @@ const RMS_SECONDS: f32 = 0.010;
 /// The most make-up gain automatic make-up gives: +24 dB.
 const MOST_MAKEUP_DB: f32 = 24.0;
 
+/// Frames between two readings of the key filter's corner: the mixer's
+/// automation knots, so the reading falls on the same frames at any block
+/// size.
+const KNOT: i64 = 32;
+
 /// What the columns of the table are for, so a reader sees the shape of a row.
 #[allow(clippy::too_many_arguments)]
 const fn param(
@@ -426,6 +431,9 @@ pub struct Compressor {
     mean_square: f32,
     /// The key's high-pass, per side.
     key_filter: [HighPass; 2],
+    /// The key filter's corner (in Hz) and one-pole coefficient, set at the
+    /// last knot.
+    key_tuning: (f32, f32),
     /// The gain-reduction meter the card's face reads.
     meter: Reduction,
 }
@@ -455,6 +463,7 @@ impl Compressor {
             gain_db: 0.0,
             mean_square: 0.0,
             key_filter: [HighPass::default(); 2],
+            key_tuning: (0.0, 0.0),
             meter: Reduction::new(),
         }
     }
@@ -556,10 +565,11 @@ impl Effect for Compressor {
         );
 
         let mean_keep = 1.0 - reach(RMS_SECONDS, rate);
-        // The key filter's corner is read once a block: a filter corner that
-        // moves is a coefficient, and the same reading falls at any block size.
-        let hpf = value(TABLE, KEY_HPF, curves.key_hpf[0]);
-        let key_coef = one_pole(hpf, rate);
+        // The key filter's corner is read at knots of the song's own clock,
+        // every [`KNOT`] frames, as Prism reads its mono fold: a corner that a
+        // lane moves is a coefficient, and the same knots fall at any block
+        // size.
+        let (mut hpf, mut key_coef) = self.key_tuning;
         // What does not move is worked out once: a knob still costs nothing.
         let (mut last_threshold, mut threshold, mut makeup_db, mut last_makeup) =
             (f32::NAN, 0.0f32, 0.0f32, f32::NAN);
@@ -574,6 +584,10 @@ impl Effect for Compressor {
         let mut input_db = FLOOR_DB;
 
         for frame in 0..frames {
+            if (block.start + frame as i64).rem_euclid(KNOT) == 0 {
+                hpf = value(TABLE, KEY_HPF, curves.key_hpf[frame]);
+                key_coef = one_pole(hpf, rate);
+            }
             let threshold_now = value(TABLE, THRESHOLD, curves.threshold[frame]);
             let ratio_now = value(TABLE, RATIO, curves.ratio[frame]);
             if threshold_now != last_threshold || ratio_now != last_ratio {
@@ -603,13 +617,16 @@ impl Effect for Compressor {
             }
 
             // The detector: the key when the track has one, its own input
-            // otherwise, high-passed when a corner is set.
+            // otherwise, high-passed when a corner is set. A key shorter than
+            // the block keys only the frames it has (the engine gives a device
+            // the key's own bus, but a device never trusts a length it is
+            // handed).
             let (sample_l, sample_r) = match key {
-                Some(key) => (
+                Some(key) if frame < key.left.len() && frame < key.right.len() => (
                     self.key_filter[0].run(key.left[frame], key_coef),
                     self.key_filter[1].run(key.right[frame], key_coef),
                 ),
-                None => (left[frame], right[frame]),
+                _ => (left[frame], right[frame]),
             };
             let peak = sample_l.abs().max(sample_r.abs());
             // The mean square of the summed sides, as a stereo meter reads it.
@@ -650,6 +667,7 @@ impl Effect for Compressor {
         }
         self.mean_square = mean_square;
         self.gain_db = gain_db;
+        self.key_tuning = (hpf, key_coef);
         self.meter.record(most_reduction, input_db);
     }
 
@@ -671,6 +689,7 @@ impl Effect for Compressor {
         self.gain_db = 0.0;
         self.mean_square = 0.0;
         self.key_filter = [HighPass::default(); 2];
+        self.key_tuning = (0.0, 0.0);
     }
 
     fn tail(&self) -> u32 {

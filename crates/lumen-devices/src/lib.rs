@@ -45,6 +45,25 @@ pub fn takes_sidechain(name: &str) -> bool {
     SIDECHAINED.contains(&name)
 }
 
+/// The parameters of built-in devices that change the device's *timing* rather
+/// than its sound (M8 slice B2): the limiter's lookahead, which is its latency.
+///
+/// Such a parameter is **not automatable** — a lane would change the delay from
+/// block to block while the routing is compensated with the value the project
+/// holds — and the interface applies a change to it when a drag ends rather than
+/// every frame, so the routing is re-timed once. `lumen-app` reads this through
+/// `builtin::describe` (the flag that hides Automate and Learn) and through
+/// `chain::apply_strip` (the deferred edit).
+pub fn timing_parameter(name: &str, id: u32) -> bool {
+    (name, id) == (dynamics::limiter::NAME, dynamics::limiter::LOOK)
+}
+
+/// Whether `id` of the built-in effect called `name` may be driven by an
+/// automation lane.
+pub fn automatable(name: &str, id: u32) -> bool {
+    !timing_parameter(name, id)
+}
+
 /// The description of the built-in effect called `name`, or `None` when no
 /// device has that name: the one table the card, the lanes and the engine's
 /// values all read, and the one place its latency and tail are worked out.

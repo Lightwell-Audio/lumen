@@ -16,8 +16,8 @@ use crate::effect::{Block, Description, Effect, Key, Stereo, Values};
 use crate::params::{self, Glide, ParamInfo, Taper};
 
 use super::{
-    FLOOR_DB, Reading, Reduction, db_of, frames_of_ms, gain_of, held, level_text, number_in, value,
-    word_of,
+    FLOOR_DB, Reading, Reduction, db_of, frames_of_ms, gain_of, held_at_rest, level_text,
+    number_in, value, word_of,
 };
 
 /// The device's stable name in `PluginRef::Builtin`, as a project saves it.
@@ -327,10 +327,10 @@ pub struct Limiter {
     look_frames: usize,
     /// The signal, delayed by the lookahead, per side.
     line: [Vec<f32>; 2],
-    /// The sliding minimum over the lookahead's window: the frames whose
-    /// requirement is the smallest of those still in it, oldest first (a
+    /// The sliding maximum of the level over the lookahead's window: the frames
+    /// whose level is the loudest of those still in it, oldest first (a
     /// monotonic deque, so a frame costs nothing on average).
-    least: Vec<(u64, f32)>,
+    loudest: Vec<(u64, f32)>,
     front: usize,
     back: usize,
     /// Frames written since the device was made, which names the window.
@@ -363,7 +363,7 @@ impl Limiter {
             curves: Curves::new(),
             look_frames,
             line: [vec![0.0; LINE], vec![0.0; LINE]],
-            least: vec![(0, 1.0); LINE],
+            loudest: vec![(0, 0.0); LINE],
             front: 0,
             back: 0,
             clock: 0,
@@ -427,10 +427,10 @@ impl Effect for Limiter {
         let rate = block.rate;
         let events = block.events;
         // The lookahead is the device's timing, not a shape: read straight
-        // from the values the block carries, so it is exactly the number the
-        // routing compensates. It is read before the curves are borrowed: a
-        // changed lookahead starts the window's sum again.
-        if let Some(x) = held(events, LOOK) {
+        // from the value the project holds (a lane does not drive a timing, so
+        // a lane on it is ignored) and before the curves are borrowed, because
+        // a changed lookahead starts the window again.
+        if let Some(x) = held_at_rest(events, LOOK) {
             self.set_lookahead(frames_of_ms(value(TABLE, LOOK, x)) as usize);
         }
         let window = self.window();
@@ -475,42 +475,47 @@ impl Effect for Limiter {
             let between = self.peaks[0].peak(l).max(self.peaks[1].peak(r));
             let level = sample + (between - sample) * detect;
             input_db = input_db.max(db_of(level));
-            // What the gain has to be for this frame to leave under the
-            // ceiling.
-            let wanted = if level > ceiling && level > 0.0 {
-                ceiling / level
-            } else {
-                1.0
-            };
-            // Into the delay line: the frame written now is played `look`
-            // frames later, so it leaves at `read`.
+            // Into the delay line, **written before it is read**: with no
+            // lookahead the frame written now is the frame played now, so the
+            // device is not a line behind and the ceiling holds at 0.
             at = if at + 1 == LINE { 0 } else { at + 1 };
+            self.line[0][at] = l;
+            self.line[1][at] = r;
             let read = (at + LINE - self.look_frames) % LINE;
             let delayed_l = self.line[0][read];
             let delayed_r = self.line[1][read];
-            self.line[0][at] = l;
-            self.line[1][at] = r;
-            // The sliding minimum over the window: this frame's need is kept
-            // while it is the smallest of those still in it, and every need
-            // larger than it goes, so the front is always the window's least.
+            // The sliding maximum of the *level* over the window, which the
+            // ceiling does not enter: the gain is the ceiling the project holds
+            // now divided by the loudest level the window holds, so lowering
+            // the ceiling takes effect at once even while a peak is still in
+            // the window. This frame's level is kept while it is the loudest of
+            // those still in it, and every quieter one goes.
             clock += 1;
-            while back != front && self.least[(back + LINE - 1) % LINE].1 >= wanted {
+            while back != front && self.loudest[(back + LINE - 1) % LINE].1 <= level {
                 back -= 1;
             }
-            self.least[back % LINE] = (clock, wanted);
+            self.loudest[back % LINE] = (clock, level);
             back += 1;
             // A frame that has left the window is forgotten.
-            while front != back && self.least[front % LINE].0 + window <= clock {
+            while front != back && self.loudest[front % LINE].0 + window <= clock {
                 front += 1;
             }
-            let least = self.least[front % LINE].1;
-            // Down at once — the lookahead has already held this back — and up
-            // over the release. The gain never rises above the window's least,
-            // so the sample played now leaves under the ceiling.
-            gain = if least <= gain {
-                least
+            let loudest = self.loudest[front % LINE].1;
+            // What the gain has to be for this frame to leave under the
+            // ceiling. The window holds the played frame's own level, so this
+            // can never be too high.
+            let target = if loudest > ceiling && loudest > 0.0 {
+                ceiling / loudest
             } else {
-                gain + (least - gain) * release
+                1.0
+            };
+            // Down at once — the lookahead has already held this back — and up
+            // over the release. The gain never rises above the target, so the
+            // sample played now leaves under the ceiling.
+            gain = if target <= gain {
+                target
+            } else {
+                gain + (target - gain) * release
             };
             most_reduction = most_reduction.max(-db_of(gain.max(1e-6)));
             left[frame] = delayed_l * gain;
@@ -582,6 +587,24 @@ mod tests {
         // And it never misses a sample's own peak.
         let mut peak = TruePeak::new();
         assert!(peak.peak(0.9) >= 0.9);
+        // An amplitude other than one is found too.
+        for frequency in [500.0f32, 11_000.0, 17_000.0] {
+            let mut peak = TruePeak::new();
+            let mut most = 0.0f32;
+            for k in 0..4_800 {
+                let t = k as f32 / REFERENCE_RATE as f32;
+                let x = 1.5 * (std::f32::consts::TAU * frequency * t).sin();
+                let found = peak.peak(x);
+                if k > 1_000 {
+                    most = most.max(found);
+                }
+            }
+            let error_db = 20.0 * (most / 1.5).log10();
+            assert!(
+                error_db.abs() < 0.06,
+                "{frequency} Hz at 1.5: {error_db} dB ({most})"
+            );
+        }
     }
 
     #[test]

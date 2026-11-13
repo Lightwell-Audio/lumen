@@ -97,23 +97,22 @@ pub(super) fn value(table: &[ParamInfo], id: u32, x: f32) -> f32 {
         .map_or(0.0, |p| p.value(x))
 }
 
-/// The value the project holds for parameter `id` in this block, unglided:
-/// the last point of the last queue that names it, or `None` when the block
-/// does not name it. A parameter that is a device's timing (the limiter's
-/// lookahead) is read this way, so the frames it delays by are exactly the
-/// frames the routing was told about, without a glide through another number.
-pub(super) fn held(events: &ParamBlock, id: u32) -> Option<f32> {
-    let mut found = None;
-    for i in (0..events.len()).rev() {
+/// The value the project holds for parameter `id` in this block, unglided and
+/// **without a lane**: the first point of the first queue that names it (the
+/// engine emits every value the project holds first, then a lane's points on
+/// top of it).
+///
+/// A parameter that is a device's *timing* is read this way, so a lane cannot
+/// move it: the routing is compensated with the number the project holds, and
+/// a line would change the delay from block to block.
+pub(super) fn held_at_rest(events: &ParamBlock, id: u32) -> Option<f32> {
+    for i in 0..events.len() {
         let (named, points) = events.queue(i);
-        if named == id
-            && let Some(&(_, value)) = points.last()
-        {
-            found = Some(value as f32);
-            break;
+        if named == id {
+            return points.first().map(|&(_, value)| value as f32);
         }
     }
-    found
+    None
 }
 
 /// What a device's gain-reduction meter reads: the most reduction since the

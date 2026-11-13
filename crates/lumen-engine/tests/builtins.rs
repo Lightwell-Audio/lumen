@@ -867,6 +867,101 @@ fn a_limiter_s_lookahead_keeps_a_parallel_path_in_line() {
     assert!((value - 0.5).abs() < 1e-6, "both paths: {value}");
 }
 
+/// L1: a built-in that was not asked for blocks because its power was off
+/// starts from nothing when it is asked again, as a locate makes it — so a
+/// limiter bypassed during a burst does not play what its line still held.
+#[test]
+fn a_bypassed_limiter_does_not_play_what_it_held() {
+    use lumen_devices::dynamics::limiter as horizon;
+    const AT: usize = 480;
+    const OFF: usize = 2_400;
+    const ON: usize = 8_000;
+    /// Where the burst stops: after the bypass has faded the device out, so
+    /// what the line held when it stopped being asked is still loud.
+    const BURST_END: usize = 6_000;
+    let values = vec![
+        (
+            horizon::CEILING,
+            lumen_devices::params::find(horizon::TABLE, horizon::CEILING)
+                .expect("a parameter")
+                .normalised(-6.0),
+        ),
+        (
+            horizon::LOOK,
+            lumen_devices::params::find(horizon::TABLE, horizon::LOOK)
+                .expect("a parameter")
+                .normalised(1.5),
+        ),
+    ];
+    // A burst (a full-scale square) that stops well before the device is turned
+    // on again, so nothing of it should be heard after that.
+    let mut burst = vec![0.0f32; 48_000];
+    burst[AT..BURST_END].fill(1.5);
+    let clip = Clip {
+        envelope: Default::default(),
+        id: 1,
+        track: TRACK,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: burst.len() as i64,
+        gain: 1.0,
+        audio: Arc::new(ClipAudio::Memory {
+            sample_rate: RATE,
+            channels: vec![burst.clone(), burst],
+        }),
+        shape: Default::default(),
+    };
+    let routing = |bypass: bool| {
+        let mut track = NodeSpec::unity(TRACK, Destination::Node(MASTER));
+        track.devices = vec![Device::Builtin {
+            device: DEVICE,
+            latency: 72,
+            bypass,
+        }];
+        track.values = vec![(DEVICE, values.clone())];
+        Routing {
+            nodes: vec![NodeSpec::unity(MASTER, Destination::Hardware(0)), track],
+            cue: None,
+            measure: None,
+        }
+    };
+    let (mut clips, player) = clip_player();
+    clips.set(vec![clip]).unwrap();
+    let (mut handle, source) = mixer(player);
+    assert!(handle.set(&routing(false)).unwrap());
+    handle
+        .attach_builtin(DEVICE, Slot::new(Box::new(Limiter::new())))
+        .unwrap_or_else(|_| panic!("room in the pool"));
+    let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
+    transport.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    let mut left = Vec::new();
+    for block in 0..(ON + 2_000) / 128 {
+        if block == OFF / 128 {
+            // Power off: the device fades out and is then not asked at all.
+            assert!(handle.set(&routing(true)).unwrap());
+        }
+        if block == ON / 128 {
+            assert!(handle.set(&routing(false)).unwrap());
+        }
+        engine.process(RATE, &mut data, 2, 128);
+        left.extend_from_slice(&data[..128]);
+    }
+    // Nothing of the burst is heard once the power is back on: what the line
+    // held was let go of. The 20 ms glide from the dry signal starts at silence
+    // here, so any stale sound would show at once.
+    let after = (ON..ON + 1_000).fold(0.0f32, |m, k| m.max(left[k].abs()));
+    assert!(
+        after < 1e-4,
+        "the bypassed limiter played what it held: {after}"
+    );
+    // And it ran before all that: the burst was heard while the power was on.
+    assert!(
+        left[AT..OFF].iter().any(|x| x.abs() > 0.01),
+        "the limiter ran before it was bypassed"
+    );
+}
+
 /// L2: the golden render of an automated Prism, pinned by its samples (twenty
 /// of them, its level and its energy). A golden is frozen: one that differs from
 /// its pin was changed on purpose, and the pin moves in the same commit.
