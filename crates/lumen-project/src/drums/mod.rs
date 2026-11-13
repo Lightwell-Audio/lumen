@@ -1,4 +1,4 @@
-//! Drum maps as the song plays them (M8 slice D0, ADR-XXXX).
+//! Drum maps as the song plays them (M8 slice D0, ADR-0142).
 //!
 //! A clip stores the map's **input** notes; what is heard is worked out here:
 //! [`played`] gives the note, channel and length a sound answers with, or
