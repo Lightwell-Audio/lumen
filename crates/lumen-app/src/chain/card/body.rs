@@ -2,17 +2,18 @@
 
 use super::*;
 
-/// The strip's knobs, or the message of a card that is not running; returns
-/// the button pressed, if any, and what the knobs asked for.
+/// The strip's knobs, or a built-in's drawn face, or the message of a card that
+/// is not running; returns the button pressed, if any, what its knobs and face
+/// asked for, and the band a face picked.
 pub(super) fn paint_strip(
     ui: &mut Ui,
     area: Rect,
     id: egui::Id,
     look: &Look<'_>,
     key_room: f32,
-) -> (Option<Action>, Vec<strip::Output>) {
+) -> (Option<Action>, Vec<strip::Output>, Option<usize>) {
     let palette = *theme::p();
-    let no_strip = |action| (action, Vec::new());
+    let no_strip = |action| (action, Vec::new(), None);
     match look.face {
         Face::Loading => {
             // Waiting: the empty troughs the knobs will stand in.
@@ -59,7 +60,36 @@ pub(super) fn paint_strip(
             } else {
                 Vec::new()
             };
-            (None, outputs)
+            (None, outputs, None)
+        }
+        Face::Ready if look.drawn.is_some() => {
+            // A built-in with a drawn face: the picture is the control, in the
+            // room the knobs would take, and the buttons under it are the
+            // strip's own (M8 slice B1, the owner's BF C).
+            let mut outputs = Vec::new();
+            let face = Rect::from_min_max(
+                area.min,
+                pos2(
+                    area.right(),
+                    area.bottom() - strip::BUTTONS - strip::GAP - key_room,
+                ),
+            );
+            let drawn = look.drawn.expect("the branch says it is there");
+            let answer = faces::eq::paint(ui, face, id, drawn, look.picked);
+            let picked = answer.picked;
+            outputs.extend(answer.out);
+            if answer.watching {
+                ui.ctx().request_repaint_after(crate::motion::METER_FRAME);
+            }
+            let row =
+                Rect::from_min_max(pos2(area.left(), area.bottom() - strip::BUTTONS), area.max);
+            let buttons = strip::Buttons {
+                editor: look.editor,
+                learning: look.learning,
+                parameters: look.parameters,
+            };
+            outputs.extend(strip::buttons(ui, row, id, buttons));
+            (None, outputs, picked)
         }
         Face::Ready => (
             None,
@@ -76,6 +106,7 @@ pub(super) fn paint_strip(
                 },
                 key_room,
             ),
+            None,
         ),
         Face::Failed(ref failure) => {
             let (title, words, buttons): (_, String, Vec<(&str, Action)>) = if failure.keeps {

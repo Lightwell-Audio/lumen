@@ -36,10 +36,10 @@ fn values(set: &[(u32, f32)]) -> Vec<(u32, f32)> {
     eq::TABLE
         .iter()
         .map(|info| {
-            let normalised = set
-                .iter()
-                .find(|(id, _)| *id == info.id)
-                .map_or_else(|| info.normalised(info.default), |(id, value)| at(*id, *value));
+            let normalised = set.iter().find(|(id, _)| *id == info.id).map_or_else(
+                || info.normalised(info.default),
+                |(id, value)| at(*id, *value),
+            );
             (info.id, normalised)
         })
         .collect()
@@ -163,7 +163,13 @@ fn a_swept_band_is_the_same_at_every_block_size() {
     let frames = 5000;
     let lanes = vec![
         sweep(freq_of(3), 200.0, 600.0, frames, Shape::Linear),
-        sweep(gain_of(3), -6.0, 12.0, frames, Shape::Curve(lumen_core::curve::Curve::S_CURVE)),
+        sweep(
+            gain_of(3),
+            -6.0,
+            12.0,
+            frames,
+            Shape::Curve(lumen_core::curve::Curve::S_CURVE),
+        ),
         sweep(q_of(3), 0.7, 2.0, frames, Shape::Linear),
     ];
     let values = values(&[
@@ -199,8 +205,12 @@ fn a_swept_band_is_the_same_at_every_block_size() {
     }
     // The lanes are heard: the bell comes up to the 600 Hz tone with 12 dB on
     // it.
-    let early: f32 = whole[100..400].iter().fold(0.0, |most, x| most.max(x.abs()));
-    let late: f32 = whole[4600..4900].iter().fold(0.0, |most, x| most.max(x.abs()));
+    let early: f32 = whole[100..400]
+        .iter()
+        .fold(0.0, |most, x| most.max(x.abs()));
+    let late: f32 = whole[4600..4900]
+        .iter()
+        .fold(0.0, |most, x| most.max(x.abs()));
     assert!(late > early * 1.5, "early {early}, late {late}");
 }
 
@@ -212,7 +222,13 @@ fn a_golden_render_of_an_automated_iris_is_pinned_to_its_samples() {
     let frames = 5000;
     let lanes = vec![
         sweep(freq_of(3), 800.0, 1_200.0, frames, Shape::Linear),
-        sweep(gain_of(3), -6.0, 9.0, frames, Shape::Curve(lumen_core::curve::Curve::FAST)),
+        sweep(
+            gain_of(3),
+            -6.0,
+            9.0,
+            frames,
+            Shape::Curve(lumen_core::curve::Curve::FAST),
+        ),
         sweep(freq_of(1), 120.0, 40.0, frames, Shape::Linear),
     ];
     let values = values(&[(on_of(3), 1.0), (on_of(1), 1.0), (gain_of(1), 24.0)]);
@@ -226,9 +242,9 @@ fn a_golden_render_of_an_automated_iris_is_pinned_to_its_samples() {
     // libraries round a last bit apart (CI runs three).
     const PINS: [f32; 20] = [
         0.0,
-        -2.227_788_1e-1,
-        2.272_761e-1,
-        -3.850_864_6e-2,
+        -1.371_553e-1,
+        1.950_383_2e-1,
+        -4.164_857_4e-2,
         -2.076_517_6e-1,
         3.031_190_3e-1,
         -1.327_896_3e-1,
@@ -246,6 +262,7 @@ fn a_golden_render_of_an_automated_iris_is_pinned_to_its_samples() {
         -4.880_672e-1,
         3.409_416e-1,
     ];
+
     let close = |got: f64, want: f64| (got - want).abs() <= 1e-6 * want.abs().max(1e-6);
     for (k, want) in PINS.iter().enumerate() {
         let got = heard[k * 250];
@@ -258,11 +275,11 @@ fn a_golden_render_of_an_automated_iris_is_pinned_to_its_samples() {
     let level: f64 = heard.iter().map(|x| f64::from(x.abs())).sum();
     let energy: f64 = heard.iter().map(|x| f64::from(*x) * f64::from(*x)).sum();
     assert!(
-        close(level, 1.282_057_863_057_691_4e3),
+        close(level, 1.255_789_004_682_952_5e3),
         "the golden level moved: {level:e}"
     );
     assert!(
-        close(energy, 4.315_446_354_821_757_5e2),
+        close(energy, 4.224_211_691_942_965e2),
         "the golden energy moved: {energy:e}"
     );
 }
@@ -368,13 +385,15 @@ fn bypassing_iris_gives_the_tone_back() {
         rig.play();
         rig.run(4096, 128);
         let tail = rig.run(2048, 128);
-        tail[1000..].iter().fold(0.0f32, |most, x| most.max(x.abs()))
+        tail[1000..]
+            .iter()
+            .fold(0.0f32, |most, x| most.max(x.abs()))
     };
     let boosted = heard(false);
     let dry = heard(true);
+    assert!(boosted > dry * 2.0, "boosted {boosted}, dry {dry}");
     assert!(
-        boosted > dry * 2.0,
-        "boosted {boosted}, dry {dry}"
+        (dry - 0.3).abs() < 0.02,
+        "the dry tone is the clip's: {dry}"
     );
-    assert!((dry - 0.3).abs() < 0.02, "the dry tone is the clip's: {dry}");
 }

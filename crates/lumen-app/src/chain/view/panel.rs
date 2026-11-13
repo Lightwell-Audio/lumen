@@ -19,6 +19,8 @@ struct Events {
     rescan: bool,
     load_one: Option<Id>,
     strip: Vec<(Id, strip::Output)>,
+    /// A face picked a band (M8 slice B1).
+    picked: Option<(Id, usize)>,
 }
 
 /// What a drag over the tray carries.
@@ -55,6 +57,9 @@ impl App {
             let playing = self.transport.state().playing;
             self.read_sidechain(ui.ctx(), track_id, playing);
         }
+        // The analysers of the faces this frame draws are read before the
+        // cards are built; every other one is silenced (M8 slice B1).
+        self.pump_spectra(track_id, rate);
         let project = self.document.project();
         let Some(track) = all_tracks(project).find(|t| t.id == track_id) else {
             return;
@@ -142,6 +147,8 @@ impl App {
                 picture: pictures[i].as_ref(),
                 slots: &row.slots,
                 parameters: row.parameters,
+                drawn: row.drawn.as_ref(),
+                picked: row.picked,
                 editor: &row.editor,
                 learning: row.learning,
                 field: row.field.as_ref().map(|f| Field {
@@ -170,7 +177,14 @@ impl App {
                 } else {
                     0.0
                 };
-                look.band = geometry::band(layout.card_h - room);
+                // A built-in whose face is drawn *is* its picture: the face
+                // takes the room the band would have taken, as the specimens
+                // draw it, and the card has no separate band (M8 slice B1).
+                look.band = if row.drawn.is_some() {
+                    0.0
+                } else {
+                    geometry::band(layout.card_h - room)
+                };
             }
         }
         let playing = self.transport.state().playing;
@@ -246,6 +260,7 @@ impl App {
                     // The row lands on the track whose chain this is.
                     self.arrangement.selected = vec![track_id];
                     self.menu_command(ui, Command::AddUtility, "Add Prism (utility)");
+                    self.menu_command(ui, Command::AddEq, "Add Iris (EQ)");
                 });
                 if rows.is_empty() {
                     // The shared empty state (the interface audit's D1, the
@@ -332,6 +347,9 @@ impl App {
                     }
                     for output in out.strip {
                         events.strip.push((row.id, output));
+                    }
+                    if let Some(band) = out.picked {
+                        events.picked = Some((row.id, band));
                     }
                     match out.action {
                         Some(Action::Reload) => events.reload = Some(row.id),
@@ -431,6 +449,9 @@ impl App {
         for (device, output) in events.strip {
             self.chain.selected = Some(device);
             self.apply_strip(device, output);
+        }
+        if let Some((device, band)) = events.picked {
+            self.chain.bands.insert(device, band);
         }
         if self.chain.text_pending.replace(false) {
             ui.ctx().request_repaint_after(crate::motion::TEXT_FRAME);

@@ -136,6 +136,10 @@ impl Arrangement {
             self.selected = targets.clone();
             self.track_command = Some(Command::AddUtility);
         }
+        if item(ui, "Add Iris (EQ)", Command::AddEq) {
+            self.selected = targets.clone();
+            self.track_command = Some(Command::AddEq);
+        }
         ui.separator();
 
         // What is made from it.

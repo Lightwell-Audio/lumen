@@ -2,7 +2,7 @@
 //! running, and where Reload would start it and how long ago that was.
 
 use super::*;
-use crate::chain::{outputs, presets, sidechain};
+use crate::chain::{faces, outputs, presets, sidechain};
 
 /// A device's row in the chain, with what the card needs (no state blobs).
 pub(super) struct Row {
@@ -33,6 +33,10 @@ pub(super) struct Row {
     pub(super) sidechain: Option<sidechain::Look>,
     /// The outputs row of a plugin instrument with several outputs.
     pub(super) outputs: Option<outputs::Look>,
+    /// The drawn face of a built-in that has one (M8 slice B1).
+    pub(super) drawn: Option<faces::eq::Look>,
+    /// The band its face has picked, 0-based.
+    pub(super) picked: usize,
 }
 
 pub(super) enum OwnedFace {
@@ -74,9 +78,111 @@ impl App {
                 let mut row = self.row_of(d, rate);
                 row.sidechain = self.sidechain_look(track.id, d, playing);
                 row.outputs = self.outputs_look(d);
+                row.drawn = self.drawn_face(d, rate);
+                row.picked = self.chain.bands.get(&d.id).copied().unwrap_or(0);
                 row
             })
             .collect()
+    }
+
+    /// The drawn face of `d`, when it is a built-in that has one, with the
+    /// values the project holds and the analyser's last picture (M8 slice B1).
+    fn drawn_face(&self, d: &Device, rate: u32) -> Option<faces::eq::Look> {
+        if crate::builtin::name_of(d) != lumen_devices::eq::NAME {
+            return None;
+        }
+        let table = lumen_devices::eq::TABLE;
+        let value = |id: u32| lumen_devices::params::value_of_param(table, id, &d.params);
+        let bands: [faces::eq::Band; lumen_devices::eq::BANDS] = std::array::from_fn(|index| {
+            let number = index + 1;
+            let kind = if number == 1 {
+                lumen_devices::eq::Kind::LowCut
+            } else if number == lumen_devices::eq::BANDS {
+                lumen_devices::eq::Kind::HighCut
+            } else {
+                lumen_devices::eq::Kind::of_choice(
+                    value(lumen_devices::eq::type_of(number)).max(0.0) as usize,
+                )
+            };
+            faces::eq::Band {
+                number,
+                kind,
+                on: value(lumen_devices::eq::on_of(number)) >= 0.5,
+                freq: value(lumen_devices::eq::freq_of(number)),
+                gain: if kind.has_gain() {
+                    value(lumen_devices::eq::gain_of(number))
+                } else {
+                    0.0
+                },
+                q: if kind.has_q() {
+                    value(lumen_devices::eq::q_of(number))
+                } else {
+                    1.0
+                },
+                slope: if kind.has_slope() {
+                    value(lumen_devices::eq::gain_of(number))
+                } else {
+                    12.0
+                },
+            }
+        });
+        let values = crate::builtin::values(d);
+        let mut response = vec![0.0; faces::eq::POINTS];
+        lumen_devices::eq::response(
+            &values,
+            rate.max(1),
+            &mut response,
+            (faces::eq::LOW, faces::eq::HIGH),
+        );
+        Some(faces::eq::Look {
+            bands,
+            response,
+            spectrum: self
+                .chain
+                .pretend_spectrum
+                .as_ref()
+                .filter(|(id, _)| *id == d.id)
+                .map(|(_, db)| db.clone())
+                .or_else(|| self.chain.analyzers.get(&d.id).cloned()),
+            listening: self.chain.analyzers.contains_key(&d.id),
+        })
+    }
+
+    /// Reads the analyser of every built-in whose face is drawn this frame,
+    /// and silences every other (M8 slice B1): the mist runs only while its
+    /// card is whole and on the shown track.
+    pub(super) fn pump_spectra(&mut self, track: Id, rate: u32) {
+        let mut live: std::collections::BTreeSet<Id> = std::collections::BTreeSet::new();
+        if !self.chain.compact
+            && let Some(showing) = all_tracks(self.document.project()).find(|t| t.id == track)
+        {
+            for device in &showing.devices {
+                if crate::builtin::name_of(device) == lumen_devices::eq::NAME
+                    && !self.chain.folded.contains(&device.id)
+                {
+                    live.insert(device.id);
+                }
+            }
+        }
+        let App { builtin, chain, .. } = self;
+        for id in builtin.spectrum_ids() {
+            let on = live.contains(&id);
+            let Some(reader) = builtin.spectrum(id) else {
+                continue;
+            };
+            reader.set_on(on);
+            if !on {
+                chain.analyzers.remove(&id);
+                continue;
+            }
+            let picture = chain
+                .analyzers
+                .entry(id)
+                .or_insert_with(|| vec![lumen_devices::analyzer::MIN_DB; faces::eq::POINTS]);
+            if reader.read() {
+                reader.points(rate.max(1), (faces::eq::LOW, faces::eq::HIGH), picture);
+            }
+        }
     }
 
     fn row_of(&self, d: &Device, rate: u32) -> Row {
@@ -166,6 +272,8 @@ impl App {
             latency_ms,
             sidechain: None,
             outputs: None,
+            drawn: None,
+            picked: 0,
         }
     }
 }

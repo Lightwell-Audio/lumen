@@ -306,7 +306,7 @@ pub static TABLE: &[ParamInfo] = &[
         0.0,
         1.0,
         Taper::Linear,
-        0.0,
+        1.0,
         1,
         &ON_WORDS,
         on_text,
@@ -371,7 +371,7 @@ pub static TABLE: &[ParamInfo] = &[
         0.0,
         1.0,
         Taper::Linear,
-        0.0,
+        1.0,
         1,
         &ON_WORDS,
         on_text,
@@ -436,7 +436,7 @@ pub static TABLE: &[ParamInfo] = &[
         0.0,
         1.0,
         Taper::Linear,
-        0.0,
+        1.0,
         1,
         &ON_WORDS,
         on_text,
@@ -501,7 +501,7 @@ pub static TABLE: &[ParamInfo] = &[
         0.0,
         1.0,
         Taper::Linear,
-        0.0,
+        1.0,
         1,
         &ON_WORDS,
         on_text,
@@ -566,7 +566,7 @@ pub static TABLE: &[ParamInfo] = &[
         0.0,
         1.0,
         Taper::Linear,
-        0.0,
+        1.0,
         1,
         &ON_WORDS,
         on_text,
@@ -647,7 +647,7 @@ pub fn tail(_values: Values<'_>) -> u32 {
 }
 
 /// "40 Hz", "1.20 kHz", "20.0 kHz".
-fn hz_text(hz: f32) -> String {
+pub fn hz_text(hz: f32) -> String {
     if hz < 999.5 {
         if hz < 99.95 {
             format!("{hz:.1} Hz")
@@ -662,7 +662,7 @@ fn hz_text(hz: f32) -> String {
 }
 
 /// "40", "40 Hz", "1.2 kHz", "1200": a frequency in hertz.
-fn hz_parse(text: &str) -> Option<f32> {
+pub fn hz_parse(text: &str) -> Option<f32> {
     let t = text.trim().replace('\u{2212}', "-").to_lowercase();
     let (body, scale) = if let Some(rest) = t.strip_suffix("khz") {
         (rest.trim(), 1000.0)
@@ -682,7 +682,7 @@ fn hz_parse(text: &str) -> Option<f32> {
 }
 
 /// "0.0 dB", "−6.0 dB".
-fn db_text(db: f32) -> String {
+pub fn db_text(db: f32) -> String {
     if db.abs() < 0.05 {
         "0.0 dB".to_owned()
     } else {
@@ -704,7 +704,7 @@ fn db_parse(text: &str) -> Option<f32> {
 }
 
 /// "1.00", "0.71", "12.0".
-fn q_text(q: f32) -> String {
+pub fn q_text(q: f32) -> String {
     if q < 9.995 {
         format!("{q:.2}")
     } else {
@@ -720,14 +720,12 @@ fn q_parse(text: &str) -> Option<f32> {
         .or_else(|| t.strip_prefix('q'))
         .unwrap_or(t)
         .trim();
-    t.parse::<f32>()
-        .ok()
-        .filter(|q| q.is_finite() && *q > 0.0)
+    t.parse::<f32>().ok().filter(|q| q.is_finite() && *q > 0.0)
 }
 
 /// "24/oct": short enough for a strip's value line; All parameters shows the
 /// choice's own words.
-fn slope_text(slope: f32) -> String {
+pub fn slope_text(slope: f32) -> String {
     format!("{slope:.0}/oct")
 }
 
@@ -740,9 +738,7 @@ fn slope_parse(text: &str) -> Option<f32> {
         .or_else(|| t.strip_suffix("db"))
         .unwrap_or(&t)
         .trim();
-    t.parse::<f32>()
-        .ok()
-        .filter(|s| s.is_finite() && *s > 0.0)
+    t.parse::<f32>().ok().filter(|s| s.is_finite() && *s > 0.0)
 }
 
 /// The band type's word.
@@ -893,7 +889,10 @@ impl Eq {
             curves: Box::new(Curves::new()),
             bands,
             output: TABLE.iter().position(|info| info.id == OUTPUT).unwrap_or(0),
-            side: TABLE.iter().position(|info| info.id == ANALYZER).unwrap_or(0),
+            side: TABLE
+                .iter()
+                .position(|info| info.id == ANALYZER)
+                .unwrap_or(0),
             now: [Section::FLAT; ALL_SECTIONS],
             target: [Section::FLAT; ALL_SECTIONS],
             step: [Section::FLAT; ALL_SECTIONS],
@@ -925,7 +924,11 @@ impl Eq {
                 value(layout.gain)
             },
             q: if is_cut(number) { 0.7 } else { value(layout.q) },
-            slope: if is_cut(number) { value(layout.gain) } else { 12.0 },
+            slope: if is_cut(number) {
+                value(layout.gain)
+            } else {
+                12.0
+            },
         }
     }
 
@@ -944,12 +947,12 @@ impl Eq {
                 // glides from nothing rather than stepping.
                 0
             };
-            for i in 0..bands::MOST_SECTIONS {
+            for (i, section) in sections.iter().enumerate() {
                 let at = layout.first + i;
                 if at >= ALL_SECTIONS {
                     break;
                 }
-                let target = if i < count { sections[i] } else { Section::FLAT };
+                let target = if i < count { *section } else { Section::FLAT };
                 self.target[at] = target;
                 self.step[at] = delta(self.now[at], target, 1.0 / KNOT as f32);
             }
@@ -1037,24 +1040,26 @@ impl Effect for Eq {
             }
             let mut l = left[frame];
             let mut r = right[frame];
-            for band in 0..BANDS {
-                let wet = self.curves.at(slots[band], frame);
+            for (band, &slot) in slots.iter().enumerate() {
+                let wet = self.curves.at(slot, frame);
                 if wet <= 0.0 {
                     continue;
                 }
                 let layout = self.bands[band];
                 let (dry_l, dry_r) = (l, r);
                 let state = &mut self.state.state;
-                for section in layout.first..layout.first + layout.count {
+                for (section, place) in (layout.first..layout.first + layout.count)
+                    .zip(&mut state[layout.first..layout.first + layout.count])
+                {
                     let c = self.now[section];
-                    let (l1, l2) = (state[section][0][0], state[section][0][1]);
+                    let (l1, l2) = (place[0][0], place[0][1]);
                     let l_out = c.b0 * l + l1;
-                    state[section][0][0] = flush(c.b1 * l - c.a1 * l_out + l2);
-                    state[section][0][1] = flush(c.b2 * l - c.a2 * l_out);
-                    let (r1, r2) = (state[section][1][0], state[section][1][1]);
+                    place[0][0] = flush(c.b1 * l - c.a1 * l_out + l2);
+                    place[0][1] = flush(c.b2 * l - c.a2 * l_out);
+                    let (r1, r2) = (place[1][0], place[1][1]);
                     let r_out = c.b0 * r + r1;
-                    state[section][1][0] = flush(c.b1 * r - c.a1 * r_out + r2);
-                    state[section][1][1] = flush(c.b2 * r - c.a2 * r_out);
+                    place[1][0] = flush(c.b1 * r - c.a1 * r_out + r2);
+                    place[1][1] = flush(c.b2 * r - c.a2 * r_out);
                     l = flush(l_out);
                     r = flush(r_out);
                 }
@@ -1079,15 +1084,9 @@ impl Effect for Eq {
         for glide in &mut self.glides {
             glide.arrive();
         }
-        for section in &mut self.now {
-            *section = Section::FLAT;
-        }
-        for step in &mut self.step {
-            *step = Section::FLAT;
-        }
-        for target in &mut self.target {
-            *target = Section::FLAT;
-        }
+        self.now.fill(Section::FLAT);
+        self.step.fill(Section::FLAT);
+        self.target.fill(Section::FLAT);
         *self.state = State::default();
         // The next frame reads the gain again rather than trusting the cache.
         self.gain = (f32::NAN, 1.0);
@@ -1118,9 +1117,7 @@ pub fn response(values: Values<'_>, rate: u32, out: &mut [f32], (low, high): (f3
     for (index, band) in settings.iter_mut().enumerate() {
         let number = index + 1;
         let read = |id: u32| params::normalised_of(TABLE, id, values);
-        let value = |id: u32| {
-            params::find(TABLE, id).map_or(0.0, |info| info.value(read(id)))
-        };
+        let value = |id: u32| params::find(TABLE, id).map_or(0.0, |info| info.value(read(id)));
         let mut setting = bands::Setting {
             kind: Kind::Bell,
             freq: value(freq_of(number)),

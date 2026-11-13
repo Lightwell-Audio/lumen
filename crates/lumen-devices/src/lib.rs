@@ -89,13 +89,13 @@ mod tests {
     #[test]
     fn every_built_in_effect_is_in_both_tables() {
         assert_eq!(EFFECTS.len(), 2, "Prism and Iris");
-        for (name, watched) in [
-            (utility::NAME, false),
-            (eq::NAME, true),
-        ] {
+        for (name, watched) in [(utility::NAME, false), (eq::NAME, true)] {
             assert!(effect_params(name).is_some(), "{name} has a table");
             assert!(effect(name).is_some(), "{name} is built");
-            assert!(effect_tapped(name, None).is_some(), "{name} builds untapped");
+            assert!(
+                effect_tapped(name, None).is_some(),
+                "{name} builds untapped"
+            );
             assert_eq!(watches_spectrum(name), watched, "{name}");
         }
         assert!(effect_params("nothing").is_none());

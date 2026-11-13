@@ -2440,7 +2440,6 @@ fn browser_controls() {
 fn builtin_card() {
     use egui_kittest::kittest::Queryable;
     use lumen_project::model::{Color, Device, Id, PluginRef, Track, TrackKind};
-
     for (appearance, scale, size, tag) in [
         ("dark", 1.0_f32, vec2(1280.0, 900.0), "whole"),
         ("light", 1.0, vec2(1280.0, 900.0), "whole"),
@@ -2515,6 +2514,132 @@ fn builtin_card() {
             h.get_by_label("All parameters (8)").click();
             h.run_steps(10);
             save(&mut h, &format!("prism-parameters-{tag}"));
+        }
+    }
+}
+
+/// Iris's face (M8 slice B1, the owner's BF C): the curve is the control, with
+/// a few bands set and the analyser's mist behind it. Whole, in the smallest
+/// window, folded, and every parameter: both themes at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn builtin_eq() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_project::model::{Color, Device, Id, PluginRef, Track, TrackKind};
+
+    for (appearance, scale, size, tag) in [
+        ("dark", 1.0_f32, vec2(1280.0, 900.0), "whole"),
+        ("light", 1.0, vec2(1280.0, 900.0), "whole"),
+        ("dark", 1.5, vec2(1280.0, 900.0), "whole"),
+        ("light", 1.5, vec2(1280.0, 900.0), "whole"),
+        ("dark", 2.0, vec2(1280.0, 900.0), "whole"),
+        ("light", 2.0, vec2(1280.0, 900.0), "whole"),
+        ("dark", 1.0, vec2(960.0, 540.0), "small"),
+        ("light", 1.0, vec2(960.0, 540.0), "small"),
+        ("dark", 1.5, vec2(960.0, 540.0), "small"),
+        ("light", 1.5, vec2(960.0, 540.0), "small"),
+        ("dark", 2.0, vec2(960.0, 540.0), "small"),
+        ("light", 2.0, vec2(960.0, 540.0), "small"),
+    ] {
+        let dir = TempDir::new(&format!("shots-iris-{appearance}-{scale}-{tag}"));
+        let mut track = Track::new(Id(1), "Vox".to_owned(), TrackKind::Audio, Color(0x5E8A9C));
+        // A few bands set, as the specimen draws them: a low cut, two bells, a
+        // high shelf, and a band left off.
+        let table = lumen_devices::eq::TABLE;
+        let value = |id: u32, units: f32| {
+            let info = table.iter().find(|info| info.id == id).expect("an id");
+            f64::from(info.normalised(units))
+        };
+        let mut device = Device::new(
+            Id(10),
+            PluginRef::Builtin {
+                name: lumen_devices::eq::NAME.to_owned(),
+            },
+            false,
+            Vec::new(),
+        );
+        for (id, units) in [
+            (lumen_devices::eq::OUTPUT, -1.5),
+            (lumen_devices::eq::on_of(1), 1.0),
+            (lumen_devices::eq::freq_of(1), 40.0),
+            (lumen_devices::eq::gain_of(1), 24.0),
+            (lumen_devices::eq::gain_of(2), 5.0),
+            (lumen_devices::eq::freq_of(2), 180.0),
+            (lumen_devices::eq::q_of(2), 0.8),
+            (lumen_devices::eq::gain_of(3), -4.0),
+            (lumen_devices::eq::freq_of(3), 2_500.0),
+            (lumen_devices::eq::q_of(3), 1.4),
+            (lumen_devices::eq::type_of(4), 2.0),
+            (lumen_devices::eq::gain_of(4), 3.0),
+            (lumen_devices::eq::freq_of(4), 8_000.0),
+            (lumen_devices::eq::on_of(6), 0.0),
+        ] {
+            device.params.insert(id, value(id, units));
+        }
+        track.devices = vec![device];
+        let project = lumen_project::testing::project_of("Iris", vec![track]);
+        let path = dir.path().join("song.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(size)
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(30);
+        h.state_mut().select_tracks(&[Id(1)]);
+        h.run_steps(4);
+        // The browser has a Devices tab too: the detail panel's comes last.
+        h.get_all_by_label("Devices tab")
+            .last()
+            .expect("the tabs")
+            .click();
+        h.run_steps(4);
+        if tag == "whole" {
+            h.state_mut().set_detail_size(460.0);
+            h.run_steps(30);
+        }
+        // A signal in the analyser's place: a shot's project does not play.
+        // A face spreads whatever it is given across its width, so the
+        // picture's length is the scene's business.
+        let spectrum: Vec<f32> = (0..96)
+            .map(|i| {
+                let t = i as f32 / 95.0;
+                let db = -20.0 - 30.0 * t
+                    + 9.0 * (t * 11.0).sin()
+                    + 60.0 * (-(((t - 0.30) * 9.0).powi(2))).exp()
+                    + 30.0 * (-(((t - 0.62) * 14.0).powi(2))).exp();
+                db.clamp(-78.0, -4.0)
+            })
+            .collect();
+        h.state_mut().pretend_spectrum(Id(10), &spectrum);
+        // Band 3 picked, as a click does: its halo, spokes and value chip.
+        h.state_mut().pick_band(Id(10), 2);
+        h.run_steps(6);
+        let tag = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
+        save(&mut h, &format!("iris-{tag}"));
+        // Folded: the rail with the power and the name set on end.
+        h.state_mut().fold_device(Id(10));
+        h.run_steps(10);
+        save(&mut h, &format!("iris-folded-{tag}"));
+        h.state_mut().fold_device(Id(10));
+        h.run_steps(10);
+        // Every parameter on its own.
+        if h.query_by_label("All parameters (38)").is_some() {
+            h.get_by_label("All parameters (38)").click();
+            h.run_steps(10);
+            save(&mut h, &format!("iris-parameters-{tag}"));
         }
     }
 }

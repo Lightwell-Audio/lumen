@@ -81,6 +81,11 @@ pub(super) struct Look<'a> {
     pub picture: Option<&'a egui::TextureHandle>,
     /// The eight knobs of the strip (empty when there is nothing to show).
     pub slots: &'a [Option<strip::Slot>],
+    /// The drawn face of a built-in device that has one, in place of the
+    /// knobs (M8 slice B1, the owner's BF C).
+    pub drawn: Option<&'a faces::eq::Look>,
+    /// The band a face has picked (0-based).
+    pub picked: usize,
     /// How many parameters the plugin lists.
     pub parameters: usize,
     /// The preset field, for a running plugin.
@@ -125,6 +130,9 @@ pub(super) struct Out {
     pub action: Option<Action>,
     /// What the strip's knobs and button asked for.
     pub strip: Vec<strip::Output>,
+    /// A face picked a band this frame (0-based), so the next frame draws it
+    /// picked.
+    pub picked: Option<usize>,
     /// The sidechain row's chooser (it opens the menu).
     pub sidechain: Option<Response>,
     /// The outputs row's chooser (it opens the menu).
@@ -318,14 +326,14 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         _ => (None, None),
     };
 
-    // Between header and footer: the strip, or what replaces it.
+    // Between header and footer: the face, the strip, or what replaces them.
     let strip_area = strip.shrink2(vec2(theme::space::M, theme::space::S));
     let key_room = if look.sidechain.is_some() || look.outputs.is_some() {
         sidechain::ROOM
     } else {
         0.0
     };
-    let (action, mut strip) = paint_strip(ui, strip_area, id, look, key_room);
+    let (action, mut strip, picked) = paint_strip(ui, strip_area, id, look, key_room);
     strip.extend(header_out);
     // The sidechain row of an effect or the outputs row of an instrument,
     // between the knobs and the buttons under them.
@@ -390,6 +398,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         step,
         action,
         strip,
+        picked,
         sidechain: key,
         outputs: outs,
     }
@@ -490,6 +499,7 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
         name: None,
         step: None,
         strip: Vec::new(),
+        picked: None,
         action: None,
         sidechain: None,
         outputs: None,
@@ -535,6 +545,8 @@ mod picture;
 
 use body::{paint_field, paint_strip};
 use picture::{has_window_button, paint_badge, paint_picture, paint_snapshot, power_button};
+
+use super::faces;
 
 #[cfg(test)]
 mod tests;

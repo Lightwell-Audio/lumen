@@ -22,6 +22,8 @@ fn look(face: Face<'_>, bypass: bool, instrument: bool) -> Look<'_> {
         folded: false,
         picture: None,
         slots: &[],
+        drawn: None,
+        picked: 0,
         parameters: 0,
         field: None,
         editor: &CLOSED,

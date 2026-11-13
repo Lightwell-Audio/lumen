@@ -430,6 +430,7 @@ impl App {
             Command::DrumMapDetach => self.detach_drum_map_command(),
             Command::ConvertDrumMap => self.choose_drum_map_conversion(),
             Command::AddUtility => self.add_utility(),
+            Command::AddEq => self.add_eq(),
             Command::TransposeClipUp => self.transpose_clips_command(1),
             Command::TransposeClipDown => self.transpose_clips_command(-1),
             Command::AddAudioTrack => self.arrangement.add_track(doc, TrackKind::Audio),

@@ -45,7 +45,9 @@ impl Section {
         let num = (b0 + b1 * cos1 + b2 * cos2, -(b1 * sin1 + b2 * sin2));
         let den = (1.0 + a1 * cos1 + a2 * cos2, -(a1 * sin1 + a2 * sin2));
         let magnitude = (num.0 * num.0 + num.1 * num.1).sqrt()
-            / (den.0 * den.0 + den.1 * den.1).sqrt().max(f64::MIN_POSITIVE);
+            / (den.0 * den.0 + den.1 * den.1)
+                .sqrt()
+                .max(f64::MIN_POSITIVE);
         if magnitude <= 0.0 {
             -200.0
         } else {
@@ -80,9 +82,14 @@ impl Section {
 /// dB/octave, one to four sections (a Butterworth alignment, so the sum has no
 /// peak at the corner).
 const BUTTERWORTH: [[f32; MOST_SECTIONS]; 4] = [
-    [0.707_106_8, 0.0, 0.0, 0.0],
+    [std::f32::consts::FRAC_1_SQRT_2, 0.0, 0.0, 0.0],
     [0.541_196_1, 1.306_563, 0.0, 0.0],
-    [0.517_638_1, 0.707_106_8, 1.931_851_7, 0.0],
+    [
+        0.517_638_1,
+        std::f32::consts::FRAC_1_SQRT_2,
+        1.931_851_7,
+        0.0,
+    ],
     [0.509_795_6, 0.601_344_7, 0.899_976_2, 2.562_915_3],
 ];
 
@@ -224,7 +231,7 @@ fn bell(hz: f32, gain: f32, q: f32, rate: u32) -> Section {
 /// A shelf of `gain` decibels over (or under) `hz`, its Q fixed to the
 /// steepest slope that does not ripple.
 fn shelf(hz: f32, gain: f32, low: bool, rate: u32) -> Section {
-    let (_, cos, _) = corner(hz, 0.707_106_8, rate);
+    let (_, cos, _) = corner(hz, std::f32::consts::FRAC_1_SQRT_2, rate);
     let a = 10f32.powf(gain / 40.0);
     let alpha = (TAU * hz / rate as f32).sin() / 2.0 * std::f32::consts::SQRT_2;
     let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
@@ -321,7 +328,11 @@ mod tests {
 
     #[test]
     fn a_bell_is_the_cookbook_s_peaking_filter() {
-        for (hz, gain, q) in [(1_000.0, 6.0, 2.0), (80.0, -9.0, 0.5), (12_000.0, 12.0, 8.0)] {
+        for (hz, gain, q) in [
+            (1_000.0, 6.0, 2.0),
+            (80.0, -9.0, 0.5),
+            (12_000.0, 12.0, 8.0),
+        ] {
             let setting = Setting {
                 kind: Kind::Bell,
                 freq: hz,

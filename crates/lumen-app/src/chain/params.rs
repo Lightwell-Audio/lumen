@@ -348,6 +348,8 @@ impl App {
     pub(super) fn apply_strip(&mut self, device: Id, output: strip::Output) {
         match output {
             strip::Output::Set(id, value) => self.set_parameter(device, id, value, "strip"),
+            strip::Output::Moved(values) => self.move_parameters(device, &values),
+            strip::Output::Reset(values) => self.reset_parameters(device, &values),
             strip::Output::Choose(id, value) => {
                 // A click on a switch or a choice is a change of its own.
                 self.document.seal();
@@ -418,11 +420,7 @@ impl App {
     /// Sets a parameter as one undo step per drag. `from` keeps the strip's
     /// drag and the panel's apart.
     fn set_parameter(&mut self, device: Id, id: u32, value: f64, from: &str) {
-        let title = self
-            .device_parameters_of(device)
-            .iter()
-            .find(|p| p.id == id)
-            .map_or_else(|| "parameter".to_owned(), |p| p.title.clone());
+        let title = self.parameter_title(device, id);
         // Moving a control a lane drives takes the lane over (M7 slice A4a).
         self.document.override_param(device, id);
         let _ = self.document.set_device_params(
@@ -431,6 +429,48 @@ impl App {
             &format!("Change {title}"),
             Some(&format!("{from}:{}:{id}", device.0)),
         );
+    }
+
+    /// Several parameters moved together by a face (M8 slice B1): a point
+    /// drags its band's frequency and gain at once, and the whole drag is one
+    /// undo step.
+    fn move_parameters(&mut self, device: Id, values: &[(u32, f64)]) {
+        let Some(&(first, _)) = values.first() else {
+            return;
+        };
+        let title = self.parameter_title(device, first);
+        for &(id, _) in values {
+            self.document.override_param(device, id);
+        }
+        let _ = self.document.set_device_params(
+            device,
+            values,
+            &format!("Change {title}"),
+            Some(&format!("face:{}", device.0)),
+        );
+    }
+
+    /// A face put a band back to its defaults: one undo step of its own.
+    fn reset_parameters(&mut self, device: Id, values: &[(u32, f64)]) {
+        let Some(&(first, _)) = values.first() else {
+            return;
+        };
+        let title = self.parameter_title(device, first);
+        self.document.seal();
+        for &(id, _) in values {
+            self.document.override_param(device, id);
+        }
+        let _ = self
+            .document
+            .set_device_params(device, values, &format!("Reset {title}"), None);
+    }
+
+    /// What a parameter is called, for a step's label.
+    fn parameter_title(&self, device: Id, id: u32) -> String {
+        self.device_parameters_of(device)
+            .iter()
+            .find(|p| p.id == id)
+            .map_or_else(|| "parameter".to_owned(), |p| p.title.clone())
     }
 
     /// Puts a parameter on the strip, or takes it off. Says why when it

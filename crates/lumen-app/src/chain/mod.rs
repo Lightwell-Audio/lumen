@@ -8,6 +8,7 @@ mod actions;
 mod art;
 mod card;
 pub(crate) mod editor;
+mod faces;
 mod geometry;
 pub(crate) mod outputs;
 mod params;
@@ -109,4 +110,16 @@ pub(crate) struct Chain {
     /// A device just dropped on a track from the browser: its window opens
     /// as soon as its plugin is running.
     pub open_when_ready: Option<Id>,
+    /// The band each card's face has picked, by device (M8 slice B1): a view
+    /// setting, kept for the session like a fold.
+    pub bands: HashMap<Id, usize>,
+    /// The analyser's picture for each built-in device whose face is drawn,
+    /// by device, this frame (M8 slice B1): filled before the cards are built
+    /// and read by the face. A device that is gone or folded is not in it, and
+    /// its analyser is told to stop.
+    pub analyzers: BTreeMap<Id, Vec<f32>>,
+    /// A picture a shot harness put in an analyser's place, for a screenshot
+    /// of a face with a signal: a shot's project does not play, so nothing
+    /// writes a real one (M8 slice B1, `testing::pretend_spectrum`).
+    pub pretend_spectrum: Option<(Id, Vec<f32>)>,
 }

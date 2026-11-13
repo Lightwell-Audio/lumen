@@ -215,9 +215,11 @@ impl Reader {
             let to = ((at((i + 1) as f32 / points as f32) / nyquist * count).ceil() as usize)
                 .clamp(from + 1, bins.len());
             let mut loudest = MIN_DB;
-            for bin in from.min(bins.len())..to {
-                if bins[bin] > loudest {
-                    loudest = bins[bin];
+            if let Some(slice) = bins.get(from.min(bins.len())..to) {
+                for db in slice {
+                    if *db > loudest {
+                        loudest = *db;
+                    }
                 }
             }
             *point = loudest;
@@ -280,9 +282,7 @@ mod tests {
 
     fn sine(hz: f32, rate: f32, frames: usize, amplitude: f32) -> Vec<f32> {
         (0..frames)
-            .map(|i| {
-                amplitude * (std::f32::consts::TAU * hz * i as f32 / rate).sin()
-            })
+            .map(|i| amplitude * (std::f32::consts::TAU * hz * i as f32 / rate).sin())
             .collect()
     }
 

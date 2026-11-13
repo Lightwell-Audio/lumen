@@ -10,7 +10,13 @@ use crate::ParamBlock;
 fn the_parameter_table_is_pinned_by_id_name_and_default() {
     let pinned: Vec<(u32, &str, u32)> = TABLE
         .iter()
-        .map(|info| (info.id, info.name, (info.normalised(info.default) * 1e6) as u32))
+        .map(|info| {
+            (
+                info.id,
+                info.name,
+                (info.normalised(info.default) * 1e6) as u32,
+            )
+        })
         .collect();
     let want: Vec<(u32, &str, u32)> = vec![
         (1, "Output", 500_000),
@@ -26,27 +32,27 @@ fn the_parameter_table_is_pinned_by_id_name_and_default() {
         (32, "3 Gain", 500_000),
         (33, "3 Q", 434_588),
         (34, "3 Type", 0),
-        (35, "3 On", 0),
+        (35, "3 On", 1_000_000),
         (41, "4 Freq", 499_436),
         (42, "4 Gain", 500_000),
         (43, "4 Q", 434_588),
         (44, "4 Type", 0),
-        (45, "4 On", 0),
+        (45, "4 On", 1_000_000),
         (51, "5 Freq", 634_363),
         (52, "5 Gain", 500_000),
         (53, "5 Q", 434_588),
         (54, "5 Type", 0),
-        (55, "5 On", 0),
+        (55, "5 On", 1_000_000),
         (61, "6 Freq", 767_010),
         (62, "6 Gain", 500_000),
         (63, "6 Q", 434_588),
         (64, "6 Type", 0),
-        (65, "6 On", 0),
+        (65, "6 On", 1_000_000),
         (71, "7 Freq", 899_656),
         (72, "7 Gain", 500_000),
         (73, "7 Q", 434_588),
         (74, "7 Type", 0),
-        (75, "7 On", 0),
+        (75, "7 On", 1_000_000),
         (81, "8 Freq", 984_747),
         (82, "8 Slope", 333_333),
         (85, "8 On", 0),
@@ -56,7 +62,10 @@ fn the_parameter_table_is_pinned_by_id_name_and_default() {
     for (got, want) in pinned.iter().zip(&want) {
         assert_eq!(got.0, want.0, "id of {}", got.1);
         assert_eq!(got.1, want.1);
-        assert!((got.2 as i64 - want.2 as i64).abs() <= 1, "{got:?} against {want:?}");
+        assert!(
+            (got.2 as i64 - want.2 as i64).abs() <= 1,
+            "{got:?} against {want:?}"
+        );
     }
     // No id is reused, and none is zero.
     let ids: std::collections::HashSet<u32> = TABLE.iter().map(|info| info.id).collect();
@@ -135,9 +144,7 @@ fn the_face_s_axis_runs_from_twenty_hertz_to_twenty_kilohertz() {
 fn a_fresh_iris_passes_everything_untouched() {
     for block in [64usize, 97, 128, 512] {
         let mut eq = Eq::new();
-        let input: Vec<f32> = (0..block)
-            .map(|i| (i as f32 * 0.37).sin() * 0.5)
-            .collect();
+        let input: Vec<f32> = (0..block).map(|i| (i as f32 * 0.37).sin() * 0.5).collect();
         let mut events = ParamBlock::new();
         events.start(block);
         let mut left = input.clone();
@@ -209,10 +216,13 @@ fn a_band_that_is_off_is_not_in_the_response() {
         .map(|info| (info.id, info.normalised(info.default)))
         .collect();
     let gain = params::find(TABLE, gain_of(4)).unwrap();
-    values.iter_mut()
+    values
+        .iter_mut()
         .find(|(id, _)| *id == gain_of(4))
         .unwrap()
         .1 = gain.normalised(12.0);
+    let on = params::find(TABLE, on_of(4)).unwrap();
+    values.iter_mut().find(|(id, _)| *id == on_of(4)).unwrap().1 = on.normalised(0.0);
     let mut out = [0.0f32; 32];
     response(&values, 48_000, &mut out, (20.0, 20_000.0));
     assert!(out.iter().all(|db| db.abs() < 1e-4), "{out:?}");

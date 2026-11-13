@@ -195,7 +195,11 @@ fn measured_db(set: &[(u32, f32)], hz: f32) -> f64 {
     let mut right = tone;
     plain(set, &mut left, &mut right);
     let tail = &left[frames - 4800..];
-    let mean = tail.iter().map(|x| f64::from(*x) * f64::from(*x)).sum::<f64>() / 4800.0;
+    let mean = tail
+        .iter()
+        .map(|x| f64::from(*x) * f64::from(*x))
+        .sum::<f64>()
+        / 4800.0;
     let rms = mean.sqrt();
     let measured = rms * std::f64::consts::SQRT_2;
     20.0 * (measured / f64::from(amplitude)).log10()
@@ -318,7 +322,12 @@ fn a_swept_band_never_makes_the_sound_step() {
     let low = at(freq_of(3), 200.0);
     let high = at(freq_of(3), 4_000.0);
     let sweep: Vec<(u32, f32)> = (0..=50)
-        .map(|k| ((k * (frames as u32 - 1) / 50), low + (high - low) * k as f32 / 50.0))
+        .map(|k| {
+            (
+                (k * (frames as u32 - 1) / 50),
+                low + (high - low) * k as f32 / 50.0,
+            )
+        })
         .collect();
     let setting = [
         (on_of(3), 1.0),
@@ -439,15 +448,12 @@ fn a_block_with_automation_allocates_nothing() {
     let mut device = Eq::new();
     let mut left = vec![0.1; 256];
     let mut right = vec![-0.1; 256];
-    let events = defaults(
-        256,
-        &[(on_of(2), 1.0), (on_of(6), 1.0), (on_of(7), 1.0)],
-    )
-    .lane(freq_of(2), &[(0, 0.1), (40, 0.9), (41, 0.2), (200, 0.6)])
-    .lane(gain_of(2), &[(0, 0.1), (128, 0.9)])
-    .lane(freq_of(7), &[(0, 1.0), (255, 0.5)])
-    .lane(on_of(6), &[(0, 0.0), (120, 1.0)])
-    .build();
+    let events = defaults(256, &[(on_of(2), 1.0), (on_of(6), 1.0), (on_of(7), 1.0)])
+        .lane(freq_of(2), &[(0, 0.1), (40, 0.9), (41, 0.2), (200, 0.6)])
+        .lane(gain_of(2), &[(0, 0.1), (128, 0.9)])
+        .lane(freq_of(7), &[(0, 1.0), (255, 0.5)])
+        .lane(on_of(6), &[(0, 0.0), (120, 1.0)])
+        .build();
     let block = Block {
         rate: RATE,
         start: 0,
@@ -487,7 +493,10 @@ fn the_analyser_reads_the_side_it_is_told_to() {
             (on_of(3), 1.0),
             (freq_of(3), at(freq_of(3), 1_000.0)),
             (gain_of(3), at(gain_of(3), 12.0)),
-            (lumen_devices::eq::ANALYZER, at(lumen_devices::eq::ANALYZER, side)),
+            (
+                lumen_devices::eq::ANALYZER,
+                at(lumen_devices::eq::ANALYZER, side),
+            ),
         ];
         run(&mut device, &mut left, &mut right, 256, &|_, n| {
             defaults(n, &set)
@@ -497,7 +506,10 @@ fn the_analyser_reads_the_side_it_is_told_to() {
         if want_louder {
             assert!(peak > 1.5, "the output side hears the boost: {peak}");
         } else {
-            assert!((peak - 0.5).abs() < 1e-3, "the input side hears the input: {peak}");
+            assert!(
+                (peak - 0.5).abs() < 1e-3,
+                "the input side hears the input: {peak}"
+            );
         }
     }
 }

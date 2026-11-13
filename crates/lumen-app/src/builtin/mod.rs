@@ -18,8 +18,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use eframe::egui::Color32;
+use lumen_devices::analyzer;
 use lumen_devices::params::{self, ParamInfo as Info};
-use lumen_devices::{Description, utility};
+use lumen_devices::{Description, eq, utility};
 use lumen_engine::{MixerHandle, Routing, Slot};
 use lumen_hosting::{FLAG_CAN_AUTOMATE, ParamInfo};
 use lumen_project::model::{Device, Id, PluginRef, Project};
@@ -63,6 +64,15 @@ const IDENTITIES: &[(&str, Identity)] = &[
             kind: "Utility",
             colour: theme::personality::UTILITY,
             timing: &utility::DESCRIPTION,
+        },
+    ),
+    (
+        eq::NAME,
+        Identity {
+            name: "Iris",
+            kind: "Parametric EQ",
+            colour: theme::personality::EQ,
+            timing: &eq::DESCRIPTION,
         },
     ),
     #[cfg(test)]
@@ -299,6 +309,10 @@ pub struct Builtins {
     params: BTreeMap<Id, Vec<ParamInfo>>,
     /// Built-ins the mixer's queue had no room for: tried again next frame.
     waiting: Vec<(Id, Box<Slot>)>,
+    /// The spectrum windows of the built-in devices that fill one, by device
+    /// id (M8 slice B1): the device writes, the face reads. A device the pool
+    /// refused keeps its window; it fills nothing while it is not running.
+    spectrums: BTreeMap<Id, analyzer::Reader>,
     /// The devices the mixer's pool had no room for (M8 slice B0, review M3):
     /// the audio thread gave their slots back, so they are not running and the
     /// person is told once, in full.
@@ -377,7 +391,16 @@ impl Builtins {
                     continue;
                 }
                 let name = name_of(device);
-                let Some(effect) = lumen_devices::effect(name) else {
+                // A device that analyses its own audio is built with the
+                // window its face reads (M8 slice B1); the interface keeps the
+                // reader and hands over the writer.
+                let mut tap = None;
+                if lumen_devices::watches_spectrum(name) {
+                    let (writer, reader) = analyzer::pair();
+                    self.spectrums.insert(id, reader);
+                    tap = Some(writer);
+                }
+                let Some(effect) = lumen_devices::effect_tapped(name, tap) else {
                     continue;
                 };
                 self.attached.insert(id, name.to_owned());
@@ -429,6 +452,7 @@ impl Builtins {
             self.attached.remove(&id);
             self.params.remove(&id);
             self.latency.remove(&id);
+            self.spectrums.remove(&id);
             // A queue with no room leaves the device playing for a block
             // more, which is the fallback's silence until the plan drops it.
             mixer.detach_builtin(id.0);
@@ -467,6 +491,18 @@ impl Builtins {
     /// Whether the effect of `device` is attached now.
     pub(crate) fn attached(&self, device: Id) -> bool {
         self.attached.contains_key(&device)
+    }
+
+    /// The spectrum window of `device`, when it is a built-in that fills one
+    /// (M8 slice B1).
+    pub(crate) fn spectrum(&mut self, device: Id) -> Option<&mut analyzer::Reader> {
+        self.spectrums.get_mut(&device)
+    }
+
+    /// Every built-in's window by id, so the interface can silence the ones no
+    /// face is drawn for.
+    pub(crate) fn spectrum_ids(&self) -> Vec<Id> {
+        self.spectrums.keys().copied().collect()
     }
 }
 

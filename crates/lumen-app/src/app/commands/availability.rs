@@ -381,8 +381,8 @@ impl App {
             Command::AddWarpMarker | Command::ClearWarpMarkers => self.markers_unavailable(),
             Command::FixWarpHit => self.fix_warp_hit_unavailable(),
             // Prism can always go somewhere: on the selected track, or on a
-            // new audio track (M8 slice B0).
-            Command::AddUtility => Ok(()),
+            // new audio track (M8 slice B0). Iris likewise (B1).
+            Command::AddUtility | Command::AddEq => Ok(()),
             Command::TransposeClipUp | Command::TransposeClipDown => self.transpose_unavailable(),
             Command::SetTempoFromClip | Command::DoubleClipTempo | Command::HalveClipTempo => {
                 self.warped_unavailable()

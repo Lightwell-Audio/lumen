@@ -584,6 +584,22 @@ pub mod personality {
     /// changes nothing of its own.
     pub const UTILITY: Color32 = Color32::from_rgb(0x9A, 0xA0, 0xAC);
 
+    /// Iris, the parametric EQ (M8 slice B1): a periwinkle blue, the colour of
+    /// the curve it draws (`docs/specimens/m8/chosen.html`).
+    pub const EQ: Color32 = Color32::from_rgb(0x7C, 0x8C, 0xFF);
+
+    /// The ramp Iris's drawn curve and its analyser run along, low frequency to
+    /// high: the spectrum, content rather than chrome, so the same in both
+    /// themes. The owner's specimens draw an EQ's curve this way (round 2 of
+    /// `docs/specimens/m8/`).
+    pub const EQ_SWEEP: [Color32; 5] = [
+        Color32::from_rgb(0xFF, 0x5A, 0x6E),
+        Color32::from_rgb(0xFF, 0xB5, 0x47),
+        Color32::from_rgb(0x5B, 0xE0, 0x7F),
+        Color32::from_rgb(0x4F, 0xA3, 0xFF),
+        Color32::from_rgb(0xB0, 0x7C, 0xFF),
+    ];
+
     /// The screen behind a built-in device's picture (DESIGN.md §7k): deep, and
     /// the same in both themes, as a clip's colour is. Its top is the device's
     /// signature colour, so the band stays the personality's.
