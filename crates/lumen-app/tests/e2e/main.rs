@@ -51,6 +51,7 @@ mod devices;
 mod dropdown;
 mod drum_editor;
 mod drum_lanes_bench;
+mod drum_routing;
 mod drums;
 mod editing;
 mod editors;
