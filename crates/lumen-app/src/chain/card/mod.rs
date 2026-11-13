@@ -94,9 +94,9 @@ pub(super) struct Look<'a> {
     pub sidechain: Option<&'a sidechain::Look>,
     /// The outputs row of a plugin instrument that has more than one output.
     pub outputs: Option<&'a outputs::Look>,
-    /// A built-in's hue and drawing (M8): the card is the chosen one,
-    /// tinted, with the name in the display face (`personal.rs`).
-    pub personal: Option<personal::Personal<'a>>,
+    /// A built-in with a drawing (M8): its card is a set piece (`screen/`), at
+    /// the step the panel's height allows.
+    pub personal: Option<screen::Personal<'a>>,
     /// The tray is short: the card is the compact one (D2).
     pub compact: bool,
     /// What the compact card says in its knobs' place, worked out once a
@@ -191,6 +191,9 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     if look.folded {
         return paint_rail(ui, rect, id, look, body);
     }
+    if look.personal.is_some() && matches!(look.face, Face::Ready) {
+        return screen::paint(ui, rect, id, look, body);
+    }
     if look.compact {
         return compact::paint(ui, rect, id, look, body);
     }
@@ -241,10 +244,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     if let Some(row) = preset_row {
         painter.rect_filled(row, 0.0, palette.header);
     }
-    let hue = look.personal.as_ref().map(|personal| personal.shown(muted));
-    if let Some(hue) = hue {
-        personal::tint(&painter, header, top_rounded, hue);
-    }
     if look.band > 0.0 {
         match look.picture {
             Some(texture) if matches!(look.face, Face::Ready | Face::Loading) => {
@@ -269,15 +268,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     }
 
     // The header: power, name and vendor, the kind badge.
-    if let (Some(hue), Some(_)) = (hue, look.personal.as_ref()) {
-        let areas = personal::Areas {
-            header,
-            preset_row,
-            footer,
-            strip,
-        };
-        return personal::paint_card(ui, rect, id, look, body, hue, hover, muted, areas);
-    }
     let power_rect = Rect::from_center_size(
         pos2(
             header.left() + 12.0 + theme::size::CONTROL / 2.0,
@@ -330,7 +320,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     );
 
     let (field, step) = match (&look.field, preset_row) {
-        (Some(shown), Some(row)) => paint_field(ui, row, id, look, shown, true),
+        (Some(shown), Some(row)) => paint_field(ui, row, id, look, shown),
         _ => (None, None),
     };
 
@@ -429,8 +419,6 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
         }
         .as_shape(rect, CornerRadius::same(RADIUS)),
     );
-    // A built-in's rail is a card's own colour, with the hue's bar, its power in
-    // the hue and its name in the display face set on end (M8).
     painter.rect_filled(
         rect,
         radius,
@@ -440,13 +428,11 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
             palette.header
         },
     );
-    if let Some(personal) = look.personal.as_ref() {
-        let muted = look.bypass;
-        let hue = personal.shown(muted);
-        personal::rail(&painter, rect, look, hue, muted);
-        let centre = pos2(rect.center().x, rect.top() + 26.0);
-        let power = personal::power(ui, centre, id, look, hue, theme::personality::POWER_RADIUS);
-        return paint_rail_edge(ui, rect, id, look, body, hover, power);
+    if look.personal.is_some() {
+        // A built-in's rail is its card's colour: the hue's bar glows with the
+        // level, the name is in the display face set on end (M8).
+        let power = screen::rail(ui, rect, id, look);
+        return paint_rail_edge(ui, rect, look, body, hover, power);
     }
     if look.instrument {
         painter.rect_filled(
@@ -456,6 +442,22 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
             ),
             0.0,
             look.track_color,
+        );
+    }
+    // A built-in folded to a rail keeps its signature colour (DESIGN.md §7k):
+    // the narrowest form still says which device it is.
+    if let Some(personality) = crate::builtin::identity(look.identity) {
+        painter.rect_filled(
+            Rect::from_min_size(
+                rect.min + vec2(0.0, radius),
+                vec2(3.0, rect.height() - 2.0 * radius),
+            ),
+            0.0,
+            if look.bypass {
+                theme::grey_of(personality.colour)
+            } else {
+                personality.colour
+            },
         );
     }
     let power_rect = Rect::from_center_size(
@@ -485,14 +487,13 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
         egui::epaint::TextShape::new(at, galley, ink).with_angle(-std::f32::consts::FRAC_PI_2),
     );
 
-    paint_rail_edge(ui, rect, id, look, body, hover, power)
+    paint_rail_edge(ui, rect, look, body, hover, power)
 }
 
 /// A rail's edge, Ember wash and focus ring, and what it answers.
 fn paint_rail_edge(
     ui: &mut Ui,
     rect: Rect,
-    _id: egui::Id,
     look: &Look<'_>,
     body: Response,
     hover: f32,
@@ -567,11 +568,12 @@ fn footer_words(look: &Look<'_>) -> (String, String) {
 
 mod body;
 pub(super) mod compact;
-mod personal;
 mod picture;
+mod screen;
+
+pub(in crate::chain) use screen::{Personal, level_of};
 
 use body::{paint_field, paint_strip};
-pub(in crate::chain) use personal::{Drawn, Personal};
 use picture::{has_window_button, paint_badge, paint_picture, paint_snapshot, power_button};
 
 #[cfg(test)]

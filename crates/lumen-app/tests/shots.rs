@@ -2476,20 +2476,18 @@ fn builtin_card() {
     use egui_kittest::kittest::Queryable;
     use lumen_project::model::{Color, Device, Id, PluginRef, Track, TrackKind};
 
-    for (appearance, scale, size, tag) in [
-        ("dark", 1.0_f32, vec2(1280.0, 900.0), "whole"),
-        ("light", 1.0, vec2(1280.0, 900.0), "whole"),
-        ("dark", 1.5, vec2(1280.0, 900.0), "whole"),
-        ("light", 1.5, vec2(1280.0, 900.0), "whole"),
-        ("dark", 2.0, vec2(1280.0, 900.0), "whole"),
-        ("light", 2.0, vec2(1280.0, 900.0), "whole"),
-        ("dark", 1.0, vec2(960.0, 540.0), "small"),
-        ("light", 1.0, vec2(960.0, 540.0), "small"),
-        ("dark", 1.5, vec2(960.0, 540.0), "small"),
-        ("light", 1.5, vec2(960.0, 540.0), "small"),
-        ("dark", 2.0, vec2(960.0, 540.0), "small"),
-        ("light", 2.0, vec2(960.0, 540.0), "small"),
-    ] {
+    // The tray's room decides the card's step (whole, short, compact): the
+    // detail panel's height is what each shot sets.
+    let mut cases: Vec<(&str, f32, eframe::egui::Vec2, &str, f32)> = Vec::new();
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            for (tag, detail) in [("whole", 460.0), ("short", 365.0), ("compact", 300.0)] {
+                cases.push((appearance, scale, vec2(1280.0, 900.0), tag, detail));
+            }
+            cases.push((appearance, scale, vec2(960.0, 540.0), "small", 0.0));
+        }
+    }
+    for (appearance, scale, size, tag, detail) in cases {
         let dir = TempDir::new(&format!("shots-prism-{appearance}-{scale}-{tag}"));
         let track = Track::new(Id(1), "Keys".to_owned(), TrackKind::Audio, Color(0x5E8C6A));
         let mut track = track;
@@ -2536,8 +2534,8 @@ fn builtin_card() {
             .click();
         h.run_steps(4);
         // A short tray shows compact cards (D2): make room for whole ones.
-        if tag == "whole" {
-            h.state_mut().set_detail_size(460.0);
+        if tag != "small" {
+            h.state_mut().set_detail_size(detail);
             h.run_steps(30);
         }
         let tag = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
@@ -2553,6 +2551,50 @@ fn builtin_card() {
             h.get_by_label("All parameters (8)").click();
             h.run_steps(10);
             save(&mut h, &format!("prism-parameters-{tag}"));
+        }
+    }
+}
+
+/// Prism while the track plays: the screen is alive, the beams burn brighter
+/// with the level. Whole card, both themes, three scales.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn builtin_card_playing() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_project::model::Id;
+
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-prism-play-{appearance}-{scale}"));
+            let mut h =
+                lumen_looking_sized(&dir, appearance, scale, eframe::egui::vec2(1280.0, 900.0));
+            let first = h.state().project().tracks[0].id;
+            h.state_mut().select_tracks(&[first]);
+            h.run_steps(4);
+            // Add Prism by the palette, as a person does.
+            h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+            h.run_steps(4);
+            h.event(Event::Text("Add Prism".into()));
+            h.run_steps(3);
+            h.key_press(Key::Enter);
+            h.run_steps(20);
+            h.get_all_by_label("Devices tab")
+                .last()
+                .expect("the tabs")
+                .click();
+            h.run_steps(4);
+            h.state_mut().set_detail_size(460.0);
+            h.run_steps(30);
+            let _ = Id(0);
+            h.key_press(Key::Space);
+            for _ in 0..4 {
+                std::thread::sleep(std::time::Duration::from_millis(60));
+                h.run_steps(1);
+            }
+            save(
+                &mut h,
+                &format!("prism-playing-{appearance}-{}", (scale * 100.0) as u32),
+            );
         }
     }
 }

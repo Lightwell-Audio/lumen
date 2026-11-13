@@ -71,6 +71,9 @@ pub(crate) struct Chain {
     /// The chain shows compact cards (D2): the panel is shorter than a full
     /// card needs. Kept between frames for the switch's hysteresis.
     pub compact: bool,
+    /// The step each built-in's set-piece card is at (whole, short, compact),
+    /// kept between frames for the switch's hysteresis (M8).
+    pub steps: HashMap<Id, geometry::Step>,
     /// The tallest compact card of the shown chain, as last drawn: a card
     /// whose message needs more lines is taller, and it sets the panel's
     /// least height (0 before the tab was first drawn).

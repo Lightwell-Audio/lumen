@@ -118,6 +118,28 @@ impl App {
         let pictures: Vec<Option<egui::TextureHandle>> =
             rows.iter().map(|r| self.picture_of(ui.ctx(), r)).collect();
         let selected = self.chain.selected;
+        // A built-in with a drawing steps its card down with the tray's height
+        // (whole, short, compact), with a little give either way (M8), and its
+        // screen reads what the track hears.
+        let steps: Vec<Option<geometry::Step>> = rows
+            .iter()
+            .map(|row| {
+                row.drawing.as_ref().map(|d| {
+                    let was = self.chain.steps.get(&row.id).copied();
+                    geometry::Step::of(d.drawing.card, tray.height(), was)
+                })
+            })
+            .collect();
+        for (row, step) in rows.iter().zip(&steps) {
+            if let Some(step) = step {
+                self.chain.steps.insert(row.id, *step);
+            }
+        }
+        let level = if motion::reduced() {
+            0.0
+        } else {
+            card::level_of(self.arrangement.meters.reading(track_id.0).peak)
+        };
         // A short tray turns the whole chain compact (D2), with a little
         // give either side of the switch so a drag across it does not flicker.
         let compact = geometry::compact(self.chain.compact, tray.height(), extra);
@@ -150,7 +172,7 @@ impl App {
                 }),
                 sidechain: row.sidechain.as_ref(),
                 outputs: row.outputs.as_ref(),
-                personal: personal_of(row),
+                personal: steps[i].and_then(|step| personal_of(row, step, level)),
                 compact,
                 message: Default::default(),
             })
@@ -159,24 +181,31 @@ impl App {
         // card's whole message always fits.
         let heights: Vec<f32> = looks.iter().map(|l| card::compact::height(ui, l)).collect();
         self.chain.least = heights.iter().copied().fold(0.0, f32::max);
-        let layout = if compact {
+        let plain_h = geometry::card_height_with(tray.height() - 2.0 * geometry::PAD, extra);
+        let layout = if steps.iter().any(Option::is_some) {
+            // Cards of their own sizes: a faced card's is its step's.
+            let sizes: Vec<egui::Vec2> = rows
+                .iter()
+                .enumerate()
+                .map(|(i, row)| match (&row.drawing, steps[i]) {
+                    (Some(d), Some(step)) if !folded[i] => step.size(d.drawing.card),
+                    _ => vec2(geometry::CARD_W, if compact { heights[i] } else { plain_h }),
+                })
+                .collect();
+            Layout::mixed(&folded, tray.height(), &sizes)
+        } else if compact {
             Layout::sized(&folded, tray.height(), &heights)
         } else {
             Layout::keyed(&folded, tray.height(), extra)
         };
         if !compact {
-            for (look, row) in looks.iter_mut().zip(&rows) {
+            for (i, (look, row)) in looks.iter_mut().zip(&rows).enumerate() {
                 let room = if row.sidechain.is_some() || row.outputs.is_some() {
                     sidechain::ROOM
                 } else {
                     0.0
                 };
-                // A face takes the picture's height as its own (M8).
-                look.band = if row.is_face() {
-                    0.0
-                } else {
-                    geometry::band(layout.card_h - room)
-                };
+                look.band = geometry::band(layout.card(i).height() - room);
             }
         }
         let playing = self.transport.state().playing;

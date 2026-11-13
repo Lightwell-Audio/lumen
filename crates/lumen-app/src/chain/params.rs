@@ -719,7 +719,6 @@ impl App {
                 steps: p.steps,
                 read_only: p.read_only(),
                 selected: false,
-                hue: None,
             },
         );
         // A lane the user has taken over (M7 slice A4a), as on the strip's knob.

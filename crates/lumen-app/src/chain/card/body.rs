@@ -242,16 +242,13 @@ pub(super) fn message(
 
 /// The preset field in the card's second header row: an arrow back, the name
 /// of the sound with a dot when it was changed, an arrow forward. The field
-/// opens the menu. A built-in's card has no arrows (`arrows` false: the chosen
-/// card draws the field alone). Returns the field's response and the arrow
-/// pressed.
+/// opens the menu. Returns the field's response and the arrow pressed.
 pub(super) fn paint_field(
     ui: &mut Ui,
     row: Rect,
     id: egui::Id,
     look: &Look<'_>,
     field: &Field<'_>,
-    arrows: bool,
 ) -> (Option<Response>, Option<bool>) {
     let palette = *theme::p();
     let height = theme::size::CONTROL;
@@ -266,22 +263,13 @@ pub(super) fn paint_field(
         pos2(inner.right() - arrow, inner.top()),
         vec2(arrow, height),
     );
-    let middle = if arrows {
-        Rect::from_min_max(
-            pos2(previous.right() + 4.0, inner.top()),
-            pos2(next.left() - 4.0, inner.bottom()),
-        )
-    } else {
-        inner
-    };
+    let middle = Rect::from_min_max(
+        pos2(previous.right() + 4.0, inner.top()),
+        pos2(next.left() - 4.0, inner.bottom()),
+    );
 
     let mut step = None;
-    let steppers: &[(Rect, bool)] = if arrows {
-        &[(previous, false), (next, true)]
-    } else {
-        &[]
-    };
-    for &(rect, forward) in steppers {
+    for (rect, forward) in [(previous, false), (next, true)] {
         let name = format!(
             "{} preset of {}",
             if forward { "Next" } else { "Previous" },

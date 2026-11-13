@@ -33,13 +33,13 @@ pub(super) struct Row {
     pub(super) sidechain: Option<sidechain::Look>,
     /// The outputs row of a plugin instrument with several outputs.
     pub(super) outputs: Option<outputs::Look>,
-    /// A built-in with a drawing (M8): its band or its face, and the values
-    /// it reads.
+    /// A built-in with a drawing (M8): its card is a set piece, and these are
+    /// the values it reads.
     pub(super) drawing: Option<DrawingRow>,
 }
 
 /// A built-in's drawing and its values: one slot for each parameter it reads or
-/// has a control for, in [`face::Drawing::params`] order.
+/// has a control or handle for, in [`face::Drawing::params`] order.
 pub(in crate::chain) struct DrawingRow {
     pub(in crate::chain) drawing: &'static crate::chain::face::Drawing,
     pub(in crate::chain) slots: Vec<strip::Slot>,
@@ -210,25 +210,21 @@ pub(super) fn ago(age: std::time::Duration) -> String {
     }
 }
 
-impl Row {
-    /// The device's drawing is a face: it replaces the strip and the picture.
-    pub(super) fn is_face(&self) -> bool {
-        self.drawing
-            .as_ref()
-            .is_some_and(|d| d.drawing.place == crate::chain::face::Place::Face)
-    }
-}
-
-/// What a built-in's card adds to a plain one: its hue, and its drawing with
-/// the values it reads.
-pub(super) fn personal_of(row: &Row) -> Option<card::Personal<'_>> {
+/// What a built-in's card adds to a plain one: its hue, its drawing with the
+/// values it reads, the step its card is at and what it hears (M8).
+pub(super) fn personal_of(
+    row: &Row,
+    step: crate::chain::geometry::Step,
+    level: f32,
+) -> Option<card::Personal<'_>> {
     let identity = crate::builtin::identity(&row.identity).filter(|_| row.builtin)?;
+    let drawing = row.drawing.as_ref()?;
     Some(card::Personal {
         hue: identity.colour,
-        drawn: row.drawing.as_ref().map(|d| card::Drawn {
-            drawing: d.drawing,
-            slots: &d.slots,
-            table: d.table,
-        }),
+        drawing: drawing.drawing,
+        slots: &drawing.slots,
+        table: drawing.table,
+        step,
+        level,
     })
 }

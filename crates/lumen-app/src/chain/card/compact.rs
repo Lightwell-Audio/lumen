@@ -220,32 +220,14 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         vec2(small, small),
     )
     .round_to_pixels(pixels);
-    let muted = look.bypass || !matches!(look.face, Face::Ready | Face::Loading);
-    // A built-in has the chosen card's header: tinted, its power in the hue,
-    // its name in the display face, and the kind badge (M8).
-    let hue = look.personal.as_ref().map(|personal| personal.shown(muted));
-    let titled = hue.map(|_| personal::Header {
-        rect: header,
-        compact: true,
-    });
-    if let Some(hue) = hue {
-        personal::tint(&painter, header, RADIUS, hue);
-    }
-    let power = match (&titled, hue) {
-        (Some(titled), Some(hue)) => {
-            personal::power(ui, titled.power_at(), id, look, hue, titled.power_radius())
-        }
-        _ => power_button(ui, power_rect, id, look),
-    };
+    let power = power_button(ui, power_rect, id, look);
     let button = Rect::from_center_size(
         pos2(header.right() - side - small / 2.0, header.center().y),
         vec2(small, small),
     )
     .round_to_pixels(pixels);
     let mut strip_out = Vec::new();
-    let has_button = if titled.is_some() {
-        true
-    } else if has_window_button(look) {
+    let has_button = if has_window_button(look) {
         strip_out.extend(strip::editor_button(ui, button, id, look.editor));
         true
     } else if message.is_none() {
@@ -254,43 +236,35 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     } else {
         false
     };
-    let text_left = match &titled {
-        Some(titled) => titled.text_left(),
-        None => power_rect.right() + theme::space::S,
-    };
-    let text_right = if let Some(titled) = &titled {
-        titled.badge().left() - theme::space::S
-    } else if has_button {
+    let text_left = power_rect.right() + theme::space::S;
+    let text_right = if has_button {
         button.left() - theme::space::S
     } else {
         header.right() - side
     };
     let room = text_right - text_left;
+    let muted = look.bypass || !matches!(look.face, Face::Ready | Face::Loading);
     let ink = if muted {
         palette.text_secondary
     } else {
         palette.text
     };
-    if let (Some(titled), Some(hue)) = (&titled, hue) {
-        personal::titles(&painter, titled, look, hue, muted);
-    } else {
-        let name_font = fonts::medium(theme::size::BODY);
-        painter.text(
-            pos2(text_left, header.center().y),
-            Align2::LEFT_BOTTOM,
-            widgets::fit(&painter, look.name, name_font.clone(), room),
-            name_font,
-            ink,
-        );
-        let vendor_font = FontId::proportional(theme::size::CAPTION);
-        painter.text(
-            pos2(text_left, header.center().y),
-            Align2::LEFT_TOP,
-            widgets::fit(&painter, look.vendor, vendor_font.clone(), room),
-            vendor_font,
-            palette.text_secondary,
-        );
-    }
+    let name_font = fonts::medium(theme::size::BODY);
+    painter.text(
+        pos2(text_left, header.center().y),
+        Align2::LEFT_BOTTOM,
+        widgets::fit(&painter, look.name, name_font.clone(), room),
+        name_font,
+        ink,
+    );
+    let vendor_font = FontId::proportional(theme::size::CAPTION);
+    painter.text(
+        pos2(text_left, header.center().y),
+        Align2::LEFT_TOP,
+        widgets::fit(&painter, look.vendor, vendor_font.clone(), room),
+        vendor_font,
+        palette.text_secondary,
+    );
     // The name opens the card's menu; the preset menu opens under it (from
     // the card's menu, or the command).
     let names = Rect::from_min_max(
