@@ -331,8 +331,9 @@ Sentence case for every label ("Audio settings", not
   for the accent line under a toggle that is on; `EDGE 2` for the line of a
   marker, a handle or a selection's edge; `HALO 3` and `GLOW_WIDE 6` for
   the halo and the wide glow beside an accent edge. An icon's own line is
-  one of `ICON 1.6`, `ICON_FINE 1.3`, `ICON_BOLD 2.4` or `ICON_STRIKE 1.8`,
-  in units of its 16-unit grid.
+  one of `ICON 1.6`, `ICON_FINE 1.3`, `ICON_BOLD 2.4`, `ICON_HEAVY 2.2` (the
+  drum glyphs' cymbal edge and rim strike, M8 D1) or `ICON_STRIKE 1.8`, in
+  units of its 16-unit grid.
 - **Elevation:** only windows and popovers float. They get `overlay` fill,
   a `border_strong` outline, the edge light and one soft shadow (offset
   0, 6, blur 18). The one other shadow is the mixer's pinned master,
@@ -1128,6 +1129,13 @@ The Clip tab uses the shared controls (§5a, ADR-0052).
 - **Keys:** an ivory gradient, white-key dividers behind the black keys, black
   keys (62% wide) with a gradient and a shadow, C labelled in mono; the key
   under the pointer or a gesture is lit with an accent gradient.
+- **Keys on a drum map** (M8 D1): the column is the kit, the lanes' name
+  column's look (176 pt wide): each sound's 3 pt colour bar, its 16 pt drawing
+  and its name (caption face) in its row's middle, the keys the map does not
+  use dimmed (`app` at `INK_DIM`), and a silent sound quiet with an M at the
+  right. The Keys toggle in the header (and "Hide unmapped keys" in the
+  palette) folds the roll to the sounds' notes, so a kit's rows sit together.
+  The lanes alternate a shade per mapped row as the keyboard's black keys do.
 - **Roll:** ruler bar numbers in mono; the playhead is the arrangement's
   (`light::BEAM`, its cast and cap while playing); the right edge fades into
   `canvas`.
@@ -1645,6 +1653,37 @@ only what the device *is* changes.
   **stable saved name**, never its personality's: renaming a personality must not orphan every preset
   a person saved (B0 review L5).
 - Names are checked for trademark conflicts before release (M10).
+
+## 7l. The drum map editor (M8 slice D1)
+
+One `widgets::Dialog`, 780 pt wide, opening top-centre: the track it acts on in
+a quiet line, the map's **Name** field and the **map list** (a raised button
+with a drawn chevron, opening the kits, this project's maps and the user's
+files), then the actions (Add sound, Make unique, Save as user map…, Import…,
+Export…) as ordinary buttons. Under them a table of sounds: a caption row
+(Sound, In, Out, Ch, M, S, Quantize, Length, Choke, Col) over 28 pt rows, each
+with the sound's icon at the left (a button: click for its grid, drag to move
+the row), its name in a sunken field, its input and output notes, channel,
+choke and a colour swatch in `widgets::number` fields, 20 pt lettered M and S
+toggles (the lanes' 20 × 18), Quantize and Length dropdowns, a Learn button
+and Remove. Each number is type-in, wheel and double-click reset (DESIGN §5);
+Enter or Tab in a name commits it and takes the keyboard to the note. The
+icon popover is a 5 × 3 grid of the fifteen drawings, each named, the current
+one lit, its ring opening on it and the arrows moving it. A track without a
+map opens the same window on the list of maps to choose first. A notice under
+the table says what a file did, in full.
+
+## 7m. The drum map's key column (M8 slice D1)
+
+On a track with a drum map the piano roll's key column is the kit instead of
+the keyboard: `KEY_WIDTH_DRUMS`, 176 pt (the lanes' name column), each sound
+at its input note with a 3 pt colour bar, its 16 pt drawing and its name in
+the caption face at 34 pt in; the keys the map does not use are `app` dimmed,
+a silent sound (muted, or unsoloed while another is soloed) is quiet with an M
+at the right, and the lanes alternate a shade per mapped row. The **Keys**
+toggle in the editor header (`view.hide_unmapped_keys`) folds the roll to the
+map's sounds, so the kit's rows sit together; it is a view, kept while the
+app runs and not saved with the project (like the lane's own shown state).
 
 ## 8. Key flows
 

@@ -691,11 +691,13 @@ pub mod stroke {
     pub const GLOW_WIDE: f32 = 6.0;
     /// The line weight of an icon, in units of its 16-unit grid: the
     /// ordinary line, a fine one for a small detail, a bold one for a mark
-    /// that must carry at a small size, and the strike through a switched-off
-    /// icon.
+    /// that must carry at a small size, a heavy one for the drum glyphs'
+    /// cymbal edge and rim strike (M8 D1), and the strike through a
+    /// switched-off icon.
     pub const ICON: f32 = 1.6;
     pub const ICON_FINE: f32 = 1.3;
     pub const ICON_BOLD: f32 = 2.4;
+    pub const ICON_HEAVY: f32 = 2.2;
     pub const ICON_STRIKE: f32 = 1.8;
 }
 

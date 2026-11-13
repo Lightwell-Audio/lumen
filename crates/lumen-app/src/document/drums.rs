@@ -33,7 +33,7 @@ impl Document {
     /// owner's DM A: a preset is copied in, so the project never depends on a
     /// file elsewhere). One undo step. `None` when the track is not a MIDI
     /// track.
-    #[allow(dead_code)] // D1's map editor and this slice's tests call it.
+    #[allow(dead_code)] // the one-track form: D2's lanes and this crate's tests
     pub fn attach_drum_map_preset(&mut self, track: Id, preset: Preset) -> Option<Id> {
         self.attach_drum_map_preset_to(&[track], preset)
     }
@@ -64,7 +64,7 @@ impl Document {
     /// Gives `track` a map the project already holds, so two kit tracks can
     /// share one. One undo step; false when the map or the track is not
     /// there, or the track is not a MIDI track.
-    #[allow(dead_code)] // D1's map editor and this slice's tests call it.
+    #[allow(dead_code)] // the one-track form: D2's lanes and this crate's tests
     pub fn attach_drum_map(&mut self, track: Id, map: Id) -> bool {
         self.attach_drum_map_to(&[track], map)
     }
@@ -100,7 +100,7 @@ impl Document {
 
     /// Takes the map off `track`: its notes are untouched and play as they
     /// are. One undo step.
-    #[allow(dead_code)] // D1's map editor and this slice's tests call it.
+    #[allow(dead_code)] // the one-track form: D2's lanes and this crate's tests
     pub fn detach_drum_map(&mut self, track: Id) {
         self.detach_drum_maps(&[track]);
     }
@@ -142,10 +142,8 @@ impl Document {
     }
 }
 
-/// The rest of the map's edits, one undo step each. D1's map editor is their
-/// caller; until it lands, this slice's tests are, so the allowance goes with
-/// that slice.
-#[allow(dead_code)]
+/// The rest of the map's edits, one undo step each, called by D1's map
+/// editor (the window) and this crate's tests.
 impl Document {
     /// Solos or unsolos a sound of `map`. One undo step.
     pub fn set_sound_solo(&mut self, map: Id, input: u8, solo: bool) -> bool {
@@ -218,6 +216,7 @@ impl Document {
 
     /// Sets where a sound plays: the instrument, one of its outputs, or
     /// another instrument track. One undo step.
+    #[allow(dead_code)] // D4's routing column calls it
     pub fn set_sound_route(&mut self, map: Id, input: u8, route: Route) -> bool {
         self.edit_sound(map, input, "Change where the drum sound plays", |sound| {
             sound.route = route
@@ -317,7 +316,7 @@ impl Document {
     }
 
     /// One undo step that changes sound `input` of `map` through `change`.
-    fn edit_sound(
+    pub(super) fn edit_sound(
         &mut self,
         map: Id,
         input: u8,

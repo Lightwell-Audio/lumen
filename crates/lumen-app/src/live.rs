@@ -23,7 +23,7 @@ use lumen_core::midi::{Kind, Msg};
 use lumen_engine::{AUDITION, INPUT_SLOTS, KEYBOARD, LIVE_SOURCES, LiveIn, LiveInput};
 use lumen_midi::Timed;
 
-use crate::live_tap::{Heard, Shared, TAP_QUEUE, Tap};
+use crate::live_tap::{Heard, Played, Shared, TAP_QUEUE, Tap};
 use crate::midi::out::{StreamClock, frame_ns};
 
 /// How many recent blocks frame 0's time is taken over.
@@ -189,17 +189,20 @@ pub(crate) struct LiveFeed {
     len: usize,
     /// Controller messages for the interface (M7 slice A5).
     tap: rtrb::Producer<Heard>,
+    /// Note-ons for the interface (M8 D1: the map editor's Learn).
+    notes: rtrb::Producer<Played>,
     shared: Arc<Shared>,
 }
 
 /// The three ends: the feed for the engine, the keyboard's sender, and the
-/// interface's tap on the controllers.
+/// interface's tap on the controllers and the notes.
 pub(crate) fn live(
     input: Option<rtrb::Consumer<Timed>>,
     clock: Arc<StreamClock>,
 ) -> (LiveFeed, LiveKeys, Tap) {
     let (tx, keys) = rtrb::RingBuffer::new(KEYS_QUEUE);
     let (tap_tx, tap_rx) = rtrb::RingBuffer::new(TAP_QUEUE);
+    let (notes_tx, notes_rx) = rtrb::RingBuffer::new(crate::live_tap::NOTE_QUEUE);
     let shared = Shared::new();
     let empty = LiveIn {
         frame: 0,
@@ -219,6 +222,7 @@ pub(crate) fn live(
             pending: [empty; PENDING],
             len: 0,
             tap: tap_tx,
+            notes: notes_tx,
             shared: Arc::clone(&shared),
         },
         LiveKeys {
@@ -227,7 +231,11 @@ pub(crate) fn live(
             sent: 0,
             held: 0,
         },
-        Tap { rx: tap_rx, shared },
+        Tap {
+            rx: tap_rx,
+            notes: notes_rx,
+            shared,
+        },
     )
 }
 
@@ -261,6 +269,22 @@ impl LiveFeed {
             played,
         };
         if self.tap.push(heard).is_err() {
+            self.shared
+                .dropped
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    /// Tells the interface a note was played, or counts it if the queue is
+    /// full: the map editor's Learn listens (M8 D1); nothing here waits.
+    fn tell_note(&mut self, source: u8, channel: u8, key: u8, velocity: u8) {
+        let played = Played {
+            source,
+            channel,
+            key,
+            velocity,
+        };
+        if self.notes.push(played).is_err() {
             self.shared
                 .dropped
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -336,6 +360,9 @@ impl LiveInput for LiveFeed {
                     if self.shared.taken.contains(msg.channel(), number) {
                         continue;
                     }
+                }
+                if let Kind::NoteOn { key, velocity } = msg.kind() {
+                    self.tell_note(source, msg.channel(), key, velocity);
                 }
                 self.queue(
                     LiveIn {
@@ -686,6 +713,28 @@ mod tests {
         block(&mut feed, &clock, 1, at(256));
         assert_eq!(heard_by_the_tap(&mut tap).len(), TAP_QUEUE);
         assert_eq!(tap.dropped(), 40);
+    }
+
+    #[test]
+    fn a_note_on_is_told_to_the_interface_for_the_map_editors_learn() {
+        let clock = StreamClock::new();
+        let (mut tx, rx) = rtrb::RingBuffer::new(16);
+        let (mut feed, _keys, mut tap) = live(Some(rx), Arc::clone(&clock));
+        block(&mut feed, &clock, 0, 0);
+        let arrives = at(200);
+        tx.push(timed(&clock, 2, 1, arrives, Msg::note_on(2, 46, 90)))
+            .unwrap();
+        tx.push(timed(&clock, 2, 2, arrives, Msg::note_off(2, 46)))
+            .unwrap();
+        block(&mut feed, &clock, 1, at(256));
+        block(&mut feed, &clock, 2, at(384));
+        let mut notes = Vec::new();
+        tap.drain_notes(|n| notes.push(n));
+        assert_eq!(notes.len(), 1, "the note-on, not the release");
+        assert_eq!(
+            (notes[0].key, notes[0].velocity, notes[0].source),
+            (46, 90, 2)
+        );
     }
 
     #[test]

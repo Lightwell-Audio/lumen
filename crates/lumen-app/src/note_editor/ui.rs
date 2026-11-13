@@ -10,8 +10,8 @@ use super::gesture::{Env, Kind, Preview, Resolved, tones_of};
 use super::lane;
 use super::paint::{self, Scene};
 use super::view::{
-    EditorView, KEY_WIDTH, ROW_DEFAULT, ROW_MAX, ROW_MIN, RULER_HEIGHT, Zone, fit_clip, pitch_name,
-    scroll_to_centre,
+    EditorView, KEY_WIDTH, KEY_WIDTH_DRUMS, ROW_DEFAULT, ROW_MAX, ROW_MIN, RULER_HEIGHT, Rows,
+    Zone, fit_clip, pitch_name, scroll_to_row,
 };
 use super::{EditorZoom, MenuFor, NoteEditor, NoteOp, Tool, notes_of};
 use crate::app::info::{Held, Info, Mouse};
@@ -53,18 +53,31 @@ impl App {
             return;
         };
         let editable = self.document.notes_editable(clip.id);
+        // The map the clip's track reads, when it reads one: the rows are
+        // then the kit's, and the key column names each sound (M8 D1).
+        let drums = self.clip_key_sounds(clip.id);
+        let rows = if drums.is_some() && ed.hide_unmapped {
+            Rows::mapped(drums.as_deref().unwrap_or_default())
+        } else {
+            Rows::all()
+        };
+        let key_width = if drums.is_some() {
+            KEY_WIDTH_DRUMS
+        } else {
+            KEY_WIDTH
+        };
         // The lane takes the bottom of the editor when there is room.
         let lane_height = lane::reserved(area.height() - TOOLBAR - RULER_HEIGHT, &ed.lane);
         let roll = Rect::from_min_max(area.min, pos2(area.right(), area.bottom() - lane_height));
         let lane_area = Rect::from_min_max(pos2(area.left(), roll.bottom()), area.max);
         let toolbar = Rect::from_min_size(area.min, vec2(area.width(), TOOLBAR));
         let ruler = Rect::from_min_max(
-            pos2(area.left() + KEY_WIDTH, toolbar.bottom()),
+            pos2(area.left() + key_width, toolbar.bottom()),
             pos2(area.right(), toolbar.bottom() + RULER_HEIGHT),
         );
         let keys = Rect::from_min_max(
             pos2(area.left(), ruler.bottom()),
-            pos2(area.left() + KEY_WIDTH, roll.bottom()),
+            pos2(area.left() + key_width, roll.bottom()),
         );
         let body = Rect::from_min_max(pos2(keys.right(), ruler.bottom()), roll.max);
         if ed.row_height <= 0.0 {
@@ -72,9 +85,19 @@ impl App {
         }
         // Framed before the toolbar, so the grid it names is the roll's.
         if ed.framed_for != Some(clip.id) {
-            self.frame_editor(ed, &clip, body);
+            self.frame_editor(ed, &clip, body, rows);
         }
-        self.editor_toolbar(ui, toolbar, ed, &clip, colour, editable);
+        self.editor_toolbar(
+            ui,
+            toolbar,
+            ed,
+            super::toolbar::Strip {
+                clip: &clip,
+                colour,
+                editable,
+                mapped: drums.is_some(),
+            },
+        );
         if body.height() < MIN_BODY || body.width() < MIN_BODY {
             return;
         }
@@ -86,6 +109,7 @@ impl App {
             clip_start: clip.start,
             row_height: ed.row_height,
             scroll: ed.scroll,
+            rows,
         };
         let pointer = ctx.input(|i| i.pointer.hover_pos());
         self.editor_zoom_keys(ed, &mut view, pointer);
@@ -190,7 +214,7 @@ impl App {
         let painter = ui.painter().clone();
         // The GPU roll: its boxes are rebuilt only when the clip or the
         // picked notes change, never for a gesture's frames.
-        let boxes = ed.boxes_for(&drawn, colour);
+        let boxes = ed.boxes_for(&drawn, colour, rows);
         let p = theme::p();
         let look = canvas::GridLook {
             grid: self.grid,
@@ -199,14 +223,17 @@ impl App {
         };
         let roll_rect = Rect::from_min_max(keys.min, body.max);
         piano_roll::draw::roll(
-            &painter,
-            surface,
-            roll_rect,
-            KEY_WIDTH,
+            piano_roll::draw::RollCanvas {
+                painter: &painter,
+                surface,
+                rect: roll_rect,
+                key_width,
+            },
             RollView {
                 time: view.time,
                 scroll: view.scroll,
                 row_height: view.row_height,
+                rows,
             },
             &look,
             piano_roll::draw::RollNotes {
@@ -214,6 +241,7 @@ impl App {
                 generation: boxes.1,
                 under: |_: &egui::Painter| {},
             },
+            drums.as_deref(),
         );
         if ed.gesture.is_none() {
             ed.boxed.clear();
@@ -284,10 +312,10 @@ impl App {
         } else if modifiers.alt && pitch {
             let wheel = if delta.y != 0.0 { delta.y } else { delta.x };
             if wheel != 0.0 {
-                // Keep the pitch under the pointer where it is.
-                let pitch = view.pitch_at(pointer.y);
+                // Keep the row under the pointer where it is.
+                let row = view.rows.row_of(view.pitch_at(pointer.y)).unwrap_or(0);
                 view.row_height = (view.row_height + wheel / 20.0).clamp(ROW_MIN, ROW_MAX);
-                let kept = (super::view::PITCHES - 1 - pitch) as f32 * view.row_height;
+                let kept = row as f32 * view.row_height;
                 view.scroll = kept - (pointer.y - view.body.top());
             }
         } else {
@@ -361,7 +389,7 @@ impl App {
     /// Frames the editor on `clip` (its first draw, or a new clip): the
     /// clip's span fitted to the body's width, its middle pitch centred.
     /// The view is the editor's own; the arrangement does not move.
-    fn frame_editor(&self, ed: &mut NoteEditor, clip: &Clip, body: Rect) {
+    fn frame_editor(&self, ed: &mut NoteEditor, clip: &Clip, body: Rect, rows: Rows) {
         ed.framed_for = Some(clip.id);
         let limits = self.zoom_limits_at(body.width(), clip.start.as_quarters());
         ed.time = fit_clip(clip.start, clip.length, body.width(), limits);
@@ -373,7 +401,8 @@ impl App {
             pitches.sort_unstable();
             pitches[pitches.len() / 2]
         };
-        ed.scroll = scroll_to_centre(middle, ed.row_height, body.height());
+        let row = rows.row_of(middle).unwrap_or(0);
+        ed.scroll = scroll_to_row(row, ed.row_height, body.height());
     }
 
     /// The zoom keys (+ and -) while the editor has the keyboard: the roll
