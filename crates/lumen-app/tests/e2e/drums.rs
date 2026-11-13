@@ -539,13 +539,24 @@ fn hide_unmapped_keys_folds_the_roll_to_the_maps_sounds() {
         .expect("the clip is in view");
     lumen.double_click(rect.center());
     lumen.frames(6);
+    // M8 D2: a clip on a mapped track opens in the drum editor's lanes, one
+    // lane a sound; the piano roll is the Keys view.
+    assert_eq!(lumen.app().drum_view_shown(), Some("lanes"));
+    assert_eq!(
+        lumen.app().note_editor_rows(),
+        Some(47),
+        "the kit's lanes first"
+    );
+    lumen.click("Keys view");
+    lumen.frames(6);
     assert_eq!(
         lumen.app().note_editor_rows(),
         Some(128),
-        "the keyboard first"
+        "the keyboard in the piano roll"
     );
-    // The editor's Keys button folds the column to the kit's sounds.
-    lumen.click("Keys");
+    // The editor's Hide unmapped keys button folds the column to the kit's
+    // sounds.
+    lumen.click("Hide unmapped keys");
     lumen.frames(4);
     assert!(lumen.app().hiding_unmapped_keys());
     assert_eq!(
@@ -554,7 +565,7 @@ fn hide_unmapped_keys_folds_the_roll_to_the_maps_sounds() {
         "the General MIDI kit's rows"
     );
     // And again shows every key.
-    lumen.click("Keys");
+    lumen.click("Hide unmapped keys");
     lumen.frames(4);
     assert!(!lumen.app().hiding_unmapped_keys());
     assert_eq!(lumen.app().note_editor_rows(), Some(128));

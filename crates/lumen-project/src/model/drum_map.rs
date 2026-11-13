@@ -141,12 +141,41 @@ impl Route {
 }
 
 /// A sound's own quantize grid (§6.4): the step the drum editor's quantize
-/// uses on its lane. D2 applies it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// uses on its lane. A bar has no triplet or dotted feel (review L8): a file
+/// that names one reads as straight, and the map editor does not offer it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Quantize {
     pub size: Size,
-    #[serde(default)]
     pub feel: Feel,
+}
+
+impl<'de> Deserialize<'de> for Quantize {
+    /// Reads a grid, normalising a bar's feel to straight (review L8). This
+    /// belongs to format v35, the version that introduced `Quantize`: no
+    /// build that offers a dotted or triplet bar can have written one, so
+    /// every such file is a hand edit. A later format version that offers a
+    /// bar's feel must gate this normalisation on the version it is reading,
+    /// or the value is silently lost.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw {
+            size: Size,
+            #[serde(default)]
+            feel: Feel,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        let feel = match raw.size {
+            Size::Bars(_) => Feel::Straight,
+            Size::Note(_) => raw.feel,
+        };
+        Ok(Quantize {
+            size: raw.size,
+            feel,
+        })
+    }
 }
 
 /// One sound of a map: what it is called, the note it answers to and the
@@ -258,5 +287,30 @@ impl DrumMap {
             .find(|s| s.output == output)
             .and_then(|s| s.choke)
             .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_quantize_with_a_bar_and_a_feel_reads_as_straight() {
+        // Review L8: a bar has no triplet or dotted feel; a file that names
+        // one (a later build, a hand-edited file) reads as straight.
+        let read: Quantize =
+            serde_json::from_str(r#"{"size":{"bars":1},"feel":"triplet"}"#).expect("a grid");
+        assert_eq!(read.size, Size::Bars(1));
+        assert_eq!(read.feel, Feel::Straight);
+        let dotted: Quantize =
+            serde_json::from_str(r#"{"size":{"bars":2},"feel":"dotted"}"#).expect("a grid");
+        assert_eq!(dotted.feel, Feel::Straight);
+        // A note keeps its feel.
+        let note: Quantize =
+            serde_json::from_str(r#"{"size":{"note":8},"feel":"triplet"}"#).expect("a grid");
+        assert_eq!(note.feel, Feel::Triplet);
+        // And it is written as it is read.
+        let text = serde_json::to_string(&note).expect("a grid");
+        assert!(text.contains("triplet"), "{text}");
     }
 }

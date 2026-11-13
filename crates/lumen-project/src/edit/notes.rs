@@ -199,6 +199,45 @@ fn shifted(n: Note, time: Ticks, pitch: i32) -> Note {
     )
 }
 
+/// Moves the picked notes by `time`, each to its own pitch (`pitches`, in the
+/// order of `selection`), as one group clamped in time ([`clamp_move`]). The
+/// drum editor's lanes use it: a lane up is the next sound, not a semitone
+/// (M8 D2 review H3). With `copy`, the originals stay and the copies are
+/// returned.
+pub fn move_to_pitches(
+    notes: &mut Vec<Note>,
+    selection: &[usize],
+    time: Ticks,
+    pitches: &[u8],
+    copy: bool,
+    length: Ticks,
+) -> Vec<usize> {
+    let picked = picked(selection, notes.len());
+    if picked.is_empty() || pitches.len() != picked.len() {
+        return Vec::new();
+    }
+    let (time, _) = clamp_move(notes, &picked, time, 0, length);
+    if copy {
+        let mut tagged = tag(notes, &[]);
+        tagged.extend(picked.iter().zip(pitches).map(|(&i, &pitch)| {
+            let mut copy = notes[i];
+            copy.0 = copy.0 + time;
+            copy.2 = pitch.min(127);
+            (copy, true)
+        }));
+        return finish(notes, tagged);
+    }
+    let mut tagged = tag(notes, &picked);
+    for (index, (note, chosen)) in tagged.iter_mut().enumerate() {
+        if *chosen {
+            let slot = picked.binary_search(&index).unwrap_or(0);
+            note.0 = note.0 + time;
+            note.2 = pitches[slot].min(127);
+        }
+    }
+    finish(notes, tagged)
+}
+
 /// Copies the picked notes, moved by `time` and `pitch` as a group
 /// ([`clamp_move`]), leaving the originals. Returns the copies.
 pub fn copy_moved(
@@ -773,5 +812,40 @@ mod tests {
         assert!(legato(&mut notes, &[], LEN).is_empty());
         assert!(resize(&mut notes, &[], End::End, q(1), MIN_NOTE, LEN).is_empty());
         assert_eq!(notes, before);
+    }
+
+    #[test]
+    fn a_lane_move_shifts_the_time_and_sets_each_hits_own_pitch() {
+        // M8 D2 review H3: the drum editor's lanes move a block by rows, so
+        // each hit takes the pitch of the row it lands on, and the whole block
+        // is clamped in time as a group.
+        let mut notes = vec![n(1, 1, 36), n(1, 1, 38), n(4, 1, 42)];
+        let copied = move_to_pitches(&mut notes, &[0, 1], q(1), &[38, 42], true, LEN);
+        assert_eq!(copied.len(), 2, "the copies come back");
+        assert_eq!(notes.len(), 5);
+        let mut pitches: Vec<u8> = notes.iter().map(|note| note.pitch()).collect();
+        pitches.sort_unstable();
+        assert_eq!(pitches, [36, 38, 38, 42, 42]);
+        assert!(
+            notes
+                .iter()
+                .any(|note| note.start() == q(2) && note.pitch() == 38),
+            "a copy at beat 3, the next lane"
+        );
+        // A move: the originals go, in time and pitch.
+        let mut notes = vec![n(1, 1, 36), n(1, 1, 38)];
+        move_to_pitches(&mut notes, &[0, 1], q(1), &[38, 42], false, LEN);
+        assert_eq!(notes.len(), 2);
+        assert_eq!(
+            notes
+                .iter()
+                .map(|note| (note.start(), note.pitch()))
+                .collect::<Vec<_>>(),
+            [(q(2), 38), (q(2), 42)]
+        );
+        // A selection with the wrong number of pitches changes nothing.
+        let mut notes = vec![n(1, 1, 36)];
+        assert!(move_to_pitches(&mut notes, &[0], q(1), &[38, 40], false, LEN).is_empty());
+        assert_eq!(notes, vec![n(1, 1, 36)]);
     }
 }

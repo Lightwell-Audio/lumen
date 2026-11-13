@@ -35,6 +35,16 @@ pub struct Resize {
     pub min: Ticks,
 }
 
+/// The drum editor's lane move: the picked hits `time` later, each on its own
+/// pitch (`pitches`, in the order of the selection), copying them when `copy`
+/// is set (M8 D2 review H3: one lane up is the next sound, not a semitone).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LaneMove<'a> {
+    pub time: Ticks,
+    pub pitches: &'a [u8],
+    pub copy: bool,
+}
+
 impl Document {
     /// Whether the notes of `clip` can be edited now: it is a MIDI clip and
     /// not locked.
@@ -222,6 +232,38 @@ impl Document {
         })
     }
 
+    /// Moves the picked notes `time` later and each to its own pitch (the drum
+    /// editor's lanes, where one lane up is the next sound): one undo step.
+    /// `pitches` is in the order of `selection`; with `copy` the originals
+    /// stay and the copies come back.
+    pub fn move_notes_to_pitches(
+        &mut self,
+        base: &Project,
+        clip: Id,
+        selection: &[usize],
+        to: LaneMove<'_>,
+        merge: Option<&str>,
+    ) -> Vec<usize> {
+        let LaneMove {
+            time,
+            pitches,
+            copy,
+        } = to;
+        let label = if copy {
+            plural(selection.len(), "Copy note", "Copy {} notes")
+        } else {
+            plural(selection.len(), "Move note", "Move {} notes")
+        };
+        self.edit_notes(
+            &label,
+            Some(base),
+            merge,
+            clip,
+            selection,
+            |notes, length| ops::move_to_pitches(notes, selection, time, pitches, copy, length),
+        )
+    }
+
     /// Moves the picked notes `by` in time (the arrow keys), as a group.
     pub fn nudge_notes(&mut self, clip: Id, selection: &[usize], by: Ticks) -> Vec<usize> {
         let label = plural(selection.len(), "Nudge note", "Nudge {} notes");
@@ -257,6 +299,27 @@ impl Document {
         let label = plural(selection.len(), "Quantize note", "Quantize {} notes");
         self.edit_notes(&label, None, None, clip, selection, |notes, length| {
             quantize::quantize(notes, selection, length, settings)
+        })
+    }
+
+    /// Quantizes the picked notes each to its own grid where it has one (the
+    /// drum editor's per-lane quantize, M8 D2): `steps` lists a sound's own
+    /// step by its note, and every other note takes `settings`'s. One step.
+    pub fn quantize_notes_each(
+        &mut self,
+        clip: Id,
+        selection: &[usize],
+        settings: &quantize::Settings,
+        steps: &[(u8, Ticks)],
+    ) -> Vec<usize> {
+        let label = plural(selection.len(), "Quantize note", "Quantize {} notes");
+        self.edit_notes(&label, None, None, clip, selection, |notes, length| {
+            quantize::quantize_each(notes, selection, length, settings, &|pitch| {
+                steps
+                    .iter()
+                    .find(|(input, _)| *input == pitch)
+                    .map(|(_, step)| *step)
+            })
         })
     }
 

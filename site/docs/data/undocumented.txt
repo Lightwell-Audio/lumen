@@ -374,3 +374,8 @@ track.drum_map_import @m8
 track.drum_map_export @m8
 view.hide_unmapped_keys @m8
 devices.add_utility @m8
+view.drum_lanes @m8
+view.drum_keys @m8
+view.hide_unused_lanes @m8
+midi.mute_lane @m8
+midi.solo_lane @m8

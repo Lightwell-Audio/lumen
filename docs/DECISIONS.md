@@ -13578,3 +13578,192 @@ Differences from the specimen that remain, from looking at crops of the shots ne
   panel's travel; devices with taller whole cards have more.
 - Whole, short and compact were looked at in crops, dark and light, at 150 % (and the short and
   compact steps at 200 % and 100 %).
+
+## ADR-0147 — The drum editor's lanes (M8 slice D2)
+
+**Status.** Proposed (M8 D2, `docs/milestones/M8.md` §5; the owner's DV A and
+DE A with the velocity inside the hit, 2026-11-12).
+
+**Context.** D0 gave a MIDI track a drum map and played it; D1 made the map
+editable and the piano roll legible as a kit. A drum part still had to be
+played into a piano roll whose rows are notes. D2 is the drum editor: one lane
+a sound, a hit whose fill is its velocity, and the map's own order and mutes —
+with the piano roll's selection, snapping, zoom and gestures, not a second set
+of them (E5: a fork is a review finding).
+
+**Choices.**
+
+1. **The lanes are a view of the note editor, not a second editor.** The clip
+   editor's state (`NoteEditor`: its selection, time view, scroll, gesture,
+   quantize options and the velocity lane) is shared; Lanes only changes the
+   rows (`Rows::lanes`, the map's order), the row height (28 pt, fixed), the
+   name column (176 pt) and how a note is drawn. Everything the arrow keys,
+   Delete, Ctrl+D, Ctrl+A, the box, the draw tool, the drags, the wheel, the
+   ruler and the velocity lane do is the roll's own code. The one addition to
+   the shared gesture is `Gesture::velocity_on_vertical`: on a lane, a drag
+   that starts more up or down than sideways on a picked hit sets the picked
+   hits' velocity (each drag from the diamond's foot at 0 to its top at 127,
+   the extent the fill draws) and never changes a lane; a sideways drag moves
+   the hit, pitch change included (one lane up is the next sound). The piano
+   roll sets the flag false, so nothing about it changes.
+2. **The view switch is in the shared header** (`HeaderStrip::views`): **Lanes
+   · Keys**, 30 pt like the tool switch, only on a track with a drum map. DV A
+   also names **Steps**, which is D3's: a greyed segment that says "not yet"
+   reads worse than showing the two views that work, so D2 shows Lanes and
+   Keys and D3 adds Steps between them. A mapped clip opens in Lanes; Keys is
+   D1's piano roll with the kit in the key column.
+3. **The view is per track, kept in the editor's state, not saved.** Which
+   view a track's clips open in and a track's Hide unused last while the app
+   runs, like the lane's shown state and Hide unmapped keys (D1's ADR item 8).
+   No format or settings bump, and the choice follows a kit track from clip to
+   clip. A lane's "show length" belongs to one map and is dropped when another
+   map's lanes open, so it never leaks between kits.
+4. **Sizes: the specimen's, confirmed.** The name column is 176 pt — D1's key
+   column and P's lane card, the same column in both views — and a lane is 28
+   pt, `2 × space::M + space::XS`, D1's table row. The hit's half-width is the
+   row's third at most and half the grid step at most (so neighbours part), at
+   least 1.5 pt; its left tip is the onset.
+5. **Only the hits in view are drawn, gathered per picture column.** A lane
+   gathers the hits that share a pixel column (2 pt, widened until the frame's
+   cells fit `MAX_CELLS`), keeping the leftmost onset and the loudest velocity,
+   so a 100,000-hit clip costs its picture, not its notes; past a 2 pt diamond
+   a cell is one filled shape. The arrangement's drum rows do the same per
+   clip (its own 4,000-cell bound). The picture is invariant to the note count
+   at a given zoom, which is what keeps editing quick.
+6. **Per-lane quantize.** Q takes each picked hit to its own sound's grid
+   (`Sound.quantize`, a size and a feel, converted to ticks at the clip's
+   meter by `lumen_core::grid::size_ticks`), and to the options' grid for a
+   sound without one, in one pass and one undo step
+   (`edit::quantize::quantize_each`, `Document::quantize_notes_each`). The
+   toast says "each lane's own grid". The options' mode, strength, swing and
+   window still apply; the lane supplies the grid.
+7. **The name column is the map's, through the map's methods.** Audition
+   plays the track's instrument through the sound's note (the map's
+   translation applies, as D0 makes it); M and S are `set_sound_mute` and
+   `set_sound_solo` (D1's, the same state as the table); a drag on the drawing
+   is `move_drum_sound` (D1's, the map's order, which the lanes and the table
+   share). Audition and the view are not edits and take no undo step; every
+   edit is one.
+8. **The arrangement's drum rows** (DV A, moved here from X4 by the owner):
+   a mapped MIDI clip draws one row per sound it plays, in the map's order,
+   each hit a cell filled from the row's foot to its velocity, in place of the
+   mini piano roll (which is skipped for a mapped track). The rule D2 had to
+   choose: rows are the clip's body divided among the played sounds; below
+   6 pt a row stops being a picture, so the rows drawn are the most played
+   sounds (ties in the map's order) that fit and the rest are left out; a clip
+   too short for one row draws none. A loop repeat's hits are ordinary hits:
+   not muted, drawn like the first pass. It is
+   a picture only: the clip's own gestures still select, move and trim it.
+9. **Commands** at the end of `ALL`: `view.drum_lanes` ("Show the drum
+   lanes"), `view.drum_keys` ("Show the piano roll (Keys)") and
+   `view.hide_unused_lanes` ("Hide unused lanes"), no default keys, all tagged
+   `@m8` in `undocumented.txt`. Each can apply only on a drum clip (the view
+   rows only in the other view); they are in the palette and in the editor's
+   menu, which lists only what applies. `view.hide_unmapped_keys` now asks for
+   the Keys view (it is a piano-roll toggle), and D1's header button's
+   accessible name is "Hide unmapped keys" rather than "Keys", because the
+   view switch now has a Keys segment.
+10. **The velocity lane stays shared and shows every hit.** It is where a
+    ramp across several lanes is drawn; the specimen drew only the picked
+    lane's stems, and a filter to the picked lane would be a second behaviour
+    for the same lane. Recorded as a difference from the specimen.
+
+**Consequences.** No format change: nothing D2 keeps is saved (the lanes read
+the map and the clip; the view state is the editor's). `widgets::letter_toggle`
+moves from D1's map table to the design system (the lanes' M and S are the
+table's). New files: `crates/lumen-app/src/drum_editor/` (geometry, paint, the
+arrangement's picture), `app/clip/clip_drum.rs` (the name column, the view
+state and the commands' entry points), `testing/drums.rs` (the test seams).
+Tests: the lanes' rows and the state (`drum_editor`), the geometry and the
+gathered picture, the diamond's fill, the arrangement's rows and cells, a
+property test that a random run of lane edits is the same edit and the same
+undo step as the piano roll's, the shared gesture's parity (a sideways drag
+moves the same time; up or down is velocity only in the lanes), D1's E2E
+updated to the view switch, and E2E for every gesture group: open, audition,
+velocity drag, draw and erase, move and copy, box and nudge, per-lane
+quantize, mute and solo, reorder, Hide unused, the view switch and the
+arrangement's rows. Screenshots `shots::drum_lanes` and
+`shots::arrangement_drum_rows` in both themes at 100, 150 and 200%; the bench
+`drum_lanes_bench::a_hundred_thousand_hits_in_the_lanes_beside_the_piano_roll`
+prints both frame times (100,000 hits: lanes p50 14.34 ms / p95 27.73 ms
+against the roll's 21.24 / 24.02 ms in a debug build on the development
+machine; the gate is the roll's p95 within 15%). `docs/DESIGN.md` gains §7m.
+Deviations from the specimen, by eye: the map's name sits in the name column's
+ruler slot (the specimen drew the grid's step count there, which is D3's); the
+velocity lane shows every hit; and the hit's fill is drawn over a wash of its
+own colour, so a low velocity still reads as a diamond.
+
+**Review round 1** (an independent review, 2026-11-13; every finding fixed
+here, each with the test that proves it). *The lanes now cost their picture,
+not the clip.* The frame gathers the hits once into `DrumState`'s caches —
+`lanes_for` (the map's lanes, keyed by the map, the clip and Hide unused) and
+`cells_for` (the hits, keyed by the clip, the rows, the picks, the hidden
+notes, the body, the time and the scroll, reusing its `seen` buffer) - and the
+hover and the length bars read that cache instead of re-gathering per pointer
+move or per widget (H2). A box still walks the clip's notes each frame while
+it drags; that is the box's own pass, not the picture's (review round 2, L2).
+The arrangement's drum rows are gathered for
+the *visible* part of the clip only (`body.intersect(painter.clip_rect())`),
+found by range for a sorted clip (`partition_point`) and cached per clip in
+`Arrangement::drum_cache`, and a mark is capped at 3 pt, so a clip tens of
+thousands of points wide draws narrow marks rather than walls and does not
+gather its whole width each frame (H1). *A lane move takes each hit's own
+pitch.* `Resolved::MoveHits` carries one pitch per picked hit (the row it
+lands on, the block clamped so no hit leaves the lanes), committed by
+`Document::move_notes_to_pitches` through
+`edit::notes::move_to_pitches`; a semitone `pitch` delta used to land between
+rows (H3). *The rest:* a press below the last lane, or with no lanes, draws
+nothing (M1); a box in the lanes takes the diamonds (and the length bars, where
+they show) rather than the notes' length boxes (M2); a velocity drag is latched
+on its first frame past the threshold and moves from the hit's velocity at the
+press, so a 127 hit stays 127 and a drag never changes its mind half way (M3);
+the lanes' M and S are commands (`midi.mute_lane`, `midi.solo_lane`, tagged
+`@m8`, in the editor's menu) and Tab plus Space operates them, while a click
+leaves Space to the transport (M4); a drum clip no longer writes the roll's row
+height (M5); the empty lanes say which empty they are — a map with no sounds,
+or Hide unused hiding them all — and the second offers "Show every sound" (M6);
+a loop repeat's hits are no longer drawn muted (M7); the M/S block is measured
+from the name column's right edge (`BUTTONS_RIGHT`, two 20 pt toggles) with its
+icon at 10 pt, all in `theme::size` tokens (M8). *Small ones:* dead locals
+(L1), one row height constant and one length line (L2), the quantize toast says
+"each lane's own grid" only when a picked hit's lane had one (L3), the view
+commands say whether a drum map or the view is missing (L4), design sizes moved
+to `theme::size` (`LANE_*`, `DRUM_ROW_MIN`) (L6), `Rows::lanes` dedups with a
+seen set instead of assuming adjacent duplicates (L7), and a bar's grid has no
+triplet or dotted feel — the map editor does not offer one, `size_ticks` refuses
+one and a file that names one reads as straight (L8).
+
+**Review round 2** (a re-check of the fixes, 2026-11-13; every item fixed
+here, each with the test that proves it). *The deep-zoom E2E read a clock,*
+which broke the timing lint: it now asserts what the code decides — a
+2,000-hit clip at 4,000 points a beat keeps its cells under `MAX_CELLS` and
+its marks no wider than `MARK_MAX` (the pre-fix clip-wide bucket drew 22 pt
+marks) — and the frame-time claim stays the ignored bench's. *The
+arrangement's pictures are pruned:* a clip no longer drawn leaves
+`drum_cache`, and an entry is keyed by the map's id and the document's
+revision instead of a cloned `DrumMap` compared field by field each frame. *A
+looping clip's gather is bounded* to the repeats the view shows and, inside
+each, the notes whose onset falls in the visible window (a note carried into
+the first repeat included); the unsorted fallback stays, with its own test.
+*The lanes' colours follow the theme:* `lanes_for` is keyed by the flag
+`theme::is_light()` answers and `theme::wave_on` takes it, so a theme switch
+rebuilds them. *The editor menu's Lanes/Keys rows* go through the command's own switch
+(`set_drum_view`, or `set_drum_view_in` on the editor while it is out of the
+app drawing the menu), which clears the framing, so Keys opens on the clip's
+notes rather than at pitch 127; the lane mute and solo rows are listed only
+while a lane is picked, which the menu reads from the live editor for the same
+reason. *Small ones:* `mark_width` is extracted and asserted at both
+ends of the zoom (the tautology is gone) and the unsorted path has a test
+(L1); this ADR no longer says the marquee reads the cache — it walks the
+clip's notes during a drag (L2); the cells cache's `seen` buffer is described
+as what is reused, the cells' `Arc` being new each rebuild (L3); a picked hit
+with no row no longer kills a lane move — the rest move (L5) — and the
+lane-move E2E asserts one undo step (L6); choice 8 says loop repeats draw like
+the first pass (L7); `Quantize`'s normalisation is documented as v35's, to be
+gated by any later version that offers a bar's feel (L8); and `letter_toggle`
+no longer repeats the activation egui already reports (L9).
+
+**Not here.** Steps (D3), routing per sound (D4), step input and MIDI effects,
+a saved preference for the view, and auditioning a lane from a hardware pad
+(the lane's name auditions the sound; a pad plays the track already).
+
