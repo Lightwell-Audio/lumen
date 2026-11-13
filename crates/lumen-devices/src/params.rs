@@ -205,6 +205,17 @@ impl Glide {
         self.step = 0.0;
     }
 
+    /// Heads for `value` (normalised) over [`GLIDE_SECONDS`]: what a device
+    /// whose values the project holds — an instrument, which is not given a
+    /// queue per parameter — tells its own glide to do. It settles at the
+    /// value if it is already there.
+    pub fn head_to(&mut self, value: f32) {
+        if value != self.target {
+            self.target = value;
+            self.step = f32::NAN;
+        }
+    }
+
     /// Carries on towards where the value is heading, fills `out` with it, and
     /// moves on: a block that does not name the parameter (the engine tells a
     /// device a value only when it changed, review L6) still finishes a glide.
@@ -239,6 +250,29 @@ impl Glide {
             *sample = value;
         }
         self.now = value;
+    }
+}
+
+/// The value a lane's points hold at `frame` (frames into their block):
+/// straight between two points, and a point's own value on its frame. What a
+/// block cut smaller than its own frames needs, so that the curve it plays is
+/// the same one whatever the cut (M8 slice B4).
+pub fn at(points: &[(u32, f64)], frame: u32) -> f32 {
+    if points.is_empty() {
+        return 0.0;
+    }
+    let after = points.partition_point(|p| p.0 <= frame);
+    let Some(before) = after.checked_sub(1) else {
+        return points[0].1 as f32;
+    };
+    match points.get(after) {
+        Some(&(next, value)) if next > points[before].0 => {
+            let (at, from) = points[before];
+            let span = (next - at) as f32;
+            let into = (frame - at) as f32;
+            (from as f32) + ((value as f32) - (from as f32)) * (into / span)
+        }
+        _ => points[before].1 as f32,
     }
 }
 

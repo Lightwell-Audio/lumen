@@ -433,6 +433,52 @@ fn golden_v11_expected() -> Project {
     project
 }
 
+/// The values a synth that played the preset called `preset` holds after the
+/// v36 migration (frozen there; M8 slice B4).
+fn synth_values_of(preset: &str) -> std::collections::BTreeMap<u32, f64> {
+    // Keys, as v35's synth played it: a triangle and its octave, brighter and
+    // shorter.
+    assert_eq!(preset, "keys");
+    [
+        (1u32, 0.333_333_343_f64),
+        (2, 0.500_000_000),
+        (3, 0.460_000_008),
+        (4, 1.000_000_000),
+        (5, 0.400_000_006),
+        (6, 0.333_333_343),
+        (7, 0.750_000_000),
+        (8, 0.529_999_971),
+        (9, 0.600_000_024),
+        (10, 0.600_000_024),
+        (11, 0.000_000_000),
+        (12, 0.000_000_000),
+        (13, 0.629_329_264),
+        (14, 0.227_921_158),
+        (15, 0.500_000_000),
+        (16, 0.000_000_000),
+        (17, 0.500_000_000),
+        (18, 0.036_840_927),
+        (19, 0.326_956_213),
+        (20, 0.349_999_994),
+        (21, 0.215_087_369),
+        (22, 0.058_481_321),
+        (23, 0.246_350_974),
+        (24, 0.500_000_000),
+        (25, 0.231_773_436),
+        (26, 0.000_000_000),
+        (27, 0.498_116_732),
+        (28, 0.285_714_298),
+        (29, 0.000_000_000),
+        (30, 0.000_000_000),
+        (31, 0.000_000_000),
+        (32, 1.000_000_000),
+        (33, 1.000_000_000),
+        (34, 0.239_999_995),
+    ]
+    .into_iter()
+    .collect()
+}
+
 /// The model the v12 golden file must always load as: v11 with the Bass
 /// track given the synth (on its preset Keys) and a MIDI output.
 fn golden_v12_expected() -> Project {
@@ -446,7 +492,11 @@ fn golden_v12_expected() -> Project {
         .find(|t| t.name == "Bass")
         .expect("the golden project has a Bass track");
     let bass = Arc::make_mut(bass);
-    bass.devices.push(Device::synth(Id(0x12), "keys"));
+    let mut synth = Device::synth(Id(0x12), "keys");
+    // The values the v36 migration gives a synth that played Keys (M8 slice
+    // B4): a name was the sound before, and the sound is its values after.
+    synth.params = synth_values_of("keys");
+    bass.devices.push(synth);
     bass.midi_to = Some(MidiTo {
         port: "Microsoft GS Wavetable Synth".into(),
         channel: 9,

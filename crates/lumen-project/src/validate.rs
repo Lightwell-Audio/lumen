@@ -355,9 +355,13 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 if track.kind != TrackKind::Midi {
                     return Err(format!("{}: a synth on a track that is not MIDI", at()));
                 }
-                if !device
-                    .preset()
-                    .is_some_and(|p| !p.is_empty() && p.len() <= 32)
+                // Its sound is the values it holds (format v36); the preset's
+                // name in `state` is only the record of where it started, and
+                // a file may hold none.
+                if !device.state.is_empty()
+                    && !device
+                        .preset()
+                        .is_some_and(|p| !p.is_empty() && p.len() <= 32)
                 {
                     return Err(format!("{}: the synth's preset is unreadable", at()));
                 }
