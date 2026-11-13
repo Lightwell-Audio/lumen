@@ -150,6 +150,7 @@ impl App {
                 }),
                 sidechain: row.sidechain.as_ref(),
                 outputs: row.outputs.as_ref(),
+                personal: personal_of(row),
                 compact,
                 message: Default::default(),
             })
@@ -170,7 +171,12 @@ impl App {
                 } else {
                     0.0
                 };
-                look.band = geometry::band(layout.card_h - room);
+                // A face takes the picture's height as its own (M8).
+                look.band = if row.is_face() {
+                    0.0
+                } else {
+                    geometry::band(layout.card_h - room)
+                };
             }
         }
         let playing = self.transport.state().playing;

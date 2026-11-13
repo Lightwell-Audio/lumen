@@ -2495,14 +2495,17 @@ fn builtin_card() {
         let mut track = track;
         // A built-in saved with no values of its own plays its table's
         // defaults, as a device added this build does.
-        track.devices = vec![Device::new(
+        let mut prism = Device::new(
             Id(10),
             PluginRef::Builtin {
                 name: lumen_devices::utility::NAME.to_owned(),
             },
             false,
             Vec::new(),
-        )];
+        );
+        // The chosen specimen's Prism: a width of 130 % (saved normalised).
+        prism.params.insert(lumen_devices::utility::WIDTH, 0.65);
+        track.devices = vec![prism];
         let project = lumen_project::testing::project_of("Prism", vec![track]);
         let path = dir.path().join("song.lumen");
         lumen_project::save(&project, &path, &Default::default()).expect("save");

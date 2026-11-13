@@ -29,6 +29,7 @@ fn look(face: Face<'_>, bypass: bool, instrument: bool) -> Look<'_> {
         sidechain: None,
         outputs: None,
         compact: false,
+        personal: None,
         message: Default::default(),
     }
 }

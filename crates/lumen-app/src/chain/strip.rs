@@ -5,7 +5,7 @@
 //! button in the card's header). A slot with nothing in it offers to be
 //! filled.
 
-use eframe::egui::{self, Align2, FontId, Rect, Shape, Stroke, Ui, pos2, vec2};
+use eframe::egui::{self, Align2, Color32, FontId, Rect, Shape, Stroke, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_hosting::ParamInfo;
 
@@ -14,7 +14,7 @@ use crate::icons::{self, Icon};
 use crate::theme::Tone;
 use crate::widgets::param::{ParamLook, param_knob, start_typing};
 use crate::widgets::{self, raised};
-use crate::{motion, theme, widgets::fit};
+use crate::{fonts, motion, theme, widgets::fit};
 
 /// The knobs on a card.
 pub(super) const SLOTS: usize = 8;
@@ -177,6 +177,7 @@ pub(super) fn paint(
             id.with(("slot", i)),
             slot,
             selected,
+            Dress::STRIP,
             &mut out,
         );
     }
@@ -231,10 +232,126 @@ pub(super) fn paint_row(
             id.with(("slot", i)),
             slot,
             selected,
+            Dress::STRIP,
             &mut out,
         );
     }
     out
+}
+
+/// The face's knob cell: the full strip's cell, in the device's hue, under an
+/// idea name, in the light ink of a deep screen (M8; `chain/face/mod.rs`).
+pub(super) fn face_knob(
+    ui: &mut Ui,
+    cell: Rect,
+    id: egui::Id,
+    slot: &Slot,
+    idea: &str,
+    hue: Color32,
+    out: &mut Vec<Output>,
+) {
+    let dress = Dress {
+        hue: Some(hue),
+        idea: Some(idea),
+        on_screen: true,
+    };
+    paint_cell(ui, cell, FULL, id, Some(slot), false, dress, out);
+}
+
+/// The face's pill in `rect`: a two-state switch under an idea name ("True"),
+/// lit in the device's hue while it is on. A click flips it.
+pub(super) fn face_pill(
+    ui: &mut Ui,
+    rect: Rect,
+    id: egui::Id,
+    slot: &Slot,
+    idea: &str,
+    hue: Color32,
+    out: &mut Vec<Output>,
+) {
+    use theme::personality as p;
+    let on = slot.value >= 0.5;
+    let rect = rect.round_to_pixels(ui.pixels_per_point());
+    let response = ui.interact(rect, id, egui::Sense::click());
+    let said = format!("{idea} ({})", slot.name);
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, !slot.read_only, on, &said)
+    });
+    let lit = motion::hover(ui.ctx(), id.with("lit"), on);
+    let hot = motion::hover(ui.ctx(), id.with("hot"), response.hovered());
+    let painter = ui.painter();
+    let radius = rect.height() / 2.0;
+    let fill = Color32::WHITE
+        .gamma_multiply(p::PILL_OFF_FILL)
+        .lerp_to_gamma(hue.gamma_multiply(p::PILL_ON_FILL), lit);
+    painter.rect_filled(rect, radius, fill);
+    painter.rect_filled(
+        rect,
+        radius,
+        Color32::WHITE.gamma_multiply(crate::light::EMBER_WASH * hot * theme::alpha::EDGE),
+    );
+    let ring = Color32::WHITE
+        .gamma_multiply(p::PILL_OFF_RING)
+        .lerp_to_gamma(hue, lit);
+    painter.rect_stroke(
+        rect,
+        radius,
+        Stroke::new(theme::stroke::HAIRLINE, ring),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        idea,
+        if on {
+            fonts::medium(theme::size::CAPTION)
+        } else {
+            FontId::proportional(theme::size::CAPTION)
+        },
+        Color32::WHITE,
+    );
+    if slot.waiting {
+        crate::arrangement::follow::ring_with(ui, rect, theme::p().accent);
+    }
+    if slot.over {
+        crate::arrangement::follow::ring(ui, rect);
+    }
+    raised::focus_ring(ui.painter(), &response, rect);
+    let response = response.on_hover_text(format!("{said}: {}", slot.text));
+    if response.clicked() && !slot.read_only {
+        out.push(Output::Choose(slot.id, if on { 0.0 } else { 1.0 }));
+    }
+    let (value, default, id_param, read_only) = (slot.value, slot.default, slot.id, slot.read_only);
+    widgets::Menu::context(&response).show(|ui| {
+        if widgets::menu_item(ui, "Reset to default", None, !read_only).clicked() {
+            if (value - default).abs() > 1e-9 {
+                out.push(Output::Choose(id_param, default));
+            }
+            ui.close();
+        }
+        ui.separator();
+        if let Some(ask) = widgets::control_items(ui, slot.mapped, slot.waiting) {
+            out.push(Output::Ask(id_param, ask));
+        }
+    });
+}
+
+/// How a cell is dressed: the strip's own, or a face's on its deep screen
+/// (M8; `chain/face/mod.rs`): the device's hue on the knob, an idea name
+/// ("Pull") for the plain one, light ink, and no "Remove from strip".
+#[derive(Clone, Copy)]
+pub(super) struct Dress<'a> {
+    pub hue: Option<Color32>,
+    pub idea: Option<&'a str>,
+    pub on_screen: bool,
+}
+
+impl Dress<'_> {
+    const STRIP: Dress<'static> = Dress {
+        hue: None,
+        idea: None,
+        on_screen: false,
+    };
 }
 
 /// One knob, switch or chooser in `cell` with its name and value, or an
@@ -246,6 +363,7 @@ fn paint_cell(
     slot_id: egui::Id,
     slot: Option<&Slot>,
     selected: bool,
+    dress: Dress<'_>,
     out: &mut Vec<Output>,
 ) {
     let palette = *theme::p();
@@ -265,6 +383,21 @@ fn paint_cell(
             ui.interact(cell, slot_id.with("cell"), egui::Sense::hover())
                 .on_hover_text(&slot.name);
             let kind = stepped::kind_of(slot);
+            // A face names a control for its idea and keeps the parameter's own
+            // name beside it: "Pull (threshold)".
+            let said = match dress.idea {
+                Some(idea) => format!("{idea} ({})", slot.name),
+                None => slot.name.clone(),
+            };
+            let shown_name = dress.idea.unwrap_or(&slot.name);
+            let (name_ink, value_ink) = if dress.on_screen {
+                (
+                    Color32::WHITE.gamma_multiply(theme::personality::SCREEN_NAME_ALPHA),
+                    Color32::WHITE,
+                )
+            } else {
+                (palette.text_secondary, palette.text)
+            };
             let response = match kind {
                 Kind::Knob => {
                     let (response, moved) = param_knob(
@@ -272,13 +405,14 @@ fn paint_cell(
                         knob,
                         slot_id,
                         ParamLook {
-                            name: &slot.name,
+                            name: &said,
                             text: &slot.text,
                             value: slot.value,
                             default: slot.default,
                             steps: slot.steps,
                             read_only: slot.read_only,
                             selected,
+                            hue: dress.hue,
                         },
                     );
                     if let Some(value) = moved.value {
@@ -320,13 +454,13 @@ fn paint_cell(
                 }
             }
             let painter = ui.painter();
-            let name = fit(painter, &slot.name, caption.clone(), cell_w - 2.0 * PAD);
+            let name = fit(painter, shown_name, caption.clone(), cell_w - 2.0 * PAD);
             painter.text(
                 pos2(cell.center().x, knob.bottom() + size.name_gap),
                 Align2::CENTER_TOP,
                 name,
                 caption.clone(),
-                palette.text_secondary,
+                name_ink,
             );
             // A chooser shows its word in its own body.
             if kind != Kind::Chooser {
@@ -336,7 +470,7 @@ fn paint_cell(
                     Align2::CENTER_TOP,
                     text,
                     mono.clone(),
-                    palette.text,
+                    value_ink,
                 );
             }
             let (slot_value, slot_default, slot_id_param, read_only) =
@@ -354,7 +488,9 @@ fn paint_cell(
                     }
                     ui.close();
                 }
-                if widgets::menu_item(ui, "Remove from strip", None, true).clicked() {
+                if !dress.on_screen
+                    && widgets::menu_item(ui, "Remove from strip", None, true).clicked()
+                {
                     out.push(Output::Remove(slot_id_param));
                     ui.close();
                 }

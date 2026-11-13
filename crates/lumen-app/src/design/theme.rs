@@ -591,6 +591,69 @@ pub mod personality {
     /// How much of the signature colour the screen's top carries.
     pub const SCREEN_TINT: f32 = 0.20;
 
+    /// The angle between Prism's neighbouring beams at a Width of 130 %
+    /// (radians), the specimen's 0.12; it follows Width in proportion.
+    pub const PRISM_FAN: f32 = 0.12;
+
+    /// A built-in's header (DESIGN.md §7k, chosen.html "Device faces"): the
+    /// device's hue fading down from the card's top edge, as strong as this at
+    /// the top.
+    pub const HEAD_TINT: f32 = 0.22;
+    /// The power button of a built-in: a circle of the hue, `POWER_FILL` of it
+    /// inside and `POWER_RING` on its edge, with the glyph in white (the hue
+    /// itself in the light theme, where white would not show).
+    pub const POWER_RADIUS: f32 = 9.0;
+    pub const POWER_RADIUS_COMPACT: f32 = 8.0;
+    pub const POWER_FILL: f32 = 0.22;
+    pub const POWER_RING: f32 = 0.8;
+    /// The name in the display face and what the device is under it, on the
+    /// whole card and on the compact one.
+    pub const NAME_SIZE: f32 = 14.0;
+    pub const NAME_SIZE_COMPACT: f32 = 12.5;
+    pub const SUBTITLE_SIZE: f32 = 10.5;
+    pub const SUBTITLE_SIZE_COMPACT: f32 = 9.5;
+    /// The name's and the subtitle's baselines from the header's top edge
+    /// (whole card, then compact).
+    /// The extra space between the display name's letters.
+    pub const NAME_SPACING: f32 = 0.4;
+    pub const NAME_BASELINE: f32 = 23.0;
+    pub const SUBTITLE_BASELINE: f32 = 38.0;
+    pub const NAME_BASELINE_COMPACT: f32 = 17.0;
+    pub const SUBTITLE_BASELINE_COMPACT: f32 = 30.0;
+    /// The kind badge ("FX"): a pill of the hue, on the whole card and on the
+    /// compact one (width, height, type size).
+    pub const BADGE: (f32, f32, f32) = (36.0, 16.0, 8.0);
+    pub const BADGE_COMPACT: (f32, f32, f32) = (32.0, 14.0, 7.0);
+    pub const BADGE_FILL: f32 = 0.18;
+    pub const BADGE_RING: f32 = 0.45;
+    /// The "All 41 ▸" button of a built-in's footer (width, height).
+    pub const ALL_BUTTON: (f32, f32) = (68.0, 18.0);
+    /// The type size of its words.
+    pub const ALL_SIZE: f32 = 8.5;
+    /// A face's screen: its corner radius and the hairline of the hue round it.
+    pub const SCREEN_RADIUS: f32 = 10.0;
+    pub const SCREEN_RING: f32 = 0.35;
+    /// A folded built-in's rail: the hue's bar (inset from the card's top and
+    /// bottom, width), and the name's and the subtitle's lines from the left
+    /// edge.
+    pub const RAIL_BAR: (f32, f32) = (14.0, 3.0);
+    pub const RAIL_NAME_X: f32 = 22.0;
+    pub const RAIL_NAME_SIZE: f32 = 13.0;
+    pub const RAIL_SUBTITLE_X: f32 = 35.0;
+    pub const RAIL_SUBTITLE_SIZE: f32 = 8.0;
+    /// What a screen's readout is set in: the mono size, and how far in from
+    /// the screen's corner it sits.
+    pub const READOUT_SIZE: f32 = 9.0;
+    pub const READOUT_INSET: f32 = 10.0;
+    /// A face's knob names are white at this strength, its values full white,
+    /// on the screen that is deep in both themes.
+    pub const SCREEN_NAME_ALPHA: f32 = 0.62;
+    /// A face's pill: the fill and ring of white when it is off, the fill of the
+    /// hue when it is on.
+    pub const PILL_OFF_FILL: f32 = 0.10;
+    pub const PILL_OFF_RING: f32 = 0.35;
+    pub const PILL_ON_FILL: f32 = 0.25;
+
     /// The light Prism splits (DESIGN.md §7k): the spectrum its beams fan into.
     /// Content, not chrome, so the same in both themes.
     pub const PRISM_BEAMS: [Color32; 5] = [

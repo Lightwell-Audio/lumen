@@ -8,6 +8,7 @@ mod actions;
 mod art;
 mod card;
 pub(crate) mod editor;
+mod face;
 mod geometry;
 pub(crate) mod outputs;
 mod params;

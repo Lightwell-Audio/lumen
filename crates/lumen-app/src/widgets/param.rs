@@ -29,6 +29,9 @@ pub struct ParamLook<'a> {
     pub read_only: bool,
     /// On a selected row the ring steps up, as every control's colours do.
     pub selected: bool,
+    /// A knob's colour when it is not Lumen's accent: a face's knobs take the
+    /// device's hue (M8).
+    pub hue: Option<eframe::egui::Color32>,
 }
 
 /// What happened to a control this frame.
@@ -309,7 +312,7 @@ pub fn param_knob(
     let knob = SendKnob {
         style: super::knob::Style::Ring,
         letter: "",
-        color: palette.accent,
+        color: look.hue.unwrap_or(palette.accent),
         db: 0.0,
         pre_fader: false,
         heard: !look.read_only,

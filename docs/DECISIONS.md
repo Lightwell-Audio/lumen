@@ -13306,10 +13306,10 @@ All parameters, lanes, MIDI learn, overrides, presets, copy — must work identi
    instance, so delay compensation lines up with a device that holds its output back
    (B2's limiter) whether the song plays or a render runs.
 10. **The personality scheme** is in `DESIGN.md` §7k and implemented in
-    `theme::personality`, `builtin::Identity` and `chain/art.rs`: Prism is Utility's
-    personality (a steel grey; the band is the device's drawing and the name is in the card's
-    name row), the card's
-    chrome untouched.
+    `theme::personality`, `builtin::Identity` (name, subtitle, hue) and `chain/face/` (the
+    drawing, below): Prism is Utility's personality, on the owner's chosen card (the hued
+    header with the name in the display face and the kind badge, Lumen's preset row, the
+    footer's signal and "All n", the compact card and the folded rail).
 
 **The trait on paper, against the five slices that depend on it.**
 
@@ -13416,7 +13416,8 @@ why:
   lane over it still plays — a cut, never silence or a panic. **L7** `Builtins::update` gates on one number hashed from the built-ins (id, name,
   bypass, values) and the frozen tracks, so a still project allocates nothing there and
   the latency map is only copied when it can differ.
-- **L8 — the band.** It is now the personality's: a deep tinted screen
+- **L8 — the band** (superseded by "The chosen card" below; the band stays a 72 pt picture
+  on a whole card, with the readout at the top left). It is now the personality's: a deep tinted screen
   (`personality::SCREEN`, the signature hue at `SCREEN_TINT`), the same in both themes, a
   hairline of the signature colour, and Prism's own drawing — a beam in, the prism, five
   beams out in `personality::PRISM_BEAMS` — with no monogram (the card's name row has the
@@ -13505,3 +13506,41 @@ name row and type as every other card's does, and the specimen's "width 130 %" l
 left out because it is a value, not the idea. The `chosen-dark-100.png` and
 `chosen-light-100.png` the review names are not in `docs/specimens/m8/` (only the round 1
 to 3 sheets), so the comparison is against round 2's card.
+
+**The chosen card (2026-11-12, the parent's correction).** The comparison above was against
+round 2's 300 x 290 card, which is not the owner's choice. The authority is
+`docs/specimens/m8/chosen.html`, "Device faces (BF C)", and its renders
+`chosen-{dark,light}-{100,150,200}.png` (now in the repository). The card is Lumen's own
+232 pt chain card (344 whole, 272 without the picture, 116 compact, 48 folded), so the work
+is the chrome and a hook, not a new card:
+
+- **Chrome for every built-in** (`chain/card/personal.rs`, tokens in `theme::personality`,
+  DESIGN.md §7k): a header tinted with the hue, the power as a circle of the hue, the name
+  in Unbounded with tracking and what the device is under it, the kind badge, Lumen's
+  preset row without arrows, the footer's signal and "All n ▸", the compact card and the
+  folded rail with its hue bar. A plugin's card is unchanged.
+- **The hook** (`chain/face/`): a device declares a `Drawing` (a place, a deep colour, the
+  parameters it reads, a `draw` function and `Control`s) and adds one line to `DRAWINGS`,
+  keyed by its stable saved name. `Place::Band` draws the 72 pt picture over the strip
+  (Prism, Parallax, Afterglow, Flare); `Place::Face` replaces the strip and the picture with
+  a screen that holds the device's own knobs and pills under idea names (Iris, Gravity,
+  Horizon, Shutter). A face's controls are the strip's own (`strip::paint_cell`), so no
+  gesture is a second path; a compact card folds a face back to the strip's first four
+  knobs. `Identity` gained `subtitle`.
+- **Prism** is the generic strip under the hued header, with the round-2 beam motif as its
+  band drawing: Width drives the fan, the screen reads "width 130%" from the value.
+- **Why not a bigger face for Prism.** A first attempt built the round-2 card (300 pt wide,
+  a 176 pt screen with four dials and a Preset pill) and was discarded: it was not the
+  chosen card and would have needed a second card geometry.
+- **Found on the way** (B1's review): `validate.rs` refused any `params` on a built-in, so a
+  project with Prism could not be saved. A built-in may hold its parameter values (at most
+  `MOST_PARAMS`, each in 0..=1) and nothing else (no controller state, plugin version,
+  reported values or sidechain). E2E: a value changed on Prism is saved and back after a
+  reopen.
+
+Differences from the specimen that remain: Prism's switches are Lumen's switches (under
+their words), not comet knobs with the value inside; its values sit under the knobs, as
+the plugin strip's do; it has eight parameters, not the specimen's nine; the preset field
+shows its empty-field word where the specimen reads "Init"; "Bass mono" is cut to "Mono b…"
+at this width; the beam motif is fitted to 72 pt (the specimen's screen was 136 pt), with the
+readout at the top left because the top beam fans into the right corner.

@@ -251,6 +251,12 @@ unselected header.
 - **Muted clips:** `CLIP_MUTED` (`#6C7078`, both themes), a grey of the
   same lightness, so names and waveforms stay readable (the owner's M1).
 
+**Built-in device tokens** (`theme::personality`, §7k): the device hues (`UTILITY`), the deep screen
+(`SCREEN`, `SCREEN_TINT`, `SCREEN_RADIUS`, `SCREEN_RING`, the same in both themes), the card chrome
+(`HEAD_TINT`; `POWER_*`; `NAME_*`, `SUBTITLE_*`; `BADGE*`; `ALL_BUTTON`, `ALL_SIZE`; `RAIL_*`), a screen's
+readouts (`READOUT_*`, `SCREEN_NAME_ALPHA`, `PILL_*`) and the content colours of a drawing
+(`PRISM_BEAMS`, `PRISM_FAN`). Sizes are points and tints are opacities of the device's hue.
+
 ## 4. Type
 
 Two faces, chosen by the owner from side-by-side specimens (2026-10-07):
@@ -1618,40 +1624,62 @@ a 96 pt label column (`size::LABEL_COLUMN`) for chosen values, and on/off settin
 ## 7k. Built-in devices and their personalities (M8 slice B0; the owner's BF C)
 
 Every built-in device Lumen ships is a **personality**: a name of its own, with what it is under it, a
-signature colour and one visual idea (owner, 2026-11-12, approved from round 2 of `docs/specimens/m8/`).
-The chain card, its frame, power, preset field, focus ring and every control's gesture stay Lumen's;
-only what the device *is* changes.
+signature colour and one visual idea (owner, 2026-11-12; the card is the one chosen in
+`docs/specimens/m8/chosen.html`, "Device faces", and `chosen-{dark,light}-{100,150,200}.png` are its
+renders). The card's frame, power, preset row, focus ring and every control's gesture stay Lumen's; the
+chrome below is the same for every built-in, and only the **drawing** and the controls on it differ.
 
-- **Name and subtitle.** The card's name row holds the personality's name ("Prism") in the place a
-  plugin's name sits, and its kind ("Utility") under it where a plugin's vendor sits. Menus, the lane
-  chooser and tooltips use the same two words: "Prism" for the device, "Utility" for what it is. The
-  picture band carries the device's drawing, not its name (below).
-  A device has one stable saved name (`PluginRef::Builtin.name`, `"utility"`), which is never the
-  personality: renaming a personality is a design change, and old projects keep their sound.
+**The card** (232 pt wide, `chain/geometry.rs`): 344 pt whole (header 48, picture band 72, preset row 34,
+body 158, footer 32), 272 pt without the picture, 116 pt compact (header 36, four knobs, footer 24), and a
+48 pt rail when folded. All tokens are in `theme::personality` (§3).
+
+- **Header.** The device's hue fades down from the card's top edge (`HEAD_TINT`, 22 %). The power button is
+  a circle of the hue (fill `POWER_FILL`, ring `POWER_RING`, radius 9; 8 compact) with a white glyph (the
+  hue itself in the light theme). The name is in Unbounded 14 (12.5 compact) with a little tracking, its
+  baseline 23 pt from the top; what the device is sits under it at 10.5 pt (baseline 38). A kind badge, a
+  36 x 16 pill of the hue ("FX"), is at the right. The header's name still opens the card's menu.
+- **Name and subtitle.** The card holds the personality's name ("Prism") and its kind ("Utility");
+  menus, the lane chooser and tooltips use the same two words. A device has one stable saved name
+  (`PluginRef::Builtin.name`, `"utility"`), never the personality: renaming a personality is a design
+  change, and old projects keep their sound.
+- **Preset row.** Lumen's own field and menu, as a plugin's, without the previous and next arrows (a
+  built-in's presets are a folder of sounds, not a plugin's list).
+- **Footer.** A hairline, the signal in mono 9 ("audio → audio · 0 ms"; MIDI → audio for an instrument)
+  and an "All n ▸" button (68 x 18) that opens All parameters.
+- **Compact** (116 pt): the header at 36 pt with the same parts smaller, the strip's first four knobs
+  (a face folds back to them) and the footer at 24 pt with "All n ▸" as text.
+- **Folded** (48 pt rail): a 3 pt bar of the hue, the power, the name set on end in Unbounded 13 and the
+  subtitle in mono 8 beside it. The hue tells the devices apart at a glance.
 - **Signature colour.** One hue per device in `theme::personality` (`UTILITY` for Prism, a quiet steel
-  grey), the same in both themes, as a clip's colour is. It tints the card's picture band; it is never
-  the only signal that a device is a device (the name and the subtitle always are).
-- **The picture band** is a deep tinted screen (`personality::SCREEN`, the signature hue at the top at
-  `SCREEN_TINT`), the same in both themes, with a hairline of the signature colour, and a **still
-  drawing of the device's one idea** in content colours (Prism splits a beam into
-  `PRISM_BEAMS`). A built-in has **no monogram**: its name is in the card's name row, and the band is
-  the picture, not another label (B0 review L8). Plugins keep their monogram and kind icon.
-- **Visual idea.** BF C: a drawn face where a picture is the control (an EQ's curve and analyzer, a
-  compressor's transfer, a sampler's wave and pads); the generic eight-knob strip for the rest —
-  Prism, the delay, the reverb, the synth. A device with a face keeps the card's chrome and still puts
-  every parameter in All parameters. B0 builds the strip; the faces arrive with their devices (B1, B2,
-  B5).
-- **The strip** is the card's own (`chain/strip.rs`, eight knobs in two rows and the All button): a
-  built-in's parameters come from its table, so they read in the device's words ("Width 100 %",
-  "Swap L/R Off") with no round trip. The knobs keep Lumen's accent, not the device's hue: the band
-  carries the personality, the controls stay Lumen's. The masthead's window button is not offered (a
-  built-in's controls are its card and All parameters) and Learn is hidden with it; automation and
-  controller menus on each knob are the plugin's.
+  grey), the same in both themes, as a clip's colour is. It is never the only signal that a device is a
+  device (the name and the subtitle always are).
+- **The drawing** is on a **screen**: a deep tinted rectangle (`personality::SCREEN`, the hue at the top at
+  `SCREEN_TINT`), the same in both themes, with a hairline of the hue. It draws the device's one idea in
+  content colours, with live readouts in mono from the device's own values. A drawing is declared in
+  `chain/face/` (`Drawing`, below) in one of two places:
+  - **Band** (the generic strip: Prism, and later Parallax, Afterglow, Flare): the strip's eight comet
+    knobs stay and the drawing is the 72 pt picture above the header on a whole card. A card without room
+    for it (272 pt) or a compact one does not draw it. Prism's is a white beam in, the glass, and five
+    beams out in `PRISM_BEAMS` that fan with Width, with the readout "width 130%" at the screen's top left.
+  - **Face** (a picture that is the control: Iris, Gravity, Horizon, Shutter): the drawing replaces the
+    strip, and on a whole card the picture as well, so the screen has the whole body (158 pt, or 230 pt
+    whole). Its knobs and pills sit on it in the device's hue under **idea names** ("Pull", "Ceiling");
+    the plain name ("threshold") stays in the tooltip, the accessible name, All parameters and automation.
+    A face's controls are the strip's own, so drag, Shift fine, the wheel, double-click reset, type-in and
+    the right-click menu are Lumen's.
+- **The strip** is the card's own (`chain/strip.rs`, eight knobs in two rows and the All parameters
+  button): a built-in's parameters come from its table, so they read in the device's words ("Width
+  130 %", "Swap L/R Off") with no round trip. The knobs keep Lumen's accent, not the device's hue. The
+  masthead's window button is not offered (a built-in's controls are its card and All parameters) and
+  Learn is hidden with it; automation and controller menus on each knob are the plugin's.
 - **Presets** use the card's field and menu, and Lumen's own folder
   (`Documents/Lumen Presets/<stable name>`, `utility` for Prism), one folder per device, one
   `.lumenpreset` file per sound: JSON, so a person can read and edit it. The folder is the device's
-  **stable saved name**, never its personality's: renaming a personality must not orphan every preset
-  a person saved (B0 review L5).
+  **stable saved name**, never its personality's (B0 review L5).
+- **Known differences from the specimen.** The specimen's Prism draws every parameter as a comet knob
+  with its value inside; Lumen's strip draws a switch as a switch under its words and puts values under
+  the knobs. Prism has eight parameters (the specimen's "All 9" is its generic count), and the preset
+  row shows the empty-field word where the specimen reads "Init".
 - Names are checked for trademark conflicts before release (M10).
 
 ## 7l. The drum map editor (M8 slice D1)

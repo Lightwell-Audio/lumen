@@ -615,3 +615,18 @@ fn a_value_changed_on_prism_is_saved_with_the_project_and_is_back_after_a_reopen
         "the value is back: {changed} then {back}"
     );
 }
+
+#[test]
+fn the_whole_cards_footer_opens_all_parameters_and_the_header_names_the_device() {
+    let (mut lumen, _, _) = launched("builtin-footer");
+    lumen.show_whole_cards();
+    // The chosen card's header: the power button and the name that opens the
+    // card's menu; the footer's button opens every parameter.
+    assert!(lumen.harness.query_by_label_contains("Prism").is_some());
+    lumen.click("Open all 8 parameters");
+    lumen.frames(10);
+    assert!(
+        lumen.shows("8 of 8 on the strip"),
+        "the footer's button opens All parameters"
+    );
+}
