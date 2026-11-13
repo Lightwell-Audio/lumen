@@ -23,6 +23,10 @@ pub enum Taper {
     Linear,
     /// Slower near the bottom: `low + (high - low) * x^power` (a frequency).
     Power(f32),
+    /// Equal ratios for equal turns, `low * (high / low)^x`: what a person
+    /// hears of a frequency or a Q (M8 slice B1). A range whose bottom is not
+    /// above zero reads as [`Taper::Linear`].
+    Log,
 }
 
 impl Taper {
@@ -32,6 +36,8 @@ impl Taper {
         match self {
             Self::Linear => low + (high - low) * x,
             Self::Power(power) => low + (high - low) * x.powf(power),
+            Self::Log if low > 0.0 && high > 0.0 => low * (high / low).powf(x),
+            Self::Log => low + (high - low) * x,
         }
     }
 
@@ -45,6 +51,15 @@ impl Taper {
         match self {
             Self::Linear => x,
             Self::Power(power) => x.powf(1.0 / power),
+            Self::Log if low > 0.0 && high > 0.0 => {
+                let ratio = (high / low).ln();
+                if ratio <= 0.0 {
+                    0.0
+                } else {
+                    ((value.max(low) / low).ln() / ratio).clamp(0.0, 1.0)
+                }
+            }
+            Self::Log => x,
         }
     }
 }
@@ -259,16 +274,16 @@ pub fn values(out: &mut [f32], glide: &mut Glide, events: &ParamBlock, id: u32, 
         // (a value the interface moved finishes its glide), and holds once it
         // has arrived.
         None => glide.run(out, rate),
-        // Only the value the project holds: a knob the interface moved, which
-        // glides.
-        Some((at, 1)) => match events.queue(at).1 {
-            [(_, value)] => glide.glide_to(*value as f32, out, rate),
+        // A lane's points, or the value it holds when it does not move in
+        // this block.
+        Some((at, true)) => match events.queue(at).1 {
             [] => out.fill(glide.value()),
             points => curve(points, glide, out, rate),
         },
-        // A lane drives it: its points, or the value it holds when it does
-        // not move in this block.
-        Some((at, _)) => match events.queue(at).1 {
+        // Only the value the project holds: a knob the interface moved, which
+        // glides.
+        Some((at, false)) => match events.queue(at).1 {
+            [(_, value)] => glide.glide_to(*value as f32, out, rate),
             [] => out.fill(glide.value()),
             points => curve(points, glide, out, rate),
         },
@@ -315,19 +330,18 @@ fn want(points: &[(u32, f64)], last: usize, frame: usize) -> f32 {
     }
 }
 
-/// The last queue in `events` that names parameter `id`, and how many name
-/// it: a lane's, and the value the project holds (which the engine gives every
-/// parameter first, so a lane adds a second).
-fn queues_for(events: &ParamBlock, id: u32) -> Option<(usize, usize)> {
+/// The last queue in `events` that names parameter `id`, and whether it is a
+/// lane's (a value the project holds is not, M8 slice B1, ADR-0146): a device
+/// reads the last one, which is the lane's when one plays.
+fn queues_for(events: &ParamBlock, id: u32) -> Option<(usize, bool)> {
     let mut found = None;
-    let mut count = 0;
     for i in (0..events.len()).rev() {
         if events.queue(i).0 == id {
-            found.get_or_insert(i);
-            count += 1;
+            found = Some((i, events.is_lane(i)));
+            break;
         }
     }
-    found.map(|at| (at, count))
+    found
 }
 
 #[cfg(test)]
@@ -402,7 +416,7 @@ mod tests {
         events.open(1);
         events.point(0, held);
         if let Some(points) = lane {
-            events.open(1);
+            events.open_lane(1);
             for &(at, value) in points {
                 events.point(at, value);
             }
@@ -421,6 +435,24 @@ mod tests {
         // What is outside the range is brought in.
         assert_eq!(Taper::Linear.value(range, 2.0), 400.0);
         assert_eq!(Taper::Linear.normalised(range, -3.0), 0.0);
+    }
+
+    /// A log taper: half a turn is the geometric mean of the range, and every
+    /// turn is the same ratio (M8 slice B1).
+    #[test]
+    fn a_log_taper_is_equal_ratios_for_equal_turns() {
+        let range = (20.0, 20_000.0);
+        let half = Taper::Log.value(range, 0.5);
+        assert!((half - 632.45).abs() < 0.1, "{half}");
+        for (x, value) in [(0.0, 20.0), (0.25, 112.5), (0.5, 632.45), (1.0, 20_000.0)] {
+            let got = Taper::Log.value(range, x);
+            assert!((got - value).abs() < 0.2, "{x}: {got} against {value}");
+            let back = Taper::Log.normalised(range, got);
+            assert!((back - x).abs() < 1e-4, "{x}: {back}");
+        }
+        // A range it cannot take is read straight.
+        assert_eq!(Taper::Log.value((0.0, 10.0), 0.5), 5.0);
+        assert_eq!(Taper::Log.normalised((0.0, 10.0), 5.0), 0.5);
     }
 
     #[test]
@@ -546,7 +578,7 @@ mod tests {
             events.start(n);
             events.open(7);
             events.point(0, 0.1);
-            events.open(7);
+            events.open_lane(7);
             for (offset, value) in entries {
                 events.point(offset as u32, value);
             }
@@ -583,6 +615,28 @@ mod tests {
         let mut out = [0.0; 32];
         values(&mut out, &mut glide, &ParamBlock::none(), 4, 48_000);
         assert!(out.iter().all(|&x| x == 0.7));
+    }
+
+    /// A lane's queue says so, even with one point in the block: a lane moves
+    /// over its millisecond, while the value the project holds glides over
+    /// twenty (M8 slice B1, ADR-0146 — the two used to be told apart by
+    /// counting queues, which a full table now cannot afford).
+    #[test]
+    fn a_lane_s_single_point_is_a_lane_not_a_knob() {
+        let mut glide = Glide::new(0.0);
+        let events = block(0.0, Some(&[(0, 1.0)]));
+        assert!(events.is_lane(1), "the second queue is the lane's");
+        let mut out = [0.0; 8];
+        values(&mut out, &mut glide, &events, 1, 48_000);
+        // A step of a lane: 1/48 a frame, not 1/960.
+        assert!((out[0] - 1.0 / 48.0).abs() < 1e-6, "{}", out[0]);
+        assert!(out[7] > 0.14, "{}", out[7]);
+        // The value the project holds glides, as a knob does.
+        let mut glide = Glide::new(0.0);
+        let events = block(1.0, None);
+        let mut out = [0.0; 8];
+        values(&mut out, &mut glide, &events, 1, 48_000);
+        assert!((out[0] - 1.0 / 960.0).abs() < 1e-6, "{}", out[0]);
     }
 
     #[test]

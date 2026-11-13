@@ -35,7 +35,7 @@ pub fn fill(block: &mut ParamBlock, lane: &ParamLane, start: i64, frames: usize)
         return;
     }
     let mark = block.mark();
-    if !block.open(lane.param) {
+    if !block.open_lane(lane.param) {
         block.note_cut();
         return;
     }
@@ -50,7 +50,7 @@ pub fn fill(block: &mut ParamBlock, lane: &ParamLane, start: i64, frames: usize)
         f64::from(lane.lane.value_at(start)),
         f64::from(lane.lane.value_at(start + frames as i64 - 1)),
     );
-    let fits = block.open(lane.param)
+    let fits = block.open_lane(lane.param)
         && block.point(0, first)
         && (frames < 2 || block.point(frames as u32 - 1, last));
     if !fits {
