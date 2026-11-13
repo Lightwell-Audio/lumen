@@ -35,6 +35,11 @@ pub(super) fn build(
         if !keep(track) {
             continue;
         }
+        // A track with a drum map draws its clips as drum rows instead (M8
+        // D2): the mini piano roll is not drawn over them.
+        if project.drum_map_of(track).is_some() {
+            continue;
+        }
         let mut dense = None;
         let Some((lo, hi)) = mini::track_range(&track.clips) else {
             continue;

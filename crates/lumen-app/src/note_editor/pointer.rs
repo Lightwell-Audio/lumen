@@ -109,6 +109,9 @@ impl App {
                 Some(doc.resize_notes(&base, id, &gesture.picked, Resize { end, by, min }, None))
             }
             Resolved::Draw(note) => Some(doc.add_note(None, id, note, None)),
+            Resolved::Velocity(changes) if !changes.is_empty() => {
+                Some(doc.set_velocities_each(None, id, &changes, None))
+            }
             _ => None,
         };
         match result {
@@ -143,7 +146,13 @@ impl App {
         timing: Timing,
     ) {
         let notes = notes_of(clip);
-        let hit = view.note_at(notes, p);
+        let hit = if view.lanes {
+            let step = self.grid_cell_at_zoom(clip.start, view.time.zoom);
+            crate::drum_editor::geometry::hit_at(view, notes, step.1 - step.0, p)
+                .map(|i| (i, Zone::Body))
+        } else {
+            view.note_at(notes, p)
+        };
         let free = modifiers.alt;
         let id = clip.id;
         // Only a press on empty space with the pointer can start a
@@ -173,6 +182,9 @@ impl App {
                 }
                 picked.sort_unstable();
                 self.select_notes(ed, picked.clone());
+                // A lane's hit has no ends to grab: its diamond is the whole
+                // hit, and a vertical drag on it sets the velocity (DE A).
+                let zone = if view.lanes { Zone::Body } else { zone };
                 let kind = match zone {
                     Zone::Start => Kind::Resize { end: End::Start },
                     Zone::End => Kind::Resize { end: End::End },
@@ -197,6 +209,7 @@ impl App {
                     grabbed: i,
                     picked,
                     dragging: false,
+                    velocity_on_vertical: view.lanes,
                 });
             }
             (Tool::Pointer, None) => {
@@ -222,6 +235,7 @@ impl App {
                     grabbed: 0,
                     picked: Vec::new(),
                     dragging: false,
+                    velocity_on_vertical: false,
                 });
             }
         }
@@ -270,6 +284,7 @@ impl App {
             grabbed: 0,
             picked: Vec::new(),
             dragging: true,
+            velocity_on_vertical: false,
         });
         self.select_notes(ed, Vec::new());
         true

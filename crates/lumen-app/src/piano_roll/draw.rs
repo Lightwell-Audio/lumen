@@ -35,12 +35,17 @@ pub(crate) struct KeySound {
     pub silent: bool,
 }
 
-/// Which pitch rows the roll shows: all 128, or a drum map's sounds only
-/// ("Hide unmapped keys", M8 D1). A mapped set lists the sounds' input notes,
-/// highest first, so a folded roll's rows are its kit's, packed together.
+/// Which pitch rows the roll shows: all 128, a drum map's sounds only
+/// ("Hide unmapped keys", M8 D1), or a drum map's sounds in the order the map
+/// lists them (the drum editor's lanes, M8 D2). A mapped set lists the
+/// sounds' input notes, highest first, so a folded roll's rows are its kit's,
+/// packed together.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Rows {
     mapped: bool,
+    /// Keep the order the list was given in (the lanes) rather than highest
+    /// pitch first.
+    listed: bool,
     pitches: [u8; PITCHES as usize],
     len: u8,
 }
@@ -56,6 +61,7 @@ impl Rows {
     pub fn all() -> Self {
         Self {
             mapped: false,
+            listed: false,
             pitches: [0; PITCHES as usize],
             len: 0,
         }
@@ -67,11 +73,39 @@ impl Rows {
         let mut pitches: Vec<u8> = sounds.iter().map(|sound| sound.input).collect();
         pitches.sort_unstable_by(|a, b| b.cmp(a));
         pitches.dedup();
+        Self::of(pitches, false)
+    }
+
+    /// Only the input notes of `sounds`, in the order the list gives them
+    /// (the drum editor's lanes: the map's order). An empty list is no rows at
+    /// all: Hide unused with nothing used leaves the lanes empty.
+    pub fn lanes(pitches: impl IntoIterator<Item = u8>) -> Self {
+        let mut pitches: Vec<u8> = pitches.into_iter().collect();
+        pitches.dedup();
+        if pitches.is_empty() {
+            return Self::none();
+        }
+        Self::of(pitches, true)
+    }
+
+    /// No rows at all (a drum map whose lanes are all hidden).
+    pub fn none() -> Self {
+        Self {
+            mapped: true,
+            listed: true,
+            pitches: [0; PITCHES as usize],
+            len: 0,
+        }
+    }
+
+    /// A mapped row set of `pitches`, or the keyboard when there is none.
+    fn of(pitches: Vec<u8>, listed: bool) -> Self {
         if pitches.is_empty() || pitches.len() >= PITCHES as usize {
             return Self::all();
         }
         let mut rows = Self {
             mapped: true,
+            listed,
             pitches: [0; PITCHES as usize],
             len: pitches.len() as u8,
         };
@@ -100,6 +134,9 @@ impl Rows {
             return Some((PITCHES as i32 - 1 - i32::from(pitch)) as usize);
         }
         let listed = &self.pitches[..usize::from(self.len)];
+        if self.listed {
+            return listed.iter().position(|&p| p == pitch);
+        }
         listed
             .binary_search_by(|probe| probe.cmp(&pitch).reverse())
             .ok()

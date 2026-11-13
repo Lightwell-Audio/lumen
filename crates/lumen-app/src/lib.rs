@@ -56,6 +56,7 @@ mod commands;
 mod design;
 mod disk;
 mod document;
+mod drum_editor;
 mod engine;
 mod export;
 mod hosting;

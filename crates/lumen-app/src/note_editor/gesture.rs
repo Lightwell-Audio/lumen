@@ -68,16 +68,31 @@ pub(crate) struct Gesture {
     pub picked: Vec<usize>,
     /// Whether the pointer has gone far enough to count as a drag.
     pub dragging: bool,
+    /// A vertical drag on a picked hit sets its velocity instead of moving it
+    /// (the drum editor's lanes, M8 D2): the diamond fills to the velocity,
+    /// and the hit keeps its lane.
+    pub velocity_on_vertical: bool,
 }
 
 /// What the pointer's place means now.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Resolved {
     Nothing,
-    Move { time: Ticks, pitch: i32, copy: bool },
-    Resize { end: End, by: Ticks, min: Ticks },
+    Move {
+        time: Ticks,
+        pitch: i32,
+        copy: bool,
+    },
+    Resize {
+        end: End,
+        by: Ticks,
+        min: Ticks,
+    },
     Draw(Note),
     Marquee(Rect),
+    /// The picked notes' velocities set to one value (a vertical drag on a
+    /// hit in the lanes), each with its index.
+    Velocity(Vec<(usize, u8)>),
 }
 
 /// What the arithmetic needs to know about the world.
@@ -127,6 +142,21 @@ impl Gesture {
                     return Resolved::Nothing;
                 };
                 let moved = view.local_at(pointer.x) - view.local_at(self.origin.x);
+                // The lanes: a drag that starts up or down on a picked hit
+                // sets the velocity of every picked hit, and moves nothing
+                // (DE A: the fill is the velocity).
+                if self.velocity_on_vertical && self.picked.contains(&self.grabbed) {
+                    let dy = pointer.y - self.origin.y;
+                    if dy.abs() > (pointer.x - self.origin.x).abs() {
+                        return Resolved::Velocity(velocity_drag(
+                            view,
+                            self.grabbed,
+                            &self.picked,
+                            pointer,
+                            env,
+                        ));
+                    }
+                }
                 let target = (env.snap)(view.clip_start + note.start() + moved) - view.clip_start;
                 let pitch = view.pitch_at(pointer.y) - view.pitch_at(self.origin.y);
                 Resolved::Move {
@@ -201,13 +231,47 @@ impl Resolved {
                     ..Preview::default()
                 }
             }
+            Resolved::Velocity(changes) => {
+                let mut ghosts = subset();
+                for (slot, &index) in picked.iter().enumerate() {
+                    if let Some((_, velocity)) = changes.iter().find(|(i, _)| *i == index) {
+                        ghosts[slot].3 = *velocity;
+                    }
+                }
+                Preview {
+                    ghosts,
+                    hidden: picked,
+                    ..Preview::default()
+                }
+            }
         }
     }
 }
 
+/// The velocity a vertical drag at `pointer` gives the picked notes: the row
+/// of the grabbed note's diamond, its foot at 0 and its top at 127 (the lanes'
+/// DE A fill, followed by the hand). A drag past either end holds there.
+fn velocity_drag(
+    view: &EditorView,
+    grabbed: usize,
+    picked: &[usize],
+    pointer: Pos2,
+    env: &Env<'_>,
+) -> Vec<(usize, u8)> {
+    let Some(note) = env.notes.get(grabbed) else {
+        return Vec::new();
+    };
+    let top = view.row_top(i32::from(note.pitch()));
+    let centre = top + view.row_height / 2.0;
+    let radius = crate::drum_editor::geometry::hit_radius(view, env.step).max(0.1);
+    let t = ((centre + radius - pointer.y) / (2.0 * radius)).clamp(0.0, 1.0);
+    let velocity = (t * 127.0).round().clamp(1.0, 127.0) as u8;
+    picked.iter().map(|&index| (index, velocity)).collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use eframe::egui::pos2;
+    use eframe::egui::{pos2, vec2};
 
     use super::*;
     use crate::timeview::TimeView;
@@ -223,6 +287,7 @@ mod tests {
             row_height: 10.0,
             scroll: 0.0,
             rows: crate::piano_roll::draw::Rows::all(),
+            lanes: false,
         }
     }
 
@@ -277,6 +342,7 @@ mod tests {
             grabbed: 0,
             picked: vec![0],
             dragging: true,
+            velocity_on_vertical: false,
         }
     }
 
@@ -445,5 +511,89 @@ mod tests {
             panic!()
         };
         assert_eq!(r, Rect::from_min_max(pos2(100.0, 50.0), pos2(800.0, 100.0)));
+    }
+
+    #[test]
+    fn a_lane_view_resolves_the_same_drag_as_the_roll_would() {
+        // The same pixels, the same time: the lanes change only which row a
+        // pitch is (E5: one gesture code), and a vertical drag there is the
+        // hit's velocity rather than a move.
+        let mut lane = view();
+        lane.lanes = true;
+        lane.row_height = crate::drum_editor::geometry::ROW;
+        lane.rows = crate::piano_roll::draw::Rows::lanes([36_u8, 38, 42]);
+        let notes = [Note::new(Ticks::quarters(1), Ticks(1), 36, 100)];
+        let snap = to_quarter;
+        let lane_env = env(&lane, &notes, &snap);
+        let plain = view();
+        let roll_env = env(&plain, &notes, &snap);
+        let origin = pos2(200.0, lane.row_height / 2.0);
+        let mut next = 0x1234_5678_u64;
+        for _ in 0..24 {
+            next ^= next << 13;
+            next ^= next >> 7;
+            next ^= next << 17;
+            let dx = (next % 400) as f32 - 100.0;
+            let mut moved = gesture(Kind::Move { copy: false }, origin);
+            moved.velocity_on_vertical = true;
+            let rolled = gesture(Kind::Move { copy: false }, origin);
+            // Sideways: both move the same time, in the same row.
+            let lane_res = moved.resolve(origin + vec2(dx, 0.0), &lane_env);
+            let roll_res = rolled.resolve(origin + vec2(dx, 0.0), &roll_env);
+            let (
+                Resolved::Move {
+                    time: lt,
+                    pitch: lp,
+                    ..
+                },
+                Resolved::Move { time: rt, .. },
+            ) = (lane_res, roll_res)
+            else {
+                panic!("sideways is a move in both")
+            };
+            assert_eq!(lt, rt, "the same pixels move the same time");
+            assert_eq!(lp, 0, "a sideways drag stays in its lane");
+            // Up or down: the lanes set the velocity, the roll moves a pitch.
+            let lane_res = moved.resolve(origin + vec2(0.0, -12.0), &lane_env);
+            assert!(matches!(lane_res, Resolved::Velocity(_)), "{lane_res:?}");
+            let roll_res = rolled.resolve(origin + vec2(0.0, -12.0), &roll_env);
+            assert!(
+                matches!(roll_res, Resolved::Move { pitch, .. } if pitch > 0),
+                "{roll_res:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn in_the_lanes_a_vertical_drag_sets_the_velocity_and_keeps_the_lane() {
+        // A drum lane: rows are 28 pt, the hit sits in the first.
+        let mut v = view();
+        v.lanes = true;
+        v.row_height = crate::drum_editor::geometry::ROW;
+        v.rows = crate::piano_roll::draw::Rows::lanes([36_u8]);
+        let notes = [Note::new(Ticks::quarters(1), Ticks(1), 36, 100)];
+        let snap = to_quarter;
+        let e = env(&v, &notes, &snap);
+        let mut g = gesture(Kind::Move { copy: false }, pos2(150.0, v.row_height / 2.0));
+        g.velocity_on_vertical = true;
+        // Straight up from the middle: full velocity, no move, no lane.
+        let up = g.resolve(pos2(150.0, 2.0), &e);
+        assert_eq!(up, Resolved::Velocity(vec![(0, 127)]));
+        let p = up.preview(&[0], &e);
+        assert_eq!(p.ghosts[0].velocity(), 127, "the diamond fills to it");
+        assert_eq!(p.hidden, vec![0]);
+        // Down to the diamond's foot: the least velocity.
+        let down = g.resolve(pos2(150.0, 28.0), &e);
+        assert_eq!(down, Resolved::Velocity(vec![(0, 1)]));
+        // Sideways is a move: the lane can still change.
+        let side = g.resolve(pos2(400.0, v.row_height / 2.0), &e);
+        assert!(matches!(side, Resolved::Move { .. }), "{side:?}");
+        // The piano roll never takes the vertical drag as velocity.
+        let mut roll = gesture(Kind::Move { copy: false }, pos2(150.0, v.row_height / 2.0));
+        roll.velocity_on_vertical = false;
+        assert!(matches!(
+            roll.resolve(pos2(150.0, 2.0), &e),
+            Resolved::Move { .. }
+        ));
     }
 }

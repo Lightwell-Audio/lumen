@@ -24,6 +24,8 @@ pub(super) struct Strip<'a> {
     pub editable: bool,
     /// The track reads a drum map: the Keys toggle applies.
     pub mapped: bool,
+    /// The drum editor's view switch, on a track with a drum map (DV A).
+    pub drum: Option<crate::drum_editor::View>,
 }
 
 impl App {
@@ -41,6 +43,7 @@ impl App {
             colour,
             editable,
             mapped,
+            drum,
         } = strip;
         let right = |ui: &mut Ui| {
             let keys = self.keymap.keys(Command::PopOutEditor);
@@ -74,9 +77,9 @@ impl App {
                 shown = !shown;
             }
             ed.lane.hidden = !shown;
-            if mapped {
+            if mapped && drum != Some(crate::drum_editor::View::Lanes) {
                 let mut hiding = ed.hide_unmapped;
-                let response = icon_toggle(ui, "Keys", hiding, glyphs::keys);
+                let response = icon_toggle(ui, "Hide unmapped keys", hiding, glyphs::keys);
                 if widgets::tip(
                     response,
                     "Show only the drum map's sounds in the key column",
@@ -92,6 +95,17 @@ impl App {
         };
         let mut strip = HeaderStrip::new(ui, toolbar, right);
         strip.title(&clip.name, &self.clip_counts(clip, editable), colour);
+        // The drum editor's view switch (DV A): the lanes or the piano roll.
+        if let Some(view) = drum
+            && let Some(picked) = strip.views(view)
+            && let Some(track) = self.track_of_clip(clip.id)
+        {
+            ed.drum.set_view(track, picked);
+            ed.framed_for = None;
+            // A gesture from the other view no longer means anything.
+            ed.gesture = None;
+            ed.drum.reorder = None;
+        }
         let tips = [
             "Select, move and resize notes",
             "Click to add a note, drag to set its length, click a note to remove it",

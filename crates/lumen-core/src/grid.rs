@@ -173,6 +173,25 @@ fn note(n: u32, feel: Feel) -> Option<Ticks> {
     Ticks::whole_note_fraction(num, den)
 }
 
+/// The ticks a fixed size lasts in `meter` (M8 D2: a drum sound's own quantize
+/// grid), or `None` when it is not a whole number of ticks. A bar's triplet or
+/// dot is taken from the bar's own length.
+pub fn size_ticks(size: Size, feel: Feel, meter: Meter) -> Option<Ticks> {
+    match size {
+        Size::Note(n) => note(n.max(1), feel),
+        Size::Bars(bars) => {
+            let bar = meter.bar().0.saturating_mul(i64::from(bars.max(1)));
+            let (num, den): (i64, i64) = match feel {
+                Feel::Straight => (1, 1),
+                Feel::Triplet => (2, 3),
+                Feel::Dotted => (3, 2),
+            };
+            let ticks = (bar * num).div_euclid(den);
+            (bar > 0 && bar * num % den == 0 && ticks > 0).then_some(Ticks(ticks))
+        }
+    }
+}
+
 impl Grid {
     /// The step for `meter` at a zoom of `points_per_quarter`.
     pub fn step(&self, meter: Meter, points_per_quarter: f64) -> Step {
@@ -502,6 +521,49 @@ mod tests {
             ..Grid::default()
         };
         assert_eq!(triplet.step(FOUR, 24.0), Step::Ticks(Ticks(PPQ / 3)));
+    }
+
+    #[test]
+    fn a_size_with_a_feel_lasts_whole_ticks_in_a_meter() {
+        // M8 D2: a drum sound's own quantize grid.
+        assert_eq!(
+            size_ticks(Size::Note(16), Feel::Straight, FOUR),
+            Some(Ticks(PPQ / 4))
+        );
+        assert_eq!(
+            size_ticks(Size::Note(8), Feel::Triplet, FOUR),
+            Some(Ticks(PPQ / 3))
+        );
+        assert_eq!(
+            size_ticks(Size::Note(8), Feel::Dotted, FOUR),
+            Some(Ticks(PPQ * 3 / 4))
+        );
+        assert_eq!(
+            size_ticks(Size::Bars(1), Feel::Straight, FOUR),
+            Some(Ticks(PPQ * 4))
+        );
+        assert_eq!(
+            size_ticks(Size::Bars(2), Feel::Straight, FOUR),
+            Some(Ticks(PPQ * 8))
+        );
+        assert_eq!(
+            size_ticks(Size::Bars(1), Feel::Triplet, FOUR),
+            Some(Ticks(PPQ * 8 / 3)),
+            "two thirds of a bar"
+        );
+        // A bar of any meter divides into thirds at Lumen's tick resolution.
+        let odd = Meter {
+            numerator: 7,
+            denominator: 8,
+        };
+        assert_eq!(
+            size_ticks(Size::Bars(1), Feel::Straight, odd),
+            Some(odd.bar())
+        );
+        assert_eq!(
+            size_ticks(Size::Bars(1), Feel::Triplet, odd),
+            Some(Ticks(odd.bar().0 * 2 / 3))
+        );
     }
 
     #[test]

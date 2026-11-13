@@ -260,6 +260,27 @@ impl Document {
         })
     }
 
+    /// Quantizes the picked notes each to its own grid where it has one (the
+    /// drum editor's per-lane quantize, M8 D2): `steps` lists a sound's own
+    /// step by its note, and every other note takes `settings`'s. One step.
+    pub fn quantize_notes_each(
+        &mut self,
+        clip: Id,
+        selection: &[usize],
+        settings: &quantize::Settings,
+        steps: &[(u8, Ticks)],
+    ) -> Vec<usize> {
+        let label = plural(selection.len(), "Quantize note", "Quantize {} notes");
+        self.edit_notes(&label, None, None, clip, selection, |notes, length| {
+            quantize::quantize_each(notes, selection, length, settings, &|pitch| {
+                steps
+                    .iter()
+                    .find(|(input, _)| *input == pitch)
+                    .map(|(_, step)| *step)
+            })
+        })
+    }
+
     /// Loosens the timing and velocity of the picked notes at random,
     /// repeatably from `humanize.seed`.
     pub fn humanize_notes(

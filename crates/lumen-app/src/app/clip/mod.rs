@@ -13,6 +13,7 @@ pub(crate) mod clip_card;
 pub(crate) mod clip_commands;
 pub(crate) mod clip_consolidate;
 pub(crate) mod clip_controls;
+pub(crate) mod clip_drum;
 mod clip_envelopes;
 pub(crate) mod clip_file;
 pub(crate) mod clip_header;

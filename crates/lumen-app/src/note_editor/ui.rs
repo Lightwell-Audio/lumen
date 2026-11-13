@@ -4,7 +4,7 @@
 
 use eframe::egui::{self, CursorIcon, PointerButton, Pos2, Rect, Sense, Ui, pos2, vec2};
 use lumen_core::time::{PPQ, Ticks};
-use lumen_project::model::Clip;
+use lumen_project::model::{Clip, Id};
 
 use super::gesture::{Env, Kind, Preview, Resolved, tones_of};
 use super::lane;
@@ -26,6 +26,31 @@ use crate::{App, theme};
 const TOOLBAR: f32 = crate::app::clip_header::HEADER;
 /// The editor needs at least this much body to be drawn.
 const MIN_BODY: f32 = 24.0;
+
+/// The drum editor's rows in the editor's menus (M8 D2): the view switch and
+/// Hide unused, and the sound under the pointer's length.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DrumMenu {
+    pub track: Id,
+    pub map: Id,
+    pub view: crate::drum_editor::View,
+    pub hiding: bool,
+    /// The sound under the pointer and whether its lane shows its length, when
+    /// the sound has no length override.
+    pub length: Option<(u8, bool)>,
+}
+
+/// What the editor's right-click menu acts on this frame (M8 D2 adds the
+/// drum editor's rows).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MenuTarget {
+    /// The pointer over the notes, when it is.
+    pub over_body: Option<Pos2>,
+    /// The hit under the pointer.
+    pub hover: Option<(usize, Zone)>,
+    /// The drum editor's own rows, on a mapped track.
+    pub drum: Option<DrumMenu>,
+}
 
 impl App {
     /// Draws the editor in `area` of `ui`: in the detail panel, or in the
@@ -54,17 +79,49 @@ impl App {
         };
         let editable = self.document.notes_editable(clip.id);
         // The map the clip's track reads, when it reads one: the rows are
-        // then the kit's, and the key column names each sound (M8 D1).
+        // then the kit's, and the key column names each sound (M8 D1); with
+        // the drum editor's Lanes chosen the editor is one lane a sound
+        // (M8 D2). Only the map's id and name are kept: the lanes carry the
+        // rest. The view is read from the editor itself: while it draws it is
+        // taken out of the app, so the app's own reader would see nothing.
         let drums = self.clip_key_sounds(clip.id);
-        let rows = if drums.is_some() && ed.hide_unmapped {
+        let track = self.track_of_clip(clip.id);
+        let view = track.map(|track| ed.drum.view(track));
+        let (map, drum) = match self.clip_drum_map(clip.id) {
+            Some(map) => {
+                let hide = track.is_some_and(|track| ed.drum.hides_unused(track));
+                let lanes = if view == Some(crate::drum_editor::View::Lanes) {
+                    crate::drum_editor::lanes(map, notes_of(&clip), hide)
+                } else {
+                    Vec::new()
+                };
+                let drum = (view == Some(crate::drum_editor::View::Lanes)).then_some(lanes);
+                (Some((map.id, map.name.clone())), drum)
+            }
+            None => (None, None),
+        };
+        let lanes = drum.as_deref().unwrap_or(&[]);
+        if ed.row_height <= 0.0 {
+            ed.row_height = ROW_DEFAULT;
+        }
+        let rows = if drum.is_some() {
+            Rows::lanes(lanes.iter().map(|lane| lane.input))
+        } else if drums.is_some() && ed.hide_unmapped {
             Rows::mapped(drums.as_deref().unwrap_or_default())
         } else {
             Rows::all()
         };
-        let key_width = if drums.is_some() {
+        let key_width = if drum.is_some() {
+            crate::drum_editor::geometry::NAME
+        } else if drums.is_some() {
             KEY_WIDTH_DRUMS
         } else {
             KEY_WIDTH
+        };
+        let row_height = if drum.is_some() {
+            crate::drum_editor::geometry::ROW
+        } else {
+            ed.row_height
         };
         // The lane takes the bottom of the editor when there is room.
         let lane_height = lane::reserved(area.height() - TOOLBAR - RULER_HEIGHT, &ed.lane);
@@ -86,6 +143,11 @@ impl App {
         // Framed before the toolbar, so the grid it names is the roll's.
         if ed.framed_for != Some(clip.id) {
             self.frame_editor(ed, &clip, body, rows);
+            if drum.is_some() {
+                // The lanes start at the top of the map, at their own height.
+                ed.row_height = crate::drum_editor::geometry::ROW;
+                ed.scroll = 0.0;
+            }
         }
         self.editor_toolbar(
             ui,
@@ -96,6 +158,7 @@ impl App {
                 colour,
                 editable,
                 mapped: drums.is_some(),
+                drum: map.as_ref().and(view),
             },
         );
         if body.height() < MIN_BODY || body.width() < MIN_BODY {
@@ -107,9 +170,10 @@ impl App {
             body,
             time: ed.time,
             clip_start: clip.start,
-            row_height: ed.row_height,
+            row_height,
             scroll: ed.scroll,
             rows,
+            lanes: drum.is_some(),
         };
         let pointer = ctx.input(|i| i.pointer.hover_pos());
         self.editor_zoom_keys(ed, &mut view, pointer);
@@ -126,7 +190,10 @@ impl App {
         self.editor_edge_scroll(&ctx, ed, &mut view);
         ed.time = view.time;
         view.clamp_scroll();
-        ed.row_height = view.row_height;
+        if drum.is_none() {
+            // The lanes keep their row height; the roll's is the user's.
+            ed.row_height = view.row_height;
+        }
         ed.scroll = view.scroll;
         ed.hovered = over_area.is_some();
         let over_body = pointer.filter(|p| body.contains(*p) && on_top(*p));
@@ -139,7 +206,11 @@ impl App {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Other,
                 true,
-                format!("Note editor: {}", clip.name),
+                if drum.is_some() {
+                    format!("Drum lanes: {}", clip.name)
+                } else {
+                    format!("Note editor: {}", clip.name)
+                },
             )
         });
         let ruler_response = ui.interact(ruler, id.with("ruler"), Sense::click_and_drag());
@@ -194,7 +265,11 @@ impl App {
             };
             let resolved = g.resolve(p, &env);
             preview = resolved.preview(&g.picked, &env);
-            preview.chip = self.chip_text(&resolved, &preview, &clip);
+            preview.chip = if drum.is_some() {
+                self.drum_chip(&resolved, &preview, &clip)
+            } else {
+                self.chip_text(&resolved, &preview, &clip)
+            };
             gesture_pitch = preview.ghosts.first().map(|n| i32::from(n.pitch()));
             if let Resolved::Move { .. } = resolved {
                 // Every moved note sounds at its new pitch, as a chord; only
@@ -203,7 +278,14 @@ impl App {
             }
         }
         let hover = if ed.gesture.is_none() {
-            over_body.and_then(|p| view.note_at(notes, p))
+            over_body.and_then(|p| {
+                if view.lanes {
+                    crate::drum_editor::geometry::hit_at(&view, notes, step, p)
+                        .map(|i| (i, Zone::Body))
+                } else {
+                    view.note_at(notes, p)
+                }
+            })
         } else {
             None
         };
@@ -212,52 +294,91 @@ impl App {
         let meter = self.transport.timeline.meter.clone();
         let lines = self.grid.lines(&meter, from, to, view.time.zoom);
         let painter = ui.painter().clone();
-        // The GPU roll: its boxes are rebuilt only when the clip or the
-        // picked notes change, never for a gesture's frames.
-        let boxes = ed.boxes_for(&drawn, colour, rows);
         let p = theme::p();
         let look = canvas::GridLook {
             grid: self.grid,
             meter: meter.clone(),
             colors: [p.grid_bar, p.grid_beat, p.grid_sub],
         };
-        let roll_rect = Rect::from_min_max(keys.min, body.max);
-        piano_roll::draw::roll(
-            piano_roll::draw::RollCanvas {
-                painter: &painter,
+        if let (Some(lanes), Some((map_id, map_name))) = (drum.as_deref(), map.as_ref()) {
+            // The drum editor: one lane a sound, its hits the diamond whose
+            // fill is the velocity (DE A), and the map's name column.
+            self.drum_surface(
+                ui,
+                &ctx,
                 surface,
-                rect: roll_rect,
-                key_width,
-            },
-            RollView {
-                time: view.time,
-                scroll: view.scroll,
-                row_height: view.row_height,
-                rows,
-            },
-            &look,
-            piano_roll::draw::RollNotes {
-                boxes: boxes.0,
-                generation: boxes.1,
-                under: |_: &egui::Painter| {},
-            },
-            drums.as_deref(),
-        );
-        if ed.gesture.is_none() {
-            ed.boxed.clear();
-        }
-        let scene = Scene {
-            notes,
-            preview: &preview,
-            boxed: &ed.boxed,
-            clip_length: clip.length,
-            hover: hover.map(|(i, _)| i),
-            picked: ed.picked(),
-            trails,
-        };
-        paint::paint_overlay(&painter, &view, &scene);
-        if let Some(lit) = gesture_pitch.or_else(|| over_body.map(|p| view.pitch_at(p.y))) {
-            paint::paint_lit_key(&painter, &view, keys, lit);
+                &look,
+                crate::app::clip::clip_drum::DrumFrame {
+                    ed,
+                    view: &view,
+                    clip: &clip,
+                    lanes,
+                    map_id: *map_id,
+                    map_name,
+                    keys,
+                },
+            );
+            if ed.gesture.is_none() {
+                ed.boxed.clear();
+            }
+            let hidden: &[usize] = &preview.hidden;
+            let cells = crate::drum_editor::geometry::cells(&view, notes, ed.picked(), hidden);
+            let shows = |input: u8| ed.drum.shows_length(*map_id, input);
+            let scene = crate::drum_editor::paint::Scene {
+                lanes,
+                notes,
+                cells: &cells,
+                hover: hover.map(|(i, _)| i),
+                preview: &preview,
+                boxed: &ed.boxed,
+                clip_length: clip.length,
+                step,
+                shows_length: &shows,
+            };
+            crate::drum_editor::paint::hits(&painter, &view, &scene);
+            crate::drum_editor::paint::overlay(&painter, &view, &scene);
+        } else {
+            // The GPU roll: its boxes are rebuilt only when the clip or the
+            // picked notes change, never for a gesture's frames.
+            let boxes = ed.boxes_for(&drawn, colour, rows);
+            let roll_rect = Rect::from_min_max(keys.min, body.max);
+            piano_roll::draw::roll(
+                piano_roll::draw::RollCanvas {
+                    painter: &painter,
+                    surface,
+                    rect: roll_rect,
+                    key_width,
+                },
+                RollView {
+                    time: view.time,
+                    scroll: view.scroll,
+                    row_height: view.row_height,
+                    rows,
+                },
+                &look,
+                piano_roll::draw::RollNotes {
+                    boxes: boxes.0,
+                    generation: boxes.1,
+                    under: |_: &egui::Painter| {},
+                },
+                drums.as_deref(),
+            );
+            if ed.gesture.is_none() {
+                ed.boxed.clear();
+            }
+            let scene = Scene {
+                notes,
+                preview: &preview,
+                boxed: &ed.boxed,
+                clip_length: clip.length,
+                hover: hover.map(|(i, _)| i),
+                picked: ed.picked(),
+                trails,
+            };
+            paint::paint_overlay(&painter, &view, &scene);
+            if let Some(lit) = gesture_pitch.or_else(|| over_body.map(|p| view.pitch_at(p.y))) {
+                paint::paint_lit_key(&painter, &view, keys, lit);
+            }
         }
         paint::paint_ruler(&painter, &view, ruler, &lines, &meter, clip.length);
         self.editor_edge_fade(&painter, body);
@@ -289,9 +410,39 @@ impl App {
         if let Some(p) = over_body
             && !egui::Popup::is_any_open(&ctx)
         {
-            self.editor_info(ed, hover, &view, p);
+            self.editor_info(ed, hover, &view, p, drum.is_some(), &clip);
         }
-        self.editor_menu(ui, &notes_response, ed, &clip, over_body, hover);
+        let drum_menu = map.as_ref().and_then(|(map_id, _)| {
+            let track = track?;
+            let view = ed.drum.view(track);
+            let hiding = ed.drum.hides_unused(track);
+            let length = hover.and_then(|(i, _)| notes.get(i)).and_then(|note| {
+                let map = self.clip_drum_map(clip.id)?;
+                let sound = map.sound(note.pitch())?;
+                sound
+                    .length
+                    .is_none()
+                    .then(|| (note.pitch(), ed.drum.shows_length(*map_id, note.pitch())))
+            });
+            Some(DrumMenu {
+                track,
+                map: *map_id,
+                view,
+                hiding,
+                length,
+            })
+        });
+        self.editor_menu(
+            ui,
+            &notes_response,
+            ed,
+            &clip,
+            MenuTarget {
+                over_body,
+                hover,
+                drum: drum_menu,
+            },
+        );
         if ed.gesture.is_some() {
             ctx.request_repaint();
         }
@@ -309,7 +460,7 @@ impl App {
         if zoom != 1.0 {
             let anchor = pointer.x - view.body.left();
             view.time = view.time.zoomed(anchor, f64::from(zoom), limits);
-        } else if modifiers.alt && pitch {
+        } else if modifiers.alt && pitch && !view.lanes {
             let wheel = if delta.y != 0.0 { delta.y } else { delta.x };
             if wheel != 0.0 {
                 // Keep the row under the pointer where it is.
@@ -463,6 +614,38 @@ impl App {
         );
     }
 
+    /// The chip beside the pointer in the drum editor's lanes: the sound, its
+    /// bar and beat and its velocity ("Snare · 2.3.1 · vel 96").
+    fn drum_chip(&self, resolved: &Resolved, preview: &Preview, clip: &Clip) -> Option<String> {
+        let first = preview.ghosts.first()?;
+        let name = self
+            .clip_drum_map(clip.id)
+            .and_then(|map| map.sound(first.pitch()))
+            .map_or_else(
+                || pitch_name(i32::from(first.pitch())),
+                |sound| sound.name.clone(),
+            );
+        let bbt = self
+            .transport
+            .timeline
+            .meter
+            .bbt_at(clip.start + first.start());
+        let sixteenth = bbt.ticks.0 / (PPQ / 4) + 1;
+        let at = format!("{}.{}.{}", bbt.bar + 1, bbt.beat + 1, sixteenth);
+        match resolved {
+            Resolved::Velocity(_) => Some(format!("{name} \u{00B7} vel {}", first.velocity())),
+            Resolved::Move { .. } => Some(format!(
+                "{name} \u{00B7} {at} \u{00B7} vel {}",
+                first.velocity()
+            )),
+            Resolved::Draw(_) => Some(format!(
+                "{name} \u{00B7} {at} \u{00B7} vel {}",
+                first.velocity()
+            )),
+            _ => None,
+        }
+    }
+
     fn chip_text(&self, resolved: &Resolved, preview: &Preview, clip: &Clip) -> Option<String> {
         let first = preview.ghosts.first()?;
         let name = pitch_name(i32::from(first.pitch()));
@@ -513,7 +696,13 @@ impl App {
         hover: Option<(usize, Zone)>,
         view: &EditorView,
         at: Pos2,
+        drum: bool,
+        clip: &Clip,
     ) {
+        if drum {
+            self.drum_info(ed, hover, view, at, clip);
+            return;
+        }
         let pitch = pitch_name(view.pitch_at(at.y));
         let info = match (ed.tool, hover) {
             (Tool::Draw, Some(_)) => {
@@ -539,16 +728,82 @@ impl App {
         self.set_info(info);
     }
 
-    /// The right-click menu: for the notes, or for the empty editor.
+    /// The info line in the lanes (M8 D2): the sound, its bar and beat and its
+    /// velocity under the pointer ("Snare, bar 2 beat 3, velocity 96").
+    fn drum_info(
+        &mut self,
+        ed: &NoteEditor,
+        hover: Option<(usize, Zone)>,
+        view: &EditorView,
+        at: Pos2,
+        clip: &Clip,
+    ) {
+        let map = self.clip_drum_map(clip.id);
+        let lane_name = |pitch: u8| {
+            map.and_then(|map| map.sound(pitch))
+                .map_or_else(|| pitch_name(i32::from(pitch)), |s| s.name.clone())
+        };
+        let at_beat = |local: Ticks| {
+            let bbt = self.transport.timeline.meter.bbt_at(clip.start + local);
+            format!("bar {} beat {}", bbt.bar + 1, bbt.beat + 1)
+        };
+        let notes = self.editor_clip(clip.id).map(|(c, _)| c);
+        let note =
+            hover.and_then(|(i, _)| notes.as_ref().and_then(|c| notes_of(c).get(i)).copied());
+        let info = match (ed.tool, note) {
+            (Tool::Draw, Some(note)) => Info::new(format!(
+                "{}, {}, velocity {}",
+                lane_name(note.pitch()),
+                at_beat(note.start()),
+                note.velocity()
+            ))
+            .on(Held::NONE, Mouse::Click, "remove the hit"),
+            (Tool::Draw, None) => {
+                let name = lane_name(view.pitch_at(at.y).clamp(0, 127) as u8);
+                Info::new(format!("Draw on {name}"))
+                    .on(Held::NONE, Mouse::Click, "add a hit")
+                    .on(Held::ALT, Mouse::Click, "ignore the grid")
+            }
+            (Tool::Pointer, Some(note)) => Info::new(format!(
+                "{}, {}, velocity {}",
+                lane_name(note.pitch()),
+                at_beat(note.start()),
+                note.velocity()
+            ))
+            .on(
+                Held::NONE,
+                Mouse::Drag,
+                "move the hit; up or down sets its velocity",
+            )
+            .on(Held::CTRL, Mouse::Drag, "copy")
+            .on(Held::ALT, Mouse::Drag, "ignore the grid")
+            .on(Held::SHIFT, Mouse::Click, "add to selection")
+            .on(Held::NONE, Mouse::RightClick, "hit menu")
+            .key(Command::Delete, "delete"),
+            (Tool::Pointer, None) => Info::new("Drum lanes")
+                .on(Held::NONE, Mouse::Drag, "select with a box")
+                .on(Held::NONE, Mouse::DoubleClick, "add a hit")
+                .on(Held::NONE, Mouse::RightClick, "menu")
+                .key(Command::DrawTool, "draw tool"),
+        };
+        self.set_info(info);
+    }
+
+    /// The right-click menu: for the notes, or for the empty editor, and the
+    /// drum editor's own rows on a mapped track (M8 D2).
     fn editor_menu(
         &mut self,
         ui: &mut Ui,
         response: &egui::Response,
         ed: &mut NoteEditor,
         clip: &Clip,
-        over_body: Option<Pos2>,
-        hover: Option<(usize, Zone)>,
+        target: MenuTarget,
     ) {
+        let MenuTarget {
+            over_body,
+            hover,
+            drum,
+        } = target;
         if ui.input(|i| i.pointer.button_pressed(PointerButton::Secondary)) && over_body.is_some() {
             if let Some((i, _)) = hover {
                 if !ed.picked().contains(&i) {
@@ -646,6 +901,38 @@ impl App {
                 }
                 let label = format!("Grid: {}", self.grid_label_at(ed.time.left, ed.time.zoom));
                 widgets::submenu(ui, label, |ui| self.grid_menu(ui));
+            }
+            // The drum editor's own rows (M8 D2), only what can apply.
+            if let Some(drum) = drum {
+                ui.separator();
+                if let Some((input, shown)) = drum.length
+                    && widgets::menu_toggle(ui, "Show the sound's length", None, shown).clicked()
+                {
+                    ed.drum.toggle_length(drum.map, input);
+                }
+                if drum.view == crate::drum_editor::View::Lanes {
+                    let unused = keys(self, Command::HideUnusedLanes);
+                    if widgets::menu_toggle(ui, "Hide unused lanes", unused.as_ref(), drum.hiding)
+                        .clicked()
+                    {
+                        ed.drum.toggle_unused(drum.track);
+                    }
+                    let keys_row = keys(self, Command::DrumKeysView);
+                    if widgets::menu_item(ui, "Show the piano roll (Keys)", keys_row.as_ref(), true)
+                        .clicked()
+                    {
+                        ed.drum.set_view(drum.track, crate::drum_editor::View::Keys);
+                    }
+                } else {
+                    let lanes_row = keys(self, Command::DrumLanesView);
+                    if widgets::menu_item(ui, "Show the drum lanes", lanes_row.as_ref(), true)
+                        .clicked()
+                    {
+                        ed.drum
+                            .set_view(drum.track, crate::drum_editor::View::Lanes);
+                        ed.framed_for = None;
+                    }
+                }
             }
         });
     }

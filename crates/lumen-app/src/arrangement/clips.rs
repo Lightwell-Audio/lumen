@@ -354,6 +354,7 @@ impl Arrangement {
         ));
 
         // Names; clips loading for import; lane edges.
+        let mut drum_pictures = std::collections::BTreeMap::new();
         for row in &rows {
             let Some(lane) = lane_of(row) else {
                 continue;
@@ -413,6 +414,19 @@ impl Arrangement {
                         }
                         if x1 - x0 < NAME_MIN_WIDTH {
                             continue;
+                        }
+                        // A MIDI clip on a track with a drum map is drawn as
+                        // one row a sound, a cell a hit (M8 D2, DV A).
+                        if let Some(map) = project.drum_map_of(track) {
+                            let body = Rect::from_min_max(
+                                pos2(x0 + INSET, rect.top() + TITLE + WAVE_GAP),
+                                pos2(x1 - INSET, rect.bottom() - WAVE_GAP),
+                            );
+                            let dim = if heard { 1.0 } else { theme::CLIP_DIMMED };
+                            let drawn = crate::drum_editor::arrangement::paint(
+                                painter, map, clip, body, time, dim,
+                            );
+                            drum_pictures.insert(clip.id, drawn);
                         }
                         let paint = recording_look::paint(
                             self.recording.as_ref(),
@@ -530,6 +544,7 @@ impl Arrangement {
                 draw_edge_glow(painter, canvas.x_range(), lane.bottom(), t);
             }
         }
+        self.drum_pictures = drum_pictures;
         // The drop line of a track drag continues across the lanes.
         self.draw_drop_line(painter, canvas, false);
         self.draw_selection(painter, canvas, project, &rows, time);

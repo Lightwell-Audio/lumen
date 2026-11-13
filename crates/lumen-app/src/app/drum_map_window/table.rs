@@ -22,7 +22,7 @@ use super::Action;
 use crate::design::icons::{DrumGlyph, paint_drum_glyph};
 use crate::theme;
 use crate::widgets::number::{self, Number};
-use crate::widgets::{Dropdown, Menu, raised};
+use crate::widgets::{Dropdown, Menu, letter_toggle, raised};
 
 /// One row's height: the lanes' row (`DV`, 2 x space::M + space::XS).
 pub(crate) const ROW: f32 = 28.0;
@@ -926,56 +926,6 @@ fn colour_grid(ui: &mut Ui, current: Color) -> Option<Option<Color>> {
         }
     });
     picked.map(Some)
-}
-
-/// A lettered toggle the height of a row (Mute, Solo), the specimen's small
-/// square: lit in its tone when on, a raised control when off. True when it
-/// was clicked (or Space/Enter was pressed on it).
-fn letter_toggle(
-    ui: &mut Ui,
-    rect: Rect,
-    id: Id,
-    letter: &str,
-    on: bool,
-    name: &str,
-    tone: theme::Tone,
-) -> bool {
-    let response = ui.interact(rect, id, Sense::click());
-    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, name));
-    let response = response.on_hover_text(name);
-    if ui.is_rect_visible(rect) {
-        let rect = rect.round_to_pixels(ui.pixels_per_point());
-        let radius = theme::radius::for_height(rect.height());
-        let face = raised::Face::new(theme::controls(on))
-            .hover(crate::motion::hover(
-                ui.ctx(),
-                id.with("hover"),
-                response.hovered(),
-            ))
-            .lit(if on { 1.0 } else { 0.0 }, tone);
-        let body = raised::paint(ui.painter(), rect, radius, &face);
-        if !on {
-            // A hairline edge, as the lanes' M and S draw it.
-            ui.painter().rect_stroke(
-                rect,
-                f32::from(radius),
-                egui::Stroke::new(theme::stroke::HAIRLINE, theme::p().border_strong),
-                StrokeKind::Inside,
-            );
-        }
-        let galley = ui.painter().layout_no_wrap(
-            letter.to_owned(),
-            FontId::proportional(theme::size::SCALE),
-            face.text(),
-        );
-        let at = Align2::CENTER_CENTER
-            .anchor_size(body.center(), galley.size())
-            .round_to_pixels(ui.pixels_per_point())
-            .min;
-        ui.painter().galley(at, galley, face.text());
-        raised::focus_ring(ui.painter(), &response, rect);
-    }
-    response.clicked()
 }
 
 /// A small raised button with a word in it (Learn).

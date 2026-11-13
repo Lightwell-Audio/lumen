@@ -48,6 +48,8 @@ mod detail_tabs;
 mod device_change;
 mod devices;
 mod dropdown;
+mod drum_editor;
+mod drum_lanes_bench;
 mod drums;
 mod editing;
 mod editors;

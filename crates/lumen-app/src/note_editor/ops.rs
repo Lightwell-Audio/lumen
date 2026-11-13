@@ -107,8 +107,21 @@ impl App {
                 let next = match op {
                     NoteOp::Quantize => {
                         let settings = editor.quantize.options.settings(step);
-                        let next = self.document.quantize_notes(clip, &targets, &settings);
-                        let what = editor.quantize.options.summary(step);
+                        // A drum lane's sound may carry its own grid (M8 D2):
+                        // Q then uses it for that lane's hits and the
+                        // options' for the others, in one undo step.
+                        let lanes = self.drum_quantize_steps(editor, clip);
+                        let next = match &lanes {
+                            Some(steps) => self
+                                .document
+                                .quantize_notes_each(clip, &targets, &settings, steps),
+                            None => self.document.quantize_notes(clip, &targets, &settings),
+                        };
+                        let what = if lanes.is_some() {
+                            "each lane's own grid".to_owned()
+                        } else {
+                            editor.quantize.options.summary(step)
+                        };
                         self.toast = Some((
                             format!(
                                 "Quantized {} to {what}",

@@ -60,8 +60,12 @@ pub(crate) struct EditorView {
     pub row_height: f32,
     /// Points scrolled down from the top of the first row.
     pub scroll: f32,
-    /// Which rows show: every pitch, or a drum map's sounds (M8 D1).
+    /// Which rows show: every pitch, a drum map's sounds (M8 D1), or the
+    /// drum editor's lanes in the map's order (M8 D2).
     pub rows: Rows,
+    /// The drum editor's lanes: a hit is a diamond on its onset (DE A), and
+    /// a vertical drag on a picked hit sets its velocity.
+    pub lanes: bool,
 }
 
 /// Where a hidden pitch's row is put: far below the body, so nothing is
@@ -211,6 +215,7 @@ mod tests {
             row_height: 10.0,
             scroll: 600.0,
             rows: Rows::all(),
+            lanes: false,
         }
     }
 

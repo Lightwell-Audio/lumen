@@ -297,6 +297,9 @@ pub(crate) enum Command {
     DrumMapImport,
     DrumMapExport,
     HideUnmappedKeys,
+    DrumLanesView,
+    DrumKeysView,
+    HideUnusedLanes,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -681,6 +684,9 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DrumMapImport, "track.drum_map_import", "Import a drum map…", Area::Track, &[], concat!("Reads a .lumendrums file into this project and gives it to the selected MIDI tracks. A file that is damaged, or saved by a later ", lumen_core::product_name!(), ", is refused and says why.")),
     info(Command::DrumMapExport, "track.drum_map_export", "Export the drum map…", Area::Track, &[], "Writes the drum map the editor shows, or the selected track's, to a .lumendrums file you choose. The map in the project is not changed."),
     info(Command::HideUnmappedKeys, "view.hide_unmapped_keys", "Hide unmapped keys", Area::View, &[], "In the clip editor of a track with a drum map, shows only the map's sounds in the key column, so a kit's rows sit together; again shows every key. It changes the view only, never the clip."),
+    info(Command::DrumLanesView, "view.drum_lanes", "Show the drum lanes", Area::View, &[], "Shows the opened clip as the drum editor's lanes: one lane a sound of its track's drum map, in the map's order, with each hit a diamond filled to its velocity. A clip on a track with a drum map opens in Lanes already; this switches back from the piano roll."),
+    info(Command::DrumKeysView, "view.drum_keys", "Show the piano roll (Keys)", Area::View, &[], "Shows the opened drum clip as the piano roll, with the kit's sounds instead of the keyboard in the key column. It is the same notes, edited as notes; the lanes are where a drum part is played in."),
+    info(Command::HideUnusedLanes, "view.hide_unused_lanes", "Hide unused lanes", Area::View, &[], "In the drum editor's lanes, shows only the sounds the opened clip plays; again shows the map's every sound. A view only: no note and no map changes."),
 ];
 
 const fn info(
@@ -744,7 +750,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::HideUnmappedKeys as usize + 1,
+            Command::HideUnusedLanes as usize + 1,
             ALL.len(),
             "a command is missing"
         );

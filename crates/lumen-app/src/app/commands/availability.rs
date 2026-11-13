@@ -509,8 +509,30 @@ impl App {
             ),
             Command::DrumMapImport => Ok(()),
             Command::HideUnmappedKeys => need(
-                self.editor_has_drum_map(),
-                "Open a MIDI clip on a track with a drum map first",
+                self.editor_has_drum_map()
+                    && self
+                        .note_editor
+                        .clip
+                        .is_some_and(|c| self.drum_view(c) == Some(crate::drum_editor::View::Keys)),
+                "Open a MIDI clip on a track with a drum map in the Keys view first",
+            ),
+            Command::DrumLanesView => need(
+                self.note_editor.clip.is_some_and(|clip| {
+                    self.drum_view(clip) == Some(crate::drum_editor::View::Keys)
+                }),
+                "The drum lanes are the view already",
+            ),
+            Command::DrumKeysView => need(
+                self.note_editor.clip.is_some_and(|clip| {
+                    self.drum_view(clip) == Some(crate::drum_editor::View::Lanes)
+                }),
+                "The piano roll is the view already",
+            ),
+            Command::HideUnusedLanes => need(
+                self.note_editor.clip.is_some_and(|clip| {
+                    self.drum_view(clip) == Some(crate::drum_editor::View::Lanes)
+                }),
+                "Show the drum lanes first",
             ),
             Command::ClearSolos => need(
                 lumen_project::solo::any_soloed(self.document.project()),
