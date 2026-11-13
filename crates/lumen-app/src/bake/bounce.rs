@@ -300,6 +300,7 @@ pub fn render_job(
             instrument = Some(InstrumentSpec {
                 kind: HOSTED_KIND,
                 preset: 0,
+                values: Vec::new(),
                 instrument: Box::new(HostedInstrument::new(guard)),
             });
         } else if mixer_handle.attach_host(plugin.device.0, guard).is_err() {

@@ -147,7 +147,7 @@ impl App {
     /// strip, All parameters, lanes, MIDI learn and overrides are one code
     /// path.
     pub(crate) fn device_parameters(&self, d: &Device) -> &[ParamInfo] {
-        if crate::builtin::is_builtin(d) {
+        if crate::builtin::has_table(d) {
             self.builtin.parameters(d.id)
         } else {
             self.hosting.parameters(d.id)
@@ -156,7 +156,7 @@ impl App {
 
     /// The groups `d`'s parameters sit in: a built-in has one, unnamed.
     pub(crate) fn device_units(&self, d: &Device) -> Vec<UnitInfo> {
-        if crate::builtin::is_builtin(d) {
+        if crate::builtin::has_table(d) {
             Vec::new()
         } else {
             self.hosting.units(d.id).to_vec()
@@ -165,7 +165,7 @@ impl App {
 
     /// The words of each step of a stepped parameter of `d`.
     pub(crate) fn parameter_choices(&self, d: &Device, id: u32) -> Vec<String> {
-        if crate::builtin::is_builtin(d) {
+        if crate::builtin::has_table(d) {
             crate::builtin::choices(d, id)
         } else {
             self.hosting.choices(d.id, id).to_vec()
@@ -308,7 +308,7 @@ impl App {
     /// answer pushed out by other values', a lane's among them) is asked again
     /// after [`TEXT_AGAIN`].
     fn parameter_text(&self, d: &Device, p: &ParamInfo, value: f64) -> String {
-        if crate::builtin::is_builtin(d) {
+        if crate::builtin::has_table(d) {
             return crate::builtin::text(d, p.id, value)
                 .unwrap_or_else(|| format!("{:.0} %", value * 100.0));
         }
@@ -401,7 +401,7 @@ impl App {
         let Some((_, d)) = crate::document::find_device(self.document.project(), device) else {
             return;
         };
-        if !crate::builtin::is_builtin(d) {
+        if !crate::builtin::has_table(d) {
             self.hosting.ask_value(device, id, text);
             return;
         }

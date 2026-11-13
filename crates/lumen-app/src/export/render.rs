@@ -216,6 +216,7 @@ pub fn prepare(job: &Job, cancel: &AtomicBool) -> Result<Option<Prepared>, Strin
                 InstrumentSpec {
                     kind: HOSTED_KIND,
                     preset: 0,
+                    values: Vec::new(),
                     instrument: Box::new(HostedInstrument::new(guard)),
                 },
             );

@@ -52,8 +52,11 @@ pub fn used_ports(project: &Project) -> std::collections::BTreeSet<String> {
         .collect()
 }
 
-/// The instrument a track's synth device asks for. A preset this version
-/// does not know (a project from a later one) plays as the default sound.
+/// The instrument a track's synth device asks for: Flare on the values the
+/// project holds for its parameters (M8 slice B4), or on its preset when the
+/// project has none yet (a file written before the format learned to hold
+/// them). A preset this version does not know (a project from a later one)
+/// plays as the default sound.
 fn instrument(track: &model::Track, hosts: &mut dyn Hosts) -> Option<InstrumentSpec> {
     // A plugin instrument: a host's, or a stand-in while there is none.
     if let Some(device) = track.sound_source()
@@ -66,10 +69,20 @@ fn instrument(track: &model::Track, hosts: &mut dyn Hosts) -> Option<InstrumentS
         .preset()
         .and_then(Preset::from_id)
         .unwrap_or_default();
+    // What the project holds: a synth whose parameters were never written
+    // (a file from before v36 that was not migrated, or a device made by an
+    // older path) plays its preset's values, which are the same sound.
+    let values = if device.params.is_empty() {
+        preset.values()
+    } else {
+        crate::builtin::values(device)
+    };
+    let synth = Synth::with_values(&values);
     Some(InstrumentSpec {
         kind: synth::KIND,
         preset: preset.number(),
-        instrument: Box::new(Synth::new(preset)),
+        values,
+        instrument: Box::new(synth),
     })
 }
 
@@ -277,9 +290,11 @@ pub fn engine_midi(
     engine_midi_with(project, inputs, ports, cache, &mut NoHosts)
 }
 
-/// Gives each of `tracks` the lanes that drive the parameters of its plugin
-/// instrument, baked for a device at `rate` (M7 slice A3). Built-in
-/// instruments have no parameters to automate yet (M8).
+/// Gives each of `tracks` the lanes that drive the parameters of its built-in
+/// or plugin instrument, baked for a device at `rate` (M7 slice A3; the
+/// built-in synth's in M8 slice B4). An instrument's lanes travel with the
+/// track's MIDI, not with the routing's chain: what an instrument makes is
+/// sound, not a device on a bus.
 pub fn with_lanes(
     tracks: &mut [MidiTrack],
     project: &Project,
@@ -294,7 +309,7 @@ pub fn with_lanes(
             continue;
         };
         let lanes = crate::lane_bake::device_lanes(held, over, &tempo, rate, |d| {
-            d.is_vst3() && d.is_instrument()
+            d.is_instrument() && (d.is_vst3() || d.is_synth())
         });
         track.set_automation(lanes.into_iter().map(|(_, lane)| lane).collect());
     }

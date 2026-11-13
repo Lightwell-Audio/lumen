@@ -120,6 +120,7 @@ mod solo;
 mod song_lanes;
 mod stepped;
 mod streaming;
+mod synth;
 mod tap_tempo;
 mod templates;
 mod tools;

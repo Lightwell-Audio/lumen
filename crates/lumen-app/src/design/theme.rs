@@ -584,6 +584,16 @@ pub mod personality {
     /// changes nothing of its own.
     pub const UTILITY: Color32 = Color32::from_rgb(0x9A, 0xA0, 0xAC);
 
+    /// Flare, the polysynth (M8 slice B4): a warm amber, the colour of the
+    /// flare its own picture burns.
+    pub const SYNTH: Color32 = Color32::from_rgb(0xFF, 0xB5, 0x47);
+    /// The deep tint under Flare's picture: the screen is its own colour at
+    /// night, as every built-in's is (DESIGN.md §7k), and this one carries
+    /// the amber. The drawn face uses it; until then it is the record of the
+    /// colour the specimens gave it.
+    #[allow(dead_code)]
+    pub const SYNTH_DEEP: Color32 = Color32::from_rgb(0x12, 0x0D, 0x05);
+
     /// The screen behind a built-in device's picture (DESIGN.md §7k): deep, and
     /// the same in both themes, as a clip's colour is. Its top is the device's
     /// signature colour, so the band stays the personality's.
