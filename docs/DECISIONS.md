@@ -13515,13 +13515,16 @@ heard after Stop (`listen`); an export of a fifth of a second with a one-second 
 keeping its tail and not ten seconds of it.
 
 **Measured.** `cargo bench -p lumen-engine --bench clips` (this machine, release), 64
-tracks each with one device, a 128-frame block: Prism 88.2 us (B0's 88.0 to 94.2),
-Parallax 371 us, Afterglow 1.44 ms, against 29.9 us for the same mix with no built-in.
-So one delay is 4.4 us a block (0.17 % of the 2.67 ms budget at 48 kHz) and one reverb
-is 22.1 us (0.83 %); a project with 64 reverbs spends 54 % of the block on them, which
-is the worst case the bench exists to show, not a typical song (a handful of reverbs on
-returns is 1 to 3 %). The reverb's gains are worked out with `powf` once a line a knot;
-if that becomes the cost, the segment-wise exponential B0 recorded applies here too.
+tracks each with one device, a 128-frame block: Prism 88.2 us and Parallax 371 us and
+Afterglow 1.44 ms (medians). The same mix with no built-in is 39.0 us in the same
+session (B0 measured 29.9 us on a quieter machine), so one delay is about 5.2 us a block
+(0.19 % of the 2.67 ms budget at 48 kHz) and one reverb about 21.9 us (0.82 %); a
+project with 64 reverbs spends 54 % of the block on them, which is the worst case the
+bench exists to show, not a typical song (a handful of reverbs on returns is 1 to 3 %).
+A second run with the machine loaded after the test suites measured 492.9 us and
+2.06 ms, which is load, not cost. The reverb's gains are worked out with `powf` once a
+line a knot; if that becomes the cost, the segment-wise exponential B0 recorded applies
+here too.
 
 **Not verified here.** The WSL performance gate, the macOS cross-target clippy, and any
 hardware: nothing was heard by a human (MT-FX-4 waits), the ASIO path is untouched but
