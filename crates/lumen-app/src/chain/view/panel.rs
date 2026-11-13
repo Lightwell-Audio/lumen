@@ -245,7 +245,13 @@ impl App {
                 widgets::Menu::context(&tail).show(|ui| {
                     // The row lands on the track whose chain this is.
                     self.arrangement.selected = vec![track_id];
-                    self.menu_command(ui, Command::AddUtility, "Add Prism (utility)");
+                    for (command, label) in [
+                        (Command::AddUtility, "Add Prism (utility)"),
+                        (Command::AddDelay, "Add Parallax (delay)"),
+                        (Command::AddReverb, "Add Afterglow (reverb)"),
+                    ] {
+                        self.menu_command(ui, command, label);
+                    }
                 });
                 if rows.is_empty() {
                     // The shared empty state (the interface audit's D1, the

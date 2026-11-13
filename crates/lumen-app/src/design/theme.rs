@@ -584,6 +584,14 @@ pub mod personality {
     /// changes nothing of its own.
     pub const UTILITY: Color32 = Color32::from_rgb(0x9A, 0xA0, 0xAC);
 
+    /// Parallax, the stereo delay: a cool teal, the colour of an echo
+    /// receding into the dark.
+    pub const DELAY: Color32 = Color32::from_rgb(0x3F, 0xD6, 0xC6);
+
+    /// Afterglow, the reverb: a warm pink, the colour of the light that
+    /// lingers after the sound.
+    pub const REVERB: Color32 = Color32::from_rgb(0xFF, 0x6F, 0xA8);
+
     /// The screen behind a built-in device's picture (DESIGN.md §7k): deep, and
     /// the same in both themes, as a clip's colour is. Its top is the device's
     /// signature colour, so the band stays the personality's.

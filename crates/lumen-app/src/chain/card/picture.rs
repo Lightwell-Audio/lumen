@@ -182,6 +182,115 @@ fn paint_idea(
     if personality.timing.name == lumen_devices::utility::NAME {
         paint_prism(painter, area, muted);
     }
+    if personality.timing.name == lumen_devices::delay::NAME {
+        paint_parallax(painter, area, hue, muted);
+    }
+    if personality.timing.name == lumen_devices::reverb::NAME {
+        paint_afterglow(painter, area, hue, muted);
+    }
+}
+
+/// Parallax's idea: a corridor of echoes, each repeat smaller and further
+/// away, crossing from one lane to the other (DESIGN.md §7k).
+fn paint_parallax(painter: &egui::Painter, area: Rect, hue: Color32, muted: bool) {
+    let height = area.height();
+    if height < 24.0 {
+        return;
+    }
+    let dim = if muted { 0.35 } else { 1.0 };
+    let vanish = pos2(area.center().x, area.top() + height * 0.22);
+    let floor = area.bottom();
+    // The corridor: lines from the vanishing point out to the floor, and the
+    // receding floor lines between them.
+    for k in 0..=6 {
+        let x = area.left() + area.width() * k as f32 / 6.0;
+        painter.line_segment(
+            [pos2(x, floor), vanish],
+            Stroke::new(
+                theme::stroke::HAIRLINE,
+                hue.gamma_multiply(theme::alpha::INK_QUIET * 0.5 * dim),
+            ),
+        );
+    }
+    for k in 1..=5 {
+        let t = (k as f32 / 5.0).powf(1.8);
+        let y = vanish.y + (floor - vanish.y) * t;
+        painter.line_segment(
+            [pos2(area.left(), y), pos2(area.right(), y)],
+            Stroke::new(
+                theme::stroke::HAIRLINE,
+                hue.gamma_multiply(theme::alpha::INK_QUIET * 0.45 * dim),
+            ),
+        );
+    }
+    // The echoes: the source nearest the eye, then each repeat further in,
+    // alternating lane by lane.
+    for k in 0..7 {
+        let t = 0.9 - k as f32 / 8.4;
+        let y = vanish.y + (floor - vanish.y) * t.powf(1.6);
+        let side = if k % 2 == 0 { -1.0 } else { 1.0 };
+        let x = vanish.x + side * area.width() * 0.30 * t.powf(1.6);
+        let radius = 9.0 * t.powf(1.4) + 2.0;
+        let colour = if k == 0 { Color32::WHITE } else { hue };
+        let strength = (0.25 + 0.75 * t) * dim;
+        painter.add(egui::Shape::convex_polygon(
+            ellipse(pos2(x, y), radius, radius * 0.82, 24),
+            colour.gamma_multiply(0.28 * strength),
+            Stroke::new(theme::stroke::LIT, colour.gamma_multiply(strength)),
+        ));
+    }
+}
+
+/// Afterglow's idea: a light that lingers where the sound was, its glow
+/// widening as the tail fades (DESIGN.md §7k).
+fn paint_afterglow(painter: &egui::Painter, area: Rect, hue: Color32, muted: bool) {
+    let height = area.height();
+    if height < 24.0 {
+        return;
+    }
+    let dim = if muted { 0.35 } else { 1.0 };
+    let centre = pos2(
+        area.left() + area.width() * 0.42,
+        area.top() + height * 0.56,
+    );
+    let unit = height.min(area.width()) * 0.16;
+    // The glow: filled ellipses fading out with distance.
+    for k in 1..=5 {
+        let reach = unit * (0.6 + k as f32 * 0.55);
+        painter.add(egui::Shape::convex_polygon(
+            ellipse(centre, reach, reach * 0.68, 40),
+            hue.gamma_multiply(0.10 * dim / k as f32),
+            Stroke::NONE,
+        ));
+    }
+    // The rings the tail leaves, and the light at its heart.
+    for k in 1..=4 {
+        let reach = unit * (0.35 + k as f32 * 0.42);
+        painter.add(egui::Shape::convex_polygon(
+            ellipse(centre, reach, reach * 0.6, 40),
+            Color32::TRANSPARENT,
+            Stroke::new(
+                theme::stroke::HAIRLINE,
+                Color32::WHITE.gamma_multiply((0.30 - 0.05 * k as f32) * dim),
+            ),
+        ));
+    }
+    painter.add(egui::Shape::convex_polygon(
+        ellipse(centre, unit * 0.30, unit * 0.22, 24),
+        Color32::from_rgb(0xFF, 0xF1, 0xD6).gamma_multiply(0.85 * dim),
+        Stroke::NONE,
+    ));
+}
+
+/// The points of an ellipse of `steps` sides: what a filled or outlined
+/// ellipse is drawn from.
+fn ellipse(centre: egui::Pos2, rx: f32, ry: f32, steps: usize) -> Vec<egui::Pos2> {
+    (0..steps)
+        .map(|k| {
+            let angle = std::f32::consts::TAU * k as f32 / steps as f32;
+            pos2(centre.x + rx * angle.cos(), centre.y + ry * angle.sin())
+        })
+        .collect()
 }
 
 /// Prism's idea: a beam of light enters from the left, the prism bends it, and

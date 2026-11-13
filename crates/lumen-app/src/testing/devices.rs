@@ -347,6 +347,17 @@ impl App {
         );
     }
 
+    /// Frames the project's devices ring on after its sound stops (M8 slice
+    /// B3): the automatic tail an export or a bounce adds.
+    pub fn project_tail(&self) -> u64 {
+        crate::builtin::tail_frames(self.project(), 48_000)
+    }
+
+    /// Frames one track's own devices ring on after its sound stops.
+    pub fn track_tail(&self, track: Id) -> u64 {
+        crate::builtin::track_tail_frames(self.project(), track, 48_000)
+    }
+
     /// The programs a device's plugin offers: each list's name and its
     /// programs' names.
     pub fn device_programs(&self, device: Id) -> Vec<(String, Vec<String>)> {

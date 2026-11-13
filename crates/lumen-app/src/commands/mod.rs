@@ -293,6 +293,8 @@ pub(crate) enum Command {
     DrumMapDetach,
     ConvertDrumMap,
     AddUtility,
+    AddDelay,
+    AddReverb,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -673,6 +675,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DrumMapDetach, "track.drum_map_detach", "Detach drum map", Area::Track, &[], "Takes the drum map off the selected MIDI tracks. Their notes stay exactly as they are and play as written again."),
     info(Command::ConvertDrumMap, "clip.convert_drum_map", "Convert drum map…", Area::Clip, &[], "Rewrite the selected clips' notes for another drum map: each hit keeps its sound, by name and then by the note the sound plays. Choose whether to keep the notes the target map lacks. The only drum edit that changes notes."),
     info(Command::AddUtility, "devices.add_utility", "Add Prism (utility)", Area::Devices, &[], "Puts Prism, the utility device, on the selected track (after the chosen card), or on a new audio track when no track fits. Gain, pan, width, mono below a frequency, polarity, a swap of the sides and a DC block: automation, MIDI learn and presets work as for any device."),
+    info(Command::AddDelay, "devices.add_delay", "Add Parallax (delay)", Area::Devices, &[], "Puts Parallax, the stereo delay, on the selected track (after the chosen card), or on a new audio track when none fits. A time in notes that follows the tempo or in milliseconds, feedback, ping-pong, low and high cut, freeze and a mix. Automation, MIDI learn and presets work as for any device."),
+    info(Command::AddReverb, "devices.add_reverb", "Add Afterglow (reverb)", Area::Devices, &[], "Puts Afterglow, the reverb, on the selected track (after the chosen card), or on a new audio track when none fits. Pre-delay, size, a decay the tail really takes, damping, width, early reflections and a mix; its tail rings on after Stop and an export keeps it. Automation, MIDI learn and presets work as for any device."),
 ];
 
 const fn info(
@@ -736,7 +740,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::AddUtility as usize + 1,
+            Command::AddReverb as usize + 1,
             ALL.len(),
             "a command is missing"
         );
