@@ -151,11 +151,30 @@ pub struct Capture {
     /// window. Only its first pass is floored here after latency correction.
     start: Option<Ticks>,
     first_pass: Option<u32>,
+    /// What each track keeps of an incoming note, by the track's drum map
+    /// (M8 D0): the map's input note for the key that came in, so a take on
+    /// a mapped track holds input notes even when the player's pads send the
+    /// notes the kit plays. A track with no map has no line.
+    store: BTreeMap<u64, [u8; 128]>,
 }
 
 impl Capture {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Sets what `track` keeps of a played key, from its drum map (M8 D0):
+    /// nothing to do for `None`, whose notes are stored as they came.
+    pub fn set_store_map(&mut self, track: u64, map: Option<&lumen_project::model::DrumMap>) {
+        match map {
+            Some(map) => {
+                self.store
+                    .insert(track, lumen_project::drums::store_table(map));
+            }
+            None => {
+                self.store.remove(&track);
+            }
+        }
     }
 
     /// A capture of a take that loops over `looped` (start and end ticks),
@@ -223,10 +242,17 @@ impl Capture {
         pass = mapped_pass;
         let channel = c.msg.channel();
         let looped = self.looped;
+        // The key the take keeps: the map's input note when the track has one.
+        let stored = |key: u8| {
+            self.store
+                .get(&c.track)
+                .map_or(key, |table| table[usize::from(key)])
+        };
         let lane = self.lanes.entry(c.track).or_default();
         lane.see(pass);
         match kind {
             Kind::NoteOn { key, velocity } => {
+                let key = stored(key);
                 let open = Held {
                     start: at,
                     velocity,
@@ -237,6 +263,7 @@ impl Capture {
                 }
             }
             Kind::NoteOff { key, .. } => {
+                let key = stored(key);
                 if let Some(open) = lane.held.remove(&(channel, key)) {
                     lane.finish(key, open, (at, pass), looped);
                 }
@@ -413,6 +440,43 @@ mod tests {
 
     fn range() -> (Ticks, Ticks) {
         (Ticks(0), Ticks(100_000))
+    }
+
+    #[test]
+    fn a_mapped_track_keeps_the_input_note_of_the_note_a_sound_plays() {
+        use lumen_project::model::{DrumIcon, DrumMap, Id, Sound};
+
+        // The kit's kick answers to 36 and plays 40: a player's pads send the
+        // notes the kit plays, and the take keeps the map's input notes
+        // (M8 D0, review L3).
+        let map = DrumMap::new(
+            Id(1),
+            "Kit",
+            vec![Sound::new("Kick", 36, 40, DrumIcon::Kick)],
+        );
+        let mut c = Capture::new();
+        c.set_store_map(1, Some(&map));
+        c.push(&cap(1, 100, Msg::note_on(0, 40, 90)), 0, &ticks);
+        c.push(&cap(1, 200, Msg::note_off(0, 40)), 0, &ticks);
+        // A note no sound plays is kept as it came.
+        c.push(&cap(1, 300, Msg::note_on(0, 60, 80)), 0, &ticks);
+        c.push(&cap(1, 400, Msg::note_off(0, 60)), 0, &ticks);
+        assert_eq!(
+            c.take(1, range()).notes,
+            vec![note(1000, 1000, 36, 90), note(3000, 1000, 60, 80)]
+        );
+        // Another track, with no map: it keeps what came in.
+        c.push(&cap(2, 500, Msg::note_on(0, 40, 70)), 0, &ticks);
+        c.push(&cap(2, 600, Msg::note_off(0, 40)), 0, &ticks);
+        assert_eq!(c.take(2, range()).notes, vec![note(5000, 1000, 40, 70)]);
+        // Taking the map off a track stores its notes as they come again.
+        c.set_store_map(1, None);
+        c.push(&cap(1, 700, Msg::note_on(0, 40, 60)), 0, &ticks);
+        c.push(&cap(1, 800, Msg::note_off(0, 40)), 0, &ticks);
+        assert_eq!(
+            c.take(1, range()).notes.last().copied(),
+            Some(note(7000, 1000, 40, 60))
+        );
     }
 
     #[test]

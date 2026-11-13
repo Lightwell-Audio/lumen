@@ -30,6 +30,7 @@ use lumen_core::midi::Kind;
 use lumen_core::time::Ticks;
 use lumen_engine::{Captured, Heard, WRAP};
 use lumen_project::edit::record::Take;
+use lumen_project::model::DrumMap;
 
 use crate::recording::recorder::Capture;
 
@@ -173,13 +174,16 @@ fn is_note_on(c: &Captured) -> bool {
 /// `playhead` is the timeline sample of the playhead, where a phrase played
 /// while stopped begins; `latency` the output latency in samples, taken off a
 /// phrase played while the transport moved; `ticks` turns a timeline sample
-/// into project ticks. None if the phrase holds no note.
+/// into project ticks; `store` the drum map of the track it goes on, so the
+/// take keeps the map's input notes as a recording does (M8 D0; review M2).
+/// None if the phrase holds no note.
 pub fn take_of(
     phrase: &Phrase,
     playhead: i64,
     latency: i64,
     ticks: &dyn Fn(i64) -> Ticks,
     meter: &MeterMap,
+    store: Option<&DrumMap>,
 ) -> Option<Take> {
     let first = phrase.messages.first()?;
     let (latency, base) = match phrase.state {
@@ -187,6 +191,7 @@ pub fn take_of(
         _ => (latency, None),
     };
     let mut capture = Capture::new();
+    capture.set_store_map(first.track, store);
     let mut end = Ticks::ZERO;
     for message in &phrase.messages {
         let mut message = *message;
@@ -258,6 +263,38 @@ mod tests {
     }
 
     const BAR: i64 = 4 * PPQ;
+
+    #[test]
+    fn a_take_on_a_mapped_track_keeps_the_maps_input_notes() {
+        use lumen_project::model::{DrumIcon, DrumMap, Id, Sound};
+
+        // A kit whose kick plays note 40 for its input 36: a player's pads
+        // send the notes the kit plays, and a recording keeps the map's input
+        // notes (M8 D0; review M2).
+        let map = DrumMap::new(
+            Id(1),
+            "Kit",
+            vec![Sound::new("Kick", 36, 40, DrumIcon::Kick)],
+        );
+        let phrase = Phrase {
+            id: 1,
+            track: 1,
+            state: Heard::Stopped,
+            messages: vec![
+                heard(1, Heard::Stopped, 0, 0, on(40)),
+                heard(1, Heard::Stopped, 0, PPQ as u64, off(40)),
+            ],
+        };
+        let take = take_of(&phrase, 0, 0, &ticks, &meter(), Some(&map)).unwrap();
+        assert_eq!(take.notes.len(), 1);
+        assert_eq!(
+            take.notes[0].pitch, 36,
+            "the map's input note, as a recording keeps it"
+        );
+        // On a track with no map the phrase is kept as it came.
+        let plain = take_of(&phrase, 0, 0, &ticks, &meter(), None).unwrap();
+        assert_eq!(plain.notes[0].pitch, 40);
+    }
 
     #[test]
     fn a_recording_is_not_kept_and_a_wrap_marker_is_not_either() {
@@ -350,7 +387,7 @@ mod tests {
                 heard(1, Heard::Playing, BAR + 100 + PPQ, 20, off(60)),
             ],
         };
-        let take = take_of(&phrase, 0, 0, &ticks, &meter()).unwrap();
+        let take = take_of(&phrase, 0, 0, &ticks, &meter(), None).unwrap();
         assert_eq!(take.notes.len(), 1);
         assert_eq!(take.notes[0].start, Ticks(BAR + 100));
         assert_eq!(take.notes[0].length, Ticks(PPQ));
@@ -369,7 +406,7 @@ mod tests {
                 heard(1, Heard::Playing, BAR + 600, 20, off(60)),
             ],
         };
-        let take = take_of(&phrase, 0, 40, &ticks, &meter()).unwrap();
+        let take = take_of(&phrase, 0, 40, &ticks, &meter(), None).unwrap();
         assert_eq!(take.notes[0].start, Ticks(BAR + 60));
     }
 
@@ -388,7 +425,7 @@ mod tests {
             ],
         };
         let playhead = 3 * BAR + 50;
-        let take = take_of(&phrase, playhead, 99, &ticks, &meter()).unwrap();
+        let take = take_of(&phrase, playhead, 99, &ticks, &meter(), None).unwrap();
         let starts: Vec<_> = take.notes.iter().map(|n| n.start).collect();
         assert_eq!(starts, [Ticks(playhead), Ticks(playhead + 2 * PPQ)]);
         // The latency is not taken off a stopped phrase; the clip begins on
@@ -407,7 +444,7 @@ mod tests {
                 heard(1, Heard::Playing, 300, 2, on(64)),
             ],
         };
-        let take = take_of(&phrase, 0, 0, &ticks, &meter()).unwrap();
+        let take = take_of(&phrase, 0, 0, &ticks, &meter(), None).unwrap();
         assert_eq!(take.notes.len(), 2);
         assert!(take.notes.iter().all(|n| n.length >= Ticks(1)));
         let none = Phrase {
@@ -422,7 +459,7 @@ mod tests {
                 Msg::controller(0, 64, 127),
             )],
         };
-        assert!(take_of(&none, 0, 0, &ticks, &meter()).is_none());
+        assert!(take_of(&none, 0, 0, &ticks, &meter(), None).is_none());
     }
 }
 

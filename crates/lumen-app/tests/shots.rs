@@ -5077,3 +5077,26 @@ fn instance_and_association() {
         }
     }
 }
+
+/// M8 D0: the drum map chooser on a MIDI track, in both themes at 100, 150
+/// and 200%. D1 replaces it with the map editor and redraws these.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn drum_map_choice() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-drums-{appearance}-{scale}"));
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
+            h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::T);
+            h.run_steps(30);
+            h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+            h.run_steps(3);
+            h.event(Event::Text("Drum map".into()));
+            h.run_steps(3);
+            h.key_press(Key::Enter);
+            h.run_steps(30);
+            assert!(h.state().drum_choice_open(), "the chooser is drawn");
+            save(&mut h, &format!("drum-map-{appearance}-{scale}"));
+        }
+    }
+}

@@ -365,3 +365,6 @@ view.audio_editor_pitch_envelope @m9.5
 clip.transpose_up @m9.5
 clip.transpose_down @m9.5
 clip.warp_fix_hit @m9.5
+track.drum_map_attach @m8
+track.drum_map_detach @m8
+clip.convert_drum_map @m8

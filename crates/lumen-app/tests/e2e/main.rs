@@ -48,6 +48,7 @@ mod detail_tabs;
 mod device_change;
 mod devices;
 mod dropdown;
+mod drums;
 mod editing;
 mod editors;
 mod fades;

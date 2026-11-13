@@ -215,6 +215,7 @@ impl App {
             collecting: None,
             templates,
             revert: Default::default(),
+            drum_choice: None,
             project_settings: Default::default(),
             file_notice: None,
             quitting: false,

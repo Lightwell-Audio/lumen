@@ -12869,3 +12869,154 @@ tempo `edit::set` call it, so each is still one undo step.
 10. *Tokens are named without a visual change.* `theme::stroke`, `theme::alpha`, new `motion` waits, `CLIP_DIMMED`, `UNDER_LANE` and `colour_of`; a test pins every level to the literal it replaced.
 
 **Consequences.** No format change, no protocol change (the plugin host stays at version 9, the shared-memory layout at 4). Every moved file was compared with its old self (only imports, signatures and visibility differ). Not run here: the WSL mirror, the performance gate, the macOS cross-target clippy, screenshots, any hardware or real plugin. The Windows crash filter and the editor window are compile-checked only. The ASIO changes have fake-driver tests only; the owner's Focusrite is the check. The smoke test that looks for the failed-allocation backtrace needs a build with symbols.
+
+## ADR-0142 — Drum maps: model, translation and choke (M8 slice D0)
+
+**Status.** Proposed (M8 D0, `docs/milestones/M8.md` §5; the owner's DM A, CO A and E3/E4, 2026-11-12).
+
+**Context.** §6.4 asks for per-sound drum maps whose attaching, swapping and
+editing never destroys notes, and M8's editors (D1 to D4) are built on them.
+Two things had to be settled before any editor: where a map lives, and
+exactly what the engine is given when a mapped track plays.
+
+**Choices.**
+
+1. **A map lives in the project, and a track names it.** `Project.drum_maps`
+   holds `DrumMap { id, name, sounds }` (`lumen-project/src/model/drum_map.rs`),
+   and `Track.drum_map: Option<Id>` (format v35). Two kit tracks share one map
+   and an edit reaches both; a preset or a user map is **copied** into the
+   list when attached (`Document::attach_drum_map_preset_to`), so a project
+   never depends on a file elsewhere. Attaching a map a track already names is
+   not an undo step.
+2. **Notes stay input notes; the map is read at play time.** `drums::played`
+   gives a note's key, channel and length override, or nothing for a muted
+   sound (or any unsoloed one while one is soloed). The translation happens
+   where the engine's MIDI tracks are built (`midi/runs.rs`: `Member.map`,
+   which is part of the run cache's key), so the engine receives plain
+   `MidiNote`s and the cache still shares unchanged note lists.
+3. **A sound's channel needs a per-note channel in the engine.**
+   `MidiNote.channel: Option<u8>` (the track's when none). A note-off goes out
+   on the channel its note-on did, because the tracker keeps the note with it.
+4. **Live input is translated in the engine**, from a small table the app
+   makes once per track list and hands over with the track
+   (`lumen_engine::DrumKit`: 128 `KitKey`s by input note and 128 choke groups
+   by played note, about 600 bytes, allocated on the UI side). Nothing on the
+   audio thread allocates or locks; a test plays choking mapped tracks under
+   the allocation guard.
+5. **Choke is Lumen's, before the instrument** (the owner's CO A). When a note
+   starts in a choke group, the tracker sends the other sounds of the group a
+   note-off at the same offset (`TrackState::choke`), and lets go of the live
+   notes of the group too; the sort that puts note-offs before note-ons on one
+   frame makes the release land first. A choked note leaves the tracker, so its
+   own end never sends a second note-off. The same path serves clip notes and
+   a player's pads, and a sound's played note is the group key (two sounds
+   sharing a played note share the first one's group). Two sounds of one
+   group struck on the same sample: the last struck sounds and the other is
+   never sent. For clip notes "last" is the note list's order (start, then
+   pitch, so the higher note wins a tie); for pads it is the order they
+   arrive in.
+6. **Recording keeps input notes** (the owner's E4). The engine's capture
+   already carries what was played; `recording::recorder::Capture` maps an
+   incoming key back to the input note of the sound that plays it, first sound
+   wins, for a player whose pads send the notes the kit plays
+   (`drums::store_table`, set when the take begins). Exporting MIDI writes what
+   plays: `midi/export.rs` reads the clips through the track's map, so a mapped
+   part holds the kit's notes. The "as stored" export is not built (it is the
+   option E4 leaves open).
+7. **The fifteen icons are a closed enum saved by name.** `DrumIcon` in the
+   order of round 3's drawing (kick, snare, rim, clap, closed hat, pedal hat,
+   open hat, tom, floor tom, crash, ride, cowbell, shaker, percussion,
+   effect); an unknown name reads as percussion rather than refusing the
+   project. A sound gets its icon from its name (`drums::icon_for_name`), and
+   every preset name goes through it, so names and drawings cannot drift.
+8. **The presets are code tables**: General MIDI (47 sounds, notes 35 to 81),
+   GM2 (61, with the effects below 35 and the six after 81) and an 808-style
+   layout of 16 sounds on General MIDI's notes. Their hats choke each other
+   (group 1). Colours come from the track palette by piece.
+9. **Conversion is the one destructive drum edit** (`clip.convert_drum_map`):
+   each note becomes the target map's input note for the same sound, by name
+   and then by the note the sound plays; notes the target lacks are kept or
+   left out, as the user chooses; notes with no sound are untouched. The clips
+   and the tracks they sit on switch to the target in one undo step. A user
+   map is only reachable this way once the project holds it, so D0's chooser
+   offers the project's maps for converting and presets for attaching.
+
+**Consequences.** Format v35 with the `add_drum_maps` migration (a no-op:
+both fields are written only when set) and a frozen v35 golden. `Document`'s
+drum edits live in `lumen-app/src/document/drums.rs`; the sound edits other
+than mute are used by this slice's tests only until D1's editor lands (they
+carry a stated `allow(dead_code)`). Three commands, no default keys, tagged
+`@m8` in `site/docs/data/undocumented.txt`: `track.drum_map_attach`,
+`track.drum_map_detach` and `clip.convert_drum_map`, with a chooser window
+(`app/drum_choice.rs`) that D1 replaces with the map editor. Tests: the
+property test that attach, swap, edit and detach leave the notes
+bit-identical; translation (mute, solo, channel, length override, unknown
+note, loops, seams); the choke in clips and live, every note-on answered; the
+allocation guard; offline equals real time for a mapped track; and E2E for
+attaching, hearing a sound muted and converting from the clip's menu. Not
+built here, on purpose: the piano roll's drum names, the drum editor, the step
+sequencer, per-sound routing (D4) and the sampler (B5) that honours it.
+
+Export MIDI writes one channel per file track (`midi/export.rs`), so a file of
+a mapped track holds the right notes on the track's channel and not the
+channel a sound names: E4's "as stored" export and the export settings are
+where that is settled.
+
+**Review round 1** (an independent reviewer; every finding fixed on the
+branch):
+
+- *H1 and H2: a choke in the choked note's own pass.* A chase after a locate
+  or a loop wrap, two notes of one group on one tick and two pads on one frame
+  all start the choked note in the same pass as the choke, so the note-off
+  sorted before the note-on it answered: the instrument was sent an off for a
+  key it never held, and the note it was given rang on, past Stop too. The
+  tracker now takes that pass's queued note-on back instead of sending a
+  note-off (`hold.rs`, `end_before_it_sounded` and `cancel_queued_on`): the
+  note never reached the instrument, so it owes no release. The four
+  scenarios are tests with a per-channel-and-key check that no off precedes
+  its on and nothing is left sounding after Stop (`tests/live.rs`), there is a
+  unit case in `hold.rs`, and the allocation guard plays a locate into
+  overlapping hats and same-tick hits.
+- *M1: a remapped pad while recording.* The clips' notes reach the engine as
+  the note their sound plays, while the recording's `Down` kept the key that
+  came in, so a sound remapping 36 to 40 never won its own clip's notes and
+  the part sounded doubled until the take was committed. `Down` keeps both and
+  `yields` compares the played note (`tests/record.rs`).
+- *M2: Capture MIDI on a mapped track.* `played::take_of` took no map, so a
+  captured phrase stored the notes the kit plays. It now takes the track's map
+  and gives the capture a recording's store table.
+- *L1: the chooser's Detach.* It ran the command that reads the selection, and
+  the window is not modal, so a click on another track's header detached the
+  wrong track (or nothing). It acts on the tracks it named.
+- *L2: the property test* carries muted notes and controller events, in an
+  order the seeded numbers choose, and compares the reloaded project's notes
+  and events rather than counting maps.
+- *L3 and L4: tests.* The recorder's store table has its own test, and a
+  sound's channel has engine tests for a clip note and a live pad, including a
+  map edit while the note sounds.
+- *L5: the model's dead and inconsistent API.* `played_note` is gone; a played
+  note two sounds share is in the first sound's choke group in `kit_of` as
+  well as in `choke_of_output`; a sound's colour is `DrumIcon::color`, beside
+  the icon, and no longer read from the preset tables.
+- *L7: the cost of translation.* `drums::Playing` reads a map once (a 128-note
+  input index and one "any soloed"), so a 100,000-note clip translates in
+  O(notes), and the run cache holds one shared `Arc<DrumMap>` per map instead
+  of a whole kit in every cached clip.
+- *L6: validation* refuses a nameless or blank sound name and a
+  `Route::Track` that names no instrument track.
+- *L10: the drum E2E* waits for the device to fall silent (a `Deadline` around
+  `listen`) instead of running thirty frames after muting.
+- *L8 is recorded, not fixed:* see the export sentence above.
+- *L9:* not run or looked at here: the WSL performance gate, the macOS
+  cross-target clippy, and the three-scale screenshots in both themes (this
+  slice has no window of its own; D1's editor is where they are looked at).
+
+**Review round 2** (a re-check of round 1's fixes): every round 1 finding
+verified fixed. One more ending path had the same flaw as H1: a pad that wins
+a clip note (`TrackState::give_way`) sent a note-off even when that note was
+chased in the same pass, so the off sorted before its on. It now takes the
+queued note-on back as the other two paths do (unit test in `hold.rs`). A
+sound's or a map's name longer than `MOST_SOUND_NAME` (64 characters) is now
+refused by the `Document` edits as well as by `validate`, so a long name typed
+in an editor can no longer make a save fail. The same-sample tie in a choke
+group is stated in item 5.
