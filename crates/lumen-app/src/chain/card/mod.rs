@@ -128,6 +128,9 @@ pub(super) struct Out {
     pub action: Option<Action>,
     /// What the strip's knobs and button asked for.
     pub strip: Vec<strip::Output>,
+    /// A drawing's part picked this frame (0-based), so the next frame draws it
+    /// picked.
+    pub picked: Option<usize>,
     /// The sidechain row's chooser (it opens the menu).
     pub sidechain: Option<Response>,
     /// The outputs row's chooser (it opens the menu).
@@ -396,6 +399,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         step,
         action,
         strip,
+        picked: None,
         sidechain: key,
         outputs: outs,
     }
@@ -527,6 +531,7 @@ fn paint_rail_edge(
         name: None,
         step: None,
         strip: Vec::new(),
+        picked: None,
         action: None,
         sidechain: None,
         outputs: None,

@@ -591,6 +591,36 @@ pub mod personality {
     /// changes nothing of its own.
     pub const UTILITY: Color32 = Color32::from_rgb(0x9A, 0xA0, 0xAC);
 
+    /// Iris, the parametric EQ (M8 slice B1): a periwinkle blue, the colour of
+    /// the curve it draws (`docs/specimens/m8/chosen.html`).
+    pub const EQ: Color32 = Color32::from_rgb(0x7C, 0x8C, 0xFF);
+
+    /// The ramp Iris's drawn curve and its analyser run along, low frequency to
+    /// high: the spectrum, content rather than chrome, so the same in both
+    /// themes. The owner's specimens draw an EQ's curve this way (round 2 of
+    /// `docs/specimens/m8/`).
+    pub const EQ_SWEEP: [Color32; 5] = [
+        Color32::from_rgb(0xFF, 0x5A, 0x6E),
+        Color32::from_rgb(0xFF, 0xB5, 0x47),
+        Color32::from_rgb(0x5B, 0xE0, 0x7F),
+        Color32::from_rgb(0x4F, 0xA3, 0xFF),
+        Color32::from_rgb(0xB0, 0x7C, 0xFF),
+    ];
+
+    /// Iris's eight bands, one colour each in the order they are numbered:
+    /// their point on the screen, their pill, and the dials while one is picked.
+    /// Band 2 is the specimen's amber, so the card at rest is the round-2 one.
+    pub const EQ_BANDS: [Color32; 8] = [
+        Color32::from_rgb(0xFF, 0x5A, 0x6E),
+        Color32::from_rgb(0xFF, 0xB5, 0x47),
+        Color32::from_rgb(0xE6, 0xD6, 0x4A),
+        Color32::from_rgb(0x5B, 0xE0, 0x7F),
+        Color32::from_rgb(0x3F, 0xD6, 0xC6),
+        Color32::from_rgb(0x4F, 0xA3, 0xFF),
+        Color32::from_rgb(0xB0, 0x7C, 0xFF),
+        Color32::from_rgb(0xE2, 0x6F, 0xD0),
+    ];
+
     /// The screen behind a built-in device's picture (DESIGN.md §7k): deep, and
     /// the same in both themes, as a clip's colour is. Its top is the device's
     /// signature colour, so the band stays the personality's.
@@ -750,6 +780,19 @@ pub mod personality {
         /// The live value chip while a handle is dragged: height and type size.
         pub const CHIP_HEIGHT: f32 = 18.0;
         pub const CHIP_TEXT: f32 = 9.0;
+
+        /// A drawing's parts (Iris's bands): how near a press counts on a point,
+        /// how far Shift slows a drag, and the numbered pill: its fill at rest
+        /// and picked (shares of the part's colour, the text's own colour at
+        /// rest), its ring and number when the part is off, and its number's
+        /// size as a share of its height.
+        pub const PART_REACH: f32 = 11.0;
+        pub const PART_FINE: f32 = 0.1;
+        pub const PART_PILL_REST: f32 = 0.10;
+        pub const PART_PILL_PICKED: f32 = 0.35;
+        pub const PART_PILL_OFF: f32 = 0.35;
+        pub const PART_PILL_OFF_TEXT: f32 = 0.5;
+        pub const PART_PILL_TEXT_SHARE: f32 = 0.5;
     }
 
     /// The light Prism splits (DESIGN.md §7k): the spectrum its beams fan into.

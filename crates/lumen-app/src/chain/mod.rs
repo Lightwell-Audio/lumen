@@ -74,6 +74,18 @@ pub(crate) struct Chain {
     /// The step each built-in's set-piece card is at (whole, short, compact),
     /// kept between frames for the switch's hysteresis (M8).
     pub steps: HashMap<Id, geometry::Step>,
+    /// The part each built-in's drawing has picked, by device (M8 slice B1:
+    /// Iris's band): a view setting, kept for the session like a fold.
+    pub bands: HashMap<Id, usize>,
+    /// The analyser's picture for each built-in device whose card shows one,
+    /// by device, this frame: filled before the cards are built and read by the
+    /// drawing. A device that is gone or folded is not in it, and its analyser
+    /// is told to stop.
+    pub analyzers: BTreeMap<Id, Vec<f32>>,
+    /// A picture a shot harness put in an analyser's place, for a screenshot
+    /// of a card with a signal: a shot's project does not play, so nothing
+    /// writes a real one (`testing::pretend_spectrum`).
+    pub pretend_spectrum: Option<(Id, Vec<f32>)>,
     /// The tallest compact card of the shown chain, as last drawn: a card
     /// whose message needs more lines is taller, and it sets the panel's
     /// least height (0 before the tab was first drawn).

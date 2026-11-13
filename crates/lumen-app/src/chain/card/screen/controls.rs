@@ -7,7 +7,7 @@ use eframe::egui::{self, Align, Color32, FontId, Rect, Sense, Stroke, StrokeKind
 
 use super::chrome::on_baseline;
 use super::plan::Plan;
-use crate::chain::face::{Control, Drawing, Kind};
+use crate::chain::face::{Control, Drawing, Kind, Parts, Values};
 use crate::chain::strip::{Output, Slot};
 use crate::theme::personality::card as c;
 use crate::widgets::param::{DialLook, ParamLook, param_dial, start_typing};
@@ -47,11 +47,20 @@ impl Ink {
 /// What a control says to a screen reader and in tooltips: its idea name, and
 /// the parameter's own beside it when they differ ("Ø L (Polarity L)").
 fn said(idea: &str, parameter: &str) -> String {
-    if idea.eq_ignore_ascii_case(parameter) {
+    if idea.eq_ignore_ascii_case(parameter) || parameter.ends_with(idea) {
         parameter.to_owned()
     } else {
         format!("{idea} ({parameter})")
     }
+}
+
+/// What a dial is called under it: the idea name, and a shorter one for the
+/// short and compact cards.
+#[derive(Clone, Copy)]
+struct Idea {
+    name: &'static str,
+    short: &'static str,
+    shown: fn(&str) -> String,
 }
 
 /// `colour` as the screen shows it at `power` (0 to 1): its own when lit, a cool
@@ -71,9 +80,11 @@ pub(super) fn paint(
     id: egui::Id,
     hue: Color32,
     power: f32,
+    picked: (Option<&Parts>, usize, &Values<'_>),
     out: &mut Vec<Output>,
 ) {
     let ink = Ink::of(plan);
+    let (parts, picked, values) = picked;
     for (index, control) in drawing.controls.iter().enumerate() {
         let Some(slot) = slots.iter().find(|s| s.id == control.param) else {
             continue;
@@ -84,8 +95,41 @@ pub(super) fn paint(
         let id = id.with(("control", control.param));
         match control.kind {
             Kind::Knob => {
-                let colour = control.lit.map_or(hue, |own| live(own, power));
-                dial(ui, plan, control, slot, cell, id, colour, ink, out);
+                // On a drawing with parts a dial is the picked part's, in its
+                // colour: the parameter and the name are the part's, and a part
+                // with nothing for it (a notch has no gain) leaves it still.
+                let aim = parts.map(|p| (p.aim)(values, picked, index));
+                let colour = match parts {
+                    Some(p) => live((p.colour)(picked), power),
+                    None => control.lit.map_or(hue, |own| live(own, power)),
+                };
+                let idea = Idea {
+                    name: control.name,
+                    short: control.short.unwrap_or(control.name),
+                    shown: control.shown,
+                };
+                match aim {
+                    None => dial(ui, plan, idea, slot, cell, id, colour, ink, out),
+                    Some(Some(aim)) => {
+                        let Some(aimed) = slots.iter().find(|s| s.id == aim.param) else {
+                            continue;
+                        };
+                        let idea = Idea {
+                            name: aim.name,
+                            short: aim.name,
+                            shown: control.shown,
+                        };
+                        dial(ui, plan, idea, aimed, cell, id, colour, ink, out);
+                    }
+                    Some(None) => {
+                        let still = Slot {
+                            text: "\u{2014}".to_owned(),
+                            read_only: true,
+                            ..slot.clone()
+                        };
+                        dial(ui, plan, idea, &still, cell, id, colour, ink, out);
+                    }
+                }
             }
             // A pill sits on the card, under the screen, at every step.
             Kind::Pill => pill(ui, control, slot, cell, id, hue, Ink::card(), out),
@@ -97,7 +141,7 @@ pub(super) fn paint(
 fn dial(
     ui: &mut Ui,
     plan: &Plan,
-    control: &Control,
+    idea: Idea,
     slot: &Slot,
     cell: Rect,
     id: egui::Id,
@@ -105,7 +149,7 @@ fn dial(
     ink: Ink,
     out: &mut Vec<Output>,
 ) {
-    let name = said(control.name, &slot.name);
+    let name = said(idea.name, &slot.name);
     let (response, moved) = param_dial(
         ui,
         cell.center(),
@@ -143,15 +187,15 @@ fn dial(
         let labels = plan.labels;
         let name_font = FontId::proportional(labels.name);
         let shown_name = match plan.step {
-            crate::chain::geometry::Step::Whole => control.name,
-            _ => control.short.unwrap_or(control.name),
+            crate::chain::geometry::Step::Whole => idea.name,
+            _ => idea.short,
         };
-        let idea = widgets::fit(painter, shown_name, name_font.clone(), labels.room);
+        let idea_text = widgets::fit(painter, shown_name, name_font.clone(), labels.room);
         on_baseline(
             painter,
             pos2(x, foot + labels.name_under),
             Align::Center,
-            idea,
+            idea_text,
             name_font,
             ink.name,
             0.0,
@@ -159,7 +203,7 @@ fn dial(
         let value_font = FontId::monospace(labels.value);
         let value = widgets::fit(
             painter,
-            &(control.shown)(&slot.text),
+            &(idea.shown)(&slot.text),
             value_font.clone(),
             labels.room,
         );

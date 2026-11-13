@@ -303,6 +303,7 @@ pub(crate) enum Command {
     HideUnusedLanes,
     DrumMuteLane,
     DrumSoloLane,
+    AddEq,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -693,6 +694,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::HideUnusedLanes, "view.hide_unused_lanes", "Hide unused lanes", Area::View, &[], "In the drum editor's lanes, shows only the sounds the opened clip plays; again shows the map's every sound. A view only: no note and no map changes."),
     info(Command::DrumMuteLane, "midi.mute_lane", "Mute the picked lane", Area::Midi, &[], "Mutes the drum map's sound of the lane the picked hits are in, or unmutes it when all are muted. The map editor's M is the same switch; one undo step."),
     info(Command::DrumSoloLane, "midi.solo_lane", "Solo the picked lane", Area::Midi, &[], "Solos the drum map's sound of the lane the picked hits are in, so only it is heard, or unsolos it. The map editor's S is the same switch; one undo step."),
+    info(Command::AddEq, "devices.add_eq", "Add Iris (EQ)", Area::Devices, &[], "Puts Iris, the equaliser, on the selected track (after the chosen card), or on a new audio track when no track fits. Eight bands: cuts, shelves, bells and notches, with an analyser. Drag a band's point on the curve, or find every control in All parameters. Automation, MIDI learn and presets work as for any device."),
 ];
 
 const fn info(
@@ -756,7 +758,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::DrumSoloLane as usize + 1,
+            Command::AddEq as usize + 1,
             ALL.len(),
             "a command is missing"
         );

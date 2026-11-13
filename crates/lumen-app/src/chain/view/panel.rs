@@ -19,6 +19,8 @@ struct Events {
     rescan: bool,
     load_one: Option<Id>,
     strip: Vec<(Id, strip::Output)>,
+    /// A drawing picked one of its parts (M8 slice B1).
+    picked: Option<(Id, usize)>,
 }
 
 /// What a drag over the tray carries.
@@ -55,6 +57,9 @@ impl App {
             let playing = self.transport.state().playing;
             self.read_sidechain(ui.ctx(), track_id, playing);
         }
+        // The analysers of the cards this frame draws are read before the cards
+        // are built; every other one is silenced (M8 slice B1).
+        self.pump_spectra(ui.ctx(), track_id, rate);
         let project = self.document.project();
         let Some(track) = all_tracks(project).find(|t| t.id == track_id) else {
             return;
@@ -172,7 +177,7 @@ impl App {
                 }),
                 sidechain: row.sidechain.as_ref(),
                 outputs: row.outputs.as_ref(),
-                personal: steps[i].and_then(|step| personal_of(row, step, level)),
+                personal: steps[i].and_then(|step| personal_of(row, step, level, rate)),
                 compact,
                 message: Default::default(),
             })
@@ -281,6 +286,7 @@ impl App {
                     // The row lands on the track whose chain this is.
                     self.arrangement.selected = vec![track_id];
                     self.menu_command(ui, Command::AddUtility, "Add Prism (utility)");
+                    self.menu_command(ui, Command::AddEq, "Add Iris (EQ)");
                 });
                 if rows.is_empty() {
                     // The shared empty state (the interface audit's D1, the
@@ -367,6 +373,9 @@ impl App {
                     }
                     for output in out.strip {
                         events.strip.push((row.id, output));
+                    }
+                    if let Some(part) = out.picked {
+                        events.picked = Some((row.id, part));
                     }
                     match out.action {
                         Some(Action::Reload) => events.reload = Some(row.id),
@@ -466,6 +475,9 @@ impl App {
         for (device, output) in events.strip {
             self.chain.selected = Some(device);
             self.apply_strip(device, output);
+        }
+        if let Some((device, part)) = events.picked {
+            self.chain.bands.insert(device, part);
         }
         if self.chain.text_pending.replace(false) {
             ui.ctx().request_repaint_after(crate::motion::TEXT_FRAME);

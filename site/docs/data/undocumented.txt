@@ -379,3 +379,4 @@ view.drum_keys @m8
 view.hide_unused_lanes @m8
 midi.mute_lane @m8
 midi.solo_lane @m8
+devices.add_eq @m8

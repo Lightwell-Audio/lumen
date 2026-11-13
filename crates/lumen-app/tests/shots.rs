@@ -2599,6 +2599,132 @@ fn builtin_card_playing() {
     }
 }
 
+/// Iris, the parametric EQ (M8 slice B1, the owner's round 2): the card whole
+/// at rest and playing (the analyser's mist), short, compact, folded and in the
+/// smallest window; both themes at 100, 150 and 200%. The values are the
+/// specimen's: a low cut at 40 Hz, band 2 at 180 Hz +5.0 (picked), a bell at
+/// 2.5 kHz -4.0 and a high shelf at 8 kHz +3.0.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn builtin_eq() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_project::model::{Color, Device, Id, PluginRef, Track, TrackKind};
+
+    let mut cases: Vec<(&str, f32, eframe::egui::Vec2, &str, f32)> = Vec::new();
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            for (tag, detail) in [("whole", 460.0), ("short", 365.0), ("compact", 300.0)] {
+                cases.push((appearance, scale, vec2(1280.0, 900.0), tag, detail));
+            }
+            cases.push((appearance, scale, vec2(960.0, 540.0), "small", 0.0));
+        }
+    }
+    // SHOT_FILTER=dark-1 keeps the cases whose "appearance-scale-tag" holds it.
+    let only = std::env::var("SHOT_FILTER").unwrap_or_default();
+    for (appearance, scale, size, tag, detail) in cases {
+        if !format!("{appearance}-{scale}-{tag}").contains(&only) {
+            continue;
+        }
+        let dir = TempDir::new(&format!("shots-iris-{appearance}-{scale}-{tag}"));
+        let mut track = Track::new(Id(1), "Vox".to_owned(), TrackKind::Audio, Color(0x5E8A9C));
+        let table = lumen_devices::eq::TABLE;
+        let value = |id: u32, units: f32| {
+            let info = table.iter().find(|info| info.id == id).expect("an id");
+            f64::from(info.normalised(units))
+        };
+        let mut device = Device::new(
+            Id(10),
+            PluginRef::Builtin {
+                name: lumen_devices::eq::NAME.to_owned(),
+            },
+            false,
+            Vec::new(),
+        );
+        for (id, units) in [
+            (lumen_devices::eq::on_of(1), 1.0),
+            (lumen_devices::eq::freq_of(1), 40.0),
+            (lumen_devices::eq::gain_of(1), 24.0),
+            (lumen_devices::eq::gain_of(2), 5.0),
+            (lumen_devices::eq::freq_of(2), 180.0),
+            (lumen_devices::eq::q_of(2), 0.8),
+            (lumen_devices::eq::on_of(3), 0.0),
+            (lumen_devices::eq::on_of(4), 0.0),
+            (lumen_devices::eq::on_of(5), 0.0),
+            (lumen_devices::eq::gain_of(6), -4.0),
+            (lumen_devices::eq::freq_of(6), 2_500.0),
+            (lumen_devices::eq::q_of(6), 1.4),
+            (lumen_devices::eq::type_of(7), 2.0),
+            (lumen_devices::eq::gain_of(7), 3.0),
+            (lumen_devices::eq::freq_of(7), 8_000.0),
+        ] {
+            device.params.insert(id, value(id, units));
+        }
+        track.devices = vec![device];
+        let project = lumen_project::testing::project_of("Iris", vec![track]);
+        let path = dir.path().join("song.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(size)
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(30);
+        h.state_mut().select_tracks(&[Id(1)]);
+        h.run_steps(4);
+        // The browser has a Devices tab too: the detail panel's comes last.
+        h.get_all_by_label("Devices tab")
+            .last()
+            .expect("the tabs")
+            .click();
+        h.run_steps(4);
+        if tag != "small" {
+            h.state_mut().set_detail_size(detail);
+            h.run_steps(30);
+        }
+        // Band 2 picked, as a click does: its halo, blades, chip and dials.
+        h.state_mut().pick_band(Id(10), 1);
+        h.run_steps(10);
+        let tag = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
+        save(&mut h, &format!("iris-{tag}"));
+        // A signal in the analyser's place (a shot's project does not play):
+        // the specimen's soft mist.
+        let spectrum: Vec<f32> = (0..96)
+            .map(|i| {
+                let t = i as f32 / 95.0;
+                let loud = 0.5 + 0.22 * (t * 9.0).sin() + 0.1 * (t * 33.0).sin() - t * 0.42;
+                -84.0 + 78.0 * loud.max(0.04)
+            })
+            .collect();
+        h.state_mut().pretend_spectrum(Id(10), &spectrum);
+        h.run_steps(40);
+        save(&mut h, &format!("iris-playing-{tag}"));
+        // Folded: the rail with the power and the name set on end.
+        h.state_mut().fold_device(Id(10));
+        h.run_steps(10);
+        save(&mut h, &format!("iris-folded-{tag}"));
+        h.state_mut().fold_device(Id(10));
+        h.run_steps(10);
+        // Every parameter on its own.
+        if h.query_by_label("All parameters (38)").is_some() {
+            h.get_by_label("All parameters (38)").click();
+            h.run_steps(10);
+            save(&mut h, &format!("iris-parameters-{tag}"));
+        }
+    }
+}
+
 /// The Devices tab (M6 slice 2d): a chain with every card face, stopped and
 /// playing, as the owner's C4 mock-up draws it.
 #[test]
