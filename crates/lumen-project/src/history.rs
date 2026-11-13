@@ -297,10 +297,12 @@ fn unchanged(a: &Project, b: &Project) -> bool {
         mappings,
         notes,
         new_track_color,
+        drum_maps,
     } = a;
     *name == b.name
         && *notes == b.notes
         && *new_track_color == b.new_track_color
+        && *drum_maps == b.drum_maps
         && *sample_rate == b.sample_rate
         && *tempo == b.tempo
         && *auto_crossfade == b.auto_crossfade
@@ -345,6 +347,7 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         plugin_output,
         automation,
         frozen,
+        drum_map,
         clips,
     } = &**x;
     let bits = |a: f32, b: f32| a.to_bits() == b.to_bits();
@@ -372,6 +375,7 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         && *monitor == y.monitor
         && *input == y.input
         && *frozen == y.frozen
+        && *drum_map == y.drum_map
         && *plugin_output == y.plugin_output
         && automation_unchanged(automation, &y.automation)
         && clips.len() == y.clips.len()

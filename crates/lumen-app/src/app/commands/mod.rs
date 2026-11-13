@@ -58,6 +58,7 @@ impl App {
             || self.export.open
             || self.project_settings.is_open()
             || self.controllers.window
+            || self.drum_choice.is_some()
             || self.prompt.is_some()
     }
 

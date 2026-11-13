@@ -23,12 +23,14 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 mod clip;
 mod device;
+mod drum_map;
 mod takes;
 mod track;
 mod warp;
 
 pub use clip::*;
 pub use device::*;
+pub use drum_map::*;
 pub use takes::*;
 pub use track::*;
 pub use warp::*;
@@ -144,6 +146,11 @@ pub struct Project {
     /// Part of undo.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_track_color: Option<Color>,
+    /// The project's drum maps (format v35): one kit may serve several
+    /// tracks, and a preset is copied in when attached (the owner's DM A).
+    /// Written only when there are some. Part of undo.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drum_maps: Vec<DrumMap>,
 }
 
 /// The most text a project's notes may hold, in bytes (`validate`).
@@ -276,6 +283,17 @@ impl Project {
     pub fn meter_map(&self) -> MeterMap {
         MeterMap::new(self.meter.clone())
             .unwrap_or_else(|_| MeterMap::constant(Meter::FOUR_FOUR).expect("4/4 is valid"))
+    }
+
+    /// The drum map called `id`, if the project has it.
+    pub fn drum_map(&self, id: Id) -> Option<&DrumMap> {
+        self.drum_maps.iter().find(|m| m.id == id)
+    }
+
+    /// The drum map `track` plays through: none when it names none, or names
+    /// a map that is gone (the notes then play as written).
+    pub fn drum_map_of(&self, track: &Track) -> Option<&DrumMap> {
+        self.drum_map(track.drum_map?)
     }
 }
 

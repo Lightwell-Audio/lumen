@@ -85,6 +85,7 @@ impl TrackSource for MidiPlayer {
                     channel,
                     clock,
                     sample,
+                    track.kit.as_deref(),
                 );
             }
         }

@@ -308,9 +308,21 @@ impl App {
         let now = Instant::now();
         let rec = self.document.begin_recording(&tracks);
         let latched = self.latch_mapped(&tracks);
+        // A take on a mapped track keeps input notes (M8 D0, the owner's E4).
+        let mut capture = Capture::recording(looped, start);
+        for &track in &tracks {
+            let map = self
+                .document
+                .project()
+                .tracks
+                .iter()
+                .find(|t| t.id == track)
+                .and_then(|t| self.document.project().drum_map_of(t));
+            capture.set_store_map(track.0, map);
+        }
         self.record.session = Some(Session {
             rec,
-            capture: Capture::recording(looped, start),
+            capture,
             mode: if settings.overdub {
                 Mode::Overdub
             } else {

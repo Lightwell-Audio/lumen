@@ -180,6 +180,7 @@ fn golden_v1_expected() -> Project {
         mappings: Vec::new(),
         notes: String::new(),
         new_track_color: None,
+        drum_maps: Vec::new(),
     }
 }
 

@@ -35,6 +35,7 @@ pub(super) fn gather_track(
             channel,
             clock,
             (from, from + frames as i64),
+            track.kit.as_deref(),
         );
     }
     hold::sort_events(&mut track.state.events);

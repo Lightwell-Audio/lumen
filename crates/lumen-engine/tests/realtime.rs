@@ -629,6 +629,7 @@ fn midi_never_touches_the_heap() {
                         length: Ticks::quarters(1 + n % 3),
                         pitch: 40 + ((n * 7 + id as i64) % 40) as u8,
                         velocity: 90,
+                        channel: None,
                     })
                     .collect();
                 let controls = vec![MidiControl {
@@ -962,4 +963,149 @@ fn a_preview_never_touches_the_heap() {
         assert_eq!(heap, 0, "heap operation in the preview at block {n}");
     }
     assert!(handle.counts().0 > 0, "stale blocks were skipped");
+}
+
+/// M8 D0: playing mapped drum tracks that choke each other, with live hats
+/// arriving, never touches the heap: the kit is made on the UI side and read
+/// as two arrays, and a choke pushes the note-offs it owes with no room made.
+#[test]
+fn a_choking_drum_track_never_touches_the_heap() {
+    use lumen_engine::testing::routed;
+    use lumen_engine::{
+        DrumKit, KitKey, Layered, Listen, LiveIn, LiveInput, MidiClip, MidiNote, MidiTrack, Target,
+        clip_player, control_list, midi_player, mixer, note_list,
+    };
+
+    /// Plays the closed and the open hat in turn, one every 200 frames.
+    struct Hats {
+        next: u64,
+        open: bool,
+    }
+    impl LiveInput for Hats {
+        fn pull(&mut self, _start: u64, end: u64, take: &mut dyn FnMut(LiveIn)) {
+            while self.next < end {
+                let key = if self.open { 46 } else { 42 };
+                for msg in [
+                    lumen_core::midi::Msg::note_on(0, key, 100),
+                    lumen_core::midi::Msg::note_off(0, key),
+                ] {
+                    take(LiveIn {
+                        frame: self.next,
+                        played: self.next,
+                        source: 3,
+                        track: None,
+                        msg,
+                    });
+                }
+                self.open = !self.open;
+                self.next += 200;
+            }
+        }
+        fn waiting(&self) -> bool {
+            false
+        }
+    }
+
+    let kit = || {
+        let mut kit = DrumKit::new();
+        for key in [42, 46] {
+            kit.set(
+                key,
+                KitKey {
+                    key,
+                    channel: None,
+                    silent: false,
+                },
+            );
+            kit.set_choke(key, 1);
+        }
+        Box::new(kit)
+    };
+    let tracks = || -> Vec<MidiTrack> {
+        (0..8_u64)
+            .map(|id| {
+                let mut notes: Vec<MidiNote> = (0..64)
+                    .map(|n| MidiNote {
+                        start: Ticks(n * 2_401 + id as i64 * 17),
+                        length: Ticks::quarters(2),
+                        pitch: if n % 2 == 0 { 46 } else { 42 },
+                        velocity: 100,
+                        channel: None,
+                    })
+                    .collect();
+                // Two hats overlapping, so a locate into them starts both in
+                // one pass, and two on one tick: the choke takes a note-on of
+                // that pass back (review H1).
+                for (start, pitch) in [
+                    (Ticks::ZERO, 46),
+                    (Ticks::quarters(2), 42),
+                    (Ticks::quarters(4), 46),
+                    (Ticks::quarters(4), 42),
+                ] {
+                    notes.push(MidiNote {
+                        start,
+                        length: Ticks::quarters(8),
+                        pitch,
+                        velocity: 100,
+                        channel: None,
+                    });
+                }
+                let clip = MidiClip {
+                    id,
+                    start: Ticks::ZERO,
+                    length: Ticks::quarters(64),
+                    period: None,
+                    seams: Default::default(),
+                    notes: note_list(notes),
+                    controls: control_list(Vec::new()),
+                };
+                MidiTrack::new(
+                    id,
+                    Target::Port {
+                        port: (id % 3) as u16,
+                        channel: 9,
+                    },
+                    None,
+                    vec![clip],
+                )
+                .listening(Listen {
+                    sources: 1 << 3,
+                    channel: None,
+                })
+                .playing_drums(Some(kit()))
+            })
+            .collect()
+    };
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let (_clips, players) = clip_player();
+    let (mut midi, player) = midi_player();
+    let mut output = midi.take_output().unwrap();
+    let (mut routing, source) = mixer(Layered(players, player));
+    let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
+    midi.set(tracks()).ok().unwrap();
+    midi.set_live(Box::new(Hats {
+        next: 0,
+        open: false,
+    }))
+    .ok()
+    .unwrap();
+    assert!(routing.set(&routed(8, 0)).unwrap());
+    handle.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    for block in 0..2_000_i64 {
+        // UI-side work happens outside the real-time section: a new list with
+        // a new kit, as a map edit sends one.
+        if block % 200 == 50 {
+            midi.collect_garbage();
+            let _ = midi.set(tracks());
+        }
+        if block % 500 == 400 {
+            handle.send(Command::Locate(Ticks::quarters(2))).unwrap();
+        }
+        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
+        assert_eq!(heap, 0, "heap operation in process() at block {block}");
+        while output.pop().is_ok() {}
+        let _ = handle.transport();
+        routing.collect_garbage();
+    }
 }

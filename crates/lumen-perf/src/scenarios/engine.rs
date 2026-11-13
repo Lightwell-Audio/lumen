@@ -137,6 +137,7 @@ pub(crate) fn playing_synths(tracks: u64) -> SynthPlayer {
                     length: Ticks(q(1).0 * 3 / 4),
                     pitch: 48 + (id % 12) as u8 + interval,
                     velocity: 70 + (id % 40) as u8,
+                    channel: None,
                 })
                 .collect();
             MidiTrack::new(
@@ -258,6 +259,7 @@ pub(crate) fn playing_hosted(tracks: u64, lanes: bool) -> (MixerHandle, SynthPla
                     length: Ticks(q(1).0 * 3 / 4),
                     pitch: 48 + (id % 12) as u8 + interval,
                     velocity: 70 + (id % 40) as u8,
+                    channel: None,
                 })
                 .collect();
             let guard = Guard::new(Echo::boxed(false), 0);
