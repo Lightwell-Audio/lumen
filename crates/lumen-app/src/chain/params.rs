@@ -243,8 +243,12 @@ impl App {
     }
 
     /// A parameter's value now: what the project holds, else what the plugin
-    /// has as far as Lumen knows, else its default.
+    /// has as far as Lumen knows, else its default. While a timing parameter is
+    /// being dragged, the value the hand is on (M8 slice B2, review N4).
     fn parameter_value(&self, d: &Device, p: &ParamInfo) -> f64 {
+        if let Some(&value) = self.chain.deferred.get(&(d.id, p.id)) {
+            return value;
+        }
         // A lane that plays drives it: the control shows the lane's value at
         // the playhead (M7 slice A4a, D5).
         if let Some(track) = self.track_of_device(d.id)
@@ -462,14 +466,7 @@ impl App {
                     && lumen_devices::timing_parameter(crate::builtin::name_of(d), id)
             });
         if timing && from != "typed" {
-            self.chain
-                .deferred
-                .entry((device, id))
-                .and_modify(|entry| {
-                    entry.0 = value;
-                    entry.1 = true;
-                })
-                .or_insert((value, true));
+            self.chain.deferred.insert((device, id), value);
             return;
         }
         self.commit_parameter(device, id, value, from);
@@ -478,6 +475,9 @@ impl App {
     /// A timing parameter's held change, applied once its drag has ended: one
     /// undo step, and the only time the routing hears the new number.
     fn commit_parameter(&mut self, device: Id, id: u32, value: f64, from: &str) {
+        // A value typed in (or one a preset or a panel set) is the answer now:
+        // a drag still pending for the same parameter is dropped (review N5).
+        self.chain.deferred.remove(&(device, id));
         let title = self
             .device_parameters_of(device)
             .iter()
@@ -498,20 +498,22 @@ impl App {
         );
     }
 
-    /// Applies the timing changes whose drags have ended (called once a frame
-    /// before the drawing, so this frame's grab is seen next frame).
-    pub(crate) fn apply_deferred(&mut self) {
-        let mut done: Vec<(Id, u32, f64)> = Vec::new();
-        for (&(device, id), entry) in &mut self.chain.deferred {
-            if entry.1 {
-                // Set again this frame: the drag is still going.
-                entry.1 = false;
-            } else {
-                done.push((device, id, entry.0));
-            }
+    /// Applies the timing changes whose drags have ended — the pointer is up —
+    /// called once a frame before the drawing. A knob can also be moved by the
+    /// wheel or the keys, which are single clicks with no pointer down, so they
+    /// are applied at once.
+    pub(crate) fn apply_deferred(&mut self, ctx: &egui::Context) {
+        if self.chain.deferred.is_empty() || ctx.input(|i| i.pointer.any_down()) {
+            return;
         }
+        let done: Vec<(Id, u32, f64)> = self
+            .chain
+            .deferred
+            .iter()
+            .map(|(&(device, id), &value)| (device, id, value))
+            .collect();
+        self.chain.deferred.clear();
         for (device, id, value) in done {
-            self.chain.deferred.remove(&(device, id));
             self.commit_parameter(device, id, value, "look");
         }
     }
@@ -820,8 +822,12 @@ impl App {
             crate::arrangement::follow::ring_with(ui, bar, palette.accent);
         }
         widgets::Menu::context(&response).show(|ui| {
-            if let Some(ask) = widgets::control_items(ui, mapped, waiting) {
-                act.ask = Some((p.id, ask));
+            if p.can_automate() {
+                if let Some(ask) = widgets::control_items(ui, mapped, waiting) {
+                    act.ask = Some((p.id, ask));
+                }
+            } else {
+                widgets::menu_caption(ui, "Not automatable: it is the device's timing.");
             }
         });
         if let Some(v) = out.value {

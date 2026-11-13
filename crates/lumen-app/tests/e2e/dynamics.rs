@@ -387,8 +387,8 @@ fn dragging_the_lookahead_re_times_the_routing_once_when_it_ends() {
     // Let go: once, and once only, the new lookahead reaches the routing.
     lumen.harness.drop_at(knob - vec2(0.0, 80.0));
     lumen.frames(30);
+    lumen.wait_for("the routing to be re-timed", |app| app.compensation() > 72);
     let after = lumen.app().compensation();
-    assert!(after > 72, "the routing was re-timed: {after}");
     let look = param(&lumen, device, limiter::LOOK).expect("a value");
     assert!(look > 0.2, "the knob's own value moved: {look}");
     lumen.frames(10);
@@ -423,4 +423,101 @@ fn the_all_parameters_panel_of_a_face_says_where_its_controls_are() {
         "no star column"
     );
     assert!(lumen.shows("All 10 parameters"), "the footer counts them");
+}
+
+/// N1: the All-parameters panel's menu for a device's timing offers no
+/// Automate and no Learn either, and says why — as the strip's does.
+#[test]
+fn the_lookahead_offers_no_automate_and_no_learn_in_either_menu() {
+    let (mut lumen, _, _) = launched(
+        "horizon-menus",
+        "Add Horizon",
+        lumen_devices::dynamics::limiter::NAME,
+    );
+    lumen.show_whole_cards();
+    lumen.frames(10);
+    let why = "Not automatable: it is the device's timing.";
+    // The card's own control (the face's Look knob).
+    lumen.right_click(at(&lumen, "Look, parameter"));
+    lumen.frames(5);
+    assert!(lumen.shows(why), "the strip's menu says why");
+    for row in ["Automate", "Learn a controller\u{2026}"] {
+        assert!(
+            lumen.harness.query_by_label(row).is_none(),
+            "the strip's menu has no {row}"
+        );
+    }
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(3);
+    // And the row in All parameters.
+    lumen.click("All parameters (4)");
+    lumen.frames(10);
+    let row = lumen
+        .harness
+        .get_all_by_label_contains("Look, parameter")
+        .last()
+        .expect("the panel's row")
+        .rect()
+        .center();
+    lumen.right_click(row);
+    lumen.frames(5);
+    assert!(lumen.shows(why), "the panel's menu says why");
+    for row in ["Automate", "Learn a controller\u{2026}"] {
+        assert!(
+            lumen.harness.query_by_label(row).is_none(),
+            "the panel's menu has no {row}"
+        );
+    }
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(3);
+    // A parameter that may be automated still offers both.
+    lumen.right_click(at(&lumen, "Ceiling, parameter"));
+    lumen.frames(5);
+    assert!(lumen.shows("Automate"), "the ceiling can be automated");
+    lumen.key(Modifiers::NONE, Key::Escape);
+}
+
+/// N7: the tray's own menu adds both devices, as it does Prism.
+#[test]
+fn the_device_trays_menu_adds_gravity_and_horizon() {
+    let (mut lumen, track) = tone("dynamics-tray");
+    lumen.show_whole_cards();
+    lumen.frames(20);
+    // The tray is empty: its menu offers both.
+    let browse = lumen.harness.get_by_label("Browse devices").rect();
+    let room = Pos2::new(browse.right() + 120.0, browse.center().y + 40.0);
+    lumen.right_click(room);
+    lumen.frames(5);
+    assert!(lumen.shows("Add Gravity (compressor)"), "Gravity's row");
+    assert!(lumen.shows("Add Horizon (limiter)"), "Horizon's row");
+    lumen.click("Add Horizon (limiter)");
+    lumen.wait_for("the card", |app| {
+        app.project().tracks[0]
+            .devices
+            .iter()
+            .any(|d| matches!(&d.plugin, PluginRef::Builtin { name } if name == lumen_devices::dynamics::limiter::NAME))
+    });
+    assert_eq!(lumen.app().undo_label(), Some("Add Horizon"));
+    assert_eq!(
+        lumen
+            .app()
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.id == track)
+            .map(|t| t.devices.len()),
+        Some(1)
+    );
+    // Past the last card the menu is there still.
+    lumen.show_whole_cards();
+    lumen.frames(20);
+    let card = lumen
+        .harness
+        .get_by_label_contains("Horizon on tone")
+        .rect();
+    let past = Pos2::new(card.right() + 300.0, card.center().y);
+    lumen.right_click(past);
+    lumen.frames(5);
+    assert!(lumen.shows("Add Gravity (compressor)"), "the tail's menu");
+    lumen.key(Modifiers::NONE, Key::Escape);
 }

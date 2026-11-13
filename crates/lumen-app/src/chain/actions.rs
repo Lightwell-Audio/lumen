@@ -224,7 +224,11 @@ impl App {
                     .map(|d| d.id)
             });
         match self.document.remove_device(track, device) {
-            Ok(()) => self.chain.selected = neighbour,
+            Ok(()) => {
+                self.chain.selected = neighbour;
+                // A change still held for it has nowhere to go (review N5).
+                self.chain.deferred.retain(|(known, _), _| *known != device);
+            }
             Err(refusal) => self.say(refusal.to_string()),
         }
     }
