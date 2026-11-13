@@ -259,12 +259,13 @@ pub struct Arrangement {
     hot_edge: Option<(Id, f32)>,
     /// Clip bodies on the GPU (slice 4b).
     gpu: clips::GpuClips,
-    /// What each mapped clip's drum rows drew last frame (M8 D2): the rows
-    /// and the cells, for the tests to see the picture was drawn. Empty when
-    /// the clip was out of view or its track reads no map.
-    pub(crate) drum_pictures: std::collections::BTreeMap<Id, (usize, usize)>,
+    /// What each mapped clip's drum rows drew last frame (M8 D2): the rows,
+    /// the cells and the widest mark, for the tests to see the picture was
+    /// drawn and stayed narrow. Empty when the clip was out of view or its
+    /// track reads no map.
+    pub(crate) drum_pictures: std::collections::BTreeMap<Id, (usize, usize, f32)>,
     /// The pictures' gathered cells, by clip: a frame that changes nothing
-    /// draws from here (review H2).
+    /// draws from here, and a clip no longer drawn leaves it (review H2, M1).
     drum_cache: std::collections::BTreeMap<Id, crate::drum_editor::arrangement::Picture>,
     /// Heights, folding and scroll before H fitted every track (H again
     /// restores them).
@@ -488,6 +489,24 @@ mod tests {
     use lumen_project::model::TrackKind;
 
     use crate::document::Document;
+
+    #[test]
+    fn a_clip_no_longer_drawn_leaves_the_drum_cache() {
+        // Review M1: a deleted, hidden or scrolled-away clip does not keep its
+        // gathered picture.
+        let mut arrangement = Arrangement::default();
+        let picture = || crate::drum_editor::arrangement::Picture::default();
+        arrangement.drum_cache.insert(Id(1), picture());
+        arrangement.drum_cache.insert(Id(2), picture());
+        let mut drawn = std::collections::BTreeMap::new();
+        drawn.insert(Id(1), (2, 3, 1.5));
+        arrangement.prune_drum_cache(&drawn);
+        assert!(arrangement.drum_cache.contains_key(&Id(1)), "still drawn");
+        assert!(
+            !arrangement.drum_cache.contains_key(&Id(2)),
+            "no longer drawn, so gone"
+        );
+    }
 
     #[test]
     fn fitted_heights_are_whole_steps_that_fit() {

@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use eframe::egui::{Painter, Rect, Stroke, pos2};
 use lumen_core::time::Ticks;
-use lumen_project::model::{Clip, ClipContent, DrumMap, Note};
+use lumen_project::model::{Clip, ClipContent, DrumMap, Id, Note};
 
 use crate::piano_roll::notes::{ClipNotes, Placed};
 use crate::theme;
@@ -108,9 +108,26 @@ fn sorted(notes: &[Note]) -> bool {
         .all(|pair| pair[0].start() <= pair[1].start())
 }
 
+/// The widest a mark is drawn for a picture column `bucket` points wide: a few
+/// points, whatever the zoom, so a hit stays a hit and never becomes a wall
+/// (review H1).
+fn mark_width(bucket: f32) -> f32 {
+    (bucket - 1.2).clamp(MARK_MIN, MARK_MAX)
+}
+
+/// A picture's gathered cells, and how many hits the gather looked at: the
+/// tests' proof the work is bounded by the view (review M2).
+#[derive(Debug, Default)]
+struct Gathered {
+    cells: Vec<Cell>,
+    visited: usize,
+}
+
 /// The cells of a clip's *visible* part, gathered per row and picture column,
-/// loudest wins. A looping clip's repeats are visited only where they fall in
-/// view (review H2); a sorted clip's notes are found by range.
+/// loudest wins. A sorted clip's notes are found by range, and a looping
+/// clip's repeats are bounded to the ones the view shows, with only the notes
+/// in each repeat's window visited (review H2, M2); a clip whose notes are not
+/// in order falls back to `ClipNotes::each_placed` and is filtered by the view.
 fn cells(
     clip: &Clip,
     rows: &[usize],
@@ -119,13 +136,13 @@ fn cells(
     body: Rect,
     time: TimeView,
     sorted: bool,
-) -> Vec<Cell> {
+) -> Gathered {
     let notes = match &clip.content {
         ClipContent::Midi { notes, .. } => notes.as_slice(),
-        ClipContent::Audio { .. } => return Vec::new(),
+        ClipContent::Audio { .. } => return Gathered::default(),
     };
     if rows.is_empty() || visible.width() <= 0.0 || body.width() <= 0.0 {
-        return Vec::new();
+        return Gathered::default();
     }
     let mut row_of = [usize::MAX; 128];
     for (at, &index) in rows.iter().enumerate() {
@@ -145,7 +162,9 @@ fn cells(
     let to = Ticks(
         ((beat(visible.right()) * lumen_core::time::PPQ as f64).ceil() as i64) - clip.start.0,
     );
+    let mut visited = 0;
     let mut visit = |note: Note, placed: Placed| {
+        visited += 1;
         let Some(&row) = row_of.get(usize::from(note.pitch())) else {
             return;
         };
@@ -191,10 +210,73 @@ fn cells(
                 },
             );
         }
+    } else if clip.loop_length.is_some() && sorted {
+        // A looping clip: only the repeats the view shows, and inside each
+        // only the notes whose onset falls in that repeat's visible window
+        // (review M2). The first repeat may be partial (the loop's phase); a
+        // note carried into it sounds at the clip's start.
+        let period = clip
+            .loop_length
+            .map(|p| p.0)
+            .filter(|&p| p > 0)
+            .unwrap_or(clip.length.0)
+            .max(1);
+        let phase = clip.loop_phase.0.rem_euclid(period);
+        let first_span = (period - phase).max(1).min(clip.length.0.max(1));
+        let end = to.0.min(clip.length.0);
+        let mut repeat = if from.0 < first_span {
+            0
+        } else {
+            1 + (from.0 - first_span).div_euclid(period)
+        };
+        loop {
+            let (base, span, offset) = if repeat == 0 {
+                (0, first_span, phase)
+            } else {
+                let base = first_span + (repeat - 1) * period;
+                (base, period.min(clip.length.0 - base).max(0), 0)
+            };
+            if span <= 0 || base > end {
+                break;
+            }
+            let lo = from.0.max(base);
+            let hi = to.0.min(base + span);
+            if hi >= lo {
+                // A carried note starts before the first repeat's phase.
+                let source_from = if repeat == 0 && phase > 0 {
+                    0
+                } else {
+                    lo - base + offset
+                };
+                let source_to = hi - base + offset;
+                let first = notes.partition_point(|note| note.start() < Ticks(source_from));
+                for note in notes[first..]
+                    .iter()
+                    .take_while(|note| note.start() <= Ticks(source_to))
+                {
+                    let local = if repeat == 0 && phase > 0 && note.start() < Ticks(phase) {
+                        0
+                    } else {
+                        base + (note.start().0 - offset)
+                    };
+                    let start = Ticks(clip.start.0 + local).as_quarters();
+                    visit(
+                        *note,
+                        Placed {
+                            index: 0,
+                            rep: 0,
+                            start,
+                            end: start,
+                        },
+                    );
+                }
+            }
+            repeat += 1;
+        }
     } else {
-        // A looping clip (or one whose notes are not in order): the repeats
-        // are visited once, and only the hits in view are gathered; the
-        // result is cached, so this runs only when the picture changes (H2).
+        // A clip whose notes are not in order (a loaded file): every placed
+        // note is offered and the view filters it. Sorted clips never come
+        // here, so the cost is the clip's own note count, not the view's.
         let place = ClipNotes {
             start: clip.start,
             length: clip.length,
@@ -211,7 +293,10 @@ fn cells(
             }
         });
     }
-    seen.into_iter().flatten().collect()
+    Gathered {
+        cells: seen.into_iter().flatten().collect(),
+        visited,
+    }
 }
 
 /// What a clip's picture drew last, and from what: rebuilt only when the clip,
@@ -219,15 +304,22 @@ fn cells(
 #[derive(Debug)]
 pub(crate) struct Picture {
     clip: Option<Arc<Clip>>,
-    map: Option<DrumMap>,
+    /// The map's id and the document's revision when the cells were gathered:
+    /// a map edit bumps the revision, so the picture is not compared field by
+    /// field each frame (review M1).
+    map: Option<(Id, u64)>,
     visible: Rect,
     body: Rect,
     time: TimeView,
     rows: Vec<usize>,
     cells: Vec<Cell>,
     sorted: bool,
+    /// How many hits the last gather looked at (the tests' bound, review M2).
+    pub visited: usize,
     /// The rows and cells drawn, for the tests.
     pub drawn: (usize, usize),
+    /// The widest mark drawn, in points (the tests' proof of H1).
+    pub widest: f32,
 }
 
 impl Default for Picture {
@@ -241,28 +333,44 @@ impl Default for Picture {
             rows: Vec::new(),
             cells: Vec::new(),
             sorted: false,
+            visited: 0,
             drawn: (0, 0),
+            widest: 0.0,
         }
     }
 }
 
+/// What a picture is gathered from besides the clip and the view: the map it
+/// draws through, and the document's revision when it was gathered (an edit
+/// bumps it, so a map change rebuilds the picture without comparing every
+/// sound each frame; review M1).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MapKey<'a> {
+    pub map: &'a DrumMap,
+    pub revision: u64,
+}
+
 impl Picture {
     /// The rows and the cells of `clip` in `visible`, gathered again only when
-    /// something they depend on changed.
+    /// something they depend on changed. `key` is the map and the document's
+    /// revision: comparing those is cheap, where comparing every sound of the
+    /// map each frame was not (review M1).
     fn gather(
         &mut self,
         clip: &Arc<Clip>,
-        map: &DrumMap,
+        key: MapKey<'_>,
         visible: Rect,
         body: Rect,
         time: TimeView,
         notes: &[Note],
     ) {
+        let map = key.map;
+        let stamp = (map.id, key.revision);
         let fresh = self
             .clip
             .as_ref()
             .is_some_and(|held| Arc::ptr_eq(held, clip))
-            && self.map.as_ref() == Some(map)
+            && self.map == Some(stamp)
             && self.visible == visible
             && self.body == body
             && self.time == time;
@@ -277,9 +385,11 @@ impl Picture {
             self.sorted = sorted(notes);
         }
         self.rows = rows(map, notes, body.height());
-        self.cells = cells(clip, &self.rows, map, visible, body, time, self.sorted);
+        let gathered = cells(clip, &self.rows, map, visible, body, time, self.sorted);
+        self.cells = gathered.cells;
+        self.visited = gathered.visited;
         self.clip = Some(clip.clone());
-        self.map = Some(map.clone());
+        self.map = Some(stamp);
         self.visible = visible;
         self.body = body;
         self.time = time;
@@ -287,22 +397,26 @@ impl Picture {
 }
 
 /// Draws a mapped clip's drum rows in `body` (the clip's note area, in points)
-/// and answers how many rows and cells it drew (the tests' proof the picture
-/// was drawn). `alpha` dims the picture with an inaudible or dimmed track.
+/// and answers the rows, the cells and the widest mark it drew (the tests'
+/// proof the picture was drawn and stayed narrow). `key` is the map and the
+/// document's revision, so a map edit rebuilds the picture. `alpha` dims the
+/// picture with an inaudible or dimmed track.
 pub(crate) fn paint(
     painter: &Painter,
-    map: &DrumMap,
+    key: MapKey<'_>,
     clip: &Arc<Clip>,
     body: Rect,
     time: TimeView,
     alpha: f32,
     picture: &mut Picture,
-) -> (usize, usize) {
+) -> (usize, usize, f32) {
+    let map = key.map;
     let notes = match &clip.content {
         ClipContent::Midi { notes, .. } => notes.as_slice(),
         ClipContent::Audio { .. } => {
             picture.drawn = (0, 0);
-            return (0, 0);
+            picture.widest = 0.0;
+            return (0, 0, 0.0);
         }
     };
     // Only the visible part of the clip is a picture: at the deepest zoom the
@@ -310,13 +424,15 @@ pub(crate) fn paint(
     let visible = body.intersect(painter.clip_rect());
     if visible.width() <= 0.0 || visible.height() <= 0.0 {
         picture.drawn = (0, 0);
-        return (0, 0);
+        picture.widest = 0.0;
+        return (0, 0, 0.0);
     }
-    picture.gather(clip, map, visible, body, time, notes);
+    picture.gather(clip, key, visible, body, time, notes);
     let rows = &picture.rows;
     if rows.is_empty() {
         picture.drawn = (0, 0);
-        return (0, 0);
+        picture.widest = 0.0;
+        return (0, 0, 0.0);
     }
     let painter = painter.with_clip_rect(visible);
     let p = theme::p();
@@ -335,7 +451,7 @@ pub(crate) fn paint(
         );
     }
     let bucket = bucket(visible.width(), rows.len());
-    let width = (bucket - 1.2).clamp(MARK_MIN, MARK_MAX);
+    let width = mark_width(bucket);
     let mut drawn = 0;
     for cell in &picture.cells {
         if drawn >= MAX_CELLS {
@@ -364,7 +480,8 @@ pub(crate) fn paint(
         painter.rect_filled(rect, theme::radius::MARK, colour);
     }
     picture.drawn = (rows.len(), drawn);
-    picture.drawn
+    picture.widest = width;
+    (rows.len(), drawn, width)
 }
 
 #[cfg(test)]
@@ -453,10 +570,14 @@ mod tests {
         };
         let rows = rows(&map, notes_slice, body.height());
         let cells = cells(&clip, &rows, &map, body, body, time, sorted(notes_slice));
-        assert_eq!(cells.len(), 2, "{cells:?}");
-        assert_eq!(cells[0].velocity, 120, "the loudest of the first column");
-        assert_eq!(cells[0].x, 100.0);
-        assert_eq!(cells[1].x, 124.0, "a beat on at 24 points a beat");
+        assert_eq!(cells.cells.len(), 2, "{cells:?}");
+        assert_eq!(
+            cells.cells[0].velocity, 120,
+            "the loudest of the first column"
+        );
+        assert_eq!(cells.cells[0].x, 100.0);
+        assert_eq!(cells.cells[1].x, 124.0, "a beat on at 24 points a beat");
+        assert_eq!(cells.visited, 3, "each note offered once");
     }
 
     #[test]
@@ -477,50 +598,163 @@ mod tests {
             _ => unreachable!(),
         };
         let rows = rows(&map, &notes, body.height());
-        let cells = cells(&clip, &rows, &map, body, body, time, true);
+        let cells = cells(&clip, &rows, &map, body, body, time, true).cells;
         assert_eq!(cells.len(), 2, "two repeats: {cells:?}");
         // A repeat is a real hit, not a muted one (review M7).
         assert!(cells.iter().all(|cell| !cell.muted));
     }
 
     #[test]
-    fn the_visible_part_bounds_the_picture_and_the_marks_stay_narrow() {
-        // A clip a hundred thousand points wide: its picture is gathered for
-        // the visible part only, and a mark is never a wall (review H1).
+    fn a_looped_clip_visits_only_the_repeats_the_view_shows() {
+        // Review M2: a one-bar loop repeated for hours, seen at a deep zoom:
+        // the gather visits the repeat in view and the notes in its window,
+        // not every repeat and every note.
         let map = map();
         let kick = map.sounds[0].input;
-        let notes: Vec<Note> = (0..1000)
-            .map(|i| Note::new(Ticks(i * 100), Ticks(60), kick, 100))
+        // 500 hits spread over one beat, the loop's length; the clip lasts
+        // hours.
+        let beat = Ticks::quarters(1).0;
+        let notes: Vec<Note> = (0..500_i64)
+            .map(|i| Note::new(Ticks(i * beat / 500), Ticks(4), kick, 100))
             .collect();
         let mut clip = (*clip(notes)).clone();
-        clip.length = Ticks(100_000);
+        clip.length = Ticks::quarters(4 * 3600);
+        clip.loop_length = Some(Ticks(beat));
+        let clip = Arc::new(clip);
+        let time = TimeView {
+            left: 0.0,
+            zoom: 4_000.0,
+        };
+        let body = Rect::from_min_max(pos2(0.0, 0.0), pos2(1_411_200.0 * 4.0 * 3600.0, 40.0));
+        let visible = Rect::from_min_max(pos2(0.0, 0.0), pos2(200.0, 40.0));
+        let notes = match &clip.content {
+            ClipContent::Midi { notes, .. } => notes.clone(),
+            _ => unreachable!(),
+        };
+        let rows = rows(&map, &notes, body.height());
+        let gathered = cells(&clip, &rows, &map, visible, body, time, true);
+        assert!(!gathered.cells.is_empty());
+        assert!(
+            gathered.visited <= 60,
+            "the view bounds the work: {} visited",
+            gathered.visited
+        );
+    }
+
+    #[test]
+    fn a_clip_whose_notes_are_not_in_order_is_still_drawn() {
+        // Review L1: the unsorted fallback (a loaded file) draws the same
+        // picture, filtered by the view.
+        let map = map();
+        let kick = map.sounds[0].input;
+        let notes = vec![
+            Note::new(Ticks::quarters(1), Ticks(30), kick, 90),
+            Note::new(Ticks::ZERO, Ticks(30), kick, 60),
+            Note::new(Ticks::quarters(2), Ticks(30), kick, 120),
+        ];
+        let clip = clip(notes);
+        let time = TimeView {
+            left: 0.0,
+            zoom: 24.0,
+        };
+        let body = Rect::from_min_max(pos2(0.0, 0.0), pos2(96.0, 40.0));
+        let notes = match &clip.content {
+            ClipContent::Midi { notes, .. } => notes.clone(),
+            _ => unreachable!(),
+        };
+        assert!(!sorted(&notes), "the file's order is not kept");
+        let rows = rows(&map, &notes, body.height());
+        let gathered = cells(&clip, &rows, &map, body, body, time, false);
+        assert_eq!(gathered.cells.len(), 3, "{gathered:?}");
+        assert!(gathered.cells.iter().all(|cell| cell.x <= body.right()));
+    }
+
+    #[test]
+    fn a_mark_is_narrow_at_every_zoom() {
+        // Review L1: the widest a mark gets, zoomed out and at the deepest
+        // zoom, not a tautology about the clamp.
+        assert_eq!(mark_width(BUCKET), MARK_MIN, "a 2 pt column, zoomed out");
+        assert!(
+            (mark_width(1_000.0) - MARK_MAX).abs() < 1e-3,
+            "deep in, a mark stays {MARK_MAX} pt: {}",
+            mark_width(1_000.0)
+        );
+        assert!((mark_width(MARK_MAX + 1.2) - MARK_MAX).abs() < 1e-3);
+    }
+
+    #[test]
+    fn the_visible_part_bounds_the_picture_and_the_marks_stay_narrow() {
+        // A clip a hundred beats wide: its picture is gathered for the
+        // visible part only, and a mark is never a wall (review H1).
+        let map = map();
+        let kick = map.sounds[0].input;
+        let beat = Ticks::quarters(1).0;
+        let notes: Vec<Note> = (0..1000_i64)
+            .map(|i| Note::new(Ticks(i * 100 * beat / 1000), Ticks(60), kick, 100))
+            .collect();
+        let mut clip = (*clip(notes)).clone();
+        clip.length = Ticks::quarters(100);
         let clip = Arc::new(clip);
         let time = TimeView {
             left: 0.0,
             zoom: 2_000.0,
         };
-        let body = Rect::from_min_max(pos2(0.0, 0.0), pos2(100_000.0, 40.0));
+        let body = Rect::from_min_max(pos2(0.0, 0.0), pos2(200_000.0, 40.0));
         let visible = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 40.0));
         let notes = match &clip.content {
             ClipContent::Midi { notes, .. } => notes.clone(),
             _ => unreachable!(),
         };
         let rows = rows(&map, &notes, body.height());
-        let cells = cells(&clip, &rows, &map, visible, body, time, true);
-        assert!(!cells.is_empty());
-        assert!(cells.iter().all(|cell| cell.x <= visible.right()));
-        let bucket = bucket(visible.width(), rows.len());
+        let gathered = cells(&clip, &rows, &map, visible, body, time, true);
+        assert!(!gathered.cells.is_empty());
+        assert!(gathered.cells.iter().all(|cell| cell.x <= visible.right()));
         assert!(
-            (bucket - 1.2).clamp(MARK_MIN, MARK_MAX) <= MARK_MAX,
-            "a mark is at most {MARK_MAX} points"
+            gathered.visited < notes.len(),
+            "the visible part bounds the gather: {} of {}",
+            gathered.visited,
+            notes.len()
         );
-        // The gather is cached: the same clip, map, part and view do not
-        // gather again (a frame that changes nothing costs nothing).
+        // The gather is cached: the same clip, map, revision, part and view do
+        // not gather again (a frame that changes nothing costs nothing).
         let mut picture = Picture::default();
-        picture.gather(&clip, &map, visible, body, time, &notes);
+        picture.gather(
+            &clip,
+            MapKey {
+                map: &map,
+                revision: 0,
+            },
+            visible,
+            body,
+            time,
+            &notes,
+        );
         let cells = picture.cells.len();
-        picture.gather(&clip, &map, visible, body, time, &notes);
+        picture.gather(
+            &clip,
+            MapKey {
+                map: &map,
+                revision: 0,
+            },
+            visible,
+            body,
+            time,
+            &notes,
+        );
         assert_eq!(picture.cells.len(), cells);
         assert_eq!(picture.visible, visible);
+        // A map edit (a new revision) gathers again.
+        picture.gather(
+            &clip,
+            MapKey {
+                map: &map,
+                revision: 1,
+            },
+            visible,
+            body,
+            time,
+            &notes,
+        );
+        assert_eq!(picture.map, Some((map.id, 1)));
     }
 }

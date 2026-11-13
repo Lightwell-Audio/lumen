@@ -131,7 +131,7 @@ impl App {
     /// What the mapped clip `clip`'s drum rows drew on the arrangement last
     /// frame: the rows and the cells. `None` when the clip was not in view or
     /// its track reads no map.
-    pub fn arrangement_drum_picture(&self, clip: Id) -> Option<(usize, usize)> {
+    pub fn arrangement_drum_picture(&self, clip: Id) -> Option<(usize, usize, f32)> {
         self.arrangement.drum_pictures.get(&clip).copied()
     }
 

@@ -360,34 +360,53 @@ fn the_arrangement_draws_a_mapped_clip_as_drum_rows() {
 }
 
 #[test]
-fn the_deepest_zoom_keeps_the_drum_picture_narrow_and_the_frame_quick() {
-    // Review H1: the arrangement's drum picture is gathered for the visible
-    // part only, so a clip tens of thousands of points wide does not turn its
-    // hits into walls or gather the whole clip each frame.
-    let (mut lumen, clip) = launch("lanes-deep-zoom");
-    lumen.key(Modifiers::SHIFT, Key::Tab);
+fn the_deepest_zoom_keeps_the_drum_picture_narrow() {
+    // Review H1: the arrangement's picture is gathered for the visible part
+    // only, and a mark stays a few points wide however deep the zoom. (The
+    // frame-time claim is the ignored bench's, never an E2E's.)
+    let notes: Vec<Note> = (0..2_000_i64)
+        .map(|i| Note::new(Ticks(i * 3), Ticks(2), [36, 38, 42][i as usize % 3], 100))
+        .collect();
+    let mut project = project_of(
+        "Beat",
+        vec![midi_track(1, "Drums", "pluck", (0, 8), None, notes, vec![])],
+    );
+    let map = Preset::EIGHT_OH_EIGHT.map(Id(500));
+    project.drum_maps = vec![map.clone()];
+    let track = std::sync::Arc::make_mut(&mut project.tracks[0]);
+    track.drum_map = Some(map.id);
+    let clip = project.tracks[0].clips[0].id;
+    let dir = TempDir::new("e2e-drum-deep-zoom");
+    let path = dir.path().join("beat.lumen");
+    lumen_project::save(&project, &path, &Default::default()).expect("save the test project");
+    let mut lumen = Lumen::start_with(dir, move |l| l.opening(path));
+    lumen.wait_for("the project", |app| app.project().tracks.len() == 1);
     lumen.frames(30);
     let normal = lumen
         .app()
         .arrangement_drum_picture(clip)
         .expect("the picture at the normal zoom");
-    assert!(normal.1 > 0, "cells at the normal zoom: {normal:?}");
+    assert!(
+        normal.0 > 0 && normal.1 > 0,
+        "rows and cells at the normal zoom: {normal:?}"
+    );
     // Deep in, as a player zoomed to a hit would: 4,000 points a beat, so the
-    // two-bar clip's body is tens of thousands of points wide.
+    // clip's body is tens of thousands of points wide.
     lumen.app_mut().set_view_to(0.0, 4000.0);
     lumen.frames(20);
-    let deep = lumen
+    let (rows, cells, widest) = lumen
         .app()
         .arrangement_drum_picture(clip)
         .expect("the picture at the deepest zoom");
-    assert!(deep.1 > 0, "cells at the deepest zoom: {deep:?}");
-    // A handful of frames, each bounded (a debug build: the floor is loose).
-    let start = std::time::Instant::now();
-    lumen.frames(10);
-    let per_frame = start.elapsed().as_secs_f64() * 1000.0 / 10.0;
+    assert!(rows > 0, "rows at the deepest zoom");
+    assert!(cells > 0, "cells at the deepest zoom: {cells}");
     assert!(
-        per_frame < 1000.0,
-        "a frame at the deepest zoom stays quick: {per_frame:.1} ms"
+        cells <= 4000,
+        "the picture's cells stay bounded (MAX_CELLS): {cells}"
+    );
+    assert!(
+        widest <= 3.0 + 0.01,
+        "a mark stays a few points wide, never a wall: {widest}"
     );
 }
 

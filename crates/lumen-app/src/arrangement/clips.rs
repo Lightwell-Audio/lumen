@@ -15,7 +15,7 @@ use std::sync::Arc;
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke, pos2, vec2};
 use lumen_core::time::Ticks;
 use lumen_media::Peaks;
-use lumen_project::model::{Clip, ClipContent, Project, TrackKind};
+use lumen_project::model::{Clip, ClipContent, Id, Project, TrackKind};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle};
 
 use super::clip_look::{ClipLook, ClipState, clip_box, draw_body, draw_name, item_state, look_of};
@@ -176,6 +176,16 @@ impl GpuClips {
 }
 
 impl Arrangement {
+    /// Drops the drum pictures of clips that were not drawn this frame: a clip
+    /// deleted, hidden, moved to another track or scrolled out of view leaves
+    /// the cache (review M1).
+    pub(super) fn prune_drum_cache(
+        &mut self,
+        drawn: &std::collections::BTreeMap<Id, (usize, usize, f32)>,
+    ) {
+        self.drum_cache.retain(|id, _| drawn.contains_key(id));
+    }
+
     /// The lanes and clips in `canvas`.
     pub fn lanes(
         &mut self,
@@ -428,7 +438,16 @@ impl Arrangement {
                             let dim = if heard { 1.0 } else { theme::CLIP_DIMMED };
                             let picture = drum_cache.entry(clip.id).or_default();
                             let drawn = crate::drum_editor::arrangement::paint(
-                                painter, map, clip, body, time, dim, picture,
+                                painter,
+                                crate::drum_editor::arrangement::MapKey {
+                                    map,
+                                    revision: doc.state(),
+                                },
+                                clip,
+                                body,
+                                time,
+                                dim,
+                                picture,
                             );
                             drum_pictures.insert(clip.id, drawn);
                         }
@@ -548,6 +567,7 @@ impl Arrangement {
                 draw_edge_glow(painter, canvas.x_range(), lane.bottom(), t);
             }
         }
+        self.prune_drum_cache(&drum_pictures);
         self.drum_pictures = drum_pictures;
         self.drum_cache = drum_cache;
         // The drop line of a track drag continues across the lanes.
