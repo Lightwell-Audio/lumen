@@ -114,8 +114,13 @@ mod tests {
 
     #[test]
     fn every_built_in_effect_is_in_both_tables() {
-        assert_eq!(EFFECTS.len(), 2, "Prism and Iris");
-        for (name, watched) in [(utility::NAME, false), (eq::NAME, true)] {
+        assert_eq!(EFFECTS.len(), 4, "Prism, Iris, Parallax and Afterglow");
+        for (name, watched) in [
+            (utility::NAME, false),
+            (eq::NAME, true),
+            (delay::NAME, false),
+            (reverb::NAME, false),
+        ] {
             assert!(effect_params(name).is_some(), "{name} has a table");
             assert!(effect(name).is_some(), "{name} is built");
             assert!(

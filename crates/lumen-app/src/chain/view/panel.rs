@@ -49,6 +49,10 @@ impl App {
             return;
         };
         let rate = self.transport.state().sample_rate;
+        // The tempo under the playhead, for a card that keeps time with the song.
+        let bpm =
+            lumen_core::time::bpm_at(&self.document.project().tempo, self.transport.position())
+                as f32;
         // What arrives for the track's sidechain, for the cards' lights.
         let keyed = all_tracks(self.document.project())
             .find(|t| t.id == track_id)
@@ -177,7 +181,7 @@ impl App {
                 }),
                 sidechain: row.sidechain.as_ref(),
                 outputs: row.outputs.as_ref(),
-                personal: steps[i].and_then(|step| personal_of(row, step, level, rate)),
+                personal: steps[i].and_then(|step| personal_of(row, step, level, rate, bpm)),
                 compact,
                 message: Default::default(),
             })

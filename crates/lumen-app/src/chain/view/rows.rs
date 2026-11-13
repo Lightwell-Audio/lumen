@@ -291,6 +291,7 @@ pub(super) fn personal_of(
     step: crate::chain::geometry::Step,
     level: f32,
     rate: u32,
+    bpm: f32,
 ) -> Option<card::Personal<'_>> {
     let identity = crate::builtin::identity(&row.identity).filter(|_| row.builtin)?;
     let drawing = row.drawing.as_ref()?;
@@ -305,5 +306,6 @@ pub(super) fn personal_of(
         picked: drawing.picked,
         spectrum: drawing.spectrum.as_deref(),
         rate,
+        bpm,
     })
 }

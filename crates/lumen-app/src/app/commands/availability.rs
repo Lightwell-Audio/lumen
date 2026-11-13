@@ -382,10 +382,7 @@ impl App {
             Command::FixWarpHit => self.fix_warp_hit_unavailable(),
             // A built-in effect can always go somewhere: on the selected
             // track, or on a new audio track (M8 slices B0, B1 and B3).
-            Command::AddUtility
-            | Command::AddEq
-            | Command::AddDelay
-            | Command::AddReverb => Ok(()),
+            Command::AddUtility | Command::AddEq | Command::AddDelay | Command::AddReverb => Ok(()),
             Command::TransposeClipUp | Command::TransposeClipDown => self.transpose_unavailable(),
             Command::SetTempoFromClip | Command::DoubleClipTempo | Command::HalveClipTempo => {
                 self.warped_unavailable()

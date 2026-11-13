@@ -135,6 +135,7 @@ fn run(
             start: done as i64,
             law: PanLaw::Balance,
             events: &events,
+            bpm: 120.0,
         };
         device.process(
             &block,
@@ -459,6 +460,7 @@ fn a_block_with_automation_allocates_nothing() {
         start: 0,
         law: PanLaw::ConstantPower,
         events: &events,
+        bpm: 120.0,
     };
     let (_, violations) = lumen_rt::count_rt_violations(|| {
         device.process(
