@@ -182,7 +182,13 @@ impl App {
                 } else {
                     0.0
                 };
-                look.band = geometry::band(layout.card_h - room);
+                // A card that draws its device's face has no picture band: the
+                // screen takes the picture's room too (M8 slice B2).
+                look.band = if row.drawn.is_some() {
+                    0.0
+                } else {
+                    geometry::band(layout.card_h - room)
+                };
             }
         }
         let playing = self.transport.state().playing;

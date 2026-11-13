@@ -11,14 +11,55 @@
 //! the strip's too. The card's frame, power, preset field and footer stay
 //! Lumen's: only what the device *is* changes (DESIGN.md §7k).
 
-use eframe::egui::{self, Rect, Ui};
+use eframe::egui::{self, Color32, FontId, Rect, Ui};
 
 use super::strip;
 use crate::builtin;
 use crate::theme;
-use crate::widgets::raised;
+use crate::widgets::{self, raised};
 
-mod dynamics;
+mod gravity;
+mod horizon;
+
+/// What the curve and the meter are measured against: the loud end, in dBFS.
+pub(super) const TOP_DB: f32 = 0.0;
+/// The quiet end of the curve's screen, in dBFS.
+pub(super) const FLOOR_DB: f32 = -36.0;
+/// The most reduction the meters show, in decibels.
+pub(super) const MOST_REDUCTION: f32 = 24.0;
+/// Gravity's meter width.
+pub(super) const METER_W: f32 = 22.0;
+/// Air round a screen's drawing.
+pub(super) const PAD: f32 = 8.0;
+
+/// A device's hue at `alpha`, for a drawing inside its screen.
+pub(super) fn tint(hue: Color32, alpha: f32) -> Color32 {
+    hue.gamma_multiply(alpha)
+}
+
+/// The mono font the screens write in.
+pub(super) fn mono() -> FontId {
+    FontId::monospace(theme::size::MONO_SMALL)
+}
+
+/// A parameter's value in its own units, from the face's slots.
+pub(super) fn value_of(face: &Face, id: u32) -> f32 {
+    let Some(slot) = face.slots.iter().find(|s| s.id == id) else {
+        return 0.0;
+    };
+    lumen_devices::params::find(face.identity().timing.table, id)
+        .map_or(0.0, |info| info.value(slot.value as f32))
+}
+
+/// The gain reduction to draw, in decibels, and the level that drove it.
+pub(super) fn reading_of(face: &Face) -> (f32, f32) {
+    face.reading.map_or((0.0, -120.0), |reading| {
+        (
+            reading.reduction_db.clamp(0.0, MOST_REDUCTION),
+            reading.input_db,
+        )
+    })
+}
 
 /// Which device's face a card draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,22 +109,36 @@ pub(super) fn paint(
 ) -> Vec<strip::Output> {
     let mut out = Vec::new();
     // The screen takes the room over the controls: the picture is what the
-    // device is, and the four controls are Lumen's, under it.
-    let row = (area.height() * 0.30).clamp(CONTROLS.low, CONTROLS.high);
+    // device is, and the four controls are Lumen's, under it. The row is the
+    // strip's own cell height (18 pt of knob, the name's line and the value's),
+    // and the screen keeps at least a picture's worth above it.
+    let row = CONTROLS_ROOM.min(area.height() - 40.0).max(24.0);
     let screen = Rect::from_min_max(area.min, egui::pos2(area.right(), area.bottom() - row));
     let controls = Rect::from_min_max(egui::pos2(area.left(), screen.bottom()), area.max);
     let hue = face.identity().colour;
     paint_screen(ui, screen, hue);
     match face.kind {
-        Kind::Gravity => dynamics::gravity(ui, screen, id.with("gravity"), face, hue),
-        Kind::Horizon => dynamics::horizon(ui, screen, id.with("horizon"), face, hue),
+        Kind::Gravity => gravity::paint(ui, screen, id.with("gravity"), face, hue),
+        Kind::Horizon => horizon::paint(ui, screen, id.with("horizon"), face, hue),
     }
-    // The four controls, the strip's own row of cells.
+    // The four controls, the strip's own row of cells, reaching a little past
+    // the card's margins as the strip's do so a value has the room it needs.
     let cells = Rect::from_min_max(
-        egui::pos2(controls.left(), controls.top() + theme::space::XS),
-        controls.max,
+        egui::pos2(
+            controls.left() - GRID_OUT,
+            controls.top() + theme::space::XS,
+        ),
+        egui::pos2(controls.right() + GRID_OUT, controls.bottom()),
     );
-    let options: Vec<Option<strip::Slot>> = face.slots.iter().cloned().map(Some).collect();
+    let options: Vec<Option<strip::Slot>> = face
+        .slots
+        .iter()
+        .cloned()
+        .map(|mut slot| {
+            slot.text = fit_value(ui, &slot.text, cells.width() / 4.0 - 8.0);
+            Some(slot)
+        })
+        .collect();
     out.extend(strip::paint_row(
         ui,
         cells,
@@ -94,17 +149,36 @@ pub(super) fn paint(
     out
 }
 
-/// The room the controls row takes under a face.
-struct Controls {
-    low: f32,
-    /// The strip's own row, with the air above it.
-    high: f32,
-}
+/// The room the controls row takes under a face: the strip's cell (an 18 pt
+/// knob, the name's line and the value's) and the air above it.
+const CONTROLS_ROOM: f32 = 52.0;
 
-const CONTROLS: Controls = Controls {
-    low: 44.0,
-    high: 54.0,
-};
+/// How far the controls reach past the card's margins, as the strip's grid
+/// does.
+const GRID_OUT: f32 = 8.0;
+
+/// A value's text as a face's cell can show it: the number alone when the unit
+/// after it does not fit (the unit is in the screen, in All parameters and in
+/// the tooltip), and the cell's own cutting only as a last resort.
+fn fit_value(ui: &Ui, text: &str, room: f32) -> String {
+    let font = eframe::egui::FontId::monospace(theme::size::MONO_SMALL);
+    let width = |text: &str| {
+        ui.painter()
+            .layout_no_wrap(text.to_owned(), font.clone(), theme::p().text)
+            .size()
+            .x
+    };
+    if width(text) <= room {
+        return text.to_owned();
+    }
+    if let Some((number, unit)) = text.rsplit_once(' ')
+        && matches!(unit, "dB" | "Hz" | "%" | "ms" | "s" | ":1")
+        && width(number) <= room
+    {
+        return number.to_owned();
+    }
+    widgets::fit(ui.painter(), text, font, room)
+}
 
 /// The screen a face draws on: deep and tinted with the device's hue, the same
 /// in both themes (as a clip's colour is), with a hairline of its signature

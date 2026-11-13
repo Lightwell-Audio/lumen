@@ -13362,3 +13362,165 @@ name row and type as every other card's does, and the specimen's "width 130 %" l
 left out because it is a value, not the idea. The `chosen-dark-100.png` and
 `chosen-light-100.png` the review names are not in `docs/specimens/m8/` (only the round 1
 to 3 sheets), so the comparison is against round 2's card.
+
+## ADR-XXXX — Gravity and Horizon, the compressor and the limiter (M8 slice B2)
+
+**Status.** Proposed (M8 slice B2; the parent assigns the number). Brief:
+`docs/milestones/M8.md` §5 "B2 — Compressor and limiter"; decisions E1, E2, E6
+and E7 in §6; risks 1 and 6 in §8. Contract: ADR-0145 (the built-in effect path,
+B0) and ADR-0041 (sidechains and delay compensation).
+
+**Context.** B0 shipped one in-process effect (Prism, the utility) and the path
+every built-in plugs into. B2 is the first slice to need more of that contract
+than the utility did: the optional sidechain `Key` (a compressor keyed from
+another track), a latency that follows a setting (the limiter's lookahead), a
+**tail** (the limiter's line draining after a Stop), and a meter the interface
+reads while the device runs (the gain reduction its face draws). M8's risk 1
+said the trait would be tried against the compressor's sidechain and the
+limiter's latency on paper in B0's ADR; this slice is that trial.
+
+**Decisions.**
+
+1. **DSP is Lumen's own (E7).** No new dependency. Gravity is a feed-forward
+   compressor with the textbook soft-knee gain computer; Horizon is a look-ahead
+   limiter with a sliding minimum, and its true-peak detector is an eight-phase
+   windowed sinc written out in `dynamics/limiter.rs` (the design the loudness
+   meter's true peak uses, with eight phases rather than four so a tone near the
+   top of the band is not a fifth of a decibel short).
+2. **The trait was not changed.** Both devices fit `Effect` as B0 left it:
+   `process(&Block, Stereo, Option<Key>)`, `latency`, `tail`, `reset`. The
+   compressor reads the key, the limiter reports its lookahead, and neither
+   needed a new member or a change to the pool: B0's contract held for the two
+   cases it was designed for.
+3. **Latency and tail are pure functions of the values** (ADR-0145 review H1),
+   counted **at 48 kHz**: `Description::latency` and `tail` take values alone,
+   with no rate to ask, so they are frames at `dynamics::REFERENCE_RATE`.
+   Horizon therefore delays by exactly that many frames at any rate, so
+   compensation is exact at every rate; only the millisecond a round number of
+   frames buys differs away from 48 kHz (a lookahead of "1.5" is 1.5 ms at
+   48 kHz, 0.75 ms at 96 kHz). The alternative — a rate-scaled lookahead with a
+   rate-free latency — would be *misaligned* at any other rate, which is worse
+   than a label that is exact at the reference rate. Recorded in KNOWN_ISSUES.
+4. **The lookahead is read unglided.** Every other parameter glides 20 ms as
+   B0's `params::values` makes them; the lookahead is the device's *timing*, so
+   it is read from the block's last point for that parameter
+   (`dynamics::held`), exactly the value the routing was told about. A change is
+   a new block's timing, and the engine's own latency-change behaviour (a skip
+   or repeat of the difference, ADR-0041) covers the switch.
+5. **The gain reduction is published through a lock-free handle**
+   (`dynamics::Reduction`): two atomics in an `Arc`, the audio side recording
+   the block's most reduction and its input level, the interface taking it once
+   a frame. It follows the mixer's meter bank exactly (a `fetch_max` the reader
+   clears), allocates once when the device is built, and is handed out by a new
+   `lumen_devices::effect_with_meter`; `effect()` remains, so B0's callers are
+   untouched. `Builtins` keeps the handles by device id, reads them once a frame
+   (`Builtins::read_meters`, called by the Devices tab before any card is
+   drawn), and a test or a screenshot can set one by hand
+   (`testing::pretend_reduction`).
+6. **A device says whether it takes a key** through
+   `lumen_devices::takes_sidechain(name)` and a short `SIDECHAINED` list rather
+   than a new field on `Description`: a new field would leave every other device
+   slice's `Description` literal incomplete at merge, and the list is one line
+   for the next device with a key. The card asks it through
+   `builtin::takes_sidechain`, and the sidechain row, its light, the tap
+   chooser and every refusal are the plugin card's own code (`chain/sidechain`
+   was not forked); `Document::set_sidechain` now accepts a built-in that takes
+   a key, and the routing already read a device's `sidechain` whatever kind of
+   device it is.
+7. **The tables** (E2): stable `u32` ids pinned by a test, the four the face
+   draws first (so the compact card folds back to exactly them), then the rest.
+   Gravity: Pull (threshold), Ratio, Attack, Release, Knee, Makeup (Off/Auto),
+   Mix, Detect (Peak/RMS), Key HPF, Listen. Horizon: Ceiling, Release, Look,
+   Detect (Sample/True). Names are short enough for a card cell at 100 % ("Pull",
+   "Look", "Detect"); the full meaning is in the tooltips, All parameters and
+   the documentation.
+8. **The static curve is a pure function** (`compressor::curve_db`): the
+   standard soft-knee form, whose two halves join the straight sections at both
+   knee edges with the same value and slope (tested). Automatic make-up is
+   `-threshold * (1 - 1/ratio)`, clamped to 24 dB: what the loud end lost, so the
+   loudness of a mix does not change when the ratio does.
+9. **The limiter cannot overshoot by construction.** The signal is delayed by
+   the lookahead; each frame's requirement is `ceiling / level`, and the gain
+   applied to the delayed sample is the *sliding minimum* over the window that
+   ends at it (a monotonic deque, O(1) a frame), smoothed upwards by the release
+   and never above that minimum. Since the window holds the delayed sample's own
+   requirement, no sample leaves above the ceiling. The cost is the limiter's
+   usual pre-ducking (the gain is down for the length of the lookahead around a
+   peak), which is what a look-ahead limiter is.
+10. **No format change.** A parameter the project does not name is its table's
+    default (B0, item 6), and a built-in's sidechain reuses `Device.sidechain`,
+    which plugins already save. `history::unchanged` is untouched.
+11. **Commands**: `devices.add_compressor` ("Add Gravity (compressor)") and
+    `devices.add_limiter` ("Add Horizon (limiter)"), at the end of `Command` and
+    `ALL`, with arms in `availability` and `run`, palette entries, and rows in
+    the track's menu and the device tray's, as B0's `devices.add_utility`. One
+    undo step each, with every value written (`Document::add_device_with`). Both
+    are tagged `@m8` in `site/docs/data/undocumented.txt` (ADR-0133).
+
+**Not built, and why.** The drawings B2 ships are **placeholders**: a deep
+tinted screen with a transfer curve (Gravity) and a horizon (Horizon), the four
+controls in the strip's own row under it, and the gain-reduction meter. The
+owner looked at them beside the approved round-2 specimens
+(`docs/specimens/m8/chosen.html`, `round2-*.png`) and they are not the approved
+face: the specimens want one big screen with the device's name in Unbounded, a
+few large idea-named dials in the device's hue and pills, rather than Lumen's
+small strip cells under a small screen. A separate agent is rebuilding the
+shared built-in card face on B0's branch and will redraw Gravity's and Horizon's
+faces on top of it. The face code is therefore one file per device
+(`chain/faces/gravity.rs`, `chain/faces/horizon.rs`), with everything they share
+in `chain/faces/mod.rs`, so a redraw replaces a file rather than a slice. Also
+not built: factory presets and browser rows (B6), and dragging the curve itself
+(the picture is a display this slice; making its threshold or ceiling line the
+control would fork the knob's gestures — double-click, the wheel, typing, focus
+and the Automate and Learn menu — which belongs in the shared face rebuild).
+
+**Measured.** `cargo bench -p lumen-engine --bench clips` (this machine,
+release, 128-frame blocks at 48 kHz; the budget is 2.67 ms): the same 64-track
+mix measured 29.9 µs without a built-in in ADR-0145 and 87 to 118 µs with Prism;
+`engine_gravity_64` (64 compressors) 361 to 395 µs and `engine_horizon_64` (64
+limiters in true-peak mode) 663 to 706 µs across runs — about 5.6 µs and 10.4 µs
+an instance a block, so 13.5 % and 24.8 % of the block for 64 of them. The
+compressor's per-frame cost is the gain computer and its ballistics (a dB-domain
+`powf` a frame); the limiter's is the eight-phase true-peak interpolation (104
+multiply-adds a side a frame) — sample-peak mode is much cheaper. The numbers
+are noisy on this machine (a shared runner): the ranges are the fastest and the
+median of three runs.
+
+**Tests.** `lumen-devices/tests/dynamics.rs` (18): the static curve end to end
+within a tenth of a decibel at seven levels across the knee, at four ratios and
+two knees; automatic make-up keeping the loud end where it was; the
+gain-reduction meter reading what was taken away; a key ducking the input,
+listen playing the filtered key, and the key's high-pass; block-size invariance
+at 64, 97, 128, 512 and 1024 frames with every parameter automated; an
+allocation guard over a block with automation and a key; the limiter's ceiling
+on sines, noise, a step and a burst at three ceilings and three releases;
+true-peak mode under the ceiling by the meter's own reading; the limiter's
+meter; its block-size invariance; a new lookahead delayed by exactly its frames;
+an allocation guard; the table pinned by id, name and default; the latency and
+the tail equal to the description's at four settings; and a golden render of
+each, pinned by twenty samples, the sum of the magnitudes and the sum of the
+squares within a millionth (not by bits: see `9574d13b` on B0, which this
+branch cherry-picked). `lumen-engine/tests/builtins.rs` gains two: a key from
+another track, whose own track is held back 240 frames, ducks the burst it keys
+on the sample it arrives (with the compensation in the compiled plan), and an
+impulse through a limiter lands on the same sample as a dry track beside it.
+`lumen-app`: the limiter's lookahead is its latency in the *running* app and
+follows a setting (the shape of the N1 test), and a compressor hands its meter
+to the interface while Prism has none. E2E `tests/e2e/dynamics.rs` (7): the two
+commands and their cards, the face's four controls and All parameters, a typed
+value, a lane driving the ceiling and a drag taking it over, the sidechain
+chooser on a built-in with its light, the power button, the track menu's rows, and
+the meter following real playback. Shots: 48 pictures in `target/shots-b2`
+(whole, small, folded and All parameters; both themes at 100, 150 and 200 %),
+looked at, with the placeholder caveat above.
+
+**Consequences.** Two more entries in `EFFECTS` and `builtin::IDENTITIES`, and
+two more personalities in `theme::personality`; the face's shape is provisional
+and will be replaced one file per device. A limiter in a project adds latency,
+so the transport's compensation chip appears on projects that had none (and a
+lookahead change while playing re-times the routing, which the engine already
+handles by skipping or repeating the difference). A compressor's sidechain
+shares its track's single key bus with any other keyed device (KNOWN_ISSUES).
+Not run here: the WSL performance gate (no distribution on this machine; a new
+scenario needs `perf-gate --update`) and the macOS cross-target clippy; nothing
+has been heard by a person (MT-FX-3 waits).

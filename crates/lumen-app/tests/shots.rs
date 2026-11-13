@@ -2519,6 +2519,102 @@ fn builtin_card() {
     }
 }
 
+/// Gravity and Horizon's faces (M8 slice B2): the whole card, the folded rail,
+/// every parameter, and the smallest window, in both themes at 100, 150 and
+/// 200%, with gain reduction showing.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn dynamics_card() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_project::model::{Color, Device, Id, PluginRef, Track, TrackKind};
+
+    for (saved, short) in [
+        (lumen_devices::dynamics::compressor::NAME, "gravity"),
+        (lumen_devices::dynamics::limiter::NAME, "horizon"),
+    ] {
+        for (appearance, scale) in [
+            ("dark", 1.0_f32),
+            ("light", 1.0),
+            ("dark", 1.5),
+            ("light", 1.5),
+            ("dark", 2.0),
+            ("light", 2.0),
+        ] {
+            for (size, tag) in [
+                (vec2(1280.0, 900.0), "whole"),
+                (vec2(960.0, 540.0), "small"),
+            ] {
+                let dir = TempDir::new(&format!("shots-{short}-{appearance}-{tag}"));
+                let mut track =
+                    Track::new(Id(1), "Keys".to_owned(), TrackKind::Audio, Color(0x5E8C6A));
+                track.devices = vec![Device::new(
+                    Id(10),
+                    PluginRef::Builtin {
+                        name: saved.to_owned(),
+                    },
+                    false,
+                    Vec::new(),
+                )];
+                let project = lumen_project::testing::project_of("Face", vec![track]);
+                let path = dir.path().join("song.lumen");
+                lumen_project::save(&project, &path, &Default::default()).expect("save");
+                let launch = Launch::for_test(dir.path())
+                    .appearing(appearance)
+                    .opening(path);
+                let mut h = Harness::builder()
+                    .with_size(size)
+                    .with_pixels_per_point(scale)
+                    .with_theme(if appearance == "light" {
+                        eframe::egui::Theme::Light
+                    } else {
+                        eframe::egui::Theme::Dark
+                    })
+                    .with_step_dt(1.0 / 60.0)
+                    .wgpu()
+                    .build_eframe(|cc| {
+                        lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                        App::new(cc, launch)
+                    });
+                h.run_steps(30);
+                h.state_mut().select_tracks(&[Id(1)]);
+                h.run_steps(4);
+                h.get_all_by_label("Devices tab")
+                    .last()
+                    .expect("the tabs")
+                    .click();
+                h.run_steps(4);
+                if tag == "whole" {
+                    h.state_mut().set_detail_size(460.0);
+                    h.run_steps(30);
+                }
+                // What the device took away, so the face draws its meter and
+                // its operating point rather than a quiet screen.
+                h.state_mut().pretend_reduction(Id(10), 4.1, -8.0);
+                h.run_steps(4);
+                let at = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
+                save(&mut h, &format!("{short}-{at}"));
+                if tag == "small" {
+                    continue;
+                }
+                // Folded: the rail with its hue and its name set on end.
+                h.state_mut().fold_device(Id(10));
+                h.run_steps(10);
+                save(&mut h, &format!("{short}-folded-{at}"));
+                h.state_mut().fold_device(Id(10));
+                h.run_steps(10);
+                // Every parameter on its own.
+                let count = if short == "gravity" { 10 } else { 4 };
+                let label = format!("All parameters ({count})");
+                if h.query_by_label(&label).is_some() {
+                    h.get_by_label(&label).click();
+                    h.run_steps(10);
+                    save(&mut h, &format!("{short}-parameters-{at}"));
+                }
+            }
+        }
+    }
+}
+
 /// The Devices tab (M6 slice 2d): a chain with every card face, stopped and
 /// playing, as the owner's C4 mock-up draws it.
 #[test]
