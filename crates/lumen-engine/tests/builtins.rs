@@ -670,20 +670,9 @@ fn a_still_built_in_is_told_nothing_after_the_first_block() {
     );
 }
 
-/// FNV-1a 64, written here rather than pulled in, so a pin cannot drift with a
-/// library (the golden files' rule).
-fn fnv1a64(bytes: &[u8]) -> u64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
-}
-
-/// L2: the golden render of an automated Prism, pinned by its samples. A golden
-/// is frozen: one that differs from its pin was changed on purpose, and the pin
-/// moves in the same commit.
+/// L2: the golden render of an automated Prism, pinned by its samples (twenty
+/// of them, its level and its energy). A golden is frozen: one that differs from
+/// its pin was changed on purpose, and the pin moves in the same commit.
 #[test]
 fn a_golden_render_of_an_automated_prism_is_pinned_to_its_samples() {
     let lane = AutoLane::new(vec![
@@ -714,13 +703,49 @@ fn a_golden_render_of_an_automated_prism_is_pinned_to_its_samples() {
     rig.attach(Box::new(Utility::new()));
     rig.play();
     let heard = rig.run(5000, 128);
-    let bytes: Vec<u8> = heard
-        .iter()
-        .flat_map(|s| s.to_bits().to_le_bytes())
-        .collect();
-    let hash = fnv1a64(&bytes);
-    assert_eq!(
-        hash, 0x8748_4ddb_5086_5272,
-        "the golden render moved: the pin is 0x{hash:016x}"
+    // Pinned within a millionth rather than by its bits: the platforms' maths
+    // libraries round `exp` and `powf` a last bit apart (CI runs three), as
+    // every other golden render here allows.
+    const PINS: [f32; 20] = [
+        2.712_673_8e-5,
+        2.103_488_7e-1,
+        1.769_865_2e-1,
+        1.489_155_4e-1,
+        1.252_968_6e-1,
+        1.054_241_66e-1,
+        8.870_335e-2,
+        7.463_457e-2,
+        6.279_719e-2,
+        1.533_410_5e-2,
+        5.601_135_5e-3,
+        3.060_502_5e-3,
+        2.5e-3,
+        2.5e-3,
+        3.058_017_7e-3,
+        4.988_156e-1,
+        4.988_156e-1,
+        4.988_156e-1,
+        4.988_156e-1,
+        4.988_156e-1,
+    ];
+    let close = |got: f64, want: f64| (got - want).abs() <= 1e-6 * want.abs().max(1e-6);
+    assert_eq!(heard.len(), 5000);
+    for (k, want) in PINS.iter().enumerate() {
+        let got = heard[k * 250];
+        assert!(
+            close(f64::from(got), f64::from(*want)),
+            "the golden render moved at frame {}: {got:e}, pinned {want:e}",
+            k * 250
+        );
+    }
+    let level: f64 = heard.iter().map(|x| f64::from(x.abs())).sum();
+    let energy: f64 = heard.iter().map(|x| f64::from(*x) * f64::from(*x)).sum();
+    assert!(
+        close(level, 1.006_878_125_277_191_4e3),
+        "the golden level moved: {level:e}"
+    );
+    assert!(
+        close(energy, 4.056_644_738_546_932e2),
+        "the golden energy moved: {energy:e}"
     );
 }
