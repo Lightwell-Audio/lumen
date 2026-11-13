@@ -37,6 +37,13 @@ impl Timeline {
     pub fn ticks_at(&self, sample: i64, sample_rate: u32) -> Ticks {
         self.tempo.ticks_at_sample(sample, sample_rate)
     }
+
+    /// The tempo at `sample`, in beats per minute (M8 slice B3): what a
+    /// built-in device whose time is in notes follows. Read per block from the
+    /// same map the clips play against, so a tempo change moves it with them.
+    pub fn bpm_at(&self, sample: i64, sample_rate: u32) -> f32 {
+        self.tempo.bpm_at(self.ticks_at(sample, sample_rate)) as f32
+    }
 }
 
 impl Default for Timeline {
