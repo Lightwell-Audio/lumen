@@ -6,8 +6,6 @@
 //! answers what the face draws, what the running filter does and what a test
 //! measures: one place a coefficient is worked out, three readers.
 
-use std::f32::consts::TAU;
-
 /// The most sections one band takes: a 48 dB/octave cut is four of them.
 pub const MOST_SECTIONS: usize = 4;
 
@@ -207,36 +205,58 @@ pub fn band_db(setting: &Setting, rate: u32, hz: f32) -> f32 {
         .sum()
 }
 
-/// `w0` and `alpha` for a corner at `hz`.
-fn corner(hz: f32, q: f32, rate: u32) -> (f32, f32, f32) {
-    let w0 = TAU * hz / rate as f32;
-    let alpha = w0.sin() / (2.0 * q.max(1e-4));
-    (w0, w0.cos(), alpha)
+// The coefficients are worked out in double and rounded to `f32` once: the
+// platforms' `f32` sine, cosine and power differ in a last bit, and a
+// resonant band carries that difference into the sound; a double rounds to
+// the same `f32` everywhere (CI runs three platforms, review of B1).
+
+/// A section from coefficients worked out in double, each over `a0`.
+fn section(b0: f64, b1: f64, b2: f64, a0: f64, a1: f64, a2: f64) -> Section {
+    Section {
+        b0: (b0 / a0) as f32,
+        b1: (b1 / a0) as f32,
+        b2: (b2 / a0) as f32,
+        a1: (a1 / a0) as f32,
+        a2: (a2 / a0) as f32,
+    }
+}
+
+/// `cos w0` and `alpha` for a corner at `hz`.
+fn corner(hz: f32, q: f32, rate: u32) -> (f64, f64) {
+    let w0 = std::f64::consts::TAU * f64::from(hz) / f64::from(rate);
+    let alpha = w0.sin() / (2.0 * f64::from(q.max(1e-4)));
+    (w0.cos(), alpha)
+}
+
+/// The amplitude of `gain` decibels, as the cookbook's `A`.
+fn amplitude(gain: f32) -> f64 {
+    10f64.powf(f64::from(gain) / 40.0)
 }
 
 /// A bell: a peak or a dip of `gain` decibels at `hz`.
 fn bell(hz: f32, gain: f32, q: f32, rate: u32) -> Section {
-    let (_, cos, alpha) = corner(hz, q, rate);
-    let a = 10f32.powf(gain / 40.0);
-    let a0 = 1.0 + alpha / a;
-    Section {
-        b0: (1.0 + alpha * a) / a0,
-        b1: -2.0 * cos / a0,
-        b2: (1.0 - alpha * a) / a0,
-        a1: -2.0 * cos / a0,
-        a2: (1.0 - alpha / a) / a0,
-    }
+    let (cos, alpha) = corner(hz, q, rate);
+    let a = amplitude(gain);
+    section(
+        1.0 + alpha * a,
+        -2.0 * cos,
+        1.0 - alpha * a,
+        1.0 + alpha / a,
+        -2.0 * cos,
+        1.0 - alpha / a,
+    )
 }
 
 /// A shelf of `gain` decibels over (or under) `hz`, its Q fixed to the
 /// steepest slope that does not ripple.
 fn shelf(hz: f32, gain: f32, low: bool, rate: u32) -> Section {
-    let (_, cos, _) = corner(hz, std::f32::consts::FRAC_1_SQRT_2, rate);
-    let a = 10f32.powf(gain / 40.0);
-    let alpha = (TAU * hz / rate as f32).sin() / 2.0 * std::f32::consts::SQRT_2;
+    let (cos, _) = corner(hz, std::f32::consts::FRAC_1_SQRT_2, rate);
+    let a = amplitude(gain);
+    let alpha = (std::f64::consts::TAU * f64::from(hz) / f64::from(rate)).sin() / 2.0
+        * std::f64::consts::SQRT_2;
     let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
-    let (b0, b1, b2, a0, a1, a2) = if low {
-        (
+    if low {
+        section(
             a * ((a + 1.0) - (a - 1.0) * cos + two_sqrt_a_alpha),
             2.0 * a * ((a - 1.0) - (a + 1.0) * cos),
             a * ((a + 1.0) - (a - 1.0) * cos - two_sqrt_a_alpha),
@@ -245,7 +265,7 @@ fn shelf(hz: f32, gain: f32, low: bool, rate: u32) -> Section {
             (a + 1.0) + (a - 1.0) * cos - two_sqrt_a_alpha,
         )
     } else {
-        (
+        section(
             a * ((a + 1.0) + (a - 1.0) * cos + two_sqrt_a_alpha),
             -2.0 * a * ((a - 1.0) + (a + 1.0) * cos),
             a * ((a + 1.0) + (a - 1.0) * cos - two_sqrt_a_alpha),
@@ -253,45 +273,24 @@ fn shelf(hz: f32, gain: f32, low: bool, rate: u32) -> Section {
             2.0 * ((a - 1.0) - (a + 1.0) * cos),
             (a + 1.0) - (a - 1.0) * cos - two_sqrt_a_alpha,
         )
-    };
-    Section {
-        b0: b0 / a0,
-        b1: b1 / a0,
-        b2: b2 / a0,
-        a1: a1 / a0,
-        a2: a2 / a0,
     }
 }
 
 /// A notch at `hz`: the band around the frequency taken away.
 fn notch(hz: f32, q: f32, rate: u32) -> Section {
-    let (_, cos, alpha) = corner(hz, q, rate);
-    let a0 = 1.0 + alpha;
-    Section {
-        b0: 1.0 / a0,
-        b1: -2.0 * cos / a0,
-        b2: 1.0 / a0,
-        a1: -2.0 * cos / a0,
-        a2: (1.0 - alpha) / a0,
-    }
+    let (cos, alpha) = corner(hz, q, rate);
+    section(1.0, -2.0 * cos, 1.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha)
 }
 
 /// One section of a cut: a cutoff filter of the given Q.
 fn cascaded(kind: Kind, hz: f32, q: f32, rate: u32) -> Section {
-    let (_, cos, alpha) = corner(hz, q, rate);
-    let a0 = 1.0 + alpha;
+    let (cos, alpha) = corner(hz, q, rate);
     let (b0, b1) = if kind == Kind::LowCut {
         ((1.0 + cos) / 2.0, -(1.0 + cos))
     } else {
         ((1.0 - cos) / 2.0, 1.0 - cos)
     };
-    Section {
-        b0: b0 / a0,
-        b1: b1 / a0,
-        b2: b0 / a0,
-        a1: -2.0 * cos / a0,
-        a2: (1.0 - alpha) / a0,
-    }
+    section(b0, b1, b0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha)
 }
 
 #[cfg(test)]

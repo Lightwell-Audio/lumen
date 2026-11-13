@@ -242,25 +242,25 @@ fn a_golden_render_of_an_automated_iris_is_pinned_to_its_samples() {
     // libraries round a last bit apart (CI runs three).
     const PINS: [f32; 20] = [
         0.0,
-        -1.371_553e-1,
-        1.950_383_2e-1,
-        -4.164_857_4e-2,
-        -2.076_517_6e-1,
-        3.031_190_3e-1,
-        -1.327_896_3e-1,
-        -1.962_670_7e-1,
-        4.011_988_6e-1,
-        -2.698_395_3e-1,
-        -1.168_538_3e-1,
-        4.353_160_3e-1,
-        -4.013_936_5e-1,
-        2.211_709_3e-2,
-        3.837_902_5e-1,
-        -4.845_456_5e-1,
-        1.953_743_4e-1,
-        2.487_755_7e-1,
-        -4.880_672e-1,
-        3.409_416e-1,
+        -1.371_150_2e-1,
+        1.950_389_4e-1,
+        -4.168_852_4e-2,
+        -2.076_471_3e-1,
+        3.032_362_8e-1,
+        -1.334_345_6e-1,
+        -1.959_39e-1,
+        4.006_603_4e-1,
+        -2.701_320_4e-1,
+        -1.171_502_6e-1,
+        4.351_011_5e-1,
+        -4.012_750_4e-1,
+        2.331_514_7e-2,
+        3.830_263_6e-1,
+        -4.848_712_7e-1,
+        1.962_542e-1,
+        2.498_054_7e-1,
+        -4.881_357_6e-1,
+        3.407_895_6e-1,
     ];
 
     let close = |got: f64, want: f64| (got - want).abs() <= 1e-6 * want.abs().max(1e-6);
@@ -275,11 +275,11 @@ fn a_golden_render_of_an_automated_iris_is_pinned_to_its_samples() {
     let level: f64 = heard.iter().map(|x| f64::from(x.abs())).sum();
     let energy: f64 = heard.iter().map(|x| f64::from(*x) * f64::from(*x)).sum();
     assert!(
-        close(level, 1.255_789_004_682_952_5e3),
+        close(level, 1.255_782_645_500_712_5e3),
         "the golden level moved: {level:e}"
     );
     assert!(
-        close(energy, 4.224_211_691_942_965e2),
+        close(energy, 4.224_196_798_249_165e2),
         "the golden energy moved: {energy:e}"
     );
 }
