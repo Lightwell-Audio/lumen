@@ -42,11 +42,7 @@ fn note(start: i64, length: i64, pitch: u8) -> Note {
 fn whole(clips: &[Arc<Clip>]) -> Vec<Member<'_>> {
     clips
         .iter()
-        .map(|clip| Member {
-            clip,
-            length: clip.length,
-            map: None,
-        })
+        .map(|clip| Member::own(clip, clip.length, None))
         .collect()
 }
 
@@ -271,16 +267,8 @@ fn a_run_cut_short_stops_at_its_end() {
         clip(2, 4, 4, vec![note(-2, 8, 60)]),
     ];
     let members = [
-        Member {
-            clip: &clips[0],
-            length: q(3),
-            map: None,
-        },
-        Member {
-            clip: &clips[1],
-            length: q(4),
-            map: None,
-        },
+        Member::own(&clips[0], q(3), None),
+        Member::own(&clips[1], q(4), None),
     ];
     let found = runs(members);
     assert_eq!(found.len(), 2);
@@ -587,11 +575,7 @@ fn kit() -> DrumMap {
 fn voiced<'a>(clips: &'a [Arc<Clip>], map: &'a DrumMap) -> Vec<Member<'a>> {
     clips
         .iter()
-        .map(|clip| Member {
-            clip,
-            length: clip.length,
-            map: Some(map),
-        })
+        .map(|clip| Member::own(clip, clip.length, Some(map)))
         .collect()
 }
 
@@ -668,7 +652,7 @@ fn a_map_carries_a_note_across_a_seam_and_bakes_a_loops_repeats() {
     let mut looping = (*clip(3, 0, 6, vec![note(0, 1, 36), note(1, 2, 42)])).clone();
     looping.loop_length = Some(q(3));
     let looping = Arc::new(looping);
-    let (fragment, _) = loop_fragment(&looping, Ticks::ZERO, q(6), q(3), Some(&map));
+    let (fragment, _) = loop_fragment(&looping, Ticks::ZERO, q(6), q(3), Some(&map), Dest::Own);
     let played: Vec<(i64, i64, u8, Option<u8>)> = fragment
         .iter()
         .map(|n| (n.start.0 / q(1).0, n.length.0 / q(1).0, n.pitch, n.channel))

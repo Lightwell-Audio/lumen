@@ -32,43 +32,101 @@ use lumen_project::drums;
 use lumen_project::edit::seams;
 use lumen_project::model::{self, ClipContent, DrumMap, EventKind, Id};
 
+/// Which instrument plays the notes a clip is read for (M8 slice D4).
+///
+/// A track reads its clips twice when one of its sounds is sent to another
+/// track: once for itself, leaving out the sounds it sends, and once for
+/// each track that plays one, keeping only those. A sound on an output pair
+/// is not forwarded: it stays on its own track and the instrument routes it
+/// inside itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Dest {
+    /// The track the clips are on.
+    Own,
+    /// Another instrument track, by id: only the sounds sent to it.
+    To(Id),
+    /// Every sound the map plays, wherever it is heard: what Export MIDI
+    /// writes, so a sound sent to another track is not lost from its part.
+    All,
+}
+
+impl Dest {
+    /// Whether a sound playing `route` is read for this destination.
+    fn takes(self, route: model::Route) -> bool {
+        match self {
+            Dest::Own => route.sent_to().is_none(),
+            Dest::To(track) => route.sent_to() == Some(track),
+            Dest::All => true,
+        }
+    }
+}
+
 /// A clip in a run, and how much of it plays (less than its length when a
 /// Replace take is recording over its end).
 ///
 /// `map` is the drum map the track reads its notes through (M8 D0), which
 /// changes neither the clip nor its notes: the notes are given their sound's
-/// note, channel and length here, at play time.
+/// note, channel and length here, at play time. `dest` is which instrument
+/// the run is read for (M8 D4): the track's own, or one its sounds are sent
+/// to.
 #[derive(Clone, Copy)]
 pub(crate) struct Member<'a> {
     pub clip: &'a Arc<model::Clip>,
     pub length: Ticks,
     pub map: Option<&'a DrumMap>,
+    pub dest: Dest,
+}
+
+impl<'a> Member<'a> {
+    /// The member read for the track it is on.
+    pub(crate) fn own(clip: &'a Arc<model::Clip>, length: Ticks, map: Option<&'a DrumMap>) -> Self {
+        Self {
+            clip,
+            length,
+            map,
+            dest: Dest::Own,
+        }
+    }
+
+    /// The same member, read for the instrument of `dest`.
+    pub(crate) fn sending(mut self, dest: Dest) -> Self {
+        self.dest = dest;
+        self
+    }
 }
 
 /// How a track's drum map plays its notes: the map, if any, read once for the
-/// whole run so a clip's notes cost O(notes) (M8 D0 review L7). A clip note
-/// with no map plays as written.
+/// whole run so a clip's notes cost O(notes) (M8 D0 review L7), and the
+/// destination the notes are read for. A clip note with no map plays as
+/// written.
 #[derive(Clone, Copy)]
 pub(crate) struct Voice<'a> {
     playing: Option<drums::Playing<'a>>,
+    dest: Dest,
 }
 
 impl<'a> Voice<'a> {
-    pub(crate) fn new(map: Option<&'a DrumMap>) -> Self {
+    pub(crate) fn new(map: Option<&'a DrumMap>, dest: Dest) -> Self {
         Self {
             playing: map.map(drums::Playing::new),
+            dest,
         }
     }
 
     /// The note as played: the key, the channel (the track's when none) and
     /// the length (a sound's override, else the note's); none for a muted
-    /// sound, or one no solo lets through.
+    /// sound, or one no solo lets through, and none for a sound another
+    /// instrument plays than the one this read is for (M8 D4).
     fn played(self, note: model::Note) -> Option<(u8, Option<u8>, Ticks)> {
         match self.playing {
+            // No map: every note plays as written, wherever it is heard.
             None => Some((note.pitch(), None, note.length())),
-            Some(playing) => playing
-                .played(note.pitch())
-                .map(|p| (p.key, p.channel, p.length_of(note.length()))),
+            Some(playing) => {
+                let played = playing.played(note.pitch())?;
+                self.dest
+                    .takes(played.route)
+                    .then(|| (played.key, played.channel, played.length_of(note.length())))
+            }
         }
     }
 }
@@ -162,7 +220,7 @@ fn run_notes_masked(run: &[Member<'_>], suppression: Option<Suppression>) -> Vec
     for (k, m) in run.iter().enumerate() {
         let offset = m.clip.start - head.clip.start;
         let (notes, _) = content(m.clip);
-        let voice = Voice::new(m.map);
+        let voice = Voice::new(m.map, m.dest);
         let mut next: Vec<(Ticks, u8, usize)> = Vec::new();
         carried = match k {
             0 => Vec::new(),
@@ -264,11 +322,12 @@ pub(crate) fn loop_fragment(
     length: Ticks,
     period: Ticks,
     map: Option<&DrumMap>,
+    dest: Dest,
 ) -> (Vec<MidiNote>, Vec<MidiControl>) {
     let ClipContent::Midi { notes, events } = &clip.content else {
         return (Vec::new(), Vec::new());
     };
-    let voice = Voice::new(map);
+    let voice = Voice::new(map, dest);
     let phase = Ticks((clip.loop_phase.0 + from.0).rem_euclid(period.0));
     let mut played_notes = Vec::new();
     for note in notes
@@ -358,11 +417,12 @@ fn loop_pattern(
     clip: &model::Clip,
     period: Ticks,
     map: Option<&DrumMap>,
+    dest: Dest,
 ) -> (Arc<[MidiNote]>, Arc<[MidiControl]>) {
     let ClipContent::Midi { notes, events } = &clip.content else {
         return (note_list(Vec::new()), control_list(Vec::new()));
     };
-    let voice = Voice::new(map);
+    let voice = Voice::new(map, dest);
     let notes = notes
         .iter()
         .filter(|n| !n.muted() && n.start() >= Ticks::ZERO && n.start() < period)
@@ -444,18 +504,23 @@ impl Cached {
     }
 }
 
-/// Translated runs by their first clip's id, so an edit elsewhere does not
-/// copy a 100,000-note clip again and the engine's comparison is a pointer
-/// check.
+/// Translated runs by their first clip's id and the instrument they were read
+/// for, so an edit elsewhere does not copy a 100,000-note clip again and the
+/// engine's comparison is a pointer check.
 #[derive(Default)]
 pub struct Cache {
-    runs: HashMap<Id, Cached>,
-    patterns: HashMap<Id, Pattern>,
+    runs: HashMap<Key, Cached>,
+    patterns: HashMap<Key, Pattern>,
     /// One shared copy of each drum map the runs were translated through, so
     /// a project of 20,000 mapped clips holds one kit, not 20,000
     /// (M8 D0 review L7).
     maps: HashMap<Id, Arc<DrumMap>>,
 }
+
+/// A cached translation: the first clip of the run, and which instrument the
+/// run was read for (M8 D4: a track whose sounds are sent is read once for
+/// itself and once for each track that plays one).
+type Key = (Id, Dest);
 
 impl Cache {
     /// The shared copy of `map`, made once and kept while it is unchanged.
@@ -480,31 +545,28 @@ impl Cache {
         suppression: Option<Suppression>,
     ) -> &[MidiClip] {
         let head = run[0].clip;
+        let key = (head.id, run[0].dest);
         let map = self.shared(run[0].map);
         let cached_matches = self
             .runs
-            .get(&head.id)
+            .get(&key)
             .is_some_and(|c| c.matches(run, map.as_deref(), suppression));
 
         if !cached_matches {
             let period = loop_period(run);
-            let pattern = match self.patterns.get(&head.id) {
+            let pattern = match self.patterns.get(&key) {
                 Some(cached) if cached.matches(run, map.as_deref()) => {
                     (Arc::clone(&cached.notes), Arc::clone(&cached.controls))
                 }
                 _ => {
-                    let source = Member {
-                        clip: head,
-                        length: head.length,
-                        map: run[0].map,
-                    };
+                    let source = Member::own(head, head.length, run[0].map).sending(run[0].dest);
                     let source_run = if period.is_some() {
                         std::slice::from_ref(&source)
                     } else {
                         run
                     };
                     let (notes, controls) = if let Some(period) = period {
-                        loop_pattern(head, period, run[0].map)
+                        loop_pattern(head, period, run[0].map, run[0].dest)
                     } else {
                         (
                             note_list(run_notes(source_run)),
@@ -512,7 +574,7 @@ impl Cache {
                         )
                     };
                     self.patterns.insert(
-                        head.id,
+                        key,
                         Pattern {
                             members: run.iter().map(|m| (Arc::clone(m.clip), m.length)).collect(),
                             map: map.clone(),
@@ -553,6 +615,7 @@ impl Cache {
                     &pattern.1,
                     &seams,
                     run[0].map,
+                    run[0].dest,
                 ));
                 let suffix_elapsed = mask_until - start;
                 clips.extend(loop_segments(
@@ -567,6 +630,7 @@ impl Cache {
                     &pattern.1,
                     &seams,
                     run[0].map,
+                    run[0].dest,
                 ));
             } else if let Some(period) = period.filter(|p| head.loop_phase.0.rem_euclid(p.0) != 0) {
                 let (start, length, _) = extent(run);
@@ -582,6 +646,7 @@ impl Cache {
                     &pattern.1,
                     &seams,
                     run[0].map,
+                    run[0].dest,
                 ));
             } else {
                 let (start, length, period) = extent(run);
@@ -604,7 +669,7 @@ impl Cache {
                 ));
             }
             self.runs.insert(
-                head.id,
+                key,
                 Cached {
                     members: run.iter().map(|m| (Arc::clone(m.clip), m.length)).collect(),
                     map: map.clone(),
@@ -614,7 +679,7 @@ impl Cache {
             );
         }
         self.runs
-            .get(&head.id)
+            .get(&key)
             .map(|cached| cached.clips.as_slice())
             .expect("the MIDI run cache was filled above")
     }
@@ -627,10 +692,10 @@ impl Cache {
             .flat_map(|t| t.clips.iter().map(|c| c.id))
             .collect();
         if self.runs.len() > live.len() {
-            self.runs.retain(|id, _| live.contains(id));
+            self.runs.retain(|key, _| live.contains(&key.0));
         }
         if self.patterns.len() > live.len() {
-            self.patterns.retain(|id, _| live.contains(id));
+            self.patterns.retain(|key, _| live.contains(&key.0));
         }
         // A map the project no longer holds is let go of with its runs.
         if self.maps.len() > project.drum_maps.len() {
@@ -676,6 +741,7 @@ fn loop_segments(
     controls: &Arc<[MidiControl]>,
     seams: &[Ticks],
     map: Option<&DrumMap>,
+    dest: Dest,
 ) -> Vec<MidiClip> {
     let LoopSpan {
         start,
@@ -699,7 +765,8 @@ fn loop_segments(
         )];
     }
     let first = (period - phase).min(length);
-    let (fragment_notes, fragment_controls) = loop_fragment(clip, elapsed, first, period, map);
+    let (fragment_notes, fragment_controls) =
+        loop_fragment(clip, elapsed, first, period, map, dest);
     let mut segments = vec![engine_clip(
         clip.id,
         start,
@@ -737,43 +804,87 @@ fn segment_seams(elapsed: Ticks, length: Ticks, seams: &[Ticks]) -> Arc<[Ticks]>
 /// plays them (`hold.rs`): a note sounds from its start up to where it
 /// stops, within its repeat of a looping clip's content. A zero-length note
 /// sounds for one tick. Each key once. What the track's drum map plays, not
-/// what its clips store (M8 D0).
+/// what its clips store (M8 D0), and only what this track's own instrument
+/// plays: a sound sent to another track is not among them (D4).
 pub(crate) fn sounding_keys(project: &model::Project, track: &model::Track, at: Ticks) -> Vec<u8> {
     let map = project.drum_map_of(track);
     let members = track
         .clips
         .iter()
         .filter(|c| !c.muted && c.length.0 > 0 && matches!(c.content, ClipContent::Midi { .. }))
-        .map(|clip| Member {
-            clip,
-            length: clip.length,
-            map,
-        });
+        .map(|clip| Member::own(clip, clip.length, map));
     let mut keys = Vec::new();
     for run in runs(members) {
-        let (start, length, period) = extent(&run);
-        let local = (at - start).0;
-        if local < 0 || local >= length.0 {
-            continue;
-        }
-        let (notes, local) = if let Some(period) = period {
-            (
-                loop_pattern(run[0].clip, period, map).0.to_vec(),
-                (run[0].clip.loop_phase.0 + local).rem_euclid(period.0),
-            )
-        } else {
-            (run_notes(&run), local)
-        };
-        for n in notes {
-            let (from, to) = (n.start.0, n.start.0 + n.length.0.max(1));
-            // A loop's notes stop at the end of their repeat.
-            let to = period.map_or(to, |p| to.min(p.0));
-            if (from..to.max(from + 1)).contains(&local) && !keys.contains(&n.pitch) {
-                keys.push(n.pitch);
+        for pitch in held_in(&run, at) {
+            if !keys.contains(&pitch) {
+                keys.push(pitch);
             }
         }
     }
     keys
+}
+
+/// The notes a run holds at arrangement time `at`, as the keys the notes
+/// play (after the drum map has been read).
+fn held_in(run: &[Member<'_>], at: Ticks) -> Vec<u8> {
+    let map = run[0].map;
+    let (start, length, period) = extent(run);
+    let local = (at - start).0;
+    if local < 0 || local >= length.0 {
+        return Vec::new();
+    }
+    let (notes, local) = if let Some(period) = period {
+        (
+            loop_pattern(run[0].clip, period, map, run[0].dest)
+                .0
+                .to_vec(),
+            (run[0].clip.loop_phase.0 + local).rem_euclid(period.0),
+        )
+    } else {
+        (run_notes(run), local)
+    };
+    let mut keys = Vec::new();
+    for n in notes {
+        let (from, to) = (n.start.0, n.start.0 + n.length.0.max(1));
+        // A loop's notes stop at the end of their repeat.
+        let to = period.map_or(to, |p| to.min(p.0));
+        if (from..to.max(from + 1)).contains(&local) && !keys.contains(&n.pitch) {
+            keys.push(n.pitch);
+        }
+    }
+    keys
+}
+
+/// The **input** notes of `track`'s drum map sounding at arrangement time
+/// `at`: the sounds a person sees a hit of, wherever the sound plays (M8 D4,
+/// the light on a track made for a sound). A sound sent to another track is
+/// still that sound playing, so it is among these; a muted sound, a note
+/// outside its clip and a muted clip are not. Each input note once.
+pub(crate) fn sounding_inputs(
+    project: &model::Project,
+    track: &model::Track,
+    at: Ticks,
+) -> Vec<u8> {
+    let Some(map) = project.drum_map_of(track) else {
+        return Vec::new();
+    };
+    // Read without the map, so a note keeps the input note its clip stores;
+    // what the map silences is taken out below.
+    let members = track
+        .clips
+        .iter()
+        .filter(|c| !c.muted && c.length.0 > 0 && matches!(c.content, ClipContent::Midi { .. }))
+        .map(|clip| Member::own(clip, clip.length, None));
+    let mut inputs = Vec::new();
+    for run in runs(members) {
+        for pitch in held_in(&run, at) {
+            let heard = map.sound(pitch).is_none_or(|sound| map.heard(sound));
+            if heard && !inputs.contains(&pitch) {
+                inputs.push(pitch);
+            }
+        }
+    }
+    inputs
 }
 
 #[cfg(test)]

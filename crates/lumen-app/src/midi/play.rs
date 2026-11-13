@@ -14,6 +14,8 @@ use lumen_devices::{Preset, Synth, synth};
 use lumen_engine::{INPUT_SLOTS, InstrumentSpec, KEYBOARD, Listen, MidiTrack, Target};
 use lumen_project::model::{self, ClipContent, FromSource, Id, Monitor, Project, TrackKind};
 
+use crate::midi::runs::Dest;
+
 pub use crate::midi::runs::Cache;
 
 /// The MIDI outputs the engine's port numbers stand for, by name. Names are
@@ -62,6 +64,10 @@ fn instrument(track: &model::Track, hosts: &mut dyn Hosts) -> Option<InstrumentS
         return Some(hosts.instrument(track.id));
     }
     let device = track.instrument()?;
+    // A built-in instrument with several outputs is built with
+    // [`pad_outputs`] here, which says which pair each of the track's sounds
+    // goes to (the seam the sampler, B5, plugs into). The synth has one
+    // output and ignores it.
     let preset = device
         .preset()
         .and_then(Preset::from_id)
@@ -71,6 +77,53 @@ fn instrument(track: &model::Track, hosts: &mut dyn Hosts) -> Option<InstrumentS
         preset: preset.number(),
         instrument: Box::new(Synth::new(preset)),
     })
+}
+
+/// The output pair each of a track's drum sounds goes to: the seam the
+/// built-in **sampler** (B5) reads when it is built (M8 D4).
+///
+/// A hosted instrument cannot be told which sound goes to which output: its
+/// plugin decides that inside itself (RT A), and the track that plays each
+/// pair is made by the routing (`Document::route_drum_sound`). A built-in
+/// instrument can: the sampler sends the notes of the sound at input note
+/// `i` to pair `pair_of(i)`, where 0 is the track's own output. A pair is the
+/// number a sound's [`Route::Output`](lumen_project::model::Route::Output)
+/// names, 1 and up.
+///
+/// 128 bytes, made on this side, so handing it to the instrument allocates
+/// nothing on the audio thread. A track with no map, or with no sound on an
+/// output pair, is all zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PadOutputs {
+    pairs: [u8; 128],
+}
+
+impl Default for PadOutputs {
+    fn default() -> Self {
+        Self { pairs: [0; 128] }
+    }
+}
+
+impl PadOutputs {
+    /// The pair the sound at input note `input` plays on: 0 for the track's
+    /// own output.
+    pub fn pair_of(&self, input: u8) -> u32 {
+        u32::from(self.pairs[usize::from(input)])
+    }
+}
+
+/// [`PadOutputs`] for `track`, read from its drum map.
+pub fn pad_outputs(project: &Project, track: &model::Track) -> PadOutputs {
+    let mut pads = PadOutputs::default();
+    let Some(map) = project.drum_map_of(track) else {
+        return pads;
+    };
+    for sound in &map.sounds {
+        if let model::Route::Output(pair) = sound.route {
+            pads.pairs[usize::from(sound.input)] = u8::try_from(pair).unwrap_or(u8::MAX);
+        }
+    }
+    pads
 }
 
 /// Where a track's plugin instrument comes from (M6 slice 2c).
@@ -365,6 +418,7 @@ pub fn engine_midi_with(
 ) -> Vec<MidiTrack> {
     cache.retain(project);
     let heard = lumen_project::solo::hearing(project);
+    let sends = crate::midi::sends::sends(project);
     let mut tracks = Vec::new();
     for track in &project.tracks {
         if track.kind != TrackKind::Midi {
@@ -382,26 +436,30 @@ pub fn engine_midi_with(
         };
         // What the track's drum map makes of its notes, and of live input.
         let map = project.drum_map_of(track);
-        let members = track
-            .clips
-            .iter()
-            .filter(|c| !silent && !c.muted && matches!(c.content, ClipContent::Midi { .. }))
-            .filter_map(|clip| {
-                Some(crate::midi::runs::Member {
-                    clip,
-                    length: inputs.playing_length(track.id, clip)?,
-                    map,
-                })
-            });
-        let suppression = inputs.suppression(track.id);
-        let mut clips = Vec::new();
-        for run in crate::midi::runs::runs(members).iter() {
-            clips.extend(
-                cache
-                    .clip_with_suppression(run, suppression)
-                    .iter()
-                    .cloned(),
-            );
+        let mut clips = translated(inputs, cache, track, map, silent, Dest::Own);
+        // The sounds of another track's map this track's instrument plays
+        // (M8 D4). The sending track's notes are read again for this one, and
+        // a sound is read for exactly one instrument: the track's own for
+        // all but the ones it sends, this one for those. A send to a track
+        // that is muted (or silenced by a solo) sounds nowhere, so it is not
+        // read at all; the notes the engine held for it are let go when the
+        // list arrives, as any edit's are. The sending track's own mute does
+        // not silence a sent sound: it plays on the track it was sent to.
+        if heard.of(track.id).output {
+            for send in sends.iter().filter(|send| send.to == track.id) {
+                let Some(sender) = project.tracks.iter().find(|t| t.id == send.from) else {
+                    continue;
+                };
+                let sender_map = project.drum_map_of(sender);
+                clips.extend(translated(
+                    inputs,
+                    cache,
+                    sender,
+                    sender_map,
+                    false,
+                    Dest::To(track.id),
+                ));
+            }
         }
         tracks.push(
             MidiTrack::new(track.id.0, target, instrument(track, hosts), clips)
@@ -414,6 +472,38 @@ pub fn engine_midi_with(
         );
     }
     tracks
+}
+
+/// The engine clips one track's notes play as, read for `dest`: its own
+/// instrument, or another track's (M8 D4).
+fn translated(
+    inputs: &Inputs,
+    cache: &mut Cache,
+    track: &model::Track,
+    map: Option<&model::DrumMap>,
+    silent: bool,
+    dest: Dest,
+) -> Vec<lumen_engine::MidiClip> {
+    let members = track
+        .clips
+        .iter()
+        .filter(|c| !silent && !c.muted && matches!(c.content, ClipContent::Midi { .. }))
+        .filter_map(|clip| {
+            Some(crate::midi::runs::Member::own(
+                clip,
+                inputs.playing_length(track.id, clip)?,
+                map,
+            ))
+        });
+    let suppression = inputs.suppression(track.id);
+    let mut clips = Vec::new();
+    for run in crate::midi::runs::runs(members).iter() {
+        let sending = run.iter().map(|m| m.sending(dest)).collect::<Vec<_>>();
+        for clip in cache.clip_with_suppression(&sending, suppression) {
+            clips.push(clip.clone());
+        }
+    }
+    clips
 }
 
 #[cfg(test)]
@@ -1090,5 +1180,237 @@ mod tests {
             busy_keys(&project, id, q(5), true).is_empty(),
             "silenced by another track's solo"
         );
+    }
+}
+
+#[cfg(test)]
+mod send_tests {
+    use std::sync::Arc;
+
+    use lumen_project::drums::presets::Preset;
+    use lumen_project::model::{Clip, ClipContent, Note, Route, TrackKind};
+
+    use super::*;
+    use crate::document::Document;
+
+    fn q(beats: i64) -> Ticks {
+        Ticks::quarters(beats)
+    }
+
+    fn clip(id: u64, notes: Vec<Note>) -> Clip {
+        Clip {
+            id: Id(id),
+            name: "Kit".into(),
+            start: Ticks::ZERO,
+            length: q(16),
+            muted: false,
+            color: None,
+            locked: false,
+            fade_in: Default::default(),
+            crossfade: false,
+            fade_out: Default::default(),
+            loop_length: None,
+            loop_phase: Ticks::ZERO,
+            audio_phase_seconds: 0.0,
+            reversed: false,
+            inverted: false,
+            envelopes: Default::default(),
+            takes: None,
+            warp: None,
+            content: ClipContent::Midi {
+                notes,
+                events: Vec::new(),
+            },
+        }
+    }
+
+    /// A kit track reading the 808-style map, with a kick and a snare, and a
+    /// second MIDI track whose instrument plays what is sent to it. Returns
+    /// the document, the kit, the other track and the map.
+    fn kit() -> (Document, Id, Id, Id) {
+        let mut doc = Document::new(crate::empty_project());
+        let kit = doc.add_track(TrackKind::Midi, None);
+        let other = doc.add_track(TrackKind::Midi, None);
+        let played = vec![
+            Note::new(q(0), q(1), 36, 100),
+            Note::new(q(2), q(1), 38, 90),
+            Note::new(q(4), q(2), 36, 80),
+        ];
+        doc.apply("clips", None, |project| {
+            let slot = project.tracks.iter_mut().find(|t| t.id == kit).unwrap();
+            Arc::make_mut(slot).clips.push(Arc::new(clip(500, played)));
+        });
+        let map = doc
+            .attach_drum_map_preset(kit, Preset::EIGHT_OH_EIGHT)
+            .expect("a MIDI track takes a map");
+        (doc, kit, other, map)
+    }
+
+    fn engine(doc: &Document) -> Vec<MidiTrack> {
+        let mut cache = Cache::default();
+        engine_midi(
+            doc.project(),
+            &Inputs::default(),
+            &mut PortTable::default(),
+            &mut cache,
+        )
+    }
+
+    /// Every note a track's clips play, as (start, pitch).
+    fn notes_of(tracks: &[MidiTrack], id: Id) -> Vec<(Ticks, u8)> {
+        tracks
+            .iter()
+            .find(|t| t.id == id.0)
+            .map(|t| {
+                t.clips
+                    .iter()
+                    .flat_map(|c| c.notes.iter().map(|n| (c.start + n.start, n.pitch)))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn input_of(doc: &Document, map: Id, output: u8) -> u8 {
+        doc.drum_map(map)
+            .unwrap()
+            .sounds
+            .iter()
+            .find(|s| s.output == output)
+            .map_or(output, |s| s.input)
+    }
+
+    #[test]
+    fn a_sound_sent_to_another_track_plays_that_tracks_instrument_and_not_its_own() {
+        let (mut doc, kit, other, map) = kit();
+        // The kick (note 36 in the 808-style map) goes to the other track.
+        let kick = input_of(&doc, map, 36);
+        let done = doc
+            .route_drum_sound(kit, map, kick, Route::Track(other))
+            .expect("an instrument track takes the sound");
+        assert_eq!(done.tracks[0], other);
+        let tracks = engine(&doc);
+        let mine = notes_of(&tracks, kit);
+        let theirs = notes_of(&tracks, other);
+        assert_eq!(
+            mine,
+            vec![(q(2), 38)],
+            "only the snare is the kit's own now"
+        );
+        assert_eq!(
+            theirs,
+            vec![(q(0), 36), (q(4), 36)],
+            "the kick's notes play on the other track's instrument"
+        );
+        // Both read the same clip, and the cache keeps them apart.
+        assert!(tracks.iter().all(|t| t.id == kit.0 || t.id == other.0));
+    }
+
+    #[test]
+    fn a_route_change_moves_the_notes_in_one_frame_and_never_doubles_them() {
+        let (mut doc, kit, other, map) = kit();
+        let kick = input_of(&doc, map, 36);
+        let before = engine(&doc);
+        assert_eq!(notes_of(&before, other), Vec::new());
+        doc.route_drum_sound(kit, map, kick, Route::Track(other))
+            .unwrap();
+        let after = engine(&doc);
+        // Every note of the song plays once, somewhere: none doubled, none
+        // lost in the move.
+        let mut all: Vec<(Ticks, u8)> = notes_of(&after, kit);
+        all.extend(notes_of(&after, other));
+        all.sort();
+        let mut was: Vec<(Ticks, u8)> = notes_of(&before, kit);
+        was.sort();
+        assert_eq!(all, was);
+        assert_eq!(notes_of(&after, other).len(), 2);
+    }
+
+    #[test]
+    fn a_muted_receiving_track_silences_the_sent_sound_and_a_muted_kit_does_not() {
+        let (mut doc, kit, other, map) = kit();
+        let kick = input_of(&doc, map, 36);
+        doc.route_drum_sound(kit, map, kick, Route::Track(other))
+            .unwrap();
+        // The receiving track muted: the sound is silent (it plays there).
+        doc.set_mute(&[other], true);
+        let tracks = engine(&doc);
+        assert_eq!(notes_of(&tracks, other), Vec::new(), "the other is muted");
+        assert_eq!(
+            notes_of(&tracks, kit),
+            vec![(q(2), 38)],
+            "and the kit still keeps its snare"
+        );
+        // The sending track muted: what it sends is still the receiving
+        // track's, so the kick plays on there; the kit's own list is the
+        // mixer's to silence.
+        doc.set_mute(&[other], false);
+        doc.set_mute(&[kit], true);
+        let tracks = engine(&doc);
+        assert_eq!(
+            notes_of(&tracks, other),
+            vec![(q(0), 36), (q(4), 36)],
+            "a muted kit does not silence the track its kick was sent to"
+        );
+        assert_eq!(
+            notes_of(&tracks, kit),
+            vec![(q(2), 38)],
+            "and its own list is unchanged"
+        );
+    }
+
+    #[test]
+    fn a_sound_sent_to_another_track_keeps_its_key_channel_and_length() {
+        let (mut doc, kit, other, map) = kit();
+        let kick = input_of(&doc, map, 36);
+        // The sound plays note 40 on channel 9 for half a beat.
+        doc.set_sound_output(map, kick, 40);
+        doc.set_sound_channel(map, kick, Some(9));
+        doc.set_sound_length(map, kick, Some(Ticks(q(1).0 / 2)));
+        doc.route_drum_sound(kit, map, kick, Route::Track(other))
+            .unwrap();
+        let tracks = engine(&doc);
+        let heard: Vec<(Ticks, u8, Option<u8>, Ticks)> = tracks
+            .iter()
+            .find(|t| t.id == other.0)
+            .unwrap()
+            .clips
+            .iter()
+            .flat_map(|c| {
+                c.notes
+                    .iter()
+                    .map(|n| (c.start + n.start, n.pitch, n.channel, n.length))
+            })
+            .collect();
+        assert_eq!(
+            heard,
+            vec![
+                (q(0), 40, Some(9), Ticks(q(1).0 / 2)),
+                (q(4), 40, Some(9), Ticks(q(1).0 / 2))
+            ],
+            "the map's translation goes with the notes"
+        );
+    }
+
+    #[test]
+    fn the_pads_of_a_built_in_instrument_are_told_their_pairs() {
+        let (mut doc, kit, _other, map) = kit();
+        let kick = input_of(&doc, map, 36);
+        let snare = input_of(&doc, map, 38);
+        let track = doc.project().tracks.iter().find(|t| t.id == kit).unwrap();
+        let pads = pad_outputs(doc.project(), track);
+        assert_eq!(pads.pair_of(kick), 0, "everything on the track's own");
+        doc.route_drum_sound(kit, map, kick, Route::Output(3))
+            .unwrap();
+        doc.route_drum_sound(kit, map, snare, Route::Output(1))
+            .unwrap();
+        let track = doc.project().tracks.iter().find(|t| t.id == kit).unwrap();
+        let pads = pad_outputs(doc.project(), track);
+        assert_eq!(pads.pair_of(kick), 3);
+        assert_eq!(pads.pair_of(snare), 1);
+        // A track with no map has no pads to place.
+        let bare = doc.add_track(TrackKind::Midi, None);
+        let track = doc.project().tracks.iter().find(|t| t.id == bare).unwrap();
+        let pads = pad_outputs(doc.project(), track);
+        assert_eq!(pads.pair_of(kick), 0);
     }
 }

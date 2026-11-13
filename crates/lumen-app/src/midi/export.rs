@@ -12,18 +12,18 @@ use lumen_project::edit::in_window;
 use lumen_project::model::{Clip, ClipContent, ClipEvent, DrumMap, Id, Note, Project, TrackKind};
 use lumen_project::smf::{FileTrack, MidiFile};
 
-use crate::midi::runs::{Member, loop_fragment, loop_period, run_notes, runs};
+use crate::midi::runs::{Dest, Member, loop_fragment, loop_period, run_notes, runs};
 
 /// The notes and events `clips` (one track's, in start order) play, in
 /// arrangement time. `map` is the track's drum map, if any (M8 D0): what an
 /// exported part holds is what plays, the map's notes, not the ones stored.
+/// Every sound is written wherever it plays (M8 D4): a sound sent to another
+/// track is still part of this part.
 fn heard(clips: &[&Arc<Clip>], map: Option<&DrumMap>) -> (Vec<Note>, Vec<ClipEvent>) {
     let (mut notes, mut events) = (Vec::new(), Vec::new());
-    let members = clips.iter().map(|clip| Member {
-        clip,
-        length: clip.length,
-        map,
-    });
+    let members = clips
+        .iter()
+        .map(|clip| Member::own(clip, clip.length, map).sending(Dest::All));
     for run in runs(members) {
         let head = run[0].clip;
         if let Some(period) = loop_period(&run) {
@@ -80,7 +80,7 @@ fn bake_loop(
             period - phase
         }
         .min(length - elapsed);
-        let (fragment, _) = loop_fragment(clip, elapsed, span, period, map);
+        let (fragment, _) = loop_fragment(clip, elapsed, span, period, map, Dest::All);
         notes.extend(fragment.into_iter().map(|n| {
             Note::new(
                 clip.start + elapsed + n.start,
