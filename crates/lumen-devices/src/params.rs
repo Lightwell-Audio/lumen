@@ -54,13 +54,14 @@ impl Taper {
         let x = ((value - low) / span).clamp(0.0, 1.0);
         match self {
             Self::Linear => x,
-            Self::Power(power) => x.powf(1.0 / power),
+            Self::Power(power) => f64::from(x).powf(1.0 / f64::from(power)) as f32,
             Self::Log if low > 0.0 && high > 0.0 => {
-                let ratio = (high / low).ln();
+                let ratio = (f64::from(high) / f64::from(low)).ln();
                 if ratio <= 0.0 {
                     0.0
                 } else {
-                    ((value.max(low) / low).ln() / ratio).clamp(0.0, 1.0)
+                    (((f64::from(value.max(low)) / f64::from(low)).ln() / ratio) as f32)
+                        .clamp(0.0, 1.0)
                 }
             }
             Self::Log => x,

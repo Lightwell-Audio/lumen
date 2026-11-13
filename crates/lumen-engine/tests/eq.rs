@@ -48,7 +48,11 @@ fn values(set: &[(u32, f32)]) -> Vec<(u32, f32)> {
 /// A clip of `frames` frames of a tone at `hz`, on `TRACK`.
 fn tone(hz: f32, frames: usize) -> Clip {
     let samples: Vec<f32> = (0..frames)
-        .map(|k| 0.3 * (std::f32::consts::TAU * hz * k as f32 / RATE as f32).sin())
+        // In double: the platforms' `f32` sine differs in a last bit.
+        .map(|k| {
+            (0.3 * (std::f64::consts::TAU * f64::from(hz) * k as f64 / f64::from(RATE)).sin())
+                as f32
+        })
         .collect();
     Clip {
         envelope: Default::default(),
@@ -242,25 +246,25 @@ fn a_golden_render_of_an_automated_iris_is_pinned_to_its_samples() {
     // libraries round a last bit apart (CI runs three).
     const PINS: [f32; 20] = [
         0.0,
-        -1.371_150_2e-1,
-        1.950_389_4e-1,
-        -4.168_852_4e-2,
-        -2.076_471_3e-1,
-        3.032_362_8e-1,
-        -1.334_345_6e-1,
-        -1.959_39e-1,
-        4.006_603_4e-1,
-        -2.701_320_4e-1,
-        -1.171_502_6e-1,
-        4.351_011_5e-1,
-        -4.012_750_4e-1,
-        2.331_514_7e-2,
-        3.830_263_6e-1,
-        -4.848_712_7e-1,
-        1.962_542e-1,
-        2.498_054_7e-1,
-        -4.881_357_6e-1,
-        3.407_895_6e-1,
+        -1.3711277e-1,
+        1.9503886e-1,
+        -4.1689515e-2,
+        -2.0763436e-1,
+        3.0325797e-1,
+        -1.3342762e-1,
+        -1.9594619e-1,
+        4.006971e-1,
+        -2.7014214e-1,
+        -1.1716747e-1,
+        4.3509215e-1,
+        -4.012807e-1,
+        2.3335539e-2,
+        3.830033e-1,
+        -4.8495448e-1,
+        1.9625153e-1,
+        2.4981107e-1,
+        -4.8815334e-1,
+        3.40705e-1,
     ];
 
     let close = |got: f64, want: f64| (got - want).abs() <= 1e-6 * want.abs().max(1e-6);
@@ -275,11 +279,11 @@ fn a_golden_render_of_an_automated_iris_is_pinned_to_its_samples() {
     let level: f64 = heard.iter().map(|x| f64::from(x.abs())).sum();
     let energy: f64 = heard.iter().map(|x| f64::from(*x) * f64::from(*x)).sum();
     assert!(
-        close(level, 1.255_782_645_500_712_5e3),
+        close(level, 1.2557834914260702e3),
         "the golden level moved: {level:e}"
     );
     assert!(
-        close(energy, 4.224_196_798_249_165e2),
+        close(energy, 4.2242044370250557e2),
         "the golden energy moved: {energy:e}"
     );
 }

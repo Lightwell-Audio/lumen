@@ -54,8 +54,10 @@ impl PanLaw {
             pan.clamp(-1.0, 1.0)
         };
         let power = || {
-            let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
-            [angle.cos(), angle.sin()]
+            // In double, rounded once: the platforms' `f32` sine and cosine
+            // differ in a last bit, and a render is the same everywhere.
+            let angle = (f64::from(pan) + 1.0) * std::f64::consts::FRAC_PI_4;
+            [angle.cos() as f32, angle.sin() as f32]
         };
         let linear = || [(1.0 - pan) / 2.0, (1.0 + pan) / 2.0];
         match self {
