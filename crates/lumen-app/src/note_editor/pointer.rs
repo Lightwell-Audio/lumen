@@ -128,12 +128,13 @@ impl App {
             }
             Resolved::MoveHits {
                 time,
+                selection,
                 pitches,
                 copy,
             } => Some(doc.move_notes_to_pitches(
                 &base,
                 id,
-                &gesture.picked,
+                &selection,
                 crate::document::LaneMove {
                     time,
                     pitches: &pitches,

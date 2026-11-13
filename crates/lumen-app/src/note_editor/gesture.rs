@@ -93,9 +93,11 @@ pub(crate) enum Resolved {
     },
     /// The lanes' move: the picked hits move `time`, and each takes its new
     /// pitch (a lane up is the next sound, not a semitone), in the order of
-    /// `Gesture::picked` (review H3).
+    /// `selection` — the picked hits that have a lane (review H3, and round 2
+    /// L5: a hit outside the map is left where it is, the rest still move).
     MoveHits {
         time: Ticks,
+        selection: Vec<usize>,
         pitches: Vec<u8>,
         copy: bool,
     },
@@ -190,12 +192,14 @@ impl Gesture {
                     // One lane up is the next sound, not a semitone: each
                     // picked hit takes the pitch of its row moved by the
                     // rows dragged, clamped so the block never leaves the
-                    // lanes (H3).
-                    let Some(pitches) = lane_pitches(self, view, pointer, env) else {
+                    // lanes (H3). A picked hit with no row is left alone
+                    // (review round 2, L5).
+                    let Some((selection, pitches)) = lane_pitches(self, view, pointer, env) else {
                         return Resolved::Nothing;
                     };
                     return Resolved::MoveHits {
                         time: target - note.start(),
+                        selection,
                         pitches,
                         copy: *copy,
                     };
@@ -266,10 +270,15 @@ impl Resolved {
             }
             Resolved::MoveHits {
                 time,
+                selection,
                 pitches,
                 copy,
             } => {
-                let mut ghosts = subset();
+                let mut ghosts: Vec<Note> = selection
+                    .iter()
+                    .filter_map(|&index| env.notes.get(index).copied())
+                    .collect();
+                let everything: Vec<usize> = (0..ghosts.len()).collect();
                 ops::move_notes(&mut ghosts, &everything, *time, 0, env.length);
                 for (slot, pitch) in pitches.iter().enumerate() {
                     if let Some(note) = ghosts.get_mut(slot) {
@@ -278,7 +287,7 @@ impl Resolved {
                 }
                 Preview {
                     ghosts,
-                    hidden: if *copy { Vec::new() } else { picked },
+                    hidden: if *copy { Vec::new() } else { selection.clone() },
                     ..Preview::default()
                 }
             }
@@ -334,15 +343,17 @@ fn velocity_drag(
     picked.iter().map(|&index| (index, velocity)).collect()
 }
 
-/// The lanes' move (H3): the picked hits' new pitches when the block moves by
-/// the rows dragged, clamped so no hit leaves the lanes. `None` when a picked
-/// hit has no row (it cannot be moved by lanes) or there are no lanes.
+/// The lanes' move (H3): the picked hits that have a lane, and their new
+/// pitches when the block moves by the rows dragged, clamped so no hit leaves
+/// the lanes. `None` when there are no lanes or the grabbed hit has none; a
+/// picked hit with no row (a pitch that is no sound of the map) is left where
+/// it is and the rest still move (review round 2, L5).
 fn lane_pitches(
     gesture: &Gesture,
     view: &EditorView,
     pointer: Pos2,
     env: &Env<'_>,
-) -> Option<Vec<u8>> {
+) -> Option<(Vec<usize>, Vec<u8>)> {
     let len = view.rows.len();
     if len == 0 {
         return None;
@@ -358,20 +369,29 @@ fn lane_pitches(
             });
     let mut delta = row - origin_row;
     let (mut lowest, mut highest) = (i32::MIN, i32::MAX);
+    let mut movers: Vec<(usize, i32)> = Vec::with_capacity(gesture.picked.len());
     for &index in &gesture.picked {
-        let note = env.notes.get(index)?;
-        let at = view.rows.row_of(i32::from(note.pitch()))? as i32;
+        let Some(note) = env.notes.get(index) else {
+            continue;
+        };
+        let Some(at) = view.rows.row_of(i32::from(note.pitch())) else {
+            continue;
+        };
+        let at = at as i32;
         lowest = lowest.max(-at);
         highest = highest.min(len as i32 - 1 - at);
+        movers.push((index, at));
+    }
+    if movers.is_empty() {
+        return None;
     }
     delta = delta.clamp(lowest, highest);
-    let mut pitches = Vec::with_capacity(gesture.picked.len());
-    for &index in &gesture.picked {
-        let note = env.notes.get(index)?;
-        let at = view.rows.row_of(i32::from(note.pitch()))? as i32;
-        pitches.push(view.rows.pitch_of((at + delta) as usize) as u8);
-    }
-    Some(pitches)
+    let selection = movers.iter().map(|&(index, _)| index).collect();
+    let pitches = movers
+        .iter()
+        .map(|&(_, at)| view.rows.pitch_of((at + delta) as usize) as u8)
+        .collect();
+    Some((selection, pitches))
 }
 
 #[cfg(test)]
@@ -691,6 +711,7 @@ mod tests {
             down,
             Resolved::MoveHits {
                 time: Ticks::ZERO,
+                selection: vec![0, 1],
                 pitches: vec![38, 42],
                 copy: false
             }
@@ -717,6 +738,47 @@ mod tests {
             panic!("{above:?}")
         };
         assert_eq!(pitches, [36, 38], "the snare rises to the kick's lane");
+    }
+
+    #[test]
+    fn a_picked_hit_with_no_lane_is_left_where_it_is() {
+        // Review round 2, L5: a hit whose pitch is no sound of the map has no
+        // row; it must not kill the whole drag. The rest still move.
+        let mut v = view();
+        v.lanes = true;
+        v.row_height = crate::drum_editor::geometry::ROW;
+        v.rows = crate::piano_roll::draw::Rows::lanes([36_u8, 38, 42]);
+        let notes = [
+            Note::new(Ticks::quarters(1), Ticks(1), 36, 100),
+            Note::new(Ticks::quarters(1), Ticks(1), 60, 100),
+        ];
+        let snap = to_quarter;
+        let e = env(&v, &notes, &snap);
+        let origin = pos2(200.0, v.row_height / 2.0);
+        let mut g = gesture(Kind::Move { copy: false }, origin);
+        g.picked = vec![0, 1];
+        g.grabbed = 0;
+        g.velocity = Some(false);
+        let down = g.resolve(pos2(200.0, v.row_height * 1.5), &e);
+        let Resolved::MoveHits {
+            selection, pitches, ..
+        } = down
+        else {
+            panic!("{down:?}")
+        };
+        assert_eq!(selection, vec![0], "the unmapped hit stays");
+        assert_eq!(pitches, vec![38], "the mapped hit takes the next lane");
+        // The ghost shows only the hit that moves.
+        let preview = Resolved::MoveHits {
+            time: Ticks::ZERO,
+            selection: selection.clone(),
+            pitches: pitches.clone(),
+            copy: false,
+        }
+        .preview(&[0, 1], &e);
+        assert_eq!(preview.ghosts.len(), 1);
+        assert_eq!(preview.ghosts[0].pitch(), 38);
+        assert_eq!(preview.hidden, vec![0]);
     }
 
     #[test]

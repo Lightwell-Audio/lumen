@@ -13235,7 +13235,8 @@ of them (E5: a fork is a review finding).
    choose: rows are the clip's body divided among the played sounds; below
    6 pt a row stops being a picture, so the rows drawn are the most played
    sounds (ties in the map's order) that fit and the rest are left out; a clip
-   too short for one row draws none. A loop repeat's hits read fainter. It is
+   too short for one row draws none. A loop repeat's hits are ordinary hits:
+   not muted, drawn like the first pass. It is
    a picture only: the clip's own gestures still select, move and trim it.
 9. **Commands** at the end of `ALL`: `view.drum_lanes` ("Show the drum
    lanes"), `view.drum_keys` ("Show the piano roll (Keys)") and
@@ -13281,9 +13282,11 @@ here, each with the test that proves it). *The lanes now cost their picture,
 not the clip.* The frame gathers the hits once into `DrumState`'s caches —
 `lanes_for` (the map's lanes, keyed by the map, the clip and Hide unused) and
 `cells_for` (the hits, keyed by the clip, the rows, the picks, the hidden
-notes, the body, the time and the scroll, reusing its buffers) — and the hover,
-the length bars and the box read that cache instead of re-gathering per
-pointer move or per widget (H2). The arrangement's drum rows are gathered for
+notes, the body, the time and the scroll, reusing its `seen` buffer) - and the
+hover and the length bars read that cache instead of re-gathering per pointer
+move or per widget (H2). A box still walks the clip's notes each frame while
+it drags; that is the box's own pass, not the picture's (review round 2, L2).
+The arrangement's drum rows are gathered for
 the *visible* part of the clip only (`body.intersect(painter.clip_rect())`),
 found by range for a sorted clip (`partition_point`) and cached per clip in
 `Arrangement::drum_cache`, and a mark is capped at 3 pt, so a clip tens of
@@ -13313,6 +13316,36 @@ to `theme::size` (`LANE_*`, `DRUM_ROW_MIN`) (L6), `Rows::lanes` dedups with a
 seen set instead of assuming adjacent duplicates (L7), and a bar's grid has no
 triplet or dotted feel — the map editor does not offer one, `size_ticks` refuses
 one and a file that names one reads as straight (L8).
+
+**Review round 2** (a re-check of the fixes, 2026-11-13; every item fixed
+here, each with the test that proves it). *The deep-zoom E2E read a clock,*
+which broke the timing lint: it now asserts what the code decides — a
+2,000-hit clip at 4,000 points a beat keeps its cells under `MAX_CELLS` and
+its marks no wider than `MARK_MAX` (the pre-fix clip-wide bucket drew 22 pt
+marks) — and the frame-time claim stays the ignored bench's. *The
+arrangement's pictures are pruned:* a clip no longer drawn leaves
+`drum_cache`, and an entry is keyed by the map's id and the document's
+revision instead of a cloned `DrumMap` compared field by field each frame. *A
+looping clip's gather is bounded* to the repeats the view shows and, inside
+each, the notes whose onset falls in the visible window (a note carried into
+the first repeat included); the unsorted fallback stays, with its own test.
+*The lanes' colours follow the theme:* `lanes_for` is keyed by the flag
+`theme::is_light()` answers and `theme::wave_on` takes it, so a theme switch
+rebuilds them. *The editor menu's Lanes/Keys rows* go through the command's own switch
+(`set_drum_view`, or `set_drum_view_in` on the editor while it is out of the
+app drawing the menu), which clears the framing, so Keys opens on the clip's
+notes rather than at pitch 127; the lane mute and solo rows are listed only
+while a lane is picked, which the menu reads from the live editor for the same
+reason. *Small ones:* `mark_width` is extracted and asserted at both
+ends of the zoom (the tautology is gone) and the unsorted path has a test
+(L1); this ADR no longer says the marquee reads the cache — it walks the
+clip's notes during a drag (L2); the cells cache's `seen` buffer is described
+as what is reused, the cells' `Arc` being new each rebuild (L3); a picked hit
+with no row no longer kills a lane move — the rest move (L5) — and the
+lane-move E2E asserts one undo step (L6); choice 8 says loop repeats draw like
+the first pass (L7); `Quantize`'s normalisation is documented as v35's, to be
+gated by any later version that offers a bar's feel (L8); and `letter_toggle`
+no longer repeats the activation egui already reports (L9).
 
 **Not here.** Steps (D3), routing per sound (D4), step input and MIDI effects,
 a saved preference for the view, and auditioning a lane from a hardware pad

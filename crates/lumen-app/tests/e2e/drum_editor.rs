@@ -194,6 +194,15 @@ fn a_hit_moves_along_its_lane_and_a_copy_leaves_the_original() {
         "moved a beat later, still the snare: {:?}",
         notes_of(&lumen, clip)
     );
+    // One drag is one undo step (review round 2, L6).
+    assert_eq!(lumen.app().undo_label(), Some("Move note"));
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert!(
+        note_at(&lumen, clip, 38, q(1)).is_some(),
+        "one undo takes the whole move back: {:?}",
+        notes_of(&lumen, clip)
+    );
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
     let at = hit(&lumen, q(2), 38);
     lumen.drag(at, at + vec2(zoom, 0.0), Modifiers::COMMAND);
     assert!(

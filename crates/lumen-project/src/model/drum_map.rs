@@ -150,6 +150,12 @@ pub struct Quantize {
 }
 
 impl<'de> Deserialize<'de> for Quantize {
+    /// Reads a grid, normalising a bar's feel to straight (review L8). This
+    /// belongs to format v35, the version that introduced `Quantize`: no
+    /// build that offers a dotted or triplet bar can have written one, so
+    /// every such file is a hand edit. A later format version that offers a
+    /// bar's feel must gate this normalisation on the version it is reading,
+    /// or the value is silently lost.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
