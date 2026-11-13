@@ -76,11 +76,12 @@ impl MidiPlayer {
                         *lost = lost.saturating_add(1);
                     }
                 }
-                // And the clip's notes on those keys give way to them.
+                // And the clip's notes on those keys give way to them, the
+                // note each one plays when the map remaps it (M8 D0 review M1).
                 for i in 0..track.state.down.len() {
-                    let key = track.state.down[i].key;
+                    let played = track.state.down[i].played;
                     if wins {
-                        track.state.give_way(key, 0);
+                        track.state.give_way(played, 0);
                     }
                 }
             }
@@ -107,11 +108,17 @@ impl MidiPlayer {
                     let (position, position_pass) = live_position(track, clock, at, pass, back);
                     let window = record_window(track, position_pass);
                     let wins = recording && (window.0..window.1).contains(&position);
-                    track.state.press(m.source, m.msg, wins);
+                    track
+                        .state
+                        .press(m.source, m.msg, wins, track.kit.as_deref());
                     if let Kind::NoteOn { key, .. } = m.msg.kind()
                         && wins
                     {
-                        track.state.give_way(key, offset);
+                        // What the key plays, which a drum map may have
+                        // changed: the clip's note of that pitch gives way
+                        // (M8 D0 review M1).
+                        let played = track.kit.as_deref().map_or(key, |kit| kit.key(key).key);
+                        track.state.give_way(played, offset);
                     }
                     // Recording keeps what the track takes, heard or not.
                     if cx.recording {
@@ -169,7 +176,16 @@ impl MidiPlayer {
                     Target::Port { channel, .. } => Some(channel),
                     Target::Instrument => None,
                 };
-                if let Some(msg) = track.state.live.take(m.source, m.msg, out) {
+                if let Some(msg) = track
+                    .state
+                    .live
+                    .take(m.source, m.msg, out, track.kit.as_deref())
+                {
+                    // A hit of a choke group ends the other sounds of the
+                    // group at the same sample (M8 D0).
+                    if let Kind::NoteOn { key, .. } = msg.kind() {
+                        track.state.choke(track.kit.as_deref(), key, offset);
+                    }
                     let offset = apart_from_its_on(&mut track.state.events, msg, offset, last32);
                     floor = floor.max(offset);
                     // A live note-off ends a note the track holds (`take`

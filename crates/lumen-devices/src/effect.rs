@@ -1,4 +1,4 @@
-//! What the engine asks of a built-in effect (M8 slice B0, ADR-XXXX).
+//! What the engine asks of a built-in effect (M8 slice B0, ADR-0145).
 //!
 //! A built-in effect is Lumen's own code: it runs **in-process on the audio
 //! thread**, never in a plugin host, under the same real-time rules as the

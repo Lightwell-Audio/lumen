@@ -1,5 +1,5 @@
 //! What a built-in device's parameters are, and what they are worth as a block
-//! plays them (M8 slice B0, ADR-XXXX).
+//! plays them (M8 slice B0, ADR-0145).
 //!
 //! Each device declares a **static table** ([`ParamInfo`]): a stable `u32` id
 //! that is never reused, the name a person reads, its unit, range and taper, its

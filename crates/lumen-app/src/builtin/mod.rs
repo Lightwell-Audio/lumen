@@ -1,4 +1,4 @@
-//! Built-in devices in the app (M8 slice B0, ADR-XXXX).
+//! Built-in devices in the app (M8 slice B0, ADR-0145).
 //!
 //! A built-in effect is Lumen's own DSP, so the interface builds it (its
 //! constructor allocates) and hands it to the audio thread through the mixer,

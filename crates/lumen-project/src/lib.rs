@@ -6,6 +6,7 @@
 //! Older versions are upgraded by [`migrate`]; newer ones are refused.
 
 pub mod automation;
+pub mod drums;
 pub mod edit;
 pub mod envelope;
 pub mod groups;

@@ -76,6 +76,11 @@ pub struct Track {
     /// devices (format v29). Written only when frozen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub frozen: Option<Frozen>,
+    /// The drum map the track's notes are read through (format v35): a map
+    /// in the project's list (the owner's DM A). Written only when set; the
+    /// notes stay as they are when it changes or goes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drum_map: Option<Id>,
     #[serde(default)]
     pub clips: Vec<Arc<Clip>>,
 }
@@ -174,6 +179,7 @@ impl Track {
             plugin_output: None,
             automation: Vec::new(),
             frozen: None,
+            drum_map: None,
             clips: Vec::new(),
         }
     }

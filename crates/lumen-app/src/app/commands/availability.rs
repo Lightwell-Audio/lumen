@@ -482,6 +482,20 @@ impl App {
                 "Select a MIDI track first",
             ),
             Command::SoloTracks | Command::MuteTracks => need(tracks, "Select tracks first"),
+            Command::DrumMapAttach => need(
+                !self.selected_midi_tracks().is_empty(),
+                "Select a MIDI track first",
+            ),
+            Command::DrumMapDetach => need(
+                self.selected_midi_tracks()
+                    .iter()
+                    .any(|id| self.document.drum_map_of(*id).is_some()),
+                "The selected MIDI tracks have no drum map",
+            ),
+            Command::ConvertDrumMap => need(
+                self.can_convert_drum_map(),
+                "Select clips on a track with a drum map first, with another map to go to",
+            ),
             Command::ClearSolos => need(
                 lumen_project::solo::any_soloed(self.document.project()),
                 "Nothing is soloed",

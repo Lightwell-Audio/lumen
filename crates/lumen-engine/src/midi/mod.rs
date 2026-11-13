@@ -26,6 +26,7 @@ mod capture;
 mod clock;
 mod hold;
 mod index;
+mod kit;
 mod live;
 mod player;
 mod recording;
@@ -33,6 +34,7 @@ mod tracks;
 
 pub use capture::{Captured, Heard, WRAP, record_position};
 pub use clock::CLOCK_TICKS;
+pub use kit::{DrumKit, KitKey};
 pub use live::{AUDITION, INPUT_SLOTS, KEYBOARD, Listen, LiveIn, LiveInput, SOURCES};
 pub use player::{MidiHandle, MidiPlayer, midi_player};
 
@@ -63,6 +65,9 @@ pub struct MidiNote {
     pub length: Ticks,
     pub pitch: u8,
     pub velocity: u8,
+    /// The channel it goes out on; the track's own when none. A drum map's
+    /// sound may name one (format v35, M8 D0).
+    pub channel: Option<u8>,
 }
 
 /// A controller, pitch bend, pressure or program message, in ticks from the
@@ -186,6 +191,9 @@ pub struct MidiTrack {
     /// release out into the track's bus, rather than being cut. Freed with
     /// the list that holds it.
     leaving: Option<InstrumentSpec>,
+    /// The track's drum map as live input plays it, and the groups that choke
+    /// (M8 D0). Made on the UI side; a track with no map has none.
+    pub(super) kit: Option<Box<kit::DrumKit>>,
 }
 
 impl MidiTrack {
@@ -215,7 +223,15 @@ impl MidiTrack {
             dirty: true,
             begun: false,
             leaving: None,
+            kit: None,
         }
+    }
+
+    /// The same track, playing `kit`'s notes live and choking its groups
+    /// (M8 D0). Allocates nothing here: the kit is made on the UI side.
+    pub fn playing_drums(mut self, kit: Option<Box<kit::DrumKit>>) -> Self {
+        self.kit = kit;
+        self
     }
 
     /// The same track, whose instrument's other outputs play on the tracks
@@ -282,6 +298,7 @@ impl MidiTrack {
             && self.outputs == other.outputs
             && self.instrument.as_ref().map(|i| (i.kind, i.preset))
                 == other.instrument.as_ref().map(|i| (i.kind, i.preset))
+            && self.kit == other.kit
             && self.clips.len() == other.clips.len()
             && self
                 .clips

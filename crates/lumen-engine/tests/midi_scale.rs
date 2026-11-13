@@ -57,6 +57,7 @@ fn notes_of(count: usize) -> Vec<MidiNote> {
             length: Ticks(step),
             pitch: 36 + (i % 48) as u8,
             velocity: 100,
+            channel: None,
         })
         .collect()
 }

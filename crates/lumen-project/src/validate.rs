@@ -9,8 +9,8 @@ use lumen_core::time::{TempoMap, Ticks};
 
 use crate::edit::maps::MOST_CHANGES;
 use crate::model::{
-    Clip, ClipContent, ClipEvent, Device, Id, MAX_DEVICE_STATE, MOST_NOTES_BYTES, Note, Output,
-    Pass, PluginRef, Project, Takes, Track, TrackKind,
+    Clip, ClipContent, ClipEvent, Device, Id, MAX_DEVICE_STATE, MOST_NOTES_BYTES, MOST_SOUND_NAME,
+    Note, Output, Pass, PluginRef, Project, Route, Takes, Track, TrackKind,
 };
 
 /// The furthest a position or length may reach: about 3 billion beats, past
@@ -36,6 +36,10 @@ const MOST_PARAMS: usize = 16_384;
 const MOST_SHOWN: usize = 256;
 /// The most devices the view may hold a fold or a strip for.
 const MOST_VIEWED: usize = 65_536;
+/// The most drum maps a project may hold, and the most sounds in one: far
+/// more than any kit needs.
+const MOST_DRUM_MAPS: usize = 256;
+const MOST_SOUNDS: usize = 256;
 
 /// What a device may hold: bounded state, and the VST3-only data only on a
 /// VST3 device (format v17). Everything here comes from a file a person may
@@ -155,6 +159,88 @@ pub fn validate(project: &Project) -> Result<(), String> {
 
     let mut ids = HashSet::new();
     let mut outputs = HashSet::new();
+    if project.drum_maps.len() > MOST_DRUM_MAPS {
+        return Err("the project has too many drum maps".into());
+    }
+    for (index, map) in project.drum_maps.iter().enumerate() {
+        if !ids.insert(map.id) {
+            return Err(format!("drum map {index} {:?}: duplicate id", map.name));
+        }
+        if map.name.is_empty() || map.name.chars().count() > MOST_SOUND_NAME {
+            return Err(format!("drum map {index}: its name is empty or too long"));
+        }
+        if map.sounds.len() > MOST_SOUNDS {
+            return Err(format!("drum map {index} {:?}: too many sounds", map.name));
+        }
+        let mut inputs = HashSet::new();
+        for sound in &map.sounds {
+            if sound.name.trim().is_empty() || sound.name.chars().count() > MOST_SOUND_NAME {
+                return Err(format!(
+                    "drum map {index} {:?}: a sound's name is empty or too long",
+                    map.name
+                ));
+            }
+            if sound.input > 127 || sound.output > 127 {
+                return Err(format!(
+                    "drum map {index} {:?}: a sound's note is out of range",
+                    map.name
+                ));
+            }
+            if !inputs.insert(sound.input) {
+                return Err(format!(
+                    "drum map {index} {:?}: two sounds answer to note {}",
+                    map.name, sound.input
+                ));
+            }
+            if sound.channel.is_some_and(|c| c > 15) {
+                return Err(format!(
+                    "drum map {index} {:?}: a sound's channel is out of range",
+                    map.name
+                ));
+            }
+            if sound.choke == Some(0) {
+                return Err(format!(
+                    "drum map {index} {:?}: choke group 0 is no group",
+                    map.name
+                ));
+            }
+            if let Some(length) = sound.length
+                && (length <= Ticks::ZERO || !within(length))
+            {
+                return Err(format!(
+                    "drum map {index} {:?}: a sound's length is out of range",
+                    map.name
+                ));
+            }
+            if let Route::Output(bus) = sound.route
+                && (bus == 0 || bus > MOST_BUSES)
+            {
+                return Err(format!(
+                    "drum map {index} {:?}: an output pair must be 1 to {MOST_BUSES}",
+                    map.name
+                ));
+            }
+            // A sound sent to another track (D4): that track must be there and
+            // play an instrument.
+            if let Route::Track(to) = sound.route {
+                match kinds.get(&to) {
+                    Some(TrackKind::Midi) => {}
+                    Some(_) => {
+                        return Err(format!(
+                            "drum map {index} {:?}: a sound plays on a track that is not an instrument track",
+                            map.name
+                        ));
+                    }
+                    None => {
+                        return Err(format!(
+                            "drum map {index} {:?}: a sound plays on a track that does not exist",
+                            map.name
+                        ));
+                    }
+                }
+            }
+        }
+    }
     for (index, marker) in project.markers.iter().enumerate() {
         if !ids.insert(marker.id) {
             return Err(format!("marker {index} {:?}: duplicate id", marker.name));
@@ -237,6 +323,14 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     "{}: MIDI From names no port or a bad channel",
                     at()
                 ));
+            }
+        }
+        if let Some(map) = track.drum_map {
+            if track.kind != TrackKind::Midi {
+                return Err(format!("{}: a drum map on a track that is not MIDI", at()));
+            }
+            if !project.drum_maps.iter().any(|m| m.id == map) {
+                return Err(format!("{}: its drum map does not exist", at()));
             }
         }
         let mut instruments = 0;

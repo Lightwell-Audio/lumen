@@ -170,6 +170,7 @@ impl MidiPlayer {
                         channel,
                         clock,
                         pos,
+                        track.kit.as_deref(),
                     );
                 }
                 track.dirty = false;

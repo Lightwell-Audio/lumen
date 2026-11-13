@@ -1,4 +1,4 @@
-//! Built-in effects in the mixer (M8 slice B0, ADR-XXXX).
+//! Built-in effects in the mixer (M8 slice B0, ADR-0145).
 //!
 //! A built-in effect is Lumen's own code, so the mixer runs it in place on the
 //! audio thread: it is held in a fixed-size [`BuiltinPool`], found by the id a

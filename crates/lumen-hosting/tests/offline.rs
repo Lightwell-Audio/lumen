@@ -231,6 +231,7 @@ fn run_instrument(fault: &str, offline: Option<Duration>, block: usize, frames: 
         length: Ticks::quarters(1),
         pitch,
         velocity: 100,
+        channel: None,
     };
     let track = MidiTrack::new(
         1,

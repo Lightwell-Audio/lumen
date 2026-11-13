@@ -289,6 +289,9 @@ pub(crate) enum Command {
     TransposeClipUp,
     TransposeClipDown,
     FixWarpHit,
+    DrumMapAttach,
+    DrumMapDetach,
+    ConvertDrumMap,
     AddUtility,
 }
 
@@ -666,6 +669,9 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::TransposeClipUp, "clip.transpose_up", "Transpose clip up a semitone", Area::Clip, &[], "Raises the selected warped audio clips by a semitone, in Melodic, Full mix or Rhythmic. Repitch is left as it is: its pitch follows the tempo. It stops at four octaves."),
     info(Command::TransposeClipDown, "clip.transpose_down", "Transpose clip down a semitone", Area::Clip, &[], "Lowers the selected warped audio clips by a semitone, in Melodic, Full mix or Rhythmic. Repitch is left as it is: its pitch follows the tempo. It stops at four octaves."),
     info(Command::FixWarpHit, "clip.warp_fix_hit", "Fix this hit", Area::Clip, &[], "Pin the hits either side and add a marker on this one, so only this hit moves when you drag it. Nothing is heard differently until it moves."),
+    info(Command::DrumMapAttach, "track.drum_map_attach", "Drum map…", Area::Track, &[], concat!("Gives the selected MIDI tracks a drum map: one of ", lumen_core::product_name!(), "'s kits (a copy is kept in the project), or a map this project already has. The clips keep their notes: what plays is worked out through the map.")),
+    info(Command::DrumMapDetach, "track.drum_map_detach", "Detach drum map", Area::Track, &[], "Takes the drum map off the selected MIDI tracks. Their notes stay exactly as they are and play as written again."),
+    info(Command::ConvertDrumMap, "clip.convert_drum_map", "Convert drum map…", Area::Clip, &[], "Rewrite the selected clips' notes for another drum map: each hit keeps its sound, by name and then by the note the sound plays. Choose whether to keep the notes the target map lacks. The only drum edit that changes notes."),
     info(Command::AddUtility, "devices.add_utility", "Add Prism (utility)", Area::Devices, &[], "Puts Prism, the utility device, on the selected track (after the chosen card), or on a new audio track when no track fits. Gain, pan, width, mono below a frequency, polarity, a swap of the sides and a DC block: automation, MIDI learn and presets work as for any device."),
 ];
 

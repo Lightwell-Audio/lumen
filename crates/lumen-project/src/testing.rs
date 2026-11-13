@@ -210,6 +210,7 @@ pub fn synthetic(
         mappings: Vec::new(),
         notes: String::new(),
         new_track_color: None,
+        drum_maps: Vec::new(),
     }
 }
 
@@ -236,6 +237,7 @@ pub fn project_of(name: &str, tracks: Vec<Track>) -> Project {
         mappings: Vec::new(),
         notes: String::new(),
         new_track_color: None,
+        drum_maps: Vec::new(),
     }
 }
 

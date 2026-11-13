@@ -177,6 +177,8 @@ pub struct App {
     /// Revert to saved: its prompt, the reload and the changes it kept (M9
     /// slice R4).
     revert: app::revert::Revert,
+    /// The drum map chooser, while it is open (M8 D0).
+    drum_choice: Option<app::drum_choice::Choice>,
     /// The Project settings window (M9 slice R4).
     project_settings: app::project_settings::ProjectSettings,
     export: app::audio_export::Export,
@@ -437,6 +439,7 @@ pub(crate) fn empty_project() -> Project {
         mappings: Vec::new(),
         notes: String::new(),
         new_track_color: None,
+        drum_maps: Vec::new(),
     }
 }
 
@@ -772,6 +775,7 @@ impl eframe::App for App {
         self.history_window(&ctx);
         self.bounce_window(&ctx);
         self.mappings_window(&ctx);
+        self.drum_choice_window(&ctx);
         self.parameters_panel(&ctx);
         self.lane_parameters(&ctx);
         self.prompt_window(&ctx);

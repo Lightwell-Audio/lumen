@@ -1,4 +1,4 @@
-//! Built-in effects in the engine (M8 slice B0, ADR-XXXX): a device runs where
+//! Built-in effects in the engine (M8 slice B0, ADR-0145): a device runs where
 //! the plan reaches it, the values the project holds reach it with the block,
 //! a lane moves its parameters on the exact frames at any block size, nothing
 //! it does allocates, its latency is compensated and its tail rings on after

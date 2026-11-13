@@ -1,4 +1,4 @@
-//! Prism, the utility device (M8 slice B0, ADR-XXXX): gain, pan with the
+//! Prism, the utility device (M8 slice B0, ADR-0145): gain, pan with the
 //! track's pan law, width, mono below a frequency, polarity per side, a swap of
 //! the sides and a DC block.
 //!
