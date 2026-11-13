@@ -9,7 +9,7 @@ use std::sync::Arc;
 use lumen_core::automation::{Lane, Point, Shape};
 use lumen_core::time::Ticks;
 use lumen_devices::utility::{self, GAIN};
-use lumen_devices::{Effect, Key, Stereo, Utility};
+use lumen_devices::{Compressor, Effect, Key, Limiter, Stereo, Utility};
 use lumen_engine::{
     AutoLane, AutoPoint, Clip, ClipAudio, ClipPlayer, ClipsHandle, Command, Destination, Device,
     Engine, EngineHandle, Mixer, MixerHandle, NodeAutomation, NodeSpec, ParamLane, Routing, Slot,
@@ -668,6 +668,203 @@ fn a_still_built_in_is_told_nothing_after_the_first_block() {
         0,
         "nothing is told again while the values are still"
     );
+}
+
+/// A clip on `track` of a constant `value`, silent until `from`, long enough
+/// for any render here.
+fn burst_clip(track: u64, from: usize, value: f32, frames: usize) -> Clip {
+    let mut left = vec![0.0; frames];
+    left[from..].fill(value);
+    Clip {
+        envelope: Default::default(),
+        id: track,
+        track,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: frames as i64,
+        gain: 1.0,
+        audio: Arc::new(ClipAudio::Memory {
+            sample_rate: RATE,
+            channels: vec![left.clone(), left],
+        }),
+        shape: Default::default(),
+    }
+}
+
+/// ADR-0041's promise, with M8's compressor: a key taken from another track
+/// ducks the track it keys **on the sample the key arrives**, with the
+/// compensation that lines the two paths up. The key's track holds its sound
+/// back 240 frames, so without compensation the key would be late and the
+/// first 240 frames of the keyed track would play unducked.
+#[test]
+fn a_key_from_another_track_ducks_on_the_sample_it_arrives() {
+    use lumen_devices::dynamics::compressor as gravity;
+    use lumen_engine::{SidechainSpec, Tap, compile_routing};
+    const KEY: u64 = 2;
+    const FROM: usize = 5_000;
+    const HELD: u32 = 240;
+    let table = gravity::TABLE;
+    let normalised = |id: u32, value: f32| {
+        lumen_devices::params::find(table, id)
+            .expect("a parameter")
+            .normalised(value)
+    };
+    let mut key = NodeSpec::unity(KEY, Destination::Node(MASTER));
+    key.audible = false;
+    key.devices = vec![Device::Delay {
+        frames: HELD,
+        listen: false,
+    }];
+    let mut wet = NodeSpec::unity(TRACK, Destination::Node(MASTER));
+    wet.devices = vec![Device::Builtin {
+        device: DEVICE,
+        latency: 0,
+        bypass: false,
+    }];
+    wet.values = vec![(
+        DEVICE,
+        vec![
+            (gravity::THRESHOLD, normalised(gravity::THRESHOLD, -40.0)),
+            (gravity::RATIO, normalised(gravity::RATIO, 20.0)),
+            (gravity::KNEE, normalised(gravity::KNEE, 0.0)),
+            (gravity::ATTACK, normalised(gravity::ATTACK, 0.05)),
+            (gravity::RELEASE, normalised(gravity::RELEASE, 2_000.0)),
+            (gravity::MAKEUP, 0.0),
+        ],
+    )];
+    wet.sidechains = vec![SidechainSpec {
+        from: KEY,
+        tap: Tap::PostFx,
+    }];
+    let routing = Routing {
+        nodes: vec![NodeSpec::unity(MASTER, Destination::Hardware(0)), key, wet],
+        cue: None,
+        measure: None,
+    };
+    // The key's 240 frames are the compensation, and the keyed track waits for
+    // them.
+    let plan = compile_routing(&routing).expect("a valid routing");
+    assert_eq!(plan.compensation().frames, HELD);
+    assert_eq!(plan.compensation().path, [(KEY, HELD)]);
+
+    let frames = FROM + 4_000;
+    let (mut clips, player) = clip_player();
+    clips
+        .set(vec![
+            // The key starts exactly where the burst it keys does, so a late
+            // key would leave the burst's own start unducked.
+            burst_clip(KEY, FROM, 1.0, frames),
+            burst_clip(TRACK, FROM, 0.5, frames),
+        ])
+        .unwrap();
+    let (mut handle, source) = mixer(player);
+    assert!(handle.set(&routing).unwrap());
+    handle
+        .attach_builtin(DEVICE, Slot::new(Box::new(Compressor::new())))
+        .unwrap_or_else(|_| panic!("room in the pool"));
+    let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
+    transport.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    let mut left = Vec::new();
+    let blocks = (frames + 2_000) / 128;
+    for _ in 0..blocks {
+        engine.process(RATE, &mut data, 2, 128);
+        left.extend_from_slice(&data[..128]);
+    }
+    // What is heard is the keyed track alone: the key is muted, and the tap is
+    // taken after its devices, where mute does not reach.
+    let heard = |k: usize| left.get(k).copied().unwrap_or(0.0).abs();
+    // The engine plays the timeline as far ahead as the compensation, so the
+    // burst's own start comes out `HELD` frames later.
+    let starts = FROM + HELD as usize;
+    assert!(
+        heard(starts - 8) < 1e-4,
+        "nothing before it: {}",
+        heard(starts - 8)
+    );
+    // The key arrives with the audio it keys: from a few samples into the
+    // burst (the attack's own few frames) it is ducked, not the loud 0.5 the
+    // track plays. A key 240 frames late would leave all of it at 0.5.
+    let first = (starts + 8..starts + 400).fold(0.0f32, |m, k| m.max(heard(k)));
+    assert!(
+        first < 0.02,
+        "the key ducks it from its first sample: {first}"
+    );
+    // And it stays ducked long after (the release is two seconds).
+    let later = (starts + 1_000..starts + 2_000).fold(0.0f32, |m, k| m.max(heard(k)));
+    assert!(later < 0.02, "still ducked: {later}");
+}
+
+/// The limiter's lookahead is compensated: a limiter between a track and the
+/// master holds its output back, and the plan's compensation plus the device's
+/// own delay put an impulse back on the sample a dry track beside it plays.
+#[test]
+fn a_limiter_s_lookahead_keeps_a_parallel_path_in_line() {
+    use lumen_devices::dynamics::limiter as horizon;
+    use lumen_engine::compile_routing;
+    const DRY: u64 = 2;
+    const AT: usize = 5_000;
+    let values = vec![(
+        horizon::LOOK,
+        lumen_devices::params::find(horizon::TABLE, horizon::LOOK)
+            .expect("a parameter")
+            .normalised(1.5),
+    )];
+    let latency = lumen_devices::effect_latency(horizon::NAME, &values).expect("a device");
+    assert_eq!(latency, 72);
+    let routing = Routing {
+        nodes: vec![
+            NodeSpec::unity(MASTER, Destination::Hardware(0)),
+            {
+                let mut wet = NodeSpec::unity(TRACK, Destination::Node(MASTER));
+                wet.devices = vec![Device::Builtin {
+                    device: DEVICE,
+                    latency,
+                    bypass: false,
+                }];
+                wet.values = vec![(DEVICE, values)];
+                wet
+            },
+            NodeSpec::unity(DRY, Destination::Node(MASTER)),
+        ],
+        cue: None,
+        measure: None,
+    };
+    assert_eq!(
+        compile_routing(&routing).unwrap().compensation().frames,
+        latency
+    );
+    let (mut clips, player) = clip_player();
+    clips
+        .set(vec![
+            impulse_clip(TRACK, AT, 0.25),
+            impulse_clip(DRY, AT, 0.25),
+        ])
+        .unwrap();
+    let (mut handle, source) = mixer(player);
+    assert!(handle.set(&routing).unwrap());
+    handle
+        .attach_builtin(DEVICE, Slot::new(Box::new(Limiter::new())))
+        .unwrap_or_else(|_| panic!("room in the pool"));
+    let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
+    transport.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    let mut left = Vec::new();
+    for _ in 0..(AT + 2_000) / 128 {
+        engine.process(RATE, &mut data, 2, 128);
+        left.extend_from_slice(&data[..128]);
+    }
+    let placed: Vec<(usize, f32)> = left
+        .iter()
+        .enumerate()
+        .skip(4_096)
+        .filter(|(_, s)| s.abs() > 1e-6)
+        .map(|(k, s)| (k, *s))
+        .collect();
+    assert_eq!(placed.len(), 1, "both paths in one sample: {placed:?}");
+    let (at, value) = placed[0];
+    assert_eq!(at, AT + latency as usize, "the impulse is at {at}");
+    assert!((value - 0.5).abs() < 1e-6, "both paths: {value}");
 }
 
 /// L2: the golden render of an automated Prism, pinned by its samples (twenty

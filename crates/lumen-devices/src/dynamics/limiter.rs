@@ -199,9 +199,9 @@ fn sample_true_parse(text: &str) -> Option<f32> {
 /// so a peak between the samples is found even for a tone near the top of the
 /// band (four phases are a fifth of a decibel short at 19 kHz).
 const PHASES: usize = 8;
-/// Taps per phase: thirteen, as the loudness meter's true peak uses, so the
-/// interpolated points sit on the waveform rather than beside it.
-const TAPS: usize = 13;
+/// Taps per phase: eleven, enough for the windowed sinc to sit on the waveform
+/// within a twentieth of a decibel across the band with eight phases.
+const TAPS: usize = 11;
 
 /// The interpolation filter: a Kaiser-windowed sinc, `PHASES` phases of `TAPS`
 /// taps each, every phase summing to one (the same design the engine's
