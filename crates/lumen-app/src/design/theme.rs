@@ -722,6 +722,8 @@ pub mod personality {
         pub const LEVEL_FLOOR_DB: f32 = -60.0;
         /// How wide a handle's grab is, and its lit ring.
         pub const HANDLE_RING: f32 = 6.0;
+        /// How strong the ring round a lit handle is, at full light.
+        pub const HANDLE_RING_ALPHA: f32 = 0.6;
         /// The live value chip while a handle is dragged: height and type size.
         pub const CHIP_HEIGHT: f32 = 18.0;
         pub const CHIP_TEXT: f32 = 9.0;

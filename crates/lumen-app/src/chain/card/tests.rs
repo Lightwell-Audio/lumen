@@ -138,7 +138,7 @@ fn set_piece_cost() {
                     look.name = "Prism";
                     look.identity = lumen_devices::utility::NAME;
                     look.personal = Some(screen::Personal {
-                        hue: Color32::from_rgb(0x9A, 0xA4, 0xB4),
+                        hue: crate::theme::personality::UTILITY,
                         drawing,
                         slots: &slots,
                         table: lumen_devices::utility::TABLE,

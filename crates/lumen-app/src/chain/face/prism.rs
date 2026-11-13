@@ -269,7 +269,10 @@ fn draw(scene: &Scene<'_>) {
             painter.circle_stroke(
                 tip,
                 card::HANDLE_RING * lit,
-                Stroke::new(1.0, white.gamma_multiply(0.6 * lit)),
+                Stroke::new(
+                    crate::theme::stroke::HAIRLINE,
+                    white.gamma_multiply(card::HANDLE_RING_ALPHA * lit),
+                ),
             );
         }
         painter.circle_filled(tip, TIP_DOT, white.gamma_multiply(strength));
