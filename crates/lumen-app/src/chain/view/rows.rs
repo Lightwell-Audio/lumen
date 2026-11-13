@@ -2,7 +2,7 @@
 //! running, and where Reload would start it and how long ago that was.
 
 use super::*;
-use crate::chain::{faces, outputs, presets, sidechain};
+use crate::chain::{outputs, presets, sidechain};
 
 /// A device's row in the chain, with what the card needs (no state blobs).
 pub(super) struct Row {
@@ -33,10 +33,22 @@ pub(super) struct Row {
     pub(super) sidechain: Option<sidechain::Look>,
     /// The outputs row of a plugin instrument with several outputs.
     pub(super) outputs: Option<outputs::Look>,
-    /// The drawn face of a built-in that has one (M8 slice B1).
-    pub(super) drawn: Option<faces::eq::Look>,
-    /// The band its face has picked, 0-based.
-    pub(super) picked: usize,
+    /// A built-in with a drawing (M8): its card is a set piece, and these are
+    /// the values it reads.
+    pub(super) drawing: Option<DrawingRow>,
+}
+
+/// A built-in's drawing and its values: one slot for each parameter it reads or
+/// has a control or handle for, in [`face::Drawing::params`] order.
+pub(in crate::chain) struct DrawingRow {
+    pub(in crate::chain) drawing: &'static crate::chain::face::Drawing,
+    /// Its parts, the one picked, and the live analysis it is shown (M8 slice B1:
+    /// Iris's bands and its mist).
+    pub(in crate::chain) parts: Option<&'static crate::chain::face::Parts>,
+    pub(in crate::chain) picked: usize,
+    pub(in crate::chain) spectrum: Option<Vec<f32>>,
+    pub(in crate::chain) slots: Vec<strip::Slot>,
+    pub(in crate::chain) table: &'static [lumen_devices::params::ParamInfo],
 }
 
 pub(super) enum OwnedFace {
@@ -78,8 +90,6 @@ impl App {
                 let mut row = self.row_of(d, rate);
                 row.sidechain = self.sidechain_look(track.id, d, playing);
                 row.outputs = self.outputs_look(d);
-                row.drawn = self.drawn_face(d, rate);
-                row.picked = self.chain.bands.get(&d.id).copied().unwrap_or(0);
                 row
             })
             .collect()
@@ -97,79 +107,23 @@ impl App {
         }
     }
 
-    /// The drawn face of `d`, when it is a built-in that has one, with the
-    /// values the project holds and the analyser's last picture (M8 slice B1).
-    fn drawn_face(&self, d: &Device, rate: u32) -> Option<faces::eq::Look> {
-        if crate::builtin::name_of(d) != lumen_devices::eq::NAME {
-            return None;
-        }
-        let table = lumen_devices::eq::TABLE;
-        let value = |id: u32| lumen_devices::params::value_of_param(table, id, &d.params);
-        let bands: [faces::eq::Band; lumen_devices::eq::BANDS] = std::array::from_fn(|index| {
-            let number = index + 1;
-            let kind = if number == 1 {
-                lumen_devices::eq::Kind::LowCut
-            } else if number == lumen_devices::eq::BANDS {
-                lumen_devices::eq::Kind::HighCut
-            } else {
-                lumen_devices::eq::Kind::of_choice(
-                    value(lumen_devices::eq::type_of(number)).max(0.0) as usize,
-                )
-            };
-            faces::eq::Band {
-                number,
-                kind,
-                on: value(lumen_devices::eq::on_of(number)) >= 0.5,
-                freq: value(lumen_devices::eq::freq_of(number)),
-                gain: if kind.has_gain() {
-                    value(lumen_devices::eq::gain_of(number))
-                } else {
-                    0.0
-                },
-                q: if kind.has_q() {
-                    value(lumen_devices::eq::q_of(number))
-                } else {
-                    1.0
-                },
-                slope: if kind.has_slope() {
-                    value(lumen_devices::eq::gain_of(number))
-                } else {
-                    12.0
-                },
-            }
-        });
-        let values = crate::builtin::values(d);
-        let mut response = vec![0.0; faces::eq::POINTS];
-        lumen_devices::eq::response(
-            &values,
-            rate.max(1),
-            &mut response,
-            (faces::eq::LOW, faces::eq::HIGH),
+    /// Reads the analyser of every built-in whose card is drawn this frame and
+    /// silences every other (M8 slice B1): the mist runs only while its card is
+    /// on the shown track and not folded, only while something plays through it
+    /// (a stopped transport with a silent meter leaves no mist), and never while
+    /// motion is reduced. It asks for the next frame only while it runs, so an
+    /// idle card costs nothing.
+    pub(super) fn pump_spectra(&mut self, ctx: &egui::Context, track: Id, rate: u32) {
+        let heard = mist_runs(
+            crate::motion::reduced(),
+            self.transport.state().playing || self.chain.pretend_spectrum.is_some(),
+            crate::chain::card::level_of(self.arrangement.meters.reading(track.0).peak),
         );
-        Some(faces::eq::Look {
-            bands,
-            response,
-            spectrum: self
-                .chain
-                .pretend_spectrum
-                .as_ref()
-                .filter(|(id, _)| *id == d.id)
-                .map(|(_, db)| db.clone())
-                .or_else(|| self.chain.analyzers.get(&d.id).cloned()),
-            listening: self.chain.analyzers.contains_key(&d.id),
-        })
-    }
-
-    /// Reads the analyser of every built-in whose face is drawn this frame,
-    /// and silences every other (M8 slice B1): the mist runs only while its
-    /// card is whole and on the shown track.
-    pub(super) fn pump_spectra(&mut self, track: Id, rate: u32) {
         let mut live: std::collections::BTreeSet<Id> = std::collections::BTreeSet::new();
-        if !self.chain.compact
-            && let Some(showing) = all_tracks(self.document.project()).find(|t| t.id == track)
+        if heard && let Some(showing) = all_tracks(self.document.project()).find(|t| t.id == track)
         {
             for device in &showing.devices {
-                if crate::builtin::name_of(device) == lumen_devices::eq::NAME
+                if lumen_devices::watches_spectrum(crate::builtin::name_of(device))
                     && !self.chain.folded.contains(&device.id)
                 {
                     live.insert(device.id);
@@ -187,13 +141,19 @@ impl App {
                 chain.analyzers.remove(&id);
                 continue;
             }
-            let picture = chain
-                .analyzers
-                .entry(id)
-                .or_insert_with(|| vec![lumen_devices::analyzer::MIN_DB; faces::eq::POINTS]);
+            let picture = chain.analyzers.entry(id).or_insert_with(|| {
+                vec![lumen_devices::analyzer::MIN_DB; crate::chain::face::eq::POINTS]
+            });
             if reader.read() == lumen_devices::Read::Window {
-                reader.points(rate.max(1), (faces::eq::LOW, faces::eq::HIGH), picture);
+                reader.points(
+                    rate.max(1),
+                    (crate::chain::face::eq::LOW, crate::chain::face::eq::HIGH),
+                    picture,
+                );
             }
+        }
+        if !live.is_empty() && self.chain.pretend_spectrum.is_none() {
+            ctx.request_repaint_after(crate::motion::METER_FRAME);
         }
     }
 
@@ -212,7 +172,7 @@ impl App {
             PluginRef::Builtin { name } => match crate::builtin::identity(name) {
                 Some(identity) => (
                     identity.name.to_owned(),
-                    identity.kind.to_owned(),
+                    identity.subtitle.to_owned(),
                     name.clone(),
                 ),
                 None => (
@@ -258,6 +218,11 @@ impl App {
         } else {
             (Vec::new(), 0)
         };
+        let drawing = if builtin && matches!(face, OwnedFace::Ready) {
+            self.drawing_of(d)
+        } else {
+            None
+        };
         let editor = if builtin {
             // A built-in's controls are its card and All parameters: there is
             // no separate window.
@@ -284,8 +249,7 @@ impl App {
             latency_ms,
             sidechain: None,
             outputs: None,
-            drawn: None,
-            picked: 0,
+            drawing,
         }
     }
 }
@@ -311,4 +275,35 @@ pub(super) fn ago(age: std::time::Duration) -> String {
         60..3600 => format!("{} min", seconds / 60),
         _ => format!("{} h", seconds / 3600),
     }
+}
+
+/// Whether the analyser runs: never while motion is reduced (the screen is
+/// then still), and otherwise only while the transport plays or the track's
+/// meter reads something, so a stopped, silent track costs nothing.
+pub(super) fn mist_runs(reduced: bool, playing: bool, level: f32) -> bool {
+    !reduced && (playing || level > 0.0)
+}
+
+/// What a built-in's card adds to a plain one: its hue, its drawing with the
+/// values it reads, the step its card is at and what it hears (M8).
+pub(super) fn personal_of(
+    row: &Row,
+    step: crate::chain::geometry::Step,
+    level: f32,
+    rate: u32,
+) -> Option<card::Personal<'_>> {
+    let identity = crate::builtin::identity(&row.identity).filter(|_| row.builtin)?;
+    let drawing = row.drawing.as_ref()?;
+    Some(card::Personal {
+        hue: identity.colour,
+        drawing: drawing.drawing,
+        slots: &drawing.slots,
+        table: drawing.table,
+        step,
+        level,
+        parts: drawing.parts,
+        picked: drawing.picked,
+        spectrum: drawing.spectrum.as_deref(),
+        rate,
+    })
 }

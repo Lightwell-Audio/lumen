@@ -191,6 +191,105 @@ impl App {
         (slots, count)
     }
 
+    /// The drawing of a built-in that has one (M8; `chain/face/mod.rs`) with a
+    /// slot for each parameter it reads or has a control for, in
+    /// [`face::Drawing::params`] order.
+    pub(super) fn drawing_of(&self, d: &Device) -> Option<super::view::DrawingRow> {
+        let lumen_project::model::PluginRef::Builtin { name } = &d.plugin else {
+            return None;
+        };
+        let drawing = super::face::drawing_of(name)?;
+        let parts = super::face::parts_of(name);
+        let table = crate::builtin::table(name)?;
+        let list = self.device_parameters(d);
+        let mut ids = drawing.params();
+        for id in parts.map_or(&[][..], |p| p.reads) {
+            if !ids.contains(id) {
+                ids.push(*id);
+            }
+        }
+        // A drawing with parts reads every part's values but words only the
+        // picked part's: the rest are bare (value, default, steps), so a frame
+        // formats a handful of texts and not every parameter's.
+        let parted = parts.is_some();
+        let mut slots = ids
+            .into_iter()
+            .map(|id| {
+                list.iter().find(|p| p.id == id).map(|p| {
+                    if parted {
+                        self.bare_slot_of(d, p)
+                    } else {
+                        self.slot_of(d, p)
+                    }
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let mut picked = 0;
+        if let Some(parts) = parts {
+            let values = super::face::Values {
+                slots: &slots,
+                table,
+            };
+            picked = self
+                .chain
+                .bands
+                .get(&d.id)
+                .copied()
+                .unwrap_or_else(|| (parts.first)(&values))
+                .min(parts.count - 1);
+            // The dials: each control's own parameter, and the one it is aimed
+            // at on the picked part, in words.
+            let mut wordy: Vec<u32> = Vec::new();
+            for (index, control) in drawing.controls.iter().enumerate() {
+                wordy.push(control.param);
+                if let Some(aim) = (parts.aim)(&values, picked, index) {
+                    wordy.push(aim.param);
+                }
+            }
+            for id in wordy {
+                if let (Some(at), Some(p)) = (
+                    slots.iter().position(|s| s.id == id),
+                    list.iter().find(|p| p.id == id),
+                ) {
+                    slots[at] = self.slot_of(d, p);
+                }
+            }
+        }
+        let spectrum = self
+            .chain
+            .pretend_spectrum
+            .as_ref()
+            .filter(|(id, _)| *id == d.id)
+            .map(|(_, db)| db.clone())
+            .or_else(|| self.chain.analyzers.get(&d.id).cloned());
+        Some(super::view::DrawingRow {
+            drawing,
+            parts,
+            picked,
+            spectrum,
+            slots,
+            table,
+        })
+    }
+
+    /// A slot with a parameter's value and nothing to say: what a drawing reads
+    /// of a part it does not put in words.
+    fn bare_slot_of(&self, d: &Device, p: &ParamInfo) -> Slot {
+        Slot {
+            id: p.id,
+            name: String::new(),
+            text: String::new(),
+            value: self.parameter_value(d, p),
+            default: p.default,
+            steps: p.steps,
+            read_only: p.read_only(),
+            choices: Vec::new(),
+            over: false,
+            mapped: None,
+            waiting: false,
+        }
+    }
+
     fn slot_of(&self, d: &Device, p: &ParamInfo) -> Slot {
         let value = self.parameter_value(d, p);
         Slot {

@@ -144,7 +144,8 @@ fn dragging_a_point_changes_its_band_and_is_one_undo_step() {
     lumen.drag(point, point + vec2(0.0, -40.0), Modifiers::NONE);
     lumen.frames(10);
     let gain = param(&lumen, device, gain_of(3)).expect("the band has a gain");
-    assert!(gain > 0.7, "dragged up: {gain}");
+    // 40 pt up on a 176 pt screen of ±16 dB is about 7 dB.
+    assert!(gain > 0.6, "dragged up: {gain}");
     assert_eq!(lumen.app().undo_label(), Some("Change 3 Freq"));
     let after = peak(&mut lumen);
     assert!(
@@ -168,10 +169,17 @@ fn a_frequency_typed_on_a_point_is_read_at_once() {
     lumen.frames(3);
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(6);
-    assert!(lumen.shows("Band 3: type a frequency"), "the field is up");
+    // Enter on a point opens the Freq dial's field, which is aimed at it.
+    assert!(
+        lumen
+            .harness
+            .query_by_label_contains("type a value")
+            .is_some(),
+        "the field is up"
+    );
     lumen
         .harness
-        .get_by_label("Band 3: type a frequency")
+        .get_by_label_contains("type a value")
         .type_text("2k");
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(10);
@@ -315,4 +323,60 @@ fn a_band_is_turned_off_and_on_again_from_its_chip() {
         ["Bell", "Shelf low", "Shelf high", "Notch"]
     );
     let _ = (q_of(2), eq::ANALYZER);
+}
+
+/// A point dragged across and up moves its frequency and its gain together,
+/// and one undo puts both back: the drag is one step, not one for each.
+#[test]
+fn a_point_dragged_across_and_up_is_one_undo_step() {
+    let (mut lumen, device) = launched("eq-drag-both");
+    let freq = param(&lumen, device, freq_of(3)).expect("a frequency");
+    let gain = param(&lumen, device, gain_of(3)).expect("a gain");
+    let point = at_label(&lumen, "Band 3, bell");
+    lumen.drag(point, point + vec2(60.0, -30.0), Modifiers::NONE);
+    lumen.frames(10);
+    let (freq_after, gain_after) = (
+        param(&lumen, device, freq_of(3)).unwrap(),
+        param(&lumen, device, gain_of(3)).unwrap(),
+    );
+    assert!(freq_after > freq + 0.05, "across: {freq} then {freq_after}");
+    assert!(gain_after > gain + 0.05, "up: {gain} then {gain_after}");
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(20);
+    assert_eq!(param(&lumen, device, freq_of(3)), Some(freq));
+    assert_eq!(param(&lumen, device, gain_of(3)), Some(gain));
+}
+
+/// The card's three dials belong to the picked band: a pill picks one, and the
+/// dials are then that band's Freq, Gain and Q (a cut has a Slope and no Q).
+#[test]
+fn a_pill_picks_the_band_the_dials_are_aimed_at() {
+    let (mut lumen, device) = launched("eq-pick");
+    let dial = |lumen: &Lumen, name: &str| lumen.harness.query_by_label_contains(name).is_some();
+    // Band 2 is the first band that is on.
+    assert!(dial(&lumen, "2 Freq") && dial(&lumen, "2 Gain") && dial(&lumen, "2 Q"));
+    lumen.harness.get_by_label("Band 5 (bell)").click();
+    lumen.frames(10);
+    assert!(dial(&lumen, "5 Freq") && dial(&lumen, "5 Gain") && dial(&lumen, "5 Q"));
+    assert!(!dial(&lumen, "2 Freq"), "the dials left band 2");
+    // Picking is a view setting, not an edit: nothing to undo.
+    assert_eq!(lumen.app().undo_label(), Some("Add Iris"));
+    // A cut's second dial is its slope, and it has no Q to aim the third at.
+    lumen.harness.get_by_label("Band 1 (low cut)").click();
+    lumen.frames(10);
+    assert!(dial(&lumen, "1 Freq") && dial(&lumen, "1 Slope"));
+    assert!(!dial(&lumen, "1 Q"));
+    // The dials set the picked band.
+    let before = param(&lumen, device, freq_of(1)).unwrap();
+    lumen.harness.get_by_label_contains("1 Freq").focus();
+    lumen.key(Modifiers::NONE, Key::ArrowUp);
+    lumen.frames(10);
+    assert!(
+        param(&lumen, device, freq_of(1)).unwrap() > before,
+        "the Freq dial moved band 1"
+    );
+    // Clicking a point picks its band as well.
+    lumen.harness.get_by_label_contains("Band 7, bell").click();
+    lumen.frames(10);
+    assert!(dial(&lumen, "7 Freq"));
 }

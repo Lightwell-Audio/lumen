@@ -27,6 +27,7 @@ mod consolidate;
 mod crossfades;
 mod devices;
 mod drums;
+mod drums_edit;
 mod freeze;
 mod groups;
 mod import;

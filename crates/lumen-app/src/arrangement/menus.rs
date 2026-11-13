@@ -257,33 +257,94 @@ impl Arrangement {
             midi_io::to_menu(ui, doc, &midi, &to);
         });
         midi_io::monitor_row(ui, doc, &midi, monitor);
-        // The map the notes are read through (M8 D0): the chooser lists
-        // Lumen's kits and the project's maps.
-        if widgets::menu_item(
-            ui,
-            "Drum map\u{2026}",
-            keymap.keys(Command::DrumMapAttach).as_ref(),
-            true,
-        )
-        .clicked()
-        {
-            self.selected = targets.to_vec();
-            self.track_command = Some(Command::DrumMapAttach);
-            ui.close();
-        }
-        if has_map
-            && widgets::menu_item(
+        // The map the notes are read through (M8 D0, D1): the editor, its
+        // own copy for this track, its files, and taking it off. Rows that
+        // cannot act are left out.
+        widgets::submenu(ui, "Drum map", |ui| {
+            if widgets::menu_item(
                 ui,
-                "Detach drum map",
-                keymap.keys(Command::DrumMapDetach).as_ref(),
+                if has_map {
+                    "Edit the drum map\u{2026}"
+                } else {
+                    "Choose a drum map\u{2026}"
+                },
+                keymap.keys(Command::DrumMapAttach).as_ref(),
                 true,
             )
             .clicked()
-        {
-            self.selected = targets.to_vec();
-            self.track_command = Some(Command::DrumMapDetach);
-            ui.close();
-        }
+            {
+                self.selected = targets.to_vec();
+                self.track_command = Some(Command::DrumMapAttach);
+                ui.close();
+            }
+            if has_map
+                && widgets::menu_item(
+                    ui,
+                    "Make unique",
+                    keymap.keys(Command::DrumMapUnique).as_ref(),
+                    true,
+                )
+                .clicked()
+            {
+                self.selected = targets.to_vec();
+                self.track_command = Some(Command::DrumMapUnique);
+                ui.close();
+            }
+            ui.separator();
+            if has_map
+                && widgets::menu_item(
+                    ui,
+                    "Save as user map\u{2026}",
+                    keymap.keys(Command::DrumMapSave).as_ref(),
+                    true,
+                )
+                .clicked()
+            {
+                self.selected = targets.to_vec();
+                self.track_command = Some(Command::DrumMapSave);
+                ui.close();
+            }
+            if widgets::menu_item(
+                ui,
+                "Import a drum map\u{2026}",
+                keymap.keys(Command::DrumMapImport).as_ref(),
+                true,
+            )
+            .clicked()
+            {
+                self.selected = targets.to_vec();
+                self.track_command = Some(Command::DrumMapImport);
+                ui.close();
+            }
+            if has_map
+                && widgets::menu_item(
+                    ui,
+                    "Export the drum map\u{2026}",
+                    keymap.keys(Command::DrumMapExport).as_ref(),
+                    true,
+                )
+                .clicked()
+            {
+                self.selected = targets.to_vec();
+                self.track_command = Some(Command::DrumMapExport);
+                ui.close();
+            }
+            if has_map {
+                ui.separator();
+                if widgets::menu_item(
+                    ui,
+                    "Detach drum map",
+                    keymap.keys(Command::DrumMapDetach).as_ref(),
+                    true,
+                )
+                .clicked()
+                {
+                    self.selected = targets.to_vec();
+                    self.track_command = Some(Command::DrumMapDetach);
+                    ui.close();
+                }
+            }
+        });
     }
 
     /// What an audio track records (M9 slice R1): its input and when it is

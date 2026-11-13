@@ -2,7 +2,7 @@
 //! (scroll is applied by the caller). Pure, so the layout is tested without
 //! a window.
 
-use eframe::egui::{Rect, pos2, vec2};
+use eframe::egui::{Rect, Vec2, pos2, vec2};
 
 /// A card's width.
 pub(super) const CARD_W: f32 = 232.0;
@@ -121,7 +121,13 @@ impl Layout {
     /// card in the chain (0 when none has one).
     pub fn keyed(folded: &[bool], tray_height: f32, extra: f32) -> Self {
         let card_h = card_height_with(tray_height - 2.0 * PAD, extra);
-        Self::build(folded, tray_height, &vec![card_h; folded.len()], card_h)
+        Self::build(
+            folded,
+            tray_height,
+            &vec![card_h; folded.len()],
+            &[],
+            card_h,
+        )
     }
 
     /// The chain of compact cards, card `i` `heights[i]` tall (a message can
@@ -129,20 +135,37 @@ impl Layout {
     /// centred in the tray, and the cables cross every card where a compact
     /// card's would.
     pub fn sized(folded: &[bool], tray_height: f32, heights: &[f32]) -> Self {
-        Self::build(folded, tray_height, heights, COMPACT_H)
+        Self::build(folded, tray_height, heights, &[], COMPACT_H)
+    }
+
+    /// A chain whose cards have sizes of their own (a built-in's card steps
+    /// down with the panel's height, M8): card `i` is `sizes[i]` wide and tall
+    /// (a folded one is a rail). Their tops line up and the tallest is
+    /// centred in the tray.
+    pub fn mixed(folded: &[bool], tray_height: f32, sizes: &[Vec2]) -> Self {
+        let heights: Vec<f32> = sizes.iter().map(|s| s.y).collect();
+        let widths: Vec<f32> = sizes.iter().map(|s| s.x).collect();
+        Self::build(folded, tray_height, &heights, &widths, COMPACT_H)
     }
 
     /// The chain with card `i` `heights[i]` tall; an empty chain lays its
     /// chips out as if for a card `empty` tall.
-    fn build(folded: &[bool], tray_height: f32, heights: &[f32], empty: f32) -> Self {
+    fn build(
+        folded: &[bool],
+        tray_height: f32,
+        heights: &[f32],
+        widths: &[f32],
+        empty: f32,
+    ) -> Self {
         let card_h = heights.iter().copied().fold(0.0, f32::max);
         let card_h = if heights.is_empty() { empty } else { card_h };
         let least = heights.iter().copied().fold(card_h, f32::min);
         let top = ((tray_height - card_h) / 2.0).max(PAD.min(tray_height / 2.0));
         let mut x = PAD + CHIP_W + CABLE;
         let mut spans = Vec::with_capacity(folded.len());
-        for (&fold, &h) in folded.iter().zip(heights) {
-            let w = if fold { RAIL_W } else { CARD_W };
+        for (i, (&fold, &h)) in folded.iter().zip(heights).enumerate() {
+            let wide = widths.get(i).copied().unwrap_or(CARD_W);
+            let w = if fold { RAIL_W } else { wide };
             spans.push((x, w, h));
             x += w + CABLE;
         }
@@ -209,9 +232,93 @@ impl Layout {
     }
 }
 
+/// How far a built-in's card steps down (M8): its whole round-2 card, the
+/// short one of the chain's own width, or the compact one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Step {
+    Whole,
+    Short,
+    Compact,
+}
+
+/// The short card's height: the chain's own card without its picture.
+pub(super) const SHORT_H: f32 = 272.0;
+
+impl Step {
+    /// The step for a card `whole` big in a tray `tray_height` tall, given the
+    /// step it had (the switch has [`HYSTERESIS`] either side, so dragging the
+    /// panel's edge never makes the card flicker).
+    pub(super) fn of(whole: Vec2, tray_height: f32, was: Option<Step>) -> Self {
+        let room = tray_height - 2.0 * PAD;
+        let fits = |height: f32, here: bool| {
+            room >= if here {
+                height - HYSTERESIS
+            } else {
+                height + HYSTERESIS
+            }
+        };
+        if whole.y > SHORT_H && fits(whole.y, was == Some(Step::Whole)) {
+            Step::Whole
+        } else if fits(SHORT_H, was == Some(Step::Short)) {
+            Step::Short
+        } else {
+            Step::Compact
+        }
+    }
+
+    /// The card's size at this step: `whole` is the device's own.
+    pub(super) fn size(self, whole: Vec2) -> Vec2 {
+        match self {
+            Step::Whole => whole,
+            Step::Short => vec2(CARD_W, SHORT_H),
+            Step::Compact => vec2(CARD_W, COMPACT_H),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_set_pieces_step_follows_the_tray_with_give_either_way() {
+        let whole = vec2(300.0, 290.0);
+        let tray = |room: f32| room + 2.0 * PAD;
+        // Fresh: whole needs the card's height and the give; short the short's.
+        assert_eq!(Step::of(whole, tray(290.0 + HYSTERESIS), None), Step::Whole);
+        assert_eq!(
+            Step::of(whole, tray(289.0 + HYSTERESIS - 1.0), None),
+            Step::Short
+        );
+        assert_eq!(
+            Step::of(whole, tray(SHORT_H + HYSTERESIS), None),
+            Step::Short
+        );
+        assert_eq!(Step::of(whole, tray(SHORT_H), None), Step::Compact);
+        // Kept: a card holds its step across the give, in both directions.
+        assert_eq!(
+            Step::of(whole, tray(290.0 - HYSTERESIS), Some(Step::Whole)),
+            Step::Whole
+        );
+        assert_eq!(
+            Step::of(whole, tray(290.0 + 1.0), Some(Step::Short)),
+            Step::Short
+        );
+        assert_eq!(
+            Step::of(whole, tray(SHORT_H - HYSTERESIS), Some(Step::Short)),
+            Step::Short
+        );
+        // A card no taller than the short one has no whole step.
+        assert_eq!(Step::of(vec2(300.0, 250.0), tray(500.0), None), Step::Short);
+    }
+
+    #[test]
+    fn a_steps_size_is_the_devices_own_then_the_chains() {
+        let whole = vec2(300.0, 290.0);
+        assert_eq!(Step::Whole.size(whole), whole);
+        assert_eq!(Step::Short.size(whole), vec2(CARD_W, SHORT_H));
+        assert_eq!(Step::Compact.size(whole), vec2(CARD_W, COMPACT_H));
+    }
 
     #[test]
     fn a_sliver_of_picture_is_not_drawn() {

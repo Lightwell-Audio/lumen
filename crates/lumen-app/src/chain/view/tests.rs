@@ -29,3 +29,18 @@ fn the_output_chip_names_where_the_sound_goes() {
     kick.output = Output::Track(Id(99));
     assert_eq!(output_name(&project, &kick), "Master");
 }
+
+/// Reduce motion makes Iris's screen still: the analyser does not run, so no
+/// mist is read, whatever the transport and the meter say; and a stopped,
+/// silent track leaves it off too.
+#[test]
+fn the_analyser_runs_only_while_something_is_heard_and_motion_is_not_reduced() {
+    use super::rows::mist_runs;
+    assert!(mist_runs(false, true, 0.0), "playing");
+    assert!(mist_runs(false, false, 0.4), "a meter that reads");
+    assert!(!mist_runs(false, false, 0.0), "stopped and silent");
+    assert!(
+        !mist_runs(true, true, 0.9),
+        "reduced motion is a still screen"
+    );
+}

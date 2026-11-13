@@ -133,6 +133,20 @@ pub(crate) fn pop_out(painter: &Painter, c: Pos2, colour: Color32) {
     );
 }
 
+/// The key column: a piano, three black keys on the white ones.
+pub(crate) fn keys(painter: &Painter, c: Pos2, colour: Color32) {
+    let g = Grid::new(c);
+    g.path(
+        painter,
+        &[(2.5, 3.5), (13.5, 3.5), (13.5, 13.0), (2.5, 13.0)],
+        colour,
+        true,
+    );
+    for x in [5.5, 8.5, 11.5] {
+        g.path(painter, &[(x, 3.5), (x, 8.5)], colour, false);
+    }
+}
+
 /// Dock: the arrow turned back into the window.
 pub(crate) fn dock(painter: &Painter, c: Pos2, colour: Color32) {
     let g = Grid::new(c);

@@ -13020,6 +13020,149 @@ sound's or a map's name longer than `MOST_SOUND_NAME` (64 characters) is now
 refused by the `Document` edits as well as by `validate`, so a long name typed
 in an editor can no longer make a save fail. The same-sample tie in a choke
 group is stated in item 5.
+
+## ADR-0143 — Drum sound glyphs: fifteen icons on the 16-unit grid
+
+**Status.** Draft for the parent (M8 D1's icon part, branch
+`m8-sd1-drum-names`).
+
+**Context.** The owner asked for an icon per drum sound (M8 §2, IC) and
+approved round 3's drawing (`docs/specimens/m8/kit.html`, the `ICON` object).
+D1 needs the glyphs before the map editor and the lanes that draw them exist,
+and D0's `DrumIcon` is built in parallel on another branch.
+
+**Choices.**
+1. *The glyphs live beside the interface icons* (`design/icons/drums.rs`,
+   painted through `paint_drum_glyph`), on the same 16-unit grid, so the two
+   sets share one mapping (`geometry::Grid`) and one colour and rect API.
+   Each glyph is a shape list, tested inside its box at 12, 16, 20 and 28 pt.
+2. *A local `DrumGlyph` until D0 lands*: the fifteen variants in `DrumIcon`'s
+   order, `DrumGlyph::ALL` for the map editor's 5 x 3 grid, and `name()` for
+   the accessible names. D1 maps D0's enum onto it and deletes nothing.
+3. *The line keeps its point weight at every size* — `ICON 1.6` for the
+   ordinary line, `ICON_FINE 1.3` for a small detail and a new `ICON_HEAVY
+   2.2` for a cymbal's edge and a rim's strike — as round 3 drew them (1.5,
+   1.0 and 2.0–2.2 pt). Scaling the line with the box, as `Icon` does, made
+   the 12 pt glyphs thin and the 28 pt ones heavy in the sheet.
+4. *Three small coordinates move* so a stroke stays inside the glyph's box at
+   every size: the kick's two spurs end at y 15.4, the floor tom's legs at
+   y 15.3, and the crash's second sparkle at x 15.2. Every other coordinate
+   is the specimen's.
+
+**Consequences.** No format change, no command and no other UI: the map
+editor, the icon popover, the lanes and the piano roll's key column come with
+the rest of D1 and D2. `ICON_HEAVY` joins `DESIGN.md` §5. `shots::drum_icons`
+shows every glyph at the four sizes and in three track colours in both themes
+at 100, 150 and 200%. epaint's strokes are square-ended where the specimens'
+SVG had round caps; at these sizes the difference is under a pixel and no
+glyph depends on it.
+
+## ADR-0144 — The drum map editor and drum names (M8 slice D1)
+
+**Status.** Proposed (M8 D1, `docs/milestones/M8.md` §5; the owner's DM A,
+IC, 2026-11-12).
+
+**Context.** D0 gave the project drum maps and played them; nothing could
+show a kit or change it, and the piano roll still read as a keyboard on a
+drum track. D1 had to make a map editable and the roll legible as drums
+without touching a note, and to give maps a life outside one project.
+
+**Choices.**
+
+1. **The editor is a `Dialog` like the Mappings window** (`app/drum_map_window/`),
+   opened by the Attach command and the track's **Drum map** submenu. A track
+   without a map opens the same window on the list of maps (the kits, this
+   project's maps, the user's files) — D0's chooser for attaching is gone;
+   its convert chooser stays (`app/drum_choice.rs`), because converting is a
+   different, destructive decision about notes.
+2. **One table, every field in place** (`table.rs`): a caption row over
+   28 pt rows, the icon column doubling as the drag handle (a click opens the
+   icon grid, a drag moves the row), the name in a sunken field, notes,
+   channel, choke and colour as `widgets::number` fields (wheel, type-in,
+   double-click reset), 20 pt M and S toggles, Quantize and Length dropdowns
+   (chosen, not reset),
+   Learn and Remove. Output routing is not a column: D4 owns it.
+3. **Every edit is one named `Document` edit.** D0's methods name the fields
+   it needed; D1 adds, in `document/drums_edit.rs`, `set_sound_input`,
+   `set_sound_color`, `add_drum_sound`, `remove_drum_sound`,
+   `move_drum_sound`, `make_drum_map_unique` and `import_drum_map`. A sound
+   is found by its **input note**, so input notes stay unique: moving one
+   onto a note another sound answers to is refused, and the window says why.
+   A drag that reorders ends in one step (the row's icon reports where it
+   landed); a typed number one; a name one, applied when the field is left
+   (Enter or Tab, which also takes the keyboard to the row's note, or a
+   click elsewhere). Nothing merges: a completed edit is a step.
+4. **`widgets::number` is the design system's field**, not the table's: a
+   sunken well with wheel, arrow, typed and reset values, its typed text in a
+   frame-less `TextEdit` over the well so it matches the value slider without
+   a track. Any table of numbers can use it.
+5. **Files are `.lumendrums`, JSON, with a `version`** (`files.rs`): `name`
+   and `sounds`, one file per map, written pretty with a newline. A version
+   above this copy's is refused ("saved by a later Lumen"), and a damaged
+   file is refused with the reader's own words; both are shown in full under
+   the table. Import validates against the project's own rules by adding the
+   map to a copy of the project and asking `lumen_project::validate`, so
+   there is one rule, not two; the import gets a fresh id and goes to the
+   selected MIDI tracks in the same undo step. Save as user map writes to
+   `<settings folder>/Drum Maps` (never overwriting: "Name 2.lumendrums" and
+   on), and the list rereads the folder. Reads and writes run on a worker;
+   the window polls a channel, and the system dialogs go through the existing
+   `FileDialog` seam, so a test answers them.
+6. **The maps' icons are the design's drawings.** `DrumGlyph` (D1's earlier
+   part) maps to and from `DrumIcon` by a match, and a test pins the fifteen
+   in order and by name. Table, key column and the icon grid all paint the
+   same shapes.
+7. **The key column is the kit on a mapped track** (`piano_roll/draw.rs`),
+   176 pt wide as the lanes' name column: a 3 pt colour bar, the 16 pt
+   drawing and the name (caption face) at each sound's input note, unmapped
+   keys dimmed, a silent sound quiet with an M. The roll's rows become a
+   `Rows` set: all 128 pitches, or—with **Hide unmapped keys** on—only the
+   sounds' input notes, packed highest first. The GPU note boxes are moved by
+   rewriting each box's row (the layer's row table puts a pitch on row
+   `127 - p`), and a note on a hidden key is not drawn; the pointer, the
+   gestures, the wheel and the scroll all read the same `Rows`, so nothing
+   disagrees about where a row is.
+8. **Where "Hide unmapped keys" is kept: in the editor's state, not the
+   project or the settings.** It is a view of one clip, like the lane's
+   shown state, which is not saved either; it survives while the app runs and
+   resets on a new start. The toggle is the **Keys** button in the clip
+   editor's header (with its glyph, named, tooltip, keycap from the keymap)
+   and the command `view.hide_unmapped_keys` in the palette. A saved
+   preference was declined for now: a per-user setting would need a settings
+   version and a page, and the owner has not asked for one.
+9. **The Learn button waits for a note on the live feed.** The feed already
+   tells the interface about controller messages (M7's tap); it now also
+   tells it each note-on from an input (`live_tap::Played`, a 64-message
+   queue). It is one more bounded push per note on the audio thread, never a
+   wait, and the allocation guard test covers it. The window's Learn sets the
+   row, the next note played moves the sound's input note (one undo step),
+   and the computer keyboard's notes are not part of it (they are not an
+   input's pads) — the brief's "next note played" is an input's.
+10. **Commands at the end of `ALL`**: `track.drum_map_unique`,
+    `track.drum_map_save`, `track.drum_map_import`, `track.drum_map_export`
+    and `view.hide_unmapped_keys`, no default keys, all tagged `@m8`.
+    `track.drum_map_attach` keeps its id and now opens the editor (it is the
+    "open editor" command); its name and description changed. The track's
+    **Drum map** submenu lists the editor, Make unique, the two file dialogs
+    and Detach, only the rows that can act.
+
+**Consequences.** No format change: the maps and the track's field are D0's
+(v35), and nothing D1 keeps is saved. The map editor, the table, the key
+column and the icon grid are new UI; `docs/DESIGN.md` gains §7l and §7m (§7k is B0's personalities).
+D0's `#[allow(dead_code)]`s on the sound edits are gone; the one-track
+attach/detach helpers and `set_sound_route` carry a narrow allow with the
+reason (D2, D4). Tests: the file format (round trip, a damaged file, a later
+version, the project's rules, the folder never overwriting), the editor's
+edits and Make unique (`document/drums_edit.rs`), the folded rows and the key
+column's geometry (`piano_roll/draw.rs`, `note_editor/view.rs`), the tap's
+note queue, and E2E for the editor opened from the palette, a row edited from
+the keyboard, the icon grid by keyboard, export and import, a damaged file
+read in full and Hide unmapped keys. Screenshots `shots::drum_map_editor`
+and `shots::drum_map_key_column` in both themes at three scales. Not built
+here, on purpose: routing per sound (D4), the lanes and the step sequencer
+(D2, D3), drum maps in the browser, and a saved preference for the folded
+view.
+
 ## ADR-0145 — The built-in effect path (M8 slice B0)
 
 **Status.** Proposed (M8 slice B0; the parent assigns the number). Brief:
@@ -13163,10 +13306,11 @@ All parameters, lanes, MIDI learn, overrides, presets, copy — must work identi
    instance, so delay compensation lines up with a device that holds its output back
    (B2's limiter) whether the song plays or a render runs.
 10. **The personality scheme** is in `DESIGN.md` §7k and implemented in
-    `theme::personality`, `builtin::Identity` and `chain/art.rs`: Prism is Utility's
-    personality (a steel grey; the band is the device's drawing and the name is in the card's
-    name row), the card's
-    chrome untouched.
+    `theme::personality`, `builtin::Identity` (name, subtitle, hue) and `chain/face/` (the
+    drawing, below): Prism is Utility's personality, a set piece built to the owner's
+    round-2 specimen (a hued header with the name in the display face and a Preset pill, a
+    deep screen that reacts to the signal and can be dragged, large lit dials, and
+    whole, short, compact and folded steps).
 
 **The trait on paper, against the five slices that depend on it.**
 
@@ -13273,7 +13417,8 @@ why:
   lane over it still plays — a cut, never silence or a panic. **L7** `Builtins::update` gates on one number hashed from the built-ins (id, name,
   bypass, values) and the frozen tracks, so a still project allocates nothing there and
   the latency map is only copied when it can differ.
-- **L8 — the band.** It is now the personality's: a deep tinted screen
+- **L8 — the band** (superseded by "Round 2: set pieces" below; it was a 72 pt picture
+  on a plain card, with the readout at the top left). It was the personality's: a deep tinted screen
   (`personality::SCREEN`, the signature hue at `SCREEN_TINT`), the same in both themes, a
   hairline of the signature colour, and Prism's own drawing — a beam in, the prism, five
   beams out in `personality::PRISM_BEAMS` — with no monogram (the card's name row has the
@@ -13362,6 +13507,77 @@ name row and type as every other card's does, and the specimen's "width 130 %" l
 left out because it is a value, not the idea. The `chosen-dark-100.png` and
 `chosen-light-100.png` the review names are not in `docs/specimens/m8/` (only the round 1
 to 3 sheets), so the comparison is against round 2's card.
+
+**Round 2: set pieces (owner, 2026-11-12).** Built-ins are set pieces: round 2 (owner,
+2026-11-12); chosen.html's device section is superseded. The owner's words: built-in devices
+should be "special and really set pieces", fun to use, "rare" and better than a third-party
+plugin. The authority is `docs/specimens/m8/devices.html` and `round2-{dark,light}.png`
+(Prism: 300 x 290 pt, a 136 pt screen). Two earlier builds were discarded: the chrome on the
+232 pt chain card (the "chosen card", which a correction had asked for and the owner then
+replaced), and a first big-face attempt that had no alive screen and no size steps (kept for
+reference in the parent's `backup-bigface`). What was built:
+
+- **One card for every built-in with a drawing** (`chain/card/screen/`, DESIGN.md §7k).
+  A device declares a `Drawing` in `chain/face/` (card size, screen height, deep colour, the
+  parameters it reads, `draw`, `controls`, `handles`) and adds one line to `DRAWINGS`, keyed
+  by its stable saved name; nothing else draws. `Identity` gained `subtitle`. A device
+  without a drawing (the synth) and every plugin keep the plain card.
+- **Alive.** The screen reads the track's meter level (`arrangement.meters`, mapped
+  -60..0 dB to 0..1 by `level_of`), so the audio path is untouched; the picture is calm at
+  rest and brighter with level, and still under Reduce motion (`seen(level, still)`, and the
+  panel passes level 0). Fades (power, hover, handle light, preset readouts) take their
+  durations from `design/motion.rs`. The card asks for no repaint itself.
+- **A control.** Prism's two outer beams end in a handle: dragging sets Width through the
+  same `Output::Set` as the dial, so it is one undo step (a drag merges), Shift is fine, Alt
+  is free, double-click resets, the arrow keys move it, a live chip follows the pointer, and
+  each handle is a Tab stop named "Beam spread, upper (Width): 130 %".
+- **Steps** (`geometry::Step`, 8 pt of give each way, one step remembered per device in
+  `Chain.steps`): whole (the device's own card), short (232 x 272: smaller screen, named dials on
+  its lower edge), compact (232 x 116: header, a thin band, four named lit dials under it) and the
+  folded rail (hue bar glowing with level, name set on end). `Layout::mixed` lays out cards
+  of their own sizes.
+- **Found on the way** (B1's review): `validate.rs` refused any `params` on a built-in, so a
+  project with Prism could not be saved. A built-in may hold its parameter values (at most
+  `MOST_PARAMS`, each in 0..=1) and nothing else (no controller state, plugin version,
+  reported values or sidechain). E2E: a value changed on Prism is saved and back after a
+  reopen.
+- **Tests.** Unit: `Step::of` (hysteresis), `Plan` per step, Prism's handle mapping and
+  clamps, `level_of`, `seen`. E2E (`tests/e2e/builtins.rs`): the on-screen drag is one undo
+  step, Shift is finer, the polarity pill, All parameters (the off-card switch), the Preset
+  pill and Power names. Reduce motion is a unit test only: an E2E that flips the
+  process-wide setting is against the suite's rules.
+- **Cost.** `chain::card::tests::set_piece_cost` (ignored; `cargo test --release -p lumen-app
+  --lib set_piece_cost -- --ignored --nocapture`) draws the card and tessellates it for 360
+  frames: whole 0.12 ms a frame (worst 1.5 ms once), short 0.06, compact 0.05, silent and
+  loud alike. Per-frame allocations are egui's own (shapes, galleys, the glass meshes);
+  Prism's glass polygon is a three-point `Vec` per frame. The audio thread allocates nothing
+  for it.
+- **Shots** (`target/shots-face`; `tests/shots.rs` `builtin_card` and `builtin_card_playing`):
+  whole, short, compact, folded and All parameters, dark and light, at 100, 150 and 200 %,
+  and one playing.
+
+Differences from the specimen that remain, from looking at crops of the shots next to
+`round2-dark.png` and `round2-light.png` (by eye; nothing was measured pixel for pixel):
+
+- The card has a quiet "All 8 ›" text button at the foot and two lit beam-tip handles; the
+  specimen has neither (the owner's brief adds both).
+- "Bass mono" reads "Off" at its default; the specimen reads "120" (a value it was drawn
+  with, not the device's default).
+- The card's edge is a 1 pt strong border (a selected card, a 1.5 pt accent line); the
+  specimen's is softer.
+- Pills and dials are Lumen's controls (focus ring, override ring, waiting ring), so a
+  switch's off state is a quiet ring where the specimen's is a flat chip.
+- The short and compact cards have no specimen; they are laid out from the whole card's parts
+  (parent review, 2026-11-13): short has four evenly spaced named dials on the screen's edge, the
+  polarity pill under the screen at the left, the Preset pill on the name's line only and the
+  subtitle across the card; compact has a 22 pt band, then four named dials (the first build put
+  nameless dials on the beams). `COMPACT_H` stays 116 (the panel's least height is unchanged).
+  "Bass mono" is "Bass" under a dial at these steps (`Control::short`, additive).
+- At a panel height between the short card and the whole card (about 18 pt for Prism, whose
+  whole card is 290 pt against the short card's 272) the short step lasts a sliver of the
+  panel's travel; devices with taller whole cards have more.
+- Whole, short and compact were looked at in crops, dark and light, at 150 % (and the short and
+  compact steps at 200 % and 100 %).
 
 ## ADR-0146 — Iris, the parametric EQ, and the spectrum window (M8 slice B1)
 
@@ -13464,28 +13680,42 @@ eight-band EQ needs more parameter queues than a block had room for (B0's N7).
    ratios, so half a turn is the geometric mean. The face's axis and the frequency
    parameters use the same 20 Hz to 20 kHz span (`eq::axis`, `eq::axis_hz`), so a point
    dragged to a place on the screen lands on that frequency.
-8. **The face** (`lumen-app/src/chain/faces/eq.rs`, the first of BF C's faces;
-   `faces/mod.rs` holds `screen`, the deep tinted screen the faces share). It draws the
-   summed response from `lumen_devices::eq::response` — the same coefficients the filter
-   runs, so the curve cannot disagree with the sound — over the analyser's mist, with one
-   point per band on it: drag a point (Shift is fine), double-click to reset its band, the
-   wheel sets its Q (or its slope), Page Up and Down the same from the keyboard, Enter
-   types a frequency, right-click gives Reset, Type, on/off and the curve's Automate and
-   Learn. Every point is a Tab stop with its band's own words ("Band 3, bell, 1.20 kHz,
-   +3.0 dB, Q 1.00"); a chip per band picks it and a double-click turns it on or off; the
-   picked band's value sits over its point. Every control is also in All parameters, so
-   nothing needs a pointer. The card keeps Lumen's chrome: the chips are the design
-   system's controls, and the device's hue lives in the screen, the curve and the points.
-   A device with a drawn face has no separate picture band: the face is the picture, and
-   it takes the room the band would have taken (the specimens draw Iris's card with its
-   face 230 pt tall at `CARD_H`). Its edits are the strip's own `Output`s, with two new
-   ones — `Moved`, a point's frequency and gain together as one gesture, and `Reset`, a
-   band's defaults as one step.
-   **Placeholder:** the owner judged the built-in cards against the approved round-2
-   specimens and asked for them to be redrawn (a big deep screen, the name in the display
-   face, a few large idea-named dials in the device hue, pills). That work is on B0's
-   branch and Iris's face is redrawn after it; what is here is functional and judged only
-   for its content, not its chrome. The face is one file so it can be replaced as a whole.
+8. **The face is the round-2 set piece** (`lumen-app/src/chain/face/eq.rs`, a `Drawing`
+   and a `Parts` on the round-2 card framework of ADR-0145; built to `iris()` in
+   `docs/specimens/m8/devices.html` and the Iris card of `round2-*.png`). The card is
+   380 x 330 with a 176 pt screen: the analyser's mist behind the summed response
+   (`lumen_devices::eq::band_db`, the filter's own coefficients, so the curve cannot
+   disagree with the sound) drawn as a wash, a soft glow and a line in the red-to-violet
+   sweep; a coloured point for each band, the picked one haloed with six blades and wearing
+   the value chip ("180 Hz +5.0"); "100", "1k" and "10k" on the graticule; and three lit
+   dials, Freq, Gain and Q, in the picked band's colour. **Reaching eight bands** (the
+   owner's brief left the design to the builder): a fixed 4 x 2 grid of numbered pills,
+   each in its band's colour (`personality::EQ_BANDS`, band 2 the specimen's amber), a
+   click picks and a double-click turns the band on or off; a click on a point picks it
+   as well, and so does Tab, so the three dials are always the picked band's and there
+   is one set of dials for eight bands. The dials are aimed by the drawing: Freq always,
+   Gain for a bell or a shelf (Slope for a cut), Q for a bell or a notch; a dial a band
+   has no use for is shown inert with a dash, never moved. Short, the pills are a row of
+   eight small ones under the screen; compact, the curve is a thin live band, its points
+   are small dots that pick, and the picked band's dials are named with their values.
+   On the screen: drag a point (frequency and gain, one undo step; Shift is a tenth as
+   far, a drag turns an off band on), the wheel is a bell's Q or a cut's slope,
+   double-click puts the gain back, Alt does not snap (nothing snaps, so it is the
+   same), right-click gives Reset, on/off and the Automate and Learn of the aimed
+   parameter, arrows move it, Page Up and Down are its width, Enter types a frequency
+   into the Freq dial's field; every point is a Tab stop with its band's own words
+   ("Band 3, bell, 1.20 kHz, +3.0 dB, Q 1.00"). The mist runs only while the track
+   plays or its meter reads something, on every Iris of the shown track that is not
+   folded, and is off (the screen still) while motion is reduced
+   (`rows::mist_runs`); its buffer is reused every frame. The framework change is
+   additive: `face::Parts` (per-part callbacks, registered in `PARTED` beside the
+   `DRAWINGS` line, so Prism's literal did not change), `Scene` gained `picked`,
+   `parts_lit`, `spectrum`, `mist` and `rate`, `Personal` and `Out` the same
+   (`Out::picked`), and `card/screen/parts.rs` draws the points and pills for any
+   device with parts. A non-picked band's slots are the cheap kind (value, default and
+   steps, no strings), so a card reads 38 values without asking for 38 words. Its
+   edits are the strip's own `Output`s, with two B1 added: `Moved` (a point's frequency
+   and gain together as one gesture) and `Reset` (a band's defaults as one step).
 9. **A save of a project with a built-in device was refused.** Found on the way, and
    fixed here because B1 cannot ship a project that will not save: `validate::device_data`
    refused *any* parameter values on a built-in, while B0 writes the table's defaults into
@@ -13523,13 +13753,17 @@ frames through the plan; the golden render pinned by twenty samples, the sum of 
 the sum of x² within a millionth (not by its bits: the platforms' maths libraries round a
 last bit apart); a full table of lanes filling one queue each; an allocation guard through
 the plan; and the power button heard. `lumen-project`: a built-in holding its values
-validates, and out-of-range or plugin-only data does not. `lumen-app`: the face's words,
-its value pieces, its axis and its band resets. E2E
+validates, and out-of-range or plugin-only data does not. `lumen-app`: the parts' words,
+the chip's pieces, the axis a drag reads, what the dials aim at, the wheel, the nudge,
+the resets, the pills inside the card, and the analyser's rule under Reduce motion
+(`the_analyser_runs_only_while_something_is_heard_and_motion_is_not_reduced`; an E2E
+may not flip the process-wide setting). E2E
 `crates/lumen-app/tests/e2e/eq.rs`: the command and the card's curve, its eight points in
-words and its chips' on/off; a point dragged (heard, one undo step); a frequency typed on
-a point; a lane driving a band with the drag taking it over; the power button heard; and a
-chip turning its band off. Shots `builtin_eq` in `target/shots-b1` (not committed), looked
-at in both themes at 100, 150 and 200 % and in the smallest window, whole and folded.
+words and its chips' on/off; a point dragged (heard, one undo step; across and up, both values back by one undo);
+a pill picking the band the dials are aimed at; a frequency typed on a point; a lane driving a band with the drag taking it over; the power button heard; and a
+chip turning its band off. Shots `builtin_eq` (whole at rest, playing, short, compact, folded and the smallest
+window; `SHOT_FILTER` keeps some), each looked at beside the round-2 card in both themes at
+100, 150 and 200 %.
 
 **Consequences.** `lumen-devices::ParamBlock` gained a per-queue flag and `open_lane`, and
 `params::values` reads it; the plan opens one queue for a parameter a lane drives. B5's
@@ -13538,4 +13772,5 @@ change: a parameter the project does not name plays the table's default, and Iri
 are new. Not verified here: the WSL performance gate (the new `engine_eq_64` scenario needs
 `perf-gate --update` when it is run there), the macOS cross-target clippy, and any hardware;
 Iris was heard only through the engine's and the E2E's test devices, and nothing has been
-judged by ear. The face's look is a placeholder (choice 8).
+judged by ear. The face is the round-2 set piece (choice 8); the owner has not yet judged
+it by eye in the running app.
