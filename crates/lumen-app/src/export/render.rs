@@ -168,6 +168,7 @@ pub fn prepare(job: &Job, cancel: &AtomicBool) -> Result<Option<Prepared>, Strin
             .hosted
             .insert(item.plugin.device, item.linked.latency);
     }
+    devices.builtin = crate::builtin::latencies(&job.project);
     let mut routing = routing::routing(&job.project, &Cue::default(), &devices, job.rate);
     // An export always takes the master's stereo bus, independent of the
     // physical output pair selected for listening on this machine.
@@ -184,7 +185,14 @@ pub fn prepare(job: &Job, cancel: &AtomicBool) -> Result<Option<Prepared>, Strin
 
     let (mut clips, clip_source) = clip_player_for_render();
     let (mut midi, midi_source) = midi_player();
-    let (mut mixer_control, mixer_source) = mixer(lumen_engine::Layered(clip_source, midi_source));
+    let (mut mixer_control, mut mixer_source) =
+        mixer(lumen_engine::Layered(clip_source, midi_source));
+    // A project of any size attaches: an idle block lets the audio side take
+    // the devices whenever the queue is full (M8 slice B0, review H2), and
+    // only the built-ins this render's routing names are built.
+    crate::builtin::attach_all(&job.project, &routing, &mut mixer_control, || {
+        mixer_source.idle(job.rate, 256)
+    })?;
     let mut statuses = Vec::with_capacity(running.len());
     let mut instruments = HashMap::new();
     let mut outputs = HashMap::new();

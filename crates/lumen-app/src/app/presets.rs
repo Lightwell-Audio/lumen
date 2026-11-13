@@ -71,6 +71,53 @@ impl App {
         }
     }
 
+    /// Gives a built-in device the values of one of its preset files (M8 slice
+    /// B0): one undo step, as a plugin's state is. A file saved for another
+    /// device is refused with a note and nothing changes; a parameter the file
+    /// does not name goes back to the table's default.
+    pub(crate) fn load_builtin_preset(
+        &mut self,
+        device: Id,
+        name: &str,
+        for_device: &str,
+        values: std::collections::BTreeMap<u32, f64>,
+    ) {
+        let Some((_, held)) = find_device(self.document.project(), device) else {
+            return;
+        };
+        if !crate::builtin::is_builtin(held) || crate::builtin::name_of(held) != for_device {
+            self.say(format!(
+                "\u{201c}{name}\u{201d} was made for another device."
+            ));
+            self.chain.presets.refused(device);
+            return;
+        }
+        let mut all: Vec<(u32, f64)> = crate::builtin::defaults(for_device)
+            .into_iter()
+            .map(|(id, value)| (id, f64::from(value)))
+            .collect();
+        for (id, value) in values {
+            match all.iter_mut().find(|(known, _)| *known == id) {
+                Some(slot) => slot.1 = value,
+                None => all.push((id, value)),
+            }
+        }
+        match self
+            .document
+            .set_device_params(device, &all, &format!("Load {name}"), None)
+        {
+            Ok(()) => {
+                let rev =
+                    find_device(self.document.project(), device).map_or(0, |(_, d)| d.state_rev);
+                self.chain.presets.loaded(device, name, rev);
+            }
+            Err(refusal) => {
+                self.chain.presets.refused(device);
+                self.say(refusal.to_string());
+            }
+        }
+    }
+
     /// Puts the presets plugins took into the project, and tells the person of
     /// the ones they refused. Called every frame.
     pub(crate) fn apply_presets(&mut self) {

@@ -373,3 +373,4 @@ track.drum_map_save @m8
 track.drum_map_import @m8
 track.drum_map_export @m8
 view.hide_unmapped_keys @m8
+devices.add_utility @m8

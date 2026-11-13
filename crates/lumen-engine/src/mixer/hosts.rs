@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 
 use lumen_devices::{Guard, Outcome, ParamBlock};
 
+use super::builtins::BuiltinPool;
 use super::delay::Lines;
 use super::plan::{CHUNK, Dev};
 
@@ -133,11 +134,13 @@ impl HostPool {
     }
 }
 
-/// What one render of a plan may ask of the hosts: the pool and the
-/// callback's deadline. A plan fading out is given none, so it plays its
-/// fallbacks and a host is never asked twice for one block.
+/// What one render of a plan may ask of the hosts and the built-ins: the pools
+/// and the callback's deadline. A plan fading out is given none, so it plays
+/// its fallbacks and a host is never asked twice for one block.
 pub(super) struct Hosting<'a> {
     pub pool: Option<&'a mut HostPool>,
+    /// Lumen's own effects (M8 slice B0), run where the plan reaches them.
+    pub builtins: Option<&'a mut BuiltinPool>,
     pub deadline: Option<Instant>,
 }
 
@@ -145,6 +148,7 @@ impl Hosting<'static> {
     pub fn none() -> Self {
         Self {
             pool: None,
+            builtins: None,
             deadline: None,
         }
     }
@@ -155,11 +159,12 @@ impl Hosting<'static> {
 pub(super) struct HostScratch {
     /// A node's input, as handed to its host ahead of the node loop.
     pub input: [f32; 2 * CHUNK],
-    /// The input through the device's delay line: the fallback.
-    dry: [f32; 2 * CHUNK],
-    /// The host's output.
-    wet: [f32; 2 * CHUNK],
-    gain: [f32; CHUNK],
+    /// The input through a device's delay line: the fallback, for a host's
+    /// glide and for a built-in with no effect attached.
+    pub dry: [f32; 2 * CHUNK],
+    /// The device's own output, for the glide between it and the fallback.
+    pub wet: [f32; 2 * CHUNK],
+    pub gain: [f32; CHUNK],
     /// The parameters the lanes change in the block, for the device being
     /// handed one (M7 slice A3).
     pub params: ParamBlock,

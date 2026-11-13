@@ -48,6 +48,7 @@ mod audition;
 mod bake;
 mod bench;
 mod browser;
+mod builtin;
 mod callback_bench;
 mod chain;
 #[cfg(test)]
@@ -256,6 +257,9 @@ pub struct App {
     plugins: plugins::Plugins,
     /// The host processes of the project's plugin devices (M6 slice 2c).
     hosting: hosting::Hosting,
+    /// The built-in effects on the project's tracks, and their parameter
+    /// tables (M8 slice B0).
+    builtin: builtin::Builtins,
     /// Safe mode (M6 slice 5e): no plugin is loaded until it is left.
     safe: app::safe_mode::SafeMode,
     /// The Devices tab's own state (M6 slice 2d).
@@ -646,6 +650,18 @@ impl eframe::App for App {
             &mut self.transport.audio.mixer,
             &mut self.lanes.devices.hosted,
         );
+        // A still project does nothing here (M8 slice B0, review L7): the
+        // devices, their values and their latencies are read again only when
+        // what the project holds of them changes.
+        if self
+            .builtin
+            .update(self.document.project(), &mut self.transport.audio.mixer)
+        {
+            self.lanes.devices.builtin = self.builtin.latencies().clone();
+        }
+        if let Some(note) = self.builtin.take_note() {
+            self.say(note);
+        }
         self.watch_safe_mode();
         self.arrangement.output_notes = chain::outputs::notes_of(self);
         self.lanes.midi_changed(hosts.midi);

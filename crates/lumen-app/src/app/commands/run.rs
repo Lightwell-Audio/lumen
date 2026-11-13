@@ -434,6 +434,7 @@ impl App {
             Command::DrumMapImport => self.drum_map_import_command(ctx),
             Command::DrumMapExport => self.drum_map_export_command(ctx),
             Command::HideUnmappedKeys => self.toggle_hide_unmapped_keys(),
+            Command::AddUtility => self.add_utility(),
             Command::TransposeClipUp => self.transpose_clips_command(1),
             Command::TransposeClipDown => self.transpose_clips_command(-1),
             Command::AddAudioTrack => self.arrangement.add_track(doc, TrackKind::Audio),

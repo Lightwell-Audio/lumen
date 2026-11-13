@@ -2468,6 +2468,92 @@ fn browser_controls() {
     }
 }
 
+/// Prism, the utility device (M8 slice B0): its card whole, folded and in the
+/// smallest window, with All parameters, in both themes and at three scales.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn builtin_card() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_project::model::{Color, Device, Id, PluginRef, Track, TrackKind};
+
+    for (appearance, scale, size, tag) in [
+        ("dark", 1.0_f32, vec2(1280.0, 900.0), "whole"),
+        ("light", 1.0, vec2(1280.0, 900.0), "whole"),
+        ("dark", 1.5, vec2(1280.0, 900.0), "whole"),
+        ("light", 1.5, vec2(1280.0, 900.0), "whole"),
+        ("dark", 2.0, vec2(1280.0, 900.0), "whole"),
+        ("light", 2.0, vec2(1280.0, 900.0), "whole"),
+        ("dark", 1.0, vec2(960.0, 540.0), "small"),
+        ("light", 1.0, vec2(960.0, 540.0), "small"),
+        ("dark", 1.5, vec2(960.0, 540.0), "small"),
+        ("light", 1.5, vec2(960.0, 540.0), "small"),
+        ("dark", 2.0, vec2(960.0, 540.0), "small"),
+        ("light", 2.0, vec2(960.0, 540.0), "small"),
+    ] {
+        let dir = TempDir::new(&format!("shots-prism-{appearance}-{scale}-{tag}"));
+        let track = Track::new(Id(1), "Keys".to_owned(), TrackKind::Audio, Color(0x5E8C6A));
+        let mut track = track;
+        // A built-in saved with no values of its own plays its table's
+        // defaults, as a device added this build does.
+        track.devices = vec![Device::new(
+            Id(10),
+            PluginRef::Builtin {
+                name: lumen_devices::utility::NAME.to_owned(),
+            },
+            false,
+            Vec::new(),
+        )];
+        let project = lumen_project::testing::project_of("Prism", vec![track]);
+        let path = dir.path().join("song.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(size)
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(30);
+        h.state_mut().select_tracks(&[Id(1)]);
+        h.run_steps(4);
+        // The browser has a Devices tab too: the detail panel's comes last.
+        h.get_all_by_label("Devices tab")
+            .last()
+            .expect("the tabs")
+            .click();
+        h.run_steps(4);
+        // A short tray shows compact cards (D2): make room for whole ones.
+        if tag == "whole" {
+            h.state_mut().set_detail_size(460.0);
+            h.run_steps(30);
+        }
+        let tag = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
+        save(&mut h, &format!("prism-{tag}"));
+        // Folded: the rail with the power and the name set on end.
+        h.state_mut().fold_device(Id(10));
+        h.run_steps(10);
+        save(&mut h, &format!("prism-folded-{tag}"));
+        h.state_mut().fold_device(Id(10));
+        h.run_steps(10);
+        // Every parameter on its own.
+        if h.query_by_label("All parameters (8)").is_some() {
+            h.get_by_label("All parameters (8)").click();
+            h.run_steps(10);
+            save(&mut h, &format!("prism-parameters-{tag}"));
+        }
+    }
+}
+
 /// The Devices tab (M6 slice 2d): a chain with every card face, stopped and
 /// playing, as the owner's C4 mock-up draws it.
 #[test]

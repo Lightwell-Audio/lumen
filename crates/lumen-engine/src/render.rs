@@ -142,8 +142,16 @@ pub enum Ended {
 /// The pre-roll: the source plays this long before `from` and the sink never
 /// sees it, so the fades a source makes when playback starts (a track coming
 /// in from silence, a clip first heard partway) are over before the span.
-fn lead_in(sample_rate: u32) -> u64 {
-    u64::from(sample_rate / 10)
+///
+/// It is a whole number of `block`s, so the blocks the render cuts fall where
+/// playback's do: a device's parameter lanes then read the same points on the
+/// same frames, and a render is bit-identical to what playback plays rather
+/// than differing by the rounding of two different straight lines (M8 slice
+/// B0, review L9).
+fn lead_in(sample_rate: u32, block: u64) -> u64 {
+    let block = block.max(1);
+    let lead = u64::from(sample_rate / 10).max(1);
+    block * lead.div_ceil(block)
 }
 
 /// Plays `source` from `job.from` as fast as it goes, giving the sink the
@@ -170,13 +178,13 @@ pub fn render_source<S: Source + ?Sized>(
         block,
         wait,
     } = job;
-    let lead = lead_in(sample_rate);
+    let block = block.clamp(1, MOST_BLOCK) as u64;
+    let lead = lead_in(sample_rate, block);
     let begin = from - lead as i64;
     source.locate(timeline, sample_rate, begin, Jump::Play);
     // Read after the locate, which takes up a waiting routing.
     let skip = lead + u64::from(source.latency());
     let total = skip + frames;
-    let block = block.clamp(1, MOST_BLOCK) as u64;
     let mut data = vec![0.0; BUS_CHANNELS * MOST_BLOCK];
     let mut cursor = begin;
     let mut done = 0;

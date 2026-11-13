@@ -108,6 +108,41 @@ impl App {
         }
     }
 
+    /// Puts Prism, the utility device, on the selected track after the chosen
+    /// card, or on a new audio track when no track fits (M8 slice B0): one
+    /// undo step, with the values its table gives it, and its card shown.
+    pub(crate) fn add_utility(&mut self) {
+        let plugin = PluginRef::Builtin {
+            name: lumen_devices::utility::NAME.to_owned(),
+        };
+        let values = crate::builtin::defaults(lumen_devices::utility::NAME);
+        let place = place(
+            self.document.project(),
+            &self.arrangement.selected,
+            self.chain.selected,
+            DeviceKind::Effect,
+        );
+        let result = match place {
+            Place::Track { track, slot } => self
+                .document
+                .add_device_with(track, plugin, &values, slot)
+                .map(|device| (track, device)),
+            Place::NewTrack { after } => self
+                .document
+                .add_device_on_new_track_with(plugin, &values, after),
+        };
+        match result {
+            Ok((track, device)) => {
+                self.arrangement.selected = vec![track];
+                self.chain.selected = Some(device);
+                self.show_detail = true;
+                self.detail_tab = DetailTab::Devices;
+                self.chain.grow = true;
+            }
+            Err(refusal) => self.say(refusal.to_string()),
+        }
+    }
+
     /// Opens the window of a device dropped on a track as soon as its plugin
     /// runs; forgets it if the device went or its plugin failed.
     pub(crate) fn open_dropped_editor(&mut self) {

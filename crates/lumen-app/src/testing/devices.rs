@@ -399,10 +399,25 @@ impl App {
         self.strip_ids(device)
     }
 
-    /// The plugin's words for each step of a stepped parameter, as far as it
-    /// has said them.
+    /// The words of each step of a stepped parameter: a plugin's as it has
+    /// said them, a built-in's from its table (M8 slice B0).
     pub fn device_choices(&self, device: Id, parameter: u32) -> Vec<String> {
-        self.hosting.choices(device, parameter).to_vec()
+        match find_device(self.document.project(), device) {
+            Some((_, d)) => self.parameter_choices(d, parameter),
+            None => Vec::new(),
+        }
+    }
+
+    /// Whether the built-in effect of `device` is attached to the mixer: the
+    /// audio thread is playing it (M8 slice B0).
+    pub fn builtin_attached(&self, device: Id) -> bool {
+        self.builtin.attached(device)
+    }
+
+    /// Whether `device` is a built-in effect this build runs.
+    pub fn is_builtin(&self, device: Id) -> bool {
+        find_device(self.document.project(), device)
+            .is_some_and(|(_, d)| crate::builtin::is_builtin(d))
     }
 
     /// Puts exactly these parameters on the device's strip, as a person does

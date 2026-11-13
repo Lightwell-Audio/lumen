@@ -141,6 +141,7 @@ impl App {
             midi,
             plugins,
             hosting,
+            builtin: builtin::Builtins::default(),
             safe,
             chain: chain::Chain {
                 presets: chain::presets::Presets::new(places),

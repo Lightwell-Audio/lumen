@@ -17,6 +17,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use super::auto::NodeStages;
+use super::builtins::NO_BUILTIN;
 use super::delay::{LineKey, Lines};
 use super::hosts::{HostScratch, NO_HOST};
 use super::meter::{MeterBank, SIDE_KEY};
@@ -156,13 +157,28 @@ pub(super) fn compile_metered(
         let first_device = devices.len() as u32;
         for (index, device) in spec.devices.iter().enumerate() {
             device.hash(&mut hasher);
-            let (listen, host) = match *device {
-                super::spec::Device::Delay { listen, .. } => (listen, NO_HOST),
-                super::spec::Device::Hosted { host, .. } => (false, host),
+            let (listen, host, builtin, bypass, values) = match *device {
+                super::spec::Device::Delay { listen, .. } => {
+                    (listen, NO_HOST, NO_BUILTIN, false, &[][..])
+                }
+                super::spec::Device::Hosted { host, .. } => {
+                    (false, host, NO_BUILTIN, false, &[][..])
+                }
+                super::spec::Device::Builtin { device, bypass, .. } => (
+                    false,
+                    NO_HOST,
+                    device,
+                    bypass,
+                    spec.values
+                        .iter()
+                        .find(|(id, _)| *id == device)
+                        .map_or(&[][..], |(_, values)| values.as_slice()),
+                ),
             };
             devices.push(Dev {
                 // A hosted device's line is its fallback: the plugin's
-                // reported latency, which the compensation counts too.
+                // reported latency, which the compensation counts too. A
+                // built-in's is the same: what plays while it is not attached.
                 line: lines.add(
                     LineKey::Device {
                         node: spec.id,
@@ -172,6 +188,10 @@ pub(super) fn compile_metered(
                 ),
                 listen,
                 host,
+                builtin,
+                bypass,
+                values: Arc::from(values),
+                values_last: vec![f32::NAN; values.len()],
                 wet: Smoothed::new(0.0),
                 began: false,
                 refused: false,
@@ -277,6 +297,7 @@ pub(super) fn compile_metered(
         };
         nodes.push(Node {
             id: spec.id,
+            law: spec.law,
             input_line,
             pre: Smoothed::new(pre),
             split,
