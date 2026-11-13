@@ -105,10 +105,15 @@ impl App {
     /// sampler once all have. Called every frame.
     pub(crate) fn poll_sampler(&mut self, ctx: &egui::Context) {
         self.lanes.samples.update(self.lanes.rate());
+        if !self.sampler_load.is_loading() {
+            // What a project's own samples decoded to is already held by the
+            // library: the list of arrivals is for the file choice only, and
+            // is emptied so it cannot grow.
+            self.lanes.samples.take_ready();
+            return;
+        }
         let Some(arrived) = self.sampler_load.take_ready(&mut self.lanes.samples) else {
-            if self.sampler_load.is_loading() {
-                ctx.request_repaint();
-            }
+            ctx.request_repaint();
             return;
         };
         let face = self
