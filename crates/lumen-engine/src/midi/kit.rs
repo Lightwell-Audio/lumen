@@ -1,4 +1,4 @@
-//! A drum map as the engine plays it (M8 slice D0, ADR-XXXX): the note each
+//! A drum map as the engine plays it (M8 slice D0, ADR-0142): the note each
 //! input note sounds, its channel, and the choke groups.
 //!
 //! The app builds this on its side, from the track's map, and hands it to the

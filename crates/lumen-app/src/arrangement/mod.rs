@@ -416,6 +416,16 @@ pub(crate) fn color_from(c: Color32) -> Color {
     Color(u32::from(c.r()) << 16 | u32::from(c.g()) << 8 | u32::from(c.b()))
 }
 
+/// A track's, clip's or drum sound's colour as the interface draws it: the
+/// other direction of [`color_from`].
+pub(crate) fn color_to(c: Color) -> Color32 {
+    Color32::from_rgb(
+        ((c.0 >> 16) & 0xFF) as u8,
+        ((c.0 >> 8) & 0xFF) as u8,
+        (c.0 & 0xFF) as u8,
+    )
+}
+
 impl Arrangement {
     /// The header column's width.
     pub fn header_width(&self) -> f32 {

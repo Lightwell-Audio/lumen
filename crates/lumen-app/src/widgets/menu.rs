@@ -316,6 +316,11 @@ impl<'r> Menu<'r> {
             // Esc, a click elsewhere or a command closed it.
             begin_closing(&mut state);
             Popup::close_id(&ctx, popup_id);
+            // Esc closed the menu, not the window it is in: keep it from
+            // closing a dialog in the same frame (as a dropdown does).
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+            }
         } else if state.changed && !self.stays {
             // Once changed, it closes when the pointer leaves it.
             let area = shown_menu.response.rect.expand(LEAVE_SLOP);

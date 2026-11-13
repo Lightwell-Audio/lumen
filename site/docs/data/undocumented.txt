@@ -368,3 +368,8 @@ clip.warp_fix_hit @m9.5
 track.drum_map_attach @m8
 track.drum_map_detach @m8
 clip.convert_drum_map @m8
+track.drum_map_unique @m8
+track.drum_map_save @m8
+track.drum_map_import @m8
+track.drum_map_export @m8
+view.hide_unmapped_keys @m8

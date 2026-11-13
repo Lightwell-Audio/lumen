@@ -24,6 +24,7 @@ pub mod knob;
 pub mod mark;
 mod menu;
 pub mod meter;
+pub mod number;
 pub mod param;
 mod pills;
 pub mod raised;

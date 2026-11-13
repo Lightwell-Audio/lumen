@@ -12870,7 +12870,7 @@ tempo `edit::set` call it, so each is still one undo step.
 
 **Consequences.** No format change, no protocol change (the plugin host stays at version 9, the shared-memory layout at 4). Every moved file was compared with its old self (only imports, signatures and visibility differ). Not run here: the WSL mirror, the performance gate, the macOS cross-target clippy, screenshots, any hardware or real plugin. The Windows crash filter and the editor window are compile-checked only. The ASIO changes have fake-driver tests only; the owner's Focusrite is the check. The smoke test that looks for the failed-allocation backtrace needs a build with symbols.
 
-## ADR-XXXX — Drum maps: model, translation and choke (M8 slice D0)
+## ADR-0142 — Drum maps: model, translation and choke (M8 slice D0)
 
 **Status.** Proposed (M8 D0, `docs/milestones/M8.md` §5; the owner's DM A, CO A and E3/E4, 2026-11-12).
 
@@ -13020,3 +13020,146 @@ sound's or a map's name longer than `MOST_SOUND_NAME` (64 characters) is now
 refused by the `Document` edits as well as by `validate`, so a long name typed
 in an editor can no longer make a save fail. The same-sample tie in a choke
 group is stated in item 5.
+
+## ADR-0143 — Drum sound glyphs: fifteen icons on the 16-unit grid
+
+**Status.** Draft for the parent (M8 D1's icon part, branch
+`m8-sd1-drum-names`).
+
+**Context.** The owner asked for an icon per drum sound (M8 §2, IC) and
+approved round 3's drawing (`docs/specimens/m8/kit.html`, the `ICON` object).
+D1 needs the glyphs before the map editor and the lanes that draw them exist,
+and D0's `DrumIcon` is built in parallel on another branch.
+
+**Choices.**
+1. *The glyphs live beside the interface icons* (`design/icons/drums.rs`,
+   painted through `paint_drum_glyph`), on the same 16-unit grid, so the two
+   sets share one mapping (`geometry::Grid`) and one colour and rect API.
+   Each glyph is a shape list, tested inside its box at 12, 16, 20 and 28 pt.
+2. *A local `DrumGlyph` until D0 lands*: the fifteen variants in `DrumIcon`'s
+   order, `DrumGlyph::ALL` for the map editor's 5 x 3 grid, and `name()` for
+   the accessible names. D1 maps D0's enum onto it and deletes nothing.
+3. *The line keeps its point weight at every size* — `ICON 1.6` for the
+   ordinary line, `ICON_FINE 1.3` for a small detail and a new `ICON_HEAVY
+   2.2` for a cymbal's edge and a rim's strike — as round 3 drew them (1.5,
+   1.0 and 2.0–2.2 pt). Scaling the line with the box, as `Icon` does, made
+   the 12 pt glyphs thin and the 28 pt ones heavy in the sheet.
+4. *Three small coordinates move* so a stroke stays inside the glyph's box at
+   every size: the kick's two spurs end at y 15.4, the floor tom's legs at
+   y 15.3, and the crash's second sparkle at x 15.2. Every other coordinate
+   is the specimen's.
+
+**Consequences.** No format change, no command and no other UI: the map
+editor, the icon popover, the lanes and the piano roll's key column come with
+the rest of D1 and D2. `ICON_HEAVY` joins `DESIGN.md` §5. `shots::drum_icons`
+shows every glyph at the four sizes and in three track colours in both themes
+at 100, 150 and 200%. epaint's strokes are square-ended where the specimens'
+SVG had round caps; at these sizes the difference is under a pixel and no
+glyph depends on it.
+
+## ADR-0144 — The drum map editor and drum names (M8 slice D1)
+
+**Status.** Proposed (M8 D1, `docs/milestones/M8.md` §5; the owner's DM A,
+IC, 2026-11-12).
+
+**Context.** D0 gave the project drum maps and played them; nothing could
+show a kit or change it, and the piano roll still read as a keyboard on a
+drum track. D1 had to make a map editable and the roll legible as drums
+without touching a note, and to give maps a life outside one project.
+
+**Choices.**
+
+1. **The editor is a `Dialog` like the Mappings window** (`app/drum_map_window/`),
+   opened by the Attach command and the track's **Drum map** submenu. A track
+   without a map opens the same window on the list of maps (the kits, this
+   project's maps, the user's files) — D0's chooser for attaching is gone;
+   its convert chooser stays (`app/drum_choice.rs`), because converting is a
+   different, destructive decision about notes.
+2. **One table, every field in place** (`table.rs`): a caption row over
+   28 pt rows, the icon column doubling as the drag handle (a click opens the
+   icon grid, a drag moves the row), the name in a sunken field, notes,
+   channel, choke and colour as `widgets::number` fields (wheel, type-in,
+   double-click reset), 20 pt M and S toggles, Quantize and Length dropdowns
+   (chosen, not reset),
+   Learn and Remove. Output routing is not a column: D4 owns it.
+3. **Every edit is one named `Document` edit.** D0's methods name the fields
+   it needed; D1 adds, in `document/drums_edit.rs`, `set_sound_input`,
+   `set_sound_color`, `add_drum_sound`, `remove_drum_sound`,
+   `move_drum_sound`, `make_drum_map_unique` and `import_drum_map`. A sound
+   is found by its **input note**, so input notes stay unique: moving one
+   onto a note another sound answers to is refused, and the window says why.
+   A drag that reorders ends in one step (the row's icon reports where it
+   landed); a typed number one; a name one, applied when the field is left
+   (Enter or Tab, which also takes the keyboard to the row's note, or a
+   click elsewhere). Nothing merges: a completed edit is a step.
+4. **`widgets::number` is the design system's field**, not the table's: a
+   sunken well with wheel, arrow, typed and reset values, its typed text in a
+   frame-less `TextEdit` over the well so it matches the value slider without
+   a track. Any table of numbers can use it.
+5. **Files are `.lumendrums`, JSON, with a `version`** (`files.rs`): `name`
+   and `sounds`, one file per map, written pretty with a newline. A version
+   above this copy's is refused ("saved by a later Lumen"), and a damaged
+   file is refused with the reader's own words; both are shown in full under
+   the table. Import validates against the project's own rules by adding the
+   map to a copy of the project and asking `lumen_project::validate`, so
+   there is one rule, not two; the import gets a fresh id and goes to the
+   selected MIDI tracks in the same undo step. Save as user map writes to
+   `<settings folder>/Drum Maps` (never overwriting: "Name 2.lumendrums" and
+   on), and the list rereads the folder. Reads and writes run on a worker;
+   the window polls a channel, and the system dialogs go through the existing
+   `FileDialog` seam, so a test answers them.
+6. **The maps' icons are the design's drawings.** `DrumGlyph` (D1's earlier
+   part) maps to and from `DrumIcon` by a match, and a test pins the fifteen
+   in order and by name. Table, key column and the icon grid all paint the
+   same shapes.
+7. **The key column is the kit on a mapped track** (`piano_roll/draw.rs`),
+   176 pt wide as the lanes' name column: a 3 pt colour bar, the 16 pt
+   drawing and the name (caption face) at each sound's input note, unmapped
+   keys dimmed, a silent sound quiet with an M. The roll's rows become a
+   `Rows` set: all 128 pitches, or—with **Hide unmapped keys** on—only the
+   sounds' input notes, packed highest first. The GPU note boxes are moved by
+   rewriting each box's row (the layer's row table puts a pitch on row
+   `127 - p`), and a note on a hidden key is not drawn; the pointer, the
+   gestures, the wheel and the scroll all read the same `Rows`, so nothing
+   disagrees about where a row is.
+8. **Where "Hide unmapped keys" is kept: in the editor's state, not the
+   project or the settings.** It is a view of one clip, like the lane's
+   shown state, which is not saved either; it survives while the app runs and
+   resets on a new start. The toggle is the **Keys** button in the clip
+   editor's header (with its glyph, named, tooltip, keycap from the keymap)
+   and the command `view.hide_unmapped_keys` in the palette. A saved
+   preference was declined for now: a per-user setting would need a settings
+   version and a page, and the owner has not asked for one.
+9. **The Learn button waits for a note on the live feed.** The feed already
+   tells the interface about controller messages (M7's tap); it now also
+   tells it each note-on from an input (`live_tap::Played`, a 64-message
+   queue). It is one more bounded push per note on the audio thread, never a
+   wait, and the allocation guard test covers it. The window's Learn sets the
+   row, the next note played moves the sound's input note (one undo step),
+   and the computer keyboard's notes are not part of it (they are not an
+   input's pads) — the brief's "next note played" is an input's.
+10. **Commands at the end of `ALL`**: `track.drum_map_unique`,
+    `track.drum_map_save`, `track.drum_map_import`, `track.drum_map_export`
+    and `view.hide_unmapped_keys`, no default keys, all tagged `@m8`.
+    `track.drum_map_attach` keeps its id and now opens the editor (it is the
+    "open editor" command); its name and description changed. The track's
+    **Drum map** submenu lists the editor, Make unique, the two file dialogs
+    and Detach, only the rows that can act.
+
+**Consequences.** No format change: the maps and the track's field are D0's
+(v35), and nothing D1 keeps is saved. The map editor, the table, the key
+column and the icon grid are new UI; `docs/DESIGN.md` gains §7k and §7l.
+D0's `#[allow(dead_code)]`s on the sound edits are gone; the one-track
+attach/detach helpers and `set_sound_route` carry a narrow allow with the
+reason (D2, D4). Tests: the file format (round trip, a damaged file, a later
+version, the project's rules, the folder never overwriting), the editor's
+edits and Make unique (`document/drums_edit.rs`), the folded rows and the key
+column's geometry (`piano_roll/draw.rs`, `note_editor/view.rs`), the tap's
+note queue, and E2E for the editor opened from the palette, a row edited from
+the keyboard, the icon grid by keyboard, export and import, a damaged file
+read in full and Hide unmapped keys. Screenshots `shots::drum_map_editor`
+and `shots::drum_map_key_column` in both themes at three scales. Not built
+here, on purpose: routing per sound (D4), the lanes and the step sequencer
+(D2, D3), drum maps in the browser, and a saved preference for the folded
+view.
+

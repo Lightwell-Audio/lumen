@@ -32,11 +32,46 @@ fn arrangement_tools() {
     }
 }
 
+/// M8 D1: the fifteen drum glyphs, at 12, 16, 20 and 28 pt and in three
+/// track colours, in both themes at three scales.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn drum_icons() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let look = appearance.to_owned();
+            let mut ready = false;
+            let mut h = Harness::builder()
+                .with_size(vec2(560.0, 820.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_ui(move |ui| {
+                    if !ready {
+                        lumen_app::testing::prepare_look(ui.ctx(), &look);
+                        ready = true;
+                        // The typefaces apply from the next frame.
+                        return;
+                    }
+                    lumen_app::testing::drum_icon_sheet(ui);
+                });
+            h.run_steps(4);
+            save(&mut h, &format!("drum-icons-{appearance}-{scale}"));
+        }
+    }
+}
+
 use std::path::PathBuf;
 
 use eframe::egui::{Event, Key, Modifiers, Pos2, Rect, pos2, vec2};
 use egui_kittest::Harness;
 use lumen_app::{App, Launch};
+use lumen_project::drums::presets::Preset;
 use lumen_project::testing::TempDir;
 
 /// M9 R5: the export controls fit and scroll at the minimum window size.
@@ -5078,25 +5113,117 @@ fn instance_and_association() {
     }
 }
 
-/// M8 D0: the drum map chooser on a MIDI track, in both themes at 100, 150
-/// and 200%. D1 replaces it with the map editor and redraws these.
+/// M8 D1: the drum map editor on a mapped track, in both themes at 100, 150
+/// and 200%. D0's chooser is part of it now: the window opens on the track's
+/// map.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
-fn drum_map_choice() {
+fn drum_map_editor() {
     for appearance in ["dark", "light"] {
         for scale in [1.0_f32, 1.5, 2.0] {
-            let dir = TempDir::new(&format!("shots-drums-{appearance}-{scale}"));
-            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
-            h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::T);
+            let dir = TempDir::new(&format!("shots-map-{appearance}-{scale}"));
+            let path = dir.path().join("kit.lumen");
+            let project = mapped_project(Preset::GENERAL_MIDI);
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 760.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
             h.run_steps(30);
-            h.key_press_modifiers(Modifiers::COMMAND, Key::K);
-            h.run_steps(3);
-            h.event(Event::Text("Drum map".into()));
-            h.run_steps(3);
-            h.key_press(Key::Enter);
+            let track = h.state().project().tracks[0].id;
+            h.state_mut().select_tracks(&[track]);
+            h.state_mut().open_the_drum_map_editor();
             h.run_steps(30);
-            assert!(h.state().drum_choice_open(), "the chooser is drawn");
+            assert!(h.state().drum_map_editor_open(), "the editor is drawn");
             save(&mut h, &format!("drum-map-{appearance}-{scale}"));
         }
     }
+}
+
+/// M8 D1: the piano roll's key column on a mapped track, every key and folded
+/// to the map's sounds, in both themes at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn drum_map_key_column() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-keys-{appearance}-{scale}"));
+            let path = dir.path().join("kit.lumen");
+            let project = mapped_project(Preset::EIGHT_OH_EIGHT);
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 760.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            let clip = h.state().project().tracks[0].clips[0].id;
+            h.state_mut().open_clip_editor(clip);
+            h.run_steps(30);
+            save(&mut h, &format!("drum-keys-{appearance}-{scale}"));
+            h.state_mut().hide_the_unmapped_keys();
+            h.run_steps(30);
+            save(&mut h, &format!("drum-keys-folded-{appearance}-{scale}"));
+        }
+    }
+}
+
+/// A project with a kit track playing `preset`'s map: a kick, a snare, two
+/// hats and a clap in a two-bar clip.
+fn mapped_project(preset: lumen_project::drums::presets::Preset) -> lumen_project::model::Project {
+    use lumen_core::time::Ticks;
+    let notes: Vec<lumen_project::model::Note> = [36_u8, 38, 42, 46, 39, 36, 42, 38]
+        .into_iter()
+        .enumerate()
+        .map(|(i, pitch)| {
+            lumen_project::model::Note::new(
+                Ticks::quarters(i as i64),
+                Ticks::quarters(1),
+                pitch,
+                100,
+            )
+        })
+        .collect();
+    let mut project = lumen_project::testing::project_of(
+        "Kit",
+        vec![lumen_project::testing::midi_track(
+            1,
+            "Drums",
+            "pluck",
+            (0, 8),
+            None,
+            notes,
+            vec![],
+        )],
+    );
+    let map = preset.map(lumen_project::model::Id(500));
+    project.drum_maps = vec![map.clone()];
+    let track = std::sync::Arc::make_mut(&mut project.tracks[0]);
+    track.drum_map = Some(map.id);
+    project
 }
