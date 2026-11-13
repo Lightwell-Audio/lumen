@@ -13401,12 +13401,17 @@ limiter's latency on paper in B0's ADR; this slice is that trial.
    48 kHz, 0.75 ms at 96 kHz). The alternative — a rate-scaled lookahead with a
    rate-free latency — would be *misaligned* at any other rate, which is worse
    than a label that is exact at the reference rate. Recorded in KNOWN_ISSUES.
-4. **The lookahead is read unglided.** Every other parameter glides 20 ms as
-   B0's `params::values` makes them; the lookahead is the device's *timing*, so
-   it is read from the block's last point for that parameter
-   (`dynamics::held`), exactly the value the routing was told about. A change is
-   a new block's timing, and the engine's own latency-change behaviour (a skip
-   or repeat of the difference, ADR-0041) covers the switch.
+4. **The lookahead is read unglided, and not from a lane.** Every other
+   parameter glides 20 ms as B0's `params::values` makes them; the lookahead is
+   the device's *timing*, so it is read from the value the project holds alone
+   (`dynamics::held_at_rest`, the first point of the first queue, with no lane on
+   top); it is **not automatable** (review M1) — a lane would change the delay
+   from block to block while the routing is compensated with the held value, and
+   the app hides Automate and Learn for it (`lumen_devices::automatable`). A
+   change is a new block's timing, and the engine's own latency-change behaviour
+   (a skip or repeat of the difference, ADR-0041) covers the switch. The
+   interface applies a drag's worth of change once, when the drag ends (review
+   M2), so the routing is re-timed once and not every frame.
 5. **The gain reduction is published through a lock-free handle**
    (`dynamics::Reduction`): two atomics in an `Arc`, the audio side recording
    the block's most reduction and its input level, the interface taking it once
@@ -13524,3 +13529,22 @@ shares its track's single key bus with any other keyed device (KNOWN_ISSUES).
 Not run here: the WSL performance gate (no distribution on this machine; a new
 scenario needs `perf-gate --update`) and the macOS cross-target clippy; nothing
 has been heard by a person (MT-FX-3 waits).
+
+**Review round 1 (2026-11-13, independent; every item fixed on this branch).**
+
+- **H1 (High).** With a lookahead of nought the limiter read the delay slot *before* writing it, so the frame from one whole line ago (482 frames) came out, reported as no latency, with the ceiling broken. It writes before it reads now, so nought is nought. Tests:
+  `no_lookahead_delays_by_nothing_and_still_holds_the_ceiling` (an impulse at frame 0 comes out at frame 0, under the ceiling), and the ceiling test now sweeps the lookahead over 0, 1.5 and 10 ms.
+- **M1 (Medium).** A lane on the lookahead re-timed the delay once a block (not block-size invariant) and never reached the routing's compensation. **Decision (parent): the lookahead is not automatable.** The device reads it from the value the project holds, with no lane (`dynamics::held_at_rest`, the first point of the first queue); `lumen_devices::timing_parameter` names it, `automatable` is its negation, and the app sets no `FLAG_CAN_AUTOMATE` on such a parameter, so the lane chooser, the strip's and the panel's right-click **Automate** and **Learn** are all absent (MIDI learn goes with them: a controller moving the delay has the same problem, and the parameter cannot be mapped), with a menu line saying why. Tests: `a_lane_on_the_lookahead_is_ignored` (identical bits at 64 and 256 frames, latency 72 throughout).
+- **M2 (Medium).** A drag of the lookahead recompiled the routing every frame. The app now holds a timing parameter's value until its drag ends (`Chain::deferred`, applied by `apply_deferred` once a frame when no new value arrived; a typed value applies at once), so the routing is re-timed once and the knob shows what the hand is doing meanwhile. Test: E2E `dragging_the_lookahead_re_times_the_routing_once_when_it_ends` (the compensation stays 72 through four drag steps, then changes once, and not again).
+- **M3 (Medium).** The key filter's corner was read once a block, so it was not block-size invariant. It is read at the same 32-frame knots Prism uses. Both block-size tests now build a lane for *every* automatable parameter from the table (`automatable`), Look excluded. Tests: `gravity_is_the_same_at_any_block_size`, `horizon_is_the_same_at_any_block_size`.
+- **M4 (Medium).** The ceiling test skipped each signal's onset (it started at frame 0 and measured from 4800). Every signal is silent for the glide now and the whole span after it is measured, at three lookaheads.
+- **M5 (Medium).** True-peak mode was measured by the four-phase meter, which is a fifth of a decibel short at the top of the band — the tolerance itself. A long reference (64 phases of a 25-tap Kaiser-windowed sinc, gain-normalised, ends left out) is the check now, with the meter kept as a second check within half a decibel. The measurement is now 0.001 dB under the ceiling at 11, 15 and 19 kHz (the earlier 0.33 dB "overshoot" was the reference's own edge truncation).
+- **M6 (Medium).** A face device's All-parameters panel offered a star that did nothing. It has no star column and says "This device's controls are on its face; every parameter is here."; its footer reads "All N parameters". Test: E2E `the_all_parameters_panel_of_a_face_says_where_its_controls_are`.
+- **L1.** A built-in that was not asked for blocks because its power was off kept what it held, so a bypassed limiter could play a stale burst on being turned on again. The mixer resets it on the transition (`Slot::was_off`), as a locate does. Test: engine `a_bypassed_limiter_does_not_play_what_it_held` (fails without the fix: 0.011 of the burst comes out).
+- **L2.** The window kept the *gain each frame needed*, measured against the ceiling of its own frame, so lowering the ceiling left old peaks averaged at the old one. It keeps the *level* (a sliding maximum) and divides the ceiling in at the front. Test: `lowering_the_ceiling_holds_the_peak_already_in_the_window`.
+- **L3.** The refusal reads "Only an effect with a sidechain input takes a sidechain."
+- **L4.** The compressor clamps the frames it reads its key from to both key sides' lengths.
+- **L5.** New tests: `the_mix_is_plain_compressed_half_and_all` (0, 50 and 100 %), `rms_detection_reads_the_mean_and_not_the_peak`, `the_attack_and_release_take_their_time_to_get_there` (63 % in one time constant, to within 15 % of the full reduction), `offline_rendering_is_bit_for_bit_what_playback_plays` (one pass against 64, 97, 128, 512 and 1024 frames, for both devices) and `the_limiter_delays_by_its_frames_at_any_rate` (72 frames at 44.1, 48 and 96 kHz).
+- **L7.** `docs/ARCHITECTURE.md` gains `dynamics/` and `chain/faces/` in its module tables, and the All-parameters panel's note.
+- **L8.** The manual test stays MT-FX-3 (the parent renumbers).
+- **L6** (face allocations) is left to the face rebuild, as the parent asked.
