@@ -372,8 +372,36 @@ pub(crate) fn ruler(
     // their labels while the view scrolls.
     let label_font = FontId::monospace(theme::size::SCALE);
     let every = bar_label_step(lines, meter, time);
+    // The numbers first, so no tick is drawn through one: a bar or beat tick
+    // that falls inside a number's span is left out.
+    let mut numbers = Vec::new();
+    let mut covered: Vec<(f32, f32)> = Vec::new();
+    for line in lines.iter().filter(|l| l.level == Level::Bar) {
+        let bar = meter.bbt_at(line.at).bar;
+        if bar.rem_euclid(every) != 0 {
+            continue;
+        }
+        let lx = x(line.at.as_quarters());
+        let galley = painter.layout_no_wrap(
+            format!("{}", bar + 1),
+            label_font.clone(),
+            palette.text_secondary,
+        );
+        let at = pos2(
+            lx + theme::space::XXS + 1.0,
+            strip.top() + theme::space::XXS,
+        );
+        // A label that would be cut at the right edge is left out.
+        if at.x + galley.size().x <= strip.right() {
+            covered.push((at.x, at.x + galley.size().x + theme::space::XXS));
+            numbers.push((at, galley));
+        }
+    }
     for line in lines {
         let lx = x(line.at.as_quarters());
+        if inside_any(lx, &covered) {
+            continue;
+        }
         match line.level {
             Level::Bar => {
                 painter.vline(
@@ -381,20 +409,6 @@ pub(crate) fn ruler(
                     strip.top() + theme::space::XS..=mid,
                     Stroke::new(theme::stroke::HAIRLINE, palette.grid_bar),
                 );
-                let bar = meter.bbt_at(line.at).bar;
-                if bar.rem_euclid(every) == 0 {
-                    let text = format!("{}", bar + 1);
-                    let galley =
-                        painter.layout_no_wrap(text, label_font.clone(), palette.text_secondary);
-                    // A label that would be cut at the right edge is left out.
-                    let at = pos2(
-                        lx + theme::space::XXS + 1.0,
-                        strip.top() + theme::space::XXS,
-                    );
-                    if at.x + galley.size().x <= strip.right() {
-                        painter.galley(at, galley, palette.text_secondary);
-                    }
-                }
             }
             Level::Beat => {
                 painter.vline(
@@ -405,6 +419,9 @@ pub(crate) fn ruler(
             }
             Level::Sub => {}
         }
+    }
+    for (at, galley) in numbers {
+        painter.galley(at, galley, palette.text_secondary);
     }
     // The file's own time, from its first frame, at a step that keeps the
     // labels apart: device-rate frames over the rate. The step comes from
@@ -456,6 +473,11 @@ pub(crate) fn ruler(
         strip.bottom(),
         Stroke::new(theme::stroke::HAIRLINE, palette.border),
     );
+}
+
+/// Whether `x` falls inside one of the `(left, right)` spans.
+fn inside_any(x: f32, spans: &[(f32, f32)]) -> bool {
+    spans.iter().any(|&(left, right)| x >= left && x <= right)
 }
 
 /// How many bars a bar number stands for at this zoom: 1, 2, 4… so labels
@@ -712,6 +734,21 @@ mod tests {
             4
         );
         assert_eq!(bar_label_step(&[line(0)], &meter, time), 1, "one line");
+    }
+
+    /// The owner's report: the grid's bar and beat ticks ran through the digits
+    /// of a bar number. A tick inside a number's span is left out; the number's
+    /// own tick, just left of the span, and the ones past it stay.
+    #[test]
+    fn a_tick_inside_a_bar_number_is_left_out() {
+        let spans = [(13.0, 27.0), (61.0, 75.0)];
+        assert!(!inside_any(10.0, &spans), "the number's own tick");
+        assert!(inside_any(13.0, &spans));
+        assert!(inside_any(20.0, &spans));
+        assert!(inside_any(27.0, &spans));
+        assert!(!inside_any(28.0, &spans));
+        assert!(inside_any(70.0, &spans));
+        assert!(!inside_any(20.0, &[]));
     }
 
     #[test]
