@@ -9,7 +9,7 @@
 
 use lumen_core::time::Ticks;
 
-use crate::model::{DrumMap, Sound};
+use crate::model::{DrumMap, Route, Sound};
 
 pub mod convert;
 pub mod icon;
@@ -19,12 +19,17 @@ pub use convert::{Converted, convert_notes};
 pub use icon::icon_for_name;
 
 /// How a note sounds through a map: the note the instrument gets, the channel
-/// (none for the track's) and a length override, when the sound has one.
+/// (none for the track's), a length override when the sound has one, and
+/// where the sound plays (M8 D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Played {
     pub key: u8,
     pub channel: Option<u8>,
     pub length: Option<Ticks>,
+    /// The track or output the sound's notes are heard on: the track's own
+    /// instrument by default, an output pair of it, or another instrument
+    /// track (§6.4). A note with no sound plays on the track's own.
+    pub route: Route,
 }
 
 impl Played {
@@ -79,11 +84,13 @@ impl<'a> Playing<'a> {
                 key: sound.output,
                 channel: sound.channel,
                 length: sound.length,
+                route: sound.route,
             }),
             None => Some(Played {
                 key: input,
                 channel: None,
                 length: None,
+                route: Route::Main,
             }),
         }
     }
@@ -143,7 +150,8 @@ mod tests {
             Some(Played {
                 key: 60,
                 channel: None,
-                length: None
+                length: None,
+                route: Route::Main
             })
         );
         assert_eq!(
@@ -151,8 +159,36 @@ mod tests {
             Some(Played {
                 key: 40,
                 channel: None,
-                length: None
+                length: None,
+                route: Route::Main
             })
+        );
+    }
+
+    #[test]
+    fn a_sound_carries_the_route_it_plays_on() {
+        // M8 D4: the translation says where a sound is heard, so the player
+        // can give the note to the right instrument.
+        let mut kit = map(vec![
+            Sound::new("Kick", 36, 40, DrumIcon::Kick),
+            Sound::new("Snare", 38, 41, DrumIcon::Snare),
+        ]);
+        kit.sounds[0].route = Route::Output(3);
+        kit.sounds[1].route = Route::Track(Id(77));
+        assert_eq!(
+            played(&kit, 36).map(|p| p.route),
+            Some(Route::Output(3)),
+            "the kick leaves by its pair"
+        );
+        assert_eq!(
+            played(&kit, 38).map(|p| p.route),
+            Some(Route::Track(Id(77))),
+            "the snare plays on another track"
+        );
+        assert_eq!(
+            played(&kit, 60).map(|p| p.route),
+            Some(Route::Main),
+            "a note with no sound plays on the track itself"
         );
     }
 
