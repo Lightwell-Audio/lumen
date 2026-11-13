@@ -278,7 +278,13 @@ fn describe(device: &Device) -> Vec<ParamInfo> {
                 units: info.unit.to_owned(),
                 steps: info.steps,
                 default: f64::from(info.normalised(info.default)),
-                flags: FLAG_CAN_AUTOMATE,
+                // A parameter that is the device's timing is not automatable
+                // (M8 slice B2): a lane would change the delay every block.
+                flags: if lumen_devices::automatable(name_of(device), info.id) {
+                    FLAG_CAN_AUTOMATE
+                } else {
+                    0
+                },
                 unit: 0,
                 value,
             }

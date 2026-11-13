@@ -71,7 +71,9 @@ struct RowLook<'a> {
     device: &'a Device,
     p: &'a ParamInfo,
     units: &'a [UnitInfo],
-    starred_now: bool,
+    /// Whether the parameter is on the strip: `None` for a device that draws a
+    /// face and has no strip.
+    starred_now: Option<bool>,
     under_cursor: bool,
 }
 
@@ -228,6 +230,7 @@ impl App {
             default: p.default,
             steps: p.steps,
             read_only: p.read_only(),
+            automatable: p.can_automate(),
             choices: if p.steps > 1 {
                 self.parameter_choices(d, p.id)
             } else {
@@ -446,7 +449,35 @@ impl App {
 
     /// Sets a parameter as one undo step per drag. `from` keeps the strip's
     /// drag and the panel's apart.
+    ///
+    /// A parameter that is the device's *timing* (the limiter's lookahead,
+    /// M8 slice B2) is held until its drag ends: the audio keeps the delay it
+    /// has while the knob moves, so the routing is re-timed once rather than
+    /// every frame, and its lanes are not automatable. A value typed in
+    /// applies at once.
     fn set_parameter(&mut self, device: Id, id: u32, value: f64, from: &str) {
+        let timing =
+            crate::document::find_device(self.document.project(), device).is_some_and(|(_, d)| {
+                crate::builtin::is_builtin(d)
+                    && lumen_devices::timing_parameter(crate::builtin::name_of(d), id)
+            });
+        if timing && from != "typed" {
+            self.chain
+                .deferred
+                .entry((device, id))
+                .and_modify(|entry| {
+                    entry.0 = value;
+                    entry.1 = true;
+                })
+                .or_insert((value, true));
+            return;
+        }
+        self.commit_parameter(device, id, value, from);
+    }
+
+    /// A timing parameter's held change, applied once its drag has ended: one
+    /// undo step, and the only time the routing hears the new number.
+    fn commit_parameter(&mut self, device: Id, id: u32, value: f64, from: &str) {
         let title = self
             .device_parameters_of(device)
             .iter()
@@ -454,12 +485,35 @@ impl App {
             .map_or_else(|| "parameter".to_owned(), |p| p.title.clone());
         // Moving a control a lane drives takes the lane over (M7 slice A4a).
         self.document.override_param(device, id);
+        let merge = if from == "look" {
+            None
+        } else {
+            Some(format!("{from}:{}:{id}", device.0))
+        };
         let _ = self.document.set_device_params(
             device,
             &[(id, value)],
             &format!("Change {title}"),
-            Some(&format!("{from}:{}:{id}", device.0)),
+            merge.as_deref(),
         );
+    }
+
+    /// Applies the timing changes whose drags have ended (called once a frame
+    /// before the drawing, so this frame's grab is seen next frame).
+    pub(crate) fn apply_deferred(&mut self) {
+        let mut done: Vec<(Id, u32, f64)> = Vec::new();
+        for (&(device, id), entry) in &mut self.chain.deferred {
+            if entry.1 {
+                // Set again this frame: the drag is still going.
+                entry.1 = false;
+            } else {
+                done.push((device, id, entry.0));
+            }
+        }
+        for (device, id, value) in done {
+            self.chain.deferred.remove(&(device, id));
+            self.commit_parameter(device, id, value, "look");
+        }
     }
 
     /// Puts a parameter on the strip, or takes it off. Says why when it
@@ -514,6 +568,11 @@ impl App {
         let list: Vec<ParamInfo> = self.device_parameters(&device).to_vec();
         let units: Vec<UnitInfo> = self.device_units(&device);
         let shown = self.strip_ids(device.id);
+        // A built-in whose picture is its idea draws its own four controls
+        // (M8 slice B2): there is no strip to star a parameter onto, so the
+        // panel says where they are instead of offering a star that would do
+        // nothing.
+        let face = crate::chain::faces::of(crate::builtin::name_of(&device)).is_some();
         let title = format!("{} parameters", crate::document::device_name(&device));
         let mut starred: Vec<u32> = Vec::new();
         let mut act = RowOut::default();
@@ -523,9 +582,14 @@ impl App {
                 Align2::CENTER_TOP,
             )
             .show(ctx, |ui| {
-                if panel.fill {
+                if panel.fill || face {
+                    let words = if face {
+                        "This device's controls are on its face; every parameter is here."
+                    } else {
+                        "Star a parameter to put it on the card."
+                    };
                     ui.label(
-                        egui::RichText::new("Star a parameter to put it on the card.")
+                        egui::RichText::new(words)
                             .color(theme::p().text_secondary)
                             .size(theme::size::CAPTION),
                     );
@@ -603,15 +667,21 @@ impl App {
                                 device: &device,
                                 p,
                                 units: &units,
-                                starred_now: shown.contains(&p.id),
+                                // A face keeps no strip to star a parameter onto.
+                                starred_now: (!face).then(|| shown.contains(&p.id)),
                                 under_cursor: r == panel.cursor,
                             };
                             self.parameter_row(ui, look, &mut starred, &mut act);
                         }
                     });
                 ui.add_space(theme::space::XS);
+                let footer = if face {
+                    format!("All {total} parameters")
+                } else {
+                    format!("{} of {} on the strip", shown.len(), total)
+                };
                 ui.label(
-                    egui::RichText::new(format!("{} of {} on the strip", shown.len(), total))
+                    egui::RichText::new(footer)
                         .font(FontId::monospace(theme::size::MONO_SMALL))
                         .color(theme::p().text_hint),
                 );
@@ -633,7 +703,8 @@ impl App {
         }
     }
 
-    /// One row of the panel: the star, the name and its group, the bar.
+    /// The star, the name and its group, the bar. `starred_now` is `None` for
+    /// a device that draws a face: it has no strip, so no star.
     fn parameter_row(
         &self,
         ui: &mut Ui,
@@ -658,44 +729,53 @@ impl App {
         let star =
             Rect::from_center_size(pos2(row.left() + 11.0, row.center().y), vec2(20.0, 20.0));
         let id = egui::Id::new(("parameter row", device.id.0, p.id));
-        let response = ui.interact(star, id.with("star"), Sense::click());
-        let label = if starred_now {
-            format!("Take {} off the strip", p.title)
-        } else {
-            format!("Put {} on the strip", p.title)
-        };
-        response.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, starred_now, label.clone())
-        });
-        let painter = ui.painter();
-        painter.text(
-            star.center(),
-            Align2::CENTER_CENTER,
-            if starred_now { "\u{2605}" } else { "\u{2606}" },
-            FontId::proportional(theme::size::BODY),
-            if starred_now {
-                palette.accent
-            } else {
-                palette.text_hint
-            },
-        );
-        if response.on_hover_text(label).clicked() {
-            starred.push(p.id);
+        // A face device has no strip to put a parameter on: no star at all, and
+        // the name starts where the star would have been (M8 slice B2).
+        let mut text_left = star.right() + 6.0;
+        match starred_now {
+            Some(on) => {
+                let response = ui.interact(star, id.with("star"), Sense::click());
+                let label = if on {
+                    format!("Take {} off the strip", p.title)
+                } else {
+                    format!("Put {} on the strip", p.title)
+                };
+                response.widget_info(|| {
+                    egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, label.clone())
+                });
+                let painter = ui.painter();
+                painter.text(
+                    star.center(),
+                    Align2::CENTER_CENTER,
+                    if on { "\u{2605}" } else { "\u{2606}" },
+                    FontId::proportional(theme::size::BODY),
+                    if on {
+                        palette.accent
+                    } else {
+                        palette.text_hint
+                    },
+                );
+                if response.on_hover_text(label).clicked() {
+                    starred.push(p.id);
+                }
+            }
+            None => text_left = row.left() + 4.0,
         }
         let bar = Rect::from_min_max(
             pos2(row.right() - 124.0, row.top() + 3.0),
             pos2(row.right() - 4.0, row.bottom() - 3.0),
         );
-        let name_room = bar.left() - (star.right() + 6.0) - 8.0;
+        let name_room = bar.left() - text_left - 8.0;
         let font = FontId::proportional(theme::size::CAPTION);
         let group = unit_name(units, p.unit);
+        let painter = ui.painter();
         let title = widgets::fit(painter, &p.title, font.clone(), name_room);
         let used = painter
             .layout_no_wrap(title.clone(), font.clone(), palette.text)
             .size()
             .x;
         painter.text(
-            pos2(star.right() + 6.0, row.center().y),
+            pos2(text_left, row.center().y),
             Align2::LEFT_CENTER,
             title,
             font.clone(),
@@ -705,7 +785,7 @@ impl App {
         if left > 24.0 && p.unit != 0 {
             let group = widgets::fit(painter, &group, font.clone(), left);
             painter.text(
-                pos2(star.right() + 6.0 + used + 6.0, row.center().y),
+                pos2(text_left + used + 6.0, row.center().y),
                 Align2::LEFT_CENTER,
                 group,
                 FontId::proportional(theme::size::MONO_SMALL),

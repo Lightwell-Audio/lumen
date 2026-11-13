@@ -39,6 +39,9 @@ pub(super) struct Slot {
     /// The plugin's own word for each step of a stepped parameter, as far as
     /// it has said them (empty for the rest, and for a knob).
     pub choices: Vec<String>,
+    /// A parameter that a lane, MIDI learn or an override may drive. A
+    /// device's timing (the limiter's lookahead) is not one (M8 slice B2).
+    pub automatable: bool,
     /// The user has taken over the lane that drives it (M7 slice A4a).
     pub over: bool,
     /// The controller that moves it (channel, number), if one is mapped
@@ -367,8 +370,12 @@ fn paint_cell(
                     ui.close();
                 }
                 ui.separator();
-                if let Some(ask) = widgets::control_items(ui, slot.mapped, slot.waiting) {
-                    out.push(Output::Ask(slot_id_param, ask));
+                if slot.automatable {
+                    if let Some(ask) = widgets::control_items(ui, slot.mapped, slot.waiting) {
+                        out.push(Output::Ask(slot_id_param, ask));
+                    }
+                } else {
+                    widgets::menu_caption(ui, "Not automatable: it is the device's timing.");
                 }
             });
         }

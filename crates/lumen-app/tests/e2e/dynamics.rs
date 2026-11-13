@@ -352,3 +352,75 @@ fn gravity_publishes_the_gain_reduction_its_face_draws() {
     });
     lumen.key(Modifiers::NONE, Key::Space);
 }
+
+/// M2: dragging the lookahead while the song plays re-times the routing once,
+/// when the drag ends — the audio keeps the delay it has while the knob moves.
+#[test]
+fn dragging_the_lookahead_re_times_the_routing_once_when_it_ends() {
+    let (mut lumen, _, device) = launched(
+        "horizon-look",
+        "Add Horizon",
+        lumen_devices::dynamics::limiter::NAME,
+    );
+    lumen.show_whole_cards();
+    lumen.frames(10);
+    lumen.wait_for("the compensation", |app| app.compensation() == 72);
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
+
+    // The knob is dragged in steps, as a hand does: the compensation does not
+    // move while the pointer is down.
+    let knob = at(&lumen, "Look, parameter");
+    lumen.harness.hover_at(knob);
+    lumen.frames(2);
+    lumen.harness.drag_at(knob);
+    lumen.frames(2);
+    for step in 1..=4 {
+        lumen.harness.drag_at(knob - vec2(0.0, 20.0 * step as f32));
+        lumen.frames(5);
+        assert_eq!(
+            lumen.app().compensation(),
+            72,
+            "the routing keeps its delay mid-drag (step {step})"
+        );
+    }
+    // Let go: once, and once only, the new lookahead reaches the routing.
+    lumen.harness.drop_at(knob - vec2(0.0, 80.0));
+    lumen.frames(30);
+    let after = lumen.app().compensation();
+    assert!(after > 72, "the routing was re-timed: {after}");
+    let look = param(&lumen, device, limiter::LOOK).expect("a value");
+    assert!(look > 0.2, "the knob's own value moved: {look}");
+    lumen.frames(10);
+    assert_eq!(lumen.app().compensation(), after, "and not again after it");
+    lumen.key(Modifiers::NONE, Key::Space);
+}
+
+/// M6: a device with a face has no strip, so its All-parameters panel offers no
+/// star and says where the controls are.
+#[test]
+fn the_all_parameters_panel_of_a_face_says_where_its_controls_are() {
+    let (mut lumen, _, _) = launched(
+        "gravity-panel",
+        "Add Gravity",
+        lumen_devices::dynamics::compressor::NAME,
+    );
+    lumen.click("All parameters (10)");
+    lumen.frames(10);
+    assert!(
+        lumen.shows("This device's controls are on its face; every parameter is here."),
+        "the panel says where the controls are"
+    );
+    assert!(
+        !lumen.shows("Star a parameter to put it on the card."),
+        "and does not promise a star"
+    );
+    assert!(
+        lumen
+            .harness
+            .query_by_label("Put Pull on the strip")
+            .is_none(),
+        "no star column"
+    );
+    assert!(lumen.shows("All 10 parameters"), "the footer counts them");
+}

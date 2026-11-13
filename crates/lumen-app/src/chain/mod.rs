@@ -110,4 +110,9 @@ pub(crate) struct Chain {
     /// A device just dropped on a track from the browser: its window opens
     /// as soon as its plugin is running.
     pub open_when_ready: Option<Id>,
+    /// A change to a parameter that is the device's timing (the limiter's
+    /// lookahead), waiting for its drag to end (M8 slice B2): the value, and
+    /// whether it was set again since the last frame. Applying it once leaves
+    /// the audio's delay alone while the knob moves.
+    pub deferred: BTreeMap<(Id, u32), (f64, bool)>,
 }

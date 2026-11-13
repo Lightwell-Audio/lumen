@@ -45,7 +45,7 @@ pub enum Refusal {
     NotAPlugin,
     /// The preset's state is larger than a project keeps.
     TooLarge,
-    /// Only a plugin effect takes a sidechain.
+    /// Only an effect with a sidechain input takes a sidechain.
     NotAnEffect,
     /// A track cannot key its own effect.
     SidechainSelf,
@@ -70,7 +70,7 @@ impl fmt::Display for Refusal {
             Refusal::BadPlugin => "That plugin can't be added: its identity is not valid.",
             Refusal::NotAPlugin => "Only a plugin can load a preset.",
             Refusal::TooLarge => "That preset is too large to keep in a project.",
-            Refusal::NotAnEffect => "Only a plugin effect takes a sidechain.",
+            Refusal::NotAnEffect => "Only an effect with a sidechain input takes a sidechain.",
             Refusal::NotAnInstrument => "Only a plugin instrument has outputs.",
             Refusal::OutputHasContent => "That output's track has clips or devices in it.",
             Refusal::SidechainSelf => "A track can't key its own effect.",
