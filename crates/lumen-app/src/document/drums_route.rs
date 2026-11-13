@@ -230,6 +230,20 @@ impl Document {
             })
             .map(|(_, id)| *id)
             .collect();
+        // The track pair `bus` plays on after the edit: the one made for it,
+        // or the one already there (a pair whose sound left loses its track,
+        // so it never counts).
+        let track_of_bus = |bus: u32| {
+            make.iter()
+                .find(|(_, b, _)| *b == bus)
+                .map(|(id, _, _)| *id)
+                .or_else(|| {
+                    existing
+                        .iter()
+                        .find(|(b, id)| *b == bus && !drop.contains(id))
+                        .map(|(_, id)| *id)
+                })
+        };
         // Where each sound is heard after the edit, in the map's order.
         let mut heard: Vec<Id> = Vec::new();
         let mut on_main = 0;
@@ -239,23 +253,17 @@ impl Document {
                     heard.push(track);
                     on_main += 1;
                 }
-                Route::Output(bus) => {
-                    let made = make
-                        .iter()
-                        .find(|(_, b, _)| *b == bus)
-                        .map(|(id, _, _)| *id)
-                        .or_else(|| {
-                            existing
-                                .iter()
-                                .find(|(b, id)| *b == bus && !drop.contains(id))
-                                .map(|(_, id)| *id)
-                        });
-                    heard.push(made.unwrap_or(track));
-                }
+                Route::Output(bus) => heard.push(track_of_bus(bus).unwrap_or(track)),
                 Route::Track(to) => heard.push(to),
             }
         }
-        let make_group = group && !make.is_empty() && self.can_group(track);
+        // The tracks the pairs end up on, made now or already there: what a
+        // group of them holds.
+        let pair_tracks: Vec<Id> = needed
+            .iter()
+            .filter_map(|(bus, _)| track_of_bus(*bus))
+            .collect();
+        let make_group = group && !pair_tracks.is_empty() && self.can_group(track);
         let group_id = self.fresh_id();
         let group_name = before.name.clone();
         let color = track_color(self.project().new_track_color, self.project().tracks.len());
@@ -334,7 +342,7 @@ impl Document {
                 // The tracks the sounds were given, not the kit track: they
                 // are what a group of a multi-output instrument holds, and
                 // the kit's own output stays where it was.
-                let members: Vec<Id> = made.iter().map(|(id, _, _)| *id).collect();
+                let members = pair_tracks.clone();
                 for slot in &mut project.tracks {
                     if members.contains(&slot.id) {
                         Arc::make_mut(slot).parent = Some(group_id);

@@ -489,17 +489,13 @@ fn translated(
         .iter()
         .filter(|c| !silent && !c.muted && matches!(c.content, ClipContent::Midi { .. }))
         .filter_map(|clip| {
-            Some(crate::midi::runs::Member::own(
-                clip,
-                inputs.playing_length(track.id, clip)?,
-                map,
-            ))
+            let length = inputs.playing_length(track.id, clip)?;
+            Some(crate::midi::runs::Member::own(clip, length, map).sending(dest))
         });
     let suppression = inputs.suppression(track.id);
     let mut clips = Vec::new();
     for run in crate::midi::runs::runs(members).iter() {
-        let sending = run.iter().map(|m| m.sending(dest)).collect::<Vec<_>>();
-        for clip in cache.clip_with_suppression(&sending, suppression) {
+        for clip in cache.clip_with_suppression(run, suppression) {
             clips.push(clip.clone());
         }
     }
