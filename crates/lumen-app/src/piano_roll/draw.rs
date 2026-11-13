@@ -77,15 +77,24 @@ impl Rows {
     }
 
     /// Only the input notes of `sounds`, in the order the list gives them
-    /// (the drum editor's lanes: the map's order). An empty list is no rows at
-    /// all: Hide unused with nothing used leaves the lanes empty.
+    /// (the drum editor's lanes: the map's order). A note repeated gets one
+    /// row (a seen set, not a sort). An empty list is no rows at all: Hide
+    /// unused with nothing used leaves the lanes empty.
     pub fn lanes(pitches: impl IntoIterator<Item = u8>) -> Self {
-        let mut pitches: Vec<u8> = pitches.into_iter().collect();
-        pitches.dedup();
-        if pitches.is_empty() {
+        let mut seen = [false; PITCHES as usize];
+        let mut listed: Vec<u8> = Vec::new();
+        for pitch in pitches {
+            if let Some(slot) = seen.get_mut(usize::from(pitch))
+                && !*slot
+            {
+                *slot = true;
+                listed.push(pitch);
+            }
+        }
+        if listed.is_empty() {
             return Self::none();
         }
-        Self::of(pitches, true)
+        Self::of(listed, true)
     }
 
     /// No rows at all (a drum map whose lanes are all hidden).
@@ -533,6 +542,18 @@ mod tests {
         assert_eq!(pitch_name(127), "G9");
     }
 
+    #[test]
+    fn a_repeated_input_note_gets_one_lane_row() {
+        // Review L7: the lanes' order is the list's, with no duplicates, and
+        // no sort.
+        let rows = Rows::lanes([42_u8, 36, 42, 38, 36]);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows.row_of(42), Some(0));
+        assert_eq!(rows.row_of(36), Some(1));
+        assert_eq!(rows.row_of(38), Some(2));
+        assert_eq!(rows.pitch_of(0), 42);
+        assert_eq!(rows.pitch_of(2), 38);
+    }
     #[test]
     fn rows_run_from_the_highest_pitch_down() {
         let rect = Rect::from_min_max(pos2(0.0, 10.0), pos2(100.0, 50.0));

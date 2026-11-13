@@ -174,20 +174,19 @@ fn note(n: u32, feel: Feel) -> Option<Ticks> {
 }
 
 /// The ticks a fixed size lasts in `meter` (M8 D2: a drum sound's own quantize
-/// grid), or `None` when it is not a whole number of ticks. A bar's triplet or
-/// dot is taken from the bar's own length.
+/// grid), or `None` when it is not a whole number of ticks. A bar has no
+/// triplet or dotted feel (it is not whole ticks in every meter): the map
+/// editor does not offer one, and a file that names one reads as straight
+/// (review L8).
 pub fn size_ticks(size: Size, feel: Feel, meter: Meter) -> Option<Ticks> {
     match size {
         Size::Note(n) => note(n.max(1), feel),
         Size::Bars(bars) => {
+            if feel != Feel::Straight {
+                return None;
+            }
             let bar = meter.bar().0.saturating_mul(i64::from(bars.max(1)));
-            let (num, den): (i64, i64) = match feel {
-                Feel::Straight => (1, 1),
-                Feel::Triplet => (2, 3),
-                Feel::Dotted => (3, 2),
-            };
-            let ticks = (bar * num).div_euclid(den);
-            (bar > 0 && bar * num % den == 0 && ticks > 0).then_some(Ticks(ticks))
+            (bar > 0).then_some(Ticks(bar))
         }
     }
 }
@@ -546,12 +545,10 @@ mod tests {
             size_ticks(Size::Bars(2), Feel::Straight, FOUR),
             Some(Ticks(PPQ * 8))
         );
-        assert_eq!(
-            size_ticks(Size::Bars(1), Feel::Triplet, FOUR),
-            Some(Ticks(PPQ * 8 / 3)),
-            "two thirds of a bar"
-        );
-        // A bar of any meter divides into thirds at Lumen's tick resolution.
+        // A bar is straight only: a triplet or dotted bar is not whole ticks
+        // in every meter, so the map editor does not offer one and
+        // `size_ticks` refuses it (review L8).
+        assert_eq!(size_ticks(Size::Bars(1), Feel::Triplet, FOUR), None);
         let odd = Meter {
             numerator: 7,
             denominator: 8,
@@ -560,10 +557,7 @@ mod tests {
             size_ticks(Size::Bars(1), Feel::Straight, odd),
             Some(odd.bar())
         );
-        assert_eq!(
-            size_ticks(Size::Bars(1), Feel::Triplet, odd),
-            Some(Ticks(odd.bar().0 * 2 / 3))
-        );
+        assert_eq!(size_ticks(Size::Bars(2), Feel::Dotted, FOUR), None);
     }
 
     #[test]

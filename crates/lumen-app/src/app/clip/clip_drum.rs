@@ -40,9 +40,11 @@ pub(crate) struct DrumFrame<'a> {
     pub view: &'a EditorView,
     pub clip: &'a Arc<Clip>,
     pub lanes: &'a [Lane],
-    /// The map's id and name (the lanes carry each sound's own facts).
+    /// The map's id and name, and how many sounds it holds (the empty state
+    /// tells a map with none from Hide unused hiding them all).
     pub map_id: Id,
     pub map_name: &'a str,
+    pub sounds: usize,
     /// The lanes' name column (beside and above the rows).
     pub keys: Rect,
 }
@@ -116,6 +118,32 @@ impl App {
             .is_some_and(|track| self.note_editor.drum.hides_unused(track))
     }
 
+    /// The map and the sound of the picked hits' lane, when the open clip is
+    /// shown as lanes and every picked hit is in one lane (the commands Mute
+    /// and Solo the picked lane act on it, review M4).
+    pub(crate) fn drum_picked_lane(&self) -> Option<(Id, u8)> {
+        let clip = self.note_editor.clip?;
+        let track = self.track_of_clip(clip)?;
+        if self.note_editor.drum.view(track) != View::Lanes {
+            return None;
+        }
+        let map = self.clip_drum_map(clip)?;
+        let (open, _) = self.editor_clip(clip)?;
+        let notes = crate::note_editor::notes_of(&open);
+        let mut lane = None;
+        for &index in self.note_editor.picked() {
+            let pitch = notes.get(index)?.pitch();
+            match lane {
+                None => lane = Some(pitch),
+                Some(first) if first != pitch => return None,
+                Some(_) => {}
+            }
+        }
+        let pitch = lane?;
+        map.sound(pitch)?;
+        Some((map.id, pitch))
+    }
+
     /// Draws the lanes' ground, the grid's lines and the name column, and runs
     /// the name column's pointer.
     pub(crate) fn drum_surface(
@@ -127,6 +155,7 @@ impl App {
         mut frame: DrumFrame<'_>,
     ) {
         let map_id = frame.map_id;
+        let sounds = frame.sounds;
         let DrumFrame {
             ed, view, lanes, ..
         } = &mut frame;
@@ -142,7 +171,12 @@ impl App {
             look,
         ));
         if lanes.is_empty() {
-            crate::drum_editor::paint::empty(&painter, view.body);
+            // M6: a map with no sounds, or Hide unused with nothing used —
+            // the second offers the way back.
+            let (state, can_show) = crate::drum_editor::paint::empty_state(sounds);
+            if widgets::empty_state(ui, view.body, &state) && can_show {
+                self.toggle_hide_unused_lanes();
+            }
         }
         self.drum_names(ui, ctx, frame);
     }
@@ -177,6 +211,7 @@ impl App {
             map_id,
             map_name,
             keys,
+            ..
         } = frame;
         let painter = ui.painter().clone();
         let p = theme::p();
@@ -225,7 +260,6 @@ impl App {
         let mut action = None;
         let id = ui.id().with(("drum names", clip.id.0));
         let dragging = ed.drum.reorder.filter(|r| r.map == map_id);
-        let hits = hit_counts(clip);
         for (row, lane) in lanes.iter().enumerate() {
             let row_rect = geometry::row_rect(view, row);
             if row_rect.bottom() < keys.top() || row_rect.top() > keys.bottom() {
@@ -255,7 +289,7 @@ impl App {
                 egui::WidgetInfo::labeled(
                     egui::WidgetType::Button,
                     true,
-                    format!("{} lane, {} hits", lane.name, hits[usize::from(lane.input)]),
+                    format!("{} lane, {} hits", lane.name, lane.hits),
                 )
             });
             let name = name.on_hover_text(format!("Audition {}", lane.name));
@@ -428,18 +462,4 @@ impl App {
         }
         (!steps.is_empty()).then_some(steps)
     }
-}
-
-/// How many hits of each sound a clip holds (its whole content, outside the
-/// window too).
-fn hit_counts(clip: &Clip) -> [usize; 128] {
-    let mut counts = [0_usize; 128];
-    if let lumen_project::model::ClipContent::Midi { notes, .. } = &clip.content {
-        for note in notes {
-            if let Some(slot) = counts.get_mut(usize::from(note.pitch())) {
-                *slot += 1;
-            }
-        }
-    }
-    counts
 }

@@ -289,6 +289,11 @@ impl App {
         self.nav.set(view);
     }
 
+    /// Sets the arrangement's view to `left` beats at `zoom` points a beat, as
+    /// zooming and scrolling would (a deep zoom for a test).
+    pub fn set_view_to(&mut self, left: f64, zoom: f64) {
+        self.nav.set(TimeView { left, zoom });
+    }
     /// The height of every track row together, in points.
     pub fn tracks_height(&self, ctx: &egui::Context) -> f32 {
         self.arrangement
@@ -617,6 +622,11 @@ impl App {
     /// Opens a MIDI clip in the clip editor, as a double-click does.
     pub fn open_clip_editor(&mut self, clip: Id) {
         self.open_note_editor(clip);
+    }
+
+    /// Closes the clip editor, as the clip going does.
+    pub fn close_the_clip_editor(&mut self) {
+        self.close_note_editor();
     }
 
     /// Sets a clip's gain as the properties card does (one undo step).

@@ -443,6 +443,26 @@ impl App {
             Command::HideUnusedLanes => {
                 self.toggle_hide_unused_lanes();
             }
+            Command::DrumMuteLane => {
+                if let Some((map, input)) = self.drum_picked_lane() {
+                    let mute = self
+                        .document
+                        .drum_map(map)
+                        .and_then(|m| m.sound(input))
+                        .is_some_and(|sound| sound.mute);
+                    self.document.set_sound_mute(map, input, !mute);
+                }
+            }
+            Command::DrumSoloLane => {
+                if let Some((map, input)) = self.drum_picked_lane() {
+                    let solo = self
+                        .document
+                        .drum_map(map)
+                        .and_then(|m| m.sound(input))
+                        .is_some_and(|sound| sound.solo);
+                    self.document.set_sound_solo(map, input, !solo);
+                }
+            }
             Command::TransposeClipUp => self.transpose_clips_command(1),
             Command::TransposeClipDown => self.transpose_clips_command(-1),
             Command::AddAudioTrack => self.arrangement.add_track(doc, TrackKind::Audio),

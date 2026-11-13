@@ -19,12 +19,17 @@ pub(crate) mod geometry;
 pub(crate) mod paint;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
-use eframe::egui::Color32;
+use eframe::egui::{Color32, Rect};
 use lumen_core::time::Ticks;
-use lumen_project::model::{DrumMap, Id, Note, Quantize};
+use lumen_project::model::{Clip, DrumMap, Id, Note, Quantize};
 
 use crate::design::icons::DrumGlyph;
+use crate::note_editor::view::EditorView;
+use crate::timeview::TimeView;
+
+use geometry::Cell;
 
 /// Which view of a drum clip the Clip tab shows (the owner's DV A): the lanes,
 /// or the piano roll, whose key column D1 made the kit's (Keys).
@@ -57,24 +62,29 @@ pub(crate) struct Lane {
     pub quantize: Option<Quantize>,
     /// The map's place of the sound, for a reorder.
     pub index: usize,
+    /// How many hits of this sound the clip holds (its whole content, outside
+    /// its window too): the name column's accessible name, counted once with
+    /// the lanes (H2).
+    pub hits: usize,
 }
 
 /// The lanes the open clip shows: the map's sounds in the map's order, less
 /// the unused ones while `hide_unused` is on (a sound with no hit in the
 /// clip's notes, outside its window too, so a trimmed-away hit is not
-/// forgotten and then found).
+/// forgotten and then found). One pass over the notes counts each sound's
+/// hits.
 pub(crate) fn lanes(map: &DrumMap, notes: &[Note], hide_unused: bool) -> Vec<Lane> {
-    let mut used = [false; 128];
+    let mut used = [0_usize; 128];
     for note in notes {
         if let Some(slot) = used.get_mut(usize::from(note.pitch())) {
-            *slot = true;
+            *slot = slot.saturating_add(1);
         }
     }
     map.sounds
         .iter()
         .enumerate()
         .filter(|(_, sound)| {
-            !hide_unused || used.get(usize::from(sound.input)).copied() == Some(true)
+            !hide_unused || used.get(usize::from(sound.input)).copied().unwrap_or(0) > 0
         })
         .map(|(index, sound)| Lane {
             input: sound.input,
@@ -84,10 +94,11 @@ pub(crate) fn lanes(map: &DrumMap, notes: &[Note], hide_unused: bool) -> Vec<Lan
             mute: sound.mute,
             solo: sound.solo,
             silent: !map.heard(sound),
-            used: used.get(usize::from(sound.input)).copied() == Some(true),
+            used: used.get(usize::from(sound.input)).copied().unwrap_or(0) > 0,
             length: sound.length,
             quantize: sound.quantize,
             index,
+            hits: used.get(usize::from(sound.input)).copied().unwrap_or(0),
         })
         .collect()
 }
@@ -114,9 +125,122 @@ pub(crate) struct State {
     lengths: BTreeSet<u8>,
     lengths_map: Option<Id>,
     pub reorder: Option<Reorder>,
+    /// The lanes last built, with what they were built from: a frame that
+    /// changes none of it draws them again from here, so nothing scans the
+    /// clip's notes twice (H2).
+    lanes: Option<LanesCache>,
+    /// The hits last gathered for the lanes, with what they were gathered
+    /// from.
+    cells: Option<CellsCache>,
+}
+
+/// The lanes and the sound counts they were made from.
+#[derive(Debug)]
+struct LanesCache {
+    map: DrumMap,
+    clip: Arc<Clip>,
+    hide: bool,
+    lanes: Arc<Vec<Lane>>,
+}
+
+/// The gathered hits and what they were gathered from.
+#[derive(Debug)]
+struct CellsCache {
+    clip: Arc<Clip>,
+    rows: crate::piano_roll::draw::Rows,
+    picked: Vec<usize>,
+    hidden: Vec<usize>,
+    body: Rect,
+    time: TimeView,
+    scroll: f32,
+    cells: Arc<Vec<Cell>>,
+    /// Reused between rebuilds, so a frame allocates nothing (H2).
+    seen: Vec<Option<Cell>>,
+    scratch: Vec<Cell>,
 }
 
 impl State {
+    /// The lanes for `clip`, rebuilt only when the map, the clip or Hide
+    /// unused changed.
+    pub fn lanes_for(
+        &mut self,
+        map: &DrumMap,
+        clip: &Arc<Clip>,
+        notes: &[Note],
+        hide: bool,
+    ) -> Arc<Vec<Lane>> {
+        let fresh = self.lanes.as_ref().is_some_and(|cache| {
+            cache.map == *map && cache.hide == hide && Arc::ptr_eq(&cache.clip, clip)
+        });
+        if !fresh {
+            self.lanes = Some(LanesCache {
+                map: map.clone(),
+                clip: clip.clone(),
+                hide,
+                lanes: Arc::new(lanes(map, notes, hide)),
+            });
+        }
+        let cache = self.lanes.as_ref().expect("just built");
+        cache.lanes.clone()
+    }
+
+    /// The hits of `clip` in `view`, with the `picked` and `hidden` ones
+    /// marked; gathered again only when the clip, the rows, the picks, a
+    /// gesture's hidden notes or the view changed.
+    pub fn cells_for(
+        &mut self,
+        view: &EditorView,
+        clip: &Arc<Clip>,
+        notes: &[Note],
+        picked: &[usize],
+        hidden: &[usize],
+    ) -> Arc<Vec<Cell>> {
+        let fresh = self.cells.as_ref().is_some_and(|cache| {
+            Arc::ptr_eq(&cache.clip, clip)
+                && cache.rows == view.rows
+                && cache.picked == picked
+                && cache.hidden == hidden
+                && cache.body == view.body
+                && cache.time == view.time
+                && cache.scroll == view.scroll
+        });
+        if !fresh {
+            let mut cache = self.cells.take().unwrap_or(CellsCache {
+                clip: clip.clone(),
+                rows: view.rows,
+                picked: Vec::new(),
+                hidden: Vec::new(),
+                body: view.body,
+                time: view.time,
+                scroll: view.scroll,
+                cells: Arc::new(Vec::new()),
+                seen: Vec::new(),
+                scratch: Vec::new(),
+            });
+            geometry::cells_into(
+                view,
+                notes,
+                picked,
+                hidden,
+                &mut cache.seen,
+                &mut cache.scratch,
+            );
+            cache.cells = Arc::new(std::mem::take(&mut cache.scratch));
+            cache.clip = clip.clone();
+            cache.rows = view.rows;
+            cache.picked.clear();
+            cache.picked.extend_from_slice(picked);
+            cache.hidden.clear();
+            cache.hidden.extend_from_slice(hidden);
+            cache.body = view.body;
+            cache.time = view.time;
+            cache.scroll = view.scroll;
+            self.cells = Some(cache);
+        }
+        let cache = self.cells.as_ref().expect("just built");
+        cache.cells.clone()
+    }
+
     /// The view a track's drum clips open in (Lanes unless Keys was chosen).
     pub fn view(&self, track: Id) -> View {
         self.views.get(&track).copied().unwrap_or_default()
@@ -152,6 +276,12 @@ impl State {
         self.lengths_map == Some(map) && self.lengths.contains(&input)
     }
 
+    /// Whether the open map's lane of `input` shows its length, without
+    /// naming the map (the pointer, for a box over the bars).
+    pub fn shows_length_own(&self, input: u8) -> bool {
+        self.lengths_map.is_some() && self.lengths.contains(&input)
+    }
+
     /// Turns a lane's length on or off; answers the new state.
     pub fn toggle_length(&mut self, map: Id, input: u8) -> bool {
         if self.lengths_map != Some(map) {
@@ -176,9 +306,10 @@ impl State {
     }
 }
 
-/// The drum editor's empty state, said in the Clip tab when a drum clip has
-/// nothing to draw: a map with no sounds.
+/// The drum editor's empty states (M8 D2 review M6): a map with no sounds, and
+/// Hide unused with nothing used.
 pub(crate) const NO_SOUNDS: &str = "This drum map has no sounds: add them in the map editor";
+pub(crate) const UNUSED: &str = "This clip plays none of the map's sounds. Hide unused is on.";
 
 #[cfg(test)]
 mod tests {

@@ -187,6 +187,9 @@ impl Arrangement {
         time: TimeView,
     ) {
         let palette = *theme::p();
+        // The drum pictures' gathered cells, taken out for this frame and put
+        // back at its end (review H2).
+        let mut drum_cache = std::mem::take(&mut self.drum_cache);
         // Clips moved by an edit are drawn on their way (M4.5, M1).
         let now = ctx.input(|i| i.time);
         self.glides.update(
@@ -423,8 +426,9 @@ impl Arrangement {
                                 pos2(x1 - INSET, rect.bottom() - WAVE_GAP),
                             );
                             let dim = if heard { 1.0 } else { theme::CLIP_DIMMED };
+                            let picture = drum_cache.entry(clip.id).or_default();
                             let drawn = crate::drum_editor::arrangement::paint(
-                                painter, map, clip, body, time, dim,
+                                painter, map, clip, body, time, dim, picture,
                             );
                             drum_pictures.insert(clip.id, drawn);
                         }
@@ -545,6 +549,7 @@ impl Arrangement {
             }
         }
         self.drum_pictures = drum_pictures;
+        self.drum_cache = drum_cache;
         // The drop line of a track drag continues across the lanes.
         self.draw_drop_line(painter, canvas, false);
         self.draw_selection(painter, canvas, project, &rows, time);

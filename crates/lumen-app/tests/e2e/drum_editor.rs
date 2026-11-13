@@ -8,6 +8,7 @@
 //! and the lane's name points), so a test clicks where a person would.
 
 use eframe::egui::{Key, Modifiers, Pos2, vec2};
+use egui_kittest::kittest::Queryable;
 use lumen_core::grid::{Feel, Size};
 use lumen_core::time::Ticks;
 use lumen_project::drums::presets::Preset;
@@ -356,4 +357,171 @@ fn the_arrangement_draws_a_mapped_clip_as_drum_rows() {
         lumen.app().arrangement_drum_picture(clip).is_none(),
         "no drum rows without a map"
     );
+}
+
+#[test]
+fn the_deepest_zoom_keeps_the_drum_picture_narrow_and_the_frame_quick() {
+    // Review H1: the arrangement's drum picture is gathered for the visible
+    // part only, so a clip tens of thousands of points wide does not turn its
+    // hits into walls or gather the whole clip each frame.
+    let (mut lumen, clip) = launch("lanes-deep-zoom");
+    lumen.key(Modifiers::SHIFT, Key::Tab);
+    lumen.frames(30);
+    let normal = lumen
+        .app()
+        .arrangement_drum_picture(clip)
+        .expect("the picture at the normal zoom");
+    assert!(normal.1 > 0, "cells at the normal zoom: {normal:?}");
+    // Deep in, as a player zoomed to a hit would: 4,000 points a beat, so the
+    // two-bar clip's body is tens of thousands of points wide.
+    lumen.app_mut().set_view_to(0.0, 4000.0);
+    lumen.frames(20);
+    let deep = lumen
+        .app()
+        .arrangement_drum_picture(clip)
+        .expect("the picture at the deepest zoom");
+    assert!(deep.1 > 0, "cells at the deepest zoom: {deep:?}");
+    // A handful of frames, each bounded (a debug build: the floor is loose).
+    let start = std::time::Instant::now();
+    lumen.frames(10);
+    let per_frame = start.elapsed().as_secs_f64() * 1000.0 / 10.0;
+    assert!(
+        per_frame < 1000.0,
+        "a frame at the deepest zoom stays quick: {per_frame:.1} ms"
+    );
+}
+
+#[test]
+fn a_press_below_the_last_lane_draws_nothing() {
+    // Review M1: no row below the last lane (and none in a map with no lanes).
+    let (mut lumen, clip) = launch("lanes-below");
+    // Hide unused leaves three lanes, so there is ground below them.
+    palette(&mut lumen, "Hide unused lanes");
+    lumen.frames(10);
+    assert_eq!(lumen.app().open_drum_lanes().len(), 3);
+    let body = lumen.app().editor_body().expect("the lanes drew");
+    lumen.key(Modifiers::NONE, Key::B);
+    let at = Pos2::new(body.left() + 40.0, body.bottom() - 2.0);
+    lumen.click_at(at, Modifiers::NONE);
+    assert!(
+        notes_of(&lumen, clip).len() == 6,
+        "nothing was drawn below the lanes: {:?}",
+        notes_of(&lumen, clip)
+    );
+    lumen.key(Modifiers::NONE, Key::B);
+}
+
+#[test]
+fn a_box_takes_a_hits_diamond_not_its_length() {
+    // Review M2: a box in the lanes takes the diamonds (a hit is its diamond),
+    // not the note's length bar.
+    let (mut lumen, clip) = launch("lanes-box-diamond");
+    // A long snare: draw one and drag it two beats long.
+    lumen.key(Modifiers::NONE, Key::B);
+    let from = hit(&lumen, q(4), 38);
+    lumen.drag(
+        from,
+        from + vec2(lumen.app().editor_view().unwrap().zoom as f32 * 2.0, 0.0),
+        Modifiers::NONE,
+    );
+    lumen.key(Modifiers::NONE, Key::B);
+    let long = notes_of(&lumen, clip)
+        .into_iter()
+        .filter(|n| n.pitch() == 38)
+        .max_by_key(|n| n.length())
+        .expect("the long snare");
+    assert!(long.length() > q(1), "a long hit: {:?}", long.length());
+    let diamond = lumen
+        .app()
+        .drum_hit_point(long.start(), 38)
+        .expect("in view");
+    // A box over the tail only: nothing.
+    let tail = diamond + vec2(lumen.app().editor_view().unwrap().zoom as f32, 0.0);
+    lumen.drag(
+        tail - vec2(6.0, 6.0),
+        tail + vec2(6.0, 6.0),
+        Modifiers::NONE,
+    );
+    assert!(
+        lumen.app().editor_picked().is_empty(),
+        "the length bar is not a handle"
+    );
+    // A box over the diamond: the hit.
+    lumen.drag(
+        diamond - vec2(8.0, 6.0),
+        diamond + vec2(8.0, 6.0),
+        Modifiers::NONE,
+    );
+    assert_eq!(lumen.app().editor_picked().len(), 1);
+}
+
+#[test]
+fn the_picked_lanes_mute_is_a_command_and_the_toggle_takes_space() {
+    // Review M4: the mute is a command (keyboard only), and the M toggle
+    // activates on Space when focused.
+    let (mut lumen, _) = launch("lanes-keys");
+    let at = hit(&lumen, q(1), 38);
+    lumen.click_at(at, Modifiers::NONE);
+    palette(&mut lumen, "Mute the picked lane");
+    assert!(map(&lumen).sound(38).expect("snare").mute);
+    assert_eq!(lumen.app().undo_label(), Some("Mute drum sound"));
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert!(!map(&lumen).sound(38).expect("snare").mute);
+    // The M under the pointer, reached from the keyboard: Tab to it (the
+    // harness focuses the node), then Space toggles it (review M4). A mouse
+    // click leaves Space the transport's, so the toggle never eats play/stop.
+    let mute = lumen.app().drum_toggle_point(38, false).expect("the M");
+    lumen.harness.get_by_label("Mute Snare").focus();
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Space);
+    assert!(
+        map(&lumen).sound(38).expect("snare").mute,
+        "Space on the focused M mutes it"
+    );
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Space);
+    assert!(
+        !map(&lumen).sound(38).expect("snare").mute,
+        "and Space again unmutes it"
+    );
+    // A click still toggles it, and leaves the keyboard where it was.
+    lumen.click_at(mute, Modifiers::NONE);
+    assert!(map(&lumen).sound(38).expect("snare").mute);
+}
+
+#[test]
+fn the_rolls_row_height_survives_opening_a_drum_clip() {
+    // Review M5: a drum clip never writes the roll's row height.
+    let (mut lumen, _) = launch("lanes-row-height");
+    lumen.app_mut().set_editor_row_height(24.0);
+    lumen.frames(3);
+    // Reopen the clip: a drum clip frames itself without touching the roll's
+    // height.
+    let clip = lumen.app().editor_open_clip().expect("the clip");
+    lumen.app_mut().close_the_clip_editor();
+    lumen.frames(3);
+    lumen.app_mut().open_clip_editor(clip);
+    lumen.frames(10);
+    assert_eq!(lumen.app().editor_row_height(), 24.0);
+}
+
+#[test]
+fn quantize_says_the_lanes_grid_only_when_a_lane_had_one() {
+    // Review L3: the toast does not claim each lane's grid when none had one.
+    let (mut lumen, _) = launch("lanes-toast");
+    let at = hit(&lumen, q(1), 38);
+    lumen.click_at(at, Modifiers::NONE);
+    lumen.key(Modifiers::NONE, Key::Q);
+    let toast = lumen.app().toast_text().unwrap_or_default().to_owned();
+    assert!(toast.starts_with("Quantized"), "{toast}");
+    assert!(
+        !toast.contains("each lane's own grid"),
+        "no lane had a grid: {toast}"
+    );
+    lumen
+        .app_mut()
+        .set_lane_quantize(38, Size::Note(4), Feel::Straight);
+    lumen.key(Modifiers::NONE, Key::Q);
+    let toast = lumen.app().toast_text().unwrap_or_default().to_owned();
+    assert!(toast.contains("each lane's own grid"), "{toast}");
 }

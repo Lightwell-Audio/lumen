@@ -23,6 +23,12 @@ pub fn letter_toggle(
     let response = ui.interact(rect, id, Sense::click());
     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, name));
     let response = response.on_hover_text(name);
+    // Enter or Space on the focused toggle activates it (egui's own click
+    // includes the keyboard's; the check keeps the promise explicit). A mouse
+    // click does not take the keyboard, so Space stays the transport's after
+    // one: Tab is how a keyboard user reaches the toggle (review M4).
+    let activated = response.has_focus()
+        && ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Space));
     if ui.is_rect_visible(rect) {
         let rect = rect.round_to_pixels(ui.pixels_per_point());
         let radius = theme::radius::for_height(rect.height());
@@ -55,5 +61,5 @@ pub fn letter_toggle(
         ui.painter().galley(at, galley, face.text());
         raised::focus_ring(ui.painter(), &response, rect);
     }
-    response.clicked()
+    response.clicked() || activated
 }

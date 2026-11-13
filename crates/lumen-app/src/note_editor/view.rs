@@ -24,9 +24,8 @@ pub(crate) const ROW_DEFAULT: f32 = 16.0;
 /// Width of the key column (points).
 pub(crate) const KEY_WIDTH: f32 = 56.0;
 /// Width of the key column on a track with a drum map: the lanes' name
-/// column, 3 pt colour bar, a 16 pt drawing and the sound's name (M8 D1,
-/// `docs/specimens/m8/chosen.html`, Lanes).
-pub(crate) const KEY_WIDTH_DRUMS: f32 = 176.0;
+/// column, [`crate::theme::size::LANE_NAME`] (M8 D1, `docs/specimens/m8/chosen.html`, Lanes).
+pub(crate) const KEY_WIDTH_DRUMS: f32 = crate::theme::size::LANE_NAME;
 /// Height of the time ruler above the notes (points).
 pub(crate) const RULER_HEIGHT: f32 = 20.0;
 /// How near a note's end the pointer grabs the end (points), at most a
@@ -117,6 +116,17 @@ impl EditorView {
         let row = ((y - self.body.top() + self.scroll) / self.row_height).floor();
         let last = self.rows.len().saturating_sub(1) as f32;
         self.rows.pitch_of(row.clamp(0.0, last) as usize)
+    }
+
+    /// The lane's row at `y`, when a lane is there: in the drum editor's lanes
+    /// there is no row below the last lane (nor in a map with none), so a
+    /// press there draws nothing (M8 D2 review M1).
+    pub fn lane_at(&self, y: f32) -> Option<usize> {
+        if !self.body.y_range().contains(y) {
+            return None;
+        }
+        let row = ((y - self.body.top() + self.scroll) / self.row_height).floor();
+        (row >= 0.0 && (row as usize) < self.rows.len()).then_some(row as usize)
     }
 
     /// The furthest the view scrolls down.
@@ -272,6 +282,26 @@ mod tests {
         v.scroll = s;
         let mid = v.body.center().y;
         assert_eq!(v.pitch_at(mid), 60);
+    }
+
+    #[test]
+    fn the_lanes_have_no_row_below_the_last_one() {
+        // Review M1: a press below the last lane (or with no lanes) has no
+        // row, so the draw tool adds nothing there; the roll clamps.
+        use crate::piano_roll::draw::Rows;
+        let mut v = view();
+        v.lanes = true;
+        v.rows = Rows::lanes([36_u8, 38]);
+        v.row_height = crate::theme::size::LANE_ROW;
+        v.scroll = 0.0;
+        v.body = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 200.0));
+        assert_eq!(v.lane_at(1.0), Some(0));
+        assert_eq!(v.lane_at(28.0 + 1.0), Some(1));
+        assert_eq!(v.lane_at(2.0 * 28.0 + 1.0), None, "below the last lane");
+        assert_eq!(v.pitch_at(2.0 * 28.0 + 1.0), 38, "the roll clamps instead");
+        v.rows = Rows::lanes(std::iter::empty::<u8>());
+        assert_eq!(v.lane_at(1.0), None, "a map with no lanes has no row");
+        assert_eq!(v.lane_at(-1.0), None, "nor has the area above");
     }
 
     #[test]

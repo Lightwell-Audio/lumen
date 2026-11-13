@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use eframe::egui::{self, PointerButton, Pos2};
+use eframe::egui::{self, PointerButton, Pos2, pos2};
 use lumen_core::time::Ticks;
 use lumen_project::edit::notes::{End, MIN_NOTE};
 use lumen_project::model::Clip;
@@ -60,6 +60,10 @@ impl App {
             gesture.dragging = true;
             // A drag is not the first press of a double-click.
             ed.last_empty_press = None;
+            // Latch what the drag is on the first frame past the threshold:
+            // in the lanes, a drag that starts up or down on a picked hit is
+            // the velocity, and one that starts sideways is a move (M3).
+            gesture.latch(at);
         }
         let cell = self.grid_cell_at_zoom(clip.start, view.time.zoom);
         let step = cell.1 - cell.0;
@@ -73,14 +77,31 @@ impl App {
             snap: &snap,
         };
         if down {
-            // A box selects as it grows.
+            // A box selects as it grows. In the lanes it takes the diamonds
+            // (and the length bars, where they show), not the notes' boxes
+            // (review M2).
             if let Kind::Marquee { base } = &gesture.kind
                 && gesture.dragging
                 && let Resolved::Marquee(rect) = gesture.resolve(at, &env)
             {
                 let mut picked = base.clone();
                 for (i, n) in notes.iter().enumerate() {
-                    if view.shows(*n) && view.note_rect(*n).intersects(rect) {
+                    let taken = if view.lanes {
+                        let diamond = crate::drum_editor::geometry::hit_rect(view, *n, step);
+                        diamond.intersects(rect)
+                            || (ed.drum.shows_length_own(n.pitch())
+                                && crate::drum_editor::geometry::length_bar(view, *n, step)
+                                    .is_some_and(|(from, to)| {
+                                        let y = diamond.center().y;
+                                        rect.intersects(egui::Rect::from_min_max(
+                                            pos2(from, y - 1.0),
+                                            pos2(to, y + 1.0),
+                                        ))
+                                    }))
+                    } else {
+                        view.shows(*n) && view.note_rect(*n).intersects(rect)
+                    };
+                    if taken {
                         picked.push(i);
                     }
                 }
@@ -105,6 +126,21 @@ impl App {
                     doc.move_notes(&base, id, &gesture.picked, time, pitch, None)
                 })
             }
+            Resolved::MoveHits {
+                time,
+                pitches,
+                copy,
+            } => Some(doc.move_notes_to_pitches(
+                &base,
+                id,
+                &gesture.picked,
+                crate::document::LaneMove {
+                    time,
+                    pitches: &pitches,
+                    copy,
+                },
+                None,
+            )),
             Resolved::Resize { end, by, min } if by != Ticks::ZERO => {
                 Some(doc.resize_notes(&base, id, &gesture.picked, Resize { end, by, min }, None))
             }
@@ -210,6 +246,8 @@ impl App {
                     picked,
                     dragging: false,
                     velocity_on_vertical: view.lanes,
+                    velocity: None,
+                    press_velocity: notes[i].velocity(),
                 });
             }
             (Tool::Pointer, None) => {
@@ -236,6 +274,8 @@ impl App {
                     picked: Vec::new(),
                     dragging: false,
                     velocity_on_vertical: false,
+                    velocity: None,
+                    press_velocity: 0,
                 });
             }
         }
@@ -270,7 +310,16 @@ impl App {
         if start < Ticks::ZERO || start >= content {
             return false;
         }
-        let pitch = view.pitch_at(p.y).clamp(0, 127) as u8;
+        // In the lanes a press below the last lane (or with no lanes) draws
+        // nothing (review M1).
+        let pitch = if view.lanes {
+            let Some(row) = view.lane_at(p.y) else {
+                return false;
+            };
+            view.rows.pitch_of(row).clamp(0, 127) as u8
+        } else {
+            view.pitch_at(p.y).clamp(0, 127) as u8
+        };
         self.audition_note(clip.id, pitch, super::gesture::DRAW_VELOCITY);
         ed.gesture = Some(Gesture {
             kind: Kind::Draw {
@@ -285,6 +334,8 @@ impl App {
             picked: Vec::new(),
             dragging: true,
             velocity_on_vertical: false,
+            velocity: None,
+            press_velocity: 0,
         });
         self.select_notes(ed, Vec::new());
         true

@@ -300,6 +300,8 @@ pub(crate) enum Command {
     DrumLanesView,
     DrumKeysView,
     HideUnusedLanes,
+    DrumMuteLane,
+    DrumSoloLane,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -687,6 +689,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DrumLanesView, "view.drum_lanes", "Show the drum lanes", Area::View, &[], "Shows the opened clip as the drum editor's lanes: one lane a sound of its track's drum map, in the map's order, with each hit a diamond filled to its velocity. A clip on a track with a drum map opens in Lanes already; this switches back from the piano roll."),
     info(Command::DrumKeysView, "view.drum_keys", "Show the piano roll (Keys)", Area::View, &[], "Shows the opened drum clip as the piano roll, with the kit's sounds instead of the keyboard in the key column. It is the same notes, edited as notes; the lanes are where a drum part is played in."),
     info(Command::HideUnusedLanes, "view.hide_unused_lanes", "Hide unused lanes", Area::View, &[], "In the drum editor's lanes, shows only the sounds the opened clip plays; again shows the map's every sound. A view only: no note and no map changes."),
+    info(Command::DrumMuteLane, "midi.mute_lane", "Mute the picked lane", Area::Midi, &[], "Mutes the drum map's sound of the lane the picked hits are in, or unmutes it when all are muted. The map editor's M is the same switch; one undo step."),
+    info(Command::DrumSoloLane, "midi.solo_lane", "Solo the picked lane", Area::Midi, &[], "Solos the drum map's sound of the lane the picked hits are in, so only it is heard, or unsolos it. The map editor's S is the same switch; one undo step."),
 ];
 
 const fn info(
@@ -750,7 +754,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::HideUnusedLanes as usize + 1,
+            Command::DrumSoloLane as usize + 1,
             ALL.len(),
             "a command is missing"
         );

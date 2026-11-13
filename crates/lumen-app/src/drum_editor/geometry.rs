@@ -18,26 +18,29 @@ use lumen_project::model::Note;
 use crate::note_editor::view::EditorView;
 use crate::theme;
 
-/// A lane's height in points (28: P's lane row, D1's table row).
-pub(crate) const ROW: f32 = 2.0 * theme::space::M + theme::space::XS;
-/// The name column's width (176: P's lanes and D1's key column).
-pub(crate) const NAME: f32 = crate::note_editor::view::KEY_WIDTH_DRUMS;
+/// A lane's height in points (the design's lane row: P's 28, D1's table row).
+pub(crate) const ROW: f32 = theme::size::LANE_ROW;
+/// The name column's width (the design's lane column: P's lanes and D1's key
+/// column).
+pub(crate) const NAME: f32 = theme::size::LANE_NAME;
 /// The colour bar down a lane's left edge.
-pub(crate) const BAR: f32 = 3.0;
-/// A sound's drawing on its lane.
-pub(crate) const ICON: f32 = 16.0;
+pub(crate) const BAR: f32 = theme::size::LANE_BAR;
+/// A sound's drawing on its lane, and where it starts.
+pub(crate) const ICON: f32 = theme::size::LANE_ICON;
+pub(crate) const ICON_X: f32 = theme::size::LANE_ICON_X;
 /// Where a lane's name starts.
-pub(crate) const NAME_X: f32 = 34.0;
-/// The lane's mute and solo toggles: their size, their room at the right of
-/// the name column, and the gap between them.
-pub(crate) const BUTTON_W: f32 = 20.0;
-pub(crate) const BUTTON_H: f32 = 18.0;
-const BUTTONS: f32 = 52.0;
-const BUTTON_GAP: f32 = 4.0;
+pub(crate) const NAME_X: f32 = theme::size::LANE_NAME_X;
+/// The lane's mute and solo toggles: their size, their gap, and the room kept
+/// between them and the column's right edge (the specimen's block).
+pub(crate) const BUTTON_W: f32 = theme::size::LANE_BUTTON_W;
+pub(crate) const BUTTON_H: f32 = theme::size::LANE_BUTTON_H;
+const BUTTON_GAP: f32 = theme::size::LANE_BUTTON_GAP;
+const BUTTONS_RIGHT: f32 = theme::size::LANE_BUTTONS_RIGHT;
+const BUTTONS: f32 = 2.0 * BUTTON_W + BUTTON_GAP;
 /// The most of the row a hit's diamond takes, either way.
-const HIT_ROW: f32 = 0.34;
+const HIT_ROW: f32 = theme::size::LANE_HIT_ROW;
 /// The most of the grid step a hit's diamond takes.
-const HIT_STEP: f32 = 0.46;
+const HIT_STEP: f32 = theme::size::LANE_HIT_STEP;
 /// A hit's least half-width, so it is visible when the zoom packs many.
 const HIT_LEAST: f32 = 1.5;
 /// The narrowest picture column one hit is gathered into (points).
@@ -46,8 +49,9 @@ const BUCKET: f32 = 2.0;
 /// rather than drawing them all). A cell is one or two shapes, so this bounds
 /// the tessellation a picture of any size costs.
 pub(crate) const MAX_CELLS: usize = 2400;
-/// The width of a length bar drawn from a hit.
-const LENGTH_BAR: f32 = 2.0;
+/// The width of a length bar drawn from a hit (one constant, so it cannot
+/// drift).
+pub(crate) const LENGTH_LINE: f32 = 2.0;
 
 /// The half-width of a hit's diamond in `view` at the grid `step`.
 pub(crate) fn hit_radius(view: &EditorView, step: Ticks) -> f32 {
@@ -92,13 +96,10 @@ pub(crate) fn hit_at(view: &EditorView, notes: &[Note], step: Ticks, p: Pos2) ->
     })
 }
 
-/// The lane (row) at `y`, if it is one of the rows shown.
+/// The lane (row) at `y`, if it is one of the rows shown: no row below the
+/// last lane (M8 D2 review M1).
 pub(crate) fn row_at(view: &EditorView, y: f32) -> Option<usize> {
-    if !view.body.y_range().contains(y) {
-        return None;
-    }
-    let row = ((y - view.body.top() + view.scroll) / view.row_height).floor();
-    (row >= 0.0 && (row as usize) < view.rows.len()).then_some(row as usize)
+    view.lane_at(y)
 }
 
 /// A lane's whole row across `view`'s body, for its background and its name.
@@ -122,6 +123,9 @@ pub(crate) struct Cell {
     pub picked: bool,
     /// Every hit gathered here is muted.
     pub muted: bool,
+    /// The note whose onset the cell was made from (the leftmost): hover, the
+    /// length bar and the menu ask it, never the whole clip (H2).
+    pub note: usize,
 }
 
 /// The picture columns a row gets: the bucket is widened until the cells fit
@@ -142,26 +146,33 @@ pub(crate) fn bucket(view: &EditorView) -> f32 {
 /// The hits of `notes` that are in view, one cell per picture column of each
 /// lane: `picked` marks the cells a picked note is in and `hidden` leaves the
 /// notes a gesture is showing elsewhere out. A note outside the map's rows, or
-/// off the body, is not here at all.
-pub(crate) fn cells(
+/// off the body, is not here at all. `seen` is the caller's buffer, so a
+/// frame allocates nothing (H2).
+pub(crate) fn cells_into(
     view: &EditorView,
     notes: &[Note],
     picked: &[usize],
     hidden: &[usize],
-) -> Vec<Cell> {
+    seen: &mut Vec<Option<Cell>>,
+    out: &mut Vec<Cell>,
+) {
+    out.clear();
     let rows = view.rows.len();
     if rows == 0 || view.body.width() <= 0.0 {
-        return Vec::new();
+        seen.clear();
+        return;
     }
     let bucket = bucket(view);
     let cols = ((view.body.width() / bucket).ceil() as usize + 1).max(1);
     let first = ((view.scroll / view.row_height).floor().max(0.0) as usize).min(rows);
     let last =
         ((((view.scroll + view.body.height()) / view.row_height).ceil() as usize) + 1).min(rows);
-    let mut seen: Vec<Option<Cell>> = vec![None; (last.saturating_sub(first)) * cols];
     if last <= first {
-        return Vec::new();
+        seen.clear();
+        return;
     }
+    seen.clear();
+    seen.resize((last - first) * cols, None);
     for (index, note) in notes.iter().enumerate() {
         if hidden.binary_search(&index).is_ok() {
             continue;
@@ -176,6 +187,8 @@ pub(crate) fn cells(
         if x < view.body.left() - 2.0 || x > view.body.right() {
             continue;
         }
+        // A hit past the body's right edge was skipped; the last column is
+        // where a partly seen one sits.
         let col = (((x - view.body.left()) / bucket).floor() as isize).clamp(0, cols as isize - 1)
             as usize;
         let slot = &mut seen[(row - first) * cols + col];
@@ -183,7 +196,10 @@ pub(crate) fn cells(
         let muted = note.muted();
         match slot {
             Some(cell) => {
-                cell.x = cell.x.min(x);
+                if x < cell.x {
+                    cell.x = x;
+                    cell.note = index;
+                }
                 cell.velocity = cell.velocity.max(note.velocity());
                 cell.picked |= picked_here;
                 cell.muted &= muted;
@@ -195,11 +211,33 @@ pub(crate) fn cells(
                     velocity: note.velocity().min(127),
                     picked: picked_here,
                     muted,
+                    note: index,
                 })
             }
         }
     }
-    seen.into_iter().flatten().collect()
+    out.extend(seen.iter().flatten().copied());
+}
+
+/// The hits the pointer is on, from the gathered cells (a few thousand at
+/// most) rather than the clip's notes (H2): the latest cell drawn wins, as the
+/// latest note drawn does.
+pub(crate) fn hit_at_cells(
+    view: &EditorView,
+    cells: &[Cell],
+    step: Ticks,
+    p: Pos2,
+) -> Option<usize> {
+    if !view.body.contains(p) {
+        return None;
+    }
+    let r = hit_radius(view, step);
+    cells.iter().rev().find_map(|cell| {
+        let top = view.body.top() + cell.row as f32 * view.row_height - view.scroll;
+        let centre = pos2(cell.x + r, top + view.row_height / 2.0);
+        let d = Rect::from_center_size(centre, vec2(2.0 * r, 2.0 * r));
+        inside_diamond(d, p).then_some(cell.note)
+    })
 }
 
 /// Where a hit's length bar starts and ends on the lane (a lane set to show
@@ -212,13 +250,12 @@ pub(crate) fn length_bar(view: &EditorView, note: Note, step: Ticks) -> Option<(
     (end > x + r).then_some((x + r, end))
 }
 
-/// The width of a length bar's line.
-pub(crate) const LENGTH_LINE: f32 = LENGTH_BAR;
-
-/// The positions of a lane's right-hand toggles in a name column `rect` wide.
+/// The positions of a lane's right-hand toggles in a name column `rect` wide:
+/// the specimen's two 20 pt pieces, 4 pt apart and 8 pt in from the column's
+/// right edge.
 pub(crate) fn buttons(name: Rect) -> (Rect, Rect) {
     let top = name.center().y - BUTTON_H / 2.0;
-    let left = name.right() - theme::space::S - BUTTONS;
+    let left = name.right() - BUTTONS_RIGHT - BUTTONS;
     let mute = Rect::from_min_size(pos2(left, top), vec2(BUTTON_W, BUTTON_H));
     let solo = Rect::from_min_size(
         pos2(left + BUTTON_W + BUTTON_GAP, top),
@@ -227,10 +264,11 @@ pub(crate) fn buttons(name: Rect) -> (Rect, Rect) {
     (mute, solo)
 }
 
-/// Where a lane's drawing and its name are in a name column `rect` wide.
+/// Where a lane's drawing is in a name column `rect` wide: 16 pt at 10 pt in
+/// (the specimen's icon column).
 pub(crate) fn icon_rect(name: Rect) -> Rect {
-    Rect::from_center_size(
-        pos2(name.left() + theme::space::S + ICON / 2.0, name.center().y),
+    Rect::from_min_size(
+        pos2(name.left() + ICON_X, name.center().y - ICON / 2.0),
         vec2(ICON, ICON),
     )
 }
@@ -323,19 +361,34 @@ mod tests {
             Note::new(Ticks(0), Ticks(60), 60, 120),
         ];
         let v = view(Rows::lanes([36_u8, 38, 42]));
-        let all = cells(&v, &notes, &[1], &[]);
+        let (mut seen, mut all) = (Vec::new(), Vec::new());
+        cells_into(&v, &notes, &[1], &[], &mut seen, &mut all);
         assert_eq!(all.len(), 2, "one cell a lane: {all:?}");
         assert_eq!(all[0].row, 0);
         assert_eq!(all[0].velocity, 90, "the loudest of the three");
         assert!(all[0].picked, "the picked hit is in the cell");
+        assert_eq!(all[0].note, 0, "the leftmost onset's note");
         assert_eq!(all[1].row, 2);
         assert!(!all[1].picked);
         // A note of a lane the map does not show is left out.
         assert!(all.iter().all(|c| c.velocity != 120 || c.row != 1));
+        // The pointer finds the cell's note without the clip's notes.
+        let r = hit_radius(&v, Ticks::quarters(1));
+        let centre = pos2(all[0].x + r, v.body.top() + ROW / 2.0);
+        assert_eq!(
+            hit_at_cells(&v, &all, Ticks::quarters(1), centre),
+            Some(all[0].note)
+        );
+        // Drawn again: the buffers are reused, not rebuilt.
+        let capacity = seen.capacity();
+        cells_into(&v, &notes, &[1], &[], &mut seen, &mut all);
+        assert_eq!(seen.capacity(), capacity.max(seen.capacity()));
+        assert_eq!(all.len(), 2);
         // Draws nothing when no lane is in view.
         let mut scrolled = view(Rows::lanes([36_u8, 38, 42]));
         scrolled.scroll = 3.0 * ROW;
-        assert!(cells(&scrolled, &notes, &[], &[]).is_empty());
+        cells_into(&scrolled, &notes, &[], &[], &mut seen, &mut all);
+        assert!(all.is_empty());
         // A deeply zoomed-out view of a hundred thousand hits stays within
         // the cells a frame draws.
         let many: Vec<Note> = (0..100_000)
@@ -343,8 +396,22 @@ mod tests {
             .collect();
         let mut fitted = view(Rows::lanes([36_u8, 38, 42]));
         fitted.time.zoom = 0.02;
-        let gathered = cells(&fitted, &many, &[], &[]);
-        assert!(gathered.len() <= MAX_CELLS, "{} cells", gathered.len());
+        cells_into(&fitted, &many, &[], &[], &mut seen, &mut all);
+        assert!(all.len() <= MAX_CELLS, "{} cells", all.len());
+    }
+
+    #[test]
+    fn the_mute_and_solo_toggles_end_eight_points_in_and_the_icon_starts_at_ten() {
+        // The specimen's name column (chosen.html): name.right() - 52 for the
+        // block of two 20 pt pieces, so its right edge is 8 pt in; the
+        // drawing at 10.
+        let name = Rect::from_min_max(pos2(0.0, 0.0), pos2(NAME, ROW));
+        let (mute, solo) = buttons(name);
+        assert_eq!(mute.left(), NAME - 52.0);
+        assert_eq!(solo.right(), NAME - 8.0);
+        assert_eq!((mute.width(), mute.height()), (20.0, 18.0));
+        assert_eq!(icon_rect(name).left(), 10.0);
+        assert_eq!(icon_rect(name).width(), 16.0);
     }
 
     #[test]

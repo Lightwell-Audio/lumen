@@ -35,6 +35,16 @@ pub struct Resize {
     pub min: Ticks,
 }
 
+/// The drum editor's lane move: the picked hits `time` later, each on its own
+/// pitch (`pitches`, in the order of the selection), copying them when `copy`
+/// is set (M8 D2 review H3: one lane up is the next sound, not a semitone).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LaneMove<'a> {
+    pub time: Ticks,
+    pub pitches: &'a [u8],
+    pub copy: bool,
+}
+
 impl Document {
     /// Whether the notes of `clip` can be edited now: it is a MIDI clip and
     /// not locked.
@@ -220,6 +230,38 @@ impl Document {
         self.edit_notes(&label, None, None, clip, selection, |notes, length| {
             ops::duplicate(notes, selection, length)
         })
+    }
+
+    /// Moves the picked notes `time` later and each to its own pitch (the drum
+    /// editor's lanes, where one lane up is the next sound): one undo step.
+    /// `pitches` is in the order of `selection`; with `copy` the originals
+    /// stay and the copies come back.
+    pub fn move_notes_to_pitches(
+        &mut self,
+        base: &Project,
+        clip: Id,
+        selection: &[usize],
+        to: LaneMove<'_>,
+        merge: Option<&str>,
+    ) -> Vec<usize> {
+        let LaneMove {
+            time,
+            pitches,
+            copy,
+        } = to;
+        let label = if copy {
+            plural(selection.len(), "Copy note", "Copy {} notes")
+        } else {
+            plural(selection.len(), "Move note", "Move {} notes")
+        };
+        self.edit_notes(
+            &label,
+            Some(base),
+            merge,
+            clip,
+            selection,
+            |notes, length| ops::move_to_pitches(notes, selection, time, pitches, copy, length),
+        )
     }
 
     /// Moves the picked notes `by` in time (the arrow keys), as a group.

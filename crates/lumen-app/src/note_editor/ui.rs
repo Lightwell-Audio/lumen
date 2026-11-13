@@ -6,6 +6,8 @@ use eframe::egui::{self, CursorIcon, PointerButton, Pos2, Rect, Sense, Ui, pos2,
 use lumen_core::time::{PPQ, Ticks};
 use lumen_project::model::{Clip, Id};
 
+use std::sync::Arc;
+
 use super::gesture::{Env, Kind, Preview, Resolved, tones_of};
 use super::lane;
 use super::paint::{self, Scene};
@@ -81,26 +83,26 @@ impl App {
         // The map the clip's track reads, when it reads one: the rows are
         // then the kit's, and the key column names each sound (M8 D1); with
         // the drum editor's Lanes chosen the editor is one lane a sound
-        // (M8 D2). Only the map's id and name are kept: the lanes carry the
-        // rest. The view is read from the editor itself: while it draws it is
-        // taken out of the app, so the app's own reader would see nothing.
+        // (M8 D2). The lanes are the editor's cache, so a frame that changes
+        // nothing scans no notes (H2). The view is read from the editor
+        // itself: while it draws it is taken out of the app.
         let drums = self.clip_key_sounds(clip.id);
         let track = self.track_of_clip(clip.id);
         let view = track.map(|track| ed.drum.view(track));
-        let (map, drum) = match self.clip_drum_map(clip.id) {
+        let (map, lanes) = match self.clip_drum_map(clip.id) {
             Some(map) => {
                 let hide = track.is_some_and(|track| ed.drum.hides_unused(track));
                 let lanes = if view == Some(crate::drum_editor::View::Lanes) {
-                    crate::drum_editor::lanes(map, notes_of(&clip), hide)
+                    Some(ed.drum.lanes_for(map, &clip, notes_of(&clip), hide))
                 } else {
-                    Vec::new()
+                    None
                 };
-                let drum = (view == Some(crate::drum_editor::View::Lanes)).then_some(lanes);
-                (Some((map.id, map.name.clone())), drum)
+                (Some((map.id, map.name.clone(), map.sounds.len())), lanes)
             }
             None => (None, None),
         };
-        let lanes = drum.as_deref().unwrap_or(&[]);
+        let drum: Option<Arc<Vec<crate::drum_editor::Lane>>> = map.as_ref().and(lanes);
+        let lanes: &[crate::drum_editor::Lane] = drum.as_deref().map(Vec::as_slice).unwrap_or(&[]);
         if ed.row_height <= 0.0 {
             ed.row_height = ROW_DEFAULT;
         }
@@ -137,15 +139,12 @@ impl App {
             pos2(area.left() + key_width, roll.bottom()),
         );
         let body = Rect::from_min_max(pos2(keys.right(), ruler.bottom()), roll.max);
-        if ed.row_height <= 0.0 {
-            ed.row_height = ROW_DEFAULT;
-        }
         // Framed before the toolbar, so the grid it names is the roll's.
         if ed.framed_for != Some(clip.id) {
             self.frame_editor(ed, &clip, body, rows);
             if drum.is_some() {
-                // The lanes start at the top of the map, at their own height.
-                ed.row_height = crate::drum_editor::geometry::ROW;
+                // The lanes start at the top of the map. Their row height is
+                // the view's, never the roll's (M5: the roll keeps its own).
                 ed.scroll = 0.0;
             }
         }
@@ -271,16 +270,26 @@ impl App {
                 self.chip_text(&resolved, &preview, &clip)
             };
             gesture_pitch = preview.ghosts.first().map(|n| i32::from(n.pitch()));
-            if let Resolved::Move { .. } = resolved {
+            if let Resolved::Move { .. } | Resolved::MoveHits { .. } = resolved {
                 // Every moved note sounds at its new pitch, as a chord; only
                 // the ones whose pitch changed are struck again.
                 self.audition_moved(clip.id, &tones_of(&preview.ghosts));
             }
         }
+        // The lanes' hits, gathered once per change (the editor's cache, H2).
+        let cells = if drum.is_some() {
+            let picks = ed.picked().to_vec();
+            Some(
+                ed.drum
+                    .cells_for(&view, &drawn, notes, &picks, &preview.hidden),
+            )
+        } else {
+            None
+        };
         let hover = if ed.gesture.is_none() {
             over_body.and_then(|p| {
-                if view.lanes {
-                    crate::drum_editor::geometry::hit_at(&view, notes, step, p)
+                if let Some(cells) = &cells {
+                    crate::drum_editor::geometry::hit_at_cells(&view, cells, step, p)
                         .map(|i| (i, Zone::Body))
                 } else {
                     view.note_at(notes, p)
@@ -300,7 +309,7 @@ impl App {
             meter: meter.clone(),
             colors: [p.grid_bar, p.grid_beat, p.grid_sub],
         };
-        if let (Some(lanes), Some((map_id, map_name))) = (drum.as_deref(), map.as_ref()) {
+        if let (Some(lanes), Some((map_id, map_name, sounds))) = (drum.as_deref(), map.as_ref()) {
             // The drum editor: one lane a sound, its hits the diamond whose
             // fill is the velocity (DE A), and the map's name column.
             self.drum_surface(
@@ -315,19 +324,19 @@ impl App {
                     lanes,
                     map_id: *map_id,
                     map_name,
+                    sounds: *sounds,
                     keys,
                 },
             );
             if ed.gesture.is_none() {
                 ed.boxed.clear();
             }
-            let hidden: &[usize] = &preview.hidden;
-            let cells = crate::drum_editor::geometry::cells(&view, notes, ed.picked(), hidden);
+            let cells = cells.as_deref().map(Vec::as_slice).unwrap_or(&[]);
             let shows = |input: u8| ed.drum.shows_length(*map_id, input);
             let scene = crate::drum_editor::paint::Scene {
                 lanes,
                 notes,
-                cells: &cells,
+                cells,
                 hover: hover.map(|(i, _)| i),
                 preview: &preview,
                 boxed: &ed.boxed,
@@ -412,7 +421,7 @@ impl App {
         {
             self.editor_info(ed, hover, &view, p, drum.is_some(), &clip);
         }
-        let drum_menu = map.as_ref().and_then(|(map_id, _)| {
+        let drum_menu = map.as_ref().and_then(|(map_id, _, _)| {
             let track = track?;
             let view = ed.drum.view(track);
             let hiding = ed.drum.hides_unused(track);
@@ -818,6 +827,8 @@ impl App {
         let picked = !ed.picked().is_empty();
         // Where the pointer was when the menu opened, not where it is now.
         let split_at = ed.menu_at.filter(|t| *t >= Ticks::ZERO && *t < clip.length);
+        // A command a row asks for, run after the menu closes (review M4).
+        let mut later: Option<Command> = None;
         widgets::Menu::context(response).show(|ui| {
             let keys = |s: &Self, c| s.keymap.keys(c);
             let mut op = None;
@@ -911,6 +922,20 @@ impl App {
                     ed.drum.toggle_length(drum.map, input);
                 }
                 if drum.view == crate::drum_editor::View::Lanes {
+                    // The picked lane's own switches, through the commands
+                    // (review M4).
+                    let lane = self.drum_picked_lane().is_some();
+                    let mute = keys(self, Command::DrumMuteLane);
+                    if widgets::menu_item(ui, "Mute the picked lane", mute.as_ref(), lane).clicked()
+                    {
+                        later = Some(Command::DrumMuteLane);
+                    }
+                    let solo = keys(self, Command::DrumSoloLane);
+                    if widgets::menu_item(ui, "Solo the picked lane", solo.as_ref(), lane).clicked()
+                    {
+                        later = Some(Command::DrumSoloLane);
+                    }
+                    ui.separator();
                     let unused = keys(self, Command::HideUnusedLanes);
                     if widgets::menu_toggle(ui, "Hide unused lanes", unused.as_ref(), drum.hiding)
                         .clicked()
@@ -935,6 +960,9 @@ impl App {
                 }
             }
         });
+        if let Some(command) = later {
+            self.run(&ui.ctx().clone(), command);
+        }
     }
 
     /// Sets the picked notes (a click or a box).

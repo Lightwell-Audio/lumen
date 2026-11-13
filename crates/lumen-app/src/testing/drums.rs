@@ -64,8 +64,7 @@ impl App {
 
     /// Where a lane's name is, for a click that auditions it.
     pub fn drum_name_point(&self, input: u8) -> Option<Pos2> {
-        let (view, name) = self.drum_lane_name_rect(input)?;
-        let _ = view;
+        let (_, name) = self.drum_lane_name_rect(input)?;
         Some(pos2(name.left() + geometry::NAME_X + 8.0, name.center().y))
     }
 

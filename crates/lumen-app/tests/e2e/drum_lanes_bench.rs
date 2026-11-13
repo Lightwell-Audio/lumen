@@ -96,9 +96,9 @@ fn a_hundred_thousand_hits_in_the_lanes_beside_the_piano_roll() {
         lanes.0, lanes.1, lanes.2, roll.0, roll.1, roll.2
     );
     assert!(
-        lanes.0 <= roll.0 * 2.0 + 1.0,
-        "the lanes ({:.2} ms) stay within reach of the roll ({:.2} ms)",
-        lanes.0,
-        roll.0
+        lanes.1 <= roll.1 * 1.15 + 1.0,
+        "the lanes' p95 ({:.2} ms) within 15% of the roll's ({:.2} ms)",
+        lanes.1,
+        roll.1
     );
 }

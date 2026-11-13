@@ -263,6 +263,9 @@ pub struct Arrangement {
     /// and the cells, for the tests to see the picture was drawn. Empty when
     /// the clip was out of view or its track reads no map.
     pub(crate) drum_pictures: std::collections::BTreeMap<Id, (usize, usize)>,
+    /// The pictures' gathered cells, by clip: a frame that changes nothing
+    /// draws from here (review H2).
+    drum_cache: std::collections::BTreeMap<Id, crate::drum_editor::arrangement::Picture>,
     /// Heights, folding and scroll before H fitted every track (H again
     /// restores them).
     fitted: Option<(BTreeMap<Id, f32>, BTreeSet<Id>, f32)>,

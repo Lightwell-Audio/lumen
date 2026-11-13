@@ -12,8 +12,8 @@ use eframe::emath::GuiRounding as _;
 use lumen_core::time::Ticks;
 use lumen_project::model::Note;
 
+use super::Lane;
 use super::geometry::{self, Cell};
-use super::{Lane, NO_SOUNDS};
 use crate::note_editor::gesture::Preview;
 use crate::note_editor::view::EditorView;
 use crate::widgets;
@@ -22,7 +22,7 @@ use crate::{fonts, theme};
 /// The most hits a gesture's ghosts or a lane's length bars draw in a frame.
 const MAX_DRAWN: usize = 4000;
 /// The ring around a picked hit, beyond its diamond.
-const PICKED: f32 = 2.0;
+const PICKED: f32 = theme::size::LANE_PICKED_RING;
 /// How much of the picture column's width a hit at least fills, so a hit
 /// stays a visible diamond at any zoom.
 const LEAST_CELL: f32 = 2.5;
@@ -132,36 +132,35 @@ pub(crate) fn hits(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
             diamond_outline(&painter, centre, r + PICKED, theme::stroke::LIT, p.accent);
         }
     }
-    // A lane set to show length draws a bar from each hit to its note's end.
-    if !scene.notes.is_empty() {
-        let mut barred = 0;
-        for note in scene.notes {
-            if barred >= MAX_DRAWN {
-                break;
-            }
-            if !(scene.shows_length)(note.pitch()) || !view.shows(*note) {
-                continue;
-            }
-            let Some(row) = view.rows.row_of(i32::from(note.pitch())) else {
-                continue;
-            };
-            let Some((from, to)) = geometry::length_bar(view, *note, scene.step) else {
-                continue;
-            };
-            let Some(lane) = scene.lanes.get(row) else {
-                continue;
-            };
-            let top = view.body.top() + row as f32 * view.row_height - view.scroll;
-            let y = top + view.row_height / 2.0;
-            barred += 1;
-            painter.line_segment(
-                [pos2(from, y), pos2(to, y)],
-                Stroke::new(
-                    geometry::LENGTH_LINE,
-                    lane.color.gamma_multiply(theme::alpha::EDGE),
-                ),
-            );
+    // A lane set to show length draws a bar from each gathered hit to its
+    // note's end (never a pass over the clip's notes, H2).
+    let mut barred = 0;
+    for cell in scene.cells {
+        if barred >= MAX_DRAWN {
+            break;
         }
+        let Some(note) = scene.notes.get(cell.note) else {
+            continue;
+        };
+        if !(scene.shows_length)(note.pitch()) {
+            continue;
+        }
+        let Some((from, to)) = geometry::length_bar(view, *note, scene.step) else {
+            continue;
+        };
+        let Some(lane) = scene.lanes.get(cell.row) else {
+            continue;
+        };
+        let top = view.body.top() + cell.row as f32 * view.row_height - view.scroll;
+        let y = top + view.row_height / 2.0;
+        barred += 1;
+        painter.line_segment(
+            [pos2(from, y), pos2(to, y)],
+            Stroke::new(
+                geometry::LENGTH_LINE,
+                lane.color.gamma_multiply(theme::alpha::EDGE),
+            ),
+        );
     }
 }
 
@@ -256,7 +255,6 @@ pub(crate) fn overlay(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
             )),
             theme::stroke::LIT,
         );
-        let _ = rect;
     }
     if let Some(rect) = scene.preview.marquee {
         painter.rect(
@@ -423,27 +421,55 @@ pub(crate) fn lane_name(
     }
 }
 
-/// The lanes' empty state: a map with no sounds, or every sound unused while
-/// Hide unused is on. Said in the middle of the body.
-pub(crate) fn empty(painter: &Painter, body: Rect) {
-    let p = theme::p();
-    let font = fonts::medium(theme::size::BODY);
-    let galley = painter.layout(
-        NO_SOUNDS.to_owned(),
-        font,
-        p.text_hint,
-        body.width() - 2.0 * theme::space::L,
-    );
-    let at = pos2(
-        body.center().x - galley.size().x / 2.0,
-        body.center().y - galley.size().y / 2.0,
-    );
-    painter.galley(at, galley, p.text_hint);
+/// The lanes' empty states (M8 D2 review M6), as the Clip tab says them: a
+/// map with no sounds, or Hide unused with nothing used (which offers the way
+/// back). Returns the state and whether it offers to show every sound.
+pub(crate) fn empty_state(sounds: usize) -> (widgets::EmptyState<'static>, bool) {
+    if sounds == 0 {
+        (
+            widgets::EmptyState {
+                icon: None,
+                icon_size: theme::space::L,
+                title: "No sounds in this map",
+                hint: super::NO_SOUNDS,
+                action: None,
+            },
+            false,
+        )
+    } else {
+        (
+            widgets::EmptyState {
+                icon: None,
+                icon_size: theme::space::L,
+                title: "No lanes to show",
+                hint: super::UNUSED,
+                action: Some(widgets::EmptyAction {
+                    label: "Show every sound",
+                    keys: None,
+                    tip: "Turn Hide unused off",
+                }),
+            },
+            true,
+        )
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_two_empty_states_say_which_one_it_is_and_offer_the_way_back() {
+        // Review M6: a map with no sounds, or Hide unused hiding them all.
+        let (none, can_show) = empty_state(0);
+        assert!(!can_show);
+        assert_eq!(none.hint, super::super::NO_SOUNDS);
+        assert!(none.action.is_none());
+        let (unused, can_show) = empty_state(7);
+        assert!(can_show, "Hide unused can be turned off");
+        assert_eq!(unused.hint, super::super::UNUSED);
+        assert_eq!(unused.action.expect("a way back").label, "Show every sound");
+    }
 
     #[test]
     fn a_diamonds_fill_starts_at_the_foot_and_grows_to_the_velocity() {
