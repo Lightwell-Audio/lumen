@@ -91,7 +91,7 @@ impl App {
     }
 
     fn row_of(&self, d: &Device, rate: u32) -> Row {
-        let builtin = crate::builtin::is_builtin(d);
+        let builtin = crate::builtin::is_builtin_device(d);
         let (name, vendor, identity) = match &d.plugin {
             PluginRef::Vst3 {
                 class_id,

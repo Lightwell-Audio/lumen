@@ -267,11 +267,21 @@ impl Document {
             return Err(Refusal::BadPlugin);
         }
         let current = find(self.project(), track).ok_or(Refusal::NoTrack)?;
+        let drum_map = current.drum_map;
         let kind = plugin.kind();
         let replaced = current.devices.iter().any(|d| d.is_instrument());
         let index = place_in(current, kind, slot)?;
         let id = self.fresh_id();
-        let device = with_values(fresh_device(id, plugin), values);
+        let mut device = with_values(fresh_device(id, plugin), values);
+        // A sampler arrives with its sound: the faces it has, and a pad for
+        // every sound of the track's drum map (M8 slice B5). Its pads answer
+        // the map the track names, the sixteen of its own when it names none.
+        if device.is_sampler() {
+            let map = drum_map.and_then(|map| self.drum_map(map)).cloned();
+            let mut sound = lumen_project::model::Sampler::default();
+            sound.keep_pads(&lumen_project::model::Sampler::pads_for(map.as_ref()));
+            device.sampler = Some(sound);
+        }
         let name = name_of(&device);
         let label = match (kind, replaced) {
             (DeviceKind::Instrument, true) => format!("Replace instrument with {name}"),

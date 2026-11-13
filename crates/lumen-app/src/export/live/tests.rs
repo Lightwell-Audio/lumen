@@ -190,6 +190,7 @@ fn a_prepared_project_mixer_installs_and_renders_under_the_allocation_guard() {
         tail: false,
         file: file.clone(),
         stem: None,
+        samples: Vec::new(),
     };
     let prepared = crate::export::render::prepare(&job, &AtomicBool::new(false))
         .unwrap()

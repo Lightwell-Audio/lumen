@@ -142,6 +142,7 @@ impl App {
             plugins,
             hosting,
             builtin: builtin::Builtins::default(),
+            sampler_load: builtin::samples::Loading::default(),
             safe,
             chain: chain::Chain {
                 presets: chain::presets::Presets::new(places),

@@ -136,6 +136,10 @@ impl Arrangement {
             self.selected = targets.clone();
             self.track_command = Some(Command::AddUtility);
         }
+        if item(ui, "Add Shutter (sampler)", Command::AddSampler) {
+            self.selected = targets.clone();
+            self.track_command = Some(Command::AddSampler);
+        }
         ui.separator();
 
         // What is made from it.

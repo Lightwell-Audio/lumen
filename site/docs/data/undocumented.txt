@@ -379,3 +379,9 @@ view.drum_keys @m8
 view.hide_unused_lanes @m8
 midi.mute_lane @m8
 midi.solo_lane @m8
+devices.add_sampler @m8
+devices.sampler_load @m8
+devices.sampler_clear @m8
+devices.sampler_face @m8
+devices.sampler_loop @m8
+devices.sampler_reverse @m8

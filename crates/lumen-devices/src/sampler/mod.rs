@@ -59,6 +59,17 @@ const KNOT: u64 = 32;
 /// to the bit.
 const FILTER_TOP_HZ: f32 = 20_000.0;
 
+/// What the interface reads of the sampler: its stable name and its table.
+/// An instrument has no latency in the chain (it makes the sound, it does not
+/// delay another) and no tail of its own (its voices report when they sound,
+/// through [`Instrument::active`]), so both are zero whatever its values say.
+pub static DESCRIPTION: crate::Description = crate::Description {
+    name: NAME,
+    table: TABLE,
+    latency: |_| 0,
+    tail: |_| 0,
+};
+
 /// Level, in decibels.
 pub const LEVEL: u32 = 1;
 /// Pitch, in semitones.

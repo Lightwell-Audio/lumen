@@ -77,6 +77,13 @@ impl MidiPlayer {
                 .map(|k| old.by_id[k].1 as usize);
             let Some(j) = found else {
                 track.dirty = true;
+                // A track the old list did not have: the instrument it brought
+                // takes its sound now, on the interface side of the swap.
+                if let Some(sound) = track.sound.take()
+                    && let Some(spec) = track.instrument.as_mut()
+                {
+                    spec.instrument.load_sound(sound);
+                }
                 continue;
             };
             let before = &mut old.tracks[j];
@@ -152,6 +159,15 @@ impl MidiPlayer {
                 }
             }
             track.dirty = !track.same_as(before);
+            // A new sound for the instrument that plays on (M8 slice B5): it
+            // is handed over here, and the one it stopped using goes back with
+            // the old list, which the interface frees. Nothing is dropped on
+            // this thread.
+            if let Some(sound) = track.sound.take()
+                && let Some(spec) = track.instrument.as_mut()
+            {
+                before.sound = spec.instrument.load_sound(sound).or(before.sound.take());
+            }
             // Its held notes are forgotten, so the sync below strikes them
             // on the new host.
             if host_arrives && !track.state.held.is_empty() {

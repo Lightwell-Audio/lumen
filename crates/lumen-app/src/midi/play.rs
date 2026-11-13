@@ -52,14 +52,27 @@ pub fn used_ports(project: &Project) -> std::collections::BTreeSet<String> {
         .collect()
 }
 
-/// The instrument a track's synth device asks for. A preset this version
-/// does not know (a project from a later one) plays as the default sound.
+/// The instrument a track's sound source asks for. A preset this version does
+/// not know (a project from a later one) plays as the default sound.
 fn instrument(track: &model::Track, hosts: &mut dyn Hosts) -> Option<InstrumentSpec> {
     // A plugin instrument: a host's, or a stand-in while there is none.
     if let Some(device) = track.sound_source()
         && device.is_vst3()
     {
         return Some(hosts.instrument(track.id));
+    }
+    // Shutter, the built-in sampler (M8 slice B5): it starts silent and the
+    // sound it plays is handed over with the list, once the decoded samples
+    // are there.
+    if track
+        .sound_source()
+        .is_some_and(|device| device.is_sampler())
+    {
+        return Some(InstrumentSpec {
+            kind: lumen_devices::sampler::KIND,
+            preset: 0,
+            instrument: Box::new(lumen_devices::Sampler::silent()),
+        });
     }
     let device = track.instrument()?;
     let preset = device
@@ -294,7 +307,7 @@ pub fn with_lanes(
             continue;
         };
         let lanes = crate::lane_bake::device_lanes(held, over, &tempo, rate, |d| {
-            d.is_vst3() && d.is_instrument()
+            (d.is_vst3() && d.is_instrument()) || d.is_sampler()
         });
         track.set_automation(lanes.into_iter().map(|(_, lane)| lane).collect());
     }
@@ -353,6 +366,35 @@ fn kit_of(project: &Project, track: &model::Track) -> Option<Box<lumen_engine::D
         }
     }
     Some(Box::new(kit))
+}
+
+/// What the interface answers for a device: the sound it plays, built from
+/// the decoded samples (M8 slice B5).
+pub type SoundLookup<'a> = &'a dyn Fn(
+    &model::Device,
+    Option<&lumen_project::model::DrumMap>,
+) -> Option<std::sync::Arc<lumen_devices::sampler::Sound>>;
+
+/// Shutter's sound for a track, and the values its knobs hold, put on the
+/// list the engine plays (M8 slice B5). The sound is built from the decoded
+/// samples in `samples`; a device whose samples are still decoding, or whose
+/// files are missing, plays what is loaded (a missing region plays nothing).
+///
+/// This is the one place the sampler's sound reaches the audio thread. A
+/// render uses the same function with the sounds its job carried, so an
+/// export hears what playback did.
+pub fn attach_sounds(tracks: &mut [MidiTrack], project: &Project, sounds: SoundLookup<'_>) {
+    for track in tracks {
+        let Some(held) = project.tracks.iter().find(|t| t.id.0 == track.id) else {
+            continue;
+        };
+        let Some(device) = held.sound_source().filter(|d| d.is_sampler()) else {
+            continue;
+        };
+        let map = project.drum_map_of(held);
+        track.set_values(crate::builtin::values(device));
+        track.sound = sounds(device, map);
+    }
 }
 
 /// [`engine_midi`] with the hosts that play the plugin instruments.

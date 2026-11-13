@@ -383,6 +383,17 @@ impl App {
             // Prism can always go somewhere: on the selected track, or on a
             // new audio track (M8 slice B0).
             Command::AddUtility => Ok(()),
+            // Shutter goes on a MIDI track or a new one, as Prism does
+            // (M8 slice B5); its own commands need its card chosen.
+            Command::AddSampler => Ok(()),
+            Command::SamplerLoadSample
+            | Command::SamplerClearSamples
+            | Command::SamplerNextFace
+            | Command::SamplerToggleLoop
+            | Command::SamplerToggleReverse => need(
+                self.has_sampler(),
+                "Choose Shutter's card first, in the Devices tab",
+            ),
             Command::TransposeClipUp | Command::TransposeClipDown => self.transpose_unavailable(),
             Command::SetTempoFromClip | Command::DoubleClipTempo | Command::HalveClipTempo => {
                 self.warped_unavailable()

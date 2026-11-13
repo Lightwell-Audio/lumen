@@ -15,11 +15,13 @@
 //! Each built-in has a **personality** (owner, 2026-11-12): a name of its own,
 //! with what it is as a subtitle, and a signature colour (DESIGN.md §7k).
 
+pub mod samples;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use eframe::egui::Color32;
 use lumen_devices::params::{self, ParamInfo as Info};
-use lumen_devices::{Description, utility};
+use lumen_devices::{Description, sampler, utility};
 use lumen_engine::{MixerHandle, Routing, Slot};
 use lumen_hosting::{FLAG_CAN_AUTOMATE, ParamInfo};
 use lumen_project::model::{Device, Id, PluginRef, Project};
@@ -69,6 +71,16 @@ const IDENTITIES: &[(&str, Identity)] = &[
             timing: &utility::DESCRIPTION,
         },
     ),
+    (
+        sampler::NAME,
+        Identity {
+            name: "Shutter",
+            kind: "Sampler",
+            subtitle: "Sampler",
+            colour: theme::personality::SHUTTER,
+            timing: &sampler::DESCRIPTION,
+        },
+    ),
     #[cfg(test)]
     (
         TEST_DEVICE,
@@ -116,9 +128,26 @@ pub fn is_builtin_effect(plugin: &PluginRef) -> bool {
     matches!(plugin, PluginRef::Builtin { name } if identity(name).is_some())
 }
 
-/// Whether `device` is a built-in effect this build can run.
+/// Whether `device` is a built-in effect this build can run (the mixer's
+/// built-in path, M8 slice B0). A built-in instrument is not one: nothing in
+/// the audio path delays it, it makes the sound.
 pub fn is_builtin(device: &Device) -> bool {
     is_builtin_effect(&device.plugin)
+        && identity(name_of(device)).is_some()
+        && lumen_devices::instrument_params(name_of(device)).is_none()
+}
+
+/// Whether `device` is a built-in instrument this build can run: the synth or
+/// the sampler, whose sound the interface builds (M8 slice B5). Its
+/// parameters are its table's, as an effect's are, but the mixer runs no
+/// device for it.
+pub fn is_builtin_instrument(device: &Device) -> bool {
+    matches!(&device.plugin, PluginRef::Builtin { name } if lumen_devices::instrument_params(name).is_some())
+}
+
+/// Whether `device` is a built-in of any kind this build knows.
+pub fn is_builtin_device(device: &Device) -> bool {
+    is_builtin(device) || is_builtin_instrument(device)
 }
 
 /// The table a device of `name` declares.
@@ -221,7 +250,7 @@ fn revision(project: &Project) -> u64 {
         put(&mut hash, track.id.0);
         put(&mut hash, u64::from(track.frozen.is_some()));
         for device in &track.devices {
-            if !is_builtin(device) {
+            if !is_builtin_device(device) {
                 continue;
             }
             put(&mut hash, device.id.0);
@@ -366,7 +395,7 @@ impl Builtins {
         let mut wanted: Vec<(Id, String)> = Vec::new();
         for track in all_tracks(project) {
             for device in &track.devices {
-                if is_builtin(device) {
+                if is_builtin_device(device) {
                     wanted.push((device.id, name_of(device).to_owned()));
                 }
             }
@@ -407,7 +436,7 @@ impl Builtins {
             .retain(|id, _| wanted.iter().any(|(known, _)| known == id));
         for track in all_tracks(project) {
             for device in &track.devices {
-                if !is_builtin(device) {
+                if !is_builtin_device(device) {
                     continue;
                 }
                 let fresh = describe(device);
@@ -710,10 +739,27 @@ mod tests {
             assert_eq!(identity.timing.name, *name);
             if *name != TEST_DEVICE {
                 assert!(
-                    lumen_devices::effect_description(name).is_some(),
+                    lumen_devices::effect_description(name).is_some()
+                        || lumen_devices::instrument_params(name).is_some(),
                     "{name} is not a device"
                 );
             }
+        }
+        // And every built-in instrument that has a table has one too (M8
+        // slice B5); the synth's own personality arrives with its controls.
+        for (name, table) in lumen_devices::INSTRUMENTS {
+            if table.is_empty() {
+                continue;
+            }
+            let identity = identity(name).unwrap_or_else(|| panic!("{name} has no personality"));
+            let pinned: Vec<(u32, &str)> = identity
+                .timing
+                .table
+                .iter()
+                .map(|info| (info.id, info.name))
+                .collect();
+            let listed: Vec<(u32, &str)> = table.iter().map(|info| (info.id, info.name)).collect();
+            assert_eq!(pinned, listed);
         }
     }
 

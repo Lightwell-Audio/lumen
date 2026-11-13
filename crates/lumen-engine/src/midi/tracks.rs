@@ -39,16 +39,21 @@ pub(super) fn gather_track(
         );
     }
     hold::sort_events(&mut track.state.events);
-    // The parameters the track's lanes change in this block go to a plugin
-    // instrument with it. An instrument keeps the block it was last given, so
-    // a block with no lanes (they are gone, or the song is not playing) says
-    // so: a lane taken away must not go on setting its last value.
-    if let Some(spec) = track.instrument.as_mut()
-        && spec.instrument.hosted()
-    {
+    // The parameters the track's lanes change in this block go to its
+    // instrument with it: what the project holds for a built-in's knobs (M8
+    // slice B5), then the points a lane gives each. An instrument keeps the
+    // block it was last given, so a block with no lanes (they are gone, or the
+    // song is not playing) says so: a lane taken away must not go on setting
+    // its last value.
+    if let Some(spec) = track.instrument.as_mut() {
         match track.params.as_deref_mut() {
             Some(block) if cx.mode == Mode::Play => {
                 block.start(frames);
+                for &(id, value) in &track.values {
+                    if block.open(id) {
+                        block.point(0, f64::from(value));
+                    }
+                }
                 for lane in &track.automation {
                     fill_param_lane(block, lane, cx.start, frames);
                 }

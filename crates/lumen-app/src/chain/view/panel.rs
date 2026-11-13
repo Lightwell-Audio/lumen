@@ -281,6 +281,7 @@ impl App {
                     // The row lands on the track whose chain this is.
                     self.arrangement.selected = vec![track_id];
                     self.menu_command(ui, Command::AddUtility, "Add Prism (utility)");
+                    self.menu_command(ui, Command::AddSampler, "Add Shutter (sampler)");
                 });
                 if rows.is_empty() {
                     // The shared empty state (the interface audit's D1, the

@@ -591,6 +591,17 @@ pub mod personality {
     /// changes nothing of its own.
     pub const UTILITY: Color32 = Color32::from_rgb(0x9A, 0xA0, 0xAC);
 
+    /// Shutter, the sampler (M8 slice B5): the blue of a film strip held to
+    /// the light (round 2's specimen).
+    pub const SHUTTER: Color32 = Color32::from_rgb(0x6F, 0xA8, 0xFF);
+    /// The deep shade under Shutter's hue, for the face's screen edge (round
+    /// 2's specimen, `shutter()`'s `hue2`).
+    /// Shutter's hue's deep shade, for its face's screen edge (the round-2
+    /// specimen's `hue2`). Kept beside the hue so the face that is built next
+    /// (M8, the drawn sampler) takes it from here rather than from a literal.
+    #[allow(dead_code, reason = "read by Shutter's face when it is built")]
+    pub const SHUTTER_DEEP: Color32 = Color32::from_rgb(0x1F, 0x6F, 0xD1);
+
     /// The screen behind a built-in device's picture (DESIGN.md §7k): deep, and
     /// the same in both themes, as a clip's colour is. Its top is the device's
     /// signature colour, so the band stays the personality's.

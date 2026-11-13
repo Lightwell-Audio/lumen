@@ -261,6 +261,9 @@ pub struct App {
     /// The built-in effects on the project's tracks, and their parameter
     /// tables (M8 slice B0).
     builtin: builtin::Builtins,
+    /// The sample files a person asked for, on their way into a sampler (M8
+    /// slice B5).
+    sampler_load: builtin::samples::Loading,
     /// Safe mode (M6 slice 5e): no plugin is loaded until it is left.
     safe: app::safe_mode::SafeMode,
     /// The Devices tab's own state (M6 slice 2d).
@@ -617,6 +620,7 @@ impl eframe::App for App {
         self.poll_audio_export(&ctx);
         self.poll_freeze(&ctx);
         self.poll_media_pool(&ctx);
+        self.poll_sampler(&ctx);
         self.poll_browser_files(&ctx);
         self.say_frozen_refusals();
         self.plugins.poll(&self.settings.plugins, &ctx);

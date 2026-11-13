@@ -435,6 +435,18 @@ impl App {
             Command::DrumMapExport => self.drum_map_export_command(ctx),
             Command::HideUnmappedKeys => self.toggle_hide_unmapped_keys(),
             Command::AddUtility => self.add_utility(),
+            Command::AddSampler => self.add_sampler(),
+            Command::SamplerLoadSample => self.choose_samples(ctx),
+            Command::SamplerClearSamples => self.clear_sampler(),
+            Command::SamplerNextFace => self.next_sampler_face(),
+            Command::SamplerToggleLoop => {
+                let on = !self.sampler_loops();
+                self.set_sampler_loop(on);
+            }
+            Command::SamplerToggleReverse => {
+                let on = !self.sampler_reversed();
+                self.set_sampler_reverse(on);
+            }
             Command::DrumLanesView => {
                 self.set_drum_view(crate::drum_editor::View::Lanes);
             }

@@ -54,6 +54,9 @@ const HOLD_LIMIT: std::time::Duration = std::time::Duration::from_secs(2);
 #[derive(Default)]
 pub struct Lanes {
     pub library: Library,
+    /// What the project's samplers play, decoded off the audio thread (M8
+    /// slice B5).
+    pub samples: crate::builtin::samples::Library,
     /// Files loading for import onto new tracks, in the order they were
     /// dropped: library id and where they were dropped. Each shows as a row
     /// below the tracks until it joins the project.
@@ -127,10 +130,25 @@ impl Lanes {
         self.midi_dirty |= changed;
     }
 
+    /// The samples the project's samplers play (M8 slice B5): files that
+    /// finished decoding are read here, and every file the project names is
+    /// asked for if it is not loaded — an opened project decodes its samples
+    /// as it decodes its clips, off the audio thread.
+    fn follow_samples(&mut self, doc: &Document, rate: u32) {
+        self.samples.update(rate);
+        for media in &doc.project().media {
+            if self.samples.get(media.id).is_some() {
+                continue;
+            }
+            if let Some(path) = doc.media_files.get(&media.id) {
+                self.samples.load(media.id, path.clone(), rate);
+            }
+        }
+    }
+
     /// Files are still loading for import.
     /// Files dropped for import are still loading (not an opened
-    /// project's media: `library.is_loading()` covers every load).
-    /// The audio tracks whose clips the engine plays cut for a take under
+    /// project's media: `library.is_loading()` covers every load). The audio tracks whose clips the engine plays cut for a take under
     /// way (test seam).
     pub fn masked_tracks(&self) -> Vec<Id> {
         self.masked.iter().map(|r| r.track).collect()
@@ -409,6 +427,10 @@ impl Lanes {
         }
 
         self.send_clips(doc, clips, rate, inputs);
+        // The samples the project's samplers play (M8 slice B5): the files the
+        // project holds are decoded off the audio thread, and a sound is made
+        // for the list where they are ready.
+        self.follow_samples(doc, rate);
         // Sent again when the project, the selection or the inputs change
         // (which tracks listen to what), never every frame.
         // The lanes of plugin instruments are baked for the device's rate.
@@ -428,6 +450,11 @@ impl Lanes {
                 hosting,
             );
             crate::midi::play::with_lanes(&mut tracks, &sounding, &self.devices.overridden, rate);
+            // What each sampler plays, from the decoded samples (M8 slice B5).
+            let project = &sounding;
+            crate::midi::play::attach_sounds(&mut tracks, project, &|device, map| {
+                self.samples.sound(device, map)
+            });
             self.midi_dirty = match midi.set(tracks) {
                 Ok(()) => false,
                 // Full: a plugin instrument in the list is kept for the
