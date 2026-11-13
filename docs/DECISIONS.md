@@ -13767,3 +13767,165 @@ no longer repeats the activation egui already reports (L9).
 a saved preference for the view, and auditioning a lane from a hardware pad
 (the lane's name auditions the sound; a pad plays the track already).
 
+
+## ADR-XXXX — Per-sound routing: a sound's track, its pair, and another track (M8 slice D4)
+
+**Status.** Proposed (M8 D4, `docs/milestones/M8.md` §5 "D4 — Per-sound
+routing"; the owner's RT A, 2026-11-12; the parent's scope change of
+2026-11-13 shrank the slice to its model and engine half — the map editor's
+Output column, the header's sound icons and the shots are the UI agent's on
+this branch).
+
+**Context.** §6.4 asks that a drum sound can play "the instrument or a
+specific instrument output", and RT A adds a sound sent to another
+instrument track. D0 stores the choice (`Sound.route`), and nothing honoured
+it: every sound played on the kit track's own instrument. M6 already makes an
+audio track for each output pair of a hosted instrument
+(`Track.plugin_output`, `document::outputs`), and the engine already hands a
+plugin's aux outputs to those tracks (`midi::play::plugin_outputs`); what was
+missing was the route from a *sound* to that track, and from a sound to
+*another* instrument track.
+
+**Choices.**
+
+1. **The route is the model's, the track's, and the player's.**
+   `Sound.route` (`Route::Main`, `Route::Output(n)`, `Route::Track(id)`) is
+   the one place a sound's destination lives; nothing is derived or copied
+   into a track. `drums::Played` now carries the route beside the key, the
+   channel and the length, so the translation says where a note is heard as
+   well as what it is.
+2. **`Route::Output(n)` numbers the instrument's own outputs, 1 and up.** For
+   a hosted instrument that is the audio bus after the main one, which is
+   also the pair number the host uses while every earlier bus is on — and
+   `output_mask` turns on every playable aux bus, so the two agree in
+   practice. For the built-in sampler it is a pad's output pair (B5).
+   Picking a pair for a sound **makes or reuses** the audio track that plays
+   it: the track M6's outputs row would make, named after the sound, in the
+   kit track's colour and group, right under the kit track and among the
+   other pairs in bus order. Two sounds on one pair share its track: for a
+   hosted instrument the plugin decides which sound lands where (RT A), so
+   one output is one track.
+3. **A sound sent to another track keeps its notes on the kit track's clips
+   and changes only who plays them.** `midi::sends` reads, once per track
+   list, which tracks' sounds go where; `midi::play` then reads a sending
+   track's clips **twice** — once for itself, leaving out the sounds it
+   sends, and once for each receiving track, keeping only those — and the
+   receiving track's instrument plays them. `midi::runs::Dest` is which
+   instrument a read is for, and the run cache is keyed by the clip *and* the
+   destination, so a 100,000-note clip is translated once per instrument it
+   is heard on and never confused between them. A note is read for exactly
+   one instrument, so nothing plays twice and nothing is silent.
+4. **The engine needed no new path.** A send is the same note in another
+   track's list: when the route changes, the note leaves one track's clips
+   and arrives in the other's, and the tracker's existing `hold::sync` — which
+   runs when a new list arrives while playing — releases what the old list
+   held and chases what the new one has. The note-off goes to the instrument
+   that held it, the note-on to the receiving instrument, and neither is left
+   hanging (the engine tests prove it, the allocation guard included). An
+   instrument carries across a list change by its track's id, so both stay the
+   same instruments they were.
+5. **Mute and solo follow the track the sound is heard on.** A send is read
+   only when the *receiving* track is heard (`solo::hearing().output`), so
+   muting or soloing that track silences it; the sending track's own mute does
+   **not** silence a sent sound, because it plays on the destination's bus
+   (its own list keeps the sounds it plays, and the mixer silences those).
+   Soloing the kit silences a sound sent away, since the destination is not on
+   the kit's path.
+6. **One undo step per edit, however much it makes**
+   (`document/drums_route.rs`): `route_drum_sound` (one sound),
+   `route_all_drum_sounds` ("Route all sounds to tracks": the first sound pair
+   1, the next pair 2, and so on for the pairs the instrument has, the rest on
+   the kit track, and with `group` the made tracks in a new group named after
+   the map) and `clear_drum_routes` (every sound back to the kit track).
+   A pair no sound names any more loses its track **when that track is
+   empty** (`outputs::is_unused`); one holding clips, devices or sends stays,
+   as the outputs menu's Keep does, so nothing of anyone's work is dropped. A
+   group that held only the tracks a routing edit takes away goes with them.
+   The group holds the made tracks, not the kit track: the kit's own output
+   stays where it was, which is where a multi-output instrument's own bus
+   belongs.
+7. **Routing is for the clips a sound plays; live pads and audition keep
+   the kit's instrument.** A pad struck on a mapped track, or a lane's name
+   auditioned, still plays the track's own instrument, because live input is
+   translated by the engine from a fixed table and has no cross-track path
+   (`KNOWN_ISSUES`). A sent sound also does not choke its kit's other sounds:
+   choke lives in the sending track's `DrumKit` and the notes now play on
+   another track's. Both are stated as limits, not stubs.
+8. **The seam B5 plugs into.** `midi::play::pad_outputs(project, track)` is
+   the table a built-in instrument with several outputs is built with: 128
+   bytes, the pair each of the track's sounds goes to (0 for the track's
+   own). The sampler reads `pair_of(input)` when it is constructed, on the UI
+   side, and sends that pad's voice to the pair. Nothing else changes for B5:
+   the tracks a pair plays on are made by the same `Document` edit, since a
+   sound's route is the track's reason to exist. The sampler is not built
+   here, and this slice makes no output track for a built-in instrument
+   (`Document::output_device` answers only for a hosted plugin): a built-in
+   has no `plugin_output` track until B5 adds its side.
+9. **The interface's data, not its drawing.** `app::drum_routing` is what the
+   UI agent calls, and nothing in it draws:
+   - `App::sound_output_choices(track) -> Vec<SoundOutput>` — Main, then each
+     pair the instrument has (`Pair { bus, name, told }`, `told` false for a
+     hosted plugin: "set in the plugin"), then the project's other instrument
+     tracks. `sound_output_pairs`, `sound_output_pair_name` and
+     `sound_output_pair(map, input)` are the smaller readings.
+   - `App::sounds_on_track(track) -> Vec<SoundOnTrack>` — the sounds heard on
+     a track that another track's clips hold (a pair's track, or a track a
+     sound is sent to), with the map, the input note, the name, the icon and
+     `sounding` for the header's lit icon; `App::sounds_sounding(track)` is the
+     kit track's own sounding input notes. `made_for_sounds(project, track)`
+     says whether a track is one made for sounds (the header shows the icon in
+     place of the colour chip). The light follows the playhead, so it is dark
+     while the transport is stopped.
+   - `Document::sound_playing_track(track, map, input)` — where a sound is
+     heard now; `Document::sound_output_track(track, bus)` — the pair's track.
+   The panel's per-sound edit is `Document::route_drum_sound`, and the two
+   bulk commands are `track.drum_route_all` and `track.drum_route_clear`.
+   The UI agent adds the Output column, the header icons, the menu rows and
+   the shots.
+10. **Two commands, at the end of `Command` and `ALL`, tagged `@m8`**:
+    `track.drum_route_all` ("Route all sounds to tracks", grouping the made
+    tracks) and `track.drum_route_clear` ("Send the sounds back to the kit
+    track"). Each acts on the first selected MIDI track that reads a drum map;
+    `availability` refuses with a sentence that says what is missing (no map;
+    an instrument with no pairs to give). No default keys. The palette has
+    them; the track header's **Drum map** submenu gets its rows with the UI
+    agent's work, and the toast reports how many tracks were made and how many
+    sounds had to stay on the kit track.
+
+**Consequences.** No format change: `Sound.route` and `Track.plugin_output`
+are already in format v35 and v21, and nothing here persists a new field.
+`midi::runs` gains `Dest` (and `Member::own` / `Member::sending`), the cache's
+keys gain the destination, and `Member` gains the field; `midi::play` gains
+`sends`, `translated`, `PadOutputs` and `pad_outputs`; `midi::sends` is new;
+`document/drums_route.rs` and `app/drum_routing.rs` are new;
+`testing/drum_routing.rs` is the E2E's and the UI agent's seam. D1's
+`Document::set_sound_route` stays test-only (`#[cfg(test)]`), because every
+real route edit goes through `route_drum_sound` (which checks the route and
+makes the pair's track). Tests: the engine's `a_note_sent_to_another_track_mid_note_is_released_here_and_heard_there`,
+`a_route_changed_back_and_forth_never_leaves_a_hanging_note` and
+`a_route_changed_mid_note_never_touches_the_heap` (the allocation guard, two
+synths, a route change mid-note); `midi::sends`'s table; `midi::play`'s
+translation (what plays where, the map's key, channel and length going with
+the notes, mute and solo, no note doubled or lost in a move, the pad pairs);
+`document::drums_route`'s eight tests (each edit and its undo, reuse of a
+pair's track, a track with work kept, refusals taking no step, grouping at the
+deepest level, and `validate` after each); and E2E
+`crates/lumen-app/tests/e2e/drum_routing.rs` (a sound sent to another track is
+heard there and nowhere else, a route change mid-note hangs nothing, the
+palette's Route all makes a track per pair and groups them with the real
+multi-output test instrument heard on each, sending them back takes the tracks
+away, and a built-in instrument says why it has no pairs). MT-DRUM-3 is the
+owner's twin on the Focusrite. Not run here: the WSL performance gate, the
+macOS cross-target clippy, and any screenshot (the UI agent takes them).
+Known limits recorded in `docs/KNOWN_ISSUES.md`: live pads and audition play
+the kit's instrument whatever a sound's route, and a sent sound is not choked.
+
+**The UI agent's list** (so nothing is built twice): the Output column in
+`app/drum_map_window/table.rs` (a dropdown of `App::sound_output_choices`, the
+per-sound edit through `Document::route_drum_sound`, and "set in the plugin"
+for a hosted pair), the sound icon in the header of a track
+`made_for_sounds` names (in place of the colour chip, lit from
+`sounds_on_track(...).sounding`), the two menu rows on a MIDI track's **Drum
+map** submenu, and the shots of the column and the header in both themes at
+100, 150 and 200%.
+
