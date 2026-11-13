@@ -70,26 +70,39 @@ impl App {
             map,
             crate::note_editor::notes_of(&clip),
             hide,
+            crate::theme::is_light(),
         ))
     }
 
     /// Shows the lanes or the piano roll for the open clip's track.
     pub(crate) fn set_drum_view(&mut self, view: View) -> bool {
-        let Some(clip) = self.note_editor.clip else {
+        // The editor may be out of the app (it is taken out while it draws,
+        // and the menu switches the view from inside that draw).
+        let mut ed = std::mem::take(&mut self.note_editor);
+        let changed = self.set_drum_view_in(&mut ed, view);
+        self.note_editor = ed;
+        changed
+    }
+
+    /// [`set_drum_view`](Self::set_drum_view) for an editor taken out of the
+    /// app, as it is while it draws: the menu's Lanes and Keys rows use it, so
+    /// the other view is framed again (review round 2, M4).
+    pub(crate) fn set_drum_view_in(&self, ed: &mut NoteEditor, view: View) -> bool {
+        let Some(clip) = ed.clip else {
             return false;
         };
-        if self.drum_view(clip).is_none() {
+        if self.clip_drum_map(clip).is_none() {
             return false;
         }
         let Some(track) = self.track_of_clip(clip) else {
             return false;
         };
-        if self.note_editor.drum.view(track) == view {
+        if ed.drum.view(track) == view {
             return false;
         }
-        self.note_editor.drum.set_view(track, view);
+        ed.drum.set_view(track, view);
         // The rows and their height change: frame the view again.
-        self.note_editor.framed_for = None;
+        ed.framed_for = None;
         true
     }
 
@@ -130,17 +143,7 @@ impl App {
         let map = self.clip_drum_map(clip)?;
         let (open, _) = self.editor_clip(clip)?;
         let notes = crate::note_editor::notes_of(&open);
-        let mut lane = None;
-        for &index in self.note_editor.picked() {
-            let pitch = notes.get(index)?.pitch();
-            match lane {
-                None => lane = Some(pitch),
-                Some(first) if first != pitch => return None,
-                Some(_) => {}
-            }
-        }
-        let pitch = lane?;
-        map.sound(pitch)?;
+        let pitch = crate::note_editor::ui::picked_lane(&self.note_editor, notes, map)?;
         Some((map.id, pitch))
     }
 

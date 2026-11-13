@@ -608,3 +608,43 @@ fn the_view_commands_say_whether_the_map_or_the_view_is_missing() {
         None
     );
 }
+
+#[test]
+fn the_editors_menu_switches_the_view_and_lists_only_what_applies() {
+    // Review round 2, M4 and L4: the menu's Lanes/Keys rows go through the
+    // command's switch (so the other view is framed on the clip's notes), and
+    // the lane mute and solo rows are listed only while a lane is picked.
+    let (mut lumen, _) = launch("lanes-menu");
+    let body = lumen.app().editor_body().expect("the lanes drew");
+    let menu_at = Pos2::new(body.left() + 320.0, body.center().y);
+    lumen.right_click(menu_at);
+    lumen.frames(3);
+    assert!(
+        !lumen.shows("Mute the picked lane") && !lumen.shows("Solo the picked lane"),
+        "nothing is picked, so the lane rows are not there"
+    );
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(3);
+    // A picked hit lists them.
+    let at = hit(&lumen, q(1), 38);
+    lumen.click_at(at, Modifiers::NONE);
+    lumen.right_click(menu_at);
+    lumen.frames(3);
+    assert!(lumen.shows("Mute the picked lane"), "a lane is picked");
+    // The view row switches to Keys and frames the clip's notes.
+    lumen.click("Show the piano roll (Keys)");
+    lumen.frames(20);
+    assert_eq!(lumen.app().drum_view_shown(), Some("keys"));
+    let roll = lumen.app().editor_body().expect("the roll drew");
+    let snare = lumen.app().editor_point(q(1), 38).expect("the snare's row");
+    assert!(
+        roll.contains(snare),
+        "Keys opens on the clip's notes, not at the top: {snare:?} in {roll:?}"
+    );
+    // And back through the menu, in Lanes.
+    lumen.right_click(menu_at);
+    lumen.frames(3);
+    lumen.click("Show the drum lanes");
+    lumen.frames(20);
+    assert_eq!(lumen.app().drum_view_shown(), Some("lanes"));
+}

@@ -4,7 +4,7 @@
 
 use eframe::egui::{self, CursorIcon, PointerButton, Pos2, Rect, Sense, Ui, pos2, vec2};
 use lumen_core::time::{PPQ, Ticks};
-use lumen_project::model::{Clip, Id};
+use lumen_project::model::{Clip, DrumMap, Id, Note};
 
 use std::sync::Arc;
 
@@ -40,6 +40,28 @@ pub(crate) struct DrumMenu {
     /// The sound under the pointer and whether its lane shows its length, when
     /// the sound has no length override.
     pub length: Option<(u8, bool)>,
+    /// The one lane the picked hits are in, when every picked hit is in it
+    /// and the map has that sound (review round 2, L4: the menu lists the
+    /// lane rows only then).
+    pub picked_lane: Option<u8>,
+}
+
+/// The one lane `ed`'s picked hits are in, when every picked hit is in it and
+/// `map` has that sound. The editor is out of the app while it draws, so the
+/// menu reads this from the live editor rather than from `App` (review round
+/// 2, L4).
+pub(crate) fn picked_lane(ed: &NoteEditor, notes: &[Note], map: &DrumMap) -> Option<u8> {
+    let mut lane = None;
+    for &index in ed.picked() {
+        let pitch = notes.get(index)?.pitch();
+        map.sound(pitch)?;
+        match lane {
+            None => lane = Some(pitch),
+            Some(first) if first != pitch => return None,
+            Some(_) => {}
+        }
+    }
+    lane
 }
 
 /// What the editor's right-click menu acts on this frame (M8 D2 adds the
@@ -93,7 +115,13 @@ impl App {
             Some(map) => {
                 let hide = track.is_some_and(|track| ed.drum.hides_unused(track));
                 let lanes = if view == Some(crate::drum_editor::View::Lanes) {
-                    Some(ed.drum.lanes_for(map, &clip, notes_of(&clip), hide))
+                    Some(ed.drum.lanes_for(
+                        map,
+                        &clip,
+                        notes_of(&clip),
+                        hide,
+                        crate::theme::is_light(),
+                    ))
                 } else {
                     None
                 };
@@ -439,6 +467,9 @@ impl App {
                 view,
                 hiding,
                 length,
+                picked_lane: self
+                    .clip_drum_map(clip.id)
+                    .and_then(|map| picked_lane(ed, notes, map)),
             })
         });
         self.editor_menu(
@@ -923,19 +954,23 @@ impl App {
                 }
                 if drum.view == crate::drum_editor::View::Lanes {
                     // The picked lane's own switches, through the commands
-                    // (review M4).
-                    let lane = self.drum_picked_lane().is_some();
-                    let mute = keys(self, Command::DrumMuteLane);
-                    if widgets::menu_item(ui, "Mute the picked lane", mute.as_ref(), lane).clicked()
-                    {
-                        later = Some(Command::DrumMuteLane);
+                    // (review M4), and only while a lane is picked: a menu
+                    // lists only what can apply (review round 2, L4).
+                    if drum.picked_lane.is_some() {
+                        let mute = keys(self, Command::DrumMuteLane);
+                        if widgets::menu_item(ui, "Mute the picked lane", mute.as_ref(), true)
+                            .clicked()
+                        {
+                            later = Some(Command::DrumMuteLane);
+                        }
+                        let solo = keys(self, Command::DrumSoloLane);
+                        if widgets::menu_item(ui, "Solo the picked lane", solo.as_ref(), true)
+                            .clicked()
+                        {
+                            later = Some(Command::DrumSoloLane);
+                        }
+                        ui.separator();
                     }
-                    let solo = keys(self, Command::DrumSoloLane);
-                    if widgets::menu_item(ui, "Solo the picked lane", solo.as_ref(), lane).clicked()
-                    {
-                        later = Some(Command::DrumSoloLane);
-                    }
-                    ui.separator();
                     let unused = keys(self, Command::HideUnusedLanes);
                     if widgets::menu_toggle(ui, "Hide unused lanes", unused.as_ref(), drum.hiding)
                         .clicked()
@@ -946,16 +981,16 @@ impl App {
                     if widgets::menu_item(ui, "Show the piano roll (Keys)", keys_row.as_ref(), true)
                         .clicked()
                     {
-                        ed.drum.set_view(drum.track, crate::drum_editor::View::Keys);
+                        // The same switch the command runs, on the editor that
+                        // is out of the app while it draws (review M4).
+                        self.set_drum_view_in(ed, crate::drum_editor::View::Keys);
                     }
                 } else {
                     let lanes_row = keys(self, Command::DrumLanesView);
                     if widgets::menu_item(ui, "Show the drum lanes", lanes_row.as_ref(), true)
                         .clicked()
                     {
-                        ed.drum
-                            .set_view(drum.track, crate::drum_editor::View::Lanes);
-                        ed.framed_for = None;
+                        self.set_drum_view_in(ed, crate::drum_editor::View::Lanes);
                     }
                 }
             }

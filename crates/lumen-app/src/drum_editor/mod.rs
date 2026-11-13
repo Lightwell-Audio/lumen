@@ -72,8 +72,9 @@ pub(crate) struct Lane {
 /// the unused ones while `hide_unused` is on (a sound with no hit in the
 /// clip's notes, outside its window too, so a trimmed-away hit is not
 /// forgotten and then found). One pass over the notes counts each sound's
-/// hits.
-pub(crate) fn lanes(map: &DrumMap, notes: &[Note], hide_unused: bool) -> Vec<Lane> {
+/// hits. `light` is the theme the colours are for, so a theme switch rebuilds
+/// the lanes in the new palette (review round 2, M3).
+pub(crate) fn lanes(map: &DrumMap, notes: &[Note], hide_unused: bool, light: bool) -> Vec<Lane> {
     let mut used = [0_usize; 128];
     for note in notes {
         if let Some(slot) = used.get_mut(usize::from(note.pitch())) {
@@ -90,7 +91,7 @@ pub(crate) fn lanes(map: &DrumMap, notes: &[Note], hide_unused: bool) -> Vec<Lan
             input: sound.input,
             name: sound.name.clone(),
             icon: sound.icon.into(),
-            color: crate::theme::wave(crate::arrangement::color_to(sound.color)),
+            color: crate::theme::wave_on(light, crate::arrangement::color_to(sound.color)),
             mute: sound.mute,
             solo: sound.solo,
             silent: !map.heard(sound),
@@ -140,6 +141,8 @@ struct LanesCache {
     map: DrumMap,
     clip: Arc<Clip>,
     hide: bool,
+    /// The theme the colours were baked for (review round 2, M3).
+    light: bool,
     lanes: Arc<Vec<Lane>>,
 }
 
@@ -154,30 +157,36 @@ struct CellsCache {
     time: TimeView,
     scroll: f32,
     cells: Arc<Vec<Cell>>,
-    /// Reused between rebuilds, so a frame allocates nothing (H2).
+    /// Reused between rebuilds: a rebuild allocates the cells' `Arc` (the UI
+    /// still holds the last frame's) but not this search buffer (H2).
     seen: Vec<Option<Cell>>,
     scratch: Vec<Cell>,
 }
 
 impl State {
-    /// The lanes for `clip`, rebuilt only when the map, the clip or Hide
-    /// unused changed.
+    /// The lanes for `clip`, rebuilt only when the map, the clip, Hide unused
+    /// or the theme changed.
     pub fn lanes_for(
         &mut self,
         map: &DrumMap,
         clip: &Arc<Clip>,
         notes: &[Note],
         hide: bool,
+        light: bool,
     ) -> Arc<Vec<Lane>> {
         let fresh = self.lanes.as_ref().is_some_and(|cache| {
-            cache.map == *map && cache.hide == hide && Arc::ptr_eq(&cache.clip, clip)
+            cache.map == *map
+                && cache.hide == hide
+                && cache.light == light
+                && Arc::ptr_eq(&cache.clip, clip)
         });
         if !fresh {
             self.lanes = Some(LanesCache {
                 map: map.clone(),
                 clip: clip.clone(),
                 hide,
-                lanes: Arc::new(lanes(map, notes, hide)),
+                light,
+                lanes: Arc::new(lanes(map, notes, hide, light)),
             });
         }
         let cache = self.lanes.as_ref().expect("just built");
@@ -329,7 +338,7 @@ mod tests {
             Note::new(Ticks::ZERO, Ticks(60), kick, 100),
             Note::new(Ticks(120), Ticks(60), hat, 90),
         ];
-        let all = lanes(&map, &notes, false);
+        let all = lanes(&map, &notes, false, false);
         assert_eq!(all.len(), map.sounds.len(), "every sound, in map order");
         assert_eq!(
             all.iter().map(|l| l.input).collect::<Vec<_>>(),
@@ -337,15 +346,67 @@ mod tests {
         );
         let used: Vec<u8> = all.iter().filter(|l| l.used).map(|l| l.input).collect();
         assert_eq!(used, vec![kick, hat]);
-        let few = lanes(&map, &notes, true);
+        let few = lanes(&map, &notes, true, false);
         assert_eq!(few.len(), 2);
         assert_eq!(few.iter().map(|l| l.input).collect::<Vec<_>>(), [kick, hat]);
         // A note outside the clip's window still counts: trimming over a hit
         // must not lose its lane.
         let outside = vec![Note::new(Ticks(90_000), Ticks(60), kick, 100)];
-        assert_eq!(lanes(&map, &outside, true).len(), 1);
+        assert_eq!(lanes(&map, &outside, true, false).len(), 1);
         // Nothing played: no lanes at all when hiding the unused.
-        assert!(lanes(&map, &[], true).is_empty());
+        assert!(lanes(&map, &[], true, false).is_empty());
+    }
+
+    #[test]
+    fn a_theme_switch_rebuilds_the_lanes_in_the_new_palette() {
+        // Review round 2, M3: the lanes' colours are baked from the theme, so
+        // the cache is keyed by it and a switch rebuilds them. The flag is the
+        // one `theme::is_light()` answers, passed in so the test does not flip
+        // the global under other tests.
+        let map = map();
+        let clip = Arc::new(Clip {
+            id: Id(2),
+            name: "Beat".into(),
+            start: Ticks::ZERO,
+            length: Ticks::quarters(4),
+            muted: false,
+            color: None,
+            locked: false,
+            crossfade: false,
+            fade_in: Default::default(),
+            fade_out: Default::default(),
+            loop_length: None,
+            loop_phase: Default::default(),
+            envelopes: Default::default(),
+            audio_phase_seconds: 0.0,
+            reversed: false,
+            inverted: false,
+            takes: None,
+            warp: None,
+            content: lumen_project::model::ClipContent::Midi {
+                notes: vec![Note::new(Ticks::ZERO, Ticks(60), map.sounds[0].input, 100)],
+                events: Vec::new(),
+            },
+        });
+        let notes = vec![Note::new(Ticks::ZERO, Ticks(60), map.sounds[0].input, 100)];
+        let mut state = State::default();
+        let dark = state.lanes_for(&map, &clip, &notes, false, false);
+        let again = state.lanes_for(&map, &clip, &notes, false, false);
+        assert!(
+            Arc::ptr_eq(&dark, &again),
+            "the same theme draws from the cache"
+        );
+        let light = state.lanes_for(&map, &clip, &notes, false, true);
+        assert!(!Arc::ptr_eq(&dark, &light), "a theme switch rebuilds");
+        assert_ne!(
+            dark[0].color, light[0].color,
+            "the lanes take the new theme's palette"
+        );
+        assert_eq!(
+            light[0].color,
+            crate::theme::wave_on(true, crate::arrangement::color_to(map.sounds[0].color)),
+            "light keeps the colour; dark brightens it"
+        );
     }
 
     #[test]

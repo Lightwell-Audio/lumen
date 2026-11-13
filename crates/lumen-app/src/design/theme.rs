@@ -409,7 +409,14 @@ pub fn edge_light() -> Color32 {
 /// clip body so it reads (owner's choice: dark clips with bright
 /// waveforms); on the light theme's white body, the colour itself.
 pub fn wave(track: Color32) -> Color32 {
-    if LIGHT_IN_USE.load(Ordering::Relaxed) {
+    wave_on(LIGHT_IN_USE.load(Ordering::Relaxed), track)
+}
+
+/// [`wave`] for a theme chosen by the caller: `light` is the value
+/// [`is_light`] answers, so a caller that caches colours by theme can pass it
+/// without reading the global again (review round 2, M3).
+pub fn wave_on(light: bool, track: Color32) -> Color32 {
+    if light {
         track
     } else {
         track.lerp_to_gamma(Color32::WHITE, 0.3)
