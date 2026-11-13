@@ -409,7 +409,14 @@ pub fn edge_light() -> Color32 {
 /// clip body so it reads (owner's choice: dark clips with bright
 /// waveforms); on the light theme's white body, the colour itself.
 pub fn wave(track: Color32) -> Color32 {
-    if LIGHT_IN_USE.load(Ordering::Relaxed) {
+    wave_on(LIGHT_IN_USE.load(Ordering::Relaxed), track)
+}
+
+/// [`wave`] for a theme chosen by the caller: `light` is the value
+/// [`is_light`] answers, so a caller that caches colours by theme can pass it
+/// without reading the global again (review round 2, M3).
+pub fn wave_on(light: bool, track: Color32) -> Color32 {
+    if light {
         track
     } else {
         track.lerp_to_gamma(Color32::WHITE, 0.3)
@@ -1000,6 +1007,31 @@ pub mod size {
     pub const SUBJECT_BAR: f32 = 3.0;
     /// The widest a tab's note (a clip's name after "Clip") is drawn.
     pub const TAB_NOTE: f32 = 140.0;
+    /// The drum editor's lanes (M8 D2, M8's specimen): a lane's height
+    /// (`2 × space::M + space::XS`, D1's table row too); the name column's
+    /// width, which is the key column's on a mapped track; the colour bar
+    /// down a lane's left edge; a sound's drawing and where it starts; where
+    /// the name starts; the M and S toggles' size, gap and the room kept
+    /// between them and the column's right edge (the specimen's
+    /// `NAME_W - 52` block, whose two 20 pt pieces end 8 pt in); the ring
+    /// around a picked hit; and how much of a lane a hit's diamond takes,
+    /// either of the row or of the grid step.
+    pub const LANE_ROW: f32 = 2.0 * super::space::M + super::space::XS;
+    pub const LANE_NAME: f32 = 176.0;
+    pub const LANE_BAR: f32 = 3.0;
+    pub const LANE_ICON: f32 = 16.0;
+    pub const LANE_ICON_X: f32 = 10.0;
+    pub const LANE_NAME_X: f32 = 34.0;
+    pub const LANE_BUTTON_W: f32 = 20.0;
+    pub const LANE_BUTTON_H: f32 = 18.0;
+    pub const LANE_BUTTON_GAP: f32 = 4.0;
+    pub const LANE_BUTTONS_RIGHT: f32 = 8.0;
+    pub const LANE_PICKED_RING: f32 = 2.0;
+    pub const LANE_HIT_ROW: f32 = 0.34;
+    pub const LANE_HIT_STEP: f32 = 0.46;
+    /// The shortest row an arrangement drum picture draws: below this a row
+    /// stops being a picture.
+    pub const DRUM_ROW_MIN: f32 = 6.0;
     /// The Warp popover's controls (M9.5 S5a): the mode dropdown, the tempo
     /// field and the sensitivity slider.
     pub const WARP_MODE: f32 = 120.0;

@@ -298,6 +298,11 @@ pub(crate) enum Command {
     DrumMapExport,
     HideUnmappedKeys,
     AddUtility,
+    DrumLanesView,
+    DrumKeysView,
+    HideUnusedLanes,
+    DrumMuteLane,
+    DrumSoloLane,
     AddEq,
 }
 
@@ -684,6 +689,11 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DrumMapExport, "track.drum_map_export", "Export the drum map…", Area::Track, &[], "Writes the drum map the editor shows, or the selected track's, to a .lumendrums file you choose. The map in the project is not changed."),
     info(Command::HideUnmappedKeys, "view.hide_unmapped_keys", "Hide unmapped keys", Area::View, &[], "In the clip editor of a track with a drum map, shows only the map's sounds in the key column, so a kit's rows sit together; again shows every key. It changes the view only, never the clip."),
     info(Command::AddUtility, "devices.add_utility", "Add Prism (utility)", Area::Devices, &[], "Puts Prism, the utility device, on the selected track (after the chosen card), or on a new audio track when no track fits. Gain, pan, width, mono below a frequency, polarity, a swap of the sides and a DC block: automation, MIDI learn and presets work as for any device."),
+    info(Command::DrumLanesView, "view.drum_lanes", "Show the drum lanes", Area::View, &[], "Shows the opened clip as the drum editor's lanes: one lane a sound of its track's drum map, in the map's order, with each hit a diamond filled to its velocity. A clip on a track with a drum map opens in Lanes already; this switches back from the piano roll."),
+    info(Command::DrumKeysView, "view.drum_keys", "Show the piano roll (Keys)", Area::View, &[], "Shows the opened drum clip as the piano roll, with the kit's sounds instead of the keyboard in the key column. It is the same notes, edited as notes; the lanes are where a drum part is played in."),
+    info(Command::HideUnusedLanes, "view.hide_unused_lanes", "Hide unused lanes", Area::View, &[], "In the drum editor's lanes, shows only the sounds the opened clip plays; again shows the map's every sound. A view only: no note and no map changes."),
+    info(Command::DrumMuteLane, "midi.mute_lane", "Mute the picked lane", Area::Midi, &[], "Mutes the drum map's sound of the lane the picked hits are in, or unmutes it when all are muted. The map editor's M is the same switch; one undo step."),
+    info(Command::DrumSoloLane, "midi.solo_lane", "Solo the picked lane", Area::Midi, &[], "Solos the drum map's sound of the lane the picked hits are in, so only it is heard, or unsolos it. The map editor's S is the same switch; one undo step."),
     info(Command::AddEq, "devices.add_eq", "Add Iris (EQ)", Area::Devices, &[], "Puts Iris, the equaliser, on the selected track (after the chosen card), or on a new audio track when no track fits. Eight bands: cuts, shelves, bells and notches, with an analyser. Drag a band's point on the curve, or find every control in All parameters. Automation, MIDI learn and presets work as for any device."),
 ];
 

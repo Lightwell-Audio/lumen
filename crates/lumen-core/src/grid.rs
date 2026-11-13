@@ -173,6 +173,24 @@ fn note(n: u32, feel: Feel) -> Option<Ticks> {
     Ticks::whole_note_fraction(num, den)
 }
 
+/// The ticks a fixed size lasts in `meter` (M8 D2: a drum sound's own quantize
+/// grid), or `None` when it is not a whole number of ticks. A bar has no
+/// triplet or dotted feel (it is not whole ticks in every meter): the map
+/// editor does not offer one, and a file that names one reads as straight
+/// (review L8).
+pub fn size_ticks(size: Size, feel: Feel, meter: Meter) -> Option<Ticks> {
+    match size {
+        Size::Note(n) => note(n.max(1), feel),
+        Size::Bars(bars) => {
+            if feel != Feel::Straight {
+                return None;
+            }
+            let bar = meter.bar().0.saturating_mul(i64::from(bars.max(1)));
+            (bar > 0).then_some(Ticks(bar))
+        }
+    }
+}
+
 impl Grid {
     /// The step for `meter` at a zoom of `points_per_quarter`.
     pub fn step(&self, meter: Meter, points_per_quarter: f64) -> Step {
@@ -502,6 +520,44 @@ mod tests {
             ..Grid::default()
         };
         assert_eq!(triplet.step(FOUR, 24.0), Step::Ticks(Ticks(PPQ / 3)));
+    }
+
+    #[test]
+    fn a_size_with_a_feel_lasts_whole_ticks_in_a_meter() {
+        // M8 D2: a drum sound's own quantize grid.
+        assert_eq!(
+            size_ticks(Size::Note(16), Feel::Straight, FOUR),
+            Some(Ticks(PPQ / 4))
+        );
+        assert_eq!(
+            size_ticks(Size::Note(8), Feel::Triplet, FOUR),
+            Some(Ticks(PPQ / 3))
+        );
+        assert_eq!(
+            size_ticks(Size::Note(8), Feel::Dotted, FOUR),
+            Some(Ticks(PPQ * 3 / 4))
+        );
+        assert_eq!(
+            size_ticks(Size::Bars(1), Feel::Straight, FOUR),
+            Some(Ticks(PPQ * 4))
+        );
+        assert_eq!(
+            size_ticks(Size::Bars(2), Feel::Straight, FOUR),
+            Some(Ticks(PPQ * 8))
+        );
+        // A bar is straight only: a triplet or dotted bar is not whole ticks
+        // in every meter, so the map editor does not offer one and
+        // `size_ticks` refuses it (review L8).
+        assert_eq!(size_ticks(Size::Bars(1), Feel::Triplet, FOUR), None);
+        let odd = Meter {
+            numerator: 7,
+            denominator: 8,
+        };
+        assert_eq!(
+            size_ticks(Size::Bars(1), Feel::Straight, odd),
+            Some(odd.bar())
+        );
+        assert_eq!(size_ticks(Size::Bars(2), Feel::Dotted, FOUR), None);
     }
 
     #[test]

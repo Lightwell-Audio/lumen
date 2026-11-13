@@ -114,6 +114,10 @@ pub(crate) struct NoteEditor {
     /// sounds (M8 D1, "Hide unmapped keys"). Not saved: a view, like the
     /// lane's shown state.
     pub hide_unmapped: bool,
+    /// The drum editor's own view state (M8 D2): the view a track's clips open
+    /// in, its Hide unused, the lanes showing length, and a reorder. Not
+    /// saved.
+    pub drum: crate::drum_editor::State,
     /// The clip time under the pointer when the menu was opened: "Split
     /// here" cuts there. Latched, because while the menu is used the pointer
     /// is over the menu, not the roll, so `pointer_at` is empty.
@@ -209,7 +213,8 @@ impl NoteEditor {
     pub fn cancel_gesture(&mut self) -> bool {
         let notes = self.gesture.take().is_some();
         let lane = self.lane.cancel_gesture();
-        notes || lane
+        let reorder = self.drum.reorder.take().is_some();
+        notes || lane || reorder
     }
 }
 
@@ -319,6 +324,7 @@ impl App {
         ed.clip = None;
         ed.selection = None;
         ed.gesture = None;
+        ed.drum.reorder = None;
         ed.popped = false;
     }
 
