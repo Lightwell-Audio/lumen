@@ -2792,6 +2792,117 @@ fn builtin_eq() {
     }
 }
 
+/// Gravity and Horizon's faces (M8 slice B2, the owner's round 2): the card
+/// whole at rest and playing (gain reduction, the land of what was heard),
+/// short, compact, folded, every parameter and the smallest window; both
+/// themes at 100, 150 and 200%. Gravity is keyed from a track called Kick, as
+/// the specimen shows. `SHOT_FILTER=dark-1` keeps the cases whose
+/// "appearance-scale-tag" holds it.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn dynamics_card() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_project::model::{
+        Color, Device, Id, PluginRef, Sidechain, SidechainTap, Track, TrackKind,
+    };
+
+    let mut cases: Vec<(&str, f32, eframe::egui::Vec2, &str, f32)> = Vec::new();
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            for (tag, detail) in [("whole", 460.0), ("short", 365.0), ("compact", 300.0)] {
+                cases.push((appearance, scale, vec2(1280.0, 900.0), tag, detail));
+            }
+            cases.push((appearance, scale, vec2(960.0, 540.0), "small", 0.0));
+        }
+    }
+    let only = std::env::var("SHOT_FILTER").unwrap_or_default();
+    for (saved, short) in [
+        (lumen_devices::dynamics::compressor::NAME, "gravity"),
+        (lumen_devices::dynamics::limiter::NAME, "horizon"),
+    ] {
+        for (appearance, scale, size, tag, detail) in cases.iter().copied() {
+            if !format!("{appearance}-{scale}-{tag}").contains(&only) {
+                continue;
+            }
+            let dir = TempDir::new(&format!("shots-{short}-{appearance}-{scale}-{tag}"));
+            let mut keys = Track::new(Id(1), "Keys".to_owned(), TrackKind::Audio, Color(0x5E8C6A));
+            let mut device = Device::new(
+                Id(10),
+                PluginRef::Builtin {
+                    name: saved.to_owned(),
+                },
+                false,
+                Vec::new(),
+            );
+            if short == "gravity" {
+                device.sidechain = Some(Sidechain {
+                    from: Id(2),
+                    tap: SidechainTap::PostFx,
+                });
+            }
+            keys.devices = vec![device];
+            let kick = Track::new(Id(2), "Kick".to_owned(), TrackKind::Audio, Color(0xC0603A));
+            let project = lumen_project::testing::project_of("Face", vec![keys, kick]);
+            let path = dir.path().join("song.lumen");
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(size)
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            h.state_mut().select_tracks(&[Id(1)]);
+            h.run_steps(4);
+            h.get_all_by_label("Devices tab")
+                .last()
+                .expect("the tabs")
+                .click();
+            h.run_steps(4);
+            if tag != "small" {
+                h.state_mut().set_detail_size(detail);
+                h.run_steps(30);
+            }
+            let at = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
+            // At rest: nothing heard yet.
+            save(&mut h, &format!("{short}-rest-{at}"));
+            // Playing: what the device took away and what it heard, long enough
+            // for the land to fill in.
+            h.state_mut().pretend_reduction(Id(10), 4.1, -8.0);
+            h.run_steps(120);
+            save(&mut h, &format!("{short}-{at}"));
+            if tag != "whole" {
+                continue;
+            }
+            // Folded: the rail with its hue and its name set on end.
+            h.state_mut().fold_device(Id(10));
+            h.run_steps(10);
+            save(&mut h, &format!("{short}-folded-{at}"));
+            h.state_mut().fold_device(Id(10));
+            h.run_steps(10);
+            // Every parameter on its own.
+            let count = if short == "gravity" { 10 } else { 4 };
+            let label = format!("All parameters ({count})");
+            if h.query_by_label(&label).is_some() {
+                h.get_by_label(&label).click();
+                h.run_steps(10);
+                save(&mut h, &format!("{short}-parameters-{at}"));
+            }
+        }
+    }
+}
+
 /// The Devices tab (M6 slice 2d): a chain with every card face, stopped and
 /// playing, as the owner's C4 mock-up draws it.
 #[test]

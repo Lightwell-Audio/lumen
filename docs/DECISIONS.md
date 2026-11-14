@@ -14387,3 +14387,274 @@ for a hosted pair), the sound icon in the header of a track
 map** submenu, and the shots of the column and the header in both themes at
 100, 150 and 200%.
 
+## ADR-0151 — Gravity and Horizon, the compressor and the limiter (M8 slice B2)
+
+**Status.** Proposed (M8 slice B2, DSP and faces; the parent assigns the number). Brief:
+`docs/milestones/M8.md` §5 "B2 — Compressor and limiter"; decisions E1, E2, E6
+and E7 in §6; risks 1 and 6 in §8. Contract: ADR-0145 (the built-in effect path,
+B0) and ADR-0041 (sidechains and delay compensation).
+
+**Context.** B0 shipped one in-process effect (Prism, the utility) and the path
+every built-in plugs into. B2 is the first slice to need more of that contract
+than the utility did: the optional sidechain `Key` (a compressor keyed from
+another track), a latency that follows a setting (the limiter's lookahead), a
+**tail** (the limiter's line draining after a Stop), and a meter the interface
+reads while the device runs (the gain reduction its face draws). M8's risk 1
+said the trait would be tried against the compressor's sidechain and the
+limiter's latency on paper in B0's ADR; this slice is that trial.
+
+**Decisions.**
+
+1. **DSP is Lumen's own (E7).** No new dependency. Gravity is a feed-forward
+   compressor with the textbook soft-knee gain computer; Horizon is a look-ahead
+   limiter with a sliding minimum, and its true-peak detector is an eight-phase
+   windowed sinc written out in `dynamics/limiter.rs` (the design the loudness
+   meter's true peak uses, with eight phases rather than four so a tone near the
+   top of the band is not a fifth of a decibel short).
+2. **The trait was not changed.** Both devices fit `Effect` as B0 left it:
+   `process(&Block, Stereo, Option<Key>)`, `latency`, `tail`, `reset`. The
+   compressor reads the key, the limiter reports its lookahead, and neither
+   needed a new member or a change to the pool: B0's contract held for the two
+   cases it was designed for.
+3. **Latency and tail are pure functions of the values** (ADR-0145 review H1),
+   counted **at 48 kHz**: `Description::latency` and `tail` take values alone,
+   with no rate to ask, so they are frames at `dynamics::REFERENCE_RATE`.
+   Horizon therefore delays by exactly that many frames at any rate, so
+   compensation is exact at every rate; only the millisecond a round number of
+   frames buys differs away from 48 kHz (a lookahead of "1.5" is 1.5 ms at
+   48 kHz, 0.75 ms at 96 kHz). The alternative — a rate-scaled lookahead with a
+   rate-free latency — would be *misaligned* at any other rate, which is worse
+   than a label that is exact at the reference rate. Recorded in KNOWN_ISSUES.
+4. **The lookahead is read unglided, and not from a lane.** Every other
+   parameter glides 20 ms as B0's `params::values` makes them; the lookahead is
+   the device's *timing*, so it is read from the value the project holds alone
+   (`dynamics::held_at_rest`, the first point of the first queue, with no lane on
+   top); it is **not automatable** (review M1) — a lane would change the delay
+   from block to block while the routing is compensated with the held value, and
+   the app hides Automate and Learn for it (`lumen_devices::automatable`). A
+   change is a new block's timing, and the engine's own latency-change behaviour
+   (a skip or repeat of the difference, ADR-0041) covers the switch. The
+   interface applies a drag's worth of change once, when the drag ends (review
+   M2), so the routing is re-timed once and not every frame.
+5. **The gain reduction is published through a lock-free handle**
+   (`dynamics::Reduction`): two atomics in an `Arc`, the audio side recording
+   the block's most reduction and its input level, the interface taking it once
+   a frame. It follows the mixer's meter bank exactly (a `fetch_max` the reader
+   clears), allocates once when the device is built, and is handed out by a new
+   `lumen_devices::effect_with_meter`; `effect()` remains, so B0's callers are
+   untouched. `Builtins` keeps the handles by device id, reads them once a frame
+   (`Builtins::read_meters`, called by the Devices tab before any card is
+   drawn), and a test or a screenshot can set one by hand
+   (`testing::pretend_reduction`).
+6. **A device says whether it takes a key** through
+   `lumen_devices::takes_sidechain(name)` and a short `SIDECHAINED` list rather
+   than a new field on `Description`: a new field would leave every other device
+   slice's `Description` literal incomplete at merge, and the list is one line
+   for the next device with a key. The card asks it through
+   `builtin::takes_sidechain`, and the sidechain row, its light, the tap
+   chooser and every refusal are the plugin card's own code (`chain/sidechain`
+   was not forked); `Document::set_sidechain` now accepts a built-in that takes
+   a key, and the routing already read a device's `sidechain` whatever kind of
+   device it is.
+7. **The tables** (E2): stable `u32` ids pinned by a test, the four the face
+   draws first (so the compact card folds back to exactly them), then the rest.
+   Gravity: Pull (threshold), Ratio, Attack, Release, Knee, Makeup (Off/Auto),
+   Mix, Detect (Peak/RMS), Key HPF, Listen. Horizon: Ceiling, Release, Look,
+   Detect (Sample/True). Names are short enough for a card cell at 100 % ("Pull",
+   "Look", "Detect"); the full meaning is in the tooltips, All parameters and
+   the documentation.
+8. **The static curve is a pure function** (`compressor::curve_db`): the
+   standard soft-knee form, whose two halves join the straight sections at both
+   knee edges with the same value and slope (tested). Automatic make-up is
+   `-threshold * (1 - 1/ratio)`, clamped to 24 dB: what the loud end lost, so the
+   loudness of a mix does not change when the ratio does.
+9. **The limiter cannot overshoot by construction.** The signal is delayed by
+   the lookahead; each frame's requirement is `ceiling / level`, and the gain
+   applied to the delayed sample is the *sliding minimum* over the window that
+   ends at it (a monotonic deque, O(1) a frame), smoothed upwards by the release
+   and never above that minimum. Since the window holds the delayed sample's own
+   requirement, no sample leaves above the ceiling. The cost is the limiter's
+   usual pre-ducking (the gain is down for the length of the lookahead around a
+   peak), which is what a look-ahead limiter is.
+10. **No format change.** A parameter the project does not name is its table's
+    default (B0, item 6), and a built-in's sidechain reuses `Device.sidechain`,
+    which plugins already save. `history::unchanged` is untouched.
+11. **Commands**: `devices.add_compressor` ("Add Gravity (compressor)") and
+    `devices.add_limiter` ("Add Horizon (limiter)"), at the end of `Command` and
+    `ALL`, with arms in `availability` and `run`, palette entries, and rows in
+    the track's menu and the device tray's, as B0's `devices.add_utility`. One
+    undo step each, with every value written (`Document::add_device_with`). Both
+    are tagged `@m8` in `site/docs/data/undocumented.txt` (ADR-0133).
+
+**The faces (the owner's round 2).** *Built-ins are set pieces: round 2 (owner, 2026-11-12); chosen.html's device
+section is superseded.* The first drawings this slice shipped (a transfer curve and a horizon in the strip's
+own row) were placeholders and the owner did not approve them; they are gone (`chain/faces/` is deleted).
+Gravity and Horizon are now drawings on the set-piece card (`chain/face/gravity.rs`, `chain/face/horizon.rs`,
+two lines in `face::DRAWINGS`, DESIGN.md §7k), built to the round-2 specimen as measured
+(`docs/specimens/m8/round2-{dark,light}.png`):
+
+12. **Gravity** (380 x 330, violet): a warped grid and a lit ball in a well. The gain reduction (the meter's
+    reading, taken once a frame by `Builtins::read_meters`, passed as `Scene.reading`) sinks the ball and deepens
+    the well; the hero "−4.1 / dB pulled" is the number, the most taken since the last frame falling back
+    (`face/meter.rs`). The dashed ring is **Pull** and its words are the real threshold; a bigger **Ratio** is a
+    heavier ball and a deeper well. The grid is one feathered mesh (13 rows, 19 columns) built into a mesh
+    sized once, the dashed ring is drawn from a 96-step table on the stack, so a frame allocates no vectors of
+    points (`face/paint.rs` holds the helpers both drawings share).
+13. **Horizon** (**300** x 330, sunset): the ceiling line, the land of what was heard, the sun glowing where
+    peaks press the line, white dots at the pressed maxima. The land is a 137-column history kept between
+    frames in `ctx.data` (one column every 33 ms); at rest it is the specimen's decorative silhouette.
+14. **The sidechain chip** ("Keyed by Kick · post") is the card's own sidechain chooser drawn as the screen's
+    chip (`card/screen/key.rs`): the same id, accessible name (`sidechain::spoken`), tooltip (`sidechain::tip`),
+    menu and command (`devices.sidechain`) as the plugin card's row, so there is one way to set a key. With no
+    source it is a quiet "Sidechain · none" chip (a **deviation from the specimen**, which only shows the keyed
+    state: without it a compressor's key could not be reached from its card). On the compact band it drops
+    "Keyed by" so the picture stays in view.
+15. **What a drag does.** Gravity has two handles, registered ring first and ball second (the later wins a
+    hit): the **ring's edge and field** set Pull (the specimen's ring drag), and the **ball** sets **Ratio**
+    (my call: the brief left the orb open; the ball is Ratio's picture, "how heavy", and a drag down is heavier).
+    Horizon's **ceiling line** sets Ceiling. Each is the dial's edit through `Output::Set`, one undo step per
+    drag, with a chip ("pull −18 dB", "ratio 4.0 : 1", "ceiling −0.3 dB"), Shift for fine, double-click reset,
+    arrow keys, and a Tab stop.
+16. **A face dial's menu follows the strip's rule**: a parameter that is a device's timing (Horizon's Look)
+    gets "Not automatable: it is the device's timing." and no Automate or Learn. The framework's dial menu
+    offered both on every dial; that only showed once a timing parameter was on a face.
+17. **A keyed built-in can be saved.** `validate` refused any built-in with a sidechain ("holds plugin-only
+    data"), a rule written when no built-in took a key: a Gravity keyed from another track could not be
+    saved. It now allows a built-in's sidechain (the shape is checked with every device's: the source must
+    not be the device's own track; the app already refuses to set a key on a device that takes none). Test:
+    `validate::tests::a_built_in_may_hold_its_parameter_values_and_nothing_else`. No format change.
+18. **Reduce motion** gives no reading to the scene, so the faces are still and keep no state; the repaint is
+    asked for only while audio flows (`motion::METER_FRAME`).
+
+**Differences from round 2** (the shots in `target/shots-dyn`, compared by eye against `round2-dark.png` and
+`round2-light.png`): Horizon is 300 wide where the brief said 380 (the specimen measures 300); Gravity's dial
+centres are mine (44 + 60 n pt), kept clear of the "All 10" link; the "Sidechain · none" chip (item 14);
+Horizon's resting land is the specimen's decorative silhouette; Gravity's ball is dragged for Ratio (item 15).
+
+**Not built, and why.** Factory presets and browser rows (B6). Not run here: the WSL performance gate and the
+macOS cross-target clippy; the real-time test of Reduce motion in E2E (process-wide setting; covered by the unit
+tests instead).
+
+**Measured.** `cargo bench -p lumen-engine --bench clips` (this machine,
+release, 128-frame blocks at 48 kHz; the budget is 2.67 ms): the same 64-track
+mix measured 29.9 µs without a built-in in ADR-0145 and 87 to 118 µs with Prism;
+`engine_gravity_64` (64 compressors) 361 to 395 µs and `engine_horizon_64` (64
+limiters in true-peak mode) 663 to 706 µs across runs — about 5.6 µs and 10.4 µs
+an instance a block, so 13.5 % and 24.8 % of the block for 64 of them. The
+compressor's per-frame cost is the gain computer and its ballistics (a dB-domain
+`powf` a frame); the limiter's is the eight-phase true-peak interpolation (104
+multiply-adds a side a frame) — sample-peak mode is much cheaper. The numbers
+are noisy on this machine (a shared runner): the ranges are the fastest and the
+median of three runs.
+
+**Tests.** `lumen-devices/tests/dynamics.rs` (29): the static curve end to end
+within a tenth of a decibel at seven levels across the knee, at four ratios and
+two knees; automatic make-up keeping the loud end where it was; the
+gain-reduction meter reading what was taken away; a key ducking the input,
+listen playing the filtered key, the key's high-pass, and a key shorter than the
+block read only as far as it goes; block-size invariance at 64, 97, 128, 512 and
+1024 frames with **every automatable parameter of the table** moved (and a key,
+so the filter's corner is under it); allocation guards over a block with
+automation and a key and over `reset()`; the limiter's ceiling on sines, noise, a
+step and a burst at three ceilings, three releases and three lookaheads (nought
+included), from each signal's onset; the lookahead of nought delaying by
+nothing; true-peak mode under the ceiling by a long reference interpolation; the
+limiter's meter; its block-size invariance; a new lookahead delayed by exactly
+its frames, and letting go of what the line held when it changes; a lane on the
+lookahead ignored; the ceiling lowered while a peak is in the window; the mix at
+0, 50 and 100 %; RMS detection against the curve; the attack and release time
+constants; offline against playback bit for bit; latency at 44.1, 48 and 96 kHz;
+the table pinned by id, name and default; the latency and the tail equal to the
+description's at four settings; and a golden render of each, pinned by twenty
+samples, the sum of the magnitudes and the sum of the squares within a millionth
+(not by bits: see `9574d13b` on B0, which this branch cherry-picked).
+`lumen-engine/tests/builtins.rs` gains four: a key from another track, whose own
+track is held back 240 frames, ducks the burst it keys on the sample it arrives
+(with the compensation in the compiled plan); an impulse through a limiter lands
+on the same sample as a dry track beside it; a bypassed limiter plays nothing of
+what it held; and a block names the value the project holds before a lane's
+points (`held_at_rest`'s order). `lumen-app`: the limiter's lookahead is its
+latency in the *running* app and follows a setting, a compressor hands its meter
+to the interface while Prism has none, and a controller cannot be mapped to a
+device's timing (nor does a mapping from a file move it). E2E
+`tests/e2e/dynamics.rs` (15): the two commands and their cards, the faces' dials by name and All parameters, a drag on the ring (Pull), on the ball (Ratio) and on the ceiling line (Ceiling), each one undo step with the other parameters untouched, the handles reachable by name, a typed value, a lane driving the ceiling and a drag
+taking it over, the sidechain chooser on a built-in with its light, the power
+button, the track menu's rows, the meter following real playback, the lookahead
+dragged while playing re-timed once on release, no Automate or Learn on it in
+either menu, the tray's rows for both devices, and a face's All-parameters panel
+saying where its controls are. Unit tests in `face/gravity/tests.rs` and `face/horizon/tests.rs` (the ring and the line map back to their values, the chips, the well's depth, the pull following the meter and falling back, the land keeping what was heard and nothing when still or silent). `set_piece_cost` (release, tessellation included, no GPU): Gravity mean 0.13 to 0.16 ms and Horizon 0.09 to 0.11 ms a frame at every step, idle and loud (worst frame 0.53 ms; the bar is a mean under 0.3 ms). Shots: `dynamics_card` renders rest, playing, short, compact, folded, All parameters and the smallest window for both devices, both themes at 100, 150 and 200 % (`SHOT_FILTER` picks cases); looked at: the whole, short and compact cards at 100 %, the whole and folded and smallest window at 200 % light, the whole, rest and All parameters at 100 % light, against round 2. The remaining 150 % pictures were rendered, not individually looked at.
+
+**Consequences.** Two more entries in `EFFECTS` and `builtin::IDENTITIES`, and
+two more personalities in `theme::personality`; the faces are the round-2 set pieces. A limiter in a project adds latency,
+so the transport's compensation chip appears on projects that had none (and a
+lookahead change while playing re-times the routing, which the engine already
+handles by skipping or repeating the difference). A compressor's sidechain
+shares its track's single key bus with any other keyed device (KNOWN_ISSUES).
+Not run here: the WSL performance gate (no distribution on this machine; a new
+scenario needs `perf-gate --update`) and the macOS cross-target clippy; nothing
+has been heard by a person (MT-FX-3 waits).
+
+**Review round 1 (2026-11-13, independent; every item fixed on this branch).**
+
+- **H1 (High).** With a lookahead of nought the limiter read the delay slot *before* writing it, so the frame from one whole line ago (482 frames) came out, reported as no latency, with the ceiling broken. It writes before it reads now, so nought is nought. Tests:
+  `no_lookahead_delays_by_nothing_and_still_holds_the_ceiling` (an impulse at frame 0 comes out at frame 0, under the ceiling), and the ceiling test now sweeps the lookahead over 0, 1.5 and 10 ms.
+- **M1 (Medium).** A lane on the lookahead re-timed the delay once a block (not block-size invariant) and never reached the routing's compensation. **Decision (parent): the lookahead is not automatable.** The device reads it from the value the project holds, with no lane (`dynamics::held_at_rest`, the first point of the first queue); `lumen_devices::timing_parameter` names it, `automatable` is its negation, and the app sets no `FLAG_CAN_AUTOMATE` on such a parameter, so the lane chooser, the strip's and the panel's right-click **Automate** and **Learn** are all absent (MIDI learn goes with them: a controller moving the delay has the same problem, and the parameter cannot be mapped), with a menu line saying why. Tests: `a_lane_on_the_lookahead_is_ignored` (identical bits at 64 and 256 frames, latency 72 throughout).
+- **M2 (Medium).** A drag of the lookahead recompiled the routing every frame. The app now holds a timing parameter's value until its drag ends (`Chain::deferred`, applied by `apply_deferred` once a frame when no new value arrived; a typed value applies at once), so the routing is re-timed once and the knob shows what the hand is doing meanwhile. Test: E2E `dragging_the_lookahead_re_times_the_routing_once_when_it_ends` (the compensation stays 72 through four drag steps, then changes once, and not again).
+- **M3 (Medium).** The key filter's corner was read once a block, so it was not block-size invariant. It is read at the same 32-frame knots Prism uses. Both block-size tests now build a lane for *every* automatable parameter from the table (`automatable`), Look excluded. Tests: `gravity_is_the_same_at_any_block_size`, `horizon_is_the_same_at_any_block_size`.
+- **M4 (Medium).** The ceiling test skipped each signal's onset (it started at frame 0 and measured from 4800). Every signal is silent for the glide now and the whole span after it is measured, at three lookaheads.
+- **M5 (Medium).** True-peak mode was measured by the four-phase meter, which is a fifth of a decibel short at the top of the band — the tolerance itself. A long reference (64 phases of a 25-tap Kaiser-windowed sinc, gain-normalised, ends left out) is the check now, with the meter kept as a second check within half a decibel. The measurement is now 0.001 dB under the ceiling at 11, 15 and 19 kHz (the earlier 0.33 dB "overshoot" was the reference's own edge truncation).
+- **M6 (Medium).** A face device's All-parameters panel offered a star that did nothing. It has no star column and says "This device's controls are on its face; every parameter is here."; its footer reads "All N parameters". Test: E2E `the_all_parameters_panel_of_a_face_says_where_its_controls_are`.
+- **L1.** A built-in that was not asked for blocks because its power was off kept what it held, so a bypassed limiter could play a stale burst on being turned on again. The mixer resets it on the transition (`Slot::was_off`), as a locate does. Test: engine `a_bypassed_limiter_does_not_play_what_it_held` (fails without the fix: 0.011 of the burst comes out).
+- **L2.** The window kept the *gain each frame needed*, measured against the ceiling of its own frame, so lowering the ceiling left old peaks averaged at the old one. It keeps the *level* (a sliding maximum) and divides the ceiling in at the front. Test: `lowering_the_ceiling_holds_the_peak_already_in_the_window`.
+- **L3.** The refusal reads "Only an effect with a sidechain input takes a sidechain."
+- **L4.** The compressor clamps the frames it reads its key from to both key sides' lengths.
+- **L5.** New tests: `the_mix_is_plain_compressed_half_and_all` (0, 50 and 100 %), `rms_detection_reads_the_mean_and_not_the_peak`, `the_attack_and_release_take_their_time_to_get_there` (63 % in one time constant, to within 15 % of the full reduction), `offline_rendering_is_bit_for_bit_what_playback_plays` (one pass against 64, 97, 128, 512 and 1024 frames, for both devices) and `the_limiter_delays_by_its_frames_at_any_rate` (72 frames at 44.1, 48 and 96 kHz).
+- **L7.** `docs/ARCHITECTURE.md` gains `dynamics/` and `chain/faces/` in its module tables, and the All-parameters panel's note.
+- **L8.** The manual test stays MT-FX-3 (the parent renumbers).
+- **L6** (face allocations) is left to the face rebuild, as the parent asked.
+
+**Review round 2 (2026-11-13, a re-check: H1, M2, M4, M5, M6, L1 and L3 to L8 confirmed).**
+
+- **N1 (Medium).** The All-parameters panel's row menu still offered Automate and
+  Learn for the lookahead; it is gated exactly as the strip's, with the same
+  line. A controller mapping to a timing parameter is refused at the document
+  level (`MapRefusal::TimingParameter`), and a mapping a file holds for one is
+  ignored (`move_control` returns false). Tests: E2E
+  `the_lookahead_offers_no_automate_and_no_learn_in_either_menu` (both menus, and
+  the ceiling still offers Automate) and
+  `document::mappings::the_lookahead_cannot_be_mapped_and_a_mapping_to_it_is_ignored`.
+- **N2 (Medium).** The compressor's block-size test passed no key, so the key
+  filter's corner was never under it. It passes one now, and fails with a
+  per-block read (measured: block 64 frame 64 differs).
+- **N3 (Medium).** L2's test measured a quiet stretch after the burst, so it
+  could not see the bug. It puts a ceiling *lane* (a step) down while the burst
+  is in the line and measures the burst's own output: it fails with the old
+  window's semantics (the burst leaves at 0.9 against a 0.1 ceiling).
+- **N4 (Low).** While a timing parameter is being dragged, its value text, its
+  tooltip and its accessible value read the hand's value
+  (`parameter_value` reads the held change first).
+- **N5 (Low).** A typed value (or a preset, or the panel) drops a drag still
+  pending for the same parameter, and the held changes are dropped when a project
+  opens and when the device goes.
+- **N6 (Low).** A changed lookahead lets go of what the line held: the line and
+  the window are cleared, so the change is a short gap and never a frame replayed
+  from outside the window the gain covers. Test
+  `raising_the_lookahead_lets_go_of_what_the_line_held` (fails without the
+  clearing: the burst leaves at 0.977 against a 0.966 ceiling).
+- **N7 (Low).** Tests: the short-key clamp (`a_key_shorter_than_the_block_is_read_only_as_far_as_it_goes`),
+  `reset()` under the allocation guard (`a_reset_never_touches_the_heap`), the
+  strip's "Not automatable" line (in the E2E above, which right-clicks the card's
+  own knob), and the device tray's rows for both devices (E2E
+  `the_device_trays_menu_adds_gravity_and_horizon`).
+- **N8 (Low).** The lookahead E2E waits for the compensation with `wait_for`
+  instead of counting frames.
+- **N9 (Low).** This ADR's test counts are brought up to date, the reference
+  interpolation's doc line is repaired (25 taps, ends left out), and an engine
+  test pins the order `held_at_rest` relies on: a block names the value the
+  project holds first, then a lane's points
+  (`a_block_names_the_value_the_project_holds_before_a_lane`).
+
+The drag's release is now read from the pointer (`apply_deferred` applies when no
+button is down) rather than from "no new value this frame": with N4's change the
+knob stops re-reporting a value it already shows, and the old test would have
+applied a drag mid-way whenever the hand paused.

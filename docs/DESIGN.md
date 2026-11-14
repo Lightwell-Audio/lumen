@@ -1769,6 +1769,46 @@ one undo step, with a chip ("62% of the room", "2.4 s to silence"), and each is 
 Fade, Warmth and Mix; the pre-delay, the width and the early reflections are in All parameters. **Short:** the
 glow in the smaller screen, the hero at 16 pt. **Compact:** a band of the glow with its rings.
 
+**Gravity** (Compressor, M8 slice B2; 380 x 330, screen 176 pt, hue violet `GRAVITY`, deep `GRAVITY_DEEP`): a body
+in a gravity well. A warped grid (13 rows and 19 columns in one feathered mesh, drawn in toward the middle) and a
+lit ball (a white-to-pale highlight, `GRAVITY_ORB`, with a halo). The **gain reduction** is the picture: the
+ball sinks, the well deepens and the grid is drawn in as the compressor pulls, and the hero at the top right
+("−4.1" in Unbounded, "dB pulled" under it, paled toward white so it reads on the light theme too) is the real
+number: the most the compressor took away since the last frame, falling back over a moment
+(`face/meter.rs`, `FALL`). **Pull** (the threshold) is the dashed ring round the ball, labelled with the real
+value ("−18 dB"): a lower threshold is a wider ring (74 x 22 pt half axes at the specimen's −18 dB). **Ratio** is
+how heavy the body is: a bigger ratio makes the ball larger and the well deeper. **Keyed by Kick · post** is the
+sidechain: a chip at the screen's lower left that is the card's sidechain chooser (the same menu, command,
+tooltip and accessible name as a plugin card's row; a lamp lights with what arrives, a warning ring when the
+key is silent); with no source it is a quiet "Sidechain · none" chip, so the choice can always be reached.
+**Alive:** the ball glows with the level it hears and sinks only while the device is pulling; the state is the
+card's own and it repaints only while audio flows; with Reduce motion the screen is still (no reading is
+shown). **Playable:** two handles, one undo step each with a chip: dragging the **ring's edge** sets Pull
+("pull −18 dB"; the field inside the ring is its grab) and dragging the **ball** up or down sets Ratio ("ratio
+4.0 : 1"; down is heavier), each a Tab stop ("Threshold ring (Pull): −18.0 dB", "Body weight (Ratio): 4.0:1");
+the ball is registered after the ring, so where they overlap the ball is what is taken. Dials: **Pull, Ratio,
+Attack, Release, Makeup** (Makeup reads "auto"); knee, mix, detection, key filter and listen are in All
+parameters. **Short:** the picture in the smaller screen with the hero at 11 pt, the chip above the dials.
+**Compact:** a band of the well; the chip says only whose key it is ("Kick · post").
+
+**Horizon** (Limiter, M8 slice B2; 300 x 330, screen 176 pt, hue sunset orange `HORIZON`): a sunset over a
+waveform. A sky (`HORIZON_SKY`, four stops), a ground, a sun and a **ceiling line** at the device's ceiling
+(36 % down the screen at the specimen's −0.3 dB, over a range of 36 dB), labelled "ceiling −0.3 dB". Under the
+line is the **land**: the waveform of what the device heard, newest at the right (137 columns, one every 33 ms),
+in the hue with a lit outline and a dark fill that follows the card's rounded corners. The **sun** glows where
+peaks press the ceiling (scaled by how hard, up to 6 dB, and smoothed), and a white dot marks each pressed local
+maximum on the line, the newest flashing. At rest, or when nothing has been heard, the land is the specimen's
+decorative silhouette and the three specimen dots; with Reduce motion it stays so. **Playable:** one handle,
+the **ceiling line** (a grab of 8 pt either side across the screen): dragging it up or down sets Ceiling, one
+undo step, a chip ("ceiling −0.3 dB"), a Tab stop ("Ceiling line (Ceiling): −0.3 dB"). Dials: **Ceiling**
+(shown as a bare number, "−0.3"), **Release** and **Look** (the lookahead, a device timing that cannot be
+automated: its menu says so and offers no Automate or Learn), and a **True** pill (true-peak detection) at the
+right. **Short** and **compact:** the same picture in a smaller screen and in a band.
+
+Both devices, and every other set piece, offer **Automate** and **Learn a controller** on a dial's right-click
+menu only where the parameter allows them: a parameter that is a device's timing (Horizon's Look) says "Not
+automatable: it is the device's timing." instead, as the strip's menu does.
+
 - **Name and subtitle.** The card holds the personality's name ("Prism") and its kind ("Utility \·
   gain, width, mono"); menus, the lane chooser and tooltips use the same words. A device has one stable
   saved name (`PluginRef::Builtin.name`, `"utility"`), never the personality's: renaming a personality is

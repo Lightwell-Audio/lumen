@@ -49,6 +49,9 @@ impl App {
             return;
         };
         let rate = self.transport.state().sample_rate;
+        // What each built-in's meter published since the last frame, once a
+        // frame, before any card is drawn (M8 slice B2).
+        self.builtin.read_meters();
         // The tempo under the playhead, for a card that keeps time with the song.
         let bpm =
             lumen_core::time::bpm_at(&self.document.project().tempo, self.transport.position())
@@ -56,7 +59,15 @@ impl App {
         // What arrives for the track's sidechain, for the cards' lights.
         let keyed = all_tracks(self.document.project())
             .find(|t| t.id == track_id)
-            .is_some_and(|t| t.devices.iter().any(|d| d.is_vst3() && !d.is_instrument()));
+            .is_some_and(|t| {
+                t.devices.iter().any(|d| {
+                    if crate::builtin::is_builtin(d) {
+                        crate::builtin::takes_sidechain(crate::builtin::name_of(d)) == Some(true)
+                    } else {
+                        d.is_vst3() && !d.is_instrument()
+                    }
+                })
+            });
         if keyed {
             let playing = self.transport.state().playing;
             self.read_sidechain(ui.ctx(), track_id, playing);
@@ -294,6 +305,8 @@ impl App {
                         (Command::AddEq, "Add Iris (EQ)"),
                         (Command::AddDelay, "Add Parallax (delay)"),
                         (Command::AddReverb, "Add Afterglow (reverb)"),
+                        (Command::AddCompressor, "Add Gravity (compressor)"),
+                        (Command::AddLimiter, "Add Horizon (limiter)"),
                     ] {
                         self.menu_command(ui, command, label);
                     }

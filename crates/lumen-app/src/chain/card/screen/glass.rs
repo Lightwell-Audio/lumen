@@ -16,7 +16,7 @@ const BAND: f32 = 14.0;
 /// rounded corners), so a radial or vertical gradient is drawn as it is, not as
 /// a fan from the middle. `top` and `bottom` are the corner radii of its top and
 /// bottom edges. One mesh, and no allocation but its own.
-pub(super) fn glass(
+pub(in crate::chain) fn glass(
     painter: &Painter,
     rect: Rect,
     top: f32,

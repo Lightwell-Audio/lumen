@@ -9,7 +9,7 @@ use std::sync::Arc;
 use lumen_core::automation::{Lane, Point, Shape};
 use lumen_core::time::Ticks;
 use lumen_devices::utility::{self, GAIN};
-use lumen_devices::{Effect, Key, Stereo, Utility};
+use lumen_devices::{Compressor, Effect, Key, Limiter, Stereo, Utility};
 use lumen_engine::{
     AutoLane, AutoPoint, Clip, ClipAudio, ClipPlayer, ClipsHandle, Command, Destination, Device,
     Engine, EngineHandle, Mixer, MixerHandle, NodeAutomation, NodeSpec, ParamLane, Routing, Slot,
@@ -668,6 +668,367 @@ fn a_still_built_in_is_told_nothing_after_the_first_block() {
         0,
         "nothing is told again while the values are still"
     );
+}
+
+/// A clip on `track` of a constant `value`, silent until `from`, long enough
+/// for any render here.
+fn burst_clip(track: u64, from: usize, value: f32, frames: usize) -> Clip {
+    let mut left = vec![0.0; frames];
+    left[from..].fill(value);
+    Clip {
+        envelope: Default::default(),
+        id: track,
+        track,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: frames as i64,
+        gain: 1.0,
+        audio: Arc::new(ClipAudio::Memory {
+            sample_rate: RATE,
+            channels: vec![left.clone(), left],
+        }),
+        shape: Default::default(),
+    }
+}
+
+/// ADR-0041's promise, with M8's compressor: a key taken from another track
+/// ducks the track it keys **on the sample the key arrives**, with the
+/// compensation that lines the two paths up. The key's track holds its sound
+/// back 240 frames, so without compensation the key would be late and the
+/// first 240 frames of the keyed track would play unducked.
+#[test]
+fn a_key_from_another_track_ducks_on_the_sample_it_arrives() {
+    use lumen_devices::dynamics::compressor as gravity;
+    use lumen_engine::{SidechainSpec, Tap, compile_routing};
+    const KEY: u64 = 2;
+    const FROM: usize = 5_000;
+    const HELD: u32 = 240;
+    let table = gravity::TABLE;
+    let normalised = |id: u32, value: f32| {
+        lumen_devices::params::find(table, id)
+            .expect("a parameter")
+            .normalised(value)
+    };
+    let mut key = NodeSpec::unity(KEY, Destination::Node(MASTER));
+    key.audible = false;
+    key.devices = vec![Device::Delay {
+        frames: HELD,
+        listen: false,
+    }];
+    let mut wet = NodeSpec::unity(TRACK, Destination::Node(MASTER));
+    wet.devices = vec![Device::Builtin {
+        device: DEVICE,
+        latency: 0,
+        bypass: false,
+    }];
+    wet.values = vec![(
+        DEVICE,
+        vec![
+            (gravity::THRESHOLD, normalised(gravity::THRESHOLD, -40.0)),
+            (gravity::RATIO, normalised(gravity::RATIO, 20.0)),
+            (gravity::KNEE, normalised(gravity::KNEE, 0.0)),
+            (gravity::ATTACK, normalised(gravity::ATTACK, 0.05)),
+            (gravity::RELEASE, normalised(gravity::RELEASE, 2_000.0)),
+            (gravity::MAKEUP, 0.0),
+        ],
+    )];
+    wet.sidechains = vec![SidechainSpec {
+        from: KEY,
+        tap: Tap::PostFx,
+    }];
+    let routing = Routing {
+        nodes: vec![NodeSpec::unity(MASTER, Destination::Hardware(0)), key, wet],
+        cue: None,
+        measure: None,
+    };
+    // The key's 240 frames are the compensation, and the keyed track waits for
+    // them.
+    let plan = compile_routing(&routing).expect("a valid routing");
+    assert_eq!(plan.compensation().frames, HELD);
+    assert_eq!(plan.compensation().path, [(KEY, HELD)]);
+
+    let frames = FROM + 4_000;
+    let (mut clips, player) = clip_player();
+    clips
+        .set(vec![
+            // The key starts exactly where the burst it keys does, so a late
+            // key would leave the burst's own start unducked.
+            burst_clip(KEY, FROM, 1.0, frames),
+            burst_clip(TRACK, FROM, 0.5, frames),
+        ])
+        .unwrap();
+    let (mut handle, source) = mixer(player);
+    assert!(handle.set(&routing).unwrap());
+    handle
+        .attach_builtin(DEVICE, Slot::new(Box::new(Compressor::new())))
+        .unwrap_or_else(|_| panic!("room in the pool"));
+    let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
+    transport.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    let mut left = Vec::new();
+    let blocks = (frames + 2_000) / 128;
+    for _ in 0..blocks {
+        engine.process(RATE, &mut data, 2, 128);
+        left.extend_from_slice(&data[..128]);
+    }
+    // What is heard is the keyed track alone: the key is muted, and the tap is
+    // taken after its devices, where mute does not reach.
+    let heard = |k: usize| left.get(k).copied().unwrap_or(0.0).abs();
+    // The engine plays the timeline as far ahead as the compensation, so the
+    // burst's own start comes out `HELD` frames later.
+    let starts = FROM + HELD as usize;
+    assert!(
+        heard(starts - 8) < 1e-4,
+        "nothing before it: {}",
+        heard(starts - 8)
+    );
+    // The key arrives with the audio it keys: from a few samples into the
+    // burst (the attack's own few frames) it is ducked, not the loud 0.5 the
+    // track plays. A key 240 frames late would leave all of it at 0.5.
+    let first = (starts + 8..starts + 400).fold(0.0f32, |m, k| m.max(heard(k)));
+    assert!(
+        first < 0.02,
+        "the key ducks it from its first sample: {first}"
+    );
+    // And it stays ducked long after (the release is two seconds).
+    let later = (starts + 1_000..starts + 2_000).fold(0.0f32, |m, k| m.max(heard(k)));
+    assert!(later < 0.02, "still ducked: {later}");
+}
+
+/// The limiter's lookahead is compensated: a limiter between a track and the
+/// master holds its output back, and the plan's compensation plus the device's
+/// own delay put an impulse back on the sample a dry track beside it plays.
+#[test]
+fn a_limiter_s_lookahead_keeps_a_parallel_path_in_line() {
+    use lumen_devices::dynamics::limiter as horizon;
+    use lumen_engine::compile_routing;
+    const DRY: u64 = 2;
+    const AT: usize = 5_000;
+    let values = vec![(
+        horizon::LOOK,
+        lumen_devices::params::find(horizon::TABLE, horizon::LOOK)
+            .expect("a parameter")
+            .normalised(1.5),
+    )];
+    let latency = lumen_devices::effect_latency(horizon::NAME, &values).expect("a device");
+    assert_eq!(latency, 72);
+    let routing = Routing {
+        nodes: vec![
+            NodeSpec::unity(MASTER, Destination::Hardware(0)),
+            {
+                let mut wet = NodeSpec::unity(TRACK, Destination::Node(MASTER));
+                wet.devices = vec![Device::Builtin {
+                    device: DEVICE,
+                    latency,
+                    bypass: false,
+                }];
+                wet.values = vec![(DEVICE, values)];
+                wet
+            },
+            NodeSpec::unity(DRY, Destination::Node(MASTER)),
+        ],
+        cue: None,
+        measure: None,
+    };
+    assert_eq!(
+        compile_routing(&routing).unwrap().compensation().frames,
+        latency
+    );
+    let (mut clips, player) = clip_player();
+    clips
+        .set(vec![
+            impulse_clip(TRACK, AT, 0.25),
+            impulse_clip(DRY, AT, 0.25),
+        ])
+        .unwrap();
+    let (mut handle, source) = mixer(player);
+    assert!(handle.set(&routing).unwrap());
+    handle
+        .attach_builtin(DEVICE, Slot::new(Box::new(Limiter::new())))
+        .unwrap_or_else(|_| panic!("room in the pool"));
+    let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
+    transport.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    let mut left = Vec::new();
+    for _ in 0..(AT + 2_000) / 128 {
+        engine.process(RATE, &mut data, 2, 128);
+        left.extend_from_slice(&data[..128]);
+    }
+    let placed: Vec<(usize, f32)> = left
+        .iter()
+        .enumerate()
+        .skip(4_096)
+        .filter(|(_, s)| s.abs() > 1e-6)
+        .map(|(k, s)| (k, *s))
+        .collect();
+    assert_eq!(placed.len(), 1, "both paths in one sample: {placed:?}");
+    let (at, value) = placed[0];
+    assert_eq!(at, AT + latency as usize, "the impulse is at {at}");
+    assert!((value - 0.5).abs() < 1e-6, "both paths: {value}");
+}
+
+/// L1: a built-in that was not asked for blocks because its power was off
+/// starts from nothing when it is asked again, as a locate makes it — so a
+/// limiter bypassed during a burst does not play what its line still held.
+#[test]
+fn a_bypassed_limiter_does_not_play_what_it_held() {
+    use lumen_devices::dynamics::limiter as horizon;
+    const AT: usize = 480;
+    const OFF: usize = 2_400;
+    const ON: usize = 8_000;
+    /// Where the burst stops: after the bypass has faded the device out, so
+    /// what the line held when it stopped being asked is still loud.
+    const BURST_END: usize = 6_000;
+    let values = vec![
+        (
+            horizon::CEILING,
+            lumen_devices::params::find(horizon::TABLE, horizon::CEILING)
+                .expect("a parameter")
+                .normalised(-6.0),
+        ),
+        (
+            horizon::LOOK,
+            lumen_devices::params::find(horizon::TABLE, horizon::LOOK)
+                .expect("a parameter")
+                .normalised(1.5),
+        ),
+    ];
+    // A burst (a full-scale square) that stops well before the device is turned
+    // on again, so nothing of it should be heard after that.
+    let mut burst = vec![0.0f32; 48_000];
+    burst[AT..BURST_END].fill(1.5);
+    let clip = Clip {
+        envelope: Default::default(),
+        id: 1,
+        track: TRACK,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: burst.len() as i64,
+        gain: 1.0,
+        audio: Arc::new(ClipAudio::Memory {
+            sample_rate: RATE,
+            channels: vec![burst.clone(), burst],
+        }),
+        shape: Default::default(),
+    };
+    let routing = |bypass: bool| {
+        let mut track = NodeSpec::unity(TRACK, Destination::Node(MASTER));
+        track.devices = vec![Device::Builtin {
+            device: DEVICE,
+            latency: 72,
+            bypass,
+        }];
+        track.values = vec![(DEVICE, values.clone())];
+        Routing {
+            nodes: vec![NodeSpec::unity(MASTER, Destination::Hardware(0)), track],
+            cue: None,
+            measure: None,
+        }
+    };
+    let (mut clips, player) = clip_player();
+    clips.set(vec![clip]).unwrap();
+    let (mut handle, source) = mixer(player);
+    assert!(handle.set(&routing(false)).unwrap());
+    handle
+        .attach_builtin(DEVICE, Slot::new(Box::new(Limiter::new())))
+        .unwrap_or_else(|_| panic!("room in the pool"));
+    let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
+    transport.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    let mut left = Vec::new();
+    for block in 0..(ON + 2_000) / 128 {
+        if block == OFF / 128 {
+            // Power off: the device fades out and is then not asked at all.
+            assert!(handle.set(&routing(true)).unwrap());
+        }
+        if block == ON / 128 {
+            assert!(handle.set(&routing(false)).unwrap());
+        }
+        engine.process(RATE, &mut data, 2, 128);
+        left.extend_from_slice(&data[..128]);
+    }
+    // Nothing of the burst is heard once the power is back on: what the line
+    // held was let go of. The 20 ms glide from the dry signal starts at silence
+    // here, so any stale sound would show at once.
+    let after = (ON..ON + 1_000).fold(0.0f32, |m, k| m.max(left[k].abs()));
+    assert!(
+        after < 1e-4,
+        "the bypassed limiter played what it held: {after}"
+    );
+    // And it ran before all that: the burst was heard while the power was on.
+    assert!(
+        left[AT..OFF].iter().any(|x| x.abs() > 0.01),
+        "the limiter ran before it was bypassed"
+    );
+}
+
+/// N9, as B1 changed it: the block a built-in is handed carries a parameter a
+/// lane drives as the lane's one queue, and the value the project holds is not
+/// told alongside it (so a timing parameter, which no lane may drive, is the
+/// only kind `held_at_rest` reads, from its own queue).
+#[test]
+fn a_block_names_a_lane_driven_parameter_once_as_the_lane() {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// What one block said about `GAIN`: the number of queues that name it, and
+    /// the first and last queues' points.
+    type Told = (usize, Vec<(u32, f64)>, Vec<(u32, f64)>);
+
+    /// Records those, block by block.
+    struct Queues(Arc<Mutex<Vec<Told>>>);
+
+    impl Effect for Queues {
+        fn process(&mut self, block: &lumen_devices::Block<'_>, _: Stereo<'_>, _: Option<Key<'_>>) {
+            let mut found = Vec::new();
+            for i in 0..block.events.len() {
+                let (id, points) = block.events.queue(i);
+                if id == GAIN {
+                    found.push(points.to_vec());
+                }
+            }
+            if found.is_empty() {
+                return;
+            }
+            let first = found.first().cloned().unwrap_or_default();
+            let last = found.last().cloned().unwrap_or_default();
+            self.0.lock().unwrap().push((found.len(), first, last));
+        }
+    }
+
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let lane = AutoLane::new(vec![
+        AutoPoint {
+            at: 0,
+            value: gain(-6.0),
+            shape: Shape::Linear,
+        },
+        AutoPoint {
+            at: 400,
+            value: gain(-30.0),
+            shape: Shape::Linear,
+        },
+    ])
+    .unwrap();
+    // The project holds −12 dB; the lane swings away from it.
+    let routing = routing(&[(GAIN, gain(-12.0))], 0, Some(lane));
+    let mut rig = rig(vec![clip(0.25)], &routing);
+    rig.attach(Box::new(Queues(Arc::clone(&seen))));
+    rig.play();
+    rig.run(1_024, 128);
+    let seen = seen.lock().unwrap();
+    assert!(!seen.is_empty(), "the device ran");
+    calls.store(seen.len(), Ordering::Relaxed);
+    for (named, first, _) in seen.iter() {
+        assert_eq!(*named, 1, "the lane's queue and no value beside it");
+        assert_eq!(first[0].0, 0, "on the block's first frame");
+        assert!(
+            (first[0].1 - f64::from(gain(-12.0))).abs() > 1e-3,
+            "the queue is the lane, not the value the project holds: {:?}",
+            first[0]
+        );
+    }
 }
 
 /// L2: the golden render of an automated Prism, pinned by its samples (twenty

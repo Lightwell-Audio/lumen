@@ -19,8 +19,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use eframe::egui::Color32;
 use lumen_devices::analyzer;
+use lumen_devices::dynamics::{compressor, limiter};
 use lumen_devices::params::{self, ParamInfo as Info};
-use lumen_devices::{Description, eq, utility};
+use lumen_devices::{Description, MeterReading, Reduction, eq, utility};
 use lumen_engine::{MixerHandle, Routing, Slot};
 use lumen_hosting::{FLAG_CAN_AUTOMATE, ParamInfo};
 use lumen_project::model::{Device, Id, PluginRef, Project, Track};
@@ -217,6 +218,26 @@ const IDENTITIES: &[(&str, Identity)] = &[
             timing: &lumen_devices::reverb::DESCRIPTION,
         },
     ),
+    (
+        compressor::NAME,
+        Identity {
+            name: "Gravity",
+            kind: "Compressor",
+            subtitle: "Compressor",
+            colour: theme::personality::GRAVITY,
+            timing: &compressor::DESCRIPTION,
+        },
+    ),
+    (
+        limiter::NAME,
+        Identity {
+            name: "Horizon",
+            kind: "Limiter",
+            subtitle: "Limiter",
+            colour: theme::personality::HORIZON,
+            timing: &limiter::DESCRIPTION,
+        },
+    ),
     #[cfg(test)]
     (
         TEST_DEVICE,
@@ -267,6 +288,13 @@ pub fn is_builtin_effect(plugin: &PluginRef) -> bool {
 /// Whether `device` is a built-in effect this build can run.
 pub fn is_builtin(device: &Device) -> bool {
     is_builtin_effect(&device.plugin)
+}
+
+/// Whether the built-in effect called `name` has a sidechain input, so the
+/// card offers it a source (M8 slice B2). `None` for anything this build does
+/// not know.
+pub fn takes_sidechain(name: &str) -> Option<bool> {
+    identity(name).map(|_| lumen_devices::takes_sidechain(name))
 }
 
 /// The table a device of `name` declares.
@@ -405,7 +433,13 @@ fn describe(device: &Device) -> Vec<ParamInfo> {
                 units: info.unit.to_owned(),
                 steps: info.steps,
                 default: f64::from(info.normalised(info.default)),
-                flags: FLAG_CAN_AUTOMATE,
+                // A parameter that is the device's timing is not automatable
+                // (M8 slice B2): a lane would change the delay every block.
+                flags: if lumen_devices::automatable(name_of(device), info.id) {
+                    FLAG_CAN_AUTOMATE
+                } else {
+                    0
+                },
                 unit: 0,
                 value,
             }
@@ -450,6 +484,16 @@ pub struct Builtins {
     /// The parameters of each built-in device, in the shape a plugin's arrive
     /// in, so the chain never has to build them again in a frame.
     params: BTreeMap<Id, Vec<ParamInfo>>,
+    /// The gain-reduction meter of each built-in device that has one, written
+    /// by the audio thread and read by its card's face once a frame (M8 slice
+    /// B2).
+    meters: BTreeMap<Id, Reduction>,
+    /// What each meter said the frame it was last read: the card's face reads
+    /// this, so one frame is one reading.
+    readings: BTreeMap<Id, MeterReading>,
+    /// A reading a test or a screenshot set by hand, which the meter's own is
+    /// not allowed to overwrite (as the sidechain light's `pretend` does).
+    pretend: BTreeMap<Id, MeterReading>,
     /// Built-ins the mixer's queue had no room for: tried again next frame.
     waiting: Vec<(Id, Box<Slot>)>,
     /// The spectrum windows of the built-in devices that fill one, by device
@@ -488,6 +532,39 @@ impl Builtins {
     /// Whether the device is not running because the mixer had no room for it.
     pub fn refused(&self, device: Id) -> bool {
         self.refused.contains(&device)
+    }
+
+    /// The gain reduction `device` published the frame it was last read, for
+    /// its card's face; `None` for a device with no meter.
+    pub fn reading(&self, device: Id) -> Option<MeterReading> {
+        self.readings
+            .get(&device)
+            .or_else(|| self.pretend.get(&device))
+            .copied()
+    }
+
+    /// Reads every meter once (called once a frame by the Devices tab): what
+    /// each device published since the last frame. Reading starts the most
+    /// reduction count again.
+    pub fn read_meters(&mut self) {
+        for (&device, meter) in &self.meters {
+            self.readings.insert(device, meter.take());
+        }
+        for (&device, &reading) in &self.pretend {
+            self.readings.insert(device, reading);
+        }
+    }
+
+    /// Sets what the meter of `device` reads, until it is cleared: for a
+    /// screenshot or a test that needs the picture with reduction showing.
+    pub fn pretend_reduction(&mut self, device: Id, reading: MeterReading) {
+        self.pretend.insert(device, reading);
+        self.readings.insert(device, reading);
+    }
+
+    /// Whether `device` has a meter at all.
+    pub fn has_meter(&self, device: Id) -> bool {
+        self.meters.contains_key(&device)
     }
 
     /// Keeps the attached built-ins in step with the project: one is built and
@@ -543,10 +620,13 @@ impl Builtins {
                     self.spectrums.insert(id, reader);
                     tap = Some(writer);
                 }
-                let Some(effect) = lumen_devices::effect_tapped(name, tap) else {
+                let Some((effect, meter)) = lumen_devices::effect_built(name, tap) else {
                     continue;
                 };
                 self.attached.insert(id, name.to_owned());
+                if let Some(meter) = meter {
+                    self.meters.insert(id, meter);
+                }
                 // A device the pool refused is tried again when the project
                 // changes; if the pool refuses it again, `take_refused` says
                 // so again (re-check N5: it no longer reads "not running"
@@ -595,6 +675,7 @@ impl Builtins {
             self.attached.remove(&id);
             self.params.remove(&id);
             self.latency.remove(&id);
+            self.meters.remove(&id);
             self.spectrums.remove(&id);
             // A queue with no room leaves the device playing for a block
             // more, which is the fallback's silence until the plan drops it.
@@ -869,6 +950,84 @@ mod tests {
         );
         assert_eq!(builtins.latencies().get(&timed.id), Some(&480));
         assert_eq!(builtins.latencies(), &latencies(&project));
+    }
+
+    /// The re-check's N1, with M8's limiter: its lookahead is its latency, and
+    /// a new lookahead is a new routing — the live one, not only an export's.
+    #[test]
+    fn a_limiter_s_lookahead_is_its_latency_and_follows_a_setting() {
+        use lumen_devices::dynamics::limiter as horizon;
+        use lumen_engine::{clip_player, mixer};
+        let mut horizon_device = device(horizon::NAME);
+        for (id, value) in defaults(horizon::NAME) {
+            horizon_device.params.insert(id, f64::from(value));
+        }
+        let project_with = |d: &Device| {
+            let mut project = crate::empty_project();
+            let mut track = Track::new(Id(1), "Audio".to_owned(), TrackKind::Audio, Color(0));
+            track.devices = vec![d.clone()];
+            project.tracks = vec![std::sync::Arc::new(track)];
+            project
+        };
+        let (_clips, player) = clip_player();
+        let (mut handle, _source) = mixer(player);
+        let mut builtins = Builtins::default();
+        let project = project_with(&horizon_device);
+        assert!(builtins.update(&project, &mut handle));
+        // 1.5 ms of lookahead at 48 kHz: 72 frames, as its description says.
+        assert_eq!(builtins.latencies().get(&horizon_device.id), Some(&72));
+        assert_eq!(builtins.latencies(), &latencies(&project));
+
+        // A longer lookahead: the running app's routing has the new number.
+        horizon_device.params.insert(
+            horizon::LOOK,
+            f64::from(
+                params::find(horizon::TABLE, horizon::LOOK)
+                    .expect("a parameter")
+                    .normalised(4.0),
+            ),
+        );
+        let project = project_with(&horizon_device);
+        assert!(builtins.update(&project, &mut handle), "a change");
+        assert_eq!(builtins.latencies().get(&horizon_device.id), Some(&192));
+        assert_eq!(builtins.latencies(), &latencies(&project));
+    }
+
+    /// Gravity's meter is handed to the interface with the device, and the
+    /// tab reads it once a frame (M8 slice B2).
+    #[test]
+    fn a_compressor_hands_its_meter_to_the_interface() {
+        use lumen_devices::dynamics::compressor as gravity;
+        use lumen_engine::{clip_player, mixer};
+        let mut compressor = device(gravity::NAME);
+        for (id, value) in defaults(gravity::NAME) {
+            compressor.params.insert(id, f64::from(value));
+        }
+        let mut project = crate::empty_project();
+        let mut track = Track::new(Id(1), "Audio".to_owned(), TrackKind::Audio, Color(0));
+        track.devices = vec![compressor.clone()];
+        project.tracks = vec![std::sync::Arc::new(track)];
+        let (_clips, player) = clip_player();
+        let (mut handle, _source) = mixer(player);
+        let mut builtins = Builtins::default();
+        assert!(builtins.update(&project, &mut handle));
+        assert!(builtins.has_meter(compressor.id), "a meter to read");
+        builtins.read_meters();
+        assert_eq!(
+            builtins.reading(compressor.id).map(|r| r.reduction_db),
+            Some(0.0),
+            "nothing is playing, so nothing was taken away"
+        );
+        // Prism has none: its strip is its face.
+        let mut prism = device(utility::NAME);
+        for (id, value) in defaults(utility::NAME) {
+            prism.params.insert(id, f64::from(value));
+        }
+        let mut track = Track::new(Id(1), "Audio".to_owned(), TrackKind::Audio, Color(0));
+        track.devices = vec![prism.clone()];
+        project.tracks = vec![std::sync::Arc::new(track)];
+        assert!(builtins.update(&project, &mut handle));
+        assert!(!builtins.has_meter(prism.id));
     }
 
     /// Every device the engine can run has a personality, and every personality
