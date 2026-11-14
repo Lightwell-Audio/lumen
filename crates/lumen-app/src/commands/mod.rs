@@ -306,6 +306,8 @@ pub(crate) enum Command {
     AddEq,
     AddDelay,
     AddReverb,
+    DrumRouteAll,
+    DrumRouteClear,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -699,6 +701,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AddEq, "devices.add_eq", "Add Iris (EQ)", Area::Devices, &[], "Puts Iris, the equaliser, on the selected track (after the chosen card), or on a new audio track when no track fits. Eight bands: cuts, shelves, bells and notches, with an analyser. Drag a band's point on the curve, or find every control in All parameters. Automation, MIDI learn and presets work as for any device."),
     info(Command::AddDelay, "devices.add_delay", "Add Parallax (delay)", Area::Devices, &[], "Puts Parallax, the stereo delay, on the selected track (after the chosen card), or on a new audio track when none fits. A time in notes that follows the tempo or in milliseconds, feedback, ping-pong, low and high cut, freeze and a mix. Automation, MIDI learn and presets work as for any device."),
     info(Command::AddReverb, "devices.add_reverb", "Add Afterglow (reverb)", Area::Devices, &[], "Puts Afterglow, the reverb, on the selected track (after the chosen card), or on a new audio track when none fits. Pre-delay, size, a decay the tail really takes, damping, width, early reflections and a mix; its tail rings on after Stop and an export keeps it. Automation, MIDI learn and presets work as for any device."),
+    info(Command::DrumRouteAll, "track.drum_route_all", "Route all sounds to tracks", Area::Track, &[], "Gives the selected MIDI track's drum sounds a track each on its instrument's output pairs, in the map's order, and groups the tracks it makes under the map's name. The kit track keeps its own output. A sound the instrument has no pair left for stays on the kit track. One undo step."),
+    info(Command::DrumRouteClear, "track.drum_route_clear", "Send the sounds back to the kit track", Area::Track, &[], "Sends every sound of the selected MIDI track's drum map back to the kit track in one undo step, taking away the output tracks that are left empty. A track holding clips or devices is kept."),
 ];
 
 const fn info(
@@ -762,7 +766,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::AddReverb as usize + 1,
+            Command::DrumRouteClear as usize + 1,
             ALL.len(),
             "a command is missing"
         );
