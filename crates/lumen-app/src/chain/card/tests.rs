@@ -103,7 +103,7 @@ fn set_piece_cost() {
     crate::fonts::install(&ctx);
     // Prism, and Iris with its analyser's mist: the dearest drawing is the one
     // the budget is read from.
-    let devices: [(&str, &[lumen_devices::params::ParamInfo], Color32); 2] = [
+    let devices: [(&str, &[lumen_devices::params::ParamInfo], Color32); 4] = [
         (
             lumen_devices::utility::NAME,
             lumen_devices::utility::TABLE,
@@ -113,6 +113,16 @@ fn set_piece_cost() {
             lumen_devices::eq::NAME,
             lumen_devices::eq::TABLE,
             crate::theme::personality::EQ,
+        ),
+        (
+            lumen_devices::delay::NAME,
+            lumen_devices::delay::TABLE,
+            crate::theme::personality::DELAY,
+        ),
+        (
+            lumen_devices::reverb::NAME,
+            lumen_devices::reverb::TABLE,
+            crate::theme::personality::REVERB,
         ),
     ];
     let mist: Vec<f32> = (0..crate::chain::face::eq::POINTS)
@@ -174,6 +184,7 @@ fn set_piece_cost() {
                             picked: 1,
                             spectrum: (level > 0.0 && parts.is_some()).then_some(mist.as_slice()),
                             rate: 48_000,
+                            bpm: 120.0,
                         });
                         let rect = eframe::egui::Rect::from_min_size(pos2(10.0, 10.0), size);
                         let _ = paint(ui, rect, eframe::egui::Id::new("cost"), &look);

@@ -83,6 +83,64 @@ fn routed_tracks_at_128_frames(bencher: divan::Bencher<'_, '_>, tracks: usize) {
 #[divan::bench]
 fn engine_builtin_64(bencher: divan::Bencher<'_, '_>) {
     use lumen_devices::utility::{self, Utility};
+    let values: Vec<(u32, f32)> = utility::TABLE
+        .iter()
+        .map(|p| {
+            (
+                p.id,
+                match p.id {
+                    utility::GAIN => 0.6,
+                    utility::PAN => 0.55,
+                    utility::WIDTH => 0.75,
+                    _ => p.normalised(p.default),
+                },
+            )
+        })
+        .collect();
+    builtin_64(bencher, values, || Box::new(Utility::new()));
+}
+
+/// 64 tracks, each with Parallax, the stereo delay, on it (M8 slice B3): what
+/// a tempo-synced delay with its loop filters costs the audio thread.
+#[divan::bench]
+fn engine_builtin_delay_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::delay::{self, Delay};
+    let values: Vec<(u32, f32)> = delay::TABLE
+        .iter()
+        .map(|p| {
+            (
+                p.id,
+                match p.id {
+                    delay::FEEDBACK => 0.45,
+                    delay::NOTE => 4.0 / 6.0,
+                    delay::PING => 1.0,
+                    _ => p.normalised(p.default),
+                },
+            )
+        })
+        .collect();
+    builtin_64(bencher, values, || Box::new(Delay::new()));
+}
+
+/// 64 tracks, each with Afterglow, the reverb, on it (M8 slice B3): eight
+/// feedback lines, their damping and the early reflections, a block at a time.
+#[divan::bench]
+fn engine_builtin_reverb_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::reverb::{self, Reverb};
+    let values: Vec<(u32, f32)> = reverb::TABLE
+        .iter()
+        .map(|p| (p.id, p.normalised(p.default)))
+        .collect();
+    builtin_64(bencher, values, || Box::new(Reverb::new()));
+}
+
+/// 64 tracks of steady sound, each with one built-in effect holding `values`:
+/// the body the three `engine_builtin_*` benches share (M8 slices B0 and B3).
+fn builtin_64(
+    bencher: divan::Bencher<'_, '_>,
+    values: Vec<(u32, f32)>,
+    make: impl Fn() -> Box<dyn lumen_devices::Effect>,
+) {
     use lumen_engine::{Device, Slot};
     const TRACKS: u64 = 64;
     let audio = Arc::new(ClipAudio::Memory {
@@ -115,20 +173,12 @@ fn engine_builtin_64(bencher: divan::Bencher<'_, '_>) {
             latency: 0,
             bypass: false,
         }];
-        // A gain a little under unity, and a pan off centre: the device works.
-        node.values = vec![(
-            1_000 + node.id,
-            vec![
-                (utility::GAIN, 0.6),
-                (utility::PAN, 0.55),
-                (utility::WIDTH, 0.75),
-            ],
-        )];
+        node.values = vec![(1_000 + node.id, values.clone())];
     }
     for id in 0..TRACKS {
         assert!(
             routing
-                .attach_builtin(1_000 + id, Slot::new(Box::new(Utility::new())))
+                .attach_builtin(1_000 + id, Slot::new(make()))
                 .is_ok()
         );
     }

@@ -89,6 +89,13 @@ pub struct Block<'a> {
     pub rate: u32,
     /// The timeline sample the block's first frame plays at.
     pub start: i64,
+    /// The song's tempo at the block's first frame, in beats per minute (M8
+    /// slice B3): what a delay whose time is in notes follows. The mixer reads
+    /// it from the timeline map it plays, so it is the tempo the clips follow,
+    /// and a tempo change reaches a device with the first block after it (a
+    /// block is at most 256 frames, so the change is inaudible for a delay
+    /// time). 120.0 for a mixer with no timeline.
+    pub bpm: f32,
     /// The pan law of the track the device is on, for a device that pans.
     pub law: PanLaw,
     /// The parameters the block moves, at their frames: the value the project
@@ -158,6 +165,7 @@ mod tests {
         let block = Block {
             rate: 48_000,
             start: 0,
+            bpm: 120.0,
             law: PanLaw::Balance,
             events: &ParamBlock::none(),
         };

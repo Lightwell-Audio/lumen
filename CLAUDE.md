@@ -822,7 +822,7 @@ per slice and move what is no longer current out of it.
   device, the rest the recommendations; drum sound icons (IC) are in; the
   lit kit is punted to X5. **Under way (2026-11-13),** built by delegated
   agents, one PR per slice: D0 (ADR-0142, format v35), D1 (ADR-0143/0144)
-  B0 (ADR-0145, Prism) and D2 (ADR-0147, #122) are merged; B1, Iris, is PR #123 (ADR-0146). **Built-ins are set pieces** (owner,
+  B0 (ADR-0145, Prism), D2 (ADR-0147, #122) and B1 (ADR-0146, Iris, #123) are merged; B3, Parallax and Afterglow (ADR-0148), is in review as a PR. **Built-ins are set pieces** (owner,
   2026-11-12): round 2 of `docs/specimens/m8/devices.html` supersedes
   chosen.html's device section (per-device card sizes, a live screen that is
   also a control, lit dials; four size steps); the framework and Prism are merged (PR

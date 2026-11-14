@@ -375,6 +375,7 @@ pub(super) fn compile_metered(
         nodes,
         sends,
         hosted: devices.iter().any(|d| d.host != NO_HOST),
+        builtins: devices.iter().any(|d| d.builtin != NO_BUILTIN),
         devices,
         taps,
         lines,

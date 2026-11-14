@@ -192,7 +192,7 @@ pub(super) fn run(
     hosting: &mut Hosting<'_>,
     (left, right): (&mut [f32], &mut [f32]),
     key: Option<(&[f32], &[f32])>,
-    (rate, start, advance): (u32, i64, bool),
+    (rate, start, bpm, advance): (u32, i64, f32, bool),
     law: PanLaw,
 ) {
     let n = left.len();
@@ -245,6 +245,7 @@ pub(super) fn run(
         let block = Block {
             rate,
             start,
+            bpm,
             law,
             events: &scratch.params,
         };
@@ -268,6 +269,7 @@ pub(super) fn run(
     let block = Block {
         rate,
         start,
+        bpm,
         law,
         events: &scratch.params,
     };

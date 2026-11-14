@@ -23,10 +23,127 @@ use lumen_devices::params::{self, ParamInfo as Info};
 use lumen_devices::{Description, eq, utility};
 use lumen_engine::{MixerHandle, Routing, Slot};
 use lumen_hosting::{FLAG_CAN_AUTOMATE, ParamInfo};
-use lumen_project::model::{Device, Id, PluginRef, Project};
+use lumen_project::model::{Device, Id, PluginRef, Project, Track};
 use lumen_project::routing::all_tracks;
 
 use crate::theme;
+
+/// The longest tail a render adds after its span: ten seconds, the cap the
+/// engine's Stop wait already uses. A device with a longer tail (or an endless
+/// one, a frozen delay) stops there rather than holding a render open.
+pub const MOST_TAIL_SECONDS: u32 = 10;
+
+/// Frames the project's devices ring on after its sound stops, at `rate`: what
+/// an export or a bounce adds as its automatic tail (M8 slice B0, review N2,
+/// wired in by slice B3). A track's chain is the sum of its effects' tails (a
+/// reverb after a delay rings for both), and the master's chain follows the
+/// longest of them. A plugin that reports a tail keeps the old ten seconds,
+/// since its tail is the plugin's own word; a project with nothing that rings
+/// adds nothing.
+///
+/// The tempo is the project's slowest, so a delay whose time is in notes is
+/// never cut short.
+pub fn tail_frames(project: &Project, rate: u32) -> u64 {
+    let sounding = lumen_project::edit::freeze::played(project);
+    let bpm = slowest_bpm(&sounding);
+    let master = sounding.master.id;
+    all_tracks(&sounding)
+        .map(|track| path_tail(&sounding, track, master, bpm, rate, 0))
+        .max()
+        .unwrap_or(0)
+        .min(cap(rate))
+}
+
+/// Frames `track`'s own devices ring on after its sound stops, at `rate`: the
+/// automatic tail of a bounce or a freeze of that track.
+pub fn track_tail_frames(project: &Project, track: Id, rate: u32) -> u64 {
+    let sounding = lumen_project::edit::freeze::played(project);
+    let bpm = slowest_bpm(&sounding);
+    all_tracks(&sounding)
+        .find(|known| known.id == track)
+        .map_or(0, |track| chain_tail(track, bpm, rate))
+}
+
+/// Frames everything between `track` and the device outputs rings on: its own
+/// chain, its groups', the returns it sends into (and their paths), and the
+/// master's. `master` is the project's, and `depth` stops a loop the routing
+/// would have refused anyway.
+fn path_tail(project: &Project, track: &Track, master: Id, bpm: f32, rate: u32, depth: u32) -> u64 {
+    let mut frames = chain_tail(track, bpm, rate);
+    // Up through the groups it plays into.
+    let mut parent = track.parent;
+    let mut guard = 0;
+    while let Some(id) = parent {
+        guard += 1;
+        if guard > 8 {
+            break;
+        }
+        let Some(next) = all_tracks(project).find(|known| known.id == id) else {
+            break;
+        };
+        frames = frames.saturating_add(chain_tail(next, bpm, rate));
+        parent = next.parent;
+    }
+    // The returns its sends reach, and what they ring on for.
+    if depth < 8 {
+        let returns = track
+            .sends
+            .iter()
+            .filter_map(|send| all_tracks(project).find(|known| known.id == send.to))
+            .map(|ret| path_tail(project, ret, master, bpm, rate, depth + 1))
+            .max()
+            .unwrap_or(0);
+        frames = frames.saturating_add(returns);
+    }
+    // Everything reaches the master.
+    if track.id != master
+        && let Some(top) = all_tracks(project).find(|known| known.id == master)
+    {
+        frames = frames.saturating_add(chain_tail(top, bpm, rate));
+    }
+    frames.min(cap(rate))
+}
+
+/// The most frames a render adds as a tail, at `rate`.
+fn cap(rate: u32) -> u64 {
+    u64::from(MOST_TAIL_SECONDS) * u64::from(rate)
+}
+
+/// Frames one track's chain rings on after its sound stops.
+fn chain_tail(track: &lumen_project::model::Track, bpm: f32, rate: u32) -> u64 {
+    let mut frames = 0u64;
+    for device in &track.devices {
+        match &device.plugin {
+            PluginRef::Builtin { name } => {
+                let values = values(device);
+                frames +=
+                    u64::from(lumen_devices::effect_tail_at(name, &values, bpm, rate).unwrap_or(0));
+            }
+            // A plugin's tail is its own word, and the engine does not trust
+            // it (a plugin may misreport one): a chain with a plugin keeps the
+            // ten seconds a render always allowed it. Only Lumen's own devices
+            // narrow the tail.
+            PluginRef::Vst3 { .. } => frames += cap(rate),
+        }
+    }
+    frames.min(cap(rate))
+}
+
+/// The slowest tempo the project's map has, in BPM (120 for a project whose
+/// map cannot be read): the longest a note-synced delay can be.
+fn slowest_bpm(project: &Project) -> f32 {
+    lumen_core::time::TempoMap::new(project.tempo.clone())
+        .ok()
+        .and_then(|map| {
+            map.points()
+                .iter()
+                .map(|point| point.bpm as f32)
+                .fold(None, |least: Option<f32>, bpm| {
+                    Some(least.map_or(bpm, |least| least.min(bpm)))
+                })
+        })
+        .unwrap_or(120.0)
+}
 
 /// What a built-in device is, as a person reads it: its personality's name,
 /// what it is, its signature colour, and the description its table and timing
@@ -78,6 +195,26 @@ const IDENTITIES: &[(&str, Identity)] = &[
             subtitle: "Parametric EQ",
             colour: theme::personality::EQ,
             timing: &eq::DESCRIPTION,
+        },
+    ),
+    (
+        lumen_devices::delay::NAME,
+        Identity {
+            name: "Parallax",
+            kind: "Stereo delay",
+            subtitle: "Stereo delay",
+            colour: theme::personality::DELAY,
+            timing: &lumen_devices::delay::DESCRIPTION,
+        },
+    ),
+    (
+        lumen_devices::reverb::NAME,
+        Identity {
+            name: "Afterglow",
+            kind: "Reverb",
+            subtitle: "Reverb",
+            colour: theme::personality::REVERB,
+            timing: &lumen_devices::reverb::DESCRIPTION,
         },
     ),
     #[cfg(test)]
@@ -896,5 +1033,81 @@ mod tests {
             handle.take_refused_builtins().is_empty(),
             "a refusal is reported once"
         );
+    }
+
+    /// N2, wired by B3: an export's automatic tail is the project's devices'
+    /// own tails, not a flat ten seconds. A reverb's decay is in it, a track
+    /// with nothing that rings adds nothing, and the master's chain follows
+    /// the track's.
+    #[test]
+    fn the_automatic_tail_is_what_the_project_s_devices_ring_on_for() {
+        use lumen_devices::{delay, reverb};
+        let mut project = crate::empty_project();
+        let one = |project: &mut Project, name: &str, id: u64| {
+            let mut track = Track::new(Id(id), "Track".to_owned(), TrackKind::Audio, Color(0));
+            track.devices = vec![device(name)];
+            project.tracks = vec![std::sync::Arc::new(track)];
+        };
+        // Nothing that rings: nothing is added.
+        one(&mut project, utility::NAME, 1);
+        assert_eq!(tail_frames(&project, 48_000), 0);
+        // A reverb's decay is its tail, and a longer one is a longer tail.
+        let mut reverb_of = |decay: f32| {
+            let mut verb = device(reverb::NAME);
+            verb.params.insert(
+                reverb::DECAY,
+                f64::from(
+                    params::find(reverb::TABLE, reverb::DECAY)
+                        .unwrap()
+                        .normalised(decay),
+                ),
+            );
+            let mut track = Track::new(Id(2), "Verb".to_owned(), TrackKind::Audio, Color(0));
+            track.devices = vec![verb];
+            project.tracks = vec![std::sync::Arc::new(track)];
+            tail_frames(&project, 48_000)
+        };
+        let short = reverb_of(0.5);
+        let long = reverb_of(4.0);
+        assert!(short > 0, "a reverb rings on");
+        assert!(long > short, "{short} then {long}");
+        assert!(long <= 10 * 48_000, "{long}");
+        // A delay adds its echoes too, and the one track's tail is the
+        // bounce's.
+        let mut echo = device(delay::NAME);
+        echo.params.insert(
+            delay::TIME,
+            f64::from(
+                params::find(delay::TABLE, delay::TIME)
+                    .unwrap()
+                    .normalised(500.0),
+            ),
+        );
+        let track = Id(3);
+        let mut node = Track::new(track, "Echo".to_owned(), TrackKind::Audio, Color(0));
+        node.devices = vec![echo];
+        project.tracks = vec![std::sync::Arc::new(node)];
+        let echoed = tail_frames(&project, 48_000);
+        assert!(echoed > 48_000, "half a second of echoes: {echoed}");
+        assert_eq!(track_tail_frames(&project, track, 48_000), echoed);
+        // The master's chain follows the longest track's: a reverb there adds
+        // its own decay.
+        let mut verb = device(reverb::NAME);
+        verb.params.insert(
+            reverb::DECAY,
+            f64::from(
+                params::find(reverb::TABLE, reverb::DECAY)
+                    .unwrap()
+                    .normalised(1.0),
+            ),
+        );
+        project.master = std::sync::Arc::new({
+            let mut master = (*project.master).clone();
+            master.devices = vec![verb];
+            master
+        });
+        let both = tail_frames(&project, 48_000);
+        assert!(both > echoed, "{both} against {echoed}");
+        assert_eq!(track_tail_frames(&project, track, 48_000), echoed);
     }
 }

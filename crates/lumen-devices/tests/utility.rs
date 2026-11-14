@@ -134,6 +134,7 @@ fn run(
         let block = Block {
             rate: RATE,
             start: done as i64,
+            bpm: 120.0,
             law: PanLaw::Balance,
             events: &events,
         };
@@ -205,6 +206,7 @@ fn pan_follows_the_law_the_track_has() {
             let block = Block {
                 rate: RATE,
                 start: done as i64,
+                bpm: 120.0,
                 law,
                 events: &events,
             };
@@ -397,6 +399,7 @@ fn a_block_with_automation_allocates_nothing() {
     let block = Block {
         rate: RATE,
         start: 0,
+        bpm: 120.0,
         law: PanLaw::ConstantPower,
         events: &events,
     };
