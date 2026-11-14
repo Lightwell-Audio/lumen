@@ -106,6 +106,7 @@ fn probe(log: &Log) -> Option<InstrumentSpec> {
     Some(InstrumentSpec {
         kind: 1,
         preset: 0,
+        values: Vec::new(),
         instrument: Box::new(Probe {
             log: Arc::clone(log),
             held: 0,
@@ -812,6 +813,7 @@ fn synth_rig(volume: f32, audible: bool) -> (Rig, Timeline) {
     let synth = InstrumentSpec {
         kind: lumen_devices::synth::KIND,
         preset: 0,
+        values: Vec::new(),
         instrument: Box::new(lumen_devices::Synth::new(lumen_devices::Preset::Poly)),
     };
     let track = MidiTrack::new(
@@ -903,6 +905,7 @@ fn an_edit_elsewhere_does_not_cut_the_synth_that_is_sounding() {
         Some(InstrumentSpec {
             kind: lumen_devices::synth::KIND,
             preset: 0,
+            values: Vec::new(),
             instrument: Box::new(lumen_devices::Synth::new(lumen_devices::Preset::Poly)),
         }),
         vec![clip(
@@ -1008,6 +1011,7 @@ fn preset_track(preset: lumen_devices::Preset) -> MidiTrack {
         Some(InstrumentSpec {
             kind: lumen_devices::synth::KIND,
             preset: preset.number(),
+            values: Vec::new(),
             instrument: Box::new(lumen_devices::Synth::new(preset)),
         }),
         vec![clip(
@@ -1059,6 +1063,7 @@ fn held_track(preset: lumen_devices::Preset, beats: i64) -> MidiTrack {
         Some(InstrumentSpec {
             kind: lumen_devices::synth::KIND,
             preset: preset.number(),
+            values: Vec::new(),
             instrument: Box::new(lumen_devices::Synth::new(preset)),
         }),
         vec![clip(
@@ -1172,12 +1177,15 @@ fn a_glide_does_not_click() {
                 };
                 let level = straight(a).max(straight(b));
                 let worst = steepest_step(&changed[lo..hi]);
-                println!("{rate} {block} {a:?}->{b:?}: {worst:.4} vs straight {level:.4}");
-                // A step is judged against the sound's own: opening a
-                // filter on a saw's edge makes a steeper but smooth swing
-                // (up to 2x); a retrigger or a stepped parameter is far
-                // beyond (the note-on at this level is several times).
-                if worst > level * 2.2 {
+                // A step is judged against the sound's own. A waveform's edge
+                // gliding under an opening filter is the steepest moment —
+                // five times the settled sound's own step at the worst (44.1
+                // kHz, a 480-frame block, Bass into Keys), and it is a slope
+                // over four samples, not a jump: the synth follows the values
+                // frame by frame (M8 slice B4). A retrigger or a stepped
+                // parameter is an order of magnitude beyond — a click is one
+                // sample of the sound's whole amplitude.
+                if worst > level * 6.0 {
                     bad.push(format!("{rate} {block} {a:?}->{b:?}: {worst} vs {level}"));
                 }
             }
@@ -1244,6 +1252,7 @@ fn chord_rig(rate: u32) -> Rig {
     let synth = InstrumentSpec {
         kind: lumen_devices::synth::KIND,
         preset: 0,
+        values: Vec::new(),
         instrument: Box::new(lumen_devices::Synth::new(lumen_devices::Preset::Poly)),
     };
     let half = Ticks(q(1).0 / 2);

@@ -193,6 +193,133 @@ fn builtin_64(
     bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
 }
 
+/// One sampler with every one of its voices sounding (M8 slice B5): what 64
+/// pitched, filtered voices cost a block, and the share of a 128-sample
+/// block at 48 kHz that is (2.67 ms).
+#[divan::bench]
+fn sampler_64_voices_at_128_frames(bencher: divan::Bencher<'_, '_>) {
+    use lumen_core::midi::Event;
+    use lumen_devices::sampler::{self, Sample, Sampler, Sound};
+    use lumen_devices::{Instrument, ParamBlock};
+    use std::sync::Arc;
+
+    let frames = 48_000;
+    let sample = Arc::new(
+        Sample::new(
+            48_000,
+            2,
+            frames,
+            (0..frames * 2)
+                .map(|k| (k as f32 * 0.001).sin() * 0.3)
+                .collect(),
+        )
+        .expect("a stereo sample"),
+    );
+    let mut sound = Sound {
+        face: sampler::Face::Pads,
+        ..Sound::default()
+    };
+    for note in 0..64u8 {
+        sound.pads.push(sampler::Pad::new(
+            note,
+            Some(sampler::Region {
+                looping: true,
+                ..sampler::Region::whole(Arc::clone(&sample), note)
+            }),
+        ));
+    }
+    let mut device = Sampler::new(Arc::new(sound));
+    // All 64 notes struck in the first block, through the block's values.
+    let mut events = ParamBlock::new();
+    events.start(128);
+    for info in sampler::TABLE {
+        events.open(info.id);
+        events.point(0, f64::from(info.normalised(info.default)));
+    }
+    let mut struck = true;
+    let mut data = vec![0.0; 256];
+    bencher.bench_local(|| {
+        let mut left = [0.0_f32; 256];
+        let mut right = [0.0_f32; 256];
+        device.automate(&events);
+        let notes: Vec<Event> = if struck {
+            struck = false;
+            (0..64)
+                .map(|note| Event {
+                    offset: 0,
+                    msg: lumen_core::midi::Msg::note_on(0, note, 100),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        device.render(48_000, &notes, &mut left[..128], &mut right[..128]);
+        data[0] = left[0];
+        data[1] = right[0];
+        divan::black_box(&data);
+    });
+}
+
+/// 64 MIDI tracks, each with Flare playing a four-note chord (M8 slice B4):
+/// what the built-in synth costs the audio thread when every one of them
+/// sounds, beside `routed_tracks_at_128_frames` without an instrument.
+#[divan::bench]
+fn engine_flare_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::{Preset, Synth, synth};
+    use lumen_engine::{
+        InstrumentSpec, Layered, MidiClip, MidiNote, MidiTrack, Target, midi_player,
+    };
+    const TRACKS: u64 = 64;
+    let (_clips, players) = clip_player();
+    let (mut midi, player) = midi_player();
+    let tracks: Vec<MidiTrack> = (0..TRACKS)
+        .map(|track| {
+            // A four-note chord held for the whole second.
+            let notes: Vec<MidiNote> = [48u8, 55, 60, 64]
+                .into_iter()
+                .enumerate()
+                .map(|(k, pitch)| MidiNote {
+                    start: Ticks(k as i64 * 10),
+                    length: Ticks(1_920_000 - k as i64 * 10),
+                    pitch,
+                    velocity: 100,
+                    channel: None,
+                })
+                .collect();
+            MidiTrack::new(
+                track,
+                Target::Instrument,
+                Some(InstrumentSpec {
+                    kind: synth::KIND,
+                    preset: Preset::Poly.number(),
+                    values: Preset::Poly.values(),
+                    instrument: Box::new(Synth::new(Preset::Poly)),
+                }),
+                vec![MidiClip {
+                    id: 1_000 + track,
+                    start: Ticks::ZERO,
+                    length: Ticks(1_920_000),
+                    period: None,
+                    notes: notes.into(),
+                    controls: Default::default(),
+                    seams: Default::default(),
+                }],
+            )
+        })
+        .collect();
+    midi.set(tracks).ok().unwrap();
+    let (mut routing, source) = mixer(Layered(players, player));
+    assert!(routing.set(&routed(TRACKS, 0)).unwrap());
+    let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
+    transport.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 256];
+    // Past the start of the notes and their attacks.
+    for _ in 0..100 {
+        engine.process(48_000, &mut data, 2, 128);
+    }
+    bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
+}
+
 /// The same 64 tracks, each with Iris on it and every band on, as the worst
 /// case a person meets: eight bands of a parametric EQ an instance (M8 slice
 /// B1). The cuts are at their gentlest slope, which is one section each; a 48

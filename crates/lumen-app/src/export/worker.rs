@@ -37,6 +37,8 @@ pub struct Job {
     /// The warped streams the clips play, held until the job is done (a
     /// real-time export reads them again on its own thread).
     pub _warps: Option<Arc<crate::media::warped::WarpedStreams>>,
+    /// The samples this render's samplers play (M8 slice B5).
+    pub samples: Vec<(Id, crate::builtin::samples::Source)>,
 }
 
 fn safe_name(name: &str) -> String {
@@ -252,6 +254,7 @@ pub(super) fn run(
         }
         let scratch = stage.0.join(format!("render-{index}.wav"));
         let render_job = export_render::Job {
+            samples: job.samples.clone(),
             project: job.project.clone(),
             clips: job.clips.clone(),
             plugins: job

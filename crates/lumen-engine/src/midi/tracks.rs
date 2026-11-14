@@ -39,18 +39,39 @@ pub(super) fn gather_track(
         );
     }
     hold::sort_events(&mut track.state.events);
-    // The parameters the track's lanes change in this block go to a plugin
-    // instrument with it. An instrument keeps the block it was last given, so
-    // a block with no lanes (they are gone, or the song is not playing) says
-    // so: a lane taken away must not go on setting its last value.
-    if let Some(spec) = track.instrument.as_mut()
-        && spec.instrument.hosted()
-    {
+    // What the track's instrument is told for this block: the values the
+    // project holds for a built-in instrument's knobs (M8 slice B5), and, while
+    // the song plays, the points its lanes give them. An instrument keeps the
+    // block it was last given, so a block with nothing to say says so
+    // (`NO_PARAMS`).
+    //
+    // The values are given in **every** mode (M8 slice B5, review H3): a knob
+    // turned while the transport is stopped, or with a note held on live input,
+    // must reach the instrument with the next block, exactly as an effect's do.
+    // Only the lanes are gated on Play, because a lane taken away (or a stopped
+    // song) must not go on setting its last value. B4 (Flare) reads the same
+    // block for the synth's parameters, so keep this one gate.
+    // The tempo a synced part of it follows goes with it (M8 slice B4).
+    if let Some(spec) = track.instrument.as_mut() {
+        let bpm = cx
+            .timeline
+            .tempo
+            .bpm_at(cx.timeline.ticks_at(cx.start, cx.sample_rate));
+        spec.instrument.set_tempo(bpm as f32);
+        let playing = cx.mode == Mode::Play;
+        let has_lanes = playing && !track.automation.is_empty();
         match track.params.as_deref_mut() {
-            Some(block) if cx.mode == Mode::Play => {
+            Some(block) if !track.values.is_empty() || has_lanes => {
                 block.start(frames);
-                for lane in &track.automation {
-                    fill_param_lane(block, lane, cx.start, frames);
+                for &(id, value) in &track.values {
+                    if block.open(id) {
+                        block.point(0, f64::from(value));
+                    }
+                }
+                if playing {
+                    for lane in &track.automation {
+                        fill_param_lane(block, lane, cx.start, frames);
+                    }
                 }
                 spec.instrument.automate(block);
             }

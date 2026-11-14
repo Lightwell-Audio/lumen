@@ -143,6 +143,13 @@ pub struct InstrumentSpec {
     /// Which sound of it (a preset), chosen with
     /// [`Instrument::configure`].
     pub preset: u32,
+    /// The values the project holds for a built-in instrument's parameters
+    /// (normalised, by id; M8 slice B4). The app fills them when the track
+    /// list is built; the engine hands them to the instrument it keeps
+    /// playing ([`Instrument::configure_values`]), so a knob moved while a
+    /// note sounds glides rather than cutting it. Empty for a hosted
+    /// instrument, which keeps its parameters its own way.
+    pub values: Vec<(u32, f32)>,
     pub instrument: Box<dyn Instrument>,
 }
 
@@ -173,6 +180,14 @@ pub struct MidiTrack {
     /// The lanes that drive parameters of the track's plugin instrument (M7
     /// slice A3), on the device's sample clock.
     pub automation: Vec<ParamLane>,
+    /// The values the project holds for the track's built-in instrument's
+    /// parameters, normalised (M8 slice B5): what its card's knobs say, which
+    /// the device reads through [`Instrument::automate`] with the block.
+    pub values: Vec<(u32, f32)>,
+    /// A sound for a built-in sampler to play, handed to the instrument when
+    /// the list arrives and never kept here (M8 slice B5): the one it played
+    /// before goes back with the list that is freed off the audio thread.
+    pub sound: Option<Arc<lumen_devices::sampler::Sound>>,
     /// The parameters those lanes change in the block being played; made with
     /// the lanes, so none for a track without any.
     params: Option<Box<ParamBlock>>,
@@ -218,6 +233,8 @@ impl MidiTrack {
             record_window: hold::ALWAYS,
             record_timing: None,
             automation: Vec::new(),
+            values: Vec::new(),
+            sound: None,
             params: None,
             state: Box::new(TrackState::new()),
             dirty: true,
@@ -280,8 +297,33 @@ impl MidiTrack {
     /// [`MidiTrack::with_automation`] does. Allocates the block they fill;
     /// call off the audio thread.
     pub fn set_automation(&mut self, lanes: Vec<ParamLane>) {
-        self.params = (!lanes.is_empty()).then(|| Box::new(ParamBlock::new()));
+        self.params =
+            (!lanes.is_empty() || !self.values.is_empty()).then(|| Box::new(ParamBlock::new()));
         self.automation = lanes;
+    }
+
+    /// The same track, whose built-in instrument's parameters hold `values`
+    /// (normalised, by id) until a lane moves them (M8 slice B5). Allocates
+    /// the block they arrive in; call off the audio thread.
+    pub fn with_values(mut self, values: Vec<(u32, f32)>) -> Self {
+        self.set_values(values);
+        self
+    }
+
+    /// Gives the track's built-in instrument its parameters' values, as
+    /// [`MidiTrack::with_values`] does.
+    pub fn set_values(&mut self, values: Vec<(u32, f32)>) {
+        self.params = (!values.is_empty() || !self.automation.is_empty())
+            .then(|| Box::new(ParamBlock::new()));
+        self.values = values;
+    }
+
+    /// The same track, whose built-in sampler is handed `sound` when the list
+    /// arrives (M8 slice B5). The handle the interface built is shared with
+    /// the device; nothing is decoded here.
+    pub fn playing_sound(mut self, sound: Option<Arc<lumen_devices::sampler::Sound>>) -> Self {
+        self.sound = sound;
+        self
     }
 
     /// The channel its events carry.

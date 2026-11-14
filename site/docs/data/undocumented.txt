@@ -382,3 +382,9 @@ midi.solo_lane @m8
 devices.add_eq @m8
 devices.add_delay @m8
 devices.add_reverb @m8
+devices.add_sampler @m8
+devices.sampler_load @m8
+devices.sampler_clear @m8
+devices.sampler_face @m8
+devices.sampler_loop @m8
+devices.sampler_reverse @m8

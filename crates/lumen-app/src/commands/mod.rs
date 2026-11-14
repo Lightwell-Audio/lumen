@@ -306,6 +306,12 @@ pub(crate) enum Command {
     AddEq,
     AddDelay,
     AddReverb,
+    AddSampler,
+    SamplerLoadSample,
+    SamplerClearSamples,
+    SamplerNextFace,
+    SamplerToggleLoop,
+    SamplerToggleReverse,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -699,6 +705,12 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AddEq, "devices.add_eq", "Add Iris (EQ)", Area::Devices, &[], "Puts Iris, the equaliser, on the selected track (after the chosen card), or on a new audio track when no track fits. Eight bands: cuts, shelves, bells and notches, with an analyser. Drag a band's point on the curve, or find every control in All parameters. Automation, MIDI learn and presets work as for any device."),
     info(Command::AddDelay, "devices.add_delay", "Add Parallax (delay)", Area::Devices, &[], "Puts Parallax, the stereo delay, on the selected track (after the chosen card), or on a new audio track when none fits. A time in notes that follows the tempo or in milliseconds, feedback, ping-pong, low and high cut, freeze and a mix. Automation, MIDI learn and presets work as for any device."),
     info(Command::AddReverb, "devices.add_reverb", "Add Afterglow (reverb)", Area::Devices, &[], "Puts Afterglow, the reverb, on the selected track (after the chosen card), or on a new audio track when none fits. Pre-delay, size, a decay the tail really takes, damping, width, early reflections and a mix; its tail rings on after Stop and an export keeps it. Automation, MIDI learn and presets work as for any device."),
+    info(Command::AddSampler, "devices.add_sampler", "Add Shutter (sampler)", Area::Devices, &[], "Puts Shutter, the built-in sampler, on the selected MIDI track (after the chosen card), or on a new MIDI track when no MIDI track is chosen. It plays one sample, key and velocity zones, or a pad per sound of the track's drum map; every one of its controls is in All parameters."),
+    info(Command::SamplerLoadSample, "devices.sampler_load", "Load samples into Shutter…", Area::Devices, &[], "Chooses audio files and gives them to the chosen Shutter as its face's sound: the sample for One shot, zones across the keyboard for Zones, pads by name or in order for Pads. They are decoded in the background and join the sampler as one undo step; the files become part of the project's media."),
+    info(Command::SamplerClearSamples, "devices.sampler_clear", "Clear Shutter's samples", Area::Devices, &[], "Empties every face of the chosen Shutter: no sample, no zone, no pad. The files stay in the project's media, where they are listed as unused until a Save with Collect copies them or they are purged."),
+    info(Command::SamplerNextFace, "devices.sampler_face", "Shutter's face: one shot, zones, pads", Area::Devices, &[], "Switches the chosen Shutter to its next face: One shot plays one sample, Zones plays the zone whose key and velocity range holds the note, and Pads plays one pad per sound of the track's drum map (sixteen when it names none). It is what the drawn face does at its top."),
+    info(Command::SamplerToggleLoop, "devices.sampler_loop", "Loop Shutter's sample", Area::Devices, &[], "Plays the One shot face's region over and over until the note ends, or stops looping it. One undo step; the switch is also a control on the device's card."),
+    info(Command::SamplerToggleReverse, "devices.sampler_reverse", "Reverse Shutter's sample", Area::Devices, &[], "Plays the One shot face's region backwards, or forwards again. It changes nothing in the file: the region is read the other way round. One undo step."),
 ];
 
 const fn info(
@@ -762,7 +774,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::AddReverb as usize + 1,
+            Command::SamplerToggleReverse as usize + 1,
             ALL.len(),
             "a command is missing"
         );

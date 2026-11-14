@@ -52,8 +52,11 @@ pub fn used_ports(project: &Project) -> std::collections::BTreeSet<String> {
         .collect()
 }
 
-/// The instrument a track's synth device asks for. A preset this version
-/// does not know (a project from a later one) plays as the default sound.
+/// The instrument a track's sound source asks for: Flare on the values the
+/// project holds for its parameters (M8 slice B4), or on its preset when the
+/// project has none yet (a file written before the format learned to hold
+/// them). A preset this version does not know (a project from a later one)
+/// plays as the default sound.
 fn instrument(track: &model::Track, hosts: &mut dyn Hosts) -> Option<InstrumentSpec> {
     // A plugin instrument: a host's, or a stand-in while there is none.
     if let Some(device) = track.sound_source()
@@ -61,15 +64,41 @@ fn instrument(track: &model::Track, hosts: &mut dyn Hosts) -> Option<InstrumentS
     {
         return Some(hosts.instrument(track.id));
     }
+    // Shutter, the built-in sampler (M8 slice B5): it starts silent and the
+    // sound it plays is handed over with the list, once the decoded samples
+    // are there.
+    if track
+        .sound_source()
+        .is_some_and(|device| device.is_sampler())
+    {
+        return Some(InstrumentSpec {
+            kind: lumen_devices::sampler::KIND,
+            preset: 0,
+            // Shutter's knobs reach it with the block (`MidiTrack::values`),
+            // not through the spec.
+            values: Vec::new(),
+            instrument: Box::new(lumen_devices::Sampler::silent()),
+        });
+    }
     let device = track.instrument()?;
     let preset = device
         .preset()
         .and_then(Preset::from_id)
         .unwrap_or_default();
+    // What the project holds: a synth whose parameters were never written
+    // (a file from before v36 that was not migrated, or a device made by an
+    // older path) plays its preset's values, which are the same sound.
+    let values = if device.params.is_empty() {
+        preset.values()
+    } else {
+        crate::builtin::values(device)
+    };
+    let synth = Synth::with_values(&values);
     Some(InstrumentSpec {
         kind: synth::KIND,
         preset: preset.number(),
-        instrument: Box::new(Synth::new(preset)),
+        values,
+        instrument: Box::new(synth),
     })
 }
 
@@ -277,9 +306,11 @@ pub fn engine_midi(
     engine_midi_with(project, inputs, ports, cache, &mut NoHosts)
 }
 
-/// Gives each of `tracks` the lanes that drive the parameters of its plugin
-/// instrument, baked for a device at `rate` (M7 slice A3). Built-in
-/// instruments have no parameters to automate yet (M8).
+/// Gives each of `tracks` the lanes that drive the parameters of its built-in
+/// or plugin instrument, baked for a device at `rate` (M7 slice A3; the
+/// built-in synth's in M8 slice B4). An instrument's lanes travel with the
+/// track's MIDI, not with the routing's chain: what an instrument makes is
+/// sound, not a device on a bus.
 pub fn with_lanes(
     tracks: &mut [MidiTrack],
     project: &Project,
@@ -294,7 +325,7 @@ pub fn with_lanes(
             continue;
         };
         let lanes = crate::lane_bake::device_lanes(held, over, &tempo, rate, |d| {
-            d.is_vst3() && d.is_instrument()
+            (d.is_instrument() && (d.is_vst3() || d.is_synth())) || d.is_sampler()
         });
         track.set_automation(lanes.into_iter().map(|(_, lane)| lane).collect());
     }
@@ -307,6 +338,11 @@ pub fn with_lanes(
 /// another by the plugin's own choice; an output with no track of its own
 /// plays on the instrument's own track.
 fn plugin_outputs(project: &Project, track: &model::Track, hosts: &dyn Hosts) -> Vec<(u32, u64)> {
+    // A sampler's pairs are its own: a pad names one, and a track of the
+    // project can play it (M8 slice B5, review H1).
+    if let Some(device) = track.sound_source().filter(|d| d.is_sampler()) {
+        return sampler_outputs(project, track, device);
+    }
     let Some(device) = track.sound_source().filter(|d| d.is_vst3()) else {
         return Vec::new();
     };
@@ -324,6 +360,46 @@ fn plugin_outputs(project: &Project, track: &model::Track, hosts: &dyn Hosts) ->
                 })
                 .map_or(track.id, |t| t.id);
             (pair, own.0)
+        })
+        .collect()
+}
+
+/// A sampler's output pairs and the track each plays on: every pair a pad of
+/// its sound uses, and every pair a track of the project was made for. A pair
+/// with no track of its own plays on the instrument's own track, so a pad
+/// routed to a pair is heard rather than lost (M8 slice B5, review H1, and the
+/// ADR's "how D4 hooks in").
+fn sampler_outputs(
+    project: &Project,
+    track: &model::Track,
+    device: &model::Device,
+) -> Vec<(u32, u64)> {
+    let mut pairs: Vec<u32> = device
+        .sampler()
+        .map(|held| held.pads.iter().map(|pad| pad.output).collect())
+        .unwrap_or_default();
+    pairs.extend(
+        project
+            .tracks
+            .iter()
+            .filter_map(|t| t.plugin_output.filter(|o| o.device == device.id))
+            .map(|o| o.bus),
+    );
+    pairs.retain(|pair| (1..=lumen_devices::sampler::PAIRS as u32).contains(pair));
+    pairs.sort_unstable();
+    pairs.dedup();
+    pairs
+        .into_iter()
+        .map(|bus| {
+            let own = project
+                .tracks
+                .iter()
+                .find(|t| {
+                    t.plugin_output
+                        .is_some_and(|o| o.device == device.id && o.bus == bus)
+                })
+                .map_or(track.id, |t| t.id);
+            (bus, own.0)
         })
         .collect()
 }
@@ -353,6 +429,35 @@ fn kit_of(project: &Project, track: &model::Track) -> Option<Box<lumen_engine::D
         }
     }
     Some(Box::new(kit))
+}
+
+/// What the interface answers for a device: the sound it plays, built from
+/// the decoded samples (M8 slice B5).
+pub type SoundLookup<'a> = &'a dyn Fn(
+    &model::Device,
+    Option<&lumen_project::model::DrumMap>,
+) -> Option<std::sync::Arc<lumen_devices::sampler::Sound>>;
+
+/// Shutter's sound for a track, and the values its knobs hold, put on the
+/// list the engine plays (M8 slice B5). The sound is built from the decoded
+/// samples in `samples`; a device whose samples are still decoding, or whose
+/// files are missing, plays what is loaded (a missing region plays nothing).
+///
+/// This is the one place the sampler's sound reaches the audio thread. A
+/// render uses the same function with the sounds its job carried, so an
+/// export hears what playback did.
+pub fn attach_sounds(tracks: &mut [MidiTrack], project: &Project, sounds: SoundLookup<'_>) {
+    for track in tracks {
+        let Some(held) = project.tracks.iter().find(|t| t.id.0 == track.id) else {
+            continue;
+        };
+        let Some(device) = held.sound_source().filter(|d| d.is_sampler()) else {
+            continue;
+        };
+        let map = project.drum_map_of(held);
+        track.set_values(crate::builtin::values(device));
+        track.sound = sounds(device, map);
+    }
 }
 
 /// [`engine_midi`] with the hosts that play the plugin instruments.

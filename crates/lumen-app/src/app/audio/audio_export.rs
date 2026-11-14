@@ -249,6 +249,7 @@ impl App {
             again: audio.again(),
             unread: audio.unread(),
             _warps: audio.warps(),
+            samples: self.lanes.samples.snapshot(),
             plugins,
             rate: audio.rate,
             from,

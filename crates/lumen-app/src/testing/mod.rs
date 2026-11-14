@@ -26,9 +26,15 @@ mod editor;
 mod instance;
 mod launch;
 pub use instance::{HandOver, not_answering_window};
+
+/// The sampler's sample library, for the one test that checks the audio thread
+/// never frees a buffer when the device's rate changes (M8 slice B5, review
+/// M3). Narrow on purpose: nothing else in the app's tests reaches into it.
+pub use crate::builtin::samples::{Library as SamplerLibrary, Source as SampleSource};
 mod media_pool;
 mod midi;
 mod preferences;
+mod sampler;
 mod streaming;
 mod tools;
 mod welcome;

@@ -82,6 +82,10 @@ pub struct Job {
     pub media: Id,
     /// What the clips could not read from disk; a job with a hole fails.
     pub unread: Unread,
+    /// The samples this render's samplers play, decoded at the render's rate
+    /// (M8 slice B5): a render hears what playback did, with no interface
+    /// behind it.
+    pub samples: Vec<(Id, crate::builtin::samples::Source)>,
 }
 
 /// What a finished job made.
@@ -240,6 +244,7 @@ pub fn render_job(
         file,
         media,
         unread,
+        samples: decoded,
     } = job;
     if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)
@@ -297,6 +302,7 @@ pub fn render_job(
             instrument = Some(InstrumentSpec {
                 kind: HOSTED_KIND,
                 preset: 0,
+                values: Vec::new(),
                 instrument: Box::new(HostedInstrument::new(guard)),
             });
         } else if mixer_handle.attach_host(plugin.device.0, guard).is_err() {
@@ -314,6 +320,10 @@ pub fn render_job(
     if effects {
         midi_play::with_lanes(&mut midi_tracks, &project, &Default::default(), rate);
     }
+    let samples = crate::builtin::samples::Library::from_snapshot(rate, decoded);
+    crate::midi::play::attach_sounds(&mut midi_tracks, &project, &|device, map| {
+        samples.sound(device, map)
+    });
     let mine: Vec<Clip> = clips.into_iter().filter(|c| c.track == track.0).collect();
     if clip_handle.set(mine).is_err() || midi_handle.set(midi_tracks).is_err() {
         return Err("The engine could not take the track".to_owned());
@@ -603,6 +613,7 @@ mod tests {
             file: dir.join("bounce.wav"),
             media: Id(777),
             unread: Default::default(),
+            samples: Vec::new(),
         }
     }
 

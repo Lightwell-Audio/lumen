@@ -1,8 +1,11 @@
 //! What the engine asks of an instrument.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use lumen_core::midi::Event;
+
+use crate::sampler::Sound;
 
 /// A device that turns MIDI into stereo audio. Every method except the
 /// constructor is real-time safe.
@@ -46,6 +49,18 @@ pub trait Instrument: Send {
     /// it without starting again.
     fn configure(&mut self, _preset: u32) {}
 
+    /// Points a built-in instrument at the values the project holds for its
+    /// parameters (normalised, by id): a control moved, a preset loaded, a
+    /// project opened. What sounds glides there rather than cutting off (M8
+    /// slice B4). A hosted instrument keeps its parameters its own way and
+    /// takes nothing here.
+    fn configure_values(&mut self, _values: &[(u32, f32)]) {}
+
+    /// The tempo a synced part of the instrument follows, as the transport
+    /// has it at the block being gathered. The engine calls it every block;
+    /// nothing that does not sync takes it.
+    fn set_tempo(&mut self, _bpm: f32) {}
+
     /// Stops every voice at once, without a release tail.
     fn silence(&mut self);
 
@@ -59,9 +74,22 @@ pub trait Instrument: Send {
     /// The parameters that change in the next block (automation lanes of a
     /// plugin instrument), at their sample, to ride with it. Called before
     /// [`Instrument::begin`] or `render` for the block; a block whose host is
-    /// left alone drops them. Only a hosted instrument takes them: the
-    /// default does nothing.
+    /// left alone drops them. A built-in instrument takes them too (M8 slice
+    /// B5): they are what its card's knobs and the track's lanes say.
     fn automate(&mut self, _params: &crate::ParamBlock) {}
+
+    /// A sampler takes the sound it plays, built on the interface side and
+    /// shared as immutable data, and gives back the one it played before for
+    /// the caller to free off the audio thread (M8 slice B5). `None` from the
+    /// default: an instrument that does not play a sound like this keeps it
+    /// nowhere. A device that returns the old sound has dropped nothing; one
+    /// that has never played a sound has nothing to give back.
+    ///
+    /// The engine keeps the returned handle in the list it is about to free,
+    /// which the interface collects, so no sample is ever freed here.
+    fn load_sound(&mut self, _sound: Arc<Sound>) -> Option<Arc<Sound>> {
+        None
+    }
 
     /// Starts the next block early, before the engine's own work for it:
     /// a hosted instrument hands its host the block and the host works while

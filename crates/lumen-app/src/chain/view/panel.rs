@@ -294,6 +294,7 @@ impl App {
                         (Command::AddEq, "Add Iris (EQ)"),
                         (Command::AddDelay, "Add Parallax (delay)"),
                         (Command::AddReverb, "Add Afterglow (reverb)"),
+                        (Command::AddSampler, "Add Shutter (sampler)"),
                     ] {
                         self.menu_command(ui, command, label);
                     }

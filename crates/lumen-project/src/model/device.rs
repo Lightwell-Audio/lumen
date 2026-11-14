@@ -117,6 +117,10 @@ pub struct Device {
     /// from what the file holds.
     #[serde(skip)]
     pub state_rev: u32,
+    /// The built-in sampler's sound (format v37): the files it plays, the
+    /// regions and pads, and which face shows. Written only for a sampler.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampler: Option<Sampler>,
 }
 
 impl Device {
@@ -133,6 +137,7 @@ impl Device {
             params: BTreeMap::new(),
             sidechain: None,
             state_rev: 0,
+            sampler: None,
         }
     }
 
@@ -181,6 +186,16 @@ impl Device {
         matches!(&self.plugin, PluginRef::Builtin { name } if name == SYNTH)
     }
 
+    /// The built-in sampler (format v37): its sound is what it plays.
+    pub fn is_sampler(&self) -> bool {
+        matches!(&self.plugin, PluginRef::Builtin { name } if name == SAMPLER)
+    }
+
+    /// What the sampler plays, if this is one.
+    pub fn sampler(&self) -> Option<&Sampler> {
+        self.sampler.as_ref().filter(|_| self.is_sampler())
+    }
+
     /// The preset of a synth: its stable name, if the state is readable.
     pub fn preset(&self) -> Option<&str> {
         self.is_synth()
@@ -190,12 +205,15 @@ impl Device {
 }
 
 impl PluginRef {
-    /// What the plugin does in a chain: the synth is an instrument, a VST3
-    /// plugin says which it is, any other built-in device is an effect.
+    /// What the plugin does in a chain: the synth and the sampler are
+    /// instruments, a VST3 plugin says which it is, any other built-in device
+    /// is an effect.
     pub fn kind(&self) -> DeviceKind {
         match self {
             PluginRef::Vst3 { kind, .. } => *kind,
-            PluginRef::Builtin { name } if name == SYNTH => DeviceKind::Instrument,
+            PluginRef::Builtin { name } if name == SYNTH || name == SAMPLER => {
+                DeviceKind::Instrument
+            }
             PluginRef::Builtin { .. } => DeviceKind::Effect,
         }
     }

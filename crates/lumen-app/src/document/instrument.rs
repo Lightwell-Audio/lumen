@@ -4,15 +4,66 @@
 //! choosing a port keeps the instrument on the track for switching back,
 //! and choosing an instrument switches the track back to it.
 
+use std::sync::Arc;
+
 use lumen_devices::Preset;
 use lumen_project::model::{
-    AudioInput, Device, FromSource, Id, MidiFrom, MidiTo, Monitor, TrackKind,
+    AudioInput, Device, FromSource, Id, MidiFrom, MidiTo, Monitor, Project, Track, TrackKind,
 };
 
 use super::Document;
 
 /// The sound new MIDI tracks get (the owner's S1).
 pub const DEFAULT_PRESET: Preset = Preset::Poly;
+
+/// The synth's device on `preset`: its stable name in the project and the
+/// values that make the sound (M8 slice B4). The preset's name stays in the
+/// device's state as the record of where the sound started; what plays is
+/// always the values.
+pub fn synth_device(id: Id, preset: Preset) -> Device {
+    let mut device = Device::synth(id, preset.id());
+    device.params = synth_values(preset);
+    device
+}
+
+/// A preset as the values a project saves for a device's parameters.
+pub fn synth_values(preset: Preset) -> std::collections::BTreeMap<u32, f64> {
+    preset
+        .values()
+        .into_iter()
+        .map(|(param, value)| (param, f64::from(value)))
+        .collect()
+}
+
+/// Gives every synth in `project` the values its sound is made of, where it
+/// holds none: a file from before format v36 is migrated when it is read, so
+/// this is the safeguard for a device a test or a tool made without them (and
+/// it keeps what is shown and what is heard the same). The values are the
+/// preset's — the sound it would play — and the preset's name stays as the
+/// record. Returns whether anything was filled.
+pub fn fill_synth_values(project: &mut Project) -> bool {
+    fn fill(track: &mut Track) -> bool {
+        let mut filled = false;
+        for device in track.devices.iter_mut() {
+            if !device.is_synth() || !device.params.is_empty() {
+                continue;
+            }
+            let preset = device
+                .preset()
+                .and_then(Preset::from_id)
+                .unwrap_or(DEFAULT_PRESET);
+            device.params = synth_values(preset);
+            filled = true;
+        }
+        filled
+    }
+    let mut filled = false;
+    for track in project.tracks.iter_mut() {
+        filled |= fill(Arc::make_mut(track));
+    }
+    filled |= fill(Arc::make_mut(&mut project.master));
+    filled
+}
 
 impl Document {
     /// Gives MIDI tracks among `ids` the synth on `preset`, or takes the
@@ -47,8 +98,14 @@ impl Document {
                     // plugin instrument (the owner's D4).
                     track.devices.retain(|d| d.is_synth() || !d.is_instrument());
                     match track.devices.iter_mut().find(|d| d.is_synth()) {
-                        Some(synth) => synth.state = p.id().as_bytes().to_vec(),
-                        None => track.devices.insert(0, Device::synth(*device_id, p.id())),
+                        // Another preset is another set of values (M8 slice
+                        // B4): the name stays as the record, the values are
+                        // the sound.
+                        Some(synth) => {
+                            synth.state = p.id().as_bytes().to_vec();
+                            synth.params = synth_values(p);
+                        }
+                        None => track.devices.insert(0, synth_device(*device_id, p)),
                     }
                 }
                 None => track.devices.retain(|d| !d.is_synth()),

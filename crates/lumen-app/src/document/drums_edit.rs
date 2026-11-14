@@ -128,9 +128,14 @@ impl Document {
         let name: String = name.chars().take(64).collect();
         self.history
             .apply("Make the drum map unique", None, move |project| {
-                project.drum_maps.push(DrumMap::new(id, name, held.sounds));
+                let map = DrumMap::new(id, name, held.sounds);
+                project.drum_maps.push(map.clone());
                 if let Some(slot) = project.tracks.iter_mut().find(|t| t.id == track) {
-                    Arc::make_mut(slot).drum_map = Some(id);
+                    let track = Arc::make_mut(slot);
+                    track.drum_map = Some(id);
+                    // The copy has the same sounds, and the pads follow it in
+                    // this same step (M8 slice B5, review M1).
+                    super::sampler::follow_drum_map(track, Some(&map));
                 }
             });
         Some(id)
@@ -155,10 +160,14 @@ impl Document {
         map.id = id;
         self.history
             .apply("Import a drum map", None, move |project| {
-                project.drum_maps.push(map);
+                project.drum_maps.push(map.clone());
                 for track in &targets {
                     if let Some(slot) = project.tracks.iter_mut().find(|t| t.id == *track) {
-                        Arc::make_mut(slot).drum_map = Some(id);
+                        let track = Arc::make_mut(slot);
+                        track.drum_map = Some(id);
+                        // A sampler on the track gives its pads the imported
+                        // map's sounds, in this same step (M8 slice B5, M1).
+                        super::sampler::follow_drum_map(track, Some(&map));
                     }
                 }
             });

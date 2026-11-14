@@ -15,12 +15,14 @@
 //! Each built-in has a **personality** (owner, 2026-11-12): a name of its own,
 //! with what it is as a subtitle, and a signature colour (DESIGN.md §7k).
 
+pub mod samples;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use eframe::egui::Color32;
 use lumen_devices::analyzer;
 use lumen_devices::params::{self, ParamInfo as Info};
-use lumen_devices::{Description, eq, utility};
+use lumen_devices::{Description, eq, sampler, utility};
 use lumen_engine::{MixerHandle, Routing, Slot};
 use lumen_hosting::{FLAG_CAN_AUTOMATE, ParamInfo};
 use lumen_project::model::{Device, Id, PluginRef, Project, Track};
@@ -230,6 +232,35 @@ const IDENTITIES: &[(&str, Identity)] = &[
     ),
 ];
 
+/// The built-in **instruments** this build knows — Lumen's own devices that
+/// make sound from MIDI — with the personality each has (M8 slice B4). They
+/// are not in [`lumen_devices::EFFECTS`]: an instrument is played by the
+/// engine's MIDI path, not by the mixer's effect chain, and its card shows
+/// the same table and strip by the same code (their `Description` carries the
+/// table; neither holds anything back and neither rings on after its input).
+const INSTRUMENTS: &[(&str, Identity)] = &[
+    (
+        lumen_project::model::SYNTH,
+        Identity {
+            name: "Flare",
+            kind: "Polysynth",
+            subtitle: "Polysynth",
+            colour: theme::personality::SYNTH,
+            timing: &lumen_devices::synth::params::DESCRIPTION,
+        },
+    ),
+    (
+        sampler::NAME,
+        Identity {
+            name: "Shutter",
+            kind: "Sampler",
+            subtitle: "Sampler",
+            colour: theme::personality::SHUTTER,
+            timing: &sampler::DESCRIPTION,
+        },
+    ),
+];
+
 /// A device that exists only in tests (M8 slice B0, review H1): its latency
 /// follows one of its parameters, so a latency that is a function of the
 /// values can be followed from the project to the routing and the plan.
@@ -250,23 +281,44 @@ static TEST_TIMING: Description = Description {
     tail: |_| 0,
 };
 
-/// What `name` is as a person reads it, if it is a built-in effect this build
-/// knows.
+/// What `name` is as a person reads it, if it is a built-in device this build
+/// knows: an effect or an instrument.
 pub fn identity(name: &str) -> Option<Identity> {
     IDENTITIES
         .iter()
+        .chain(INSTRUMENTS)
         .find(|(known, _)| *known == name)
         .map(|(_, identity)| *identity)
 }
 
 /// Whether `plugin` is a built-in effect this build knows how to run.
 pub fn is_builtin_effect(plugin: &PluginRef) -> bool {
-    matches!(plugin, PluginRef::Builtin { name } if identity(name).is_some())
+    matches!(plugin, PluginRef::Builtin { name } if has_effect(name))
 }
 
-/// Whether `device` is a built-in effect this build can run.
+/// Whether `name` is a built-in effect this build can put in a chain: the
+/// devices `lumen_devices` builds, and (in tests) the timing probe.
+fn has_effect(name: &str) -> bool {
+    if lumen_devices::effect_description(name).is_some() {
+        return true;
+    }
+    #[cfg(test)]
+    if name == TEST_DEVICE {
+        return true;
+    }
+    false
+}
+
+/// Whether `device` is a built-in effect this build can run in the chain.
 pub fn is_builtin(device: &Device) -> bool {
     is_builtin_effect(&device.plugin)
+}
+
+/// Whether `device` is any built-in of Lumen's with a parameter table — an
+/// effect or the synth — so its card reads a table and shows a strip (M8
+/// slice B4).
+pub fn has_table(device: &Device) -> bool {
+    identity(name_of(device)).is_some()
 }
 
 /// The table a device of `name` declares.
@@ -321,7 +373,7 @@ pub fn routing_values(project: &Project) -> Vec<(u64, Vec<(u32, f32)>)> {
     let sounding = lumen_project::edit::freeze::played(project);
     all_tracks(&sounding)
         .flat_map(|track| track.devices.iter())
-        .filter(|d| is_builtin(d))
+        .filter(|d| is_builtin(d) && !d.is_instrument())
         .map(|d| (d.id.0, values(d)))
         .collect()
 }
@@ -344,7 +396,7 @@ pub fn latencies(project: &Project) -> BTreeMap<Id, u32> {
 fn sounding_latencies(sounding: &Project) -> BTreeMap<Id, u32> {
     all_tracks(sounding)
         .flat_map(|track| track.devices.iter())
-        .filter(|d| is_builtin(d))
+        .filter(|d| is_builtin(d) && !d.is_instrument())
         .filter_map(|d| {
             let identity = identity(name_of(d))?;
             Some((d.id, (identity.timing.latency)(&values(d))))
@@ -369,7 +421,7 @@ fn revision(project: &Project) -> u64 {
         put(&mut hash, track.id.0);
         put(&mut hash, u64::from(track.frozen.is_some()));
         for device in &track.devices {
-            if !is_builtin(device) {
+            if !has_table(device) {
                 continue;
             }
             put(&mut hash, device.id.0);
@@ -518,7 +570,7 @@ impl Builtins {
         let mut wanted: Vec<(Id, String)> = Vec::new();
         for track in all_tracks(project) {
             for device in &track.devices {
-                if is_builtin(device) {
+                if has_table(device) {
                     wanted.push((device.id, name_of(device).to_owned()));
                 }
             }
@@ -568,7 +620,7 @@ impl Builtins {
             .retain(|id, _| wanted.iter().any(|(known, _)| known == id));
         for track in all_tracks(project) {
             for device in &track.devices {
-                if !is_builtin(device) {
+                if !has_table(device) {
                     continue;
                 }
                 let fresh = describe(device);
@@ -741,8 +793,15 @@ mod tests {
         let prism = identity(utility::NAME).expect("Prism");
         assert_eq!((prism.name, prism.kind), ("Prism", "Utility"));
         assert!(identity("nothing").is_none());
-        assert!(!is_builtin(&device("synth")));
+        assert!(
+            !is_builtin(&device("synth")),
+            "the synth is an instrument, not an effect"
+        );
         assert!(is_builtin(&device(utility::NAME)));
+        // But it has a table and a personality of its own (M8 slice B4).
+        let flare = identity(lumen_project::model::SYNTH).expect("Flare");
+        assert_eq!((flare.name, flare.kind), ("Flare", "Polysynth"));
+        assert!(has_table(&device(lumen_project::model::SYNTH)));
     }
 
     #[test]
@@ -884,10 +943,27 @@ mod tests {
             assert_eq!(identity.timing.name, *name);
             if *name != TEST_DEVICE {
                 assert!(
-                    lumen_devices::effect_description(name).is_some(),
+                    lumen_devices::effect_description(name).is_some()
+                        || lumen_devices::instrument_params(name).is_some(),
                     "{name} is not a device"
                 );
             }
+        }
+        // And every built-in instrument that has a table has one too (M8
+        // slice B5); the synth's own personality arrives with its controls.
+        for (name, table) in lumen_devices::INSTRUMENTS {
+            if table.is_empty() {
+                continue;
+            }
+            let identity = identity(name).unwrap_or_else(|| panic!("{name} has no personality"));
+            let pinned: Vec<(u32, &str)> = identity
+                .timing
+                .table
+                .iter()
+                .map(|info| (info.id, info.name))
+                .collect();
+            let listed: Vec<(u32, &str)> = table.iter().map(|info| (info.id, info.name)).collect();
+            assert_eq!(pinned, listed);
         }
     }
 

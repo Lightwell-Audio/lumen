@@ -83,8 +83,8 @@ impl fmt::Display for Refusal {
 pub fn name_of(device: &Device) -> String {
     match &device.plugin {
         PluginRef::Vst3 { name, .. } => name.clone(),
-        PluginRef::Builtin { name } if name == SYNTH => "Synth".to_owned(),
-        // A built-in effect has a personality: its own name (M8 slice B0).
+        // A built-in has a personality: its own name (M8 slice B0; the
+        // synth's is Flare, B4).
         PluginRef::Builtin { name } => crate::builtin::identity(name)
             .map(|identity| identity.name.to_owned())
             .unwrap_or_else(|| name.clone()),
@@ -188,11 +188,11 @@ fn valid_vst3(class_id: &str, name: &str) -> bool {
 }
 
 /// A device as the browser makes it: the synth starts on the default
-/// preset, a plugin with no state.
+/// preset's values, a plugin with no state.
 fn fresh_device(id: Id, plugin: PluginRef) -> Device {
     match &plugin {
         PluginRef::Builtin { name } if name == SYNTH => {
-            Device::synth(id, super::instrument::DEFAULT_PRESET.id())
+            super::instrument::synth_device(id, super::instrument::DEFAULT_PRESET)
         }
         _ => Device::new(id, plugin, false, Vec::new()),
     }
@@ -237,7 +237,12 @@ impl Document {
             DeviceKind::Effect => TrackKind::Audio,
         };
         let id = self.fresh_id();
-        let device = with_values(fresh_device(id, plugin), values);
+        let mut device = with_values(fresh_device(id, plugin), values);
+        // A sampler arriving on a new track has its own sixteen pads, ready
+        // for the files they will be given (M8 slice B5).
+        if device.is_sampler() {
+            device.sampler = Some(lumen_project::model::Sampler::empty(None));
+        }
         let track = self.insert_track(kind, after, Some(device));
         Ok((track, id))
     }
@@ -267,11 +272,19 @@ impl Document {
             return Err(Refusal::BadPlugin);
         }
         let current = find(self.project(), track).ok_or(Refusal::NoTrack)?;
+        let drum_map = current.drum_map;
         let kind = plugin.kind();
         let replaced = current.devices.iter().any(|d| d.is_instrument());
         let index = place_in(current, kind, slot)?;
         let id = self.fresh_id();
-        let device = with_values(fresh_device(id, plugin), values);
+        let mut device = with_values(fresh_device(id, plugin), values);
+        // A sampler arrives with its sound: the faces it has, and a pad for
+        // every sound of the track's drum map (M8 slice B5). Its pads answer
+        // the map the track names, the sixteen of its own when it names none.
+        if device.is_sampler() {
+            let map = drum_map.and_then(|map| self.drum_map(map)).cloned();
+            device.sampler = Some(lumen_project::model::Sampler::empty(map.as_ref()));
+        }
         let name = name_of(&device);
         let label = match (kind, replaced) {
             (DeviceKind::Instrument, true) => format!("Replace instrument with {name}"),
@@ -671,7 +684,7 @@ mod tests {
     #[test]
     fn an_instrument_replaces_the_synth_in_one_step_and_undo_brings_it_back() {
         let (mut doc, midi, _) = doc();
-        assert_eq!(names(&doc, midi), ["Synth"]);
+        assert_eq!(names(&doc, midi), ["Flare"]);
         let id = doc
             .add_device(midi, plugin("Glass Pad", DeviceKind::Instrument), Slot::End)
             .unwrap();
@@ -682,7 +695,7 @@ mod tests {
             doc.undo().as_deref(),
             Some("Replace instrument with Glass Pad")
         );
-        assert_eq!(names(&doc, midi), ["Synth"]);
+        assert_eq!(names(&doc, midi), ["Flare"]);
         assert_eq!(
             track(&doc, midi).instrument().unwrap().preset(),
             Some("poly")
@@ -897,7 +910,7 @@ mod tests {
         doc.add_device(midi, plugin("Room Reverb", DeviceKind::Effect), Slot::End)
             .unwrap();
         doc.set_instrument(&[midi], Some(lumen_devices::Preset::Pad));
-        assert_eq!(names(&doc, midi), ["Synth", "Room Reverb"]);
+        assert_eq!(names(&doc, midi), ["Flare", "Room Reverb"]);
         assert_eq!(
             track(&doc, midi).instrument().unwrap().preset(),
             Some("pad")
@@ -1032,7 +1045,7 @@ mod tests {
         let steps_before = steps(&doc);
         doc.move_device(audio, a, midi, Slot::End).unwrap();
         assert_eq!(names(&doc, audio), ["B"]);
-        assert_eq!(names(&doc, midi), ["Synth", "A"]);
+        assert_eq!(names(&doc, midi), ["Flare", "A"]);
         assert_eq!(
             track(&doc, midi).devices[1],
             moved,
@@ -1086,7 +1099,7 @@ mod tests {
         effect(&mut doc, midi, "Verb");
         let before = steps(&doc);
         doc.move_device(midi, synth, midi, Slot::End).unwrap();
-        assert_eq!(names(&doc, midi), ["Synth", "Verb"]);
+        assert_eq!(names(&doc, midi), ["Flare", "Verb"]);
         assert_eq!(steps(&doc), before);
         assert_eq!(
             doc.move_device(midi, synth, audio, Slot::End),

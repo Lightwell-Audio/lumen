@@ -49,6 +49,7 @@ pub(crate) mod regions;
 pub(crate) mod revert;
 pub(crate) mod rulers;
 pub(crate) mod safe_mode;
+pub(crate) mod sampler;
 pub(crate) mod scrub;
 pub(crate) mod shortcuts;
 mod song_lanes;

@@ -591,6 +591,15 @@ pub mod personality {
     /// changes nothing of its own.
     pub const UTILITY: Color32 = Color32::from_rgb(0x9A, 0xA0, 0xAC);
 
+    /// Flare, the polysynth (M8 slice B4): a warm amber, the colour of the
+    /// flare its own picture burns.
+    pub const SYNTH: Color32 = Color32::from_rgb(0xFF, 0xC2, 0x3D);
+    /// The deep tint under Flare's picture: the screen is its own colour at
+    /// night, as every built-in's is (DESIGN.md §7k), and this one carries
+    /// the amber. The drawn face uses it; until then it is the record of the
+    /// colour the specimens gave it.
+    #[allow(dead_code)]
+    pub const SYNTH_DEEP: Color32 = Color32::from_rgb(0x11, 0x0D, 0x05);
     /// Iris, the parametric EQ (M8 slice B1): a periwinkle blue, the colour of
     /// the curve it draws (`docs/specimens/m8/chosen.html`).
     pub const EQ: Color32 = Color32::from_rgb(0x7C, 0x8C, 0xFF);
@@ -638,6 +647,16 @@ pub mod personality {
     /// (also the colour of "to silence"): content, the same in both themes.
     pub const REVERB_CORE: Color32 = Color32::from_rgb(0xFF, 0xF1, 0xD6);
     pub const REVERB_WARM: Color32 = Color32::from_rgb(0xFF, 0xC0, 0x8A);
+    /// Shutter, the sampler (M8 slice B5): the blue of a film strip held to
+    /// the light (round 2's specimen).
+    pub const SHUTTER: Color32 = Color32::from_rgb(0x6F, 0xA8, 0xFF);
+
+    /// The deep shade under Shutter's hue, for its face's screen edge (the
+    /// round-2 specimen's `hue2`). Kept beside the hue so the face that is
+    /// built next (M8, the drawn sampler) takes it from here rather than from a
+    /// literal.
+    #[allow(dead_code, reason = "read by Shutter's face when it is built")]
+    pub const SHUTTER_DEEP: Color32 = Color32::from_rgb(0x1F, 0x6F, 0xD1);
 
     /// The screen behind a built-in device's picture (DESIGN.md §7k): deep, and
     /// the same in both themes, as a clip's colour is. Its top is the device's

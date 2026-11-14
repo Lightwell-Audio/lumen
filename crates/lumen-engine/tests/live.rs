@@ -105,6 +105,7 @@ fn probe(track: u64, log: &Log) -> Option<InstrumentSpec> {
     Some(InstrumentSpec {
         kind: 1,
         preset: 0,
+        values: Vec::new(),
         instrument: Box::new(Probe {
             track,
             log: Arc::clone(log),
@@ -415,6 +416,7 @@ fn a_preview_of_a_clip_notes_key_on_the_audition_channel_leaves_the_clip_note_so
     let synth = InstrumentSpec {
         kind: 1,
         preset: Preset::Poly.number(),
+        values: Vec::new(),
         instrument: Box::new(Counted {
             synth: Synth::new(Preset::Poly),
             voices: Arc::clone(&voices),
@@ -1121,4 +1123,64 @@ fn a_live_pad_ends_on_the_channel_it_played_on_even_after_an_edit() {
         "the edit's release goes out on the channel the note played on: {notes:?}"
     );
     assert_eq!(rig.held_live(A), 0);
+}
+
+/// A knob turned while the transport is stopped reaches the instrument with
+/// the next block (M8 slice B5, review H3): a sampler pad played live at
+/// −20 dB is a tenth as loud as at unity. Only the lanes are gated on Play;
+/// the values the project holds are given in every mode.
+#[test]
+fn a_samplers_level_is_heard_on_a_note_played_while_stopped() {
+    /// One sampler, one one-shot pad of a constant sample, its Level at
+    /// `db`, listening to the test's live input.
+    fn sampler_at(db: f32) -> MidiTrack {
+        let value = lumen_devices::params::find(
+            lumen_devices::sampler::TABLE,
+            lumen_devices::sampler::LEVEL,
+        )
+        .expect("the level is in the table")
+        .normalised(db);
+        let sample = Arc::new(lumen_devices::sampler::Sample::mono(
+            48_000,
+            vec![0.5; 4_800],
+        ));
+        let sound = lumen_devices::sampler::Sound {
+            face: lumen_devices::sampler::Face::OneShot,
+            one_shot: Some(lumen_devices::sampler::Region::whole(sample, 60)),
+            ..lumen_devices::sampler::Sound::default()
+        };
+        MidiTrack::new(
+            A,
+            Target::Instrument,
+            Some(InstrumentSpec {
+                kind: lumen_devices::sampler::KIND,
+                preset: 0,
+                values: Vec::new(),
+                instrument: Box::new(lumen_devices::sampler::Sampler::new(Arc::new(sound))),
+            }),
+            Vec::new(),
+        )
+        .with_values(vec![(lumen_devices::sampler::LEVEL, value)])
+        .listening(keys_on(None))
+    }
+
+    /// The loudest frame of the last block, after the level's glide.
+    fn played(db: f32) -> f32 {
+        let log = Log::default();
+        let mut rig = rig(vec![sampler_at(db)], &log);
+        // A live note, the transport never started.
+        rig.live.send(64, KEYS, Msg::note_on(0, 60, 127));
+        let heard = rig.run(2_048, 128);
+        heard[1_792..]
+            .iter()
+            .fold(0.0f32, |most, value| most.max(value.abs()))
+    }
+
+    let unity = played(0.0);
+    let quiet = played(-20.0);
+    assert!((unity - 0.5).abs() < 1e-3, "unity is the sample: {unity}");
+    assert!(
+        (quiet / unity - 0.1).abs() < 1e-3,
+        "−20 dB is a tenth, at rest: {quiet} against {unity}"
+    );
 }

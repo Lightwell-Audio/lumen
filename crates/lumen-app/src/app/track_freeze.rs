@@ -226,6 +226,7 @@ impl App {
                 file: dir.join(format!("frozen-{}.wav", media.0)),
                 media,
                 unread: audio.unread(),
+                samples: self.lanes.samples.snapshot(),
             });
         }
         self.freezing = Some(Running {
