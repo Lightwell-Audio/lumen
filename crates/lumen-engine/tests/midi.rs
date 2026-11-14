@@ -1667,3 +1667,216 @@ fn playing_again_while_the_synth_rings_out_does_not_click() {
         );
     }
 }
+
+// Per-sound routing (M8 slice D4): a drum sound sent to another instrument
+// track plays there. The app gives the engine two track lists' worth of
+// difference — the note leaves the sending track and arrives in the
+// receiving one. An instrument carries across a new list by its track's id,
+// so the sending instrument must let the note go and the receiving one must
+// strike it, and neither may leave a note sounding.
+
+const OTHER: u64 = 2;
+
+/// A rig of two instrument tracks, each probe logging to its own log.
+fn pair_rig(timeline: Timeline, rate: u32, one: MidiTrack, two: MidiTrack, log: &Log) -> Rig {
+    let (_clips, players) = clip_player();
+    let (mut midi, player) = midi_player();
+    midi.set(vec![one, two]).ok().unwrap();
+    let output = midi.take_output().unwrap();
+    let (mut routing, source) = mixer(Layered(players, player));
+    let nodes = vec![
+        NodeSpec::unity(MASTER, Destination::Hardware(0)),
+        NodeSpec::unity(TRACK, Destination::Node(MASTER)),
+        NodeSpec::unity(OTHER, Destination::Node(MASTER)),
+    ];
+    assert!(
+        routing
+            .set(&Routing {
+                nodes,
+                cue: None,
+                measure: None,
+            })
+            .unwrap()
+    );
+    let (transport, engine) = engine(timeline, source, rate);
+    Rig {
+        transport,
+        midi,
+        routing,
+        engine,
+        log: Arc::clone(log),
+        rate,
+        output,
+        guarded: false,
+    }
+}
+
+/// The two probes a sent note goes between: the sending track's log, and the
+/// receiving track's. An instrument stays with its track across a new list,
+/// so one pair of logs serves a whole test.
+fn two_logs() -> (Log, Log) {
+    (Log::default(), Log::default())
+}
+
+fn probe_pair(
+    one: &Log,
+    two: &Log,
+    clips_one: Vec<MidiClip>,
+    clips_two: Vec<MidiClip>,
+) -> (MidiTrack, MidiTrack) {
+    (
+        MidiTrack::new(TRACK, Target::Instrument, probe(one), clips_one),
+        MidiTrack::new(OTHER, Target::Instrument, probe(two), clips_two),
+    )
+}
+
+fn sent_clip(id: u64, notes: Vec<MidiNote>) -> Vec<MidiClip> {
+    vec![clip(id, Ticks::ZERO, Ticks::quarters(16), notes)]
+}
+
+/// What one instrument was sent: note-ons and note-offs.
+fn counts(log: &Log) -> (usize, usize) {
+    let sent = log.lock().unwrap().clone();
+    (ons(&sent), offs(&sent))
+}
+
+#[test]
+fn a_note_sent_to_another_track_mid_note_is_released_here_and_heard_there() {
+    let q = Ticks::quarters;
+    let (one, two) = two_logs();
+    let held = note(q(1), q(1), 60);
+    let (track_one, track_two) = probe_pair(
+        &one,
+        &two,
+        sent_clip(1, vec![held]),
+        sent_clip(2, Vec::new()),
+    );
+    let mut rig = pair_rig(Timeline::default(), 48_000, track_one, track_two, &one);
+    rig.play();
+    // Into the middle of the note: the kit track's instrument holds it.
+    rig.run(30_000, 128);
+    assert_eq!(rig.engine.source().tracks().1.held(TRACK), 1);
+    assert_eq!(rig.engine.source().tracks().1.held(OTHER), 0);
+    assert_eq!(counts(&one), (1, 0), "one on, nothing off yet");
+
+    // The route changes: the note is no longer the sending track's, and the
+    // receiving track's instrument holds it.
+    rig.midi.collect_garbage();
+    let (track_one, track_two) = probe_pair(
+        &one,
+        &two,
+        sent_clip(1, Vec::new()),
+        sent_clip(9, vec![held]),
+    );
+    rig.midi.set(vec![track_one, track_two]).ok().unwrap();
+    rig.run(2_048, 128);
+    assert_eq!(
+        rig.engine.source().tracks().1.held(TRACK),
+        0,
+        "the sending track let go"
+    );
+    assert_eq!(
+        rig.engine.source().tracks().1.held(OTHER),
+        1,
+        "and the receiving instrument holds it"
+    );
+    assert_eq!(
+        counts(&one),
+        (1, 1),
+        "the sending instrument was told to stop"
+    );
+    assert_eq!(
+        counts(&two),
+        (1, 0),
+        "the receiving instrument was given the note"
+    );
+
+    // The note ends where it always would: the receiving instrument releases
+    // it, and the sending side is owed nothing more.
+    rig.run(30_000, 128);
+    assert_eq!(rig.engine.source().tracks().1.held(OTHER), 0);
+    assert_eq!(counts(&two), (1, 1));
+    assert_eq!(counts(&one), (1, 1), "no second note-off");
+
+    // Stopping leaves nothing sounding on either instrument.
+    rig.transport.send(Command::Stop).unwrap();
+    rig.run(1_024, 128);
+    assert_eq!(rig.engine.source().tracks().1.held(TRACK), 0);
+    assert_eq!(rig.engine.source().tracks().1.held(OTHER), 0);
+}
+
+#[test]
+fn a_route_changed_back_and_forth_never_leaves_a_hanging_note() {
+    let q = Ticks::quarters;
+    let (one, two) = two_logs();
+    let held = || vec![note(q(0), q(16), 60)];
+    let (track_one, track_two) =
+        probe_pair(&one, &two, sent_clip(1, held()), sent_clip(2, Vec::new()));
+    let mut rig = pair_rig(Timeline::default(), 48_000, track_one, track_two, &one);
+    rig.play();
+    // Six changes of route across a note held for the whole song, each one
+    // the pair of track lists the app sends.
+    for step in 0..6 {
+        rig.run(4_096, 128);
+        let (track_one, track_two) = if step % 2 == 0 {
+            probe_pair(&one, &two, sent_clip(1, Vec::new()), sent_clip(9, held()))
+        } else {
+            probe_pair(&one, &two, sent_clip(1, held()), sent_clip(2, Vec::new()))
+        };
+        rig.midi.collect_garbage();
+        rig.midi.set(vec![track_one, track_two]).ok().unwrap();
+        rig.run(2_048, 128);
+    }
+    rig.transport.send(Command::Stop).unwrap();
+    rig.run(2_048, 128);
+    // Every note-on either instrument was given has its note-off, and no
+    // track holds anything.
+    for log in [&one, &two] {
+        let (ons, offs) = counts(log);
+        assert_eq!(ons, offs, "a note was left sounding: {ons} on, {offs} off");
+    }
+    assert!(counts(&one).0 > 0 && counts(&two).0 > 0, "both played it");
+    assert_eq!(rig.engine.source().tracks().1.held(TRACK), 0);
+    assert_eq!(rig.engine.source().tracks().1.held(OTHER), 0);
+}
+
+#[test]
+fn a_route_changed_mid_note_never_touches_the_heap() {
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let q = Ticks::quarters;
+    let log = Log::default();
+    let synth = || InstrumentSpec {
+        kind: lumen_devices::synth::KIND,
+        preset: 0,
+        values: Vec::new(),
+        instrument: Box::new(lumen_devices::Synth::new(lumen_devices::Preset::Poly)),
+    };
+    let held = vec![note(q(1), q(4), 60)];
+    let one = MidiTrack::new(
+        TRACK,
+        Target::Instrument,
+        Some(synth()),
+        vec![clip(1, Ticks::ZERO, q(8), held.clone())],
+    );
+    let two = MidiTrack::new(OTHER, Target::Instrument, Some(synth()), Vec::new());
+    let mut rig = pair_rig(Timeline::default(), 48_000, one, two, &log).guarded();
+    rig.play();
+    rig.run(28_000, 100);
+    // The note moves to the other track while it sounds: the sending
+    // instrument releases it and the receiving one chases it, on the audio
+    // thread, with nothing on the heap (both runs are checked).
+    let one = MidiTrack::new(TRACK, Target::Instrument, Some(synth()), Vec::new());
+    let two = MidiTrack::new(
+        OTHER,
+        Target::Instrument,
+        Some(synth()),
+        vec![clip(9, Ticks::ZERO, q(8), held)],
+    );
+    rig.midi.collect_garbage();
+    rig.midi.set(vec![one, two]).ok().unwrap();
+    rig.run(24_000, 100);
+    rig.transport.send(Command::Stop).unwrap();
+    rig.run(8_192, 100);
+    assert_eq!(rig.engine.source().tracks().1.held(TRACK), 0);
+    assert_eq!(rig.engine.source().tracks().1.held(OTHER), 0);
+}

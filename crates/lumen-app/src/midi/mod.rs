@@ -7,6 +7,7 @@ pub(crate) mod files;
 pub(crate) mod out;
 pub(crate) mod play;
 pub(crate) mod runs;
+pub(crate) mod sends;
 
 use std::collections::HashMap;
 use std::time::Duration;

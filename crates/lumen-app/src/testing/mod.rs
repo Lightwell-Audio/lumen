@@ -21,6 +21,7 @@ pub(crate) mod coverage;
 mod devices;
 pub mod docs;
 mod drum_icons;
+mod drum_routing;
 mod drums;
 mod editor;
 mod instance;

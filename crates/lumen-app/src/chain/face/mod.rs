@@ -81,6 +81,10 @@ use super::strip::Slot;
 
 pub(crate) mod afterglow;
 pub(crate) mod eq;
+pub(crate) mod gravity;
+pub(crate) mod horizon;
+mod meter;
+mod paint;
 pub(crate) mod parallax;
 pub(crate) mod prism;
 
@@ -90,6 +94,8 @@ const DRAWINGS: &[(&str, &Drawing)] = &[
     (lumen_devices::eq::NAME, &eq::DRAWING),
     (lumen_devices::delay::NAME, &parallax::DRAWING),
     (lumen_devices::reverb::NAME, &afterglow::DRAWING),
+    (lumen_devices::dynamics::compressor::NAME, &gravity::DRAWING),
+    (lumen_devices::dynamics::limiter::NAME, &horizon::DRAWING),
 ];
 
 /// The devices whose drawings are made of picked parts (Iris's bands), beside
@@ -445,6 +451,10 @@ pub(crate) struct Scene<'a> {
     /// The tempo at the playhead, for a drawing that keeps time with the song
     /// (a delay whose time is a note).
     pub bpm: f32,
+    /// What the device's gain-reduction meter read this frame, for a drawing that
+    /// shows it (a compressor's well, a limiter's sun); `None` for a device with
+    /// no meter, and while motion is reduced (the screen is then still).
+    pub reading: Option<lumen_devices::MeterReading>,
     /// The card's own id, for a drawing that keeps a little state between
     /// frames (a reverb's swell fading with its decay).
     pub id: eframe::egui::Id,

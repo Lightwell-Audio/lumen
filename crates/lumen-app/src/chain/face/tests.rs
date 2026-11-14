@@ -15,6 +15,7 @@ fn slot(id: u32, value: f64) -> Slot {
         default: 0.0,
         steps: 0,
         read_only: false,
+        automatable: true,
         choices: Vec::new(),
         over: false,
         mapped: None,
@@ -148,6 +149,7 @@ fn a_scene_drains_colour_while_dim() {
         mist: 0.0,
         rate: 48_000,
         bpm: 120.0,
+        reading: None,
         id: eframe::egui::Id::NULL,
     };
     assert_eq!(scene(1.0).ink(Color32::RED), Color32::RED);

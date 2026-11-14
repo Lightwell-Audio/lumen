@@ -21,6 +21,10 @@ pub enum MapRefusal {
     NoTarget,
     /// The channel or controller number is not MIDI's, or the list is full.
     Full,
+    /// The control is the device's timing (a limiter's lookahead): a
+    /// controller cannot move it, because its latency and the routing's
+    /// compensation are read from the value the project holds.
+    TimingParameter,
 }
 
 impl MapRefusal {
@@ -30,8 +34,21 @@ impl MapRefusal {
             MapRefusal::NoTrack => "That track is gone",
             MapRefusal::NoTarget => "There is nothing there to map",
             MapRefusal::Full => "A project holds 1,024 controller mappings at most",
+            MapRefusal::TimingParameter => {
+                "That is the device's timing, so a controller cannot move it"
+            }
         }
     }
+}
+
+/// Whether `target` names a built-in parameter that is the device's timing,
+/// which no controller and no lane may move (M8 slice B2, review N1).
+fn is_timing_parameter(project: &lumen_project::model::Project, target: Target) -> bool {
+    let Target::Device { device, param } = target else {
+        return false;
+    };
+    crate::document::find_device(project, device)
+        .is_some_and(|(_, d)| lumen_devices::timing_parameter(crate::builtin::name_of(d), param))
 }
 
 impl Document {
@@ -66,6 +83,9 @@ impl Document {
         let held = find(self.project(), track).ok_or(MapRefusal::NoTrack)?;
         if !held.has_target(target) {
             return Err(MapRefusal::NoTarget);
+        }
+        if is_timing_parameter(self.project(), target) {
+            return Err(MapRefusal::TimingParameter);
         }
         let new = Mapping {
             channel,
@@ -116,6 +136,11 @@ impl Document {
             return false;
         };
         if !held.has_target(target) || !value.is_finite() {
+            return false;
+        }
+        // A mapping a file held for a device's timing is ignored: the parameter
+        // may not be moved by a controller (review N1).
+        if is_timing_parameter(self.project(), target) {
             return false;
         }
         let value = target.clamp(value);
@@ -174,6 +199,53 @@ mod tests {
 
     fn own(doc: &Document, track: Id, target: Target) -> f32 {
         lumen_project::automation::own_value(find(doc.project(), track).unwrap(), target)
+    }
+
+    /// N1: a device's timing cannot be mapped to a controller, and a mapping a
+    /// file holds for one does not move it.
+    #[test]
+    fn the_lookahead_cannot_be_mapped_and_a_mapping_to_it_is_ignored() {
+        use lumen_devices::dynamics::limiter;
+        let (mut doc, track) = doc();
+        let values = crate::builtin::defaults(limiter::NAME);
+        let device = doc
+            .add_device_with(
+                track,
+                lumen_project::model::PluginRef::Builtin {
+                    name: limiter::NAME.to_owned(),
+                },
+                &values,
+                crate::document::Slot::End,
+            )
+            .expect("the device");
+        let look = Target::Device {
+            device,
+            param: limiter::LOOK,
+        };
+        assert_eq!(
+            doc.set_mapping(track, look, 0, 21),
+            Err(MapRefusal::TimingParameter)
+        );
+        assert!(doc.project().mappings.is_empty());
+        // A mapping a file held for it is ignored: the control stays where it
+        // was while the controller moves.
+        let held = |doc: &Document| {
+            find(doc.project(), track)
+                .expect("the track")
+                .devices
+                .iter()
+                .find(|d| d.id == device)
+                .and_then(|d| d.params.get(&limiter::LOOK).copied())
+        };
+        let before = held(&doc);
+        assert!(!doc.move_control(track, look, 0.9));
+        assert_eq!(held(&doc), before);
+        // The ceiling is not the device's timing: it maps as anything else does.
+        let ceiling = Target::Device {
+            device,
+            param: limiter::CEILING,
+        };
+        assert!(doc.set_mapping(track, ceiling, 0, 21).is_ok());
     }
 
     #[test]

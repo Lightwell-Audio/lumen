@@ -25,6 +25,7 @@ fn slots(set: &[(u32, f32)]) -> Vec<Slot> {
                 default: f64::from(info.normalised(info.default)),
                 steps: info.steps,
                 read_only: false,
+                automatable: true,
                 choices: Vec::new(),
                 over: false,
                 mapped: None,
@@ -151,6 +152,7 @@ fn scene<'a>(
         mist: 0.0,
         rate: 48_000,
         bpm: 120.0,
+        reading: None,
         id: eframe::egui::Id::new("test card"),
     }
 }

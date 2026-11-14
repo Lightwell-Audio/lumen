@@ -52,6 +52,9 @@ pub struct Slot {
     quiet: u64,
     /// It was given a block since the last [`BuiltinPool::age`].
     asked: bool,
+    /// It was not asked for a block because its power was off: when it is
+    /// asked again it forgets what it held (M8 slice B2, review L1).
+    was_off: bool,
 }
 
 impl Slot {
@@ -61,6 +64,7 @@ impl Slot {
             effect,
             quiet: u64::MAX,
             asked: false,
+            was_off: false,
         })
     }
 
@@ -233,9 +237,18 @@ pub(super) fn run(
     // bypassed device costs nothing and its quiet counts towards a Stop.
     if dev.bypass && dev.wet.settled() && dev.wet.value() == 0.0 {
         dev.values_last.fill(f32::NAN);
+        slot.was_off = true;
         left.copy_from_slice(dry_left);
         right.copy_from_slice(dry_right);
         return;
+    }
+    // Asked again after its power was off: it starts from nothing, as a locate
+    // makes it, so nothing it held while it was bypassed (a delay line, a
+    // tail) is heard now (M8 slice B2, review L1).
+    if slot.was_off {
+        slot.effect.reset();
+        slot.was_off = false;
+        slot.quiet = u64::MAX;
     }
     // The device is on and heard on its own: it works where the audio already
     // is, which is the one path every project with a built-in takes (no copy,

@@ -103,7 +103,7 @@ fn set_piece_cost() {
     crate::fonts::install(&ctx);
     // Prism, and Iris with its analyser's mist: the dearest drawing is the one
     // the budget is read from.
-    let devices: [(&str, &[lumen_devices::params::ParamInfo], Color32); 4] = [
+    let devices: [(&str, &[lumen_devices::params::ParamInfo], Color32); 6] = [
         (
             lumen_devices::utility::NAME,
             lumen_devices::utility::TABLE,
@@ -123,6 +123,16 @@ fn set_piece_cost() {
             lumen_devices::reverb::NAME,
             lumen_devices::reverb::TABLE,
             crate::theme::personality::REVERB,
+        ),
+        (
+            lumen_devices::dynamics::compressor::NAME,
+            lumen_devices::dynamics::compressor::TABLE,
+            crate::theme::personality::GRAVITY,
+        ),
+        (
+            lumen_devices::dynamics::limiter::NAME,
+            lumen_devices::dynamics::limiter::TABLE,
+            crate::theme::personality::HORIZON,
         ),
     ];
     let mist: Vec<f32> = (0..crate::chain::face::eq::POINTS)
@@ -149,6 +159,7 @@ fn set_piece_cost() {
                 default: 0.5,
                 steps: 0,
                 read_only: false,
+                automatable: true,
                 choices: Vec::new(),
                 over: false,
                 mapped: None,
@@ -185,6 +196,10 @@ fn set_piece_cost() {
                             spectrum: (level > 0.0 && parts.is_some()).then_some(mist.as_slice()),
                             rate: 48_000,
                             bpm: 120.0,
+                            reading: (level > 0.0).then_some(lumen_devices::MeterReading {
+                                reduction_db: 4.1,
+                                input_db: -6.0,
+                            }),
                         });
                         let rect = eframe::egui::Rect::from_min_size(pos2(10.0, 10.0), size);
                         let _ = paint(ui, rect, eframe::egui::Id::new("cost"), &look);

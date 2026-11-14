@@ -244,7 +244,8 @@ fn translation_reads_the_sound_by_the_input_note() {
         Some(drums::Played {
             key: 42,
             channel: None,
-            length: None
+            length: None,
+            route: lumen_project::model::Route::Main,
         })
     );
     assert_eq!(
@@ -252,7 +253,8 @@ fn translation_reads_the_sound_by_the_input_note() {
         Some(drums::Played {
             key: 100,
             channel: None,
-            length: None
+            length: None,
+            route: lumen_project::model::Route::Main,
         })
     );
     // Swapping a sound's output note changes what plays, never the note.
