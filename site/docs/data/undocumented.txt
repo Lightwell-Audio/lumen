@@ -382,5 +382,7 @@ midi.solo_lane @m8
 devices.add_eq @m8
 devices.add_delay @m8
 devices.add_reverb @m8
+track.drum_route_all @m8
+track.drum_route_clear @m8
 devices.add_compressor @m8
 devices.add_limiter @m8

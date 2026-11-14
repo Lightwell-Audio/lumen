@@ -28,4 +28,4 @@ pub use io::{
     FORMAT_ID, LoadError, MediaLocation, SaveError, SaveOptions, SaveReport, from_bytes, load,
     locate_media, media_path_for, save, save_with_report, to_bytes, utc_timestamp, write_atomic,
 };
-pub use validate::{MAX_INPUT_CHANNELS, validate};
+pub use validate::{MAX_INPUT_CHANNELS, MOST_BUSES, validate};

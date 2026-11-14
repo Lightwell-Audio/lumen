@@ -236,6 +236,7 @@ impl App {
             detail_tab: Default::default(),
             detail: Default::default(),
             note_editor: Default::default(),
+            drum_sounding: Default::default(),
             audio_editor: Default::default(),
             follow_jobs: Default::default(),
             browser_size: 260.0,

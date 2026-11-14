@@ -202,8 +202,11 @@ pub(super) fn tracks_mut(project: &mut Project) -> impl Iterator<Item = &mut Arc
         .chain(std::iter::once(&mut project.master))
 }
 
-/// After tracks are deleted: outputs to them go back to automatic, and sends
-/// to them go (the owner's choice: a deleted return takes its sends).
+/// After tracks are deleted: outputs to them go back to automatic, sends
+/// to them go (the owner's choice: a deleted return takes its sends), and a
+/// drum sound sent to one of them plays on its own track's instrument again
+/// (M8 D4: a route names a track, and a project whose route names none is
+/// refused by `validate`).
 pub(super) fn forget_routes_to(project: &mut Project, gone: &[Id]) {
     for track in tracks_mut(project) {
         let output = matches!(track.output, Output::Track(to) if gone.contains(&to));
@@ -218,6 +221,13 @@ pub(super) fn forget_routes_to(project: &mut Project, gone: &[Id]) {
             track.automation.retain(
                 |l| !matches!(l.target, lumen_project::automation::Target::Send { to } if gone.contains(&to)),
             );
+        }
+    }
+    for map in &mut project.drum_maps {
+        for sound in &mut map.sounds {
+            if matches!(sound.route, lumen_project::model::Route::Track(to) if gone.contains(&to)) {
+                sound.route = lumen_project::model::Route::Main;
+            }
         }
     }
 }

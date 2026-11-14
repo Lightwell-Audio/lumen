@@ -12,18 +12,18 @@ use lumen_project::edit::in_window;
 use lumen_project::model::{Clip, ClipContent, ClipEvent, DrumMap, Id, Note, Project, TrackKind};
 use lumen_project::smf::{FileTrack, MidiFile};
 
-use crate::midi::runs::{Member, loop_fragment, loop_period, run_notes, runs};
+use crate::midi::runs::{Dest, Member, loop_fragment, loop_period, run_notes, runs};
 
 /// The notes and events `clips` (one track's, in start order) play, in
 /// arrangement time. `map` is the track's drum map, if any (M8 D0): what an
 /// exported part holds is what plays, the map's notes, not the ones stored.
+/// Every sound is written wherever it plays (M8 D4): a sound sent to another
+/// track is still part of this part.
 fn heard(clips: &[&Arc<Clip>], map: Option<&DrumMap>) -> (Vec<Note>, Vec<ClipEvent>) {
     let (mut notes, mut events) = (Vec::new(), Vec::new());
-    let members = clips.iter().map(|clip| Member {
-        clip,
-        length: clip.length,
-        map,
-    });
+    let members = clips
+        .iter()
+        .map(|clip| Member::own(clip, clip.length, map).sending(Dest::All));
     for run in runs(members) {
         let head = run[0].clip;
         if let Some(period) = loop_period(&run) {
@@ -80,7 +80,7 @@ fn bake_loop(
             period - phase
         }
         .min(length - elapsed);
-        let (fragment, _) = loop_fragment(clip, elapsed, span, period, map);
+        let (fragment, _) = loop_fragment(clip, elapsed, span, period, map, Dest::All);
         notes.extend(fragment.into_iter().map(|n| {
             Note::new(
                 clip.start + elapsed + n.start,
@@ -341,6 +341,41 @@ mod tests {
         );
         let at: Vec<Ticks> = part.events.iter().map(|e| e.at).collect();
         assert_eq!(at, [q(2), q(6)], "the third repeat ends before its event");
+    }
+
+    #[test]
+    fn a_sound_sent_to_another_track_stays_in_its_own_part() {
+        // Review L6: a mapped part writes every sound the map plays, wherever
+        // it is heard (`Dest::All`): a sound sent to another track is still
+        // part of the kit's file, and the track it plays on has no notes of
+        // its own to write.
+        let mut kit = midi(
+            10,
+            "Drums",
+            vec![clip(
+                1,
+                0,
+                8,
+                vec![
+                    Note::new(q(0), q(1), 36, 100),
+                    Note::new(q(2), q(1), 38, 100),
+                ],
+            )],
+        );
+        let mut map = lumen_project::drums::presets::Preset::EIGHT_OH_EIGHT.map(Id(50));
+        // The kick goes to the other track (id 11, below).
+        map.sounds[0].route = lumen_project::model::Route::Track(Id(11));
+        kit.drum_map = Some(map.id);
+        let other = midi(11, "Sub", Vec::new());
+        let mut p = project(vec![kit, other]);
+        p.drum_maps = vec![map];
+        let file = clips_file(&p, &[Id(1)]).unwrap();
+        assert_eq!(file.tracks.len(), 1, "only the part with clips is written");
+        assert_eq!(
+            starts(&file.tracks[0].notes),
+            [(q(0), q(1), 36), (q(2), q(1), 38)],
+            "the sent kick keeps its place in the kit's part"
+        );
     }
 
     #[test]

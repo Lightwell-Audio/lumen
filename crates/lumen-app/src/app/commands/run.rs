@@ -469,6 +469,8 @@ impl App {
             Command::AddReverb => self.add_builtin(lumen_devices::reverb::NAME),
             Command::AddCompressor => self.add_builtin(lumen_devices::dynamics::compressor::NAME),
             Command::AddLimiter => self.add_builtin(lumen_devices::dynamics::limiter::NAME),
+            Command::DrumRouteAll => self.route_all_sounds_command(),
+            Command::DrumRouteClear => self.clear_sound_routes_command(),
             Command::TransposeClipUp => self.transpose_clips_command(1),
             Command::TransposeClipDown => self.transpose_clips_command(-1),
             Command::AddAudioTrack => self.arrangement.add_track(doc, TrackKind::Audio),
