@@ -241,10 +241,21 @@ fn dial(
             ui.close();
         }
         ui.separator();
-        if let Some(ask) = widgets::control_items(ui, slot.mapped, slot.waiting) {
-            out.push(Output::Ask(param, ask));
-        }
+        automation_rows(ui, slot, out);
     });
+}
+
+/// The menu's last rows: Automate and Learn where the parameter allows them,
+/// and the reason where it does not (a device's timing), as the strip's menu
+/// says it.
+fn automation_rows(ui: &mut Ui, slot: &Slot, out: &mut Vec<Output>) {
+    if slot.automatable {
+        if let Some(ask) = widgets::control_items(ui, slot.mapped, slot.waiting) {
+            out.push(Output::Ask(slot.id, ask));
+        }
+    } else {
+        widgets::menu_caption(ui, "Not automatable: it is the device's timing.");
+    }
 }
 
 /// A pill: a two-state switch under an idea name ("Ø L"), lit in the device's
@@ -327,8 +338,6 @@ fn pill(
             ui.close();
         }
         ui.separator();
-        if let Some(ask) = widgets::control_items(ui, slot.mapped, slot.waiting) {
-            out.push(Output::Ask(param, ask));
-        }
+        automation_rows(ui, slot, out);
     });
 }

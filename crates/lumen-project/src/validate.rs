@@ -24,10 +24,11 @@ pub(crate) fn within(t: Ticks) -> bool {
 }
 
 /// The most audio output buses of a plugin an output track can play (the
-/// host's own limit, less the main one).
+/// host's own limit, less the main one). A drum sound's output pair is
+/// numbered the same way, so an editor offers 1 to this (M8 D4).
+pub const MOST_BUSES: u32 = 31;
 /// Device inputs a track can name: far more than any interface has.
 pub const MAX_INPUT_CHANNELS: u16 = 256;
-const MOST_BUSES: u32 = 31;
 
 /// The most parameters a plugin may list, and so the most a device holds
 /// values for (the host's own limit).
@@ -80,14 +81,16 @@ fn device_data(device: &Device) -> Result<(), String> {
         }
         PluginRef::Builtin { .. } => {
             // A built-in has no plugin state of its own: no controller state,
-            // no version, no reported latency, no sidechain. Its values are
-            // the ones its table names, saved by id (M8 slice B0), so they are
-            // held to the same bounds as a plugin's — a file that says
-            // otherwise is damaged or crafted.
+            // no version, no reported latency. Its values are the ones its
+            // table names, saved by id (M8 slice B0), so they are held to the
+            // same bounds as a plugin's — a file that says otherwise is damaged
+            // or crafted. It may be keyed from another track (Gravity, M8
+            // slice B2): which built-ins take a key is the app's to say (it
+            // refuses to set one on the rest), and the source is checked with
+            // every device's, below.
             if !device.controller_state.is_empty()
                 || !device.plugin_version.is_empty()
                 || device.reported.is_some()
-                || device.sidechain.is_some()
             {
                 return Err("a built-in device holds plugin-only data".into());
             }
@@ -697,15 +700,17 @@ mod tests {
             .unwrap_err()
             .contains("plugin-only data")
         );
-        assert!(
+        // A key from another track is a built-in's own (Gravity's), so a keyed
+        // one saves; keyed from its own track it is refused as any device is.
+        assert_eq!(
             check(&|d: &mut Device| {
                 d.sidechain = Some(crate::model::Sidechain {
                     from: Id(1),
                     tap: crate::model::SidechainTap::default(),
                 });
-            })
-            .unwrap_err()
-            .contains("plugin-only data")
+            }),
+            Ok(()),
+            "a keyed built-in is valid"
         );
     }
 

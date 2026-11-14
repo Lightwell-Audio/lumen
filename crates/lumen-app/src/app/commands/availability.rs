@@ -381,8 +381,13 @@ impl App {
             Command::AddWarpMarker | Command::ClearWarpMarkers => self.markers_unavailable(),
             Command::FixWarpHit => self.fix_warp_hit_unavailable(),
             // A built-in effect can always go somewhere: on the selected
-            // track, or on a new audio track (M8 slices B0, B1 and B3).
-            Command::AddUtility | Command::AddEq | Command::AddDelay | Command::AddReverb => Ok(()),
+            // track, or on a new audio track (M8 slices B0 to B3).
+            Command::AddUtility
+            | Command::AddEq
+            | Command::AddDelay
+            | Command::AddReverb
+            | Command::AddCompressor
+            | Command::AddLimiter => Ok(()),
             Command::TransposeClipUp | Command::TransposeClipDown => self.transpose_unavailable(),
             Command::SetTempoFromClip | Command::DoubleClipTempo | Command::HalveClipTempo => {
                 self.warped_unavailable()
@@ -536,6 +541,23 @@ impl App {
             Command::DrumMuteLane | Command::DrumSoloLane => need(
                 self.drum_picked_lane().is_some(),
                 "Pick hits in one lane of a drum clip first",
+            ),
+            // M8 D4: routing a kit's sounds needs a kit and an instrument
+            // with pairs to give them.
+            Command::DrumRouteAll => match self.drum_routing_track() {
+                None => Err("Select a MIDI track with a drum map first"),
+                Some((track, _)) if self.sound_output_pairs(track).is_empty() => {
+                    Err("The instrument on this track has no separate outputs to route sounds to")
+                }
+                Some(_) => Ok(()),
+            },
+            Command::DrumRouteClear => need(
+                self.drum_routing_track().is_some_and(|(_, map)| {
+                    self.document
+                        .drum_map(map)
+                        .is_some_and(|map| map.sounds.iter().any(|s| !s.route.is_main()))
+                }),
+                "Every sound of the selected track's drum map is on the kit track",
             ),
             Command::ClearSolos => need(
                 lumen_project::solo::any_soloed(self.document.project()),

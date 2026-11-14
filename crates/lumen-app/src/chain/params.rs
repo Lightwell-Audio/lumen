@@ -71,7 +71,9 @@ struct RowLook<'a> {
     device: &'a Device,
     p: &'a ParamInfo,
     units: &'a [UnitInfo],
-    starred_now: bool,
+    /// Whether the parameter is on the strip: `None` for a device that draws a
+    /// face and has no strip.
+    starred_now: Option<bool>,
     under_cursor: bool,
 }
 
@@ -173,6 +175,11 @@ impl App {
     }
 
     /// The knobs of `d`'s strip, and how many parameters it lists.
+    ///
+    /// A built-in whose picture is its idea draws a face instead (M8 slice
+    /// B2), and its strip is the four parameters the face draws: the compact
+    /// card folds back to exactly those, and every other parameter is in All
+    /// parameters.
     pub(super) fn strip_of(&self, d: &Device) -> (Vec<Option<Slot>>, usize) {
         let list = self.device_parameters(d);
         let count = list.iter().filter(|p| strip::offered(p)).count();
@@ -267,6 +274,7 @@ impl App {
             parts,
             picked,
             spectrum,
+            reading: self.builtin.reading(d.id),
             slots,
             table,
         })
@@ -283,6 +291,7 @@ impl App {
             default: p.default,
             steps: p.steps,
             read_only: p.read_only(),
+            automatable: p.can_automate(),
             choices: Vec::new(),
             over: false,
             mapped: None,
@@ -300,6 +309,7 @@ impl App {
             default: p.default,
             steps: p.steps,
             read_only: p.read_only(),
+            automatable: p.can_automate(),
             choices: if p.steps > 1 {
                 self.parameter_choices(d, p.id)
             } else {
@@ -312,8 +322,12 @@ impl App {
     }
 
     /// A parameter's value now: what the project holds, else what the plugin
-    /// has as far as Lumen knows, else its default.
+    /// has as far as Lumen knows, else its default. While a timing parameter is
+    /// being dragged, the value the hand is on (M8 slice B2, review N4).
     fn parameter_value(&self, d: &Device, p: &ParamInfo) -> f64 {
+        if let Some(&value) = self.chain.deferred.get(&(d.id, p.id)) {
+            return value;
+        }
         // A lane that plays drives it: the control shows the lane's value at
         // the playhead (M7 slice A4a, D5).
         if let Some(track) = self.track_of_device(d.id)
@@ -482,9 +496,8 @@ impl App {
 
     /// The ids on `device`'s strip now.
     pub(crate) fn strip_ids(&self, device: Id) -> Vec<u32> {
-        let list = crate::document::find_device(self.document.project(), device)
-            .map(|(_, d)| self.device_parameters(d))
-            .unwrap_or(&[]);
+        let found = crate::document::find_device(self.document.project(), device);
+        let list = found.map(|(_, d)| self.device_parameters(d)).unwrap_or(&[]);
         strip::resolve(list, self.chain.shown.get(&device).map(Vec::as_slice))
     }
 
@@ -518,16 +531,65 @@ impl App {
 
     /// Sets a parameter as one undo step per drag. `from` keeps the strip's
     /// drag and the panel's apart.
+    ///
+    /// A parameter that is the device's *timing* (the limiter's lookahead,
+    /// M8 slice B2) is held until its drag ends: the audio keeps the delay it
+    /// has while the knob moves, so the routing is re-timed once rather than
+    /// every frame, and its lanes are not automatable. A value typed in
+    /// applies at once.
     fn set_parameter(&mut self, device: Id, id: u32, value: f64, from: &str) {
+        let timing =
+            crate::document::find_device(self.document.project(), device).is_some_and(|(_, d)| {
+                crate::builtin::is_builtin(d)
+                    && lumen_devices::timing_parameter(crate::builtin::name_of(d), id)
+            });
+        if timing && from != "typed" {
+            self.chain.deferred.insert((device, id), value);
+            return;
+        }
+        self.commit_parameter(device, id, value, from);
+    }
+
+    /// A timing parameter's held change, applied once its drag has ended: one
+    /// undo step, and the only time the routing hears the new number.
+    fn commit_parameter(&mut self, device: Id, id: u32, value: f64, from: &str) {
+        // A value typed in (or one a preset or a panel set) is the answer now:
+        // a drag still pending for the same parameter is dropped (review N5).
+        self.chain.deferred.remove(&(device, id));
         let title = self.parameter_title(device, id);
         // Moving a control a lane drives takes the lane over (M7 slice A4a).
         self.document.override_param(device, id);
+        let merge = if from == "look" {
+            None
+        } else {
+            Some(format!("{from}:{}:{id}", device.0))
+        };
         let _ = self.document.set_device_params(
             device,
             &[(id, value)],
             &format!("Change {title}"),
-            Some(&format!("{from}:{}:{id}", device.0)),
+            merge.as_deref(),
         );
+    }
+
+    /// Applies the timing changes whose drags have ended — the pointer is up —
+    /// called once a frame before the drawing. A knob can also be moved by the
+    /// wheel or the keys, which are single clicks with no pointer down, so they
+    /// are applied at once.
+    pub(crate) fn apply_deferred(&mut self, ctx: &egui::Context) {
+        if self.chain.deferred.is_empty() || ctx.input(|i| i.pointer.any_down()) {
+            return;
+        }
+        let done: Vec<(Id, u32, f64)> = self
+            .chain
+            .deferred
+            .iter()
+            .map(|(&(device, id), &value)| (device, id, value))
+            .collect();
+        self.chain.deferred.clear();
+        for (device, id, value) in done {
+            self.commit_parameter(device, id, value, "look");
+        }
     }
 
     /// Several parameters moved together by a face (M8 slice B1): a point
@@ -624,6 +686,11 @@ impl App {
         let list: Vec<ParamInfo> = self.device_parameters(&device).to_vec();
         let units: Vec<UnitInfo> = self.device_units(&device);
         let shown = self.strip_ids(device.id);
+        // A built-in whose picture is its idea draws its own four controls
+        // (M8 slice B2): there is no strip to star a parameter onto, so the
+        // panel says where they are instead of offering a star that would do
+        // nothing.
+        let face = crate::chain::face::drawing_of(crate::builtin::name_of(&device)).is_some();
         let title = format!("{} parameters", crate::document::device_name(&device));
         let mut starred: Vec<u32> = Vec::new();
         let mut act = RowOut::default();
@@ -633,9 +700,14 @@ impl App {
                 Align2::CENTER_TOP,
             )
             .show(ctx, |ui| {
-                if panel.fill {
+                if panel.fill || face {
+                    let words = if face {
+                        "This device's controls are on its face; every parameter is here."
+                    } else {
+                        "Star a parameter to put it on the card."
+                    };
                     ui.label(
-                        egui::RichText::new("Star a parameter to put it on the card.")
+                        egui::RichText::new(words)
                             .color(theme::p().text_secondary)
                             .size(theme::size::CAPTION),
                     );
@@ -713,15 +785,21 @@ impl App {
                                 device: &device,
                                 p,
                                 units: &units,
-                                starred_now: shown.contains(&p.id),
+                                // A face keeps no strip to star a parameter onto.
+                                starred_now: (!face).then(|| shown.contains(&p.id)),
                                 under_cursor: r == panel.cursor,
                             };
                             self.parameter_row(ui, look, &mut starred, &mut act);
                         }
                     });
                 ui.add_space(theme::space::XS);
+                let footer = if face {
+                    format!("All {total} parameters")
+                } else {
+                    format!("{} of {} on the strip", shown.len(), total)
+                };
                 ui.label(
-                    egui::RichText::new(format!("{} of {} on the strip", shown.len(), total))
+                    egui::RichText::new(footer)
                         .font(FontId::monospace(theme::size::MONO_SMALL))
                         .color(theme::p().text_hint),
                 );
@@ -743,7 +821,8 @@ impl App {
         }
     }
 
-    /// One row of the panel: the star, the name and its group, the bar.
+    /// The star, the name and its group, the bar. `starred_now` is `None` for
+    /// a device that draws a face: it has no strip, so no star.
     fn parameter_row(
         &self,
         ui: &mut Ui,
@@ -768,44 +847,53 @@ impl App {
         let star =
             Rect::from_center_size(pos2(row.left() + 11.0, row.center().y), vec2(20.0, 20.0));
         let id = egui::Id::new(("parameter row", device.id.0, p.id));
-        let response = ui.interact(star, id.with("star"), Sense::click());
-        let label = if starred_now {
-            format!("Take {} off the strip", p.title)
-        } else {
-            format!("Put {} on the strip", p.title)
-        };
-        response.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, starred_now, label.clone())
-        });
-        let painter = ui.painter();
-        painter.text(
-            star.center(),
-            Align2::CENTER_CENTER,
-            if starred_now { "\u{2605}" } else { "\u{2606}" },
-            FontId::proportional(theme::size::BODY),
-            if starred_now {
-                palette.accent
-            } else {
-                palette.text_hint
-            },
-        );
-        if response.on_hover_text(label).clicked() {
-            starred.push(p.id);
+        // A face device has no strip to put a parameter on: no star at all, and
+        // the name starts where the star would have been (M8 slice B2).
+        let mut text_left = star.right() + 6.0;
+        match starred_now {
+            Some(on) => {
+                let response = ui.interact(star, id.with("star"), Sense::click());
+                let label = if on {
+                    format!("Take {} off the strip", p.title)
+                } else {
+                    format!("Put {} on the strip", p.title)
+                };
+                response.widget_info(|| {
+                    egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, label.clone())
+                });
+                let painter = ui.painter();
+                painter.text(
+                    star.center(),
+                    Align2::CENTER_CENTER,
+                    if on { "\u{2605}" } else { "\u{2606}" },
+                    FontId::proportional(theme::size::BODY),
+                    if on {
+                        palette.accent
+                    } else {
+                        palette.text_hint
+                    },
+                );
+                if response.on_hover_text(label).clicked() {
+                    starred.push(p.id);
+                }
+            }
+            None => text_left = row.left() + 4.0,
         }
         let bar = Rect::from_min_max(
             pos2(row.right() - 124.0, row.top() + 3.0),
             pos2(row.right() - 4.0, row.bottom() - 3.0),
         );
-        let name_room = bar.left() - (star.right() + 6.0) - 8.0;
+        let name_room = bar.left() - text_left - 8.0;
         let font = FontId::proportional(theme::size::CAPTION);
         let group = unit_name(units, p.unit);
+        let painter = ui.painter();
         let title = widgets::fit(painter, &p.title, font.clone(), name_room);
         let used = painter
             .layout_no_wrap(title.clone(), font.clone(), palette.text)
             .size()
             .x;
         painter.text(
-            pos2(star.right() + 6.0, row.center().y),
+            pos2(text_left, row.center().y),
             Align2::LEFT_CENTER,
             title,
             font.clone(),
@@ -815,7 +903,7 @@ impl App {
         if left > 24.0 && p.unit != 0 {
             let group = widgets::fit(painter, &group, font.clone(), left);
             painter.text(
-                pos2(star.right() + 6.0 + used + 6.0, row.center().y),
+                pos2(text_left + used + 6.0, row.center().y),
                 Align2::LEFT_CENTER,
                 group,
                 FontId::proportional(theme::size::MONO_SMALL),
@@ -850,8 +938,12 @@ impl App {
             crate::arrangement::follow::ring_with(ui, bar, palette.accent);
         }
         widgets::Menu::context(&response).show(|ui| {
-            if let Some(ask) = widgets::control_items(ui, mapped, waiting) {
-                act.ask = Some((p.id, ask));
+            if p.can_automate() {
+                if let Some(ask) = widgets::control_items(ui, mapped, waiting) {
+                    act.ask = Some((p.id, ask));
+                }
+            } else {
+                widgets::menu_caption(ui, "Not automatable: it is the device's timing.");
             }
         });
         if let Some(v) = out.value {

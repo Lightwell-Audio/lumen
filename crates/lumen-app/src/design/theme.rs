@@ -648,6 +648,44 @@ pub mod personality {
     pub const REVERB_CORE: Color32 = Color32::from_rgb(0xFF, 0xF1, 0xD6);
     pub const REVERB_WARM: Color32 = Color32::from_rgb(0xFF, 0xC0, 0x8A);
 
+    /// Gravity, the compressor (M8 slice B2): a violet, the colour of a body
+    /// pulled into a well (the owner's specimens, round 2).
+    pub const GRAVITY: Color32 = Color32::from_rgb(0xB4, 0x6C, 0xFF);
+
+    /// Horizon, the limiter (M8 slice B2): the orange of a sunset, where the
+    /// ceiling is the horizon line.
+    pub const HORIZON: Color32 = Color32::from_rgb(0xFF, 0x8A, 0x4C);
+
+    /// Gravity's screen fades to this from its violet, and the ball in its well:
+    /// white at the highlight, a pale violet round it, then the hue. Content,
+    /// not chrome: the same in both themes.
+    pub const GRAVITY_DEEP: Color32 = Color32::from_rgb(0x0B, 0x09, 0x12);
+    pub const GRAVITY_ORB: [Color32; 2] = [
+        Color32::from_rgb(0xFF, 0xFF, 0xFF),
+        Color32::from_rgb(0xE9, 0xD4, 0xFF),
+    ];
+
+    /// Horizon's sky, from the top of its screen down to the light at the
+    /// horizon, and where each colour stands (a share of the screen's height).
+    /// Content, not chrome: the same in both themes.
+    pub const HORIZON_SKY: [Color32; 4] = [
+        Color32::from_rgb(0x1A, 0x0F, 0x2A),
+        Color32::from_rgb(0x5A, 0x24, 0x40),
+        Color32::from_rgb(0xE0, 0x60, 0x3A),
+        Color32::from_rgb(0xFF, 0xB8, 0x6B),
+    ];
+    pub const HORIZON_SKY_AT: [f32; 4] = [0.0, 0.55, 0.78, 1.0];
+
+    /// The glow round Horizon's sun, the ground under the horizon, and the
+    /// silhouette of the music standing on it.
+    pub const HORIZON_GLOW: Color32 = Color32::from_rgb(0xFF, 0xD2, 0x7A);
+    pub const HORIZON_GROUND: Color32 = Color32::from_rgb(0x12, 0x0A, 0x16);
+    pub const HORIZON_LAND: Color32 = Color32::from_rgb(0x0E, 0x08, 0x10);
+
+    /// The sun at Horizon's horizon, and the line the ceiling draws: the
+    /// brightest light on that screen.
+    pub const HORIZON_LIGHT: Color32 = Color32::from_rgb(0xFF, 0xE3, 0xA8);
+
     /// The screen behind a built-in device's picture (DESIGN.md §7k): deep, and
     /// the same in both themes, as a clip's colour is. Its top is the device's
     /// signature colour, so the band stays the personality's.
@@ -807,6 +845,20 @@ pub mod personality {
         /// The live value chip while a handle is dragged: height and type size.
         pub const CHIP_HEIGHT: f32 = 18.0;
         pub const CHIP_TEXT: f32 = 9.0;
+
+        /// The sidechain chip on a screen (Gravity, "Keyed by Kick {00B7} post"):
+        /// its height, type size and inset from the screen's left and foot at each
+        /// step (whole, short, compact), its padding, the hue's share in its edge,
+        /// and how strong its words are (keyed, and not keyed).
+        pub const KEY_HEIGHT: [f32; 3] = [20.0, 18.0, 14.0];
+        pub const KEY_TEXT: [f32; 3] = [10.0, 9.0, 8.0];
+        pub const KEY_LEFT: [f32; 3] = [12.0, 8.0, 6.0];
+        pub const KEY_FOOT: [f32; 3] = [10.0, 6.0, 4.0];
+        pub const KEY_PAD: f32 = 10.0;
+        pub const KEY_RING: f32 = 0.6;
+        pub const KEY_WORDS: f32 = 0.85;
+        pub const KEY_WORDS_NONE: f32 = 0.5;
+        pub const KEY_LAMP: f32 = 2.5;
 
         /// A drawing's parts (Iris's bands): how near a press counts on a point,
         /// how far Shift slows a drag, and the numbered pill: its fill at rest

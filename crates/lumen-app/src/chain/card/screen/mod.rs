@@ -22,10 +22,12 @@ mod chrome;
 mod controls;
 mod glass;
 mod handles;
+mod key;
 mod parts;
 mod plan;
 
 use controls::live;
+pub(in crate::chain) use glass::glass as gradient_panel;
 use plan::Plan;
 
 /// What a built-in adds to its card: its hue and drawing, the values the drawing
@@ -46,6 +48,8 @@ pub(in crate::chain) struct Personal<'a> {
     pub rate: u32,
     /// The tempo at the playhead, for a drawing that keeps time with the song.
     pub bpm: f32,
+    /// What the device's gain-reduction meter read this frame, if it has one.
+    pub reading: Option<lumen_devices::MeterReading>,
 }
 
 /// A meter's peak (dB, both sides; silence is negative infinity) as a level, 0
@@ -167,6 +171,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         mist,
         rate: personal.rate,
         bpm: personal.bpm,
+        reading: personal.reading.filter(|_| !still),
         id,
     });
 
@@ -195,6 +200,12 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
             &mut pill_picked,
         );
     }
+    // The sidechain chip of an effect that is keyed (or can be): on the
+    // screen, over the handles it overlaps.
+    let key = look
+        .sidechain
+        .filter(|_| matches!(look.face, Face::Ready))
+        .map(|shown| key::chip(ui, &plan, id, shown, (hue, drawing.deep)));
     if let Some((from, words)) = &hot.chip {
         handles::chip(&painter, &plan, *from, words, hue);
     }
@@ -232,7 +243,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         picked: part_hot.picked.or(pill_picked),
         action: None,
         strip: asked,
-        sidechain: None,
+        sidechain: key,
         outputs: None,
     }
 }

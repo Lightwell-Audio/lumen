@@ -47,6 +47,8 @@ pub(in crate::chain) struct DrawingRow {
     pub(in crate::chain) parts: Option<&'static crate::chain::face::Parts>,
     pub(in crate::chain) picked: usize,
     pub(in crate::chain) spectrum: Option<Vec<f32>>,
+    /// What its gain-reduction meter read this frame, if it has one (B2).
+    pub(in crate::chain) reading: Option<lumen_devices::MeterReading>,
     pub(in crate::chain) slots: Vec<strip::Slot>,
     pub(in crate::chain) table: &'static [lumen_devices::params::ParamInfo],
 }
@@ -311,5 +313,6 @@ pub(super) fn personal_of(
         spectrum: drawing.spectrum.as_deref(),
         rate,
         bpm,
+        reading: drawing.reading,
     })
 }

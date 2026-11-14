@@ -8,6 +8,7 @@
 
 pub mod analyzer;
 pub mod delay;
+pub mod dynamics;
 pub mod effect;
 pub mod eq;
 pub mod hosted;
@@ -19,6 +20,8 @@ pub mod synth;
 pub mod utility;
 
 pub use analyzer::{Read, Reader, Tap};
+pub use dynamics::Reading as MeterReading;
+pub use dynamics::{Compressor, Limiter, Reduction};
 pub use effect::{Block, Description, Effect, Key, Stereo, Values};
 pub use eq::Eq;
 pub use hosted::{
@@ -38,7 +41,38 @@ pub static EFFECTS: &[&Description] = &[
     &eq::DESCRIPTION,
     &delay::DESCRIPTION,
     &reverb::DESCRIPTION,
+    &dynamics::compressor::DESCRIPTION,
+    &dynamics::limiter::DESCRIPTION,
 ];
+
+/// The built-in effects whose track can key them: a device with a sidechain
+/// input, which the card offers a source for (M8 slice B2). A device not named
+/// here takes no key and is handed none it reads.
+pub static SIDECHAINED: &[&str] = &[dynamics::compressor::NAME];
+
+/// Whether the built-in effect called `name` has a sidechain input.
+pub fn takes_sidechain(name: &str) -> bool {
+    SIDECHAINED.contains(&name)
+}
+
+/// The parameters of built-in devices that change the device's *timing* rather
+/// than its sound (M8 slice B2): the limiter's lookahead, which is its latency.
+///
+/// Such a parameter is **not automatable** — a lane would change the delay from
+/// block to block while the routing is compensated with the value the project
+/// holds — and the interface applies a change to it when a drag ends rather than
+/// every frame, so the routing is re-timed once. `lumen-app` reads this through
+/// `builtin::describe` (the flag that hides Automate and Learn) and through
+/// `chain::apply_strip` (the deferred edit).
+pub fn timing_parameter(name: &str, id: u32) -> bool {
+    (name, id) == (dynamics::limiter::NAME, dynamics::limiter::LOOK)
+}
+
+/// Whether `id` of the built-in effect called `name` may be driven by an
+/// automation lane.
+pub fn automatable(name: &str, id: u32) -> bool {
+    !timing_parameter(name, id)
+}
 
 /// The description of the built-in effect called `name`, or `None` when no
 /// device has that name: the one table the card, the lanes and the engine's
@@ -88,17 +122,40 @@ pub fn effect_tail_at(name: &str, values: Values<'_>, bpm: f32, rate: u32) -> Op
 /// A built-in effect by the name a project saves. The constructor allocates:
 /// call it on the interface side, then hand the device to the audio thread.
 pub fn effect(name: &str) -> Option<Box<dyn Effect>> {
-    effect_tapped(name, None)
+    effect_built(name, None).map(|(effect, _)| effect)
+}
+
+/// A built-in effect by the name a project saves, with the handle its
+/// interface reads its gain-reduction meter through (M8 slice B2): `None` for
+/// a device with no meter. The constructor allocates, and so does the handle:
+/// call it on the interface side, then hand the device to the audio thread and
+/// keep the handle.
+pub fn effect_with_meter(name: &str) -> Option<(Box<dyn Effect>, Option<Reduction>)> {
+    effect_built(name, None)
 }
 
 /// As [`effect`], with the spectrum tap a device that analyses its own audio
 /// writes into (M8 slice B1). A device that has no analyser ignores it.
 pub fn effect_tapped(name: &str, tap: Option<Tap>) -> Option<Box<dyn Effect>> {
+    effect_built(name, tap).map(|(effect, _)| effect)
+}
+
+/// A built-in effect with both of its optional handles: the spectrum tap it
+/// writes into (B1) and the gain-reduction meter it hands back (B2).
+pub fn effect_built(name: &str, tap: Option<Tap>) -> Option<(Box<dyn Effect>, Option<Reduction>)> {
     match name {
-        utility::NAME => Some(Box::new(Utility::new())),
-        eq::NAME => Some(Box::new(Eq::with_tap(tap))),
-        delay::NAME => Some(Box::new(delay::Delay::new())),
-        reverb::NAME => Some(Box::new(reverb::Reverb::new())),
+        utility::NAME => Some((Box::new(Utility::new()), None)),
+        eq::NAME => Some((Box::new(Eq::with_tap(tap)), None)),
+        delay::NAME => Some((Box::new(delay::Delay::new()), None)),
+        reverb::NAME => Some((Box::new(reverb::Reverb::new()), None)),
+        dynamics::compressor::NAME => {
+            let (device, meter) = Compressor::build();
+            Some((Box::new(device), Some(meter)))
+        }
+        dynamics::limiter::NAME => {
+            let (device, meter) = Limiter::build();
+            Some((Box::new(device), Some(meter)))
+        }
         _ => None,
     }
 }
@@ -114,12 +171,18 @@ mod tests {
 
     #[test]
     fn every_built_in_effect_is_in_both_tables() {
-        assert_eq!(EFFECTS.len(), 4, "Prism, Iris, Parallax and Afterglow");
+        assert_eq!(
+            EFFECTS.len(),
+            6,
+            "Prism, Iris, Parallax, Afterglow, Gravity and Horizon"
+        );
         for (name, watched) in [
             (utility::NAME, false),
             (eq::NAME, true),
             (delay::NAME, false),
             (reverb::NAME, false),
+            (dynamics::compressor::NAME, false),
+            (dynamics::limiter::NAME, false),
         ] {
             assert!(effect_params(name).is_some(), "{name} has a table");
             assert!(effect(name).is_some(), "{name} is built");
@@ -127,10 +190,33 @@ mod tests {
                 effect_tapped(name, None).is_some(),
                 "{name} builds untapped"
             );
+            assert!(
+                effect_with_meter(name).is_some(),
+                "{name} is built with its meter"
+            );
             assert_eq!(watches_spectrum(name), watched, "{name}");
         }
         assert!(effect_params("nothing").is_none());
         assert!(effect("nothing").is_none());
+    }
+
+    /// A device with a meter hands the interface the handle it reads, and the
+    /// handle is written by the audio side only when the device runs.
+    #[test]
+    fn a_device_with_a_meter_hands_out_its_handle() {
+        for name in [dynamics::compressor::NAME, dynamics::limiter::NAME] {
+            let (effect, meter) = effect_with_meter(name).expect("a device");
+            let meter = meter.expect("a meter");
+            assert_eq!(meter.take().reduction_db, 0.0);
+            drop(effect);
+        }
+        // Only the compressor takes a key.
+        assert!(takes_sidechain(dynamics::compressor::NAME));
+        assert!(!takes_sidechain(dynamics::limiter::NAME));
+        assert!(!takes_sidechain(utility::NAME));
+        for name in SIDECHAINED {
+            assert!(EFFECTS.iter().any(|d| d.name == *name), "{name} exists");
+        }
     }
 
     #[test]

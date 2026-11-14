@@ -123,6 +123,7 @@ impl App {
         self.arrangement = arrangement::Arrangement::default();
         self.chain.folded.clear();
         self.chain.shown.clear();
+        self.chain.deferred.clear();
         self.chain.panel = None;
         self.chain.selected = None;
         self.synced = None;

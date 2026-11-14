@@ -26,6 +26,7 @@ fn slots(set: &[(u32, f32)]) -> Vec<Slot> {
                 default: f64::from(info.default),
                 steps: info.steps,
                 read_only: false,
+                automatable: true,
                 choices: Vec::new(),
                 over: false,
                 mapped: None,
