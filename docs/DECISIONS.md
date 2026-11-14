@@ -14186,6 +14186,778 @@ splits `behind` into whole frames and a fraction before touching the write index
 `a_read_does_not_depend_on_where_the_write_point_is`). The reverb's render now equals
 playback bit for bit, and Afterglow's golden pins moved by a millionth with it.
 
+## ADR-0149 — Per-sound routing: a sound's track, its pair, and another track (M8 slice D4)
+
+**Status.** Proposed (M8 D4, `docs/milestones/M8.md` §5 "D4 — Per-sound
+routing"; the owner's RT A, 2026-11-12; the parent's scope change of
+2026-11-13 shrank the slice to its model and engine half — the map editor's
+Output column, the header's sound icons and the shots are the UI agent's on
+this branch).
+
+**Context.** §6.4 asks that a drum sound can play "the instrument or a
+specific instrument output", and RT A adds a sound sent to another
+instrument track. D0 stores the choice (`Sound.route`), and nothing honoured
+it: every sound played on the kit track's own instrument. M6 already makes an
+audio track for each output pair of a hosted instrument
+(`Track.plugin_output`, `document::outputs`), and the engine already hands a
+plugin's aux outputs to those tracks (`midi::play::plugin_outputs`); what was
+missing was the route from a *sound* to that track, and from a sound to
+*another* instrument track.
+
+**Choices.**
+
+1. **The route is the model's, the track's, and the player's.**
+   `Sound.route` (`Route::Main`, `Route::Output(n)`, `Route::Track(id)`) is
+   the one place a sound's destination lives; nothing is derived or copied
+   into a track. `drums::Played` now carries the route beside the key, the
+   channel and the length, so the translation says where a note is heard as
+   well as what it is.
+2. **`Route::Output(n)` numbers the instrument's own outputs, 1 and up.** For
+   a hosted instrument that is the audio bus after the main one, which is
+   also the pair number the host uses while every earlier bus is on — and
+   `output_mask` turns on every playable aux bus, so the two agree in
+   practice. For the built-in sampler it is a pad's output pair (B5).
+   Picking a pair for a sound **makes or reuses** the audio track that plays
+   it: the track M6's outputs row would make, named after the sound, in the
+   kit track's colour and group, right under the kit track and among the
+   other pairs in bus order. Two sounds on one pair share its track: for a
+   hosted instrument the plugin decides which sound lands where (RT A), so
+   one output is one track. A pair needs an instrument that can take one
+   now — a hosted plugin (review M1), whose buses are the pairs; which buses
+   it offers is the interface's to know (`App::sound_output_pairs`), and the
+   edit checks the kind and `validate`'s range. A built-in instrument takes
+   none until B5's sampler adds its half. **Only a pair this map's sounds
+   played on before** and no longer do loses its track, and only when the
+   track is empty (review H1): an output the Outputs card turned on, or one a
+   renamed track plays, is the card's and the person's, not a sound's route's
+   to take away.
+3. **A sound sent to another track keeps its notes on the kit track's clips
+   and changes only who plays them.** `midi::sends` reads, once per track
+   list, which tracks' sounds go where; `midi::play` then reads a sending
+   track's clips **twice** — once for itself, leaving out the sounds it
+   sends, and once for each receiving track, keeping only those — and the
+   receiving track's instrument plays them. `midi::runs::Dest` is which
+   instrument a read is for, and the run cache is keyed by the clip *and* the
+   destination, so a 100,000-note clip is translated once per instrument it
+   is heard on and never confused between them. A note is read for exactly
+   one instrument, so nothing plays twice — **and nothing is silent** (review
+   M2): a route whose target can no longer take the notes (the track is gone,
+   its instrument was removed, or it plays a hardware port) is not a send,
+   and `midi::sends::playable_map` reads the sending track's map with that
+   sound back on Main, so it plays on the kit's own instrument again. The
+   copy is made once per track list, only when such a route exists.
+4. **The engine needed no new path.** A send is the same note in another
+   track's list: when the route changes, the note leaves one track's clips
+   and arrives in the other's, and the tracker's existing `hold::sync` — which
+   runs when a new list arrives while playing — releases what the old list
+   held and chases what the new one has. The note-off goes to the instrument
+   that held it, the note-on to the receiving instrument, and neither is left
+   hanging (the engine tests prove it, the allocation guard included). An
+   instrument carries across a list change by its track's id, so both stay the
+   same instruments they were.
+5. **Mute and solo follow the track the sound is heard on.** A send is read
+   only when the *receiving* track's **sends** are heard
+   (`solo::hearing().sends`, review M3 — `.output` would drop the notes of a
+   track that feeds a soloed return, leaving the return with nothing to
+   take), so muting or soloing that track silences it; the sending track's own
+   mute does **not** silence a sent sound, because it plays on the
+   destination's bus (its own list keeps the sounds it plays, and the mixer
+   silences those). Soloing the kit silences a sound sent away, since the
+   destination is not on the kit's path.
+6. **One undo step per edit, however much it makes**
+   (`document/drums_route.rs`): `route_drum_sound` (one sound),
+   `route_all_drum_sounds` ("Route all sounds to tracks": the first sound pair
+   1, the next pair 2, and so on for the pairs the instrument has, the rest on
+   the kit track, and with `group` the made tracks in a new group named after
+   the map) and `clear_drum_routes` (every sound back to the kit track).
+   A pair no sound names any more loses its track **when that track is
+   empty** (`outputs::is_unused`); one holding clips, devices or sends stays,
+   as the outputs menu's Keep does, so nothing of anyone's work is dropped. A
+   group that held only the tracks a routing edit takes away goes with them.
+   The group holds the made tracks, not the kit track: the kit's own output
+   stays where it was, which is where a multi-output instrument's own bus
+   belongs. **Deleting a track a sound is sent to** sends that sound back to
+   its kit track in the same undo step (`forget_routes_to`), because
+   `validate` refuses a route that names no track and a save must never be
+   refused for a deletion's doing.
+7. **Routing is for the clips a sound plays; live pads and audition keep
+   the kit's instrument.** A pad struck on a mapped track, or a lane's name
+   auditioned, still plays the track's own instrument, because live input is
+   translated by the engine from a fixed table and has no cross-track path
+   (`KNOWN_ISSUES`). A sent sound also does not choke its kit's other sounds:
+   choke lives in the sending track's `DrumKit` and the notes now play on
+   another track's. Both are stated as limits, not stubs.
+8. **The seam B5 plugs into.** `midi::play::pad_outputs(project, track)` is
+   the table a built-in instrument with several outputs is built with: 128
+   bytes, the pair each of the track's sounds goes to (0 for the track's
+   own). The sampler reads `pair_of(input)` when it is constructed, on the UI
+   side, and sends that pad's voice to the pair. Nothing else changes for B5:
+   the tracks a pair plays on are made by the same `Document` edit, since a
+   sound's route is the track's reason to exist. The sampler is not built
+   here, and this slice makes no output track for a built-in instrument
+   (`Document::output_device` answers only for a hosted plugin): a built-in
+   has no `plugin_output` track until B5 adds its side.
+9. **The interface's data, not its drawing.** `app::drum_routing` is what the
+   UI agent calls, and nothing in it draws:
+   - `App::sound_output_choices(track) -> Vec<SoundOutput>` — Main, then each
+     pair the instrument has (`Pair { bus, name, told }`, `told` false for a
+     hosted plugin: "set in the plugin"), then the project's other instrument
+     tracks. `sound_output_pairs`, `sound_output_pair_name` and
+     `sound_output_pair(map, input)` are the smaller readings.
+   - `App::sounds_on_track(track) -> Vec<SoundOnTrack>` — the sounds heard on
+     a track that another track's clips hold (a pair's track, or a track a
+     sound is sent to), with the map, the input note, the name, the icon and
+     `sounding` for the header's lit icon; `App::sounds_sounding(track)` is the
+     kit track's own sounding input notes. `made_for_sounds(project, track)`
+     says whether a track is one made for sounds (the header shows the icon in
+     place of the colour chip). Both answer stopped by nothing lighting and
+     playing by the hit under the playhead (review L2, one rule), and a frame
+     reads each kit's notes **once for every header that asks** (review M4:
+     `Sounding` in the same module, kept on the `App` and keyed by the
+     document's revision and the position, as D2's `lanes_for` is). A track
+     that plays none of a kit's sounds reads nothing.
+   - The choices offer the tracks the edit takes, by the same predicate
+     (`midi::sends::can_send_to`, review L1): a MIDI track that plays its
+     instrument, never one sent to a hardware port, never the kit itself.
+   - `Document::sound_playing_track(track, map, input)` — where a sound is
+     heard now; `Document::sound_output_track(track, bus)` — the pair's track.
+   The panel's per-sound edit is `Document::route_drum_sound`, and the two
+   bulk commands are `track.drum_route_all` and `track.drum_route_clear`.
+   The UI agent adds the Output column, the header icons, the menu rows and
+   the shots.
+10. **Two commands, at the end of `Command` and `ALL`, tagged `@m8`**:
+    `track.drum_route_all` ("Route all sounds to tracks", grouping the made
+    tracks) and `track.drum_route_clear` ("Send the sounds back to the kit
+    track"). Each acts on the first selected MIDI track that reads a drum map;
+    `availability` refuses with a sentence that says what is missing (no map;
+    an instrument with no pairs to give). No default keys. The palette has
+    them; the track header's **Drum map** submenu gets its rows with the UI
+    agent's work, and the toast reports how many tracks were made and how many
+    sounds had to stay on the kit track. Its description says it groups the
+    tracks it makes, not the kit (review L3), and the two outcomes have two
+    sentences (review L4): no pairs at all says why, and a run that changes
+    nothing says "Every sound already plays where it is routed.".
+
+**Consequences.** No format change: `Sound.route` and `Track.plugin_output`
+are already in format v35 and v21, and nothing here persists a new field.
+`midi::runs` gains `Dest` (and `Member::own` / `Member::sending`), the cache's
+keys gain the destination, and `Member` gains the field; the file is split into
+`runs/{voice,notes,cache,sounding}.rs` under `runs/mod.rs` so no file passes
+800 lines (review L5); `midi::play` gains `sends`, `translated`, `PadOutputs`
+and `pad_outputs`; `midi::sends` is new (the table, the one rule, and
+`playable_map`); `document/drums_route.rs` and `app/drum_routing.rs` are new;
+`testing/drum_routing.rs` is the E2E's and the UI agent's seam. The bus limit
+is `lumen_project::MOST_BUSES`, the one `validate` applies (review L7). D1's
+`Document::set_sound_route` stays test-only (`#[cfg(test)]`) and is the bare
+model edit again, for a test that works on a map rather than on a track; every
+real route edit goes through `route_drum_sound` (which checks the route and
+makes the pair's track). Tests: the engine's `a_note_sent_to_another_track_mid_note_is_released_here_and_heard_there`,
+`a_route_changed_back_and_forth_never_leaves_a_hanging_note` and
+`a_route_changed_mid_note_never_touches_the_heap` (the allocation guard, two
+synths, a route change mid-note); `midi::sends`'s table and the map a broken
+route reads through; `midi::play`'s translation (what plays where, the map's
+key, channel and length going with the notes, mute, solo in both directions
+and through a soloed return, a target that lost its instrument or plays a
+port, no note doubled or lost in a move, the pad pairs); `midi::export`'s sent
+sound staying in its own part (review L6); `document::drums_route`'s eleven
+tests (each edit and its undo, reuse of a pair's track, a track with work
+kept, an Outputs card's track and a renamed one surviving a route edit, a
+built-in instrument given no pair and no track, refusals taking no step,
+grouping at the deepest level, a deleted target sending the sound home, and
+`validate` after each); `app::drum_routing`'s seven (the choices and what the
+edit refuses, a hit under the playhead lighting on a pair's track and on a
+sent one, the two hundred headers reading one kit once, a card's track not
+being made for sounds); and E2E
+`crates/lumen-app/tests/e2e/drum_routing.rs` (a sound sent to another track is
+heard there and nowhere else, a route change mid-note hangs nothing, the
+palette's Route all makes a track per pair and groups them with the real
+multi-output test instrument heard on each, sending them back takes the tracks
+away, and a built-in instrument says why it has no pairs). MT-DRUM-3 is the
+owner's twin on the Focusrite. Not run here: the WSL performance gate, the
+macOS cross-target clippy, and any screenshot (the UI agent takes them).
+Known limits recorded in `docs/KNOWN_ISSUES.md`: live pads and audition play
+the kit's instrument whatever a sound's route, and a sent sound is not choked.
+
+**The UI agent's list** (so nothing is built twice): the Output column in
+`app/drum_map_window/table.rs` (a dropdown of `App::sound_output_choices`, the
+per-sound edit through `Document::route_drum_sound`, and "set in the plugin"
+for a hosted pair), the sound icon in the header of a track
+`made_for_sounds` names (in place of the colour chip, lit from
+`sounds_on_track(...).sounding`), the two menu rows on a MIDI track's **Drum
+map** submenu, and the shots of the column and the header in both themes at
+100, 150 and 200%.
+
+## ADR-0151 — Gravity and Horizon, the compressor and the limiter (M8 slice B2)
+
+**Status.** Proposed (M8 slice B2, DSP and faces; the parent assigns the number). Brief:
+`docs/milestones/M8.md` §5 "B2 — Compressor and limiter"; decisions E1, E2, E6
+and E7 in §6; risks 1 and 6 in §8. Contract: ADR-0145 (the built-in effect path,
+B0) and ADR-0041 (sidechains and delay compensation).
+
+**Context.** B0 shipped one in-process effect (Prism, the utility) and the path
+every built-in plugs into. B2 is the first slice to need more of that contract
+than the utility did: the optional sidechain `Key` (a compressor keyed from
+another track), a latency that follows a setting (the limiter's lookahead), a
+**tail** (the limiter's line draining after a Stop), and a meter the interface
+reads while the device runs (the gain reduction its face draws). M8's risk 1
+said the trait would be tried against the compressor's sidechain and the
+limiter's latency on paper in B0's ADR; this slice is that trial.
+
+**Decisions.**
+
+1. **DSP is Lumen's own (E7).** No new dependency. Gravity is a feed-forward
+   compressor with the textbook soft-knee gain computer; Horizon is a look-ahead
+   limiter with a sliding minimum, and its true-peak detector is an eight-phase
+   windowed sinc written out in `dynamics/limiter.rs` (the design the loudness
+   meter's true peak uses, with eight phases rather than four so a tone near the
+   top of the band is not a fifth of a decibel short).
+2. **The trait was not changed.** Both devices fit `Effect` as B0 left it:
+   `process(&Block, Stereo, Option<Key>)`, `latency`, `tail`, `reset`. The
+   compressor reads the key, the limiter reports its lookahead, and neither
+   needed a new member or a change to the pool: B0's contract held for the two
+   cases it was designed for.
+3. **Latency and tail are pure functions of the values** (ADR-0145 review H1),
+   counted **at 48 kHz**: `Description::latency` and `tail` take values alone,
+   with no rate to ask, so they are frames at `dynamics::REFERENCE_RATE`.
+   Horizon therefore delays by exactly that many frames at any rate, so
+   compensation is exact at every rate; only the millisecond a round number of
+   frames buys differs away from 48 kHz (a lookahead of "1.5" is 1.5 ms at
+   48 kHz, 0.75 ms at 96 kHz). The alternative — a rate-scaled lookahead with a
+   rate-free latency — would be *misaligned* at any other rate, which is worse
+   than a label that is exact at the reference rate. Recorded in KNOWN_ISSUES.
+4. **The lookahead is read unglided, and not from a lane.** Every other
+   parameter glides 20 ms as B0's `params::values` makes them; the lookahead is
+   the device's *timing*, so it is read from the value the project holds alone
+   (`dynamics::held_at_rest`, the first point of the first queue, with no lane on
+   top); it is **not automatable** (review M1) — a lane would change the delay
+   from block to block while the routing is compensated with the held value, and
+   the app hides Automate and Learn for it (`lumen_devices::automatable`). A
+   change is a new block's timing, and the engine's own latency-change behaviour
+   (a skip or repeat of the difference, ADR-0041) covers the switch. The
+   interface applies a drag's worth of change once, when the drag ends (review
+   M2), so the routing is re-timed once and not every frame.
+5. **The gain reduction is published through a lock-free handle**
+   (`dynamics::Reduction`): two atomics in an `Arc`, the audio side recording
+   the block's most reduction and its input level, the interface taking it once
+   a frame. It follows the mixer's meter bank exactly (a `fetch_max` the reader
+   clears), allocates once when the device is built, and is handed out by a new
+   `lumen_devices::effect_with_meter`; `effect()` remains, so B0's callers are
+   untouched. `Builtins` keeps the handles by device id, reads them once a frame
+   (`Builtins::read_meters`, called by the Devices tab before any card is
+   drawn), and a test or a screenshot can set one by hand
+   (`testing::pretend_reduction`).
+6. **A device says whether it takes a key** through
+   `lumen_devices::takes_sidechain(name)` and a short `SIDECHAINED` list rather
+   than a new field on `Description`: a new field would leave every other device
+   slice's `Description` literal incomplete at merge, and the list is one line
+   for the next device with a key. The card asks it through
+   `builtin::takes_sidechain`, and the sidechain row, its light, the tap
+   chooser and every refusal are the plugin card's own code (`chain/sidechain`
+   was not forked); `Document::set_sidechain` now accepts a built-in that takes
+   a key, and the routing already read a device's `sidechain` whatever kind of
+   device it is.
+7. **The tables** (E2): stable `u32` ids pinned by a test, the four the face
+   draws first (so the compact card folds back to exactly them), then the rest.
+   Gravity: Pull (threshold), Ratio, Attack, Release, Knee, Makeup (Off/Auto),
+   Mix, Detect (Peak/RMS), Key HPF, Listen. Horizon: Ceiling, Release, Look,
+   Detect (Sample/True). Names are short enough for a card cell at 100 % ("Pull",
+   "Look", "Detect"); the full meaning is in the tooltips, All parameters and
+   the documentation.
+8. **The static curve is a pure function** (`compressor::curve_db`): the
+   standard soft-knee form, whose two halves join the straight sections at both
+   knee edges with the same value and slope (tested). Automatic make-up is
+   `-threshold * (1 - 1/ratio)`, clamped to 24 dB: what the loud end lost, so the
+   loudness of a mix does not change when the ratio does.
+9. **The limiter cannot overshoot by construction.** The signal is delayed by
+   the lookahead; each frame's requirement is `ceiling / level`, and the gain
+   applied to the delayed sample is the *sliding minimum* over the window that
+   ends at it (a monotonic deque, O(1) a frame), smoothed upwards by the release
+   and never above that minimum. Since the window holds the delayed sample's own
+   requirement, no sample leaves above the ceiling. The cost is the limiter's
+   usual pre-ducking (the gain is down for the length of the lookahead around a
+   peak), which is what a look-ahead limiter is.
+10. **No format change.** A parameter the project does not name is its table's
+    default (B0, item 6), and a built-in's sidechain reuses `Device.sidechain`,
+    which plugins already save. `history::unchanged` is untouched.
+11. **Commands**: `devices.add_compressor` ("Add Gravity (compressor)") and
+    `devices.add_limiter` ("Add Horizon (limiter)"), at the end of `Command` and
+    `ALL`, with arms in `availability` and `run`, palette entries, and rows in
+    the track's menu and the device tray's, as B0's `devices.add_utility`. One
+    undo step each, with every value written (`Document::add_device_with`). Both
+    are tagged `@m8` in `site/docs/data/undocumented.txt` (ADR-0133).
+
+**The faces (the owner's round 2).** *Built-ins are set pieces: round 2 (owner, 2026-11-12); chosen.html's device
+section is superseded.* The first drawings this slice shipped (a transfer curve and a horizon in the strip's
+own row) were placeholders and the owner did not approve them; they are gone (`chain/faces/` is deleted).
+Gravity and Horizon are now drawings on the set-piece card (`chain/face/gravity.rs`, `chain/face/horizon.rs`,
+two lines in `face::DRAWINGS`, DESIGN.md §7k), built to the round-2 specimen as measured
+(`docs/specimens/m8/round2-{dark,light}.png`):
+
+12. **Gravity** (380 x 330, violet): a warped grid and a lit ball in a well. The gain reduction (the meter's
+    reading, taken once a frame by `Builtins::read_meters`, passed as `Scene.reading`) sinks the ball and deepens
+    the well; the hero "−4.1 / dB pulled" is the number, the most taken since the last frame falling back
+    (`face/meter.rs`). The dashed ring is **Pull** and its words are the real threshold; a bigger **Ratio** is a
+    heavier ball and a deeper well. The grid is one feathered mesh (13 rows, 19 columns) built into a mesh
+    sized once, the dashed ring is drawn from a 96-step table on the stack, so a frame allocates no vectors of
+    points (`face/paint.rs` holds the helpers both drawings share).
+13. **Horizon** (**300** x 330, sunset): the ceiling line, the land of what was heard, the sun glowing where
+    peaks press the line, white dots at the pressed maxima. The land is a 137-column history kept between
+    frames in `ctx.data` (one column every 33 ms); at rest it is the specimen's decorative silhouette.
+14. **The sidechain chip** ("Keyed by Kick · post") is the card's own sidechain chooser drawn as the screen's
+    chip (`card/screen/key.rs`): the same id, accessible name (`sidechain::spoken`), tooltip (`sidechain::tip`),
+    menu and command (`devices.sidechain`) as the plugin card's row, so there is one way to set a key. With no
+    source it is a quiet "Sidechain · none" chip (a **deviation from the specimen**, which only shows the keyed
+    state: without it a compressor's key could not be reached from its card). On the compact band it drops
+    "Keyed by" so the picture stays in view.
+15. **What a drag does.** Gravity has two handles, registered ring first and ball second (the later wins a
+    hit): the **ring's edge and field** set Pull (the specimen's ring drag), and the **ball** sets **Ratio**
+    (my call: the brief left the orb open; the ball is Ratio's picture, "how heavy", and a drag down is heavier).
+    Horizon's **ceiling line** sets Ceiling. Each is the dial's edit through `Output::Set`, one undo step per
+    drag, with a chip ("pull −18 dB", "ratio 4.0 : 1", "ceiling −0.3 dB"), Shift for fine, double-click reset,
+    arrow keys, and a Tab stop.
+16. **A face dial's menu follows the strip's rule**: a parameter that is a device's timing (Horizon's Look)
+    gets "Not automatable: it is the device's timing." and no Automate or Learn. The framework's dial menu
+    offered both on every dial; that only showed once a timing parameter was on a face.
+17. **A keyed built-in can be saved.** `validate` refused any built-in with a sidechain ("holds plugin-only
+    data"), a rule written when no built-in took a key: a Gravity keyed from another track could not be
+    saved. It now allows a built-in's sidechain (the shape is checked with every device's: the source must
+    not be the device's own track; the app already refuses to set a key on a device that takes none). Test:
+    `validate::tests::a_built_in_may_hold_its_parameter_values_and_nothing_else`. No format change.
+18. **Reduce motion** gives no reading to the scene, so the faces are still and keep no state; the repaint is
+    asked for only while audio flows (`motion::METER_FRAME`).
+
+**Differences from round 2** (the shots in `target/shots-dyn`, compared by eye against `round2-dark.png` and
+`round2-light.png`): Horizon is 300 wide where the brief said 380 (the specimen measures 300); Gravity's dial
+centres are mine (44 + 60 n pt), kept clear of the "All 10" link; the "Sidechain · none" chip (item 14);
+Horizon's resting land is the specimen's decorative silhouette; Gravity's ball is dragged for Ratio (item 15).
+
+**Not built, and why.** Factory presets and browser rows (B6). Not run here: the WSL performance gate and the
+macOS cross-target clippy; the real-time test of Reduce motion in E2E (process-wide setting; covered by the unit
+tests instead).
+
+**Measured.** `cargo bench -p lumen-engine --bench clips` (this machine,
+release, 128-frame blocks at 48 kHz; the budget is 2.67 ms): the same 64-track
+mix measured 29.9 µs without a built-in in ADR-0145 and 87 to 118 µs with Prism;
+`engine_gravity_64` (64 compressors) 361 to 395 µs and `engine_horizon_64` (64
+limiters in true-peak mode) 663 to 706 µs across runs — about 5.6 µs and 10.4 µs
+an instance a block, so 13.5 % and 24.8 % of the block for 64 of them. The
+compressor's per-frame cost is the gain computer and its ballistics (a dB-domain
+`powf` a frame); the limiter's is the eight-phase true-peak interpolation (104
+multiply-adds a side a frame) — sample-peak mode is much cheaper. The numbers
+are noisy on this machine (a shared runner): the ranges are the fastest and the
+median of three runs.
+
+**Tests.** `lumen-devices/tests/dynamics.rs` (29): the static curve end to end
+within a tenth of a decibel at seven levels across the knee, at four ratios and
+two knees; automatic make-up keeping the loud end where it was; the
+gain-reduction meter reading what was taken away; a key ducking the input,
+listen playing the filtered key, the key's high-pass, and a key shorter than the
+block read only as far as it goes; block-size invariance at 64, 97, 128, 512 and
+1024 frames with **every automatable parameter of the table** moved (and a key,
+so the filter's corner is under it); allocation guards over a block with
+automation and a key and over `reset()`; the limiter's ceiling on sines, noise, a
+step and a burst at three ceilings, three releases and three lookaheads (nought
+included), from each signal's onset; the lookahead of nought delaying by
+nothing; true-peak mode under the ceiling by a long reference interpolation; the
+limiter's meter; its block-size invariance; a new lookahead delayed by exactly
+its frames, and letting go of what the line held when it changes; a lane on the
+lookahead ignored; the ceiling lowered while a peak is in the window; the mix at
+0, 50 and 100 %; RMS detection against the curve; the attack and release time
+constants; offline against playback bit for bit; latency at 44.1, 48 and 96 kHz;
+the table pinned by id, name and default; the latency and the tail equal to the
+description's at four settings; and a golden render of each, pinned by twenty
+samples, the sum of the magnitudes and the sum of the squares within a millionth
+(not by bits: see `9574d13b` on B0, which this branch cherry-picked).
+`lumen-engine/tests/builtins.rs` gains four: a key from another track, whose own
+track is held back 240 frames, ducks the burst it keys on the sample it arrives
+(with the compensation in the compiled plan); an impulse through a limiter lands
+on the same sample as a dry track beside it; a bypassed limiter plays nothing of
+what it held; and a block names the value the project holds before a lane's
+points (`held_at_rest`'s order). `lumen-app`: the limiter's lookahead is its
+latency in the *running* app and follows a setting, a compressor hands its meter
+to the interface while Prism has none, and a controller cannot be mapped to a
+device's timing (nor does a mapping from a file move it). E2E
+`tests/e2e/dynamics.rs` (15): the two commands and their cards, the faces' dials by name and All parameters, a drag on the ring (Pull), on the ball (Ratio) and on the ceiling line (Ceiling), each one undo step with the other parameters untouched, the handles reachable by name, a typed value, a lane driving the ceiling and a drag
+taking it over, the sidechain chooser on a built-in with its light, the power
+button, the track menu's rows, the meter following real playback, the lookahead
+dragged while playing re-timed once on release, no Automate or Learn on it in
+either menu, the tray's rows for both devices, and a face's All-parameters panel
+saying where its controls are. Unit tests in `face/gravity/tests.rs` and `face/horizon/tests.rs` (the ring and the line map back to their values, the chips, the well's depth, the pull following the meter and falling back, the land keeping what was heard and nothing when still or silent). `set_piece_cost` (release, tessellation included, no GPU): Gravity mean 0.13 to 0.16 ms and Horizon 0.09 to 0.11 ms a frame at every step, idle and loud (worst frame 0.53 ms; the bar is a mean under 0.3 ms). Shots: `dynamics_card` renders rest, playing, short, compact, folded, All parameters and the smallest window for both devices, both themes at 100, 150 and 200 % (`SHOT_FILTER` picks cases); looked at: the whole, short and compact cards at 100 %, the whole and folded and smallest window at 200 % light, the whole, rest and All parameters at 100 % light, against round 2. The remaining 150 % pictures were rendered, not individually looked at.
+
+**Consequences.** Two more entries in `EFFECTS` and `builtin::IDENTITIES`, and
+two more personalities in `theme::personality`; the faces are the round-2 set pieces. A limiter in a project adds latency,
+so the transport's compensation chip appears on projects that had none (and a
+lookahead change while playing re-times the routing, which the engine already
+handles by skipping or repeating the difference). A compressor's sidechain
+shares its track's single key bus with any other keyed device (KNOWN_ISSUES).
+Not run here: the WSL performance gate (no distribution on this machine; a new
+scenario needs `perf-gate --update`) and the macOS cross-target clippy; nothing
+has been heard by a person (MT-FX-3 waits).
+
+**Review round 1 (2026-11-13, independent; every item fixed on this branch).**
+
+- **H1 (High).** With a lookahead of nought the limiter read the delay slot *before* writing it, so the frame from one whole line ago (482 frames) came out, reported as no latency, with the ceiling broken. It writes before it reads now, so nought is nought. Tests:
+  `no_lookahead_delays_by_nothing_and_still_holds_the_ceiling` (an impulse at frame 0 comes out at frame 0, under the ceiling), and the ceiling test now sweeps the lookahead over 0, 1.5 and 10 ms.
+- **M1 (Medium).** A lane on the lookahead re-timed the delay once a block (not block-size invariant) and never reached the routing's compensation. **Decision (parent): the lookahead is not automatable.** The device reads it from the value the project holds, with no lane (`dynamics::held_at_rest`, the first point of the first queue); `lumen_devices::timing_parameter` names it, `automatable` is its negation, and the app sets no `FLAG_CAN_AUTOMATE` on such a parameter, so the lane chooser, the strip's and the panel's right-click **Automate** and **Learn** are all absent (MIDI learn goes with them: a controller moving the delay has the same problem, and the parameter cannot be mapped), with a menu line saying why. Tests: `a_lane_on_the_lookahead_is_ignored` (identical bits at 64 and 256 frames, latency 72 throughout).
+- **M2 (Medium).** A drag of the lookahead recompiled the routing every frame. The app now holds a timing parameter's value until its drag ends (`Chain::deferred`, applied by `apply_deferred` once a frame when no new value arrived; a typed value applies at once), so the routing is re-timed once and the knob shows what the hand is doing meanwhile. Test: E2E `dragging_the_lookahead_re_times_the_routing_once_when_it_ends` (the compensation stays 72 through four drag steps, then changes once, and not again).
+- **M3 (Medium).** The key filter's corner was read once a block, so it was not block-size invariant. It is read at the same 32-frame knots Prism uses. Both block-size tests now build a lane for *every* automatable parameter from the table (`automatable`), Look excluded. Tests: `gravity_is_the_same_at_any_block_size`, `horizon_is_the_same_at_any_block_size`.
+- **M4 (Medium).** The ceiling test skipped each signal's onset (it started at frame 0 and measured from 4800). Every signal is silent for the glide now and the whole span after it is measured, at three lookaheads.
+- **M5 (Medium).** True-peak mode was measured by the four-phase meter, which is a fifth of a decibel short at the top of the band — the tolerance itself. A long reference (64 phases of a 25-tap Kaiser-windowed sinc, gain-normalised, ends left out) is the check now, with the meter kept as a second check within half a decibel. The measurement is now 0.001 dB under the ceiling at 11, 15 and 19 kHz (the earlier 0.33 dB "overshoot" was the reference's own edge truncation).
+- **M6 (Medium).** A face device's All-parameters panel offered a star that did nothing. It has no star column and says "This device's controls are on its face; every parameter is here."; its footer reads "All N parameters". Test: E2E `the_all_parameters_panel_of_a_face_says_where_its_controls_are`.
+- **L1.** A built-in that was not asked for blocks because its power was off kept what it held, so a bypassed limiter could play a stale burst on being turned on again. The mixer resets it on the transition (`Slot::was_off`), as a locate does. Test: engine `a_bypassed_limiter_does_not_play_what_it_held` (fails without the fix: 0.011 of the burst comes out).
+- **L2.** The window kept the *gain each frame needed*, measured against the ceiling of its own frame, so lowering the ceiling left old peaks averaged at the old one. It keeps the *level* (a sliding maximum) and divides the ceiling in at the front. Test: `lowering_the_ceiling_holds_the_peak_already_in_the_window`.
+- **L3.** The refusal reads "Only an effect with a sidechain input takes a sidechain."
+- **L4.** The compressor clamps the frames it reads its key from to both key sides' lengths.
+- **L5.** New tests: `the_mix_is_plain_compressed_half_and_all` (0, 50 and 100 %), `rms_detection_reads_the_mean_and_not_the_peak`, `the_attack_and_release_take_their_time_to_get_there` (63 % in one time constant, to within 15 % of the full reduction), `offline_rendering_is_bit_for_bit_what_playback_plays` (one pass against 64, 97, 128, 512 and 1024 frames, for both devices) and `the_limiter_delays_by_its_frames_at_any_rate` (72 frames at 44.1, 48 and 96 kHz).
+- **L7.** `docs/ARCHITECTURE.md` gains `dynamics/` and `chain/faces/` in its module tables, and the All-parameters panel's note.
+- **L8.** The manual test stays MT-FX-3 (the parent renumbers).
+- **L6** (face allocations) is left to the face rebuild, as the parent asked.
+
+**Review round 2 (2026-11-13, a re-check: H1, M2, M4, M5, M6, L1 and L3 to L8 confirmed).**
+
+- **N1 (Medium).** The All-parameters panel's row menu still offered Automate and
+  Learn for the lookahead; it is gated exactly as the strip's, with the same
+  line. A controller mapping to a timing parameter is refused at the document
+  level (`MapRefusal::TimingParameter`), and a mapping a file holds for one is
+  ignored (`move_control` returns false). Tests: E2E
+  `the_lookahead_offers_no_automate_and_no_learn_in_either_menu` (both menus, and
+  the ceiling still offers Automate) and
+  `document::mappings::the_lookahead_cannot_be_mapped_and_a_mapping_to_it_is_ignored`.
+- **N2 (Medium).** The compressor's block-size test passed no key, so the key
+  filter's corner was never under it. It passes one now, and fails with a
+  per-block read (measured: block 64 frame 64 differs).
+- **N3 (Medium).** L2's test measured a quiet stretch after the burst, so it
+  could not see the bug. It puts a ceiling *lane* (a step) down while the burst
+  is in the line and measures the burst's own output: it fails with the old
+  window's semantics (the burst leaves at 0.9 against a 0.1 ceiling).
+- **N4 (Low).** While a timing parameter is being dragged, its value text, its
+  tooltip and its accessible value read the hand's value
+  (`parameter_value` reads the held change first).
+- **N5 (Low).** A typed value (or a preset, or the panel) drops a drag still
+  pending for the same parameter, and the held changes are dropped when a project
+  opens and when the device goes.
+- **N6 (Low).** A changed lookahead lets go of what the line held: the line and
+  the window are cleared, so the change is a short gap and never a frame replayed
+  from outside the window the gain covers. Test
+  `raising_the_lookahead_lets_go_of_what_the_line_held` (fails without the
+  clearing: the burst leaves at 0.977 against a 0.966 ceiling).
+- **N7 (Low).** Tests: the short-key clamp (`a_key_shorter_than_the_block_is_read_only_as_far_as_it_goes`),
+  `reset()` under the allocation guard (`a_reset_never_touches_the_heap`), the
+  strip's "Not automatable" line (in the E2E above, which right-clicks the card's
+  own knob), and the device tray's rows for both devices (E2E
+  `the_device_trays_menu_adds_gravity_and_horizon`).
+- **N8 (Low).** The lookahead E2E waits for the compensation with `wait_for`
+  instead of counting frames.
+- **N9 (Low).** This ADR's test counts are brought up to date, the reference
+  interpolation's doc line is repaired (25 taps, ends left out), and an engine
+  test pins the order `held_at_rest` relies on: a block names the value the
+  project holds first, then a lane's points
+  (`a_block_names_the_value_the_project_holds_before_a_lane`).
+
+The drag's release is now read from the pointer (`apply_deferred` applies when no
+button is down) rather than from "no new value this frame": with N4's change the
+knob stops re-reporting a value it already shows, and the old test would have
+applied a drag mid-way whenever the hand paused.
+
+## ADR-0150 — The synth's controls (M8 slice B4)
+
+**Status.** Proposed (M8 slice B4; the parent assigns the number — 0146 and
+0147 are taken on main by Iris and the drum editor). Brief:
+`docs/milestones/M8.md` §5 "B4 — The synth's controls"; decisions E1, E2, E6 and
+E7 in §6; B0's ADR-0145 (the "B4's synth parameters" note in its trait-on-paper
+section); the owner's built-in identity rules in DESIGN.md §7k.
+
+**Context.** Flare — the built-in polysynth — has been a fixed set of five
+presets since M5 slice 1 (ADR-0045). Its sound was the *name* of a preset saved
+as text in the device's `state` bytes, and every parameter worth a control was a
+constant inside `lumen-devices/src/synth/`. The drum lane and the device lane
+converge on the same M8 exit criterion: a producer records a part, automates a
+filter, saves and reopens. A synth whose sound cannot be changed cannot take
+part in that, and the mixer's effect path (B0) deliberately leaves instruments
+out of the chain, so the synth needed a path of its own.
+
+**What had to be true when this was done.**
+
+1. Every control the brief lists is a parameter with a stable id, in the same
+   table shape a built-in effect uses, so the card's strip, All parameters, the
+   automation chooser, MIDI learn, overrides and presets are the *same code* for
+   an instrument as for an effect.
+2. The five presets sound as they did. Six years of projects and the golden
+   renders of M5 depend on it.
+3. Old projects keep their sound: the format's new version turns the stored
+   preset name into values.
+4. Automating the cutoff is sample-exact, so "automate a filter" on a built-in
+   instrument is the same kind of edit as on a built-in effect.
+5. A knob moved while a note sounds reaches the sound without cutting it.
+6. A golden render is the same on Windows, Linux and macOS.
+
+**Options.**
+
+- **How the controls reach the running instrument.** (A) The values travel with
+  the MIDI list (`InstrumentSpec.values`) and the engine hands them to the
+  instrument it keeps playing. (B) Every value is a lane, sent in the block's
+  `ParamBlock` as a one-point queue per parameter, as the mixer emits them for
+  an effect. (C) Rebuild the `Synth` on every edit, so the new instrument
+  replaces the old one.
+- **What a parameter event means.** (A) Reuse `lumen_devices::params`
+  (`ParamBlock` points, `Glide`, `values`) exactly as B0's effects do. (B) A
+  second, synth-only path.
+- **How the presets survive.** (A) A preset is a table of parameter values, and
+  the values are the sound. (B) Keep a `Preset`-shaped sound beside the values
+  and copy one to the other.
+- **How the render stays cross-platform.** (A) Work every transcendental out in
+  `f64` with plain arithmetic (no library `sin`, `cos`, `tan`, `exp`, `powf`).
+  (B) Call the library's `f64` functions (they differ in the last bit between
+  platforms). (C) Keep `f32` and accept platform-specific goldens.
+- **Where the synced LFO's tempo comes from.** (A) The engine tells each
+  instrument the tempo at the block (`Instrument::set_tempo`). (B) The app bakes
+  the division to Hz when it builds the MIDI list. (C) A parameter lane.
+
+**Choices.**
+
+1. **Thirty-four parameters, one table.** `lumen_devices::synth::params::TABLE`:
+   oscillator 1 and 2 (shape, octave, detune, level, pan), noise, the filter
+   (type, cutoff, resonance, envelope amount, key follow, velocity), the amp
+   envelope (A, D, S, R), the filter envelope (A, D, S, R), the LFO (sync, rate,
+   division, target, depth), glide, voices (1 to 16), velocity sensitivity and
+   the output level. The table is **ordered by id** (`TABLE[i].id == i + 1`), so
+   a voice's values array is indexed by the id less one and the audio thread
+   never searches it. The defaults are **Poly**: a device whose values a project
+   does not name sounds as Lumen always has, and `Preset::Poly`'s values are the
+   table's defaults, which a test pins. The ids are pinned by a test, as an
+   effect's are.
+2. **The five presets are values, not a second kind of sound.** Each is the
+   table's defaults with its own parameters over them, so loading a preset is a
+   wholesale write of the device's values and dialling anything afterwards is an
+   ordinary edit — there is one source of truth and no "preset plus overrides"
+   state to migrate. `preset_values_into(&mut [f32; COUNT], preset)` works one
+   out **without allocating** (review H1): a program change arrives inside a
+   block, on the audio thread, so it may not build a `Vec`. `preset_values` is
+   the `Vec` wrapper the interface and the tests use. The preset's *name* stays in the
+   device's `state` as the record of where the sound started (and what a MIDI
+   file's program number says); nothing reads it to make sound. `Synth::preset()`
+   is `None` once a value has been dialled.
+3. **The values travel with the MIDI list, and the engine keeps the playing
+   instrument.** `InstrumentSpec` gained `values: Vec<(u32, f32)>`. When a new
+   list arrives, `midi/player/carry.rs` swaps the fresh instrument out and keeps
+   the one that is sounding, then hands it `Instrument::configure_values(&values)`
+   (a new default-no-op trait method) — so a knob moved under a held note glides
+   there instead of cutting it. A `Synth` glides every parameter to its new value
+   over 25 ms (`GLIDE_SECONDS`), the same time a preset change takes, and new
+   notes start on the new values at once. Option C was rejected: a fresh
+   instrument per edit silently drops every voice, which is a click at best and a
+   stopped note at worst.
+4. **Parameters play through `lumen_devices::params`, unchanged.** Each block the
+   synth fills thirty-four per-frame curves with `params::values` — the lane's
+   points on their own frames, straight between them; a value the project holds
+   gliding; a step moved over a millisecond. It keeps one `Glide` per parameter,
+   so a lane that stops leaves the value where the lane left it and the parameter
+   heads back to the project's value. `Glide::head_to` was added for that (an
+   instrument is not given a queue per parameter, so it must be able to point its
+   own glide at a target).
+   **The settings are derived once per slot, not once per voice** (review M5):
+   `Synth::render` works out a `Settings` and the LFO's rate at every derivation
+   slot of the piece — every 32 frames on a grid counted from the start of the
+   stream, every 8 while a value is arriving — and every voice reads the same
+   values, so sixteen voices cost one derivation rather than sixteen. Whether a
+   value is arriving is asked **per span, of the absolute frame**
+   (`glide_until > start + done`), never of the block cut (review M4), so a lane
+   and a glide together play the same samples at any block size. **A voice reads
+   two kinds of setting from those curves.** What *shapes* it —
+   waveforms, octaves and detune, pans, envelope times, the LFO's rate and target
+   — comes from that slot. What *modulates* it — cutoff, resonance, the
+   filter envelope's amount, key and velocity follow, every level, the noise, the
+   LFO's depth — is read on **every** frame. That is what makes the cutoff
+   automation sample-exact: the corner the filter is given at frame *k* is the
+   lane's value at frame *k*, and a test reads the played curve back frame by
+   frame.
+5. **The filter's coefficient is worked out per frame, but only when it moves.**
+   The corner is the setting × 2^(modulation), and the coefficient comes from a
+   hand-written `f64` tangent. A cached `(corner bits, k bits) → (g, a1, a2, a3)`
+   makes a still sound cost a comparison; a lane on the cutoff pays the tangent
+   per frame, which is what an automated filter is for. A 24 dB low-pass is two
+   of the same state-variable stage in cascade, the second at Q 0.707 so the
+   resonance is the first stage's. **A changed filter shape cross-fades** over
+   the glide, from a filter of its own state, as a changed waveform does (review
+   M3): the reviewer measured one-sample steps of 0.048 to 0.078 switching from
+   Low 12 to any other shape, and a test now moves `FILTER_TYPE` under a held
+   note and holds the largest step to the sound's own.
+6. **The render path uses no library transcendental** (option A). A golden is
+   pinned across three platforms, and the platforms' `sin`, `cos`, `tan`, `exp`
+   and `powf` differ in the last bit (B0's review L2 found exactly that with a
+   hash of Prism's bits). `lumen-devices/src/synth/det.rs` is `sin`/`cos` (series
+   with quarter-turn reduction), `tan` (the ratio), `exp` and `exp2` (a series in
+   `f·ln 2` with a bit-shifted power of two) — plain `f64` arithmetic, tested
+   against the library's answers to within `1e-12`; the fast per-frame
+   conversions (`cutoff_hz`, `resonance`) are plain products. The taper is
+   main's `Taper`, which takes its power in `f64` (B1 moved it there, which
+   settles review M1 for the table too), and `params::taper_value` is a call to
+   it — so no `f32` `powf` is reachable from the render at all (review L5).
+   Neither does anything else let the library do the arithmetic: the pitch-bend
+   ratio is `det::exp2` in `f64`, rounded once, because a bend arrives inside a
+   block and is therefore on the render path (review M2).
+7. **The presets sound as they did, within a tolerance that is stated and
+   measured.** Before the DSP was touched, the old path rendered each of the five
+   presets over a fixed phrase and the samples were frozen as 16-bit fixtures
+   (`lumen-devices/tests/golden/preset_*.pcm`, half a second each, 480 KB). Each
+   was then rendered through the new path, **frame by frame**: the worst
+   difference is **1.86 × 10⁻⁵ of full scale, on Bass** (−95 dBFS), the RMS
+   difference about 1 × 10⁻⁶, over all five presets. The fixture's own
+   quantisation is 3.05 × 10⁻⁵, so the test allows **1 × 10⁻⁴** — sixty dB down,
+   a margin of 5.4 times the measured worst case. The difference comes from doing the filter,
+   pitch and pan arithmetic in `f64` by hand instead of `f32` through the library,
+   and from the preset's cutoff being stored normalised and read back through its
+   taper (2 400 Hz in becomes 2 399.9998 Hz out, a shift no ear and no measurement
+   can find). The panner kept its angle (`(pan + 1)·π/4`), the panner's
+   equal-power law, the envelopes' `4.6/τ` exponential, the polyBLEP waves, the
+   2 ms steal and the `(channel, key)` note identity, so what changed is the last
+   bits and nothing else.
+8. **Old projects are migrated, once, with frozen numbers.** Format **v36**'s
+   `add_synth_parameters` gives every synth device the values its preset name
+   meant, in the five presets as that build played them — 34 literals each,
+   written deliberately rather than computed, so a later change to the defaults
+   or to a preset's sound cannot change what an old project opens as. A name the
+   build does not know, or no name at all, becomes Poly, which is what the old
+   loader played (`unwrap_or_default`). The name stays in `state` as the record.
+   A golden file pins v36 (`crates/lumen-project/tests/fixtures/v36/golden.lumen`,
+   hashed in `golden_hashes.txt`), and `tests/synth_presets.rs` checks all five
+   names, an unknown name, that a value already held is never replaced, and that
+   the whole file round-trips. A device is touched only when its plugin is
+   `format: "builtin"` **and** named `synth`, so a hosted plugin that happens to
+   be called "synth" keeps its own state (review L4).
+9. **The instrument's lanes are opened in two places** (ADR-0145's review note
+   said they would have to be): `midi::play::with_lanes` bakes a built-in
+   instrument's lanes as it does a VST3's, and `midi/tracks.rs` fills the block
+   and calls `Instrument::automate` for any instrument whose track has lanes —
+   not only a hosted one. The routing's chain still leaves the instrument out (its
+   sound arrives through the MIDI path, not a bus), so `routing_values` and the
+   latency map now say `!d.is_instrument()` in so many words.
+10. **The tempo a synced LFO follows comes from the engine, each block.**
+    `midi/tracks.rs` calls `Instrument::set_tempo(bpm)` with
+    `Timeline::tempo.bpm_at(Timeline::ticks_at(cx.start))` — one lookup a block for
+    each instrument, and no list rebuild when the tempo moves. A voice resolves
+    its rate from the division and the tempo on its derivation grid, so a synced
+    LFO's rate is a function of the absolute frame and never of the block cut.
+11. **The identity is data, and the face is not built.** Flare keeps the device
+    name the format saved first (`PluginRef::Builtin { name: "synth" }`, never
+    renamed) and gains a personality in `theme::personality` and
+    `builtin::IDENTITIES`'s new `INSTRUMENTS` list: the name **Flare**, the
+    subtitle **Polysynth**, the hue `#FFC23D`, and the deep screen tint `#110D05`
+    beside it (`SYNTH`, `SYNTH_DEEP`). Its card is the framework's: the same
+    table-driven strip and All parameters as Prism's, because
+    `builtin::has_table` is what the card and the parameter panel read, and
+    `is_builtin` (the mixer's effect list) is not. The round-2 dial names are
+    data in the device's description — `params::SHORT`, "Shape", "Cutoff",
+    "Reso", "Attack", "Release" — with the plain names in the table (`"Amp
+    attack"`, `"Resonance"`) for tooltips, All parameters and the automation
+    chooser; no drawing code reads them yet, by the owner's rule that the face is
+    a later agent's. The colours are round 2's (`flare()` in
+    `docs/specimens/m8/devices.html`); the brief's first numbers,
+    `#FFB547`/`#120D05`, were a slip in the brief and were corrected to the
+    specimen at merge.
+12. **The card's footer tells the truth.** An instrument reports no latency and
+    no tail (`synth::DESCRIPTION` answers 0 for both, as a pure function of the
+    values), and the engine keeps rendering a voice until its own release ends, so
+    nothing depends on a reported tail.
+13. **A note a full synth cannot start is counted, not lost** (the KNOWN_ISSUES
+    row from M5's review, whose fix was waiting for "the synth's next change").
+    When every voice is already fading out to make way for a pending note, the
+    newest request takes the **oldest** steal's place and `Synth::dropped()`
+    counts what it displaced. With 1 to 16 voices now a control, that is
+    reachable on purpose, so it is counted rather than silent. CC 123 (all notes
+    off) also lets go of a note waiting for a steal, which used to sound on the
+    next block (review L6).
+14. **The smaller things.** A changed waveform cross-fades over the 25 ms a
+    value takes, and while a value is *arriving* the new waveform is the one
+    faded in from the start (not from the moment the choice snaps over halfway)
+    — the engine's own click test found the difference. `serde_json` builds with
+    `float_roundtrip`: without it a saved `f64` could come back one bit off (this
+    build's own test caught a synth value doing exactly that), and a project's
+    parameter values must survive a save and a reopen unchanged. `synth/params/`
+    is three files — `table.rs`, `words.rs`, `presets.rs` — each under 800 lines,
+    with their tests beside them (review L1). The two demo projects are **real
+    v36 files holding the values** (review L3): `testing::midi_track` writes what
+    the migration froze for the preset, so `midi-demo.lumen` and
+    `automation-demo.lumen` are what this build saves. And the pinned render of
+    every control is made from **literals** rather than from values worked out
+    through the table, so no platform's `powf` can move the pin (review M1); it
+    moved once when B1's `f64` taper arrived, by a last bit in the values the
+    test starts from, and was written down again on purpose.
+
+**The trait on paper, against the slices that follow B4.** `Instrument` gained
+`configure_values` and `set_tempo`, both defaulted to nothing, so a hosted
+instrument compiles unchanged and takes neither. B5's sampler is the same kind of
+device: its pads' values travel in `InstrumentSpec.values`, its lanes are baked by
+the same `with_lanes`, its tempo (if a pad follows it) arrives the same way, and
+its per-instrument controls need nothing new. Nothing in `Effect`, `Description`
+or the mixer's pool changed.
+
+**Measured.** `cargo bench -p lumen-engine --bench clips` (this machine,
+release): `engine_flare_64` — 64 MIDI tracks, each with Flare playing a four-note
+chord (256 voices) — is **787 µs per 128-frame block** (best 755, median 791), 29% of the 2.67 ms budget
+at 48 kHz. It was 1.32 ms (49%) before the corner cache, and 806 µs before the
+settings were worked out once per slot: at four voices a track that sharing
+saves only about 4%, because the four voices already shared one derivation grid,
+and the saving grows with the voices a track plays. For comparison the same
+64-track mix with no instrument is 29.9 µs and with 64 Prism effects 89.9 µs
+(B0). The mixing of 64 tracks is not what this measures: it is 512 oscillators
+and 512 filters.
+
+**Review round 1 (2026-11-13).** An independent review passed every finding and
+each is fixed on this branch:
+
+- **H1 — allocation on the audio thread.** `configure` built a `Vec` for a
+  program change, and the engine's own real-time test caught it on the audio
+  thread; `configure_values` built five more to ask whether the values still
+  matched a preset. Both are gone: the preset tables are worked into an array,
+  and setting the project's values says the sound is no longer a preset.
+  `configure`, `configure_values` and `automate` now run inside
+  `count_rt_violations` in `tests/synth.rs`, and
+  `lumen-engine --test realtime the_synth_never_touches_the_heap` passes.
+- **M1 — the pinned test's input.** The values are literals now (B1's `f64`
+  taper settled the table's side of it); the pin was rewritten once, on purpose.
+- **M2 — pitch bend.** `det::exp2` in `f64`, rounded once.
+- **M3 — a filter shape change clicked.** It cross-fades now, and
+  `a_filter_shape_change_does_not_click` holds the step to the sound's own for
+  each of the other three shapes.
+- **M4 — block sizes.** The helpers no longer cap at 256 and both lists gained
+  512 and 1024; whether a value is arriving is asked per frame, of the absolute
+  frame.
+- **M5 — settings rebuilt per voice.** Worked out once per slot, and measured
+  above.
+- **L1 — `params.rs` split** into `table.rs`, `words.rs` and `presets.rs`.
+- **L2 — the numbers**: 1.86 × 10⁻⁵ on Bass with a 5.4× margin, the oldest steal,
+  and this heading, which the parent numbers.
+- **L3 — the demo fixtures** are real v36 files that hold the values.
+- **L4 — the migration's `is_synth`** requires `format: "builtin"`, with a test
+  for a plugin named "synth".
+- **L5 — the taper's fallback**: `taper_value` is `Taper::value`, in `f64`.
+- **L6 — CC 123** lets go of a note waiting for a steal, with a test.
+
+**What was not done.** The WSL performance gate and the macOS cross-target
+clippy cannot run here; the perf baseline's `engine_synth_64` (and any other
+scenario that plays the synth) reads higher because a voice now costs more
+per sample, and it was regenerated with `perf-gate --update`'s counts before
+the gate was trusted (the paragraph at the end of this ADR). The drawn face,
+the browser rows and the factory presets are
+later slices (B6 and the face agent). No `.lumen` field was added beyond the
+migration's values: a synth's parameters are the `Device.params` an effect
+already had.
+
+**The performance baseline (2026-11-14).** Main (D4, #125, and B2, #126) is
+merged into this branch (merge `ad8a8c4c`: ADR-0150 follows 0151, the
+built-ins row is one, and both slices' manual tests stand). The gate then
+reported `engine_synth_64` at 29,953,410,160 instructions against the old
+8,327,442,325 (+259.70 %) — the intended cost of a voice that now shapes two
+oscillators, a noise source, a filter with its own envelope, an LFO and a
+glide, where it used to read a preset constant. Regenerated with
+`perf-gate --update`'s own counts (the gate prints them for this; no WSL
+distribution is on the development machine) in the pinned `ubuntu:26.04`
+container, run 43606401427, with this ADR as the reason. Every other scenario
+was within the 2 % threshold; the run also refreshed two that had become much
+cheaper since an earlier change (`engine_streamed_64` −24.97 %,
+`stream_plan_64` −30.70 %), so the gate measures against today's code and not
+a stale one. The macOS cross-target clippy still cannot run here.
 ## ADR-0153 — The drum editor's steps (M8 slice D3)
 
 **Status.** Proposed (M8 D3, `docs/milestones/M8.md` §5; the owner's SQ A and

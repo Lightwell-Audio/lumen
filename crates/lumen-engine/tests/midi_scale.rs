@@ -109,6 +109,7 @@ fn tracks(clips: &[MidiClip]) -> Vec<MidiTrack> {
                 Some(InstrumentSpec {
                     kind: 1,
                     preset: 0,
+                    values: Vec::new(),
                     instrument: Box::new(Count(0)),
                 }),
                 vec![c],

@@ -123,7 +123,7 @@ impl App {
     }
 
     /// Adds the built-in effect `name` where a device of its kind goes, with
-    /// the values its table gives it, and shows its card.
+    /// the values its table gives it, and shows its card (M8 slices B0 to B3).
     pub(crate) fn add_builtin(&mut self, name: &str) {
         let plugin = PluginRef::Builtin {
             name: name.to_owned(),
@@ -229,7 +229,11 @@ impl App {
                     .map(|d| d.id)
             });
         match self.document.remove_device(track, device) {
-            Ok(()) => self.chain.selected = neighbour,
+            Ok(()) => {
+                self.chain.selected = neighbour;
+                // A change still held for it has nowhere to go (review N5).
+                self.chain.deferred.retain(|(known, _), _| *known != device);
+            }
             Err(refusal) => self.say(refusal.to_string()),
         }
     }

@@ -270,6 +270,7 @@ mod tests {
             default: 0.0,
             steps,
             read_only: false,
+            automatable: true,
             choices: vec![],
             over: false,
             mapped: None,

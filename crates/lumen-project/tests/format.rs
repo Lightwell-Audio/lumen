@@ -433,6 +433,15 @@ fn golden_v11_expected() -> Project {
     project
 }
 
+/// The values a synth that played the preset called `preset` holds after the
+/// v36 migration: the migration's own frozen record of them.
+fn synth_values_of(preset: &str) -> std::collections::BTreeMap<u32, f64> {
+    lumen_project::migrate::synth_values_of(preset)
+        .iter()
+        .copied()
+        .collect()
+}
+
 /// The model the v12 golden file must always load as: v11 with the Bass
 /// track given the synth (on its preset Keys) and a MIDI output.
 fn golden_v12_expected() -> Project {
@@ -446,7 +455,11 @@ fn golden_v12_expected() -> Project {
         .find(|t| t.name == "Bass")
         .expect("the golden project has a Bass track");
     let bass = Arc::make_mut(bass);
-    bass.devices.push(Device::synth(Id(0x12), "keys"));
+    let mut synth = Device::synth(Id(0x12), "keys");
+    // The values the v36 migration gives a synth that played Keys (M8 slice
+    // B4): a name was the sound before, and the sound is its values after.
+    synth.params = synth_values_of("keys");
+    bass.devices.push(synth);
     bass.midi_to = Some(MidiTo {
         port: "Microsoft GS Wavetable Synth".into(),
         channel: 9,

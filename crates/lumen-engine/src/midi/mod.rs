@@ -143,6 +143,13 @@ pub struct InstrumentSpec {
     /// Which sound of it (a preset), chosen with
     /// [`Instrument::configure`].
     pub preset: u32,
+    /// The values the project holds for a built-in instrument's parameters
+    /// (normalised, by id; M8 slice B4). The app fills them when the track
+    /// list is built; the engine hands them to the instrument it keeps
+    /// playing ([`Instrument::configure_values`]), so a knob moved while a
+    /// note sounds glides rather than cutting it. Empty for a hosted
+    /// instrument, which keeps its parameters its own way.
+    pub values: Vec<(u32, f32)>,
     pub instrument: Box<dyn Instrument>,
 }
 

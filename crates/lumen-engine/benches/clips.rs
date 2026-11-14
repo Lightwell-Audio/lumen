@@ -97,7 +97,7 @@ fn engine_builtin_64(bencher: divan::Bencher<'_, '_>) {
             )
         })
         .collect();
-    builtin_64(bencher, values, || Box::new(Utility::new()));
+    builtin_64(bencher, values, 0, || Box::new(Utility::new()));
 }
 
 /// 64 tracks, each with Parallax, the stereo delay, on it (M8 slice B3): what
@@ -119,7 +119,7 @@ fn engine_builtin_delay_64(bencher: divan::Bencher<'_, '_>) {
             )
         })
         .collect();
-    builtin_64(bencher, values, || Box::new(Delay::new()));
+    builtin_64(bencher, values, 0, || Box::new(Delay::new()));
 }
 
 /// 64 tracks, each with Afterglow, the reverb, on it (M8 slice B3): eight
@@ -131,14 +131,16 @@ fn engine_builtin_reverb_64(bencher: divan::Bencher<'_, '_>) {
         .iter()
         .map(|p| (p.id, p.normalised(p.default)))
         .collect();
-    builtin_64(bencher, values, || Box::new(Reverb::new()));
+    builtin_64(bencher, values, 0, || Box::new(Reverb::new()));
 }
 
-/// 64 tracks of steady sound, each with one built-in effect holding `values`:
-/// the body the three `engine_builtin_*` benches share (M8 slices B0 and B3).
+/// 64 tracks of steady sound, each with one built-in effect holding `values`
+/// and holding back `latency` frames: the body the `engine_builtin_*` and
+/// dynamics benches share (M8 slices B0, B2 and B3).
 fn builtin_64(
     bencher: divan::Bencher<'_, '_>,
     values: Vec<(u32, f32)>,
+    latency: u32,
     make: impl Fn() -> Box<dyn lumen_devices::Effect>,
 ) {
     use lumen_engine::{Device, Slot};
@@ -170,7 +172,7 @@ fn builtin_64(
     for node in plan.nodes.iter_mut().filter(|n| n.id < TRACKS) {
         node.devices = vec![Device::Builtin {
             device: 1_000 + node.id,
-            latency: 0,
+            latency,
             bypass: false,
         }];
         node.values = vec![(1_000 + node.id, values.clone())];
@@ -188,6 +190,66 @@ fn builtin_64(
     let mut data = vec![0.0; 256];
     // Past the fade-in and the 20 ms glide to the values.
     for _ in 0..400 {
+        engine.process(48_000, &mut data, 2, 128);
+    }
+    bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
+}
+
+/// 64 MIDI tracks, each with Flare playing a four-note chord (M8 slice B4):
+/// what the built-in synth costs the audio thread when every one of them
+/// sounds, beside `routed_tracks_at_128_frames` without an instrument.
+#[divan::bench]
+fn engine_flare_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::{Preset, Synth, synth};
+    use lumen_engine::{
+        InstrumentSpec, Layered, MidiClip, MidiNote, MidiTrack, Target, midi_player,
+    };
+    const TRACKS: u64 = 64;
+    let (_clips, players) = clip_player();
+    let (mut midi, player) = midi_player();
+    let tracks: Vec<MidiTrack> = (0..TRACKS)
+        .map(|track| {
+            // A four-note chord held for the whole second.
+            let notes: Vec<MidiNote> = [48u8, 55, 60, 64]
+                .into_iter()
+                .enumerate()
+                .map(|(k, pitch)| MidiNote {
+                    start: Ticks(k as i64 * 10),
+                    length: Ticks(1_920_000 - k as i64 * 10),
+                    pitch,
+                    velocity: 100,
+                    channel: None,
+                })
+                .collect();
+            MidiTrack::new(
+                track,
+                Target::Instrument,
+                Some(InstrumentSpec {
+                    kind: synth::KIND,
+                    preset: Preset::Poly.number(),
+                    values: Preset::Poly.values(),
+                    instrument: Box::new(Synth::new(Preset::Poly)),
+                }),
+                vec![MidiClip {
+                    id: 1_000 + track,
+                    start: Ticks::ZERO,
+                    length: Ticks(1_920_000),
+                    period: None,
+                    notes: notes.into(),
+                    controls: Default::default(),
+                    seams: Default::default(),
+                }],
+            )
+        })
+        .collect();
+    midi.set(tracks).ok().unwrap();
+    let (mut routing, source) = mixer(Layered(players, player));
+    assert!(routing.set(&routed(TRACKS, 0)).unwrap());
+    let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
+    transport.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 256];
+    // Past the start of the notes and their attacks.
+    for _ in 0..100 {
         engine.process(48_000, &mut data, 2, 128);
     }
     bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
@@ -269,4 +331,39 @@ fn engine_eq_64(bencher: divan::Bencher<'_, '_>) {
         engine.process(48_000, &mut data, 2, 128);
     }
     bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
+}
+
+/// 64 tracks, each with Gravity, the compressor, on it (M8 slice B2), keyed
+/// from nothing: what a compressor costs the audio bus per block, beside
+/// `engine_builtin_64` for the utility.
+#[divan::bench]
+fn engine_gravity_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::dynamics::compressor::{self, Compressor};
+    let values = vec![
+        (compressor::THRESHOLD, 0.55),
+        (compressor::RATIO, 0.3),
+        (compressor::ATTACK, 0.4),
+        (compressor::RELEASE, 0.5),
+        (compressor::KNEE, 0.25),
+    ];
+    builtin_64(bencher, values, 0, || Box::new(Compressor::new()));
+}
+
+/// 64 tracks, each with Horizon, the limiter, in true-peak mode (M8 slice B2):
+/// its 1.5 ms lookahead, which the plan compensates.
+#[divan::bench]
+fn engine_horizon_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::dynamics::limiter::{self, Limiter};
+    let look = lumen_devices::params::find(limiter::TABLE, limiter::LOOK)
+        .expect("a parameter")
+        .normalised(1.5);
+    let latency =
+        lumen_devices::effect_latency(limiter::NAME, &[(limiter::LOOK, look)]).expect("a device");
+    let values = vec![
+        (limiter::CEILING, 0.7),
+        (limiter::RELEASE, 0.4),
+        (limiter::LOOK, look),
+        (limiter::DETECT, 1.0),
+    ];
+    builtin_64(bencher, values, latency, || Box::new(Limiter::new()));
 }

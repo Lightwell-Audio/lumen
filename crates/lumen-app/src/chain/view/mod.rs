@@ -44,6 +44,8 @@ impl App {
             self.add_dropped_device(&device, track);
         }
         self.open_dropped_editor();
+        // A timing parameter's drag that has ended is applied now, once.
+        self.apply_deferred(ctx);
         // The subject follows a selection made above (or by a command since
         // last frame) before the chosen card is checked against it.
         self.refresh_detail(ctx);

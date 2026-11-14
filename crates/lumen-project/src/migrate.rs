@@ -53,6 +53,7 @@ pub const MIGRATIONS: &[Migration] = &[
     v32_to_v33,
     v33_to_v34,
     add_drum_maps,
+    add_synth_parameters,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -578,6 +579,287 @@ fn v33_to_v34(document: Value) -> Result<Value, String> {
 fn add_drum_maps(document: Value) -> Result<Value, String> {
     Ok(document)
 }
+
+/// v36 (M8 slice B4) gives every synth device the parameter values its sound
+/// is made of. Before it, a synth's sound was the *name* of one of five
+/// presets, saved as text in the device's `state`; from it, the sound is the
+/// values, and the name is only the record of where it started (it stays in
+/// `state`, and nothing reads it to make sound).
+///
+/// The five presets, frozen as v35's synth made them: the numbers below are
+/// what this version computed for each preset's parameters, normalised, by
+/// parameter id. They are literals on purpose — a later change to the
+/// synth's defaults or to a preset's sound must not change what an old
+/// project opens as.
+fn add_synth_parameters(mut document: Value) -> Result<Value, String> {
+    let values_of = synth_values_of;
+    let Some(project) = document.get_mut("project").and_then(Value::as_object_mut) else {
+        return Ok(document);
+    };
+    /// Gives every synth device in one track its values.
+    fn track_values(track: &mut Value, values_of: fn(&str) -> &'static [(u32, f64)]) {
+        let Some(devices) = track.get_mut("devices").and_then(Value::as_array_mut) else {
+            return;
+        };
+        for device in devices {
+            let Some(device) = device.as_object_mut() else {
+                continue;
+            };
+            // Only a *built-in*: a hosted plugin may be called "synth" too,
+            // and its state is not a preset name (review L4).
+            let is_synth = device.get("plugin").is_some_and(|plugin| {
+                plugin.get("format").and_then(Value::as_str) == Some("builtin")
+                    && plugin.get("name").and_then(Value::as_str) == Some(SYNTH)
+            });
+            if !is_synth {
+                continue;
+            }
+            let already = device
+                .get("params")
+                .and_then(Value::as_object)
+                .is_some_and(|params| !params.is_empty());
+            if already {
+                continue;
+            }
+            let preset = device
+                .get("state")
+                .and_then(Value::as_str)
+                .map(|text| {
+                    use base64::Engine;
+                    base64::engine::general_purpose::STANDARD
+                        .decode(text)
+                        .ok()
+                        .and_then(|bytes| String::from_utf8(bytes).ok())
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
+            let mut params = serde_json::Map::new();
+            for &(id, value) in values_of(&preset) {
+                params.insert(id.to_string(), Value::from(value));
+            }
+            device.insert("params".into(), Value::Object(params));
+        }
+    }
+    if let Some(list) = project.get_mut("tracks").and_then(Value::as_array_mut) {
+        for track in list.iter_mut() {
+            track_values(track, values_of);
+        }
+    }
+    if let Some(master) = project.get_mut("master") {
+        track_values(master, values_of);
+    }
+    Ok(document)
+}
+
+/// The values a synth that played `preset` (its stable name, as v35 wrote it)
+/// holds at format v36: the frozen numbers the migration writes. A name this
+/// build does not know is Poly, which is what the old loader played. Read by
+/// the demo projects, so the files this build ships are real v36 ones.
+pub fn synth_values_of(preset: &str) -> &'static [(u32, f64)] {
+    match preset {
+        "keys" => &KEYS,
+        "bass" => &BASS,
+        "pluck" => &PLUCK,
+        "pad" => &PAD,
+        _ => &POLY,
+    }
+}
+
+/// The synth's stable name in a device's `plugin` (the same text
+/// `lumen_project::model::SYNTH` holds; written here so a migration never
+/// follows a later change to it).
+const SYNTH: &str = "synth";
+
+/// Poly, as v35 played it: two saws detuned ±7 cents, low-pass at 2.4 kHz
+/// with a little velocity to cutoff, A 5 ms, D 300 ms, S 70 %, R 250 ms.
+const POLY: [(u32, f64); 34] = [
+    (1, 0.666_666_687),
+    (2, 0.500_000_000),
+    (3, 0.430_000_007),
+    (4, 1.000_000_000),
+    (5, 0.324_999_988),
+    (6, 0.666_666_687),
+    (7, 0.500_000_000),
+    (8, 0.569_999_993),
+    (9, 1.000_000_000),
+    (10, 0.675_000_012),
+    (11, 0.000_000_000),
+    (12, 0.000_000_000),
+    (13, 0.492_032_528),
+    (14, 0.254_823_595),
+    (15, 0.500_000_000),
+    (16, 0.000_000_000),
+    (17, 0.300_000_012),
+    (18, 0.058_481_321),
+    (19, 0.246_350_974),
+    (20, 0.699_999_988),
+    (21, 0.231_773_436),
+    (22, 0.058_481_321),
+    (23, 0.246_350_974),
+    (24, 0.500_000_000),
+    (25, 0.231_773_436),
+    (26, 0.000_000_000),
+    (27, 0.498_116_732),
+    (28, 0.285_714_298),
+    (29, 0.000_000_000),
+    (30, 0.000_000_000),
+    (31, 0.000_000_000),
+    (32, 1.000_000_000),
+    (33, 1.000_000_000),
+    (34, 0.159_999_996),
+];
+
+/// Keys: a triangle and its octave, brighter and shorter.
+const KEYS: [(u32, f64); 34] = [
+    (1, 0.333_333_343),
+    (2, 0.500_000_000),
+    (3, 0.460_000_008),
+    (4, 1.000_000_000),
+    (5, 0.400_000_006),
+    (6, 0.333_333_343),
+    (7, 0.750_000_000),
+    (8, 0.529_999_971),
+    (9, 0.600_000_024),
+    (10, 0.600_000_024),
+    (11, 0.000_000_000),
+    (12, 0.000_000_000),
+    (13, 0.629_329_264),
+    (14, 0.227_921_158),
+    (15, 0.500_000_000),
+    (16, 0.000_000_000),
+    (17, 0.500_000_000),
+    (18, 0.036_840_927),
+    (19, 0.326_956_213),
+    (20, 0.349_999_994),
+    (21, 0.215_087_369),
+    (22, 0.058_481_321),
+    (23, 0.246_350_974),
+    (24, 0.500_000_000),
+    (25, 0.231_773_436),
+    (26, 0.000_000_000),
+    (27, 0.498_116_732),
+    (28, 0.285_714_298),
+    (29, 0.000_000_000),
+    (30, 0.000_000_000),
+    (31, 0.000_000_000),
+    (32, 1.000_000_000),
+    (33, 1.000_000_000),
+    (34, 0.239_999_995),
+];
+
+/// Bass: a saw with a square an octave under it, a low resonant corner.
+const BASS: [(u32, f64); 34] = [
+    (1, 0.666_666_687),
+    (2, 0.500_000_000),
+    (3, 0.500_000_000),
+    (4, 1.000_000_000),
+    (5, 0.500_000_000),
+    (6, 1.000_000_000),
+    (7, 0.250_000_000),
+    (8, 0.500_000_000),
+    (9, 0.699_999_988),
+    (10, 0.500_000_000),
+    (11, 0.000_000_000),
+    (12, 0.000_000_000),
+    (13, 0.324_069_232),
+    (14, 0.410_890_698),
+    (15, 0.500_000_000),
+    (16, 0.000_000_000),
+    (17, 0.600_000_024),
+    (18, 0.036_840_927),
+    (19, 0.215_087_369),
+    (20, 0.800_000_012),
+    (21, 0.170_428_514),
+    (22, 0.058_481_321),
+    (23, 0.246_350_974),
+    (24, 0.500_000_000),
+    (25, 0.231_773_436),
+    (26, 0.000_000_000),
+    (27, 0.498_116_732),
+    (28, 0.285_714_298),
+    (29, 0.000_000_000),
+    (30, 0.000_000_000),
+    (31, 0.000_000_000),
+    (32, 1.000_000_000),
+    (33, 1.000_000_000),
+    (34, 0.219_999_999),
+];
+
+/// Pluck: two saws a little apart, no sustain.
+const PLUCK: [(u32, f64); 34] = [
+    (1, 0.666_666_687),
+    (2, 0.500_000_000),
+    (3, 0.449_999_988),
+    (4, 1.000_000_000),
+    (5, 0.349_999_994),
+    (6, 0.666_666_687),
+    (7, 0.500_000_000),
+    (8, 0.550_000_012),
+    (9, 0.800_000_012),
+    (10, 0.649_999_976),
+    (11, 0.000_000_000),
+    (12, 0.000_000_000),
+    (13, 0.558_463_216),
+    (14, 0.301_511_347),
+    (15, 0.500_000_000),
+    (16, 0.000_000_000),
+    (17, 0.500_000_000),
+    (18, 0.000_000_000),
+    (19, 0.231_773_436),
+    (20, 0.000_000_000),
+    (21, 0.195_310_667),
+    (22, 0.058_481_321),
+    (23, 0.246_350_974),
+    (24, 0.500_000_000),
+    (25, 0.231_773_436),
+    (26, 0.000_000_000),
+    (27, 0.498_116_732),
+    (28, 0.285_714_298),
+    (29, 0.000_000_000),
+    (30, 0.000_000_000),
+    (31, 0.000_000_000),
+    (32, 1.000_000_000),
+    (33, 1.000_000_000),
+    (34, 0.200_000_003),
+];
+
+/// Pad: two saws twelve cents either side, a dark corner, a slow attack.
+const PAD: [(u32, f64); 34] = [
+    (1, 0.666_666_687),
+    (2, 0.500_000_000),
+    (3, 0.379_999_995),
+    (4, 1.000_000_000),
+    (5, 0.250_000_000),
+    (6, 0.666_666_687),
+    (7, 0.500_000_000),
+    (8, 0.620_000_005),
+    (9, 1.000_000_000),
+    (10, 0.750_000_000),
+    (11, 0.000_000_000),
+    (12, 0.000_000_000),
+    (13, 0.429_227_144),
+    (14, 0.227_921_158),
+    (15, 0.500_000_000),
+    (16, 0.000_000_000),
+    (17, 0.150_000_006),
+    (18, 0.271_219_879),
+    (19, 0.292_211_562),
+    (20, 0.800_000_012),
+    (21, 0.355_563_462),
+    (22, 0.058_481_321),
+    (23, 0.246_350_974),
+    (24, 0.500_000_000),
+    (25, 0.231_773_436),
+    (26, 0.000_000_000),
+    (27, 0.498_116_732),
+    (28, 0.285_714_298),
+    (29, 0.000_000_000),
+    (30, 0.000_000_000),
+    (31, 0.000_000_000),
+    (32, 1.000_000_000),
+    (33, 1.000_000_000),
+    (34, 0.140_000_001),
+];
 
 /// The highest id written anywhere in `document` (every `"id"` field).
 fn highest_id(document: &Value) -> Result<u64, String> {

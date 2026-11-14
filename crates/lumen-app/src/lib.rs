@@ -316,6 +316,10 @@ pub struct App {
     detail: app::detail::DetailState,
     /// The MIDI note editor: in the Clip tab, or popped out (slice 3c).
     note_editor: note_editor::NoteEditor,
+    /// Which sounds are sounding on each kit track, kept for the frame (M8
+    /// D4): every header asks, and a kit's notes are read once for all of
+    /// them (`app/drum_routing.rs`).
+    drum_sounding: std::cell::RefCell<app::drum_routing::Sounding>,
     /// The audio clip editor in the Clip tab (M9.5 S1).
     audio_editor: audio_editor::AudioEditor,
     /// Imported files being listened to for a loop's tempo (M9.5 S5a).

@@ -146,6 +146,14 @@ impl Arrangement {
             self.selected = targets.clone();
             self.track_command = Some(Command::AddEq);
         }
+        if item(ui, "Add Gravity (compressor)", Command::AddCompressor) {
+            self.selected = targets.clone();
+            self.track_command = Some(Command::AddCompressor);
+        }
+        if item(ui, "Add Horizon (limiter)", Command::AddLimiter) {
+            self.selected = targets.clone();
+            self.track_command = Some(Command::AddLimiter);
+        }
         ui.separator();
 
         // What is made from it.

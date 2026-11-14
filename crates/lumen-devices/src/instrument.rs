@@ -46,6 +46,18 @@ pub trait Instrument: Send {
     /// it without starting again.
     fn configure(&mut self, _preset: u32) {}
 
+    /// Points a built-in instrument at the values the project holds for its
+    /// parameters (normalised, by id): a control moved, a preset loaded, a
+    /// project opened. What sounds glides there rather than cutting off (M8
+    /// slice B4). A hosted instrument keeps its parameters its own way and
+    /// takes nothing here.
+    fn configure_values(&mut self, _values: &[(u32, f32)]) {}
+
+    /// The tempo a synced part of the instrument follows, as the transport
+    /// has it at the block being gathered. The engine calls it every block;
+    /// nothing that does not sync takes it.
+    fn set_tempo(&mut self, _bpm: f32) {}
+
     /// Stops every voice at once, without a release tail.
     fn silence(&mut self);
 

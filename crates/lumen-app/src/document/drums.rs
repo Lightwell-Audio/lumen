@@ -11,8 +11,10 @@ use std::sync::Arc;
 
 use lumen_core::time::Ticks;
 use lumen_project::drums::{self, Converted, presets::Preset};
+#[cfg(test)]
+use lumen_project::model::Route;
 use lumen_project::model::{
-    ClipContent, DrumIcon, DrumMap, Id, MOST_SOUND_NAME, Quantize, Route, Sound, TrackKind,
+    ClipContent, DrumIcon, DrumMap, Id, MOST_SOUND_NAME, Quantize, Sound, TrackKind,
 };
 
 use super::Document;
@@ -216,7 +218,12 @@ impl Document {
 
     /// Sets where a sound plays: the instrument, one of its outputs, or
     /// another instrument track. One undo step.
-    #[allow(dead_code)] // D4's routing column calls it
+    ///
+    /// The model edit on its own, for a test that works on a map rather than
+    /// on a track: the map editor's Output column calls
+    /// [`Document::route_drum_sound`](Self::route_drum_sound), which also
+    /// checks the route and makes the track that plays an output pair.
+    #[cfg(test)]
     pub fn set_sound_route(&mut self, map: Id, input: u8, route: Route) -> bool {
         self.edit_sound(map, input, "Change where the drum sound plays", |sound| {
             sound.route = route
@@ -308,7 +315,7 @@ impl Document {
     }
 
     /// Whether `track` is a MIDI track of the project.
-    fn is_midi_track(&self, track: Id) -> bool {
+    pub(super) fn is_midi_track(&self, track: Id) -> bool {
         self.project()
             .tracks
             .iter()

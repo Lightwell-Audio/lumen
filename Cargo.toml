@@ -19,7 +19,11 @@ divan = "0.1"
 rtrb = "0.4"
 engine-core = { path = "prototypes/engine-core" }
 serde = { version = "1", features = ["derive", "rc"] }
-serde_json = "1"
+# `float_roundtrip` makes a saved `f64` read back as the same number: without
+# it a 17-digit value can come back one bit off, and a project's parameter
+# values (a synth's controls among them) would not survive a save and a
+# reopen unchanged (M8 slice B4).
+serde_json = { version = "1", features = ["float_roundtrip"] }
 windows-sys = "0.61"
 vst3 = "0.3"
 # Loads plugin modules (ISC). Already in the tree through cpal and wgpu.

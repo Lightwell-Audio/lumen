@@ -662,6 +662,7 @@ fn midi_never_touches_the_heap() {
                         // the old one rings out on the new list.
                         kind: if variant == 4 { 2 } else { 1 },
                         preset: (variant % 3) as u32,
+                        values: Vec::new(),
                         instrument: Box::new(Counter {
                             held: [false; 128],
                             phase: 0.0,

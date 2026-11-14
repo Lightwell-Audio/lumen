@@ -318,6 +318,7 @@ fn builtin() -> Option<InstrumentSpec> {
     Some(InstrumentSpec {
         kind: 1,
         preset: 0,
+        values: Vec::new(),
         instrument: Box::new(Probe { held: 0 }),
     })
 }
@@ -329,6 +330,7 @@ fn hosted(host: Box<FakeHost>) -> (Option<InstrumentSpec>, Arc<Status>) {
     let spec = InstrumentSpec {
         kind: 2,
         preset: 0,
+        values: Vec::new(),
         instrument: Box::new(HostedInstrument::new(guard)),
     };
     (Some(spec), status)
@@ -836,6 +838,7 @@ fn standin() -> Option<InstrumentSpec> {
     Some(InstrumentSpec {
         kind: 2,
         preset: 0,
+        values: Vec::new(),
         instrument: Box::new(HostedInstrument::placeholder()),
     })
 }

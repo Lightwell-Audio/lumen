@@ -331,6 +331,7 @@ fn synth_mixer() -> (
         Some(InstrumentSpec {
             kind: lumen_devices::synth::KIND,
             preset: 0,
+            values: Vec::new(),
             instrument: Box::new(lumen_devices::Synth::new(lumen_devices::Preset::Poly)),
         }),
         vec![MidiClip {

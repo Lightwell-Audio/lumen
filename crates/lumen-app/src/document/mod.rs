@@ -28,6 +28,7 @@ mod crossfades;
 mod devices;
 mod drums;
 mod drums_edit;
+mod drums_route;
 mod freeze;
 mod groups;
 mod import;
@@ -50,6 +51,7 @@ pub(crate) mod warp;
 pub use automation::LaneRefusal;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use devices::{Refusal, Slot, find_device, name_of as device_name};
+pub use drums_route::Routed;
 pub use groups::Place;
 pub use import::{Awaiting, DropInto, FollowTempo, Imported, Places, import_place};
 pub use lanes::{Drag, Line, Shift};
@@ -137,7 +139,7 @@ impl NewTracks {
     /// on the chosen preset, or none.
     pub(crate) fn instrument(&self, id: Id) -> Vec<Device> {
         self.instrument
-            .map(|preset| Device::synth(id, preset.id()))
+            .map(|preset| instrument::synth_device(id, preset))
             .into_iter()
             .collect()
     }
@@ -153,7 +155,10 @@ impl Default for NewTracks {
 }
 
 impl Document {
-    pub fn new(project: Project) -> Self {
+    pub fn new(mut project: Project) -> Self {
+        // A synth's sound is its values: one a project holds none for plays
+        // its preset's (M8 slice B4), and what the controls show is the same.
+        instrument::fill_synth_values(&mut project);
         let next_id = highest_id(&project) + 1;
         let history = History::new(project);
         static SESSIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -411,7 +416,7 @@ impl Document {
                 parent,
                 devices: first
                     .clone()
-                    .or_else(|| synth.map(|(d, preset)| Device::synth(d, preset.id())))
+                    .or_else(|| synth.map(|(d, preset)| instrument::synth_device(d, preset)))
                     .into_iter()
                     .collect(),
                 ..Track::new(id, format!("{word} {number}"), kind, color)

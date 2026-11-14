@@ -120,8 +120,15 @@ impl<'de> Deserialize<'de> for DrumIcon {
 
 /// Where a sound plays (format v35): the instrument's main output, one of
 /// its output pairs, or another instrument track (§6.4's "the instrument or
-/// a specific instrument output"). D0 stores it; the routing that honours it
-/// is D4's.
+/// a specific instrument output"). D0 stores it; D4 is the routing that
+/// honours it.
+///
+/// `Output(n)` counts the instrument's outputs as it numbers them, 1 and up:
+/// for a hosted instrument the audio bus after the main one (bus 0 is the
+/// track itself), which is also the pair the host numbers while every
+/// earlier bus is on; for the built-in sampler, the pad's output pair (B5).
+/// A sound sent to another track (`Track`) plays that track's instrument,
+/// wherever this track's own output goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Route {
@@ -137,6 +144,17 @@ pub enum Route {
 impl Route {
     pub fn is_main(&self) -> bool {
         *self == Route::Main
+    }
+
+    /// The track the sound's notes are given to, when it plays another
+    /// instrument track's instrument rather than its own (M8 D4). An output
+    /// pair keeps the notes on its own track: the instrument routes them
+    /// inside itself.
+    pub fn sent_to(&self) -> Option<Id> {
+        match self {
+            Route::Track(id) => Some(*id),
+            Route::Main | Route::Output(_) => None,
+        }
     }
 }
 

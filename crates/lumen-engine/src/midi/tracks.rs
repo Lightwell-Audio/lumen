@@ -39,13 +39,18 @@ pub(super) fn gather_track(
         );
     }
     hold::sort_events(&mut track.state.events);
-    // The parameters the track's lanes change in this block go to a plugin
-    // instrument with it. An instrument keeps the block it was last given, so
-    // a block with no lanes (they are gone, or the song is not playing) says
-    // so: a lane taken away must not go on setting its last value.
-    if let Some(spec) = track.instrument.as_mut()
-        && spec.instrument.hosted()
-    {
+    // The parameters the track's lanes change in this block go to the
+    // instrument with it — a plugin's own, and a built-in's (M8 slice B4) —
+    // and the tempo a synced part of it follows. An instrument keeps the
+    // block it was last given, so a block with no lanes (they are gone, or
+    // the song is not playing) says so: a lane taken away must not go on
+    // setting its last value.
+    if let Some(spec) = track.instrument.as_mut() {
+        let bpm = cx
+            .timeline
+            .tempo
+            .bpm_at(cx.timeline.ticks_at(cx.start, cx.sample_rate));
+        spec.instrument.set_tempo(bpm as f32);
         match track.params.as_deref_mut() {
             Some(block) if cx.mode == Mode::Play => {
                 block.start(frames);

@@ -696,7 +696,7 @@ fn an_instrument_dropped_on_an_audio_track_is_refused_and_nothing_changes() {
     lumen.app_mut().select_tracks(&[KEYS]);
     lumen.show_whole_cards();
     let before = lumen.app().project().clone();
-    let synth = lumen.card("Synth on Keys");
+    let synth = lumen.card("Flare on Keys");
     let audio = lumen.harness.get_by_label_contains("Track Audio").rect();
     lumen.drag(synth.center(), audio.center(), Modifiers::NONE);
     assert_eq!(*lumen.app().project(), before, "nothing changed");
@@ -727,7 +727,7 @@ fn duplicate_and_copy_paste_make_new_devices_with_their_own_ids() {
     lumen.app_mut().select_tracks(&[KEYS]);
     lumen.frames(5);
     // The Keys track holds only the synth: choose it, then paste.
-    lumen.click("Synth on Keys");
+    lumen.click("Flare on Keys");
     lumen.key(Modifiers::COMMAND, Key::V);
     lumen.frames(5);
     let on_keys = lumen.ids_on(KEYS);

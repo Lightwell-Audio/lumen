@@ -325,6 +325,10 @@ fn older_projects_hold_no_parameter_values_and_none_are_written_when_there_are_n
                 .tracks
                 .iter()
                 .flat_map(|t| &t.devices)
+                // The synth is the one device whose values a later migration
+                // gives it (v36, M8 slice B4): it played a preset's name
+                // before, and its sound is its values from v36 on.
+                .filter(|d| !d.is_synth())
                 .all(|d| d.params.is_empty()),
             "{old}"
         );

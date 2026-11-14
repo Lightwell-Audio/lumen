@@ -576,7 +576,7 @@ pub(super) mod compact;
 mod picture;
 mod screen;
 
-pub(in crate::chain) use screen::{Personal, level_of};
+pub(in crate::chain) use screen::{Personal, gradient_panel, level_of};
 
 use body::{paint_field, paint_strip};
 use picture::{has_window_button, paint_badge, paint_picture, paint_snapshot, power_button};

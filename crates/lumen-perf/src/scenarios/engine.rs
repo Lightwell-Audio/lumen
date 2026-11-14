@@ -146,6 +146,7 @@ pub(crate) fn playing_synths(tracks: u64) -> SynthPlayer {
                 Some(InstrumentSpec {
                     kind: synth::KIND,
                     preset: Preset::Poly.number(),
+                    values: Vec::new(),
                     instrument: Box::new(Synth::new(Preset::Poly)),
                 }),
                 vec![MidiClip {
@@ -269,6 +270,7 @@ pub(crate) fn playing_hosted(tracks: u64, lanes: bool) -> (MixerHandle, SynthPla
                 Some(InstrumentSpec {
                     kind: 77,
                     preset: 0,
+                    values: Vec::new(),
                     instrument: Box::new(HostedInstrument::new(guard)),
                 }),
                 vec![MidiClip {

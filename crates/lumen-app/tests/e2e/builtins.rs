@@ -177,31 +177,26 @@ fn a_value_typed_on_the_knob_is_read_at_once_and_is_one_undo_step() {
 }
 
 #[test]
-fn all_parameters_lists_the_eight_and_a_star_puts_one_on_the_strip() {
+fn all_parameters_lists_the_eight_and_offers_no_star_on_a_face() {
     let (mut lumen, _, device) = launched("builtin-panel");
     lumen.click("All parameters (8)");
     lumen.frames(10);
+    // A set piece draws its own controls: there is no strip to star a
+    // parameter onto (M8 slice B2, review M6), so the panel says where they are.
     assert!(
-        lumen.shows("8 of 8 on the strip"),
-        "every parameter is on the strip"
+        lumen.shows("All 8 parameters"),
+        "the panel counts every parameter"
     );
-    lumen.click("Take Pan off the strip");
-    lumen.frames(5);
-    assert_eq!(lumen.app().strip_parameters(device).len(), 7);
-    assert!(!lumen.app().strip_parameters(device).contains(&PAN));
-    lumen.click("Put Pan on the strip");
-    lumen.frames(5);
-    assert!(lumen.app().strip_parameters(device).contains(&PAN));
-    // The strip's choice is part of the project's view.
-    assert!(
-        lumen
-            .app()
-            .project_as_saved()
-            .view
-            .shown_params
-            .get(&device)
-            .is_some_and(|s| s.contains(&PAN)),
-        "the strip is saved with the project"
+    for row in ["Take Pan off the strip", "Put Pan on the strip"] {
+        assert!(
+            lumen.harness.query_by_label(row).is_none(),
+            "a face offers no star: {row}"
+        );
+    }
+    assert_eq!(
+        lumen.app().strip_parameters(device).len(),
+        8,
+        "the card keeps every parameter"
     );
 }
 
@@ -658,7 +653,7 @@ fn the_set_pieces_all_link_opens_all_parameters_and_its_header_has_the_power_and
     lumen.click("All parameters (8)");
     lumen.frames(10);
     assert!(
-        lumen.shows("8 of 8 on the strip"),
+        lumen.shows("All 8 parameters"),
         "the link opens All parameters"
     );
 }
