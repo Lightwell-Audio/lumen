@@ -1666,19 +1666,30 @@ fn a_reset_never_touches_the_heap() {
 // ---------------------------------------------------------------- golden
 
 /// What a golden render is pinned by: twenty samples at fixed frames, the sum
-/// of the magnitudes and the sum of the squares. Compared within a millionth
-/// (relative), never by their bits: the platforms' maths libraries round `exp`
-/// and `powf` a last bit apart.
-fn pinned(left: &[f32]) -> ([f32; 20], f64, f64) {
+/// of the magnitudes, the sum of the squares and the loudest sample.
+fn pinned(left: &[f32]) -> ([f32; 20], f64, f64, f64) {
     let mut samples = [0.0f32; 20];
     for (k, sample) in samples.iter_mut().enumerate() {
         *sample = left[k * (left.len() / 20)];
     }
     let level: f64 = left.iter().map(|x| f64::from(x.abs())).sum();
     let energy: f64 = left.iter().map(|x| f64::from(*x) * f64::from(*x)).sum();
-    (samples, level, energy)
+    let peak = f64::from(left.iter().fold(0.0f32, |most, x| most.max(x.abs())));
+    (samples, level, energy, peak)
 }
 
+/// A sample against its pin, within a millionth of `scale` (or of the pin,
+/// when that is larger), never by its bits: the platforms' maths libraries
+/// round `log10`, `exp` and `powf` a last bit apart.
+#[track_caller]
+fn close_sample(got: f64, want: f64, scale: f64) {
+    assert!(
+        (got - want).abs() <= 1e-6 * want.abs().max(scale),
+        "{got:e} against the pinned {want:e}"
+    );
+}
+
+/// A sum against its pin, within a millionth of the sum itself.
 #[track_caller]
 fn close(got: f64, want: f64) {
     assert!(
@@ -1703,10 +1714,14 @@ fn a_golden_render_of_automated_gravity_is_pinned_to_its_samples() {
         (1_500, at(compressor::TABLE, compressor::RATIO, 12.0)),
     ];
     let (mut left, mut right) = (vec![0.0; frames], vec![0.0; frames]);
+    // The tone is worked out in double and rounded once: the platforms' `f32`
+    // sine and cosine differ in a last bit, and this device's ballistics keep
+    // that difference (a golden is only the same everywhere if every sample
+    // that enters it is).
     for k in 0..frames {
-        let x = k as f32 * 0.031;
-        left[k] = (x * 29.0).sin() * 0.8;
-        right[k] = (x * 17.0).cos() * 0.7;
+        let x = k as f64 * 0.031;
+        left[k] = ((x * 29.0).sin() * 0.8) as f32;
+        right[k] = ((x * 17.0).cos() * 0.7) as f32;
     }
     let mut device = Compressor::new();
     run(
@@ -1735,36 +1750,38 @@ fn a_golden_render_of_automated_gravity_is_pinned_to_its_samples() {
         ],
         None,
     );
-    let (samples, level, energy) = pinned(&left);
-    // A golden is pinned within a millionth, never by its bits: the platforms'
-    // maths libraries round `exp` and `powf` a last bit apart.
+    let (samples, level, energy, peak) = pinned(&left);
+    // A golden is pinned within a millionth of what it peaks at, never by its
+    // bits: the platforms' maths libraries round `log10`, `exp` and `powf` a
+    // last bit apart, and a sample close to silence has no relative room to
+    // spare for it.
     const PINS: [f32; 20] = [
         0.0,
-        -1.028_189_8,
-        1.768_813_8,
-        -1.476_835_1,
-        0.385_838_54,
-        0.585_212_4,
-        -0.772_780_4,
-        0.603_449_5,
-        -0.236_174_3,
-        -0.128_298_01,
-        0.341_473_22,
-        -0.344_071_9,
-        0.189_203_74,
-        0.014_736_537,
-        -0.180_108_34,
-        0.247_255_62,
-        -0.191_338_72,
-        0.040_941_395,
-        0.128_075_15,
-        -0.231_129_05,
+        -1.028_203_6,
+        1.768_817_8,
+        -1.476_86,
+        0.385_756_8,
+        0.585_213_84,
+        -0.772_766_65,
+        0.603_440_6,
+        -0.236_126_5,
+        -0.128_319_77,
+        0.341_472_2,
+        -0.344_068_08,
+        0.189_226_42,
+        0.014_762_647,
+        -0.180_116_53,
+        0.247_255_09,
+        -0.191_308_32,
+        0.040_964_693,
+        0.128_095_18,
+        -0.231_132_5,
     ];
     for (k, want) in PINS.iter().enumerate() {
-        close(f64::from(samples[k]), f64::from(*want));
+        close_sample(f64::from(samples[k]), f64::from(*want), peak);
     }
-    close(level, 1.799_342_877_928_589_6e3);
-    close(energy, 1.665_881_039_358_343e3);
+    close(level, 1.799_343_980_573_081_4e3);
+    close(energy, 1.665_880_419_708_235_2e3);
 }
 
 /// The golden render of a limiter in true-peak mode, pinned the same way.
@@ -1772,10 +1789,12 @@ fn a_golden_render_of_automated_gravity_is_pinned_to_its_samples() {
 fn a_golden_render_of_horizon_is_pinned_to_its_samples() {
     let frames = 4_000;
     let (mut left, mut right) = (vec![0.0; frames], vec![0.0; frames]);
+    // Worked out in double as the compressor's golden is, and for the same
+    // reason.
     for k in 0..frames {
-        let x = k as f32 * 0.043;
-        left[k] = (x * 37.0).sin() * 1.4;
-        right[k] = (x * 21.0).cos() * 1.2;
+        let x = k as f64 * 0.043;
+        left[k] = ((x * 37.0).sin() * 1.4) as f32;
+        right[k] = ((x * 21.0).cos() * 1.2) as f32;
     }
     let mut device = Limiter::new();
     run(
@@ -1792,34 +1811,34 @@ fn a_golden_render_of_horizon_is_pinned_to_its_samples() {
         &[],
         None,
     );
-    let (samples, level, energy) = pinned(&left);
+    let (samples, level, energy, peak) = pinned(&left);
     const PINS: [f32; 20] = [
         0.0,
-        0.477_397_05,
-        0.285_880_83,
-        -0.752_835,
-        0.627_081,
-        -0.070_977_48,
-        -0.507_191_2,
-        0.702_264_25,
-        -0.366_780_88,
-        -0.245_726_72,
-        0.672_628,
-        -0.591_350_9,
-        0.063_342_944,
-        0.512_515_66,
-        -0.701_235_9,
-        0.360_125_66,
-        0.252_825_86,
-        -0.675_011_1,
-        0.587_052_8,
-        -0.055_787_597,
+        0.477_405_04,
+        0.285_862_8,
+        -0.752_826_2,
+        0.627_100_05,
+        -0.071_062_08,
+        -0.507_156,
+        0.702_255_37,
+        -0.366_838_75,
+        -0.245_695_55,
+        0.672_627_7,
+        -0.591_426_2,
+        0.063_444_87,
+        0.512_468_93,
+        -0.701_240_6,
+        0.360_273_3,
+        0.252_859_47,
+        -0.674_979_7,
+        0.587_186_63,
+        -0.055_820_62,
     ];
     for (k, want) in PINS.iter().enumerate() {
-        close(f64::from(samples[k]), f64::from(*want));
+        close_sample(f64::from(samples[k]), f64::from(*want), peak);
     }
-    close(level, 1.833_519_686_036_379_4e3);
-    close(energy, 1.062_318_475_213_476_9e3);
+    close(level, 1.833_520_986_829_666e3);
+    close(energy, 1.062_317_835_910_838_5e3);
 }
 
 /// The tables, pinned (M8 §6 E2): each parameter's id, the name a person reads
