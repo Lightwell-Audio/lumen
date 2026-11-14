@@ -65,6 +65,12 @@ impl App {
             && (self.chain.hovered || panes::focused(ctx) == Some(Pane::Detail));
         self.chain.live = docked && self.chain.selected.is_some();
         self.chain.hovered = false;
+        // The analysers are read by the Devices tab alone (M8 slice B1): with
+        // the tab hidden or on another tab, nothing is looked at, so nothing
+        // runs.
+        if !self.show_detail || self.detail_tab != crate::app::detail::DetailTab::Devices {
+            self.silence_spectra();
+        }
     }
 }
 
@@ -74,6 +80,8 @@ mod menu;
 mod paint;
 mod panel;
 mod rows;
+pub(in crate::chain) use rows::DrawingRow;
+use rows::personal_of;
 
 #[cfg(test)]
 mod tests;

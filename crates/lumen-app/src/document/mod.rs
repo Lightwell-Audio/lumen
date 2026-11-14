@@ -27,6 +27,7 @@ mod consolidate;
 mod crossfades;
 mod devices;
 mod drums;
+mod drums_edit;
 mod freeze;
 mod groups;
 mod import;
@@ -54,7 +55,7 @@ pub use import::{Awaiting, DropInto, FollowTempo, Imported, Places, import_place
 pub use lanes::{Drag, Line, Shift};
 pub use midi_clips::NewClip;
 pub use mixer::Refused;
-pub use notes::Resize;
+pub use notes::{LaneMove, Resize};
 pub use outputs::{Leave, OutputEdit};
 pub use overrides::Overrides;
 pub use record::Recording;

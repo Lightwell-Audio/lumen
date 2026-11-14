@@ -6,17 +6,24 @@
 //! or blocking while rendering. Devices allocate in their constructors,
 //! which run on the UI side.
 
+pub mod analyzer;
+pub mod delay;
 pub mod dynamics;
 pub mod effect;
+pub mod eq;
 pub mod hosted;
 pub mod instrument;
+mod line;
 pub mod params;
+pub mod reverb;
 pub mod synth;
 pub mod utility;
 
+pub use analyzer::{Read, Reader, Tap};
 pub use dynamics::Reading as MeterReading;
 pub use dynamics::{Compressor, Limiter, Reduction};
 pub use effect::{Block, Description, Effect, Key, Stereo, Values};
+pub use eq::Eq;
 pub use hosted::{
     Cost, FAILED_AFTER_FRAMES, Guard, Hosted, HostedInstrument, MOST_FRAMES, MOST_POINTS,
     MOST_QUEUES, Mark, Outcome, ParamBlock, Refused, Reply, Status,
@@ -31,6 +38,9 @@ pub use utility::Utility;
 /// `builtin::identity`), which a test keeps in step with this list.
 pub static EFFECTS: &[&Description] = &[
     &utility::DESCRIPTION,
+    &eq::DESCRIPTION,
+    &delay::DESCRIPTION,
+    &reverb::DESCRIPTION,
     &dynamics::compressor::DESCRIPTION,
     &dynamics::limiter::DESCRIPTION,
 ];
@@ -93,10 +103,26 @@ pub fn effect_tail(name: &str, values: Values<'_>) -> Option<u32> {
     effect_description(name).map(|description| (description.tail)(values))
 }
 
+/// Frames the effect called `name` rings on after its input stops at `values`,
+/// at a tempo of `bpm` and a rate of `rate`, or `None` when no device has that
+/// name. A device whose tail is a number of seconds (a delay whose time is in
+/// notes follows the tempo) needs both; a device whose tail does not look at
+/// them gives what [`effect_tail`] gives.
+pub fn effect_tail_at(name: &str, values: Values<'_>, bpm: f32, rate: u32) -> Option<u32> {
+    match name {
+        delay::NAME => Some(delay::tail_frames(values, bpm, rate)),
+        reverb::NAME => Some(reverb::tail_frames(values, rate)),
+        _ => effect_tail(name, values)
+            // A device that reports frames at the reference rate (48 kHz, the
+            // contract `effect_tail` documents) is put on the rate in hand.
+            .map(|frames| (u64::from(frames) * u64::from(rate) / 48_000) as u32),
+    }
+}
+
 /// A built-in effect by the name a project saves. The constructor allocates:
 /// call it on the interface side, then hand the device to the audio thread.
 pub fn effect(name: &str) -> Option<Box<dyn Effect>> {
-    effect_with_meter(name).map(|(effect, _)| effect)
+    effect_built(name, None).map(|(effect, _)| effect)
 }
 
 /// A built-in effect by the name a project saves, with the handle its
@@ -105,8 +131,26 @@ pub fn effect(name: &str) -> Option<Box<dyn Effect>> {
 /// call it on the interface side, then hand the device to the audio thread and
 /// keep the handle.
 pub fn effect_with_meter(name: &str) -> Option<(Box<dyn Effect>, Option<Reduction>)> {
+    effect_built(name, None)
+}
+
+/// As [`effect`], with the spectrum tap a device that analyses its own audio
+/// writes into (M8 slice B1). A device that has no analyser ignores it.
+pub fn effect_tapped(name: &str, tap: Option<Tap>) -> Option<Box<dyn Effect>> {
+    effect_built(name, tap).map(|(effect, _)| effect)
+}
+
+/// A built-in effect with both of its optional handles: the spectrum tap it
+/// writes into (B1) and the gain-reduction meter it hands back (B2).
+pub fn effect_built(
+    name: &str,
+    tap: Option<Tap>,
+) -> Option<(Box<dyn Effect>, Option<Reduction>)> {
     match name {
         utility::NAME => Some((Box::new(Utility::new()), None)),
+        eq::NAME => Some((Box::new(Eq::with_tap(tap)), None)),
+        delay::NAME => Some((Box::new(delay::Delay::new()), None)),
+        reverb::NAME => Some((Box::new(reverb::Reverb::new()), None)),
         dynamics::compressor::NAME => {
             let (device, meter) = Compressor::build();
             Some((Box::new(device), Some(meter)))
@@ -119,21 +163,41 @@ pub fn effect_with_meter(name: &str) -> Option<(Box<dyn Effect>, Option<Reductio
     }
 }
 
+/// Whether the built-in effect called `name` fills a spectrum tap it is given.
+pub fn watches_spectrum(name: &str) -> bool {
+    name == eq::NAME
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn every_built_in_effect_is_in_both_tables() {
-        assert!(!EFFECTS.is_empty());
-        for description in EFFECTS {
-            let name = description.name;
+        assert_eq!(
+            EFFECTS.len(),
+            6,
+            "Prism, Iris, Parallax, Afterglow, Gravity and Horizon"
+        );
+        for (name, watched) in [
+            (utility::NAME, false),
+            (eq::NAME, true),
+            (delay::NAME, false),
+            (reverb::NAME, false),
+            (dynamics::compressor::NAME, false),
+            (dynamics::limiter::NAME, false),
+        ] {
             assert!(effect_params(name).is_some(), "{name} has a table");
             assert!(effect(name).is_some(), "{name} is built");
+            assert!(
+                effect_tapped(name, None).is_some(),
+                "{name} builds untapped"
+            );
             assert!(
                 effect_with_meter(name).is_some(),
                 "{name} is built with its meter"
             );
+            assert_eq!(watches_spectrum(name), watched, "{name}");
         }
         assert!(effect_params("nothing").is_none());
         assert!(effect("nothing").is_none());

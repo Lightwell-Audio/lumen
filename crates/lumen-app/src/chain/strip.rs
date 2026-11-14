@@ -56,6 +56,12 @@ pub(super) struct Slot {
 pub(super) enum Output {
     /// A parameter was moved.
     Set(u32, f64),
+    /// Several were moved together by a face: a point drags its band's
+    /// frequency and gain at once, as one gesture of one undo step (M8 slice
+    /// B1).
+    Moved(Vec<(u32, f64)>),
+    /// A face put a band back to its defaults: one undo step.
+    Reset(Vec<(u32, f64)>),
     /// A switch or a chooser picked a value: one undo step each.
     Choose(u32, f64),
     /// The user typed text for a parameter: the plugin reads it.
@@ -116,14 +122,6 @@ pub(super) fn default_shown(list: &[ParamInfo]) -> Vec<u32> {
         .take(SLOTS)
         .map(|p| p.id)
         .collect()
-}
-
-/// The four parameters a face draws as its controls (M8 slice B2): the first
-/// four a person would move, as the strip's default shows them. The compact
-/// card folds a face back to exactly these, and every other parameter is in All
-/// parameters.
-pub(super) fn face_ids(list: &[ParamInfo]) -> Vec<u32> {
-    default_shown(list).into_iter().take(COLUMNS).collect()
 }
 
 /// The ids on the strip: the chosen ones the plugin still lists and offers,

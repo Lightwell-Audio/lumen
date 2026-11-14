@@ -259,6 +259,14 @@ pub struct Arrangement {
     hot_edge: Option<(Id, f32)>,
     /// Clip bodies on the GPU (slice 4b).
     gpu: clips::GpuClips,
+    /// What each mapped clip's drum rows drew last frame (M8 D2): the rows,
+    /// the cells and the widest mark, for the tests to see the picture was
+    /// drawn and stayed narrow. Empty when the clip was out of view or its
+    /// track reads no map.
+    pub(crate) drum_pictures: std::collections::BTreeMap<Id, (usize, usize, f32)>,
+    /// The pictures' gathered cells, by clip: a frame that changes nothing
+    /// draws from here, and a clip no longer drawn leaves it (review H2, M1).
+    drum_cache: std::collections::BTreeMap<Id, crate::drum_editor::arrangement::Picture>,
     /// Heights, folding and scroll before H fitted every track (H again
     /// restores them).
     fitted: Option<(BTreeMap<Id, f32>, BTreeSet<Id>, f32)>,
@@ -416,6 +424,16 @@ pub(crate) fn color_from(c: Color32) -> Color {
     Color(u32::from(c.r()) << 16 | u32::from(c.g()) << 8 | u32::from(c.b()))
 }
 
+/// A track's, clip's or drum sound's colour as the interface draws it: the
+/// other direction of [`color_from`].
+pub(crate) fn color_to(c: Color) -> Color32 {
+    Color32::from_rgb(
+        ((c.0 >> 16) & 0xFF) as u8,
+        ((c.0 >> 8) & 0xFF) as u8,
+        (c.0 & 0xFF) as u8,
+    )
+}
+
 impl Arrangement {
     /// The header column's width.
     pub fn header_width(&self) -> f32 {
@@ -471,6 +489,24 @@ mod tests {
     use lumen_project::model::TrackKind;
 
     use crate::document::Document;
+
+    #[test]
+    fn a_clip_no_longer_drawn_leaves_the_drum_cache() {
+        // Review M1: a deleted, hidden or scrolled-away clip does not keep its
+        // gathered picture.
+        let mut arrangement = Arrangement::default();
+        let picture = || crate::drum_editor::arrangement::Picture::default();
+        arrangement.drum_cache.insert(Id(1), picture());
+        arrangement.drum_cache.insert(Id(2), picture());
+        let mut drawn = std::collections::BTreeMap::new();
+        drawn.insert(Id(1), (2, 3, 1.5));
+        arrangement.prune_drum_cache(&drawn);
+        assert!(arrangement.drum_cache.contains_key(&Id(1)), "still drawn");
+        assert!(
+            !arrangement.drum_cache.contains_key(&Id(2)),
+            "no longer drawn, so gone"
+        );
+    }
 
     #[test]
     fn fitted_heights_are_whole_steps_that_fit() {

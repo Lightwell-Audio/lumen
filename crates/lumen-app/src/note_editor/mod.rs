@@ -90,7 +90,7 @@ pub(crate) struct NoteEditor {
     pub zooms: Vec<EditorZoom>,
     /// Points a pitch is tall (0 until first drawn).
     pub row_height: f32,
-    /// Points scrolled down from the top of pitch 127.
+    /// Points scrolled down from the top of the first row.
     pub scroll: f32,
     /// The clip the view was last framed for: fitted to its span and
     /// centred vertically when it first draws.
@@ -108,7 +108,16 @@ pub(crate) struct NoteEditor {
     pub window_opened_at: Option<crate::settings::WindowPlace>,
     /// The editor's keys are live: set at the start of each frame.
     pub live: bool,
+    /// The note editor's lane toggle, and its menu, read these.
     pub menu_for: MenuFor,
+    /// On a track with a drum map: the key column shows only the map's
+    /// sounds (M8 D1, "Hide unmapped keys"). Not saved: a view, like the
+    /// lane's shown state.
+    pub hide_unmapped: bool,
+    /// The drum editor's own view state (M8 D2): the view a track's clips open
+    /// in, its Hide unused, the lanes showing length, and a reorder. Not
+    /// saved.
+    pub drum: crate::drum_editor::State,
     /// The clip time under the pointer when the menu was opened: "Split
     /// here" cuts there. Latched, because while the menu is used the pointer
     /// is over the menu, not the roll, so `pointer_at` is empty.
@@ -130,21 +139,28 @@ struct NoteBoxes {
     clip: std::sync::Arc<Clip>,
     picked: Vec<usize>,
     colour: egui::Color32,
+    rows: view::Rows,
     boxes: std::sync::Arc<Vec<lumen_render::BoxInstance>>,
     generation: u64,
 }
 
 impl NoteEditor {
     /// The boxes for `clip` in `colour` with the picked notes outlined,
-    /// rebuilt only when the clip, the picks or the colour changed.
+    /// rebuilt only when the clip, the picks, the colour or the rows shown
+    /// changed. With a folded roll (`rows` fewer than 128) a note is drawn
+    /// on the index of its row and a note on a hidden key is left out.
     pub fn boxes_for(
         &mut self,
         clip: &std::sync::Arc<Clip>,
         colour: egui::Color32,
+        rows: view::Rows,
     ) -> (std::sync::Arc<Vec<lumen_render::BoxInstance>>, u64) {
         let picked = self.picked().to_vec();
         let fresh = self.boxes.as_ref().is_some_and(|b| {
-            std::sync::Arc::ptr_eq(&b.clip, clip) && b.picked == picked && b.colour == colour
+            std::sync::Arc::ptr_eq(&b.clip, clip)
+                && b.picked == picked
+                && b.colour == colour
+                && b.rows == rows
         });
         if !fresh {
             let selected: std::collections::BTreeSet<usize> = picked.iter().copied().collect();
@@ -157,16 +173,27 @@ impl NoteEditor {
                 carried: &[],
                 outside: true,
             };
-            let boxes = crate::piano_roll::notes::note_instances(
+            let boxes: Vec<lumen_render::BoxInstance> = crate::piano_roll::notes::note_instances(
                 &notes,
                 &selected,
                 &crate::piano_roll::notes::NoteColors::new(colour),
-            );
+            )
+            .into_iter()
+            .filter_map(|mut instance| {
+                // The layer's row table puts a note at pitch `p` on row
+                // `127 - p`; a folded roll puts a note at pitch `p` on the
+                // index of that pitch's row instead.
+                let row = rows.row_of(instance.row as i32)?;
+                instance.row = (crate::note_editor::view::PITCHES as u32) - 1 - row as u32;
+                Some(instance)
+            })
+            .collect();
             self.generation += 1;
             self.boxes = Some(NoteBoxes {
                 clip: clip.clone(),
                 picked,
                 colour,
+                rows,
                 boxes: std::sync::Arc::new(boxes),
                 generation: self.generation,
             });
@@ -186,7 +213,8 @@ impl NoteEditor {
     pub fn cancel_gesture(&mut self) -> bool {
         let notes = self.gesture.take().is_some();
         let lane = self.lane.cancel_gesture();
-        notes || lane
+        let reorder = self.drum.reorder.take().is_some();
+        notes || lane || reorder
     }
 }
 
@@ -212,6 +240,55 @@ impl App {
                     )
                 })
         })
+    }
+
+    /// The drum map a clip's track reads, if it reads one (M8 D1).
+    pub(crate) fn clip_drum_map(&self, clip: Id) -> Option<&lumen_project::model::DrumMap> {
+        let project = self.document.project();
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.clips.iter().any(|c| c.id == clip))?;
+        project.drum_map_of(track)
+    }
+
+    /// The sounds of the map the open clip's track reads, for the key
+    /// column: each sound's drawing, name, colour and whether it is heard.
+    pub(crate) fn clip_key_sounds(
+        &self,
+        clip: Id,
+    ) -> Option<Vec<crate::piano_roll::draw::KeySound>> {
+        let map = self.clip_drum_map(clip)?;
+        Some(
+            map.sounds
+                .iter()
+                .map(|sound| crate::piano_roll::draw::KeySound {
+                    input: sound.input,
+                    name: sound.name.clone(),
+                    icon: sound.icon.into(),
+                    color: crate::theme::wave(crate::arrangement::color_to(sound.color)),
+                    silent: !map.heard(sound),
+                })
+                .collect(),
+        )
+    }
+
+    /// Whether the open clip is on a track with a drum map (the key
+    /// column's "Hide unmapped keys" can act).
+    pub(crate) fn editor_has_drum_map(&self) -> bool {
+        self.note_editor
+            .clip
+            .is_some_and(|clip| self.clip_drum_map(clip).is_some())
+    }
+
+    /// The key column shows only the drum map's sounds, or every key again.
+    pub(crate) fn toggle_hide_unmapped_keys(&mut self) {
+        if !self.editor_has_drum_map() {
+            return;
+        }
+        self.note_editor.hide_unmapped = !self.note_editor.hide_unmapped;
+        // The view no longer fits the same rows: keep the scroll sensible.
+        self.note_editor.framed_for = None;
     }
 
     /// Opens MIDI clip `clip` in the Clip tab (showing the detail panel),
@@ -247,6 +324,7 @@ impl App {
         ed.clip = None;
         ed.selection = None;
         ed.gesture = None;
+        ed.drum.reorder = None;
         ed.popped = false;
     }
 

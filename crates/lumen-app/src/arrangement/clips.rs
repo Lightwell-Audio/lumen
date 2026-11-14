@@ -15,7 +15,7 @@ use std::sync::Arc;
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke, pos2, vec2};
 use lumen_core::time::Ticks;
 use lumen_media::Peaks;
-use lumen_project::model::{Clip, ClipContent, Project, TrackKind};
+use lumen_project::model::{Clip, ClipContent, Id, Project, TrackKind};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle};
 
 use super::clip_look::{ClipLook, ClipState, clip_box, draw_body, draw_name, item_state, look_of};
@@ -176,6 +176,16 @@ impl GpuClips {
 }
 
 impl Arrangement {
+    /// Drops the drum pictures of clips that were not drawn this frame: a clip
+    /// deleted, hidden, moved to another track or scrolled out of view leaves
+    /// the cache (review M1).
+    pub(super) fn prune_drum_cache(
+        &mut self,
+        drawn: &std::collections::BTreeMap<Id, (usize, usize, f32)>,
+    ) {
+        self.drum_cache.retain(|id, _| drawn.contains_key(id));
+    }
+
     /// The lanes and clips in `canvas`.
     pub fn lanes(
         &mut self,
@@ -187,6 +197,9 @@ impl Arrangement {
         time: TimeView,
     ) {
         let palette = *theme::p();
+        // The drum pictures' gathered cells, taken out for this frame and put
+        // back at its end (review H2).
+        let mut drum_cache = std::mem::take(&mut self.drum_cache);
         // Clips moved by an edit are drawn on their way (M4.5, M1).
         let now = ctx.input(|i| i.time);
         self.glides.update(
@@ -354,6 +367,7 @@ impl Arrangement {
         ));
 
         // Names; clips loading for import; lane edges.
+        let mut drum_pictures = std::collections::BTreeMap::new();
         for row in &rows {
             let Some(lane) = lane_of(row) else {
                 continue;
@@ -413,6 +427,29 @@ impl Arrangement {
                         }
                         if x1 - x0 < NAME_MIN_WIDTH {
                             continue;
+                        }
+                        // A MIDI clip on a track with a drum map is drawn as
+                        // one row a sound, a cell a hit (M8 D2, DV A).
+                        if let Some(map) = project.drum_map_of(track) {
+                            let body = Rect::from_min_max(
+                                pos2(x0 + INSET, rect.top() + TITLE + WAVE_GAP),
+                                pos2(x1 - INSET, rect.bottom() - WAVE_GAP),
+                            );
+                            let dim = if heard { 1.0 } else { theme::CLIP_DIMMED };
+                            let picture = drum_cache.entry(clip.id).or_default();
+                            let drawn = crate::drum_editor::arrangement::paint(
+                                painter,
+                                crate::drum_editor::arrangement::MapKey {
+                                    map,
+                                    revision: doc.state(),
+                                },
+                                clip,
+                                body,
+                                time,
+                                dim,
+                                picture,
+                            );
+                            drum_pictures.insert(clip.id, drawn);
                         }
                         let paint = recording_look::paint(
                             self.recording.as_ref(),
@@ -530,6 +567,9 @@ impl Arrangement {
                 draw_edge_glow(painter, canvas.x_range(), lane.bottom(), t);
             }
         }
+        self.prune_drum_cache(&drum_pictures);
+        self.drum_pictures = drum_pictures;
+        self.drum_cache = drum_cache;
         // The drop line of a track drag continues across the lanes.
         self.draw_drop_line(painter, canvas, false);
         self.draw_selection(painter, canvas, project, &rows, time);

@@ -347,6 +347,17 @@ impl App {
         );
     }
 
+    /// Frames the project's devices ring on after its sound stops (M8 slice
+    /// B3): the automatic tail an export or a bounce adds.
+    pub fn project_tail(&self) -> u64 {
+        crate::builtin::tail_frames(self.project(), 48_000)
+    }
+
+    /// Frames one track's own devices ring on after its sound stops.
+    pub fn track_tail(&self, track: Id) -> u64 {
+        crate::builtin::track_tail_frames(self.project(), track, 48_000)
+    }
+
     /// The programs a device's plugin offers: each list's name and its
     /// programs' names.
     pub fn device_programs(&self, device: Id) -> Vec<(String, Vec<String>)> {
@@ -418,6 +429,19 @@ impl App {
     pub fn is_builtin(&self, device: Id) -> bool {
         find_device(self.document.project(), device)
             .is_some_and(|(_, d)| crate::builtin::is_builtin(d))
+    }
+
+    /// Puts a picture in a built-in's analyser, as a live signal would, for a
+    /// screenshot: a shot has no project that plays, so this is the only way
+    /// its face can show a mist (M8 slice B1). The window itself is tested
+    /// with a real tone in `lumen-devices`.
+    pub fn pretend_spectrum(&mut self, device: Id, db: &[f32]) {
+        self.chain.pretend_spectrum = Some((device, db.to_vec()));
+    }
+
+    /// Picks band `index` (0-based) of a face, as clicking its point does.
+    pub fn pick_band(&mut self, device: Id, index: usize) {
+        self.chain.bands.insert(device, index);
     }
 
     /// Sets what a built-in device's gain-reduction meter reads, as if the

@@ -426,10 +426,47 @@ impl App {
             Command::AddWarpMarker => self.add_warp_marker_command(),
             Command::ClearWarpMarkers => self.clear_warp_markers_command(),
             Command::FixWarpHit => self.fix_warp_hit_command(),
-            Command::DrumMapAttach => self.choose_drum_map(),
+            Command::DrumMapAttach => self.open_drum_map_editor(),
             Command::DrumMapDetach => self.detach_drum_map_command(),
             Command::ConvertDrumMap => self.choose_drum_map_conversion(),
+            Command::DrumMapUnique => self.drum_map_unique_command(),
+            Command::DrumMapSave => self.drum_map_save_command(),
+            Command::DrumMapImport => self.drum_map_import_command(ctx),
+            Command::DrumMapExport => self.drum_map_export_command(ctx),
+            Command::HideUnmappedKeys => self.toggle_hide_unmapped_keys(),
             Command::AddUtility => self.add_utility(),
+            Command::DrumLanesView => {
+                self.set_drum_view(crate::drum_editor::View::Lanes);
+            }
+            Command::DrumKeysView => {
+                self.set_drum_view(crate::drum_editor::View::Keys);
+            }
+            Command::HideUnusedLanes => {
+                self.toggle_hide_unused_lanes();
+            }
+            Command::DrumMuteLane => {
+                if let Some((map, input)) = self.drum_picked_lane() {
+                    let mute = self
+                        .document
+                        .drum_map(map)
+                        .and_then(|m| m.sound(input))
+                        .is_some_and(|sound| sound.mute);
+                    self.document.set_sound_mute(map, input, !mute);
+                }
+            }
+            Command::DrumSoloLane => {
+                if let Some((map, input)) = self.drum_picked_lane() {
+                    let solo = self
+                        .document
+                        .drum_map(map)
+                        .and_then(|m| m.sound(input))
+                        .is_some_and(|sound| sound.solo);
+                    self.document.set_sound_solo(map, input, !solo);
+                }
+            }
+            Command::AddEq => self.add_eq(),
+            Command::AddDelay => self.add_builtin(lumen_devices::delay::NAME),
+            Command::AddReverb => self.add_builtin(lumen_devices::reverb::NAME),
             Command::AddCompressor => self.add_builtin(lumen_devices::dynamics::compressor::NAME),
             Command::AddLimiter => self.add_builtin(lumen_devices::dynamics::limiter::NAME),
             Command::TransposeClipUp => self.transpose_clips_command(1),

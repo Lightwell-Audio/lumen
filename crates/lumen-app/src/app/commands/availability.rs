@@ -380,11 +380,14 @@ impl App {
             Command::WarpClips | Command::WarpFromHere => self.warp_unavailable(),
             Command::AddWarpMarker | Command::ClearWarpMarkers => self.markers_unavailable(),
             Command::FixWarpHit => self.fix_warp_hit_unavailable(),
-            // Prism can always go somewhere: on the selected track, or on a
-            // new audio track (M8 slice B0).
-            Command::AddUtility => Ok(()),
-            Command::AddCompressor => Ok(()),
-            Command::AddLimiter => Ok(()),
+            // A built-in effect can always go somewhere: on the selected
+            // track, or on a new audio track (M8 slices B0 to B3).
+            Command::AddUtility
+            | Command::AddEq
+            | Command::AddDelay
+            | Command::AddReverb
+            | Command::AddCompressor
+            | Command::AddLimiter => Ok(()),
             Command::TransposeClipUp | Command::TransposeClipDown => self.transpose_unavailable(),
             Command::SetTempoFromClip | Command::DoubleClipTempo | Command::HalveClipTempo => {
                 self.warped_unavailable()
@@ -497,6 +500,47 @@ impl App {
             Command::ConvertDrumMap => need(
                 self.can_convert_drum_map(),
                 "Select clips on a track with a drum map first, with another map to go to",
+            ),
+            Command::DrumMapUnique => need(
+                self.selected_midi_tracks()
+                    .iter()
+                    .any(|id| self.document.drum_map_of(*id).is_some()),
+                "Select a MIDI track with a drum map first",
+            ),
+            Command::DrumMapSave | Command::DrumMapExport => need(
+                self.drum_map.map().is_some()
+                    || self
+                        .selected_midi_tracks()
+                        .iter()
+                        .any(|id| self.document.drum_map_of(*id).is_some()),
+                "Select a MIDI track with a drum map first",
+            ),
+            Command::DrumMapImport => Ok(()),
+            Command::HideUnmappedKeys => need(
+                self.editor_has_drum_map()
+                    && self
+                        .note_editor
+                        .clip
+                        .is_some_and(|c| self.drum_view(c) == Some(crate::drum_editor::View::Keys)),
+                "Open a MIDI clip on a track with a drum map in the Keys view first",
+            ),
+            // A drum clip's view rows: the reason says what is missing, so a
+            // clip on a track with no map is told that (review L4).
+            Command::DrumLanesView | Command::DrumKeysView | Command::HideUnusedLanes => {
+                let drum = self.note_editor.clip.and_then(|clip| self.drum_view(clip));
+                match (command, drum) {
+                    (_, None) => Err("Open a clip on a track with a drum map first"),
+                    (Command::DrumLanesView, Some(crate::drum_editor::View::Keys)) => Ok(()),
+                    (Command::DrumLanesView, Some(_)) => Err("The drum lanes are the view already"),
+                    (Command::DrumKeysView, Some(crate::drum_editor::View::Lanes)) => Ok(()),
+                    (Command::DrumKeysView, Some(_)) => Err("The piano roll is the view already"),
+                    (_, Some(crate::drum_editor::View::Lanes)) => Ok(()),
+                    (_, Some(_)) => Err("Show the drum lanes first"),
+                }
+            }
+            Command::DrumMuteLane | Command::DrumSoloLane => need(
+                self.drum_picked_lane().is_some(),
+                "Pick hits in one lane of a drum clip first",
             ),
             Command::ClearSolos => need(
                 lumen_project::solo::any_soloed(self.document.project()),

@@ -32,11 +32,46 @@ fn arrangement_tools() {
     }
 }
 
+/// M8 D1: the fifteen drum glyphs, at 12, 16, 20 and 28 pt and in three
+/// track colours, in both themes at three scales.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn drum_icons() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let look = appearance.to_owned();
+            let mut ready = false;
+            let mut h = Harness::builder()
+                .with_size(vec2(560.0, 820.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_ui(move |ui| {
+                    if !ready {
+                        lumen_app::testing::prepare_look(ui.ctx(), &look);
+                        ready = true;
+                        // The typefaces apply from the next frame.
+                        return;
+                    }
+                    lumen_app::testing::drum_icon_sheet(ui);
+                });
+            h.run_steps(4);
+            save(&mut h, &format!("drum-icons-{appearance}-{scale}"));
+        }
+    }
+}
+
 use std::path::PathBuf;
 
 use eframe::egui::{Event, Key, Modifiers, Pos2, Rect, pos2, vec2};
 use egui_kittest::Harness;
 use lumen_app::{App, Launch};
+use lumen_project::drums::presets::Preset;
 use lumen_project::testing::TempDir;
 
 /// M9 R5: the export controls fit and scroll at the minimum window size.
@@ -2441,34 +2476,258 @@ fn builtin_card() {
     use egui_kittest::kittest::Queryable;
     use lumen_project::model::{Color, Device, Id, PluginRef, Track, TrackKind};
 
-    for (appearance, scale, size, tag) in [
-        ("dark", 1.0_f32, vec2(1280.0, 900.0), "whole"),
-        ("light", 1.0, vec2(1280.0, 900.0), "whole"),
-        ("dark", 1.5, vec2(1280.0, 900.0), "whole"),
-        ("light", 1.5, vec2(1280.0, 900.0), "whole"),
-        ("dark", 2.0, vec2(1280.0, 900.0), "whole"),
-        ("light", 2.0, vec2(1280.0, 900.0), "whole"),
-        ("dark", 1.0, vec2(960.0, 540.0), "small"),
-        ("light", 1.0, vec2(960.0, 540.0), "small"),
-        ("dark", 1.5, vec2(960.0, 540.0), "small"),
-        ("light", 1.5, vec2(960.0, 540.0), "small"),
-        ("dark", 2.0, vec2(960.0, 540.0), "small"),
-        ("light", 2.0, vec2(960.0, 540.0), "small"),
+    // The tray's room decides the card's step (whole, short, compact): the
+    // detail panel's height is what each shot sets.
+    let mut cases: Vec<(&str, f32, eframe::egui::Vec2, &str, f32)> = Vec::new();
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            for (tag, detail) in [("whole", 460.0), ("short", 365.0), ("compact", 300.0)] {
+                cases.push((appearance, scale, vec2(1280.0, 900.0), tag, detail));
+            }
+            cases.push((appearance, scale, vec2(960.0, 540.0), "small", 0.0));
+        }
+    }
+    // Each device with the specimen's values (saved normalised) and the
+    // number of parameters its All parameters button names.
+    type Values = &'static [(u32, f64)];
+    let devices: [(&str, &str, usize, Values); 4] = [
+        (
+            lumen_devices::utility::NAME,
+            "prism",
+            8,
+            &[(lumen_devices::utility::WIDTH, 0.65)],
+        ),
+        // Iris at its defaults (its parameters shot is not taken: the count is
+        // not needed to look at its header).
+        (lumen_devices::eq::NAME, "iris", 0, &[]),
+        // The specimen's: 1/8, 45 % feedback, 25 % mix, ping on; a 62 % room,
+        // 2.4 s, 55 % damping, 20 % mix (normalised by each table below).
+        (
+            lumen_devices::delay::NAME,
+            "parallax",
+            8,
+            &[
+                (lumen_devices::delay::NOTE, 0.5),
+                (lumen_devices::delay::FEEDBACK, 45.0),
+                (lumen_devices::delay::MIX, 25.0),
+                (lumen_devices::delay::PING, 1.0),
+            ],
+        ),
+        (
+            lumen_devices::reverb::NAME,
+            "afterglow",
+            7,
+            &[
+                (lumen_devices::reverb::SIZE, 62.0),
+                (lumen_devices::reverb::DECAY, 2.4),
+                (lumen_devices::reverb::DAMPING, 55.0),
+                (lumen_devices::reverb::MIX, 20.0),
+            ],
+        ),
+    ];
+    // SHOT_FILTER=afterglow-dark-1 keeps the cases whose
+    // "device-appearance-scale-tag" holds it.
+    let only = std::env::var("SHOT_FILTER").unwrap_or_default();
+    for (device_name, tag_name, parameters, values) in devices {
+        for &(appearance, scale, size, tag, detail) in &cases {
+            if !format!("{tag_name}-{appearance}-{scale}-{tag}").contains(&only) {
+                continue;
+            }
+            let dir = TempDir::new(&format!("shots-{tag_name}-{appearance}-{scale}-{tag}"));
+            let track = Track::new(Id(1), "Keys".to_owned(), TrackKind::Audio, Color(0x5E8C6A));
+            let mut track = track;
+            // A built-in saved with no values of its own plays its table's
+            // defaults, as a device added this build does.
+            let mut device = Device::new(
+                Id(10),
+                PluginRef::Builtin {
+                    name: device_name.to_owned(),
+                },
+                false,
+                Vec::new(),
+            );
+            // Prism's value is saved normalised; the others are in their own
+            // units (a note and a switch are already normalised).
+            let table = lumen_devices::effect_params(device_name).expect("a built-in");
+            for &(id, value) in values {
+                let own_units = device_name == lumen_devices::reverb::NAME
+                    || (device_name == lumen_devices::delay::NAME
+                        && id != lumen_devices::delay::NOTE
+                        && id != lumen_devices::delay::PING);
+                let norm = if own_units {
+                    let info = table.iter().find(|info| info.id == id).expect("an id");
+                    f64::from(info.normalised(value as f32))
+                } else {
+                    value
+                };
+                device.params.insert(id, norm);
+            }
+            track.devices = vec![device];
+            let project = lumen_project::testing::project_of(tag_name, vec![track]);
+            let path = dir.path().join("song.lumen");
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(size)
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            h.state_mut().select_tracks(&[Id(1)]);
+            h.run_steps(4);
+            // The browser has a Devices tab too: the detail panel's comes last.
+            h.get_all_by_label("Devices tab")
+                .last()
+                .expect("the tabs")
+                .click();
+            h.run_steps(4);
+            // A short tray shows compact cards (D2): make room for whole ones.
+            if tag != "small" {
+                h.state_mut().set_detail_size(detail);
+                h.run_steps(30);
+            }
+            let tag = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
+            save(&mut h, &format!("{tag_name}-{tag}"));
+            // Folded: the rail with the power and the name set on end.
+            h.state_mut().fold_device(Id(10));
+            h.run_steps(10);
+            save(&mut h, &format!("{tag_name}-folded-{tag}"));
+            h.state_mut().fold_device(Id(10));
+            h.run_steps(10);
+            // Every parameter on its own.
+            let all = format!("All parameters ({parameters})");
+            if h.query_by_label(&all).is_some() {
+                h.get_by_label(&all).click();
+                h.run_steps(10);
+                save(&mut h, &format!("{tag_name}-parameters-{tag}"));
+            }
+        }
+    }
+}
+
+/// Prism while the track plays: the screen is alive, the beams burn brighter
+/// with the level. Whole card, both themes, three scales.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn builtin_card_playing() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_project::model::Id;
+
+    for (command, tag_name) in [
+        ("Add Prism", "prism"),
+        ("Add Parallax", "parallax"),
+        ("Add Afterglow", "afterglow"),
     ] {
-        let dir = TempDir::new(&format!("shots-prism-{appearance}-{scale}-{tag}"));
-        let track = Track::new(Id(1), "Keys".to_owned(), TrackKind::Audio, Color(0x5E8C6A));
-        let mut track = track;
-        // A built-in saved with no values of its own plays its table's
-        // defaults, as a device added this build does.
-        track.devices = vec![Device::new(
+        for appearance in ["dark", "light"] {
+            for scale in [1.0_f32, 1.5, 2.0] {
+                let dir = TempDir::new(&format!("shots-{tag_name}-play-{appearance}-{scale}"));
+                let mut h =
+                    lumen_looking_sized(&dir, appearance, scale, eframe::egui::vec2(1280.0, 900.0));
+                let first = h.state().project().tracks[0].id;
+                h.state_mut().select_tracks(&[first]);
+                h.run_steps(4);
+                // Add Prism by the palette, as a person does.
+                h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+                h.run_steps(4);
+                h.event(Event::Text(command.into()));
+                h.run_steps(3);
+                h.key_press(Key::Enter);
+                h.run_steps(20);
+                h.get_all_by_label("Devices tab")
+                    .last()
+                    .expect("the tabs")
+                    .click();
+                h.run_steps(4);
+                h.state_mut().set_detail_size(460.0);
+                h.run_steps(30);
+                let _ = Id(0);
+                h.key_press(Key::Space);
+                for _ in 0..4 {
+                    std::thread::sleep(std::time::Duration::from_millis(60));
+                    h.run_steps(1);
+                }
+                save(
+                    &mut h,
+                    &format!("{tag_name}-playing-{appearance}-{}", (scale * 100.0) as u32),
+                );
+            }
+        }
+    }
+}
+
+/// Iris, the parametric EQ (M8 slice B1, the owner's round 2): the card whole
+/// at rest and playing (the analyser's mist), short, compact, folded and in the
+/// smallest window; both themes at 100, 150 and 200%. The values are the
+/// specimen's: a low cut at 40 Hz, band 2 at 180 Hz +5.0 (picked), a bell at
+/// 2.5 kHz -4.0 and a high shelf at 8 kHz +3.0.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn builtin_eq() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_project::model::{Color, Device, Id, PluginRef, Track, TrackKind};
+
+    let mut cases: Vec<(&str, f32, eframe::egui::Vec2, &str, f32)> = Vec::new();
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            for (tag, detail) in [("whole", 460.0), ("short", 365.0), ("compact", 300.0)] {
+                cases.push((appearance, scale, vec2(1280.0, 900.0), tag, detail));
+            }
+            cases.push((appearance, scale, vec2(960.0, 540.0), "small", 0.0));
+        }
+    }
+    // SHOT_FILTER=dark-1 keeps the cases whose "appearance-scale-tag" holds it.
+    let only = std::env::var("SHOT_FILTER").unwrap_or_default();
+    for (appearance, scale, size, tag, detail) in cases {
+        if !format!("{appearance}-{scale}-{tag}").contains(&only) {
+            continue;
+        }
+        let dir = TempDir::new(&format!("shots-iris-{appearance}-{scale}-{tag}"));
+        let mut track = Track::new(Id(1), "Vox".to_owned(), TrackKind::Audio, Color(0x5E8A9C));
+        let table = lumen_devices::eq::TABLE;
+        let value = |id: u32, units: f32| {
+            let info = table.iter().find(|info| info.id == id).expect("an id");
+            f64::from(info.normalised(units))
+        };
+        let mut device = Device::new(
             Id(10),
             PluginRef::Builtin {
-                name: lumen_devices::utility::NAME.to_owned(),
+                name: lumen_devices::eq::NAME.to_owned(),
             },
             false,
             Vec::new(),
-        )];
-        let project = lumen_project::testing::project_of("Prism", vec![track]);
+        );
+        for (id, units) in [
+            (lumen_devices::eq::on_of(1), 1.0),
+            (lumen_devices::eq::freq_of(1), 40.0),
+            (lumen_devices::eq::gain_of(1), 24.0),
+            (lumen_devices::eq::gain_of(2), 5.0),
+            (lumen_devices::eq::freq_of(2), 180.0),
+            (lumen_devices::eq::q_of(2), 0.8),
+            (lumen_devices::eq::on_of(3), 0.0),
+            (lumen_devices::eq::on_of(4), 0.0),
+            (lumen_devices::eq::on_of(5), 0.0),
+            (lumen_devices::eq::gain_of(6), -4.0),
+            (lumen_devices::eq::freq_of(6), 2_500.0),
+            (lumen_devices::eq::q_of(6), 1.4),
+            (lumen_devices::eq::type_of(7), 2.0),
+            (lumen_devices::eq::gain_of(7), 3.0),
+            (lumen_devices::eq::freq_of(7), 8_000.0),
+        ] {
+            device.params.insert(id, value(id, units));
+        }
+        track.devices = vec![device];
+        let project = lumen_project::testing::project_of("Iris", vec![track]);
         let path = dir.path().join("song.lumen");
         lumen_project::save(&project, &path, &Default::default()).expect("save");
         let launch = Launch::for_test(dir.path())
@@ -2497,24 +2756,38 @@ fn builtin_card() {
             .expect("the tabs")
             .click();
         h.run_steps(4);
-        // A short tray shows compact cards (D2): make room for whole ones.
-        if tag == "whole" {
-            h.state_mut().set_detail_size(460.0);
+        if tag != "small" {
+            h.state_mut().set_detail_size(detail);
             h.run_steps(30);
         }
+        // Band 2 picked, as a click does: its halo, blades, chip and dials.
+        h.state_mut().pick_band(Id(10), 1);
+        h.run_steps(10);
         let tag = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
-        save(&mut h, &format!("prism-{tag}"));
+        save(&mut h, &format!("iris-{tag}"));
+        // A signal in the analyser's place (a shot's project does not play):
+        // the specimen's soft mist.
+        let spectrum: Vec<f32> = (0..96)
+            .map(|i| {
+                let t = i as f32 / 95.0;
+                let loud = 0.5 + 0.22 * (t * 9.0).sin() + 0.1 * (t * 33.0).sin() - t * 0.42;
+                -84.0 + 78.0 * loud.max(0.04)
+            })
+            .collect();
+        h.state_mut().pretend_spectrum(Id(10), &spectrum);
+        h.run_steps(40);
+        save(&mut h, &format!("iris-playing-{tag}"));
         // Folded: the rail with the power and the name set on end.
         h.state_mut().fold_device(Id(10));
         h.run_steps(10);
-        save(&mut h, &format!("prism-folded-{tag}"));
+        save(&mut h, &format!("iris-folded-{tag}"));
         h.state_mut().fold_device(Id(10));
         h.run_steps(10);
         // Every parameter on its own.
-        if h.query_by_label("All parameters (8)").is_some() {
-            h.get_by_label("All parameters (8)").click();
+        if h.query_by_label("All parameters (38)").is_some() {
+            h.get_by_label("All parameters (38)").click();
             h.run_steps(10);
-            save(&mut h, &format!("prism-parameters-{tag}"));
+            save(&mut h, &format!("iris-parameters-{tag}"));
         }
     }
 }
@@ -5260,25 +5533,340 @@ fn instance_and_association() {
     }
 }
 
-/// M8 D0: the drum map chooser on a MIDI track, in both themes at 100, 150
-/// and 200%. D1 replaces it with the map editor and redraws these.
+/// M8 D1: the drum map editor on a mapped track, in both themes at 100, 150
+/// and 200%. D0's chooser is part of it now: the window opens on the track's
+/// map.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
-fn drum_map_choice() {
+fn drum_map_editor() {
     for appearance in ["dark", "light"] {
         for scale in [1.0_f32, 1.5, 2.0] {
-            let dir = TempDir::new(&format!("shots-drums-{appearance}-{scale}"));
-            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
-            h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::T);
+            let dir = TempDir::new(&format!("shots-map-{appearance}-{scale}"));
+            let path = dir.path().join("kit.lumen");
+            let project = mapped_project(Preset::GENERAL_MIDI);
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 760.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
             h.run_steps(30);
-            h.key_press_modifiers(Modifiers::COMMAND, Key::K);
-            h.run_steps(3);
-            h.event(Event::Text("Drum map".into()));
-            h.run_steps(3);
-            h.key_press(Key::Enter);
+            let track = h.state().project().tracks[0].id;
+            h.state_mut().select_tracks(&[track]);
+            h.state_mut().open_the_drum_map_editor();
             h.run_steps(30);
-            assert!(h.state().drum_choice_open(), "the chooser is drawn");
+            assert!(h.state().drum_map_editor_open(), "the editor is drawn");
             save(&mut h, &format!("drum-map-{appearance}-{scale}"));
+        }
+    }
+}
+
+/// M8 D1: the piano roll's key column on a mapped track, every key and folded
+/// to the map's sounds, in both themes at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn drum_map_key_column() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-keys-{appearance}-{scale}"));
+            let path = dir.path().join("kit.lumen");
+            let project = mapped_project(Preset::EIGHT_OH_EIGHT);
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 760.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            let clip = h.state().project().tracks[0].clips[0].id;
+            h.state_mut().open_clip_editor(clip);
+            h.run_steps(30);
+            // M8 D2: a mapped clip opens in the lanes; this is its Keys view.
+            h.state_mut().show_the_keys_view();
+            h.run_steps(30);
+            save(&mut h, &format!("drum-keys-{appearance}-{scale}"));
+            h.state_mut().hide_the_unmapped_keys();
+            h.run_steps(30);
+            save(&mut h, &format!("drum-keys-folded-{appearance}-{scale}"));
+        }
+    }
+}
+
+/// A project with a kit track playing `preset`'s map: a kick, a snare, two
+/// hats and a clap in a two-bar clip.
+fn mapped_project(preset: lumen_project::drums::presets::Preset) -> lumen_project::model::Project {
+    use lumen_core::time::Ticks;
+    let notes: Vec<lumen_project::model::Note> = [36_u8, 38, 42, 46, 39, 36, 42, 38]
+        .into_iter()
+        .enumerate()
+        .map(|(i, pitch)| {
+            lumen_project::model::Note::new(
+                Ticks::quarters(i as i64),
+                Ticks::quarters(1),
+                pitch,
+                100,
+            )
+        })
+        .collect();
+    let mut project = lumen_project::testing::project_of(
+        "Kit",
+        vec![lumen_project::testing::midi_track(
+            1,
+            "Drums",
+            "pluck",
+            (0, 8),
+            None,
+            notes,
+            vec![],
+        )],
+    );
+    let map = preset.map(lumen_project::model::Id(500));
+    project.drum_maps = vec![map.clone()];
+    let track = std::sync::Arc::make_mut(&mut project.tracks[0]);
+    track.drum_map = Some(map.id);
+    project
+}
+
+/// M8 D2: the drum editor's lanes on a 2-bar 808-style beat, one hit picked,
+/// then the header's view switch under the pointer, then Hide unused on, in
+/// both themes at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn drum_lanes() {
+    use egui_kittest::kittest::Queryable;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let tag = format!("{appearance}-{}", (scale * 100.0) as u32);
+            let dir = TempDir::new(&format!("shots-lanes-{tag}"));
+            let path = dir.path().join("beat.lumen");
+            let project = drum_lanes_project();
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 820.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            h.state_mut().set_detail_size(560.0);
+            let clip = h.state().project().tracks[0].clips[0].id;
+            h.state_mut().open_clip_editor(clip);
+            h.run_steps(30);
+            // The snare hit on beat 2 picked, as a player would leave it.
+            let hit = h
+                .state()
+                .drum_hit_point(lumen_core::time::Ticks::quarters(1), 38)
+                .expect("the snare's hit");
+            for pressed in [true, false] {
+                h.event(Event::PointerButton {
+                    pos: hit,
+                    button: eframe::egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                });
+                h.run_steps(1);
+            }
+            h.hover_at(hit);
+            h.run_steps(10);
+            save(&mut h, &format!("drum-lanes-{tag}"));
+            // The header's view switch, with its tooltip.
+            let keys = h.get_by_label("Keys view").rect();
+            h.hover_at(keys.center());
+            h.run_steps(60);
+            save(&mut h, &format!("drum-lanes-switch-{tag}"));
+            // Hide unused: only the sounds the clip plays.
+            h.state_mut().hide_the_unused_lanes();
+            h.run_steps(30);
+            h.hover_at(Pos2::new(700.0, 600.0));
+            h.run_steps(10);
+            save(&mut h, &format!("drum-lanes-unused-{tag}"));
+        }
+    }
+}
+
+/// A 2-bar beat on a 7-sound kit in the map's order: kick, snare, clap,
+/// closed and open hats (the open one muted), low tom and ride, with the
+/// velocities the specimen draws.
+fn drum_lanes_project() -> lumen_project::model::Project {
+    use lumen_core::time::{PPQ, Ticks};
+    use lumen_project::drums::presets::Preset;
+    let full = Preset::EIGHT_OH_EIGHT.map(lumen_project::model::Id(501));
+    let pick = |name: &str| {
+        let mut sound = full
+            .sounds
+            .iter()
+            .find(|s| s.name == name)
+            .unwrap_or_else(|| panic!("{name}"))
+            .clone();
+        if name == "Open Hat" {
+            sound.mute = true;
+        }
+        sound
+    };
+    let sounds: Vec<_> = [
+        "Kick",
+        "Snare",
+        "Clap",
+        "Closed Hat",
+        "Open Hat",
+        "Low Tom",
+        "Ride",
+        "Cowbell",
+        "Shaker",
+    ]
+    .into_iter()
+    .map(pick)
+    .collect();
+    let map = lumen_project::model::DrumMap::new(
+        lumen_project::model::Id(500),
+        "808 style \u{00B7} 9 sounds",
+        sounds,
+    );
+    let sixteenth = PPQ / 4;
+    let mut notes = Vec::new();
+    let mut hit = |pitch: u8, step: i64, velocity: u8| {
+        notes.push(lumen_project::model::Note::new(
+            Ticks(step * sixteenth),
+            Ticks(sixteenth),
+            pitch,
+            velocity,
+        ));
+    };
+    for (i, step) in [0, 6, 8, 16, 22, 24, 27].into_iter().enumerate() {
+        hit(36, step, if i % 2 == 1 { 78 } else { 122 });
+    }
+    for step in [4, 12, 20, 28] {
+        hit(38, step, if step == 28 { 127 } else { 100 });
+    }
+    for step in [12, 28] {
+        hit(39, step, 70);
+    }
+    let mut step = 0;
+    while step < 32 {
+        if step % 8 != 6 {
+            hit(42, step, if step % 4 == 0 { 100 } else { 48 });
+        }
+        step += 2;
+    }
+    for step in [6, 14, 22, 30] {
+        hit(46, step, 88);
+    }
+    for (i, step) in [29, 30, 31].into_iter().enumerate() {
+        hit(43, step, 60 + i as u8 * 20);
+    }
+    hit(51, 6, 62);
+    let mut project = lumen_project::testing::project_of(
+        "Beat",
+        vec![lumen_project::testing::midi_track(
+            1,
+            "Drums 1",
+            "pluck",
+            (0, 8),
+            None,
+            notes,
+            vec![],
+        )],
+    );
+    project.drum_maps = vec![map.clone()];
+    let track = std::sync::Arc::make_mut(&mut project.tracks[0]);
+    track.drum_map = Some(map.id);
+    project
+}
+
+/// M8 D2: the arrangement's drum rows, a tall mapped track and a short one,
+/// in both themes at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn arrangement_drum_rows() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let tag = format!("{appearance}-{}", (scale * 100.0) as u32);
+            let dir = TempDir::new(&format!("shots-rows-{tag}"));
+            let path = dir.path().join("rows.lumen");
+            let mut project = drum_lanes_project();
+            // A second mapped track with a one-bar fill, the short row.
+            let mut second = (*project.tracks[0]).clone();
+            second.id = lumen_project::model::Id(20);
+            second.name = "Percussion".into();
+            second.devices.clear();
+            let mut fill = (*second.clips[0]).clone();
+            fill.id = lumen_project::model::Id(21);
+            fill.name = "Fill".into();
+            fill.start = lumen_core::time::Ticks::quarters(8);
+            fill.length = lumen_core::time::Ticks::quarters(2);
+            if let lumen_project::model::ClipContent::Midi { notes, .. } = &mut fill.content {
+                notes.retain(|n| n.start() >= lumen_core::time::Ticks::quarters(6));
+                for note in notes.iter_mut() {
+                    note.0 = note.0 - lumen_core::time::Ticks::quarters(6);
+                }
+            }
+            second.clips = vec![std::sync::Arc::new(fill)];
+            project.tracks.push(std::sync::Arc::new(second));
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 700.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            // The first track made tall: rows of 9 pt rather than 5.
+            let a = clip(&h, 0);
+            drag(
+                &mut h,
+                Pos2::new(300.0, a.bottom() + 1.5),
+                Pos2::new(300.0, a.bottom() + 70.0),
+            );
+            h.run_steps(30);
+            h.hover_at(Pos2::new(900.0, 300.0));
+            h.run_steps(10);
+            save(&mut h, &format!("arrangement-drum-rows-{tag}"));
         }
     }
 }

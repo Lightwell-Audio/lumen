@@ -217,6 +217,7 @@ impl App {
             templates,
             revert: Default::default(),
             drum_choice: None,
+            drum_map: app::drum_map_window::State::default(),
             project_settings: Default::default(),
             file_notice: None,
             quitting: false,

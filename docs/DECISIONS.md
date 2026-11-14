@@ -13020,6 +13020,149 @@ sound's or a map's name longer than `MOST_SOUND_NAME` (64 characters) is now
 refused by the `Document` edits as well as by `validate`, so a long name typed
 in an editor can no longer make a save fail. The same-sample tie in a choke
 group is stated in item 5.
+
+## ADR-0143 — Drum sound glyphs: fifteen icons on the 16-unit grid
+
+**Status.** Draft for the parent (M8 D1's icon part, branch
+`m8-sd1-drum-names`).
+
+**Context.** The owner asked for an icon per drum sound (M8 §2, IC) and
+approved round 3's drawing (`docs/specimens/m8/kit.html`, the `ICON` object).
+D1 needs the glyphs before the map editor and the lanes that draw them exist,
+and D0's `DrumIcon` is built in parallel on another branch.
+
+**Choices.**
+1. *The glyphs live beside the interface icons* (`design/icons/drums.rs`,
+   painted through `paint_drum_glyph`), on the same 16-unit grid, so the two
+   sets share one mapping (`geometry::Grid`) and one colour and rect API.
+   Each glyph is a shape list, tested inside its box at 12, 16, 20 and 28 pt.
+2. *A local `DrumGlyph` until D0 lands*: the fifteen variants in `DrumIcon`'s
+   order, `DrumGlyph::ALL` for the map editor's 5 x 3 grid, and `name()` for
+   the accessible names. D1 maps D0's enum onto it and deletes nothing.
+3. *The line keeps its point weight at every size* — `ICON 1.6` for the
+   ordinary line, `ICON_FINE 1.3` for a small detail and a new `ICON_HEAVY
+   2.2` for a cymbal's edge and a rim's strike — as round 3 drew them (1.5,
+   1.0 and 2.0–2.2 pt). Scaling the line with the box, as `Icon` does, made
+   the 12 pt glyphs thin and the 28 pt ones heavy in the sheet.
+4. *Three small coordinates move* so a stroke stays inside the glyph's box at
+   every size: the kick's two spurs end at y 15.4, the floor tom's legs at
+   y 15.3, and the crash's second sparkle at x 15.2. Every other coordinate
+   is the specimen's.
+
+**Consequences.** No format change, no command and no other UI: the map
+editor, the icon popover, the lanes and the piano roll's key column come with
+the rest of D1 and D2. `ICON_HEAVY` joins `DESIGN.md` §5. `shots::drum_icons`
+shows every glyph at the four sizes and in three track colours in both themes
+at 100, 150 and 200%. epaint's strokes are square-ended where the specimens'
+SVG had round caps; at these sizes the difference is under a pixel and no
+glyph depends on it.
+
+## ADR-0144 — The drum map editor and drum names (M8 slice D1)
+
+**Status.** Proposed (M8 D1, `docs/milestones/M8.md` §5; the owner's DM A,
+IC, 2026-11-12).
+
+**Context.** D0 gave the project drum maps and played them; nothing could
+show a kit or change it, and the piano roll still read as a keyboard on a
+drum track. D1 had to make a map editable and the roll legible as drums
+without touching a note, and to give maps a life outside one project.
+
+**Choices.**
+
+1. **The editor is a `Dialog` like the Mappings window** (`app/drum_map_window/`),
+   opened by the Attach command and the track's **Drum map** submenu. A track
+   without a map opens the same window on the list of maps (the kits, this
+   project's maps, the user's files) — D0's chooser for attaching is gone;
+   its convert chooser stays (`app/drum_choice.rs`), because converting is a
+   different, destructive decision about notes.
+2. **One table, every field in place** (`table.rs`): a caption row over
+   28 pt rows, the icon column doubling as the drag handle (a click opens the
+   icon grid, a drag moves the row), the name in a sunken field, notes,
+   channel, choke and colour as `widgets::number` fields (wheel, type-in,
+   double-click reset), 20 pt M and S toggles, Quantize and Length dropdowns
+   (chosen, not reset),
+   Learn and Remove. Output routing is not a column: D4 owns it.
+3. **Every edit is one named `Document` edit.** D0's methods name the fields
+   it needed; D1 adds, in `document/drums_edit.rs`, `set_sound_input`,
+   `set_sound_color`, `add_drum_sound`, `remove_drum_sound`,
+   `move_drum_sound`, `make_drum_map_unique` and `import_drum_map`. A sound
+   is found by its **input note**, so input notes stay unique: moving one
+   onto a note another sound answers to is refused, and the window says why.
+   A drag that reorders ends in one step (the row's icon reports where it
+   landed); a typed number one; a name one, applied when the field is left
+   (Enter or Tab, which also takes the keyboard to the row's note, or a
+   click elsewhere). Nothing merges: a completed edit is a step.
+4. **`widgets::number` is the design system's field**, not the table's: a
+   sunken well with wheel, arrow, typed and reset values, its typed text in a
+   frame-less `TextEdit` over the well so it matches the value slider without
+   a track. Any table of numbers can use it.
+5. **Files are `.lumendrums`, JSON, with a `version`** (`files.rs`): `name`
+   and `sounds`, one file per map, written pretty with a newline. A version
+   above this copy's is refused ("saved by a later Lumen"), and a damaged
+   file is refused with the reader's own words; both are shown in full under
+   the table. Import validates against the project's own rules by adding the
+   map to a copy of the project and asking `lumen_project::validate`, so
+   there is one rule, not two; the import gets a fresh id and goes to the
+   selected MIDI tracks in the same undo step. Save as user map writes to
+   `<settings folder>/Drum Maps` (never overwriting: "Name 2.lumendrums" and
+   on), and the list rereads the folder. Reads and writes run on a worker;
+   the window polls a channel, and the system dialogs go through the existing
+   `FileDialog` seam, so a test answers them.
+6. **The maps' icons are the design's drawings.** `DrumGlyph` (D1's earlier
+   part) maps to and from `DrumIcon` by a match, and a test pins the fifteen
+   in order and by name. Table, key column and the icon grid all paint the
+   same shapes.
+7. **The key column is the kit on a mapped track** (`piano_roll/draw.rs`),
+   176 pt wide as the lanes' name column: a 3 pt colour bar, the 16 pt
+   drawing and the name (caption face) at each sound's input note, unmapped
+   keys dimmed, a silent sound quiet with an M. The roll's rows become a
+   `Rows` set: all 128 pitches, or—with **Hide unmapped keys** on—only the
+   sounds' input notes, packed highest first. The GPU note boxes are moved by
+   rewriting each box's row (the layer's row table puts a pitch on row
+   `127 - p`), and a note on a hidden key is not drawn; the pointer, the
+   gestures, the wheel and the scroll all read the same `Rows`, so nothing
+   disagrees about where a row is.
+8. **Where "Hide unmapped keys" is kept: in the editor's state, not the
+   project or the settings.** It is a view of one clip, like the lane's
+   shown state, which is not saved either; it survives while the app runs and
+   resets on a new start. The toggle is the **Keys** button in the clip
+   editor's header (with its glyph, named, tooltip, keycap from the keymap)
+   and the command `view.hide_unmapped_keys` in the palette. A saved
+   preference was declined for now: a per-user setting would need a settings
+   version and a page, and the owner has not asked for one.
+9. **The Learn button waits for a note on the live feed.** The feed already
+   tells the interface about controller messages (M7's tap); it now also
+   tells it each note-on from an input (`live_tap::Played`, a 64-message
+   queue). It is one more bounded push per note on the audio thread, never a
+   wait, and the allocation guard test covers it. The window's Learn sets the
+   row, the next note played moves the sound's input note (one undo step),
+   and the computer keyboard's notes are not part of it (they are not an
+   input's pads) — the brief's "next note played" is an input's.
+10. **Commands at the end of `ALL`**: `track.drum_map_unique`,
+    `track.drum_map_save`, `track.drum_map_import`, `track.drum_map_export`
+    and `view.hide_unmapped_keys`, no default keys, all tagged `@m8`.
+    `track.drum_map_attach` keeps its id and now opens the editor (it is the
+    "open editor" command); its name and description changed. The track's
+    **Drum map** submenu lists the editor, Make unique, the two file dialogs
+    and Detach, only the rows that can act.
+
+**Consequences.** No format change: the maps and the track's field are D0's
+(v35), and nothing D1 keeps is saved. The map editor, the table, the key
+column and the icon grid are new UI; `docs/DESIGN.md` gains §7l and §7m (§7k is B0's personalities).
+D0's `#[allow(dead_code)]`s on the sound edits are gone; the one-track
+attach/detach helpers and `set_sound_route` carry a narrow allow with the
+reason (D2, D4). Tests: the file format (round trip, a damaged file, a later
+version, the project's rules, the folder never overwriting), the editor's
+edits and Make unique (`document/drums_edit.rs`), the folded rows and the key
+column's geometry (`piano_roll/draw.rs`, `note_editor/view.rs`), the tap's
+note queue, and E2E for the editor opened from the palette, a row edited from
+the keyboard, the icon grid by keyboard, export and import, a damaged file
+read in full and Hide unmapped keys. Screenshots `shots::drum_map_editor`
+and `shots::drum_map_key_column` in both themes at three scales. Not built
+here, on purpose: routing per sound (D4), the lanes and the step sequencer
+(D2, D3), drum maps in the browser, and a saved preference for the folded
+view.
+
 ## ADR-0145 — The built-in effect path (M8 slice B0)
 
 **Status.** Proposed (M8 slice B0; the parent assigns the number). Brief:
@@ -13163,10 +13306,11 @@ All parameters, lanes, MIDI learn, overrides, presets, copy — must work identi
    instance, so delay compensation lines up with a device that holds its output back
    (B2's limiter) whether the song plays or a render runs.
 10. **The personality scheme** is in `DESIGN.md` §7k and implemented in
-    `theme::personality`, `builtin::Identity` and `chain/art.rs`: Prism is Utility's
-    personality (a steel grey; the band is the device's drawing and the name is in the card's
-    name row), the card's
-    chrome untouched.
+    `theme::personality`, `builtin::Identity` (name, subtitle, hue) and `chain/face/` (the
+    drawing, below): Prism is Utility's personality, a set piece built to the owner's
+    round-2 specimen (a hued header with the name in the display face and a Preset pill, a
+    deep screen that reacts to the signal and can be dragged, large lit dials, and
+    whole, short, compact and folded steps).
 
 **The trait on paper, against the five slices that depend on it.**
 
@@ -13273,7 +13417,8 @@ why:
   lane over it still plays — a cut, never silence or a panic. **L7** `Builtins::update` gates on one number hashed from the built-ins (id, name,
   bypass, values) and the frozen tracks, so a still project allocates nothing there and
   the latency map is only copied when it can differ.
-- **L8 — the band.** It is now the personality's: a deep tinted screen
+- **L8 — the band** (superseded by "Round 2: set pieces" below; it was a 72 pt picture
+  on a plain card, with the readout at the top left). It was the personality's: a deep tinted screen
   (`personality::SCREEN`, the signature hue at `SCREEN_TINT`), the same in both themes, a
   hairline of the signature colour, and Prism's own drawing — a beam in, the prism, five
   beams out in `personality::PRISM_BEAMS` — with no monogram (the card's name row has the
@@ -13362,6 +13507,684 @@ name row and type as every other card's does, and the specimen's "width 130 %" l
 left out because it is a value, not the idea. The `chosen-dark-100.png` and
 `chosen-light-100.png` the review names are not in `docs/specimens/m8/` (only the round 1
 to 3 sheets), so the comparison is against round 2's card.
+
+**Round 2: set pieces (owner, 2026-11-12).** Built-ins are set pieces: round 2 (owner,
+2026-11-12); chosen.html's device section is superseded. The owner's words: built-in devices
+should be "special and really set pieces", fun to use, "rare" and better than a third-party
+plugin. The authority is `docs/specimens/m8/devices.html` and `round2-{dark,light}.png`
+(Prism: 300 x 290 pt, a 136 pt screen). Two earlier builds were discarded: the chrome on the
+232 pt chain card (the "chosen card", which a correction had asked for and the owner then
+replaced), and a first big-face attempt that had no alive screen and no size steps (kept for
+reference in the parent's `backup-bigface`). What was built:
+
+- **One card for every built-in with a drawing** (`chain/card/screen/`, DESIGN.md §7k).
+  A device declares a `Drawing` in `chain/face/` (card size, screen height, deep colour, the
+  parameters it reads, `draw`, `controls`, `handles`) and adds one line to `DRAWINGS`, keyed
+  by its stable saved name; nothing else draws. `Identity` gained `subtitle`. A device
+  without a drawing (the synth) and every plugin keep the plain card.
+- **Alive.** The screen reads the track's meter level (`arrangement.meters`, mapped
+  -60..0 dB to 0..1 by `level_of`), so the audio path is untouched; the picture is calm at
+  rest and brighter with level, and still under Reduce motion (`seen(level, still)`, and the
+  panel passes level 0). Fades (power, hover, handle light, preset readouts) take their
+  durations from `design/motion.rs`. The card asks for no repaint itself.
+- **A control.** Prism's two outer beams end in a handle: dragging sets Width through the
+  same `Output::Set` as the dial, so it is one undo step (a drag merges), Shift is fine, Alt
+  is free, double-click resets, the arrow keys move it, a live chip follows the pointer, and
+  each handle is a Tab stop named "Beam spread, upper (Width): 130 %".
+- **Steps** (`geometry::Step`, 8 pt of give each way, one step remembered per device in
+  `Chain.steps`): whole (the device's own card), short (232 x 272: smaller screen, named dials on
+  its lower edge), compact (232 x 116: header, a thin band, four named lit dials under it) and the
+  folded rail (hue bar glowing with level, name set on end). `Layout::mixed` lays out cards
+  of their own sizes.
+- **Found on the way** (B1's review): `validate.rs` refused any `params` on a built-in, so a
+  project with Prism could not be saved. A built-in may hold its parameter values (at most
+  `MOST_PARAMS`, each in 0..=1) and nothing else (no controller state, plugin version,
+  reported values or sidechain). E2E: a value changed on Prism is saved and back after a
+  reopen.
+- **Tests.** Unit: `Step::of` (hysteresis), `Plan` per step, Prism's handle mapping and
+  clamps, `level_of`, `seen`. E2E (`tests/e2e/builtins.rs`): the on-screen drag is one undo
+  step, Shift is finer, the polarity pill, All parameters (the off-card switch), the Preset
+  pill and Power names. Reduce motion is a unit test only: an E2E that flips the
+  process-wide setting is against the suite's rules.
+- **Cost.** `chain::card::tests::set_piece_cost` (ignored; `cargo test --release -p lumen-app
+  --lib set_piece_cost -- --ignored --nocapture`) draws the card and tessellates it for 360
+  frames: whole 0.12 ms a frame (worst 1.5 ms once), short 0.06, compact 0.05, silent and
+  loud alike. Per-frame allocations are egui's own (shapes, galleys, the glass meshes);
+  Prism's glass polygon is a three-point `Vec` per frame. The audio thread allocates nothing
+  for it.
+- **Shots** (`target/shots-face`; `tests/shots.rs` `builtin_card` and `builtin_card_playing`):
+  whole, short, compact, folded and All parameters, dark and light, at 100, 150 and 200 %,
+  and one playing.
+
+Differences from the specimen that remain, from looking at crops of the shots next to
+`round2-dark.png` and `round2-light.png` (by eye; nothing was measured pixel for pixel):
+
+- The card has a quiet "All 8 ›" text button at the foot and two lit beam-tip handles; the
+  specimen has neither (the owner's brief adds both).
+- "Bass mono" reads "Off" at its default; the specimen reads "120" (a value it was drawn
+  with, not the device's default).
+- The card's edge is a 1 pt strong border (a selected card, a 1.5 pt accent line); the
+  specimen's is softer.
+- Pills and dials are Lumen's controls (focus ring, override ring, waiting ring), so a
+  switch's off state is a quiet ring where the specimen's is a flat chip.
+- The short and compact cards have no specimen; they are laid out from the whole card's parts
+  (parent review, 2026-11-13): short has four evenly spaced named dials on the screen's edge, the
+  polarity pill under the screen at the left, the Preset pill on the name's line only and the
+  subtitle across the card; compact has a 22 pt band, then four named dials (the first build put
+  nameless dials on the beams). `COMPACT_H` stays 116 (the panel's least height is unchanged).
+  "Bass mono" is "Bass" under a dial at these steps (`Control::short`, additive).
+- At a panel height between the short card and the whole card (about 18 pt for Prism, whose
+  whole card is 290 pt against the short card's 272) the short step lasts a sliver of the
+  panel's travel; devices with taller whole cards have more.
+- Whole, short and compact were looked at in crops, dark and light, at 150 % (and the short and
+  compact steps at 200 % and 100 %).
+
+## ADR-0146 — Iris, the parametric EQ, and the spectrum window (M8 slice B1)
+
+**Status.** Proposed (M8 slice B1; the parent assigns the number). Brief:
+`docs/milestones/M8.md` §5 "B1 — Parametric EQ with analyzer"; decisions E6 and E7 in
+§6; B0's ADR-0145 (the effect path, the parameter table, the personality) and its review
+N7 (an automated parameter took two of a block's queues).
+
+**Context.** B0 gave Lumen an in-process effect path, a parameter table with stable ids
+and the utility Prism, and the owner asked (BF C) that built-in devices have drawn faces
+where a picture is the control. B1 is the first such device: eight bands of equalisation,
+a curve a person drags, and an analyser behind it that the later spectrum analyser (X2)
+reuses. Three things in the brief decide the shape of this work: the DSP is Lumen's own
+(E7) with permissive dependencies only; every device has golden renders, an allocation
+guard and a block-size invariance test at 64, 128, 512, 1024 and 97 frames (E6); and an
+eight-band EQ needs more parameter queues than a block had room for (B0's N7).
+
+**Options.**
+
+- **Where the coefficients come from.** (A) Recompute every sample from the settings.
+  (B) Compute once a block. (C) Compute on knots of the song's clock and glide the
+  coefficients straight between them.
+- **How a band turns on and off.** (A) A gate on the coefficients. (B) A dry/wet mix per
+  band driven by the `on` curve. (C) No switch at all.
+- **What the analyser is.** (A) A lock-free ring the device writes and the interface
+  reads, in `lumen-devices`, knowing nothing about devices. (B) An FFT in the app, fed by
+  an engine tap. (C) A new trait method so a device can hand frames back.
+- **The transform.** (A) A permissive FFT crate. (B) A radix-2 transform written here.
+- **The parameter count.** (A) Keep the table within 32 so two queues an automated
+  parameter fit. (B) Let a lane's queue replace the value's, one queue an automated
+  parameter, and let a queue say that it is a lane.
+- **The face's axis.** (A) A log frequency axis with a log-tapered frequency parameter.
+  (B) A linear axis.
+
+**Choices.**
+
+1. **Eight bands, and what they are.** `lumen-devices/src/eq/` is four files: the table
+   (`table.rs`: the ids and the words), the filter maths (`bands.rs`), the running device
+   (`device.rs`) and what the rest of the crate names (`mod.rs`), each under the 800-line
+   rule (ADR-0141; split in the review of this slice). The table: band 1 is
+   a low cut and band 8 a high cut (each 12 to 48 dB an octave, a Butterworth cascade of
+   one to four sections so the sum has no peak at the corner), bands 2 to 7 are a Bell, a
+   Shelf low, a Shelf high or a Notch, chosen by the band's own Type parameter. Every band
+   has a frequency, a Q (bell and notch), a gain (bell and shelf) and a switch; the two
+   cuts have a slope instead of a gain. The output gain is one parameter. The analyser's
+   side (Input or Output) is the last parameter. Thirty-eight ids, `10 × band + field`,
+   pinned by `the_parameter_table_is_pinned_by_id_name_and_default`: `1 Output`,
+   `11/12/15` the low cut's frequency, slope and switch, `21…` to `75…` the middle bands'
+   five each, `81/82/85` the high cut, `2 Analyzer`. Bands 2 to 7 start **on** with no
+   gain (a fresh Iris is live everywhere and exactly flat); the cuts start off, so a
+   fresh Iris is the audio it was given, to the last bit — a bell or shelf at exactly
+   0 dB has `b == a` coefficient for coefficient, so its transposed-form-II state stays
+   exactly zero and it passes the input through unchanged.
+2. **Coefficients glide on knots of the song's clock** (option 1C). Every 32 frames
+   (`KNOT`) each active band's settings are read at that sample and its target
+   coefficients worked out; the coefficients then move a thirty-second of the distance
+   towards the target every frame. The knots are where the song's own sample falls on a
+   multiple of 32, so a block boundary never moves one, and the coefficient at any sample
+   is the same whatever the block size. `Section::between` and `delta` are linear in the
+   coefficients, which is what makes a swept band smooth; a bell's own gain is in the
+   coefficients, so a lane on it needs no special case.
+3. **A band is mixed in and out, not gated** (option 2B). Each band's sections run between
+   a copy of the band's input and its output, mixed by the `on` curve: `out + (band −
+   out) × on`. The `on` value the interface moves glides over 20 ms as every parameter
+   does, so turning a band on or off fades it; a band whose `on` is at zero is skipped and
+   costs nothing. A cut or a notch cannot express "off" in its coefficients, which is why
+   the mix is there rather than a gate.
+4. **The analyser is device-independent** (option 3A):
+   `lumen-devices/src/analyzer.rs`. The audio side (`Tap`) writes the mono sum of the two
+   sides into a ring of `AtomicU32` and publishes how many frames it has written with a
+   release store; the interface side (`Reader`) copies the newest 2048-frame window into
+   a scratch buffer and folds it, throwing away a copy the writer lapped (up to four
+   tries) rather than showing a window that is two windows joined. When every try is
+   lapped it keeps the whole window it held and says [`Read::Stale`], so an analyser may
+   show an older window but never a wrong one — the promise is the code's, and
+   `a_reader_lapped_on_every_try_keeps_the_window_before` laps it on purpose to hold it
+   (review L1). Nothing allocates in `write`; the reader allocates
+   once in `pair()`. `is_on`/`set_on` let the interface stop the work: a device writes
+   nothing while no face is drawn, which is the brief's "the analyzer runs only while the
+   face is visible" - the tap is one relaxed load a block.
+5. **The transform is written here** (option 4B): an iterative radix-2 Cooley-Tukey of
+   2048 points, forty lines, no allocation, checked against a direct sum in
+   `the_transform_is_the_one_a_direct_sum_gives`. `microfft` would have done and is
+   permissive, but a new dependency for forty lines of arithmetic, in the crate the audio
+   thread runs, is not worth its licence and its review. (E7 asks only that a FFT crate be
+   permissive *if* one is used.)
+6. **One queue an automated parameter, and a queue says what it is** (option 5B). B0's
+   review N7 measured the problem: the plan sent every automated parameter twice (its
+   value and its lane), so a device with more than 32 of them lost lanes. `ParamBlock`
+   now records whether a queue is a lane's, `params::fill` opens lanes with `open_lane`,
+   the plan opens a resting value's queue only when no lane drives the parameter (and
+   forgets the last value it told, so the value is told again when the lane lets go), and
+   `params::values` reads the flag instead of counting queues — a lane with one point in a
+   block is a lane (a step moved over its millisecond), never a knob (a 20 ms glide).
+   Iris's 38 parameters therefore fit one block with a lane on every one of them, which
+   `a_full_table_of_lanes_fills_one_queue_each` holds. This is the change B0's review
+   asked B5 to consider, and it is tested here.
+7. **A log axis, and a log taper for it** (option 6A). `Taper::Log` was added to
+   `lumen-devices::params` (`low × (high/low)^x`): a frequency and a Q are heard as
+   ratios, so half a turn is the geometric mean. The face's axis and the frequency
+   parameters use the same 20 Hz to 20 kHz span (`eq::axis`, `eq::axis_hz`), so a point
+   dragged to a place on the screen lands on that frequency.
+8. **The face is the round-2 set piece** (`lumen-app/src/chain/face/eq.rs`, a `Drawing`
+   and a `Parts` on the round-2 card framework of ADR-0145; built to `iris()` in
+   `docs/specimens/m8/devices.html` and the Iris card of `round2-*.png`). The card is
+   380 x 330 with a 176 pt screen: the analyser's mist behind the summed response
+   (`lumen_devices::eq::band_db`, the filter's own coefficients, so the curve cannot
+   disagree with the sound) drawn as a wash, a soft glow and a line in the red-to-violet
+   sweep; a coloured point for each band, the picked one haloed with six blades and wearing
+   the value chip ("180 Hz +5.0"); "100", "1k" and "10k" on the graticule; and three lit
+   dials, Freq, Gain and Q, in the picked band's colour. **Reaching eight bands** (the
+   owner's brief left the design to the builder): a fixed 4 x 2 grid of numbered pills,
+   each in its band's colour (`personality::EQ_BANDS`, band 2 the specimen's amber), a
+   click picks and a double-click turns the band on or off; a click on a point picks it
+   as well, and so does Tab, so the three dials are always the picked band's and there
+   is one set of dials for eight bands. The dials are aimed by the drawing: Freq always,
+   Gain for a bell or a shelf (Slope for a cut), Q for a bell or a notch; a dial a band
+   has no use for is shown inert with a dash, never moved. Short, the pills are a row of
+   eight small ones under the screen; compact, the curve is a thin live band, its points
+   are small dots that pick, and the picked band's dials are named with their values.
+   On the screen: drag a point (frequency and gain, one undo step; Shift is a tenth as
+   far, a drag turns an off band on), the wheel is a bell's Q or a cut's slope,
+   double-click puts the gain back, Alt does not snap (nothing snaps, so it is the
+   same), right-click gives Reset, on/off and the Automate and Learn of the aimed
+   parameter, arrows move it, Page Up and Down are its width, Enter types a frequency
+   into the Freq dial's field; every point is a Tab stop with its band's own words
+   ("Band 3, bell, 1.20 kHz, +3.0 dB, Q 1.00"). The mist runs only while the track
+   plays or its meter reads something, on every Iris of the shown track that is not
+   folded, and is off (the screen still) while motion is reduced
+   (`rows::mist_runs`); its buffer is reused every frame. The framework change is
+   additive: `face::Parts` (per-part callbacks, registered in `PARTED` beside the
+   `DRAWINGS` line, so Prism's literal did not change), `Scene` gained `picked`,
+   `parts_lit`, `spectrum`, `mist` and `rate`, `Personal` and `Out` the same
+   (`Out::picked`), and `card/screen/parts.rs` draws the points and pills for any
+   device with parts. A non-picked band's slots are the cheap kind (value, default and
+   steps, no strings), so a card reads 38 values without asking for 38 words. Its
+   edits are the strip's own `Output`s, with two B1 added: `Moved` (a point's frequency
+   and gain together as one gesture) and `Reset` (a band's defaults as one step).
+9. **A save of a project with a built-in device was refused.** Found on the way, and
+   fixed here because B1 cannot ship a project that will not save: `validate::device_data`
+   refused *any* parameter values on a built-in, while B0 writes the table's defaults into
+   the device. A built-in's values are now held to a plugin's bounds (at most
+   `MOST_PARAMS`, each 0 to 1) and the rest of the plugin-only data is still refused;
+   `a_built_in_may_hold_its_parameter_values_and_nothing_else` holds both halves. To tell
+   its owner: B0's branch has the same defect, so a project saved with Prism there fails
+   the save.
+
+**Measured.** `cargo bench -p lumen-engine --bench clips` (this machine, release):
+`engine_builtin_64` (64 tracks, each with Prism) 87.3 µs fastest and 92.7 µs median a
+128-frame block; `engine_eq_64` (the same 64 tracks, each with Iris and all eight bands
+on, with a gain or a cut on every band) 452.4 µs fastest and 553.6 µs median. So 64
+instances of an eight-band EQ cost 365 µs a block beyond the bare mix — 13.7 % of the
+2.67 ms budget at 48 kHz, about 7.1 µs an instance, against Prism's 0.94. Per frame an
+instance is 55 ns: the parameter curves (38 of them a block), the coefficient glide (all
+14 sections a frame) and eight sections of two-channel filtering. A project with ten
+EQs spends about 2 % of the block on them. If it ever needs to be cheaper, the first
+saving is to skip the parameter curves of bands that are off and settled (the value is
+then a constant) — recorded, not needed at the quality bar.
+
+**Tests.** `lumen-devices`: the table pinned by id, name and normalised default (and no
+id reused or zero); every word it says read back; the face's axis; a fresh Iris passing
+the audio to the last bit; the drawn response as the bands added up; a band that is off
+out of it. `crates/lumen-devices/tests/eq.rs`: a rendered tone within a tenth of a
+decibel of the analytic biquad (the cookbook formulas written out again in the test) for
+three bells, a 24 dB/octave cut (24 dB an octave, measured octave by octave) and a
+shelf; the drawn curve agreeing with the rendered one; an output gain; a band that is off;
+a swept band never stepping the sound (its largest sample-to-sample step within a quarter
+of the same bell standing still); the same audio at 64, 97, 128 and 256 frames with five
+parameters automated; an allocation guard; and the analyser reading the side its parameter
+names, with a reader lapped on every try keeping the whole window it held (review L1).
+`crates/lumen-engine/tests/eq.rs`: the same render at 64, 97, 128, 512 and 1024
+frames through the plan; the golden render pinned by twenty samples, the sum of |x| and
+the sum of x² within a millionth (not by its bits: the platforms' maths libraries round a
+last bit apart); a full table of lanes filling one queue each; an allocation guard through
+the plan; and the power button heard. `lumen-project`: a built-in holding its values
+validates, and out-of-range or plugin-only data does not. `lumen-app`: the parts' words,
+the chip's pieces, the axis a drag reads, what the dials aim at, the wheel, the nudge,
+the resets, the pills inside the card, and the analyser's rule under Reduce motion
+(`the_analyser_runs_only_while_something_is_heard_and_motion_is_not_reduced`; an E2E
+may not flip the process-wide setting). E2E
+`crates/lumen-app/tests/e2e/eq.rs`: the command and the card's curve, its eight points in
+words and its chips' on/off; a point dragged (heard, one undo step; across and up, both values back by one undo);
+a pill picking the band the dials are aimed at; a frequency typed on a point; a lane driving a band with the drag taking it over; the power button heard; and a
+chip turning its band off. Shots `builtin_eq` (whole at rest, playing, short, compact, folded and the smallest
+window; `SHOT_FILTER` keeps some), each looked at beside the round-2 card in both themes at
+100, 150 and 200 %.
+
+**Consequences.** `lumen-devices::ParamBlock` gained a per-queue flag and `open_lane`, and
+`params::values` reads it; the plan opens one queue for a parameter a lane drives. B5's
+pads (B0's N7) inherit the fix. `Taper::Log` is new beside `Linear` and `Power`. No format
+change: a parameter the project does not name plays the table's default, and Iris's ids
+are new. Not verified here: the WSL performance gate (the new `engine_eq_64` scenario needs
+`perf-gate --update` when it is run there), the macOS cross-target clippy, and any hardware;
+Iris was heard only through the engine's and the E2E's test devices, and nothing has been
+judged by ear. The face is the round-2 set piece (choice 8); the owner has not yet judged
+it by eye in the running app.
+
+## ADR-0147 — The drum editor's lanes (M8 slice D2)
+
+**Status.** Proposed (M8 D2, `docs/milestones/M8.md` §5; the owner's DV A and
+DE A with the velocity inside the hit, 2026-11-12).
+
+**Context.** D0 gave a MIDI track a drum map and played it; D1 made the map
+editable and the piano roll legible as a kit. A drum part still had to be
+played into a piano roll whose rows are notes. D2 is the drum editor: one lane
+a sound, a hit whose fill is its velocity, and the map's own order and mutes —
+with the piano roll's selection, snapping, zoom and gestures, not a second set
+of them (E5: a fork is a review finding).
+
+**Choices.**
+
+1. **The lanes are a view of the note editor, not a second editor.** The clip
+   editor's state (`NoteEditor`: its selection, time view, scroll, gesture,
+   quantize options and the velocity lane) is shared; Lanes only changes the
+   rows (`Rows::lanes`, the map's order), the row height (28 pt, fixed), the
+   name column (176 pt) and how a note is drawn. Everything the arrow keys,
+   Delete, Ctrl+D, Ctrl+A, the box, the draw tool, the drags, the wheel, the
+   ruler and the velocity lane do is the roll's own code. The one addition to
+   the shared gesture is `Gesture::velocity_on_vertical`: on a lane, a drag
+   that starts more up or down than sideways on a picked hit sets the picked
+   hits' velocity (each drag from the diamond's foot at 0 to its top at 127,
+   the extent the fill draws) and never changes a lane; a sideways drag moves
+   the hit, pitch change included (one lane up is the next sound). The piano
+   roll sets the flag false, so nothing about it changes.
+2. **The view switch is in the shared header** (`HeaderStrip::views`): **Lanes
+   · Keys**, 30 pt like the tool switch, only on a track with a drum map. DV A
+   also names **Steps**, which is D3's: a greyed segment that says "not yet"
+   reads worse than showing the two views that work, so D2 shows Lanes and
+   Keys and D3 adds Steps between them. A mapped clip opens in Lanes; Keys is
+   D1's piano roll with the kit in the key column.
+3. **The view is per track, kept in the editor's state, not saved.** Which
+   view a track's clips open in and a track's Hide unused last while the app
+   runs, like the lane's shown state and Hide unmapped keys (D1's ADR item 8).
+   No format or settings bump, and the choice follows a kit track from clip to
+   clip. A lane's "show length" belongs to one map and is dropped when another
+   map's lanes open, so it never leaks between kits.
+4. **Sizes: the specimen's, confirmed.** The name column is 176 pt — D1's key
+   column and P's lane card, the same column in both views — and a lane is 28
+   pt, `2 × space::M + space::XS`, D1's table row. The hit's half-width is the
+   row's third at most and half the grid step at most (so neighbours part), at
+   least 1.5 pt; its left tip is the onset.
+5. **Only the hits in view are drawn, gathered per picture column.** A lane
+   gathers the hits that share a pixel column (2 pt, widened until the frame's
+   cells fit `MAX_CELLS`), keeping the leftmost onset and the loudest velocity,
+   so a 100,000-hit clip costs its picture, not its notes; past a 2 pt diamond
+   a cell is one filled shape. The arrangement's drum rows do the same per
+   clip (its own 4,000-cell bound). The picture is invariant to the note count
+   at a given zoom, which is what keeps editing quick.
+6. **Per-lane quantize.** Q takes each picked hit to its own sound's grid
+   (`Sound.quantize`, a size and a feel, converted to ticks at the clip's
+   meter by `lumen_core::grid::size_ticks`), and to the options' grid for a
+   sound without one, in one pass and one undo step
+   (`edit::quantize::quantize_each`, `Document::quantize_notes_each`). The
+   toast says "each lane's own grid". The options' mode, strength, swing and
+   window still apply; the lane supplies the grid.
+7. **The name column is the map's, through the map's methods.** Audition
+   plays the track's instrument through the sound's note (the map's
+   translation applies, as D0 makes it); M and S are `set_sound_mute` and
+   `set_sound_solo` (D1's, the same state as the table); a drag on the drawing
+   is `move_drum_sound` (D1's, the map's order, which the lanes and the table
+   share). Audition and the view are not edits and take no undo step; every
+   edit is one.
+8. **The arrangement's drum rows** (DV A, moved here from X4 by the owner):
+   a mapped MIDI clip draws one row per sound it plays, in the map's order,
+   each hit a cell filled from the row's foot to its velocity, in place of the
+   mini piano roll (which is skipped for a mapped track). The rule D2 had to
+   choose: rows are the clip's body divided among the played sounds; below
+   6 pt a row stops being a picture, so the rows drawn are the most played
+   sounds (ties in the map's order) that fit and the rest are left out; a clip
+   too short for one row draws none. A loop repeat's hits are ordinary hits:
+   not muted, drawn like the first pass. It is
+   a picture only: the clip's own gestures still select, move and trim it.
+9. **Commands** at the end of `ALL`: `view.drum_lanes` ("Show the drum
+   lanes"), `view.drum_keys` ("Show the piano roll (Keys)") and
+   `view.hide_unused_lanes` ("Hide unused lanes"), no default keys, all tagged
+   `@m8` in `undocumented.txt`. Each can apply only on a drum clip (the view
+   rows only in the other view); they are in the palette and in the editor's
+   menu, which lists only what applies. `view.hide_unmapped_keys` now asks for
+   the Keys view (it is a piano-roll toggle), and D1's header button's
+   accessible name is "Hide unmapped keys" rather than "Keys", because the
+   view switch now has a Keys segment.
+10. **The velocity lane stays shared and shows every hit.** It is where a
+    ramp across several lanes is drawn; the specimen drew only the picked
+    lane's stems, and a filter to the picked lane would be a second behaviour
+    for the same lane. Recorded as a difference from the specimen.
+
+**Consequences.** No format change: nothing D2 keeps is saved (the lanes read
+the map and the clip; the view state is the editor's). `widgets::letter_toggle`
+moves from D1's map table to the design system (the lanes' M and S are the
+table's). New files: `crates/lumen-app/src/drum_editor/` (geometry, paint, the
+arrangement's picture), `app/clip/clip_drum.rs` (the name column, the view
+state and the commands' entry points), `testing/drums.rs` (the test seams).
+Tests: the lanes' rows and the state (`drum_editor`), the geometry and the
+gathered picture, the diamond's fill, the arrangement's rows and cells, a
+property test that a random run of lane edits is the same edit and the same
+undo step as the piano roll's, the shared gesture's parity (a sideways drag
+moves the same time; up or down is velocity only in the lanes), D1's E2E
+updated to the view switch, and E2E for every gesture group: open, audition,
+velocity drag, draw and erase, move and copy, box and nudge, per-lane
+quantize, mute and solo, reorder, Hide unused, the view switch and the
+arrangement's rows. Screenshots `shots::drum_lanes` and
+`shots::arrangement_drum_rows` in both themes at 100, 150 and 200%; the bench
+`drum_lanes_bench::a_hundred_thousand_hits_in_the_lanes_beside_the_piano_roll`
+prints both frame times (100,000 hits: lanes p50 14.34 ms / p95 27.73 ms
+against the roll's 21.24 / 24.02 ms in a debug build on the development
+machine; the gate is the roll's p95 within 15%). `docs/DESIGN.md` gains §7m.
+Deviations from the specimen, by eye: the map's name sits in the name column's
+ruler slot (the specimen drew the grid's step count there, which is D3's); the
+velocity lane shows every hit; and the hit's fill is drawn over a wash of its
+own colour, so a low velocity still reads as a diamond.
+
+**Review round 1** (an independent review, 2026-11-13; every finding fixed
+here, each with the test that proves it). *The lanes now cost their picture,
+not the clip.* The frame gathers the hits once into `DrumState`'s caches —
+`lanes_for` (the map's lanes, keyed by the map, the clip and Hide unused) and
+`cells_for` (the hits, keyed by the clip, the rows, the picks, the hidden
+notes, the body, the time and the scroll, reusing its `seen` buffer) - and the
+hover and the length bars read that cache instead of re-gathering per pointer
+move or per widget (H2). A box still walks the clip's notes each frame while
+it drags; that is the box's own pass, not the picture's (review round 2, L2).
+The arrangement's drum rows are gathered for
+the *visible* part of the clip only (`body.intersect(painter.clip_rect())`),
+found by range for a sorted clip (`partition_point`) and cached per clip in
+`Arrangement::drum_cache`, and a mark is capped at 3 pt, so a clip tens of
+thousands of points wide draws narrow marks rather than walls and does not
+gather its whole width each frame (H1). *A lane move takes each hit's own
+pitch.* `Resolved::MoveHits` carries one pitch per picked hit (the row it
+lands on, the block clamped so no hit leaves the lanes), committed by
+`Document::move_notes_to_pitches` through
+`edit::notes::move_to_pitches`; a semitone `pitch` delta used to land between
+rows (H3). *The rest:* a press below the last lane, or with no lanes, draws
+nothing (M1); a box in the lanes takes the diamonds (and the length bars, where
+they show) rather than the notes' length boxes (M2); a velocity drag is latched
+on its first frame past the threshold and moves from the hit's velocity at the
+press, so a 127 hit stays 127 and a drag never changes its mind half way (M3);
+the lanes' M and S are commands (`midi.mute_lane`, `midi.solo_lane`, tagged
+`@m8`, in the editor's menu) and Tab plus Space operates them, while a click
+leaves Space to the transport (M4); a drum clip no longer writes the roll's row
+height (M5); the empty lanes say which empty they are — a map with no sounds,
+or Hide unused hiding them all — and the second offers "Show every sound" (M6);
+a loop repeat's hits are no longer drawn muted (M7); the M/S block is measured
+from the name column's right edge (`BUTTONS_RIGHT`, two 20 pt toggles) with its
+icon at 10 pt, all in `theme::size` tokens (M8). *Small ones:* dead locals
+(L1), one row height constant and one length line (L2), the quantize toast says
+"each lane's own grid" only when a picked hit's lane had one (L3), the view
+commands say whether a drum map or the view is missing (L4), design sizes moved
+to `theme::size` (`LANE_*`, `DRUM_ROW_MIN`) (L6), `Rows::lanes` dedups with a
+seen set instead of assuming adjacent duplicates (L7), and a bar's grid has no
+triplet or dotted feel — the map editor does not offer one, `size_ticks` refuses
+one and a file that names one reads as straight (L8).
+
+**Review round 2** (a re-check of the fixes, 2026-11-13; every item fixed
+here, each with the test that proves it). *The deep-zoom E2E read a clock,*
+which broke the timing lint: it now asserts what the code decides — a
+2,000-hit clip at 4,000 points a beat keeps its cells under `MAX_CELLS` and
+its marks no wider than `MARK_MAX` (the pre-fix clip-wide bucket drew 22 pt
+marks) — and the frame-time claim stays the ignored bench's. *The
+arrangement's pictures are pruned:* a clip no longer drawn leaves
+`drum_cache`, and an entry is keyed by the map's id and the document's
+revision instead of a cloned `DrumMap` compared field by field each frame. *A
+looping clip's gather is bounded* to the repeats the view shows and, inside
+each, the notes whose onset falls in the visible window (a note carried into
+the first repeat included); the unsorted fallback stays, with its own test.
+*The lanes' colours follow the theme:* `lanes_for` is keyed by the flag
+`theme::is_light()` answers and `theme::wave_on` takes it, so a theme switch
+rebuilds them. *The editor menu's Lanes/Keys rows* go through the command's own switch
+(`set_drum_view`, or `set_drum_view_in` on the editor while it is out of the
+app drawing the menu), which clears the framing, so Keys opens on the clip's
+notes rather than at pitch 127; the lane mute and solo rows are listed only
+while a lane is picked, which the menu reads from the live editor for the same
+reason. *Small ones:* `mark_width` is extracted and asserted at both
+ends of the zoom (the tautology is gone) and the unsorted path has a test
+(L1); this ADR no longer says the marquee reads the cache — it walks the
+clip's notes during a drag (L2); the cells cache's `seen` buffer is described
+as what is reused, the cells' `Arc` being new each rebuild (L3); a picked hit
+with no row no longer kills a lane move — the rest move (L5) — and the
+lane-move E2E asserts one undo step (L6); choice 8 says loop repeats draw like
+the first pass (L7); `Quantize`'s normalisation is documented as v35's, to be
+gated by any later version that offers a bar's feel (L8); and `letter_toggle`
+no longer repeats the activation egui already reports (L9).
+
+**Not here.** Steps (D3), routing per sound (D4), step input and MIDI effects,
+a saved preference for the view, and auditioning a lane from a hardware pad
+(the lane's name auditions the sound; a pad plays the track already).
+
+## ADR-0148 — Parallax and Afterglow: the delay and the reverb (M8 slice B3)
+
+**Status.** Proposed (M8 slice B3; the parent assigns the number). Brief:
+`docs/milestones/M8.md` section 5 "B3 - Delay and reverb"; decisions E1, E2, E6 and E7
+in section 6; the B0 contract is ADR-0145.
+
+**Context.** B0 gave Lumen one in-process effect path and Prism to prove it. B3 adds
+the two time-based effects a song needs: a stereo delay whose time can be a note in the
+song's tempo, and an algorithmic reverb whose decay is a time a person can set and hear.
+Both must report tails, so they ring out after Stop and in a bounce and an export. B0's
+ADR left the tempo a synced delay needs ("B3 adds it in one place: `Routing.tempo` ...
+and a `bpm` field on `Block`") and review N2 left the export's automatic tail at a flat
+ten seconds. This ADR records how both were done and what the DSP is.
+
+**Options.**
+
+- **How a synced delay learns the tempo.** (A) B0's plan: bake the project's tempo into
+  an `AutoLane` carried by the `Routing`, and give `Block` the tempo at its first frame.
+  (B) Read the tempo from the engine's `Timeline`, which every `RenderContext` already
+  carries, in the mixer's render loop, and put it on the internal `Pass` and so on the
+  `Block`. (C) A tempo message to each running device.
+- **What a tail function may look at.** B0 made `Description::tail` a pure function of a
+  device's values, but a delay's tail is a time in seconds, which needs the rate, and a
+  note-synced delay's the tempo as well.
+- **How the delay's time follows a change.** (A) Jump to the new time (a click). (B)
+  Glide the read point linearly over 20 ms, as a level the interface moves glides. (C)
+  Crossfade two read points.
+- **The reverb.** (A) A feedback delay network: a handful of lines mixed through an
+  orthogonal matrix, each damped and weighted so the whole falls 60 dB in the decay
+  time. (B) A chain of comb and allpass filters. (C) Convolution (out of scope: no
+  bundled libraries).
+- **How far a delay line reaches.** A line allocated for the longest note at the slowest
+  tempo (four quarters at 20 BPM is 12 s) is 18 MB at 192 kHz an instance; four seconds
+  is 6.2 MB and covers every note down to 60 BPM.
+
+**Choices.**
+
+1. **The tempo comes from the timeline, not the routing** (option B). The mixer reads
+   `cx.timeline.bpm_at(sample)` for each part it renders and passes it through the
+   internal `Pass` into `Block.bpm` (a compatible field: a device that ignores it
+   compiles and plays unchanged). The deviation from B0's ADR is deliberate: `Routing`
+   is built in 83 places in the workspace and is copied and compared per node; a
+   tempo lookup per mixer part is exactly the map the clips
+   follow (so a tempo change lands where the music does, not one routing rebuild later),
+   and needs no lane baking, no rebuild on a tempo change and no new public field. The
+   read happens only when the plan holds a built-in (`Plan.builtins`), so a project with
+   none does the work it always did. The
+   consequence is that the tempo is read at the part's first frame: a change inside a
+   256-frame block is quantised to it, which B0's ADR already called inaudible for a
+   delay time.
+2. **The delay's time is in notes or milliseconds, one parameter each.** The note
+   parameter holds Free or 1/32 to 1/1; at Free the millisecond parameter is the time.
+   Both are on the strip, with Repeats (feedback), Ping (ping-pong), Low cut, High cut,
+   Mix and Freeze: eight parameters, eight knobs. A synced time is
+   `quarters * 60 / bpm * rate` frames, worked out from the block's tempo; at 120 BPM a
+   quarter is exactly 24000 frames at 48 kHz, so the echo lands on the beat's sample.
+3. **A time change glides linearly over 20 ms** (option 3B): the read point moves
+   between one frame and the next rather than jumping, so a knob or a tempo change never
+   steps the output. After a change the glide ends long before the next echo, so the
+   echo that follows is sample-exact again; a test holds the echo at 144000 frames after
+   the tempo changes from 120 to 60 at 96000. A crossfade would avoid the brief pitch
+   slide the glide has, but it needs two read points and a second tap for every filter;
+   the slide is what a tape delay does and the brief asks for "no clicks", which the
+   glide gives.
+4. **The delay lines are 4 s at 192 kHz** (option 5B, `MOST_SECONDS`). The constructor
+   allocates both sides (6.2 MB), so nothing allocates while it runs. A note longer than
+   the line at a very slow tempo (a half or a whole note under 60 BPM) is held at 4 s
+   rather than allocating more; the limit is recorded here: a whole note at 20 BPM plays
+   as 4 s, not 12. The loop's low cut and high cut are first-order, read at the mixer's
+   32-frame knots; freeze holds the loop at unity feedback and takes no new sound.
+5. **The reverb is an eight-line feedback delay network** (option 4A): eight prime-ish
+   lines whose lengths Size scales between 0.5x and 1.6x, each read with interpolation
+   and damped by a one-pole whose corner Damping takes from 20 kHz to 1 kHz, mixed
+   through a normalised eight-point Hadamard matrix, and weighted by
+   `10^(-3 * length / decay)` so every line falls 60 dB in the same Decay time (the
+   standard relation between a loop's gain and its RT60). Early reflections are six
+   tapered taps per side of a quarter-second line, and Early is the balance between them
+   and the late tail; Pre is a gliding pre-delay line; Width is mid/side on the wet
+   pair. Nothing is copied from a named algorithm or product: it is eight lines, a
+   matrix and a filter. Buffers are allocated in the constructor for the longest a
+   setting can ask for at 192 kHz (a 200 ms pre-delay, a quarter-second early line,
+   lines to 54 ms): about 0.8 MB an instance. The decay is verified by measurement: the
+   energy decay between -5 dB and -35 dB gives an RT60 within 10 % of the
+   setting at 0.5, 1.5 and 4 s.
+6. **Tails.** A device's `Description::tail` must stay a pure function of its values
+   (ADR-0145 review H1), but a tail in frames needs the rate, and a note-synced delay
+   the tempo too. Each device therefore declares `tail(values)` at the reference its
+   description documents (48 kHz, and 120 BPM for the delay: `delay::REFERENCE_BPM`,
+   `REFERENCE_RATE`), and a pure helper,
+   `lumen_devices::effect_tail_at(name, values, bpm, rate)` (with
+   `delay::tail_frames`/`reverb::tail_frames` under it), gives the true number at any
+   tempo and rate. A running instance reports `effect_tail_at` at the tempo and rate of
+   its last block (its defaults before the first), so a fresh instance equals its
+   description exactly - the B0 test still holds - and a device playing at 60 BPM
+   reports the longer tail it really has. The delay's tail is
+   `time * repeats until -60 dB` (or ten seconds when frozen); the reverb's is
+   `pre-delay + decay + 50 ms`; both are zero at a dry mix and capped at
+   `MOST_TAIL_SECONDS` (10 s), which is also the engine's Stop cap, so a frozen loop
+   cannot hold a render open.
+7. **The export and the bounce add the devices' own tail** (ADR-0145 review N2,
+   answered here). `crate::builtin::tail_frames(project, rate)` sums each track's chain
+   (a reverb after a delay rings for both) at the project's slowest tempo, adds the
+   master's chain to the longest track's, and caps at ten seconds;
+   `track_tail_frames` is one track's for a bounce. `export/render.rs` and
+   `export/worker.rs` (the real-time path) use the former, `bake/bounce.rs` the latter,
+   in place of the flat ten seconds. A project with nothing that rings adds nothing; a
+   chain with a plugin in it keeps the ten seconds a render always gave it, because the
+   engine does not trust a plugin's reported tail (a plugin may misreport one).
+8. **Parameters and labels.** Stable ids: the delay 1 to 8 (Time, Note, Repeats, Ping,
+   Low cut, High cut, Mix, Freeze), the reverb 1 to 7 (Pre, Size, Decay, Damp, Width,
+   Early, Mix), pinned by a test like Prism's. No id is reused; a new meaning would get
+   a new id. The cards name what the round-2 specimen names: Parallax's dials are Time,
+   Feedback and Mix and its pills Ping and Sync; Afterglow's are Space (Size), Fade
+   (Decay), Warmth (Damp) and Mix. A control's accessible name and tooltip give the idea
+   name with the parameter's own beside it ("Feedback (Repeats)", "Fade (Decay)"), and
+   every other parameter is in All parameters.
+9. **The personality and the set pieces.** Parallax (subtitle "Stereo delay") is
+   `theme::personality::DELAY`, teal `#3FD6C6`, deep `DELAY_DEEP`; Afterglow ("Reverb")
+   is `REVERB`, pink `#FF6FA8`, deep `REVERB_DEEP`, with `REVERB_CORE` and `REVERB_WARM`
+   for its light. Their screens are round 2's set pieces (`chain/face/parallax.rs`,
+   `afterglow.rs`, DESIGN section 7k): Parallax's receding echoes, alive with a light
+   that travels the trail at the real delay time, and playable (the trail is one handle
+   for Time across and Feedback up, one undo step); Afterglow's glow that swells with the
+   level and falls over the real decay, playable (the glow is Space, the outer ring is
+   Fade). The first attempt, a still drawing in `card/picture.rs`, is gone. The commands
+   `devices.add_delay` ("Add Parallax (delay)") and `devices.add_reverb` ("Add
+   Afterglow (reverb)") sit beside `devices.add_utility` at the end of `Command`, in the
+   palette, the track header's menu and the device tray's, one undo step each, and both
+   are tagged `@m8` in `undocumented.txt` (B6 writes the browser rows and factory
+   presets).
+   *Additive changes to the face framework* (`chain/face/mod.rs`, with a test each):
+   `Control::follows` (a dial or pill that stands for another parameter while the values
+   say so: Time is the note while the delay follows the tempo and the milliseconds while
+   it does not; the widget is new when the parameter changes, so a drag in progress ends
+   cleanly), `Control::switch` (a pill over a choice: Sync is on for a note other than
+   Free), `Handle::follows` and `Handle::also` (a second parameter moved by the pointer's
+   other axis, one `Output::Moved`, one undo step; double-click is one `Output::Reset`),
+   `Scene::bpm` (the tempo at the playhead, for a picture that keeps time with the song)
+   and `Scene::id` (the card's own id, for the little state a glow keeps between frames).
+   `hue` and `still` are now read, so their `allow(dead_code)` is gone. A handle's
+   `value_at` may return more than 0 to 1 (Afterglow's, which is the pointer's distance
+   from the glow's middle): a drag is the change in it and the handle clamps what it
+   adds up to.
+10. **No format change.** As B0: a parameter the project does not name plays its
+    table's default, so a project from before B3 opens with the devices it has and the
+    values it holds.
+
+**Tests.** `lumen-devices/tests/delay_reverb.rs` (13): the pinned tables and ids; a
+value read and typed back; the description's and the instance's tails at defaults and
+how they move with time, feedback, decay, mix and freeze; a synced echo at 24000 frames
+at 120 BPM and at 12000 for an eighth; the echo after a tempo change at 144000 with no
+step above 1.2 between frames; the feedback's 0.5, 0.25 repeats; the high cut darkening
+the tenth echo; freeze holding the loop with a capped tail; the RT60 within 10 % at
+three decays; the stereo tail and width 0 as mono; the same audio at 64, 97, 128, 512
+and 1024 frames with a lane; no allocation over blocks with automation; a new device's
+tail before any block. `lumen-engine/tests/time_builtins.rs` (7): the tempo map reaching
+the device through the engine (a quarter at 120 and at 60 after a change at 96000); the
+same audio at five block sizes through the mixer; an offline render equal to playback
+(both bit for bit, after the parent's review below);
+a delay's and a reverb's tails ringing after Stop (`Source::ringing`); and two
+golden renders pinned by twenty samples, the sum of |x| and the sum of x^2, each within
+1e-6 relative (not by a hash of the bits: CI's platforms round `exp`/`powf` a last bit
+apart, the parent's correction to B0's golden). `lumen-app`: the automatic tail from the
+project (a reverb's decay is in it, a quiet chain adds nothing, the master's chain
+follows the track's). E2E `tests/e2e/delay_reverb.rs` (6): both commands, their
+personalities, the cards' idea-named controls, one undo step each; the echo trail's
+across-and-up drag moving the note and the feedback in one undo step (and Time in
+milliseconds when free), double-click putting both back, the glow's drag as Space and the
+outer ring's as Fade, each one undo step; a delay's echoes still
+heard after Stop (`listen`); an export of a fifth of a second with a one-second reverb
+keeping its tail and not ten seconds of it.
+
+**Measured.** `cargo bench -p lumen-engine --bench clips` (this machine, release), 64
+tracks each with one device, a 128-frame block: Prism 88.2 us and Parallax 371 us and
+Afterglow 1.44 ms (medians). The same mix with no built-in is 39.0 us in the same
+session (B0 measured 29.9 us on a quieter machine), so one delay is about 5.2 us a block
+(0.19 % of the 2.67 ms budget at 48 kHz) and one reverb about 21.9 us (0.82 %); a
+project with 64 reverbs spends 54 % of the block on them, which is the worst case the
+bench exists to show, not a typical song (a handful of reverbs on returns is 1 to 3 %).
+A second run with the machine loaded after the test suites measured 492.9 us and
+2.06 ms, which is load, not cost. The reverb's gains are worked out with `powf` once a
+line a knot; if that becomes the cost, the segment-wise exponential B0 recorded applies
+here too.
+
+**Not verified here.** The WSL performance gate, the macOS cross-target clippy, and any
+hardware: nothing was heard by a human (MT-FX-4 waits), the ASIO path is untouched but
+untested here, and the look was checked by screenshot against round 2's cards (`shots`
+`builtin_card` and `builtin_card_playing`: whole, short, compact, folded, All parameters
+and the smallest window, and playing, in both themes at 100, 150 and 200 %). A reverb's character is a taste
+question MT-FX-4 asks the owner about.
+
+**The faces' choices (set pieces).** Freeze is in All parameters only: a pill would have
+been a third under Parallax's screen at the whole step, where there is room for Ping and
+Sync (Sync is the one control beyond the specimen). Drawing cost, release build
+(`set_piece_cost`, mean / worst per frame, idle and loud): Parallax whole 0.075 / 0.178 ms
+and 0.070 / 0.207, short 0.068 / 0.160 and 0.069 / 0.305, compact 0.059 / 0.141 and
+0.056 / 0.138; Afterglow whole 0.065 / 0.173 and 0.080 / 0.213, short 0.059 / 0.174 and
+0.070 / 0.147, compact 0.055 / 0.200 and 0.053 / 0.174; all under the 0.3 ms bar except one
+0.305 ms worst frame. Differences from round 2: the hero reads "1/8", not "1/8 dotted"
+(the delay has no dotted notes); Warmth shows "55%", not "5k"; the echo glows are stacked
+discs, not a true blur; nothing was heard. Two header and foot fixes after the parent's
+review of the shots: on the compact card a set piece's name is never cut, so when it does
+not fit left of the full "All n" link the link gives way to its chevron for every device
+(`Plan::for_name`; the tooltip and accessible name still say "All parameters (n)"); and
+Afterglow's four dials stand at 46 to 214 (the specimen's reach 240) so the "All 7" link
+keeps a clear gap from the Mix value.
+
+**Consequences.** `Block` gained `bpm` (a device that ignores it is unchanged); the
+mixer's internal `Pass` gained it; `lumen_devices::EFFECTS`, `effect()` and
+`effect_tail_at` name the two devices; `crate::builtin` has the project's tail and the
+two personalities; the export and the bounce read the project's tail. No format or
+settings change.
+
+**Parent's review (2026-11-13).** The handoff accepted a reverb render that differed from
+playback by up to 1e-4. The cause was not the recursion: both devices read their lines
+at `write as f32 - behind`, so the fraction a read interpolated by depended on how far the
+write point had travelled. A render's lead-in moved it, and the delay's 4 s line at
+192 kHz (768,000 frames) put the fraction on a grid of a sixteenth of a frame, which
+would have stepped a gliding delay time. Both now read through `line::read_behind`, which
+splits `behind` into whole frames and a fraction before touching the write index (test
+`a_read_does_not_depend_on_where_the_write_point_is`). The reverb's render now equals
+playback bit for bit, and Afterglow's golden pins moved by a millionth with it.
 
 ## ADR-XXXX — Gravity and Horizon, the compressor and the limiter (M8 slice B2)
 

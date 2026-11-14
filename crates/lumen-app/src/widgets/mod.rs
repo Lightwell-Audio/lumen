@@ -21,9 +21,11 @@ mod form;
 mod format;
 mod keys;
 pub mod knob;
+mod letter;
 pub mod mark;
 mod menu;
 pub mod meter;
+pub mod number;
 pub mod param;
 mod pills;
 pub mod raised;
@@ -45,6 +47,7 @@ pub use keys::{
     KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
     menu_toggle_icon, modifier_caps, submenu, tip,
 };
+pub use letter::letter_toggle;
 pub use menu::Menu;
 pub(crate) use menu::note_change;
 pub use pills::{Pill, chip_button, chip_toggle, pill_button, pill_switch, pill_tabs, pill_toggle};

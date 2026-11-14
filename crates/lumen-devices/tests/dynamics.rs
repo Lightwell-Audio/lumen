@@ -147,6 +147,7 @@ fn run(
         let block = Block {
             rate: RATE,
             start: done as i64,
+            bpm: 120.0,
             law: PanLaw::Balance,
             events: &events,
         };
@@ -542,6 +543,7 @@ fn gravity_never_touches_the_heap() {
     let block = Block {
         rate: RATE,
         start: 0,
+        bpm: 120.0,
         law: PanLaw::ConstantPower,
         events: &events,
     };
@@ -1046,6 +1048,7 @@ fn horizon_never_touches_the_heap() {
     let block = Block {
         rate: RATE,
         start: 0,
+        bpm: 120.0,
         law: PanLaw::Balance,
         events: &events,
     };
@@ -1376,6 +1379,7 @@ fn the_limiter_delays_by_its_frames_at_any_rate() {
             let block = Block {
                 rate,
                 start: done as i64,
+                bpm: 120.0,
                 law: PanLaw::Balance,
                 events: &events,
             };
@@ -1586,6 +1590,7 @@ fn a_key_shorter_than_the_block_is_read_only_as_far_as_it_goes() {
         let block = Block {
             rate: RATE,
             start: 0,
+            bpm: 120.0,
             law: PanLaw::Balance,
             events: &events,
         };
@@ -1642,6 +1647,7 @@ fn a_reset_never_touches_the_heap() {
         let block = Block {
             rate: RATE,
             start: 0,
+            bpm: 120.0,
             law: PanLaw::Balance,
             events: &events,
         };

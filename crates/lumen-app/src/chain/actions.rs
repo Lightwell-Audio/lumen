@@ -115,10 +115,15 @@ impl App {
         self.add_builtin(lumen_devices::utility::NAME);
     }
 
-    /// Puts the built-in effect saved as `name` on the selected track after the
-    /// chosen card, or on a new audio track when no track fits: one undo step,
-    /// with the values its table gives it, and its card shown (M8 slices B0
-    /// and B2).
+    /// Puts Iris, the equaliser, on the selected track after the chosen card,
+    /// or on a new audio track when no track fits (M8 slice B1): one undo
+    /// step, with the values its table gives it, and its card shown.
+    pub(crate) fn add_eq(&mut self) {
+        self.add_builtin(lumen_devices::eq::NAME);
+    }
+
+    /// Adds the built-in effect `name` where a device of its kind goes, with
+    /// the values its table gives it, and shows its card (M8 slices B0 to B3).
     pub(crate) fn add_builtin(&mut self, name: &str) {
         let plugin = PluginRef::Builtin {
             name: name.to_owned(),

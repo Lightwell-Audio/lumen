@@ -130,6 +130,22 @@ impl App {
         Some(egui::pos2(v.x_of(local), v.y_of(value)))
     }
 
+    /// The roll's row height, in points (the user's, kept across clips).
+    pub fn editor_row_height(&self) -> f32 {
+        self.note_editor.row_height
+    }
+
+    /// Sets the roll's row height, as Alt+wheel over the roll does.
+    pub fn set_editor_row_height(&mut self, height: f32) {
+        self.note_editor.row_height = height;
+        self.note_editor.framed_for = None;
+    }
+
+    /// What the last toast said, if one is showing (review L3).
+    pub fn toast_text(&self) -> Option<&str> {
+        self.toast.as_ref().map(|(text, _)| text.as_str())
+    }
+
     /// Where the bend handle's dot is, when a curve was just drawn.
     pub fn lane_bend_dot(&self) -> Option<egui::Pos2> {
         let v = self.note_editor.last_lane?;

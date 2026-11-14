@@ -83,74 +83,65 @@ fn routed_tracks_at_128_frames(bencher: divan::Bencher<'_, '_>, tracks: usize) {
 #[divan::bench]
 fn engine_builtin_64(bencher: divan::Bencher<'_, '_>) {
     use lumen_devices::utility::{self, Utility};
-    use lumen_engine::{Device, Slot};
-    const TRACKS: u64 = 64;
-    let audio = Arc::new(ClipAudio::Memory {
-        sample_rate: 48_000,
-        channels: vec![vec![0.1; 480_000], vec![-0.1; 480_000]],
-    });
-    let (mut handle, player) = clip_player();
-    handle
-        .set(
-            (0..TRACKS)
-                .map(|i| Clip {
-                    envelope: Default::default(),
-                    id: i,
-                    start: Ticks::ZERO,
-                    offset: 0,
-                    length: 480_000,
-                    gain: 0.5,
-                    track: i,
-                    audio: Arc::clone(&audio),
-                    shape: Default::default(),
-                })
-                .collect(),
-        )
-        .unwrap();
-    let (mut routing, source) = mixer(player);
-    let mut plan = routed(TRACKS, 0);
-    for node in plan.nodes.iter_mut().filter(|n| n.id < TRACKS) {
-        node.devices = vec![Device::Builtin {
-            device: 1_000 + node.id,
-            latency: 0,
-            bypass: false,
-        }];
-        // A gain a little under unity, and a pan off centre: the device works.
-        node.values = vec![(
-            1_000 + node.id,
-            vec![
-                (utility::GAIN, 0.6),
-                (utility::PAN, 0.55),
-                (utility::WIDTH, 0.75),
-            ],
-        )];
-    }
-    for id in 0..TRACKS {
-        assert!(
-            routing
-                .attach_builtin(1_000 + id, Slot::new(Box::new(Utility::new())))
-                .is_ok()
-        );
-    }
-    assert!(routing.set(&plan).unwrap());
-    let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
-    transport.send(Command::Play).unwrap();
-    let mut data = vec![0.0; 256];
-    // Past the fade-in and the 20 ms glide to the values.
-    for _ in 0..400 {
-        engine.process(48_000, &mut data, 2, 128);
-    }
-    bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
+    let values: Vec<(u32, f32)> = utility::TABLE
+        .iter()
+        .map(|p| {
+            (
+                p.id,
+                match p.id {
+                    utility::GAIN => 0.6,
+                    utility::PAN => 0.55,
+                    utility::WIDTH => 0.75,
+                    _ => p.normalised(p.default),
+                },
+            )
+        })
+        .collect();
+    builtin_64(bencher, values, 0, || Box::new(Utility::new()));
 }
 
-/// 64 tracks, each with a built-in device on it (M8 slices B0 and B2): `make`
-/// builds the device, `values` its parameters and `latency` the frames it
-/// holds back.
+/// 64 tracks, each with Parallax, the stereo delay, on it (M8 slice B3): what
+/// a tempo-synced delay with its loop filters costs the audio thread.
+#[divan::bench]
+fn engine_builtin_delay_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::delay::{self, Delay};
+    let values: Vec<(u32, f32)> = delay::TABLE
+        .iter()
+        .map(|p| {
+            (
+                p.id,
+                match p.id {
+                    delay::FEEDBACK => 0.45,
+                    delay::NOTE => 4.0 / 6.0,
+                    delay::PING => 1.0,
+                    _ => p.normalised(p.default),
+                },
+            )
+        })
+        .collect();
+    builtin_64(bencher, values, 0, || Box::new(Delay::new()));
+}
+
+/// 64 tracks, each with Afterglow, the reverb, on it (M8 slice B3): eight
+/// feedback lines, their damping and the early reflections, a block at a time.
+#[divan::bench]
+fn engine_builtin_reverb_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::reverb::{self, Reverb};
+    let values: Vec<(u32, f32)> = reverb::TABLE
+        .iter()
+        .map(|p| (p.id, p.normalised(p.default)))
+        .collect();
+    builtin_64(bencher, values, 0, || Box::new(Reverb::new()));
+}
+
+/// 64 tracks of steady sound, each with one built-in effect holding `values`
+/// and holding back `latency` frames: the body the `engine_builtin_*` and
+/// dynamics benches share (M8 slices B0, B2 and B3).
 fn builtin_64(
     bencher: divan::Bencher<'_, '_>,
-    make: &dyn Fn() -> Box<dyn lumen_devices::Effect>,
-    values: &dyn Fn(u64) -> Vec<(u32, f32)>,
+    values: Vec<(u32, f32)>,
     latency: u32,
+    make: impl Fn() -> Box<dyn lumen_devices::Effect>,
 ) {
     use lumen_engine::{Device, Slot};
     const TRACKS: u64 = 64;
@@ -184,7 +175,7 @@ fn builtin_64(
             latency,
             bypass: false,
         }];
-        node.values = vec![(1_000 + node.id, values(node.id))];
+        node.values = vec![(1_000 + node.id, values.clone())];
     }
     for id in 0..TRACKS {
         assert!(
@@ -204,26 +195,98 @@ fn builtin_64(
     bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
 }
 
+/// The same 64 tracks, each with Iris on it and every band on, as the worst
+/// case a person meets: eight bands of a parametric EQ an instance (M8 slice
+/// B1). The cuts are at their gentlest slope, which is one section each; a 48
+/// dB/octave slope would be six sections more an instance.
+#[divan::bench]
+fn engine_eq_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::eq::{self, Eq};
+    use lumen_engine::{Device, Slot};
+    const TRACKS: u64 = 64;
+    let audio = Arc::new(ClipAudio::Memory {
+        sample_rate: 48_000,
+        channels: vec![vec![0.1; 480_000], vec![-0.1; 480_000]],
+    });
+    let (mut handle, player) = clip_player();
+    handle
+        .set(
+            (0..TRACKS)
+                .map(|i| Clip {
+                    envelope: Default::default(),
+                    id: i,
+                    start: Ticks::ZERO,
+                    offset: 0,
+                    length: 480_000,
+                    gain: 0.5,
+                    track: i,
+                    audio: Arc::clone(&audio),
+                    shape: Default::default(),
+                })
+                .collect(),
+        )
+        .unwrap();
+    let (mut routing, source) = mixer(player);
+    let mut plan = routed(TRACKS, 0);
+    // Every band on, with a gain or a cut that makes each one work.
+    let band = |number: u32| {
+        let mut values = Vec::new();
+        let mut set = |id: u32, units: f32| {
+            let info = eq::TABLE.iter().find(|info| info.id == id).expect("an id");
+            values.push((id, info.normalised(units)));
+        };
+        set(eq::freq_of(number as usize), 100.0 * number as f32);
+        set(eq::on_of(number as usize), 1.0);
+        if number == 1 || number == 8 {
+            set(eq::gain_of(number as usize), 24.0);
+        } else {
+            set(eq::gain_of(number as usize), 6.0);
+        }
+        values
+    };
+    for node in plan.nodes.iter_mut().filter(|n| n.id < TRACKS) {
+        node.devices = vec![Device::Builtin {
+            device: 1_000 + node.id,
+            latency: 0,
+            bypass: false,
+        }];
+        let mut values = vec![(eq::OUTPUT, 0.5)];
+        for number in 1..=8 {
+            values.extend(band(number));
+        }
+        node.values = vec![(1_000 + node.id, values)];
+    }
+    for id in 0..TRACKS {
+        assert!(
+            routing
+                .attach_builtin(1_000 + id, Slot::new(Box::new(Eq::new())))
+                .is_ok()
+        );
+    }
+    assert!(routing.set(&plan).unwrap());
+    let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
+    transport.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 256];
+    for _ in 0..400 {
+        engine.process(48_000, &mut data, 2, 128);
+    }
+    bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
+}
+
 /// 64 tracks, each with Gravity, the compressor, on it (M8 slice B2), keyed
 /// from nothing: what a compressor costs the audio bus per block, beside
 /// `engine_builtin_64` for the utility.
 #[divan::bench]
 fn engine_gravity_64(bencher: divan::Bencher<'_, '_>) {
     use lumen_devices::dynamics::compressor::{self, Compressor};
-    builtin_64(
-        bencher,
-        &|| Box::new(Compressor::new()),
-        &|_| {
-            vec![
-                (compressor::THRESHOLD, 0.55),
-                (compressor::RATIO, 0.3),
-                (compressor::ATTACK, 0.4),
-                (compressor::RELEASE, 0.5),
-                (compressor::KNEE, 0.25),
-            ]
-        },
-        0,
-    );
+    let values = vec![
+        (compressor::THRESHOLD, 0.55),
+        (compressor::RATIO, 0.3),
+        (compressor::ATTACK, 0.4),
+        (compressor::RELEASE, 0.5),
+        (compressor::KNEE, 0.25),
+    ];
+    builtin_64(bencher, values, 0, || Box::new(Compressor::new()));
 }
 
 /// 64 tracks, each with Horizon, the limiter, in true-peak mode (M8 slice B2):
@@ -236,17 +299,11 @@ fn engine_horizon_64(bencher: divan::Bencher<'_, '_>) {
         .normalised(1.5);
     let latency =
         lumen_devices::effect_latency(limiter::NAME, &[(limiter::LOOK, look)]).expect("a device");
-    builtin_64(
-        bencher,
-        &|| Box::new(Limiter::new()),
-        &move |_| {
-            vec![
-                (limiter::CEILING, 0.7),
-                (limiter::RELEASE, 0.4),
-                (limiter::LOOK, look),
-                (limiter::DETECT, 1.0),
-            ]
-        },
-        latency,
-    );
+    let values = vec![
+        (limiter::CEILING, 0.7),
+        (limiter::RELEASE, 0.4),
+        (limiter::LOOK, look),
+        (limiter::DETECT, 1.0),
+    ];
+    builtin_64(bencher, values, latency, || Box::new(Limiter::new()));
 }

@@ -57,6 +57,7 @@ mod commands;
 mod design;
 mod disk;
 mod document;
+mod drum_editor;
 mod engine;
 mod export;
 mod hosting;
@@ -179,6 +180,8 @@ pub struct App {
     revert: app::revert::Revert,
     /// The drum map chooser, while it is open (M8 D0).
     drum_choice: Option<app::drum_choice::Choice>,
+    /// The drum map editor (M8 D1).
+    drum_map: app::drum_map_window::State,
     /// The Project settings window (M9 slice R4).
     project_settings: app::project_settings::ProjectSettings,
     export: app::audio_export::Export,
@@ -776,6 +779,7 @@ impl eframe::App for App {
         self.bounce_window(&ctx);
         self.mappings_window(&ctx);
         self.drum_choice_window(&ctx);
+        self.drum_map_window(&ctx);
         self.parameters_panel(&ctx);
         self.lane_parameters(&ctx);
         self.prompt_window(&ctx);

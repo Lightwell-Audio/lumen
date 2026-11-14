@@ -6,7 +6,8 @@
 //! wheel, the arrow keys. A parameter with steps moves from step to step.
 
 use eframe::egui::{
-    self, Align2, FontId, Id as EguiId, Key, Pos2, Rect, Response, Sense, Ui, Vec2, pos2, vec2,
+    self, Align2, Color32, FontId, Id as EguiId, Key, Pos2, Rect, Response, Sense, Shape, Stroke,
+    Ui, Vec2, pos2, vec2,
 };
 
 use super::knob::{SendKnob, draw};
@@ -278,6 +279,161 @@ fn behave(
     out.value = next.filter(|v| (*v - look.value).abs() > 1e-9);
     let response = response.on_hover_text(format!("{}: {}. {hint}", look.name, look.text));
     (response, out)
+}
+
+/// How a card's dial is drawn (M8, the round-2 specimen): its colour and the
+/// ring's radius.
+#[derive(Debug, Clone, Copy)]
+pub struct DialLook {
+    pub hue: Color32,
+    pub radius: f32,
+}
+
+/// A lit dial centred on `centre`: the same control as [`param_knob`] (drag,
+/// Shift for fine, the wheel, double-click for the default, click and type, the
+/// arrow keys), drawn large in the device's colour: a dim track, a lit arc to
+/// the value with a soft glow, a white head and a pointer. The name and value
+/// under it are the caller's.
+pub fn param_dial(
+    ui: &mut Ui,
+    centre: Pos2,
+    id: EguiId,
+    look: ParamLook<'_>,
+    dial: DialLook,
+) -> (Response, ParamOut) {
+    let rect = Rect::from_center_size(centre, Vec2::splat(2.0 * dial.radius + 4.0));
+    let (response, out) = behave(
+        ui,
+        rect,
+        id,
+        &look,
+        Feel {
+            field: Rect::from_center_size(centre, vec2(60.0, 18.0)),
+            span: 160.0,
+            along: |d| d.x - d.y,
+            hint: "Drag up or right (Shift for fine), double-click for the default, or click and type",
+        },
+    );
+    if out.typing {
+        return (response, out);
+    }
+    let shown = out.value.unwrap_or(look.value) as f32;
+    let hot = motion::hover(ui.ctx(), id.with("hot"), out.hovered);
+    let held = motion::hover(ui.ctx(), id.with("held"), response.dragged());
+    paint_dial(
+        ui.painter(),
+        centre,
+        dial,
+        (shown, hot, held),
+        look.read_only,
+    );
+    if response.has_focus() {
+        raised::paint_focus(ui.painter(), rect, theme::radius::FULL);
+    }
+    (response, out)
+}
+
+/// The dial's drawing: the disc, the dim track, the lit arc with its glow, the
+/// head and the pointer. `hot` (0 to 1) rings it while pointed at.
+fn paint_dial(
+    painter: &egui::Painter,
+    centre: Pos2,
+    dial: DialLook,
+    (at, hot, held): (f32, f32, f32),
+    off: bool,
+) {
+    use std::f32::consts::PI;
+    use theme::personality::card as c;
+    let (start, sweep) = (0.75 * PI, 1.5 * PI);
+    let r = dial.radius;
+    let on_ring = |t: f32, radius: f32| {
+        let angle = start + sweep * t;
+        centre + vec2(angle.cos(), angle.sin()) * radius
+    };
+    let arc = |to: f32| -> Vec<Pos2> {
+        let pieces = ((to * 48.0).ceil() as usize).max(1);
+        (0..=pieces)
+            .map(|i| on_ring(to * i as f32 / pieces as f32, r))
+            .collect()
+    };
+    let strength = if off { 0.4 } else { 1.0 };
+    // The disc: lighter at its upper left, as a lit knob is.
+    let (inner, rim) = if theme::is_light() {
+        c::DIAL_DISC_LIGHT
+    } else {
+        c::DIAL_DISC_DARK
+    };
+    let disc = r - c::DIAL_DISC_INSET;
+    let focus = centre + vec2(-0.2 * disc, -0.4 * disc);
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(focus, inner);
+    const SIDES: u32 = 28;
+    for i in 0..SIDES {
+        let a = i as f32 / SIDES as f32 * 2.0 * PI;
+        let at_rim = centre + vec2(a.cos(), a.sin()) * disc;
+        let reach = ((at_rim - focus).length() / (1.4 * disc)).clamp(0.0, 1.0);
+        mesh.colored_vertex(at_rim, inner.lerp_to_gamma(rim, reach));
+    }
+    for i in 0..SIDES {
+        mesh.add_triangle(0, 1 + i, 1 + (i + 1) % SIDES);
+    }
+    painter.add(Shape::mesh(mesh));
+    painter.circle_stroke(
+        centre,
+        disc,
+        Stroke::new(
+            theme::stroke::HAIRLINE,
+            Color32::BLACK.gamma_multiply(if theme::is_light() { 0.12 } else { 0.4 }),
+        ),
+    );
+    painter.add(Shape::line(
+        arc(1.0),
+        Stroke::new(
+            c::DIAL_TRACK,
+            dial.hue.gamma_multiply(c::DIAL_TRACK_ALPHA * strength),
+        ),
+    ));
+    if at > 0.0 {
+        let lit = arc(at);
+        for (width, alpha) in c::DIAL_GLOW {
+            let grow = 1.0 + c::DIAL_HELD_GROWTH * held;
+            painter.add(Shape::line(
+                lit.clone(),
+                Stroke::new(
+                    width * grow,
+                    dial.hue.gamma_multiply((alpha * grow).min(1.0) * strength),
+                ),
+            ));
+        }
+        painter.add(Shape::line(
+            lit,
+            Stroke::new(c::DIAL_LIT, dial.hue.gamma_multiply(strength)),
+        ));
+    }
+    painter.circle_filled(
+        on_ring(at, r),
+        c::DIAL_HEAD,
+        Color32::WHITE.gamma_multiply(strength),
+    );
+    let ink = if theme::is_light() {
+        c::DIAL_POINTER_LIGHT
+    } else {
+        c::DIAL_POINTER_DARK
+    };
+    painter.line_segment(
+        [centre, on_ring(at, r - c::DIAL_POINTER_INSET)],
+        Stroke::new(c::DIAL_POINTER, ink.gamma_multiply(strength)),
+    );
+    if hot > 0.0 {
+        painter.circle_stroke(
+            centre,
+            r + c::DIAL_HEAD + 2.0,
+            Stroke::new(
+                theme::stroke::HAIRLINE,
+                dial.hue.gamma_multiply(theme::alpha::EDGE * hot),
+            ),
+        );
+    }
 }
 
 /// A comet knob in `rect` (square), the plugin's own text beneath it is the

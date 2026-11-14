@@ -13,6 +13,8 @@ use lumen_project::model::Note;
 use crate::ruler;
 use crate::timeview::{Limits, TimeView};
 
+pub(crate) use crate::piano_roll::draw::Rows;
+
 /// Pitches there are: 0 to 127.
 pub(crate) const PITCHES: i32 = 128;
 /// The tallest row a pitch can have, and the shortest (points).
@@ -21,6 +23,9 @@ pub(crate) const ROW_MAX: f32 = 32.0;
 pub(crate) const ROW_DEFAULT: f32 = 16.0;
 /// Width of the key column (points).
 pub(crate) const KEY_WIDTH: f32 = 56.0;
+/// Width of the key column on a track with a drum map: the lanes' name
+/// column, [`crate::theme::size::LANE_NAME`] (M8 D1, `docs/specimens/m8/chosen.html`, Lanes).
+pub(crate) const KEY_WIDTH_DRUMS: f32 = crate::theme::size::LANE_NAME;
 /// Height of the time ruler above the notes (points).
 pub(crate) const RULER_HEIGHT: f32 = 20.0;
 /// How near a note's end the pointer grabs the end (points), at most a
@@ -52,9 +57,19 @@ pub(crate) struct EditorView {
     pub clip_start: Ticks,
     /// Points a pitch's row is tall.
     pub row_height: f32,
-    /// Points scrolled down from the top of pitch 127.
+    /// Points scrolled down from the top of the first row.
     pub scroll: f32,
+    /// Which rows show: every pitch, a drum map's sounds (M8 D1), or the
+    /// drum editor's lanes in the map's order (M8 D2).
+    pub rows: Rows,
+    /// The drum editor's lanes: a hit is a diamond on its onset (DE A), and
+    /// a vertical drag on a picked hit sets its velocity.
+    pub lanes: bool,
 }
+
+/// Where a hidden pitch's row is put: far below the body, so nothing is
+/// drawn for it and no arithmetic sees a nonsense number.
+const HIDDEN_ROW: f32 = 1.0e6;
 
 /// Part of a note the pointer is on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,20 +97,41 @@ impl EditorView {
         ruler::ticks_at(self.time.beat_at(self.body.left(), x))
     }
 
-    /// The top edge of pitch `pitch`'s row.
+    /// The top edge of pitch `pitch`'s row (far below the body when the row
+    /// is hidden).
     pub fn row_top(&self, pitch: i32) -> f32 {
-        self.body.top() + (PITCHES - 1 - pitch) as f32 * self.row_height - self.scroll
+        match self.rows.row_of(pitch) {
+            Some(row) => self.top_of_row(row),
+            None => HIDDEN_ROW,
+        }
     }
 
-    /// The pitch whose row contains `y` (may lie outside 0..=127).
+    /// The top edge of row `row`.
+    fn top_of_row(&self, row: usize) -> f32 {
+        self.body.top() + row as f32 * self.row_height - self.scroll
+    }
+
+    /// The pitch whose row contains `y`, clamped to the rows there are.
     pub fn pitch_at(&self, y: f32) -> i32 {
-        let row = ((y - self.body.top() + self.scroll) / self.row_height).floor() as i32;
-        PITCHES - 1 - row
+        let row = ((y - self.body.top() + self.scroll) / self.row_height).floor();
+        let last = self.rows.len().saturating_sub(1) as f32;
+        self.rows.pitch_of(row.clamp(0.0, last) as usize)
+    }
+
+    /// The lane's row at `y`, when a lane is there: in the drum editor's lanes
+    /// there is no row below the last lane (nor in a map with none), so a
+    /// press there draws nothing (M8 D2 review M1).
+    pub fn lane_at(&self, y: f32) -> Option<usize> {
+        if !self.body.y_range().contains(y) {
+            return None;
+        }
+        let row = ((y - self.body.top() + self.scroll) / self.row_height).floor();
+        (row >= 0.0 && (row as usize) < self.rows.len()).then_some(row as usize)
     }
 
     /// The furthest the view scrolls down.
     pub fn max_scroll(&self) -> f32 {
-        (PITCHES as f32 * self.row_height - self.body.height()).max(0.0)
+        (self.rows.len() as f32 * self.row_height - self.body.height()).max(0.0)
     }
 
     /// Where `note` is drawn (not cut to the body).
@@ -157,7 +193,12 @@ impl EditorView {
 /// The scroll that puts pitch `pitch` in the middle of a body `height`
 /// tall.
 pub(crate) fn scroll_to_centre(pitch: i32, row_height: f32, height: f32) -> f32 {
-    ((PITCHES - 1 - pitch) as f32 + 0.5) * row_height - height / 2.0
+    scroll_to_row((PITCHES - 1 - pitch) as usize, row_height, height)
+}
+
+/// The scroll that puts row `row` in the middle of a body `height` tall.
+pub(crate) fn scroll_to_row(row: usize, row_height: f32, height: f32) -> f32 {
+    (row as f32 + 0.5) * row_height - height / 2.0
 }
 
 /// "C4", "F#3": middle C (60) is C4.
@@ -183,6 +224,8 @@ mod tests {
             clip_start: Ticks::quarters(4),
             row_height: 10.0,
             scroll: 600.0,
+            rows: Rows::all(),
+            lanes: false,
         }
     }
 
@@ -239,6 +282,70 @@ mod tests {
         v.scroll = s;
         let mid = v.body.center().y;
         assert_eq!(v.pitch_at(mid), 60);
+    }
+
+    #[test]
+    fn the_lanes_have_no_row_below_the_last_one() {
+        // Review M1: a press below the last lane (or with no lanes) has no
+        // row, so the draw tool adds nothing there; the roll clamps.
+        use crate::piano_roll::draw::Rows;
+        let mut v = view();
+        v.lanes = true;
+        v.rows = Rows::lanes([36_u8, 38]);
+        v.row_height = crate::theme::size::LANE_ROW;
+        v.scroll = 0.0;
+        v.body = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 200.0));
+        assert_eq!(v.lane_at(1.0), Some(0));
+        assert_eq!(v.lane_at(28.0 + 1.0), Some(1));
+        assert_eq!(v.lane_at(2.0 * 28.0 + 1.0), None, "below the last lane");
+        assert_eq!(v.pitch_at(2.0 * 28.0 + 1.0), 38, "the roll clamps instead");
+        v.rows = Rows::lanes(std::iter::empty::<u8>());
+        assert_eq!(v.lane_at(1.0), None, "a map with no lanes has no row");
+        assert_eq!(v.lane_at(-1.0), None, "nor has the area above");
+    }
+
+    #[test]
+    fn a_folded_roll_shows_only_the_maps_sounds_packed_together() {
+        use crate::design::icons::DrumGlyph;
+        let sounds = vec![
+            crate::piano_roll::draw::KeySound {
+                input: 36,
+                name: "Kick".into(),
+                icon: DrumGlyph::Kick,
+                color: eframe::egui::Color32::WHITE,
+                silent: false,
+            },
+            crate::piano_roll::draw::KeySound {
+                input: 46,
+                name: "Open hat".into(),
+                icon: DrumGlyph::OpenHat,
+                color: eframe::egui::Color32::WHITE,
+                silent: false,
+            },
+        ];
+        let rows = Rows::mapped(&sounds);
+        assert_eq!(rows.len(), 2, "one row a sound");
+        assert_eq!(rows.row_of(46), Some(0), "the higher note is on top");
+        assert_eq!(rows.row_of(36), Some(1));
+        assert_eq!(rows.row_of(38), None, "a key the map does not use");
+        assert_eq!((rows.pitch_of(0), rows.pitch_of(1)), (46, 36));
+        assert_eq!(rows.pitch_of(9), 36, "past the end clamps to the last");
+        let mut v = view();
+        v.rows = rows;
+        v.scroll = 0.0;
+        v.body = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 100.0));
+        assert_eq!(v.row_top(46), 0.0);
+        assert_eq!(v.row_top(36), 10.0);
+        assert_eq!(v.row_top(60), HIDDEN_ROW, "a hidden pitch has no row");
+        assert_eq!(v.max_scroll(), 0.0, "two rows fit");
+        assert_eq!(v.pitch_at(5.0), 46);
+        assert_eq!(v.pitch_at(15.0), 36);
+        // A note whose pitch is hidden is never drawn or found.
+        let note = Note::new(Ticks::ZERO, Ticks::quarters(1), 60, 100);
+        assert!(!v.shows(note));
+        assert_eq!(v.note_at(&[note], v.body.center()), None);
+        // An empty list falls back to the keyboard.
+        assert!(Rows::mapped(&[]).is_all());
     }
 
     fn limits(width: f32) -> Limits {

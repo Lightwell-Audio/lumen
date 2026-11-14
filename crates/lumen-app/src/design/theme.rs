@@ -409,7 +409,14 @@ pub fn edge_light() -> Color32 {
 /// clip body so it reads (owner's choice: dark clips with bright
 /// waveforms); on the light theme's white body, the colour itself.
 pub fn wave(track: Color32) -> Color32 {
-    if LIGHT_IN_USE.load(Ordering::Relaxed) {
+    wave_on(LIGHT_IN_USE.load(Ordering::Relaxed), track)
+}
+
+/// [`wave`] for a theme chosen by the caller: `light` is the value
+/// [`is_light`] answers, so a caller that caches colours by theme can pass it
+/// without reading the global again (review round 2, M3).
+pub fn wave_on(light: bool, track: Color32) -> Color32 {
+    if light {
         track
     } else {
         track.lerp_to_gamma(Color32::WHITE, 0.3)
@@ -584,6 +591,54 @@ pub mod personality {
     /// changes nothing of its own.
     pub const UTILITY: Color32 = Color32::from_rgb(0x9A, 0xA0, 0xAC);
 
+    /// Iris, the parametric EQ (M8 slice B1): a periwinkle blue, the colour of
+    /// the curve it draws (`docs/specimens/m8/chosen.html`).
+    pub const EQ: Color32 = Color32::from_rgb(0x7C, 0x8C, 0xFF);
+
+    /// The ramp Iris's drawn curve and its analyser run along, low frequency to
+    /// high: the spectrum, content rather than chrome, so the same in both
+    /// themes. The owner's specimens draw an EQ's curve this way (round 2 of
+    /// `docs/specimens/m8/`).
+    pub const EQ_SWEEP: [Color32; 5] = [
+        Color32::from_rgb(0xFF, 0x5A, 0x6E),
+        Color32::from_rgb(0xFF, 0xB5, 0x47),
+        Color32::from_rgb(0x5B, 0xE0, 0x7F),
+        Color32::from_rgb(0x4F, 0xA3, 0xFF),
+        Color32::from_rgb(0xB0, 0x7C, 0xFF),
+    ];
+
+    /// Iris's eight bands, one colour each in the order they are numbered:
+    /// their point on the screen, their pill, and the dials while one is picked.
+    /// Band 2 is the specimen's amber, so the card at rest is the round-2 one.
+    pub const EQ_BANDS: [Color32; 8] = [
+        Color32::from_rgb(0xFF, 0x5A, 0x6E),
+        Color32::from_rgb(0xFF, 0xB5, 0x47),
+        Color32::from_rgb(0xE6, 0xD6, 0x4A),
+        Color32::from_rgb(0x5B, 0xE0, 0x7F),
+        Color32::from_rgb(0x3F, 0xD6, 0xC6),
+        Color32::from_rgb(0x4F, 0xA3, 0xFF),
+        Color32::from_rgb(0xB0, 0x7C, 0xFF),
+        Color32::from_rgb(0xE2, 0x6F, 0xD0),
+    ];
+
+    /// Parallax, the stereo delay: a cool teal, the colour of an echo
+    /// receding into the dark.
+    pub const DELAY: Color32 = Color32::from_rgb(0x3F, 0xD6, 0xC6);
+
+    /// Afterglow, the reverb: a warm pink, the colour of the light that
+    /// lingers after the sound.
+    pub const REVERB: Color32 = Color32::from_rgb(0xFF, 0x6F, 0xA8);
+
+    /// The deep colours the screens of Parallax and Afterglow fade to from
+    /// their hue (round 2's `deep`), the same in both themes.
+    pub const DELAY_DEEP: Color32 = Color32::from_rgb(0x07, 0x10, 0x0F);
+    pub const REVERB_DEEP: Color32 = Color32::from_rgb(0x12, 0x09, 0x10);
+
+    /// The light at the heart of Afterglow's glow, and the warm ring round it
+    /// (also the colour of "to silence"): content, the same in both themes.
+    pub const REVERB_CORE: Color32 = Color32::from_rgb(0xFF, 0xF1, 0xD6);
+    pub const REVERB_WARM: Color32 = Color32::from_rgb(0xFF, 0xC0, 0x8A);
+
     /// Gravity, the compressor (M8 slice B2): a violet, the colour of a body
     /// pulled into a well (the owner's specimens, round 2).
     pub const GRAVITY: Color32 = Color32::from_rgb(0xB4, 0x6C, 0xFF);
@@ -610,6 +665,173 @@ pub mod personality {
     pub const SCREEN: Color32 = Color32::from_rgb(0x0C, 0x0E, 0x12);
     /// How much of the signature colour the screen's top carries.
     pub const SCREEN_TINT: f32 = 0.20;
+
+    /// The angle between Prism's neighbouring beams at a Width of 130 %
+    /// (radians), the specimen's 0.12; the fan follows Width in proportion.
+    pub const PRISM_FAN: f32 = 0.12;
+    /// What a screen's readout is set in: the mono size, and how far in from
+    /// the screen's corner it sits.
+    pub const READOUT_SIZE: f32 = 9.0;
+    pub const READOUT_INSET: f32 = 10.0;
+
+    /// A built-in's card, a set piece (DESIGN.md §7k; the owner's round-2
+    /// specimen `docs/specimens/m8/devices.html`, 2026-11-12): sizes in points,
+    /// opacities as shares of the device's hue. The same in both themes where
+    /// it is a screen, as a clip's colour is.
+    pub mod card {
+        use eframe::egui::Color32;
+
+        /// The card's corner radius.
+        pub const RADIUS: f32 = 14.0;
+        /// The header's height, and the hue's opacity at its top fading to
+        /// nothing at its foot.
+        pub const HEADER_HEIGHT: f32 = 53.0;
+        pub const HEADER_TINT: f32 = 0.30;
+        /// The power button: its centre from the card's left and top, its
+        /// radius, the hue's fill and ring.
+        pub const POWER_X: f32 = 22.0;
+        pub const POWER_Y: f32 = 27.0;
+        pub const POWER_RADIUS: f32 = 9.0;
+        pub const POWER_FILL: f32 = 0.22;
+        pub const POWER_RING: f32 = 0.8;
+        /// The name in the display face: size, left edge, baseline from the
+        /// card's top and the extra space between letters; the subtitle's size
+        /// and baseline.
+        pub const NAME_SIZE: f32 = 15.0;
+        pub const NAME_X: f32 = 40.0;
+        pub const NAME_BASELINE: f32 = 27.0;
+        pub const NAME_SPACING: f32 = 0.4;
+        pub const SUBTITLE_SIZE: f32 = 11.0;
+        pub const SUBTITLE_BASELINE: f32 = 43.0;
+        /// The Preset pill at the header's right: size, its inset from the
+        /// right edge and from the top, the fill and ring, and its type size.
+        pub const PRESET_SIZE_PT: (f32, f32) = (54.0, 20.0);
+        pub const PRESET_INSET: f32 = 12.0;
+        pub const PRESET_TOP: f32 = 16.0;
+        pub const PRESET_FILL: f32 = 0.16;
+        pub const PRESET_RING: f32 = 0.40;
+        pub const PRESET_TEXT: f32 = 11.0;
+        /// The screen: inset from the card's sides and this far under its top,
+        /// its corner radius and the hairline of the hue round it.
+        pub const SCREEN_INSET: f32 = 14.0;
+        pub const SCREEN_TOP: f32 = 60.0;
+        pub const SCREEN_RADIUS: f32 = 10.0;
+        pub const SCREEN_RING: f32 = 0.35;
+        /// Its glow: the hue at this share at its top middle, over the card's
+        /// own colour, fading to the deep colour by this share of its width.
+        pub const SCREEN_GLOW: f32 = 0.20;
+        pub const SCREEN_REACH: f32 = 1.1;
+        /// The dial: radius, its tracks and head, the lit arc's glow, the
+        /// pointer, and how far the disc sits inside the ring.
+        pub const DIAL_RADIUS: f32 = 14.0;
+        pub const DIAL_TRACK: f32 = 3.0;
+        pub const DIAL_TRACK_ALPHA: f32 = 0.22;
+        pub const DIAL_LIT: f32 = 2.5;
+        pub const DIAL_GLOW: [(f32, f32); 2] = [(8.0, 0.12), (5.5, 0.26)];
+        /// While the dial is held the glow is this much wider and stronger.
+        pub const DIAL_HELD_GROWTH: f32 = 0.6;
+        pub const DIAL_HEAD: f32 = 3.0;
+        pub const DIAL_POINTER: f32 = 2.0;
+        pub const DIAL_POINTER_INSET: f32 = 9.0;
+        pub const DIAL_DISC_INSET: f32 = 4.0;
+        /// The name and the value under a dial: baselines from its centre
+        /// plus its radius, and type sizes.
+        pub const DIAL_NAME_BASELINE: f32 = 14.0;
+        pub const DIAL_VALUE_BASELINE: f32 = 26.0;
+        pub const DIAL_NAME_SIZE: f32 = 10.5;
+        pub const DIAL_VALUE_SIZE: f32 = 9.0;
+        /// The disc's face on each theme (centre, rim) and the pointer's ink.
+        pub const DIAL_DISC_DARK: (Color32, Color32) = (
+            Color32::from_rgb(0x3A, 0x3F, 0x4A),
+            Color32::from_rgb(0x22, 0x25, 0x2B),
+        );
+        pub const DIAL_DISC_LIGHT: (Color32, Color32) = (
+            Color32::from_rgb(0xFF, 0xFF, 0xFF),
+            Color32::from_rgb(0xE2, 0xE5, 0xE9),
+        );
+        pub const DIAL_POINTER_DARK: Color32 = Color32::from_rgb(0xE6, 0xE8, 0xEC);
+        pub const DIAL_POINTER_LIGHT: Color32 = Color32::from_rgb(0x3A, 0x3F, 0x4A);
+        /// A pill (Ø L): its fill lit and at rest, its ring at rest (shares of
+        /// the colour), and its type size.
+        pub const PILL_ON_FILL: f32 = 0.18;
+        pub const PILL_OFF_FILL: f32 = 0.08;
+        pub const PILL_OFF_RING: f32 = 0.40;
+        pub const PILL_TEXT: f32 = 10.0;
+        /// The names and values on the deep screen, in white at these shares.
+        pub const SCREEN_NAME_ALPHA: f32 = 0.62;
+        /// The quiet "All n ›" link at the card's foot: type size, inset from
+        /// the card's right and centre height from its bottom.
+        pub const ALL_TEXT: f32 = 10.0;
+        pub const ALL_INSET: f32 = 14.0;
+        pub const ALL_FROM_BOTTOM: f32 = 12.0;
+
+        /// The short card (the chain's own width, 272 tall): the screen ends
+        /// this far above the card's bottom; the dials sit on its lower edge,
+        /// this tall a band, their centres this far above its foot.
+        pub const SHORT_BOTTOM: f32 = 26.0;
+        pub const SHORT_DIALS_BAND: f32 = 84.0;
+        pub const SHORT_DIAL_FROM_FOOT: f32 = 56.0;
+        /// The Preset pill on the short card sits a little higher, so the subtitle
+        /// under the name can run beneath it without touching.
+        pub const SHORT_PRESET_TOP: f32 = 13.0;
+        /// The short card's names and values under the dials (size, size, the
+        /// baselines from a dial's foot): a little smaller than the whole card's,
+        /// so four fit across the screen.
+        pub const SHORT_NAME_SIZE: f32 = 9.5;
+        pub const SHORT_VALUE_SIZE: f32 = 8.5;
+        pub const SHORT_NAME_BASELINE: f32 = 12.0;
+        pub const SHORT_VALUE_BASELINE: f32 = 23.0;
+        /// The compact card (116 tall): the header's height, the power, the name
+        /// and the Preset pill at their smaller sizes, a thin band of the picture
+        /// under it (this far from the header, this tall) and, under the band, four
+        /// small dials (this gap below it) with their names and values.
+        pub const COMPACT_HEADER: f32 = 38.0;
+        pub const COMPACT_POWER_Y: f32 = 19.0;
+        pub const COMPACT_NAME_SIZE: f32 = 13.0;
+        pub const COMPACT_NAME_BASELINE: f32 = 24.0;
+        pub const COMPACT_PRESET: (f32, f32) = (46.0, 18.0);
+        pub const COMPACT_PRESET_TOP: f32 = 10.0;
+        pub const COMPACT_PRESET_TEXT: f32 = 10.0;
+        pub const COMPACT_BAND_GAP: f32 = 2.0;
+        pub const COMPACT_BAND_HEIGHT: f32 = 22.0;
+        pub const COMPACT_DIAL_GAP: f32 = 6.0;
+        pub const COMPACT_DIAL_RADIUS: f32 = 10.0;
+        pub const COMPACT_NAME_LABEL: f32 = 9.5;
+        pub const COMPACT_VALUE_LABEL: f32 = 8.5;
+        pub const COMPACT_NAME_BASELINE_UNDER: f32 = 11.0;
+        pub const COMPACT_VALUE_BASELINE_UNDER: f32 = 21.0;
+
+        /// A folded card: the hue's bar (inset from the top and bottom, width),
+        /// the name's baseline from the rail's left, its size, and how bright
+        /// the bar is at rest and at full level.
+        pub const RAIL_BAR: (f32, f32) = (14.0, 3.0);
+        pub const RAIL_NAME_X: f32 = 24.0;
+        pub const RAIL_NAME_SIZE: f32 = 13.0;
+        pub const RAIL_BAR_REST: f32 = 0.55;
+
+        /// The meter's floor: a level at or below this many dB is nothing.
+        pub const LEVEL_FLOOR_DB: f32 = -60.0;
+        /// How wide a handle's grab is, and its lit ring.
+        pub const HANDLE_RING: f32 = 6.0;
+        /// How strong the ring round a lit handle is, at full light.
+        pub const HANDLE_RING_ALPHA: f32 = 0.6;
+        /// The live value chip while a handle is dragged: height and type size.
+        pub const CHIP_HEIGHT: f32 = 18.0;
+        pub const CHIP_TEXT: f32 = 9.0;
+
+        /// A drawing's parts (Iris's bands): how near a press counts on a point,
+        /// how far Shift slows a drag, and the numbered pill: its fill at rest
+        /// and picked (shares of the part's colour, the text's own colour at
+        /// rest), its ring and number when the part is off, and its number's
+        /// size as a share of its height.
+        pub const PART_REACH: f32 = 11.0;
+        pub const PART_FINE: f32 = 0.1;
+        pub const PART_PILL_REST: f32 = 0.10;
+        pub const PART_PILL_PICKED: f32 = 0.35;
+        pub const PART_PILL_OFF: f32 = 0.35;
+        pub const PART_PILL_OFF_TEXT: f32 = 0.5;
+        pub const PART_PILL_TEXT_SHARE: f32 = 0.5;
+    }
 
     /// The light Prism splits (DESIGN.md §7k): the spectrum its beams fan into.
     /// Content, not chrome, so the same in both themes.
@@ -703,11 +925,13 @@ pub mod stroke {
     pub const GLOW_WIDE: f32 = 6.0;
     /// The line weight of an icon, in units of its 16-unit grid: the
     /// ordinary line, a fine one for a small detail, a bold one for a mark
-    /// that must carry at a small size, and the strike through a switched-off
-    /// icon.
+    /// that must carry at a small size, a heavy one for the drum glyphs'
+    /// cymbal edge and rim strike (M8 D1), and the strike through a
+    /// switched-off icon.
     pub const ICON: f32 = 1.6;
     pub const ICON_FINE: f32 = 1.3;
     pub const ICON_BOLD: f32 = 2.4;
+    pub const ICON_HEAVY: f32 = 2.2;
     pub const ICON_STRIKE: f32 = 1.8;
 }
 
@@ -821,6 +1045,31 @@ pub mod size {
     pub const SUBJECT_BAR: f32 = 3.0;
     /// The widest a tab's note (a clip's name after "Clip") is drawn.
     pub const TAB_NOTE: f32 = 140.0;
+    /// The drum editor's lanes (M8 D2, M8's specimen): a lane's height
+    /// (`2 × space::M + space::XS`, D1's table row too); the name column's
+    /// width, which is the key column's on a mapped track; the colour bar
+    /// down a lane's left edge; a sound's drawing and where it starts; where
+    /// the name starts; the M and S toggles' size, gap and the room kept
+    /// between them and the column's right edge (the specimen's
+    /// `NAME_W - 52` block, whose two 20 pt pieces end 8 pt in); the ring
+    /// around a picked hit; and how much of a lane a hit's diamond takes,
+    /// either of the row or of the grid step.
+    pub const LANE_ROW: f32 = 2.0 * super::space::M + super::space::XS;
+    pub const LANE_NAME: f32 = 176.0;
+    pub const LANE_BAR: f32 = 3.0;
+    pub const LANE_ICON: f32 = 16.0;
+    pub const LANE_ICON_X: f32 = 10.0;
+    pub const LANE_NAME_X: f32 = 34.0;
+    pub const LANE_BUTTON_W: f32 = 20.0;
+    pub const LANE_BUTTON_H: f32 = 18.0;
+    pub const LANE_BUTTON_GAP: f32 = 4.0;
+    pub const LANE_BUTTONS_RIGHT: f32 = 8.0;
+    pub const LANE_PICKED_RING: f32 = 2.0;
+    pub const LANE_HIT_ROW: f32 = 0.34;
+    pub const LANE_HIT_STEP: f32 = 0.46;
+    /// The shortest row an arrangement drum picture draws: below this a row
+    /// stops being a picture.
+    pub const DRUM_ROW_MIN: f32 = 6.0;
     /// The Warp popover's controls (M9.5 S5a): the mode dropdown, the tempo
     /// field and the sensitivity slider.
     pub const WARP_MODE: f32 = 120.0;

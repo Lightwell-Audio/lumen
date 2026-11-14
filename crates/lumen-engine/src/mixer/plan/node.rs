@@ -143,6 +143,9 @@ pub(in crate::mixer) struct Pass<'a> {
     /// at, which automation lanes are read against.
     pub(in crate::mixer) start: i64,
     pub(in crate::mixer) rate: u32,
+    /// The song's tempo at the part's first frame, for a built-in whose time is
+    /// in notes (M8 slice B3).
+    pub(in crate::mixer) bpm: f32,
     pub(in crate::mixer) ramp: Ramp<'a>,
     /// False for a tail rendered ahead of a jump: levels are read, not moved.
     pub(in crate::mixer) advance: bool,
