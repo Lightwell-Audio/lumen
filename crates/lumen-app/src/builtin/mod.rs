@@ -104,6 +104,7 @@ const INSTRUMENTS: &[(&str, Identity)] = &[(
     Identity {
         name: "Flare",
         kind: "Polysynth",
+        subtitle: "Polysynth",
         colour: theme::personality::SYNTH,
         timing: &lumen_devices::synth::params::DESCRIPTION,
     },

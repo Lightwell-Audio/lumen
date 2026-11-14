@@ -592,18 +592,7 @@ fn add_drum_maps(document: Value) -> Result<Value, String> {
 /// synth's defaults or to a preset's sound must not change what an old
 /// project opens as.
 fn add_synth_parameters(mut document: Value) -> Result<Value, String> {
-    // The preset a synth played, as v35 wrote it, to its values.
-    fn values_of(preset: &str) -> &'static [(u32, f64)] {
-        match preset {
-            "keys" => &KEYS,
-            "bass" => &BASS,
-            "pluck" => &PLUCK,
-            "pad" => &PAD,
-            // "poly", and anything this version does not know: the old
-            // loader played the default sound (Poly) for both.
-            _ => &POLY,
-        }
-    }
+    let values_of = synth_values_of;
     let Some(project) = document.get_mut("project").and_then(Value::as_object_mut) else {
         return Ok(document);
     };
@@ -616,11 +605,12 @@ fn add_synth_parameters(mut document: Value) -> Result<Value, String> {
             let Some(device) = device.as_object_mut() else {
                 continue;
             };
-            let is_synth = device
-                .get("plugin")
-                .and_then(|plugin| plugin.get("name"))
-                .and_then(Value::as_str)
-                .is_some_and(|name| name == SYNTH);
+            // Only a *built-in*: a hosted plugin may be called "synth" too,
+            // and its state is not a preset name (review L4).
+            let is_synth = device.get("plugin").is_some_and(|plugin| {
+                plugin.get("format").and_then(Value::as_str) == Some("builtin")
+                    && plugin.get("name").and_then(Value::as_str) == Some(SYNTH)
+            });
             if !is_synth {
                 continue;
             }
@@ -659,6 +649,20 @@ fn add_synth_parameters(mut document: Value) -> Result<Value, String> {
         track_values(master, values_of);
     }
     Ok(document)
+}
+
+/// The values a synth that played `preset` (its stable name, as v35 wrote it)
+/// holds at format v36: the frozen numbers the migration writes. A name this
+/// build does not know is Poly, which is what the old loader played. Read by
+/// the demo projects, so the files this build ships are real v36 ones.
+pub fn synth_values_of(preset: &str) -> &'static [(u32, f64)] {
+    match preset {
+        "keys" => &KEYS,
+        "bass" => &BASS,
+        "pluck" => &PLUCK,
+        "pad" => &PAD,
+        _ => &POLY,
+    }
 }
 
 /// The synth's stable name in a device's `plugin` (the same text

@@ -43,7 +43,7 @@ fn render(
     let (mut left, mut right) = (vec![0.0; frames], vec![0.0; frames]);
     let mut at = 0;
     while at < frames {
-        let n = block.min(frames - at).min(256);
+        let n = block.min(frames - at);
         let local: Vec<Event> = events
             .iter()
             .filter(|e| (e.offset as usize) >= at && (e.offset as usize) < at + n)
@@ -98,7 +98,7 @@ fn the_output_does_not_depend_on_how_blocks_are_cut() {
         off(11_000, 64),
     ];
     let reference = render(&mut Synth::new(Preset::Poly), &events, 20_000, 20_000);
-    for block in [32, 77, 128, 1_000] {
+    for block in [32, 77, 128, 512, 1_000, 1_024] {
         let split = render(&mut Synth::new(Preset::Poly), &events, 20_000, block);
         assert_eq!(split, reference, "blocks of {block}");
     }
@@ -508,7 +508,7 @@ fn render_lane(
     let (mut left, mut right) = (vec![0.0; frames], vec![0.0; frames]);
     let mut at = 0;
     while at < frames {
-        let n = every.min(frames - at).min(256);
+        let n = every.min(frames - at);
         let mut block = lumen_devices::ParamBlock::new();
         block.start(n);
         assert!(block.open(id));
@@ -608,7 +608,7 @@ fn a_lane_plays_the_same_at_every_block_size() {
     let curve = |frame: usize| lane_at(&points, frame);
     let events = [on(0, 60, 100)];
     let mut reference: Vec<(f32, f32)> = Vec::new();
-    for block in [256usize, 240, 128, 97, 64, 33] {
+    for block in [256usize, 240, 128, 97, 64, 33, 512, 1_024] {
         let mut synth = Synth::new(Preset::Poly);
         let (left, right) = render_lane(
             &mut synth,
@@ -960,33 +960,42 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 /// oscillators — pinned by hash. The synth's maths is `f64` arithmetic worked
 /// out by hand, so this hash is the same on Windows, Linux and macOS (M8
 /// slice B4).
+/// The values the pinned render is made with: **literals**, not worked out
+/// from the units, so a platform whose `powf` or `sqrt` rounds differently
+/// cannot move the pin (review M1). Normalised, by id; the table's defaults
+/// for every parameter not named.
+const PINNED_INPUT: &[(u32, f32)] = &[
+    (1, 1.0),           // Oscillator 1 shape: square
+    (3, 0.37),          // Oscillator 1 detune
+    (7, 0.25),          // Oscillator 2 octave: -1
+    (11, 0.25),         // Noise
+    (12, 0.333_333_34), // Filter type: Low 24
+    (13, 0.353_152_6),  // Filter cutoff
+    (14, 0.592_156_5),  // Resonance
+    (15, 0.75),         // Filter envelope
+    (16, 0.6),          // Filter key follow
+    (18, 0.076_632_22), // Amp attack
+    (19, 0.271_219_88), // Amp decay
+    (20, 0.4),          // Amp sustain
+    (21, 0.292_211_6),  // Amp release
+    (29, 0.666_666_7),  // LFO target: Cutoff
+    (27, 0.384_538_26), // LFO rate
+    (30, 0.4),          // LFO depth
+    (31, 0.1),          // Glide
+    (32, 0.2),          // Voices: 4
+    (33, 0.7),          // Velocity
+];
+
 #[test]
 fn a_render_of_every_control_is_pinned() {
-    use lumen_devices::synth::params::{self, find};
-    let values = flash_many(
-        Preset::Poly,
-        &[
-            (params::OSC1_SHAPE, 3.0),
-            (params::OSC1_DETUNE, -13.0),
-            (params::OSC2_OCTAVE, -1.0),
-            (params::NOISE, 25.0),
-            (params::FILTER_TYPE, 1.0),
-            (params::FILTER_CUTOFF, 900.0),
-            (params::FILTER_RESO, 3.0),
-            (params::FILTER_ENV, 2.5),
-            (params::FILTER_KEY, 60.0),
-            (params::AMP_ATTACK, 0.01),
-            (params::AMP_DECAY, 0.4),
-            (params::AMP_SUSTAIN, 40.0),
-            (params::AMP_RELEASE, 0.5),
-            (params::LFO_TARGET, 2.0),
-            (params::LFO_RATE, 3.0),
-            (params::LFO_DEPTH, 40.0),
-            (params::GLIDE, 0.05),
-            (params::VOICES, 4.0),
-            (params::VELOCITY, 70.0),
-        ],
-    );
+    // Poly's values with the input above over them: the sound every control
+    // makes at once.
+    let mut values = lumen_devices::Preset::Poly.values();
+    for &(id, value) in PINNED_INPUT {
+        if let Some(slot) = values.iter_mut().find(|(known, _)| *known == id) {
+            slot.1 = value;
+        }
+    }
     let mut synth = Synth::with_values(&values);
     let events = [
         on(0, 48, 100),
@@ -1006,9 +1015,102 @@ fn a_render_of_every_control_is_pinned() {
     }
     let hash = fnv1a64(&bytes);
     assert_eq!(
-        hash, 0xf683_0e42_7745_53c1,
+        hash, 0x5397_ee9c_06c0_c347,
         "the pinned render has changed: {hash:016x}. A change here is a change of sound or of the \
          maths; it is deliberate, and the number is written down on purpose."
     );
-    assert_eq!(find(params::VOICES).unwrap().name, "Voices");
+}
+
+/// A program change, a list of values and a block of lanes all run on the
+/// audio thread, so none of them may reach the heap (review H1).
+#[test]
+fn loading_a_preset_and_taking_values_allocate_nothing() {
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let mut synth = Synth::new(Preset::Poly);
+    render(&mut synth, &[on(0, 60, 100)], 512, 256);
+    // Built outside the guard: a block reserves its room when it is made.
+    let values = flash_many(
+        Preset::Bass,
+        &[(lumen_devices::synth::params::FILTER_CUTOFF, 800.0)],
+    );
+    let mut block = lumen_devices::ParamBlock::new();
+    block.start(128);
+    assert!(block.open(lumen_devices::synth::params::FILTER_CUTOFF));
+    assert!(block.point(0, 0.2));
+    assert!(block.point(64, 0.9));
+    let mut left = [0.0f32; 128];
+    let mut right = [0.0f32; 128];
+    let ((), heap) = count_rt_violations(|| {
+        for preset in Preset::ALL {
+            synth.configure(preset.number());
+        }
+        synth.configure_values(&values);
+        synth.automate(&block);
+        synth.render(RATE, &[], &mut left, &mut right);
+    });
+    assert_eq!(heap, 0, "a value change reached the heap");
+}
+
+/// Changing the filter's shape under a held note slides from one response to
+/// the other: no sample jumps more than the sound itself does (review M3).
+#[test]
+fn a_filter_shape_change_does_not_click() {
+    use lumen_devices::synth::params::{FILTER_TYPE, find};
+    let steepest = |x: &[f32]| {
+        x.windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0, f32::max)
+    };
+    for kind in [1.0f32, 2.0, 3.0] {
+        let mut synth = Synth::new(Preset::Poly);
+        let (before, _) = render(&mut synth, &[on(0, 60, 100)], 9_600, 256);
+        synth.configure_values(&flash_many(Preset::Poly, &[(FILTER_TYPE, kind)]));
+        let (after, _) = render(&mut synth, &[], 9_600, 256);
+        let joint = [before[8_000..].to_vec(), after.clone()].concat();
+        let own = steepest(&before[8_000..]).max(steepest(&after));
+        assert!(
+            steepest(&joint) <= own * 1.1,
+            "shape {kind} steps {} against the sound's own {own}",
+            steepest(&joint)
+        );
+        // And the new shape is what plays: brighter or darker than before.
+        let bright =
+            |x: &[f32]| x.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f32>() / rms(x).max(1e-6);
+        assert!(
+            (bright(&after[4_000..]) - bright(&before[4_000..])).abs() / bright(&before[4_000..])
+                > 0.05,
+            "shape {kind} is a different sound"
+        );
+    }
+    assert_eq!(find(FILTER_TYPE).unwrap().name, "Filter type");
+}
+
+/// All notes off lets go of a note waiting for a voice to fade out: it must
+/// never sound (review L6).
+#[test]
+fn all_notes_off_cancels_a_note_waiting_for_a_steal() {
+    use lumen_devices::synth::params::VOICES;
+    let values = flash_values(Preset::Poly, VOICES, 1.0);
+    let mut synth = Synth::with_values(&values);
+    // One voice: the second note waits for the first to fade out.
+    let mut left = vec![0.0f32; 64];
+    let mut right = vec![0.0f32; 64];
+    synth.render(
+        RATE,
+        &[on(0, 60, 100), on(1, 64, 100)],
+        &mut left,
+        &mut right,
+    );
+    assert!(
+        synth.voices() > 0,
+        "the voice is fading out for the next note"
+    );
+    // All notes off: the waiting note is let go too.
+    synth.render(RATE, &[cc(0, 123, 0)], &mut left, &mut right);
+    let (tail, _) = render(&mut synth, &[], 9_600, 256);
+    assert_eq!(synth.voices(), 0, "nothing starts after all notes off");
+    assert!(
+        tail[4_000..].iter().all(|v| v.abs() < 1e-4),
+        "and nothing sounds"
+    );
 }

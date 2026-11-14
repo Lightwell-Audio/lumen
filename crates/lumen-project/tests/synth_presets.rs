@@ -218,3 +218,27 @@ fn a_synth_with_no_name_gets_the_default_sound() {
     let loaded = from_bytes(&as_v35(&plugin_only)).unwrap();
     assert!(loaded.tracks[0].devices[0].params.is_empty());
 }
+
+/// A hosted plugin that happens to be called "synth" is not the built-in: its
+/// state is the plugin's own and no parameter values are invented for it
+/// (review L4).
+#[test]
+fn a_plugin_named_synth_is_not_migrated() {
+    let mut plugin = Device::vst3(
+        Id(9),
+        "00112233445566778899AABBCCDDEEFF",
+        "synth",
+        "Zed",
+        DeviceKind::Instrument,
+    );
+    plugin.state = b"poly".to_vec();
+    let project = project_of("Old", vec![midi_track(vec![plugin])]);
+    let loaded = from_bytes(&as_v35(&project)).expect("it loads");
+    let device = &loaded.tracks[0].devices[0];
+    assert!(
+        device.params.is_empty(),
+        "a plugin's values are its own: {:?}",
+        device.params
+    );
+    assert_eq!(device.state, b"poly", "and its state is untouched");
+}

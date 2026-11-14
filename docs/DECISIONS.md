@@ -13963,9 +13963,10 @@ no longer repeats the activation egui already reports (L9).
 a saved preference for the view, and auditioning a lane from a hardware pad
 (the lane's name auditions the sound; a pad plays the track already).
 
-## ADR-0147 — The synth's controls (M8 slice B4)
+## ADR-XXXX — The synth's controls (M8 slice B4)
 
-**Status.** Proposed (M8 slice B4; the parent assigns the number). Brief:
+**Status.** Proposed (M8 slice B4; the parent assigns the number — 0146 and
+0147 are taken on main by Iris and the drum editor). Brief:
 `docs/milestones/M8.md` §5 "B4 — The synth's controls"; decisions E1, E2, E6 and
 E7 in §6; B0's ADR-0145 (the "B4's synth parameters" note in its trait-on-paper
 section); the owner's built-in identity rules in DESIGN.md §7k.
@@ -14030,10 +14031,13 @@ out of the chain, so the synth needed a path of its own.
    table's defaults, which a test pins. The ids are pinned by a test, as an
    effect's are.
 2. **The five presets are values, not a second kind of sound.** Each is the
-   table's defaults with its own parameters over them (`params::preset_values`),
-   so loading a preset is a wholesale write of the device's values and dialling
-   anything afterwards is an ordinary edit — there is one source of truth and no
-   "preset plus overrides" state to migrate. The preset's *name* stays in the
+   table's defaults with its own parameters over them, so loading a preset is a
+   wholesale write of the device's values and dialling anything afterwards is an
+   ordinary edit — there is one source of truth and no "preset plus overrides"
+   state to migrate. `preset_values_into(&mut [f32; COUNT], preset)` works one
+   out **without allocating** (review H1): a program change arrives inside a
+   block, on the audio thread, so it may not build a `Vec`. `preset_values` is
+   the `Vec` wrapper the interface and the tests use. The preset's *name* stays in the
    device's `state` as the record of where the sound started (and what a MIDI
    file's program number says); nothing reads it to make sound. `Synth::preset()`
    is `None` once a value has been dialled.
@@ -14055,11 +14059,17 @@ out of the chain, so the synth needed a path of its own.
    heads back to the project's value. `Glide::head_to` was added for that (an
    instrument is not given a queue per parameter, so it must be able to point its
    own glide at a target).
-   **A voice reads two kinds of setting from those curves.** What *shapes* it —
+   **The settings are derived once per slot, not once per voice** (review M5):
+   `Synth::render` works out a `Settings` and the LFO's rate at every derivation
+   slot of the piece — every 32 frames on a grid counted from the start of the
+   stream, every 8 while a value is arriving — and every voice reads the same
+   values, so sixteen voices cost one derivation rather than sixteen. Whether a
+   value is arriving is asked **per span, of the absolute frame**
+   (`glide_until > start + done`), never of the block cut (review M4), so a lane
+   and a glide together play the same samples at any block size. **A voice reads
+   two kinds of setting from those curves.** What *shapes* it —
    waveforms, octaves and detune, pans, envelope times, the LFO's rate and target
-   — is derived every 32 frames on a grid counted from the start of the stream
-   (8 frames while a value is arriving), so a frame is always computed the same
-   way whatever block it falls in. What *modulates* it — cutoff, resonance, the
+   — comes from that slot. What *modulates* it — cutoff, resonance, the
    filter envelope's amount, key and velocity follow, every level, the noise, the
    LFO's depth — is read on **every** frame. That is what makes the cutoff
    automation sample-exact: the corner the filter is given at frame *k* is the
@@ -14071,27 +14081,34 @@ out of the chain, so the synth needed a path of its own.
    makes a still sound cost a comparison; a lane on the cutoff pays the tangent
    per frame, which is what an automated filter is for. A 24 dB low-pass is two
    of the same state-variable stage in cascade, the second at Q 0.707 so the
-   resonance is the first stage's.
+   resonance is the first stage's. **A changed filter shape cross-fades** over
+   the glide, from a filter of its own state, as a changed waveform does (review
+   M3): the reviewer measured one-sample steps of 0.048 to 0.078 switching from
+   Low 12 to any other shape, and a test now moves `FILTER_TYPE` under a held
+   note and holds the largest step to the sound's own.
 6. **The render path uses no library transcendental** (option A). A golden is
    pinned across three platforms, and the platforms' `sin`, `cos`, `tan`, `exp`
    and `powf` differ in the last bit (B0's review L2 found exactly that with a
    hash of Prism's bits). `lumen-devices/src/synth/det.rs` is `sin`/`cos` (series
    with quarter-turn reduction), `tan` (the ratio), `exp` and `exp2` (a series in
    `f·ln 2` with a bit-shifted power of two) — plain `f64` arithmetic, tested
-   against the library's answers to within `1e-12`. The taper's power is done as
-   a product when it is whole (`x³`, `x²`), never `powf`. The one place the synth
-   still lets the *library* work something out is `f32::exp2` for the pitch-bend
-   ratio in `apply`, which is not part of a render and is inside the tolerance
-   the goldens use.
+   against the library's answers to within `1e-12`; the fast per-frame
+   conversions (`cutoff_hz`, `resonance`) are plain products. The taper is
+   main's `Taper`, which takes its power in `f64` (B1 moved it there, which
+   settles review M1 for the table too), and `params::taper_value` is a call to
+   it — so no `f32` `powf` is reachable from the render at all (review L5).
+   Neither does anything else let the library do the arithmetic: the pitch-bend
+   ratio is `det::exp2` in `f64`, rounded once, because a bend arrives inside a
+   block and is therefore on the render path (review M2).
 7. **The presets sound as they did, within a tolerance that is stated and
    measured.** Before the DSP was touched, the old path rendered each of the five
    presets over a fixed phrase and the samples were frozen as 16-bit fixtures
    (`lumen-devices/tests/golden/preset_*.pcm`, half a second each, 480 KB). Each
    was then rendered through the new path, **frame by frame**: the worst
-   difference is **7.7 × 10⁻⁶ of full scale** (−102 dBFS), the RMS difference
-   about 1 × 10⁻⁶, over all five presets. The fixture's own quantisation is
-   3.05 × 10⁻⁵, so the test allows **1 × 10⁻⁴** — sixty dB down, some thirteen
-   times the measured worst case. The difference comes from doing the filter,
+   difference is **1.86 × 10⁻⁵ of full scale, on Bass** (−95 dBFS), the RMS
+   difference about 1 × 10⁻⁶, over all five presets. The fixture's own
+   quantisation is 3.05 × 10⁻⁵, so the test allows **1 × 10⁻⁴** — sixty dB down,
+   a margin of 5.4 times the measured worst case. The difference comes from doing the filter,
    pitch and pan arithmetic in `f64` by hand instead of `f32` through the library,
    and from the preset's cutoff being stored normalised and read back through its
    taper (2 400 Hz in becomes 2 399.9998 Hz out, a shift no ear and no measurement
@@ -14109,7 +14126,9 @@ out of the chain, so the synth needed a path of its own.
    A golden file pins v36 (`crates/lumen-project/tests/fixtures/v36/golden.lumen`,
    hashed in `golden_hashes.txt`), and `tests/synth_presets.rs` checks all five
    names, an unknown name, that a value already held is never replaced, and that
-   the whole file round-trips.
+   the whole file round-trips. A device is touched only when its plugin is
+   `format: "builtin"` **and** named `synth`, so a hosted plugin that happens to
+   be called "synth" keeps its own state (review L4).
 9. **The instrument's lanes are opened in two places** (ADR-0145's review note
    said they would have to be): `midi::play::with_lanes` bakes a built-in
    instrument's lanes as it does a VST3's, and `midi/tracks.rs` fills the block
@@ -14148,16 +14167,27 @@ out of the chain, so the synth needed a path of its own.
 13. **A note a full synth cannot start is counted, not lost** (the KNOWN_ISSUES
     row from M5's review, whose fix was waiting for "the synth's next change").
     When every voice is already fading out to make way for a pending note, the
-    newest request takes the youngest steal's place and `Synth::dropped()` counts
-    what it displaced. With 1 to 16 voices now a control, that is reachable on
-    purpose, so it is counted rather than silent.
-14. **Two smaller things.** A changed waveform cross-fades over the 25 ms a value
-    takes, and while a value is *arriving* the new waveform is the one faded in
-    from the start (not from the moment the choice snaps over halfway) — the
-    engine's own click test found the difference. And `serde_json` now builds
-    with `float_roundtrip`: without it a saved `f64` could come back one bit off
-    (this build's own test caught a synth value doing exactly that), and a
-    project's parameter values must survive a save and a reopen unchanged.
+    newest request takes the **oldest** steal's place and `Synth::dropped()`
+    counts what it displaced. With 1 to 16 voices now a control, that is
+    reachable on purpose, so it is counted rather than silent. CC 123 (all notes
+    off) also lets go of a note waiting for a steal, which used to sound on the
+    next block (review L6).
+14. **The smaller things.** A changed waveform cross-fades over the 25 ms a
+    value takes, and while a value is *arriving* the new waveform is the one
+    faded in from the start (not from the moment the choice snaps over halfway)
+    — the engine's own click test found the difference. `serde_json` builds with
+    `float_roundtrip`: without it a saved `f64` could come back one bit off (this
+    build's own test caught a synth value doing exactly that), and a project's
+    parameter values must survive a save and a reopen unchanged. `synth/params/`
+    is three files — `table.rs`, `words.rs`, `presets.rs` — each under 800 lines,
+    with their tests beside them (review L1). The two demo projects are **real
+    v36 files holding the values** (review L3): `testing::midi_track` writes what
+    the migration froze for the preset, so `midi-demo.lumen` and
+    `automation-demo.lumen` are what this build saves. And the pinned render of
+    every control is made from **literals** rather than from values worked out
+    through the table, so no platform's `powf` can move the pin (review M1); it
+    moved once when B1's `f64` taper arrived, by a last bit in the values the
+    test starts from, and was written down again on purpose.
 
 **The trait on paper, against the slices that follow B4.** `Instrument` gained
 `configure_values` and `set_tempo`, both defaulted to nothing, so a hosted
@@ -14169,12 +14199,45 @@ or the mixer's pool changed.
 
 **Measured.** `cargo bench -p lumen-engine --bench clips` (this machine,
 release): `engine_flare_64` — 64 MIDI tracks, each with Flare playing a four-note
-chord (256 voices) — is **819 µs per 128-frame block**, 31% of the 2.67 ms budget
-at 48 kHz. The same bench before the corner cache was 1.32 ms (49%), so a still
-filter's exponential was worth 40% of the cost. For comparison the same 64-track
-mix with no instrument is 29.9 µs and with 64 Prism effects 89.9 µs (B0). The
-mixing of 64 tracks is not what this measures: it is 512 oscillators and 512
-filters.
+chord (256 voices) — is **777 µs per 128-frame block**, 29% of the 2.67 ms budget
+at 48 kHz. It was 1.32 ms (49%) before the corner cache, and 806 µs before the
+settings were worked out once per slot: at four voices a track that sharing
+saves only about 4%, because the four voices already shared one derivation grid,
+and the saving grows with the voices a track plays. For comparison the same
+64-track mix with no instrument is 29.9 µs and with 64 Prism effects 89.9 µs
+(B0). The mixing of 64 tracks is not what this measures: it is 512 oscillators
+and 512 filters.
+
+**Review round 1 (2026-11-13).** An independent review passed every finding and
+each is fixed on this branch:
+
+- **H1 — allocation on the audio thread.** `configure` built a `Vec` for a
+  program change, and the engine's own real-time test caught it on the audio
+  thread; `configure_values` built five more to ask whether the values still
+  matched a preset. Both are gone: the preset tables are worked into an array,
+  and setting the project's values says the sound is no longer a preset.
+  `configure`, `configure_values` and `automate` now run inside
+  `count_rt_violations` in `tests/synth.rs`, and
+  `lumen-engine --test realtime the_synth_never_touches_the_heap` passes.
+- **M1 — the pinned test's input.** The values are literals now (B1's `f64`
+  taper settled the table's side of it); the pin was rewritten once, on purpose.
+- **M2 — pitch bend.** `det::exp2` in `f64`, rounded once.
+- **M3 — a filter shape change clicked.** It cross-fades now, and
+  `a_filter_shape_change_does_not_click` holds the step to the sound's own for
+  each of the other three shapes.
+- **M4 — block sizes.** The helpers no longer cap at 256 and both lists gained
+  512 and 1024; whether a value is arriving is asked per frame, of the absolute
+  frame.
+- **M5 — settings rebuilt per voice.** Worked out once per slot, and measured
+  above.
+- **L1 — `params.rs` split** into `table.rs`, `words.rs` and `presets.rs`.
+- **L2 — the numbers**: 1.86 × 10⁻⁵ on Bass with a 5.4× margin, the oldest steal,
+  and this heading, which the parent numbers.
+- **L3 — the demo fixtures** are real v36 files that hold the values.
+- **L4 — the migration's `is_synth`** requires `format: "builtin"`, with a test
+  for a plugin named "synth".
+- **L5 — the taper's fallback**: `taper_value` is `Taper::value`, in `f64`.
+- **L6 — CC 123** lets go of a note waiting for a steal, with a test.
 
 **What was not done.** The WSL performance gate and the macOS cross-target
 clippy cannot run here; the perf baseline's `engine_synth_64` (and any other

@@ -198,6 +198,11 @@ fn engine_flare_64(bencher: divan::Bencher<'_, '_>) {
     let mut data = vec![0.0; 256];
     // Past the start of the notes and their attacks.
     for _ in 0..100 {
+        engine.process(48_000, &mut data, 2, 128);
+    }
+    bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
+}
+
 /// The same 64 tracks, each with Iris on it and every band on, as the worst
 /// case a person meets: eight bands of a parametric EQ an instance (M8 slice
 /// B1). The cuts are at their gentlest slope, which is one section each; a 48

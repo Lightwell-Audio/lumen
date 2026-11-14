@@ -143,6 +143,9 @@ pub struct Synth {
     glides: [Glide; params::COUNT],
     /// Each parameter's value for each frame of the block being rendered.
     curves: Box<[[f32; MOST_FRAMES]; params::COUNT]>,
+    /// The settings and the LFO's rate at each derivation slot of the piece
+    /// being played: worked out once for every voice (review M5).
+    slots: Slots,
     /// The lanes the track's automation plays this block.
     events: ParamBlock,
     /// The same lanes for the piece of it being played.
@@ -187,9 +190,12 @@ impl Default for Synth {
 }
 
 impl Synth {
-    /// Flare on `preset`. Allocates; call off the audio thread.
+    /// Flare on `preset`. Allocates (its curve buffers); call off the audio
+    /// thread.
     pub fn new(preset: Preset) -> Self {
-        let mut synth = Self::with_values(&preset.values());
+        let mut values = [0.0; params::COUNT];
+        params::preset_values_into(&mut values, preset);
+        let mut synth = Self::with_array(&values);
         synth.preset = Some(preset);
         synth
     }
@@ -206,12 +212,19 @@ impl Synth {
                 *slot = value.clamp(0.0, 1.0);
             }
         }
+        Self::with_array(&targets)
+    }
+
+    /// The same, from every parameter's value in the table's order.
+    fn with_array(targets: &[f32; params::COUNT]) -> Self {
+        let targets = *targets;
         let sound = Settings::from_values(&targets);
         Self {
             voices: [IDLE; MOST_VOICES],
             targets,
             glides: targets.map(Glide::new),
             curves: Box::new([[0.0; MOST_FRAMES]; params::COUNT]),
+            slots: Slots::EMPTY,
             events: ParamBlock::new(),
             chunk: ParamBlock::new(),
             voice_limit: sound.voices.clamp(1, MOST_VOICES),
@@ -306,6 +319,11 @@ impl Synth {
                 cc::ALL_SOUND_OFF => self.silence(),
                 cc::ALL_NOTES_OFF => {
                     for v in &mut self.voices {
+                        // A note waiting for this voice to fade out is let go
+                        // with it: all notes off means none of them sound, and
+                        // a pending one would sound on the next block (review
+                        // L6).
+                        v.pending = None;
                         v.release();
                     }
                 }
@@ -318,7 +336,10 @@ impl Synth {
                 _ => {}
             },
             Kind::PitchBend { value } => {
-                self.bend = (f32::from(value) / 8192.0 * BEND_RANGE / 12.0).exp2();
+                // The ratio in f64, rounded once: a bend arrives inside a
+                // block, so its exponential is on the render path (review M2).
+                self.bend =
+                    det::exp2(f64::from(value) / 8192.0 * f64::from(BEND_RANGE) / 12.0) as f32;
             }
             Kind::Pressure { value } => self.pressure = f32::from(value) / 127.0,
             Kind::Program { program } => {
@@ -428,8 +449,8 @@ impl Synth {
         }
     }
 
-    /// Points every parameter at `values` (normalised, by id): a knob moved,
-    /// or a preset loaded. Sounding notes glide there; new notes start on it.
+    /// Points every parameter at `values` (normalised, by id): a knob moved.
+    /// Sounding notes glide there; new notes start on it.
     fn point_at(&mut self, values: &[(u32, f32)]) {
         let mut targets = self.targets;
         for &(id, value) in values {
@@ -439,6 +460,18 @@ impl Synth {
                 *slot = value.clamp(0.0, 1.0);
             }
         }
+        self.pointed(targets);
+    }
+
+    /// Every parameter's value at once (a preset): normalised, in the table's
+    /// order.
+    fn point_at_all(&mut self, values: &[f32; params::COUNT]) {
+        self.pointed(*values);
+    }
+
+    /// Takes `targets` as what every parameter now holds: the values glides
+    /// head for, the sound new notes start on, and the voice count and glide.
+    fn pointed(&mut self, targets: [f32; params::COUNT]) {
         let sounding = self.voices.iter().any(|v| v.stage != Stage::Off);
         if sounding {
             self.glide_until = self.frame + (GLIDE_SECONDS * self.rate) as u64;
@@ -493,6 +526,20 @@ impl Instrument for Synth {
                 );
             }
             let start = self.frame;
+            // A value arriving reads its settings finely; a still sound can
+            // take its time (a still block fills every fourth slot).
+            let step = if self.glide_until > start {
+                voice::GLIDE_FRAMES as usize
+            } else {
+                voice::DERIVE_FRAMES as usize
+            };
+            self.slots.fill(
+                &Curves::new(&self.curves, start, n),
+                start,
+                n,
+                self.tempo,
+                step,
+            );
             let mut done = 0;
             loop {
                 while next < events.len() && events[next].offset as usize <= base + done {
@@ -516,7 +563,6 @@ impl Instrument for Synth {
                     bend: self.bend,
                     open: self.wheel.max(self.pressure) * MOD_OCTAVES,
                     sound: self.sound,
-                    tempo: self.tempo,
                     changing,
                     derive: if changing {
                         voice::GLIDE_FRAMES
@@ -524,6 +570,7 @@ impl Instrument for Synth {
                         voice::DERIVE_FRAMES
                     },
                     curves: &Curves::new(&self.curves, start, n),
+                    slots: &self.slots,
                 };
                 for voice in &mut self.voices {
                     if voice.stage != Stage::Off {
@@ -561,8 +608,13 @@ impl Instrument for Synth {
     }
 
     fn configure(&mut self, preset: u32) {
+        // A program change arrives inside a block, on the audio thread: the
+        // preset's values are worked out into an array, never a `Vec` (review
+        // H1).
         if let Some(preset) = Preset::from_number(preset) {
-            self.point_at(&preset.values());
+            let mut values = [0.0; params::COUNT];
+            params::preset_values_into(&mut values, preset);
+            self.point_at_all(&values);
             self.preset = Some(preset);
         }
     }
@@ -572,17 +624,10 @@ impl Instrument for Synth {
             return;
         }
         self.point_at(values);
-        // The preset is only a name: once values are set by hand, the sound
-        // is the values.
-        let same_as_preset = Preset::ALL.into_iter().any(|preset| {
-            let wanted = preset.values();
-            wanted
-                .iter()
-                .all(|&(id, value)| (self.targets[id as usize - 1] - value).abs() < 1e-6)
-        });
-        if !same_as_preset {
-            self.preset = None;
-        }
+        // The preset is only a name: once the project's values are set, the
+        // sound is those values (and looking for a preset to match them would
+        // mean working out all five on the audio thread — review H1).
+        self.preset = None;
     }
 
     fn set_tempo(&mut self, bpm: f32) {

@@ -255,7 +255,14 @@ pub fn midi_track(
     events: Vec<crate::model::ClipEvent>,
 ) -> Track {
     let mut track = Track::new(Id(id), name, TrackKind::Midi, Color(0x4F81BD));
-    track.devices = vec![Device::synth(Id(id + 1), preset)];
+    // A real device of this format: its sound is the values its preset meant
+    // (the migration's frozen record of them), not just the name.
+    let mut synth = Device::synth(Id(id + 1), preset);
+    synth.params = crate::migrate::synth_values_of(preset)
+        .iter()
+        .copied()
+        .collect();
+    track.devices = vec![synth];
     track.clips = vec![Arc::new(Clip {
         id: Id(id + 2),
         name: name.into(),
