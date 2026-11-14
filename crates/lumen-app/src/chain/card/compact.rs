@@ -439,6 +439,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         step: None,
         action,
         strip: strip_out,
+        picked: None,
         sidechain: key,
         outputs: outs,
     }

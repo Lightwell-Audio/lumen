@@ -252,12 +252,13 @@ unselected header.
   same lightness, so names and waveforms stay readable (the owner's M1).
 
 **Built-in device tokens** (`theme::personality`, §7k; round 2, the owner's set pieces): the device hues
-(`UTILITY`), the deep screen (`SCREEN`, the same in both themes), the content colours of a drawing
-(`PRISM_BEAMS`, `PRISM_FAN`) and a screen's readout (`READOUT_SIZE`, `READOUT_INSET`). The card's own
+(`UTILITY`, `EQ`), the deep screen (`SCREEN`, the same in both themes), the content colours of a drawing
+(`PRISM_BEAMS`, `PRISM_FAN`, `EQ_SWEEP`, and `EQ_BANDS`, the eight colours of Iris's bands) and a screen's readout (`READOUT_SIZE`, `READOUT_INSET`). The card's own
 sizes, tints and strokes are in `theme::personality::card`: the header (`HEADER_*`, `POWER_*`, `NAME_*`,
 `SUBTITLE_*`, `PRESET_*`), the screen (`SCREEN_*`), the lit dials (`DIAL_*`, `PILL_*`, `ALL_*`), the short
 and compact steps (`SHORT_*`, `COMPACT_*`), the folded rail (`RAIL_*`), the level floor (`LEVEL_FLOOR_DB`) and
-the handles' ring and chip (`HANDLE_RING`, `CHIP_*`). Sizes are points and tints are opacities of the
+the handles' ring and chip (`HANDLE_RING`, `CHIP_*`) and a drawing's parts (`PART_*`: how near a press counts on a
+point, how far Shift slows a drag, the numbered pill's fill and ring). Sizes are points and tints are opacities of the
 device's hue; durations are `design/motion.rs`'s.
 
 ## 4. Type
@@ -1636,7 +1637,10 @@ A plugin's card is unchanged and is not drawn this way.
 **One card, declared as data.** What differs from device to device is a `Drawing` in `chain/face/`: the
 card's size and its screen's height, the deep colour, the picture (`draw`), the dials and pills
 (`controls`) and the on-screen handles (`handles`). `chain/card/screen/` draws the rest. A new device is a
-file with a `static DRAWING` and one line in `face::DRAWINGS`, keyed by its stable saved name.
+file with a `static DRAWING` and one line in `face::DRAWINGS`, keyed by its stable saved name. A
+drawing made of repeated, pickable parts (Iris's eight bands) adds a `static PARTS` and a line in
+`face::PARTED`: each part has a point on the screen, a pill on the card, and the card's dials aim at the
+picked part.
 
 **The whole card** (Prism: 300 x 290 pt, screen 136 pt; each device has its own size). Tokens are in
 `theme::personality` and `theme::personality::card` (§3).
@@ -1701,6 +1705,31 @@ keeps the plain card.
 beam, 130 % the specimen's fan, 200 % half again as wide); the readout "width 130%" in mono at the top
 right, brought in by a preset change. Dials: Gain, Pan, Width (violet), Bass mono; pill "Ø L" on the
 left polarity.
+
+**Iris** (Parametric EQ, M8 slice B1; 380 x 330, screen 176 pt, hue periwinkle `EQ`): the curve is the
+control. The screen holds the analyser's mist (the sweep's colours at 16 %, strongest at the top, fading
+in and out with the audio and absent at rest and while motion is reduced), a graticule ("100", "1k",
+"10k" in mono, a hairline each, and the middle line), the summed response as a wash down to the middle
+line, a soft glow and a line, all in the `EQ_SWEEP` colours (red, amber, green, blue, violet) and following
+the filter's own coefficients, and one **point** for each of the eight bands in its own colour
+(`EQ_BANDS`, band 2 the specimen's amber): a glow, a 6 pt core with a white ring, and the picked band's
+core 7.5 pt with a 2 pt ring, a halo and six blades; a band that is off is a smaller hollow ring, dim. The
+**value chip** ("180 Hz +5.0", a cut's "40.0 Hz 24/oct", a notch's "2.50 kHz Q 4.00") hangs from the screen's
+top over the picked point, a black pill ringed in the band's colour. The three dials under the screen are the
+picked band's **Freq, Gain and Q** in its colour (a cut's second dial is Slope and it has no Q; a notch has
+no Gain and a shelf no Q, and a dial with nothing to set shows a dash and does nothing). Eight numbered
+**pills** in a 4 x 2 grid at the card's right, each ringed in its band's colour, the picked one filled
+and the off ones dim: a click picks, a double-click turns the band on or off. On the screen a point is
+dragged (frequency and gain together, one undo step; Shift is a tenth as far; a drag turns an off band on),
+wheeled (a bell's or a notch's Q, a cut's slope), double-clicked (its gain, or its frequency when it has
+none, back to the default), moved by the arrows, Page Up and Down and typed into with Enter, and is a
+Tab stop named "Band 3, bell, 1.20 kHz, +3.0 dB, Q 1.00"; a click or Tab on a point picks its band. **Short**:
+the picture is a smaller screen with the graticule and no chip, the dials on its lower edge and the pills
+as a row of eight small ones in the strip under it. **Compact**: the picture is a thin live band of the
+curve with a small dot for each band (a dot picks; nothing is dragged in so thin a band) over the picked
+band's three dials named with their values. **Folded**: the rail, as for every device. The drawing reads
+38 parameters and builds a full slot (text and name) only for the ones the dials and the picked point aim
+at.
 
 - **Name and subtitle.** The card holds the personality's name ("Prism") and its kind ("Utility \·
   gain, width, mono"); menus, the lane chooser and tooltips use the same words. A device has one stable

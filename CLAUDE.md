@@ -822,12 +822,12 @@ per slice and move what is no longer current out of it.
   device, the rest the recommendations; drum sound icons (IC) are in; the
   lit kit is punted to X5. **Under way (2026-11-13),** built by delegated
   agents, one PR per slice: D0 (ADR-0142, format v35), D1 (ADR-0143/0144)
-  and B0 (ADR-0145, Prism) are merged. **Built-ins are set pieces** (owner,
+  B0 (ADR-0145, Prism) and D2 (ADR-0147, #122) are merged; B1, Iris, is PR #123 (ADR-0146). **Built-ins are set pieces** (owner,
   2026-11-12): round 2 of `docs/specimens/m8/devices.html` supersedes
   chosen.html's device section (per-device card sizes, a live screen that is
   also a control, lit dials; four size steps); the framework and Prism are merged (PR
   #121), and each device's face is built by one Sonnet agent at a time.
-- **Branch `m8-sd2-drum-lanes`: M8 D2, the drum editor's lanes, is built**
+- **M8 D2, the drum editor's lanes, is merged (PR #122)**
   (ADR-0147; no format change; MT-DRUM-2 waits for the owner). Lanes is a
   view of the note editor (one gesture code), with the header's Lanes · Keys
   switch, per-lane quantize, Hide unused, lane mute and solo

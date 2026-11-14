@@ -3,7 +3,7 @@
 
 use eframe::egui::{Pos2, Rect, Vec2, pos2, vec2};
 
-use crate::chain::face::{Drawing, Kind};
+use crate::chain::face::{Drawing, Kind, Parts};
 use crate::chain::geometry::Step;
 use crate::theme::personality::card as c;
 
@@ -20,6 +20,11 @@ const COMPACT_LINK: Vec2 = Vec2::new(44.0, 16.0);
 const COMPACT_LINK_GAP: f32 = 6.0;
 /// The whole and the short card's link.
 const LINK: Vec2 = Vec2::new(60.0, 16.0);
+/// The short card's row of part pills: the gap between them, how small and
+/// how big one is.
+const SHORT_PILL_GAP: f32 = 2.0;
+const SHORT_PILL_LEAST: f32 = 10.0;
+const SHORT_PILL_MOST: f32 = 18.0;
 
 /// Where a card's parts are for one step.
 #[derive(Debug, Clone, Copy)]
@@ -195,6 +200,27 @@ impl Plan {
     /// The names sit on the deep screen (on the short card), not on the card.
     pub(super) fn on_screen(&self) -> bool {
         self.step == Step::Short
+    }
+
+    /// The pill of part `index` of a drawing with parts: the specimen's place on
+    /// the whole card, a row of small ones in the strip under the short card's
+    /// screen, none on the compact card (a point on its band picks).
+    pub(super) fn pill_cell(&self, parts: &Parts, index: usize) -> Option<Rect> {
+        match self.step {
+            Step::Whole => Some((parts.pill)(self.card, index)),
+            Step::Short => {
+                let pitch = (self.link.left() - PILL_GAP - self.screen.left()) / parts.count as f32;
+                let size = (pitch - SHORT_PILL_GAP).clamp(SHORT_PILL_LEAST, SHORT_PILL_MOST);
+                Some(Rect::from_min_size(
+                    pos2(
+                        self.screen.left() + index as f32 * pitch,
+                        self.card.bottom() - c::ALL_FROM_BOTTOM - size / 2.0,
+                    ),
+                    Vec2::splat(size),
+                ))
+            }
+            Step::Compact => None,
+        }
     }
 
     /// The cell of control `index` of the drawing at this step, or `None` when

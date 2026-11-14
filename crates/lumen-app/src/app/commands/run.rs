@@ -464,6 +464,7 @@ impl App {
                     self.document.set_sound_solo(map, input, !solo);
                 }
             }
+            Command::AddEq => self.add_eq(),
             Command::DrumRouteAll => self.route_all_sounds_command(),
             Command::DrumRouteClear => self.clear_sound_routes_command(),
             Command::TransposeClipUp => self.transpose_clips_command(1),
