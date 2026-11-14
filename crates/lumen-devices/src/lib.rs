@@ -142,10 +142,7 @@ pub fn effect_tapped(name: &str, tap: Option<Tap>) -> Option<Box<dyn Effect>> {
 
 /// A built-in effect with both of its optional handles: the spectrum tap it
 /// writes into (B1) and the gain-reduction meter it hands back (B2).
-pub fn effect_built(
-    name: &str,
-    tap: Option<Tap>,
-) -> Option<(Box<dyn Effect>, Option<Reduction>)> {
+pub fn effect_built(name: &str, tap: Option<Tap>) -> Option<(Box<dyn Effect>, Option<Reduction>)> {
     match name {
         utility::NAME => Some((Box::new(Utility::new()), None)),
         eq::NAME => Some((Box::new(Eq::with_tap(tap)), None)),

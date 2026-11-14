@@ -81,17 +81,19 @@ fn the_commands_put_gravity_and_horizon_on_the_track_each_with_its_face() {
     });
     // The card says the device's own name, with what it is under it.
     assert!(lumen.shows("Gravity on tone"), "the card's spoken name");
-    // The four the face draws are the table's first four, and every other
-    // parameter is one button away.
-    assert_eq!(
-        lumen.app().strip_parameters(gravity),
-        [
-            compressor::THRESHOLD,
-            compressor::RATIO,
-            compressor::ATTACK,
-            compressor::RELEASE
-        ]
-    );
+    // The face has five dials (it is a set piece, not the strip), and every
+    // other parameter is one button away.
+    lumen.show_whole_cards();
+    lumen.frames(10);
+    for name in ["Pull", "Ratio", "Attack", "Release", "Makeup"] {
+        assert!(
+            lumen
+                .harness
+                .query_by_label_contains(&format!("{name}, parameter"))
+                .is_some(),
+            "the {name} dial"
+        );
+    }
     assert!(lumen.shows("Pull, parameter: \u{2212}18.0 dB"));
     assert!(
         lumen
@@ -113,15 +115,17 @@ fn the_commands_put_gravity_and_horizon_on_the_track_each_with_its_face() {
         app.builtin_attached(horizon)
     });
     assert!(lumen.shows("Horizon on tone"));
-    assert_eq!(
-        lumen.app().strip_parameters(horizon),
-        [
-            limiter::CEILING,
-            limiter::RELEASE,
-            limiter::LOOK,
-            limiter::DETECT
-        ]
-    );
+    lumen.show_whole_cards();
+    lumen.frames(10);
+    for name in ["Ceiling", "Release", "Look"] {
+        assert!(
+            lumen
+                .harness
+                .query_by_label_contains(&format!("{name}, parameter"))
+                .is_some(),
+            "the {name} dial"
+        );
+    }
     assert!(lumen.shows("Ceiling, parameter: \u{2212}0.3 dB"));
     assert!(lumen.harness.query_by_label("All parameters (4)").is_some());
     // Its lookahead is a latency the transport is compensated for.
@@ -471,7 +475,14 @@ fn the_lookahead_offers_no_automate_and_no_learn_in_either_menu() {
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
     // A parameter that may be automated still offers both.
-    lumen.right_click(at(&lumen, "Ceiling, parameter"));
+    let ceiling = lumen
+        .harness
+        .get_all_by_label_contains("Ceiling, parameter")
+        .last()
+        .expect("the panel's row")
+        .rect()
+        .center();
+    lumen.right_click(ceiling);
     lumen.frames(5);
     assert!(lumen.shows("Automate"), "the ceiling can be automated");
     lumen.key(Modifiers::NONE, Key::Escape);
@@ -520,4 +531,105 @@ fn the_device_trays_menu_adds_gravity_and_horizon() {
     lumen.frames(5);
     assert!(lumen.shows("Add Gravity (compressor)"), "the tail's menu");
     lumen.key(Modifiers::NONE, Key::Escape);
+}
+
+/// A whole card with `command` run: the handles are on the picture.
+fn whole(file: &str, command: &str, saved: &str) -> (Lumen, Id) {
+    let (mut lumen, _, device) = launched(file, command, saved);
+    lumen.wait_for("the audio thread to have it", |app| {
+        app.builtin_attached(device)
+    });
+    lumen.show_whole_cards();
+    lumen.frames(10);
+    (lumen, device)
+}
+
+/// Undoing once puts back what the drag changed and leaves the card added.
+#[track_caller]
+fn undone_once(lumen: &mut Lumen, added: &str) {
+    assert!(
+        lumen
+            .app()
+            .undo_label()
+            .is_some_and(|label| label.starts_with("Change")),
+        "one named step: {:?}",
+        lumen.app().undo_label()
+    );
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(10);
+    assert_eq!(lumen.app().undo_label(), Some(added), "one undo");
+}
+
+#[test]
+fn dragging_the_ring_out_lowers_the_threshold_in_one_undo_step() {
+    let (mut lumen, device) = whole("gravity-ring", "Add Gravity", compressor::NAME);
+    assert!(lumen.shows("Threshold ring (Pull): \u{2212}18.0 dB"));
+    let before = param(&lumen, device, compressor::THRESHOLD).expect("set");
+    let ratio = param(&lumen, device, compressor::RATIO).expect("set");
+    // The ring's edge, left of the ball: out from the middle is a lower
+    // threshold.
+    let field = lumen.harness.get_by_label_contains("Threshold ring").rect();
+    let edge = Pos2::new(field.left() + 4.0, field.center().y);
+    lumen.drag(edge, edge + vec2(-24.0, 0.0), Modifiers::NONE);
+    lumen.frames(10);
+    let after = param(&lumen, device, compressor::THRESHOLD).expect("set");
+    assert!(after < before, "a lower threshold: {before} then {after}");
+    assert_eq!(param(&lumen, device, compressor::RATIO), Some(ratio));
+    undone_once(&mut lumen, "Add Gravity");
+    assert!((param(&lumen, device, compressor::THRESHOLD).expect("set") - before).abs() < 1e-6);
+}
+
+#[test]
+fn dragging_the_ball_down_raises_the_ratio_in_one_undo_step() {
+    let (mut lumen, device) = whole("gravity-ball", "Add Gravity", compressor::NAME);
+    assert!(lumen.shows("Body weight (Ratio): 4.0:1"));
+    let before = param(&lumen, device, compressor::RATIO).expect("set");
+    let threshold = param(&lumen, device, compressor::THRESHOLD).expect("set");
+    let from = at(&lumen, "Body weight");
+    lumen.drag(from, from + vec2(0.0, 36.0), Modifiers::NONE);
+    lumen.frames(10);
+    let after = param(&lumen, device, compressor::RATIO).expect("set");
+    assert!(after > before, "a heavier ratio: {before} then {after}");
+    assert_eq!(
+        param(&lumen, device, compressor::THRESHOLD),
+        Some(threshold)
+    );
+    undone_once(&mut lumen, "Add Gravity");
+    assert!((param(&lumen, device, compressor::RATIO).expect("set") - before).abs() < 1e-6);
+}
+
+#[test]
+fn dragging_the_ceiling_line_down_lowers_the_ceiling_in_one_undo_step() {
+    let (mut lumen, device) = whole("horizon-line", "Add Horizon", limiter::NAME);
+    assert!(lumen.shows("Ceiling line (Ceiling): \u{2212}0.3 dB"));
+    let before = param(&lumen, device, limiter::CEILING).expect("set");
+    let release = param(&lumen, device, limiter::RELEASE).expect("set");
+    let from = at(&lumen, "Ceiling line");
+    lumen.drag(from, from + vec2(0.0, 40.0), Modifiers::NONE);
+    lumen.frames(10);
+    let after = param(&lumen, device, limiter::CEILING).expect("set");
+    assert!(after < before, "a lower ceiling: {before} then {after}");
+    assert_eq!(param(&lumen, device, limiter::RELEASE), Some(release));
+    undone_once(&mut lumen, "Add Horizon");
+    assert!((param(&lumen, device, limiter::CEILING).expect("set") - before).abs() < 1e-6);
+}
+
+#[test]
+fn the_handles_and_the_pill_are_reachable_by_their_own_names() {
+    let (mut lumen, _) = whole("gravity-tab", "Add Gravity", compressor::NAME);
+    for name in ["Threshold ring", "Body weight"] {
+        assert!(
+            lumen.harness.query_by_label_contains(name).is_some(),
+            "{name} is reachable by name"
+        );
+    }
+    let (mut lumen2, _) = whole("horizon-tab", "Add Horizon", limiter::NAME);
+    assert!(lumen2.shows("Ceiling line (Ceiling): \u{2212}0.3 dB"));
+    // The "True" pill is a switch with the parameter's own name beside it.
+    assert!(
+        lumen2.harness.query_by_label_contains("True").is_some(),
+        "the detection pill"
+    );
+    lumen.frames(1);
+    lumen2.frames(1);
 }

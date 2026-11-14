@@ -274,6 +274,7 @@ impl App {
             parts,
             picked,
             spectrum,
+            reading: self.builtin.reading(d.id),
             slots,
             table,
         })

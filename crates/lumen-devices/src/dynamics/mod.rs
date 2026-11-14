@@ -99,8 +99,9 @@ pub(super) fn value(table: &[ParamInfo], id: u32, x: f32) -> f32 {
 
 /// The value the project holds for parameter `id` in this block, unglided and
 /// **without a lane**: the first point of the first queue that names it (the
-/// engine emits every value the project holds first, then a lane's points on
-/// top of it).
+/// engine opens a queue for a value the project holds only when it moved, and
+/// none at all for a parameter a lane drives, so a parameter nothing may drive
+/// is the only kind this reads).
 ///
 /// A parameter that is a device's *timing* is read this way, so a lane cannot
 /// move it: the routing is compensated with the number the project holds, and

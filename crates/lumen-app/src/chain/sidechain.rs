@@ -84,6 +84,15 @@ pub(super) fn tap_name(tap: SidechainTap) -> &'static str {
     }
 }
 
+/// The tap in one word, for a chip.
+pub(super) fn tap_short(tap: SidechainTap) -> &'static str {
+    match tap {
+        SidechainTap::PreFx => "pre",
+        SidechainTap::PostFx => "post",
+        SidechainTap::PostMixer => "mixer",
+    }
+}
+
 fn tap_about(tap: SidechainTap) -> &'static str {
     match tap {
         SidechainTap::PreFx => "Before the track's devices. Mute and fader do not change it.",
@@ -140,13 +149,7 @@ pub(super) fn paint(
     };
 
     let response = ui.interact(chooser, id, Sense::click());
-    let spoken = match &look.source {
-        Source::None => "Sidechain source, none".to_owned(),
-        Source::Track { name, .. } => {
-            format!("Sidechain source, {name}, {}", tap_name(look.tap))
-        }
-        Source::Gone => "Sidechain source, removed".to_owned(),
-    };
+    let spoken = spoken(look);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, &spoken));
     let hover = motion::hover(ui.ctx(), id.with("hover"), response.hovered());
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response));
@@ -269,7 +272,27 @@ pub(super) fn paint(
     );
     raised::focus_ring(painter, &response, chooser);
 
-    let tip = match &look.source {
+    let tip = tip(look);
+    match footer {
+        Some(words) => response.on_hover_text(format!("{tip}\n{words}")),
+        None => response.on_hover_text(tip),
+    }
+}
+
+/// What a screen reader says of the chooser.
+pub(super) fn spoken(look: &Look) -> String {
+    match &look.source {
+        Source::None => "Sidechain source, none".to_owned(),
+        Source::Track { name, .. } => {
+            format!("Sidechain source, {name}, {}", tap_name(look.tap))
+        }
+        Source::Gone => "Sidechain source, removed".to_owned(),
+    }
+}
+
+/// The chooser's tooltip.
+pub(super) fn tip(look: &Look) -> String {
+    match &look.source {
         Source::None => "No track keys this effect. Click to choose one".to_owned(),
         Source::Gone => {
             "The track that keyed this effect was deleted. Undo brings it back; or choose another"
@@ -287,10 +310,6 @@ pub(super) fn paint(
             };
             format!("Keyed from {name}, {}. {state}", tap_name(look.tap))
         }
-    };
-    match footer {
-        Some(words) => response.on_hover_text(format!("{tip}\n{words}")),
-        None => response.on_hover_text(tip),
     }
 }
 

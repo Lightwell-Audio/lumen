@@ -149,6 +149,7 @@ fn a_scene_drains_colour_while_dim() {
         mist: 0.0,
         rate: 48_000,
         bpm: 120.0,
+        reading: None,
         id: eframe::egui::Id::NULL,
     };
     assert_eq!(scene(1.0).ink(Color32::RED), Color32::RED);

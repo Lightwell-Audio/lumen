@@ -14188,7 +14188,7 @@ playback bit for bit, and Afterglow's golden pins moved by a millionth with it.
 
 ## ADR-XXXX — Gravity and Horizon, the compressor and the limiter (M8 slice B2)
 
-**Status.** Proposed (M8 slice B2; the parent assigns the number). Brief:
+**Status.** Proposed (M8 slice B2, DSP and faces; the parent assigns the number). Brief:
 `docs/milestones/M8.md` §5 "B2 — Compressor and limiter"; decisions E1, E2, E6
 and E7 in §6; risks 1 and 6 in §8. Contract: ADR-0145 (the built-in effect path,
 B0) and ADR-0041 (sidechains and delay compensation).
@@ -14285,22 +14285,54 @@ limiter's latency on paper in B0's ADR; this slice is that trial.
     undo step each, with every value written (`Document::add_device_with`). Both
     are tagged `@m8` in `site/docs/data/undocumented.txt` (ADR-0133).
 
-**Not built, and why.** The drawings B2 ships are **placeholders**: a deep
-tinted screen with a transfer curve (Gravity) and a horizon (Horizon), the four
-controls in the strip's own row under it, and the gain-reduction meter. The
-owner looked at them beside the approved round-2 specimens
-(`docs/specimens/m8/chosen.html`, `round2-*.png`) and they are not the approved
-face: the specimens want one big screen with the device's name in Unbounded, a
-few large idea-named dials in the device's hue and pills, rather than Lumen's
-small strip cells under a small screen. A separate agent is rebuilding the
-shared built-in card face on B0's branch and will redraw Gravity's and Horizon's
-faces on top of it. The face code is therefore one file per device
-(`chain/faces/gravity.rs`, `chain/faces/horizon.rs`), with everything they share
-in `chain/faces/mod.rs`, so a redraw replaces a file rather than a slice. Also
-not built: factory presets and browser rows (B6), and dragging the curve itself
-(the picture is a display this slice; making its threshold or ceiling line the
-control would fork the knob's gestures — double-click, the wheel, typing, focus
-and the Automate and Learn menu — which belongs in the shared face rebuild).
+**The faces (the owner's round 2).** *Built-ins are set pieces: round 2 (owner, 2026-11-12); chosen.html's device
+section is superseded.* The first drawings this slice shipped (a transfer curve and a horizon in the strip's
+own row) were placeholders and the owner did not approve them; they are gone (`chain/faces/` is deleted).
+Gravity and Horizon are now drawings on the set-piece card (`chain/face/gravity.rs`, `chain/face/horizon.rs`,
+two lines in `face::DRAWINGS`, DESIGN.md §7k), built to the round-2 specimen as measured
+(`docs/specimens/m8/round2-{dark,light}.png`):
+
+12. **Gravity** (380 x 330, violet): a warped grid and a lit ball in a well. The gain reduction (the meter's
+    reading, taken once a frame by `Builtins::read_meters`, passed as `Scene.reading`) sinks the ball and deepens
+    the well; the hero "−4.1 / dB pulled" is the number, the most taken since the last frame falling back
+    (`face/meter.rs`). The dashed ring is **Pull** and its words are the real threshold; a bigger **Ratio** is a
+    heavier ball and a deeper well. The grid is one feathered mesh (13 rows, 19 columns) built into a mesh
+    sized once, the dashed ring is drawn from a 96-step table on the stack, so a frame allocates no vectors of
+    points (`face/paint.rs` holds the helpers both drawings share).
+13. **Horizon** (**300** x 330, sunset): the ceiling line, the land of what was heard, the sun glowing where
+    peaks press the line, white dots at the pressed maxima. The land is a 137-column history kept between
+    frames in `ctx.data` (one column every 33 ms); at rest it is the specimen's decorative silhouette.
+14. **The sidechain chip** ("Keyed by Kick · post") is the card's own sidechain chooser drawn as the screen's
+    chip (`card/screen/key.rs`): the same id, accessible name (`sidechain::spoken`), tooltip (`sidechain::tip`),
+    menu and command (`devices.sidechain`) as the plugin card's row, so there is one way to set a key. With no
+    source it is a quiet "Sidechain · none" chip (a **deviation from the specimen**, which only shows the keyed
+    state: without it a compressor's key could not be reached from its card). On the compact band it drops
+    "Keyed by" so the picture stays in view.
+15. **What a drag does.** Gravity has two handles, registered ring first and ball second (the later wins a
+    hit): the **ring's edge and field** set Pull (the specimen's ring drag), and the **ball** sets **Ratio**
+    (my call: the brief left the orb open; the ball is Ratio's picture, "how heavy", and a drag down is heavier).
+    Horizon's **ceiling line** sets Ceiling. Each is the dial's edit through `Output::Set`, one undo step per
+    drag, with a chip ("pull −18 dB", "ratio 4.0 : 1", "ceiling −0.3 dB"), Shift for fine, double-click reset,
+    arrow keys, and a Tab stop.
+16. **A face dial's menu follows the strip's rule**: a parameter that is a device's timing (Horizon's Look)
+    gets "Not automatable: it is the device's timing." and no Automate or Learn. The framework's dial menu
+    offered both on every dial; that only showed once a timing parameter was on a face.
+17. **A keyed built-in can be saved.** `validate` refused any built-in with a sidechain ("holds plugin-only
+    data"), a rule written when no built-in took a key: a Gravity keyed from another track could not be
+    saved. It now allows a built-in's sidechain (the shape is checked with every device's: the source must
+    not be the device's own track; the app already refuses to set a key on a device that takes none). Test:
+    `validate::tests::a_built_in_may_hold_its_parameter_values_and_nothing_else`. No format change.
+18. **Reduce motion** gives no reading to the scene, so the faces are still and keep no state; the repaint is
+    asked for only while audio flows (`motion::METER_FRAME`).
+
+**Differences from round 2** (the shots in `target/shots-dyn`, compared by eye against `round2-dark.png` and
+`round2-light.png`): Horizon is 300 wide where the brief said 380 (the specimen measures 300); Gravity's dial
+centres are mine (44 + 60 n pt), kept clear of the "All 10" link; the "Sidechain · none" chip (item 14);
+Horizon's resting land is the specimen's decorative silhouette; Gravity's ball is dragged for Ratio (item 15).
+
+**Not built, and why.** Factory presets and browser rows (B6). Not run here: the WSL performance gate and the
+macOS cross-target clippy; the real-time test of Reduce motion in E2E (process-wide setting; covered by the unit
+tests instead).
 
 **Measured.** `cargo bench -p lumen-engine --bench clips` (this machine,
 release, 128-frame blocks at 48 kHz; the budget is 2.67 ms): the same 64-track
@@ -14344,19 +14376,15 @@ points (`held_at_rest`'s order). `lumen-app`: the limiter's lookahead is its
 latency in the *running* app and follows a setting, a compressor hands its meter
 to the interface while Prism has none, and a controller cannot be mapped to a
 device's timing (nor does a mapping from a file move it). E2E
-`tests/e2e/dynamics.rs` (11): the two commands and their cards, the face's four
-controls and All parameters, a typed value, a lane driving the ceiling and a drag
+`tests/e2e/dynamics.rs` (15): the two commands and their cards, the faces' dials by name and All parameters, a drag on the ring (Pull), on the ball (Ratio) and on the ceiling line (Ceiling), each one undo step with the other parameters untouched, the handles reachable by name, a typed value, a lane driving the ceiling and a drag
 taking it over, the sidechain chooser on a built-in with its light, the power
 button, the track menu's rows, the meter following real playback, the lookahead
 dragged while playing re-timed once on release, no Automate or Learn on it in
 either menu, the tray's rows for both devices, and a face's All-parameters panel
-saying where its controls are. Shots: 48 pictures in `target/shots-b2` (whole,
-small, folded and All parameters; both themes at 100, 150 and 200 %), looked at,
-with the placeholder caveat above.
+saying where its controls are. Unit tests in `face/gravity/tests.rs` and `face/horizon/tests.rs` (the ring and the line map back to their values, the chips, the well's depth, the pull following the meter and falling back, the land keeping what was heard and nothing when still or silent). `set_piece_cost` (release, tessellation included, no GPU): Gravity mean 0.13 to 0.16 ms and Horizon 0.09 to 0.11 ms a frame at every step, idle and loud (worst frame 0.53 ms; the bar is a mean under 0.3 ms). Shots: `dynamics_card` renders rest, playing, short, compact, folded, All parameters and the smallest window for both devices, both themes at 100, 150 and 200 % (`SHOT_FILTER` picks cases); looked at: the whole, short and compact cards at 100 %, the whole and folded and smallest window at 200 % light, the whole, rest and All parameters at 100 % light, against round 2. The remaining 150 % pictures were rendered, not individually looked at.
 
 **Consequences.** Two more entries in `EFFECTS` and `builtin::IDENTITIES`, and
-two more personalities in `theme::personality`; the face's shape is provisional
-and will be replaced one file per device. A limiter in a project adds latency,
+two more personalities in `theme::personality`; the faces are the round-2 set pieces. A limiter in a project adds latency,
 so the transport's compensation chip appears on projects that had none (and a
 lookahead change while playing re-times the routing, which the engine already
 handles by skipping or repeating the difference). A compressor's sidechain

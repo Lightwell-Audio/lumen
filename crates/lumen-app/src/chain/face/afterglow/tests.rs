@@ -152,6 +152,7 @@ fn scene<'a>(
         mist: 0.0,
         rate: 48_000,
         bpm: 120.0,
+        reading: None,
         id: eframe::egui::Id::new("test card"),
     }
 }

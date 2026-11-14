@@ -962,11 +962,12 @@ fn a_bypassed_limiter_does_not_play_what_it_held() {
     );
 }
 
-/// N9: the block a built-in is handed names the value the project holds
-/// **first**, then a lane's points on top of it (the order `held_at_rest`
-/// relies on to read a timing parameter no lane can drive).
+/// N9, as B1 changed it: the block a built-in is handed carries a parameter a
+/// lane drives as the lane's one queue, and the value the project holds is not
+/// told alongside it (so a timing parameter, which no lane may drive, is the
+/// only kind `held_at_rest` reads, from its own queue).
 #[test]
-fn a_block_names_the_value_the_project_holds_before_a_lane() {
+fn a_block_names_a_lane_driven_parameter_once_as_the_lane() {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1019,17 +1020,14 @@ fn a_block_names_the_value_the_project_holds_before_a_lane() {
     let seen = seen.lock().unwrap();
     assert!(!seen.is_empty(), "the device ran");
     calls.store(seen.len(), Ordering::Relaxed);
-    for (named, first, last) in seen.iter() {
-        assert_eq!(*named, 2, "the value and the lane");
-        assert_eq!(first.len(), 1, "the held value is one point");
+    for (named, first, _) in seen.iter() {
+        assert_eq!(*named, 1, "the lane's queue and no value beside it");
+        assert_eq!(first[0].0, 0, "on the block's first frame");
         assert!(
-            (first[0].1 - f64::from(gain(-12.0))).abs() < 1e-6,
-            "the first queue is the value the project holds: {:?}",
+            (first[0].1 - f64::from(gain(-12.0))).abs() > 1e-3,
+            "the queue is the lane, not the value the project holds: {:?}",
             first[0]
         );
-        assert_eq!(first[0].0, 0, "on the block's first frame");
-        assert!(!last.is_empty(), "the lane's points come after it");
-        assert!((last[0].1 - f64::from(gain(-12.0))).abs() > 1e-3);
     }
 }
 
