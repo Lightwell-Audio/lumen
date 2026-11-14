@@ -1114,3 +1114,54 @@ fn all_notes_off_cancels_a_note_waiting_for_a_steal() {
         "and nothing sounds"
     );
 }
+
+/// A lane and a value arriving at once play the same samples whatever block
+/// size they are cut into: whether a value is arriving is a question about the
+/// absolute frame, never about the cut (review M4).
+#[test]
+fn a_lane_and_a_glide_play_the_same_at_every_block_size() {
+    use lumen_devices::synth::params::{FILTER_CUTOFF, FILTER_RESO};
+    let points: Vec<(u32, f32)> = vec![(0, 0.2), (60, 0.8), (61, 0.3), (200, 0.7)];
+    let curve = |frame: usize| lane_at(&points, frame);
+    let events = [on(0, 60, 100)];
+    let mut reference: Vec<(f32, f32)> = Vec::new();
+    for block in [256usize, 240, 128, 97, 64, 33, 512, 1_024] {
+        let mut synth = Synth::new(Preset::Poly);
+        let (mut left, mut right) = (vec![0.0f32; 256], vec![0.0f32; 256]);
+        // The first half with the lane, then a value the project holds arrives
+        // while the lane plays on.
+        let (head, _) = render_lane(
+            &mut synth,
+            FILTER_CUTOFF,
+            &curve,
+            &points,
+            &events,
+            128,
+            block.min(128),
+        );
+        left[..128].copy_from_slice(&head);
+        synth.configure_values(&flash_many(Preset::Poly, &[(FILTER_RESO, 5.0)]));
+        let (tail, _) = render_lane(
+            &mut synth,
+            FILTER_CUTOFF,
+            &curve,
+            &points,
+            &[],
+            128,
+            block.min(128),
+        );
+        left[128..].copy_from_slice(&tail);
+        right.fill(0.0);
+        let whole: Vec<(f32, f32)> = left.into_iter().zip(right).collect();
+        if reference.is_empty() {
+            reference = whole;
+            continue;
+        }
+        for (k, ((a, _), (b, _))) in whole.iter().zip(&reference).enumerate() {
+            assert!(
+                (a - b).abs() < 2e-6,
+                "block {block}, frame {k}: {a} against {b}"
+            );
+        }
+    }
+}

@@ -14199,7 +14199,7 @@ or the mixer's pool changed.
 
 **Measured.** `cargo bench -p lumen-engine --bench clips` (this machine,
 release): `engine_flare_64` — 64 MIDI tracks, each with Flare playing a four-note
-chord (256 voices) — is **777 µs per 128-frame block**, 29% of the 2.67 ms budget
+chord (256 voices) — is **787 µs per 128-frame block** (best 755, median 791), 29% of the 2.67 ms budget
 at 48 kHz. It was 1.32 ms (49%) before the corner cache, and 806 µs before the
 settings were worked out once per slot: at four voices a track that sharing
 saves only about 4%, because the four voices already shared one derivation grid,
