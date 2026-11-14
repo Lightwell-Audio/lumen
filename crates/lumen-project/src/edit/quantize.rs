@@ -109,6 +109,45 @@ pub fn quantize(
     finish(notes, tagged)
 }
 
+/// Quantizes the picked notes of `notes` (a clip of content `length`) each to
+/// its own grid: `step_of` gives a note's own step (a drum sound's quantize,
+/// M8 D2), or `None` for `s`'s. One pass exactly as [`quantize`], so the notes
+/// keep the indices the selection means and one edit is one undo step.
+pub fn quantize_each(
+    notes: &mut Vec<Note>,
+    selection: &[usize],
+    length: Ticks,
+    s: &Settings,
+    step_of: &dyn Fn(u8) -> Option<Ticks>,
+) -> Vec<usize> {
+    let picked = picked(selection, notes.len());
+    if picked.is_empty() {
+        return Vec::new();
+    }
+    if s.step.0 <= 0 {
+        return picked;
+    }
+    let mut grids: Vec<(i64, Grid)> = vec![(s.step.0, Grid::new(s))];
+    let mut tagged = tag(notes, &picked);
+    for (note, chosen) in &mut tagged {
+        if !*chosen {
+            continue;
+        }
+        let step = step_of(note.pitch()).unwrap_or(s.step);
+        if step.0 <= 0 {
+            continue;
+        }
+        if !grids.iter().any(|(ticks, _)| *ticks == step.0) {
+            grids.push((step.0, Grid::new(&Settings { step, ..*s })));
+        }
+        let Some((_, grid)) = grids.iter().find(|(ticks, _)| *ticks == step.0) else {
+            continue;
+        };
+        *note = quantized(*note, length, grid, s.mode);
+    }
+    finish(notes, tagged)
+}
+
 /// The settings as the arithmetic uses them, in ticks.
 struct Grid {
     step: i64,
@@ -618,5 +657,43 @@ mod tests {
         // Its end (S + S/2 + 90) is far from any line: untouched.
         quantize(&mut notes, &[0], LEN, &narrow);
         assert_eq!(notes[0], note(S + 100, S / 2 - 10, 60));
+    }
+
+    #[test]
+    fn each_note_takes_its_own_step_where_it_has_one() {
+        // M8 D2's per-lane quantize: the kick (36) on a quarter grid, the hat
+        // (42) on a sixteenth, both in one pass.
+        let quarter = Settings {
+            step: Ticks(4 * S),
+            ..Settings::default()
+        };
+        let steps = |pitch: u8| match pitch {
+            36 => Some(Ticks(4 * S)),
+            42 => Some(Ticks(S)),
+            _ => None,
+        };
+        let mut notes = vec![
+            note(S + 30, S / 2, 36),
+            note(S + 30, S / 2, 42),
+            note(S + 30, S / 2, 38),
+        ];
+        let picked = quantize_each(&mut notes, &[0, 1, 2], LEN, &quarter, &steps);
+        assert_eq!(picked.len(), 3, "the picks are kept");
+        let start_of = |pitch: u8| {
+            notes
+                .iter()
+                .find(|n| n.pitch() == pitch)
+                .map(|n| n.start())
+                .expect("the note")
+        };
+        assert_eq!(start_of(36), Ticks(0), "the kick to the quarter");
+        assert_eq!(start_of(42), Ticks(S), "the hat to the sixteenth");
+        assert_eq!(start_of(38), Ticks(0), "the rest to the options' grid");
+        // One step with no per-note grid is `quantize` itself.
+        let mut alone = vec![note(S + 30, S / 2, 36)];
+        let mut same = alone.clone();
+        quantize_each(&mut alone, &[0], LEN, &quarter, &|_| None);
+        quantize(&mut same, &[0], LEN, &quarter);
+        assert_eq!(alone, same);
     }
 }

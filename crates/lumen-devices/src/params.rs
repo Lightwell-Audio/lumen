@@ -30,13 +30,17 @@ pub enum Taper {
 }
 
 impl Taper {
-    /// The value in the parameter's own units.
+    /// The value in the parameter's own units. A power is taken in double and
+    /// rounded once, so every platform reads the same `f32` (their `f32`
+    /// powers differ in a last bit, which a resonant filter makes heard).
     pub fn value(self, (low, high): (f32, f32), x: f32) -> f32 {
         let x = x.clamp(0.0, 1.0);
         match self {
             Self::Linear => low + (high - low) * x,
-            Self::Power(power) => low + (high - low) * x.powf(power),
-            Self::Log if low > 0.0 && high > 0.0 => low * (high / low).powf(x),
+            Self::Power(power) => low + (high - low) * f64::from(x).powf(f64::from(power)) as f32,
+            Self::Log if low > 0.0 && high > 0.0 => {
+                (f64::from(low) * (f64::from(high) / f64::from(low)).powf(f64::from(x))) as f32
+            }
             Self::Log => low + (high - low) * x,
         }
     }
@@ -50,13 +54,14 @@ impl Taper {
         let x = ((value - low) / span).clamp(0.0, 1.0);
         match self {
             Self::Linear => x,
-            Self::Power(power) => x.powf(1.0 / power),
+            Self::Power(power) => f64::from(x).powf(1.0 / f64::from(power)) as f32,
             Self::Log if low > 0.0 && high > 0.0 => {
-                let ratio = (high / low).ln();
+                let ratio = (f64::from(high) / f64::from(low)).ln();
                 if ratio <= 0.0 {
                     0.0
                 } else {
-                    ((value.max(low) / low).ln() / ratio).clamp(0.0, 1.0)
+                    (((f64::from(value.max(low)) / f64::from(low)).ln() / ratio) as f32)
+                        .clamp(0.0, 1.0)
                 }
             }
             Self::Log => x,

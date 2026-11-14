@@ -820,7 +820,21 @@ per slice and move what is no longer current out of it.
   `docs/specimens/m8/`): DV A with drum rows on the arrangement's clips, DE A
   with velocity inside the hit, SQ A, BF C with a named personality per
   device, the rest the recommendations; drum sound icons (IC) are in; the
-  lit kit is punted to X5. Waits for the approval of 9.5.
+  lit kit is punted to X5. **Under way (2026-11-13),** built by delegated
+  agents, one PR per slice: D0 (ADR-0142, format v35), D1 (ADR-0143/0144)
+  B0 (ADR-0145, Prism), D2 (ADR-0147, #122) and B1 (ADR-0146, Iris, #123) are merged; B3, Parallax and Afterglow (ADR-0148), is in review as a PR. **Built-ins are set pieces** (owner,
+  2026-11-12): round 2 of `docs/specimens/m8/devices.html` supersedes
+  chosen.html's device section (per-device card sizes, a live screen that is
+  also a control, lit dials; four size steps); the framework and Prism are merged (PR
+  #121), and each device's face is built by one Sonnet agent at a time.
+- **M8 D2, the drum editor's lanes, is merged (PR #122)**
+  (ADR-0147; no format change; MT-DRUM-2 waits for the owner). Lanes is a
+  view of the note editor (one gesture code), with the header's Lanes · Keys
+  switch, per-lane quantize, Hide unused, lane mute and solo
+  (`midi.mute_lane`, `midi.solo_lane`), and drum rows on the arrangement's
+  mapped clips, gathered only for the visible part and cached per clip. Two
+  review rounds; the bench gate is lanes p95 within 1.15x + 1 ms of the
+  roll's.
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

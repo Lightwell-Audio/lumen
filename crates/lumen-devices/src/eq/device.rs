@@ -26,7 +26,7 @@ use super::{
 const KNOT: i64 = 32;
 
 fn db_to_gain(db: f32) -> f32 {
-    10f32.powf(db / 20.0)
+    10f64.powf(f64::from(db) / 20.0) as f32
 }
 
 /// Where each band's parameters are in [`TABLE`], worked out once: the frame

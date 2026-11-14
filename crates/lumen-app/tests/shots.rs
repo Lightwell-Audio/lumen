@@ -5509,6 +5509,9 @@ fn drum_map_key_column() {
             let clip = h.state().project().tracks[0].clips[0].id;
             h.state_mut().open_clip_editor(clip);
             h.run_steps(30);
+            // M8 D2: a mapped clip opens in the lanes; this is its Keys view.
+            h.state_mut().show_the_keys_view();
+            h.run_steps(30);
             save(&mut h, &format!("drum-keys-{appearance}-{scale}"));
             h.state_mut().hide_the_unmapped_keys();
             h.run_steps(30);
@@ -5550,4 +5553,224 @@ fn mapped_project(preset: lumen_project::drums::presets::Preset) -> lumen_projec
     let track = std::sync::Arc::make_mut(&mut project.tracks[0]);
     track.drum_map = Some(map.id);
     project
+}
+
+/// M8 D2: the drum editor's lanes on a 2-bar 808-style beat, one hit picked,
+/// then the header's view switch under the pointer, then Hide unused on, in
+/// both themes at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn drum_lanes() {
+    use egui_kittest::kittest::Queryable;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let tag = format!("{appearance}-{}", (scale * 100.0) as u32);
+            let dir = TempDir::new(&format!("shots-lanes-{tag}"));
+            let path = dir.path().join("beat.lumen");
+            let project = drum_lanes_project();
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 820.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            h.state_mut().set_detail_size(560.0);
+            let clip = h.state().project().tracks[0].clips[0].id;
+            h.state_mut().open_clip_editor(clip);
+            h.run_steps(30);
+            // The snare hit on beat 2 picked, as a player would leave it.
+            let hit = h
+                .state()
+                .drum_hit_point(lumen_core::time::Ticks::quarters(1), 38)
+                .expect("the snare's hit");
+            for pressed in [true, false] {
+                h.event(Event::PointerButton {
+                    pos: hit,
+                    button: eframe::egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                });
+                h.run_steps(1);
+            }
+            h.hover_at(hit);
+            h.run_steps(10);
+            save(&mut h, &format!("drum-lanes-{tag}"));
+            // The header's view switch, with its tooltip.
+            let keys = h.get_by_label("Keys view").rect();
+            h.hover_at(keys.center());
+            h.run_steps(60);
+            save(&mut h, &format!("drum-lanes-switch-{tag}"));
+            // Hide unused: only the sounds the clip plays.
+            h.state_mut().hide_the_unused_lanes();
+            h.run_steps(30);
+            h.hover_at(Pos2::new(700.0, 600.0));
+            h.run_steps(10);
+            save(&mut h, &format!("drum-lanes-unused-{tag}"));
+        }
+    }
+}
+
+/// A 2-bar beat on a 7-sound kit in the map's order: kick, snare, clap,
+/// closed and open hats (the open one muted), low tom and ride, with the
+/// velocities the specimen draws.
+fn drum_lanes_project() -> lumen_project::model::Project {
+    use lumen_core::time::{PPQ, Ticks};
+    use lumen_project::drums::presets::Preset;
+    let full = Preset::EIGHT_OH_EIGHT.map(lumen_project::model::Id(501));
+    let pick = |name: &str| {
+        let mut sound = full
+            .sounds
+            .iter()
+            .find(|s| s.name == name)
+            .unwrap_or_else(|| panic!("{name}"))
+            .clone();
+        if name == "Open Hat" {
+            sound.mute = true;
+        }
+        sound
+    };
+    let sounds: Vec<_> = [
+        "Kick",
+        "Snare",
+        "Clap",
+        "Closed Hat",
+        "Open Hat",
+        "Low Tom",
+        "Ride",
+        "Cowbell",
+        "Shaker",
+    ]
+    .into_iter()
+    .map(pick)
+    .collect();
+    let map = lumen_project::model::DrumMap::new(
+        lumen_project::model::Id(500),
+        "808 style \u{00B7} 9 sounds",
+        sounds,
+    );
+    let sixteenth = PPQ / 4;
+    let mut notes = Vec::new();
+    let mut hit = |pitch: u8, step: i64, velocity: u8| {
+        notes.push(lumen_project::model::Note::new(
+            Ticks(step * sixteenth),
+            Ticks(sixteenth),
+            pitch,
+            velocity,
+        ));
+    };
+    for (i, step) in [0, 6, 8, 16, 22, 24, 27].into_iter().enumerate() {
+        hit(36, step, if i % 2 == 1 { 78 } else { 122 });
+    }
+    for step in [4, 12, 20, 28] {
+        hit(38, step, if step == 28 { 127 } else { 100 });
+    }
+    for step in [12, 28] {
+        hit(39, step, 70);
+    }
+    let mut step = 0;
+    while step < 32 {
+        if step % 8 != 6 {
+            hit(42, step, if step % 4 == 0 { 100 } else { 48 });
+        }
+        step += 2;
+    }
+    for step in [6, 14, 22, 30] {
+        hit(46, step, 88);
+    }
+    for (i, step) in [29, 30, 31].into_iter().enumerate() {
+        hit(43, step, 60 + i as u8 * 20);
+    }
+    hit(51, 6, 62);
+    let mut project = lumen_project::testing::project_of(
+        "Beat",
+        vec![lumen_project::testing::midi_track(
+            1,
+            "Drums 1",
+            "pluck",
+            (0, 8),
+            None,
+            notes,
+            vec![],
+        )],
+    );
+    project.drum_maps = vec![map.clone()];
+    let track = std::sync::Arc::make_mut(&mut project.tracks[0]);
+    track.drum_map = Some(map.id);
+    project
+}
+
+/// M8 D2: the arrangement's drum rows, a tall mapped track and a short one,
+/// in both themes at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn arrangement_drum_rows() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let tag = format!("{appearance}-{}", (scale * 100.0) as u32);
+            let dir = TempDir::new(&format!("shots-rows-{tag}"));
+            let path = dir.path().join("rows.lumen");
+            let mut project = drum_lanes_project();
+            // A second mapped track with a one-bar fill, the short row.
+            let mut second = (*project.tracks[0]).clone();
+            second.id = lumen_project::model::Id(20);
+            second.name = "Percussion".into();
+            second.devices.clear();
+            let mut fill = (*second.clips[0]).clone();
+            fill.id = lumen_project::model::Id(21);
+            fill.name = "Fill".into();
+            fill.start = lumen_core::time::Ticks::quarters(8);
+            fill.length = lumen_core::time::Ticks::quarters(2);
+            if let lumen_project::model::ClipContent::Midi { notes, .. } = &mut fill.content {
+                notes.retain(|n| n.start() >= lumen_core::time::Ticks::quarters(6));
+                for note in notes.iter_mut() {
+                    note.0 = note.0 - lumen_core::time::Ticks::quarters(6);
+                }
+            }
+            second.clips = vec![std::sync::Arc::new(fill)];
+            project.tracks.push(std::sync::Arc::new(second));
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 700.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            // The first track made tall: rows of 9 pt rather than 5.
+            let a = clip(&h, 0);
+            drag(
+                &mut h,
+                Pos2::new(300.0, a.bottom() + 1.5),
+                Pos2::new(300.0, a.bottom() + 70.0),
+            );
+            h.run_steps(30);
+            h.hover_at(Pos2::new(900.0, 300.0));
+            h.run_steps(10);
+            save(&mut h, &format!("arrangement-drum-rows-{tag}"));
+        }
+    }
 }

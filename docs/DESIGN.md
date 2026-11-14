@@ -1811,6 +1811,40 @@ toggle in the editor header (`view.hide_unmapped_keys`) folds the roll to the
 map's sounds, so the kit's rows sit together; it is a view, kept while the
 app runs and not saved with the project (like the lane's own shown state).
 
+## 7m. The drum editor's lanes (M8 slice D2)
+
+A clip on a track with a drum map opens in the clip editor's **Lanes** view:
+one full-width row for each sound of the map, in the map's order (M8's
+specimens, `docs/specimens/m8/chosen.html`). The header's view switch (**Lanes
+· Keys**, 30 pt like the tool switch) puts the same clip in the piano roll one
+click away; a clip opens in Lanes. The name column is 176 pt
+(`KEY_WIDTH_DRUMS`, the key column's) and a row is 28 pt (D1's table row:
+`2 × space::M + space::XS`).
+
+- **The name column**: a 3 pt colour bar in the sound's colour, its 16 pt
+  drawing (lit in the sound's colour when the clip plays it, quiet otherwise),
+  the name at 34 pt, and the map's 20 × 18 M and S at the right. A picked hit's
+  lane is `selected_row` tinted; the lane under the pointer takes the Ember
+  wash. A click on the name auditions the sound; a drag on the drawing moves
+  the lane in the map (one undo step, the map editor's own order).
+- **A hit** (DE A): a diamond whose left tip is the onset and whose middle is
+  the row's middle; the outline is the sound's colour and it fills from the
+  foot up to the velocity. A picked hit wears an accent ring. When the zoom
+  packs hits into the same few points, one cell draws their loudest in that
+  column, and a very small hit is one filled shape: a picture of any clip
+  costs what its picture costs, never its note count. A lane's menu can show
+  the sound's length (a bar on from the hit) when the sound has no override
+  of its own.
+- **The body** is the roll's: the same grid, ruler, playhead, selection,
+  snapping, zoom and drags, and the velocity lane under it for ramps. A
+  vertical drag on a picked hit sets its velocity (the fill follows the hand)
+  instead of moving it; a sideways drag moves it, as in the roll.
+- **The arrangement** (DV A): a mapped MIDI clip draws one row per sound it
+  plays, in the map's order, each hit a cell filled to its velocity, in place
+  of the mini piano roll. Below 6 pt a row stops being a picture: the most
+  played sounds keep their rows (ties in the map's order) and the rest are
+  left out; a clip too short for one row draws none. It is a picture only.
+
 ## 8. Key flows
 
 ### Join crossfades (M7b E2, accepted X1)
