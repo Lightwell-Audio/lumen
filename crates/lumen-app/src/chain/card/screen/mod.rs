@@ -96,6 +96,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     let painter = ui
         .painter()
         .with_clip_rect(rect.expand(theme::size::SHADOW_ROOM));
+    let plan = plan.for_name(chrome::name_width(&painter, &plan, look.name));
     let hover = motion::hover(&ctx, id.with("card hover"), body.hovered());
     let radius = c::RADIUS;
     painter.add(

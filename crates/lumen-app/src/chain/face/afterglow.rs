@@ -37,8 +37,10 @@ use crate::{fonts, motion};
 /// The card: 300 x 330 with a 176 pt screen, as the specimen draws it.
 const WHOLE: Vec2 = Vec2::new(300.0, 330.0);
 const SPECIMEN: Vec2 = Vec2::new(272.0, 176.0);
-/// The dials' centres across the card and down from its top.
-const DIAL_X: [f32; 4] = [48.0, 112.0, 176.0, 240.0];
+/// The dials' centres across the card and down from its top. The specimen
+/// spreads them to 240; here the last stops at 214 so the "All n" link in the
+/// card's corner keeps a clear gap from the Mix value, as Parallax's does.
+const DIAL_X: [f32; 4] = [46.0, 102.0, 158.0, 214.0];
 const DIALS_Y: f32 = 278.0;
 
 /// Where the glow's centre stands, as a share of the picture's width and

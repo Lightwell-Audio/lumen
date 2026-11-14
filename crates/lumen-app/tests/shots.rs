@@ -2490,13 +2490,16 @@ fn builtin_card() {
     // Each device with the specimen's values (saved normalised) and the
     // number of parameters its All parameters button names.
     type Values = &'static [(u32, f64)];
-    let devices: [(&str, &str, usize, Values); 3] = [
+    let devices: [(&str, &str, usize, Values); 4] = [
         (
             lumen_devices::utility::NAME,
             "prism",
             8,
             &[(lumen_devices::utility::WIDTH, 0.65)],
         ),
+        // Iris at its defaults (its parameters shot is not taken: the count is
+        // not needed to look at its header).
+        (lumen_devices::eq::NAME, "iris", 0, &[]),
         // The specimen's: 1/8, 45 % feedback, 25 % mix, ping on; a 62 % room,
         // 2.4 s, 55 % damping, 20 % mix (normalised by each table below).
         (

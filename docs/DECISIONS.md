@@ -13975,7 +13975,12 @@ and 0.070 / 0.207, short 0.068 / 0.160 and 0.069 / 0.305, compact 0.059 / 0.141 
 0.070 / 0.147, compact 0.055 / 0.200 and 0.053 / 0.174; all under the 0.3 ms bar except one
 0.305 ms worst frame. Differences from round 2: the hero reads "1/8", not "1/8 dotted"
 (the delay has no dotted notes); Warmth shows "55%", not "5k"; the echo glows are stacked
-discs, not a true blur; nothing was heard.
+discs, not a true blur; nothing was heard. Two header and foot fixes after the parent's
+review of the shots: on the compact card a set piece's name is never cut, so when it does
+not fit left of the full "All n" link the link gives way to its chevron for every device
+(`Plan::for_name`; the tooltip and accessible name still say "All parameters (n)"); and
+Afterglow's four dials stand at 46 to 214 (the specimen's reach 240) so the "All 7" link
+keeps a clear gap from the Mix value.
 
 **Consequences.** `Block` gained `bpm` (a device that ignores it is unchanged); the
 mixer's internal `Pass` gained it; `lumen_devices::EFFECTS`, `effect()` and
