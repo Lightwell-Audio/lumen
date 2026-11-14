@@ -142,6 +142,11 @@ fn a_scene_drains_colour_while_dim() {
         still: false,
         handle_lit: [0.0; MAX_HANDLES],
         settle: 1.0,
+        picked: 0,
+        parts_lit: [0.0; MAX_PARTS],
+        spectrum: None,
+        mist: 0.0,
+        rate: 48_000,
     };
     assert_eq!(scene(1.0).ink(Color32::RED), Color32::RED);
     assert_ne!(scene(0.0).ink(Color32::RED), Color32::RED);

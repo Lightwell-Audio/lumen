@@ -6,7 +6,9 @@
 //! or blocking while rendering. Devices allocate in their constructors,
 //! which run on the UI side.
 
+pub mod analyzer;
 pub mod effect;
+pub mod eq;
 pub mod hosted;
 pub mod instrument;
 pub mod params;
@@ -14,7 +16,9 @@ pub mod sampler;
 pub mod synth;
 pub mod utility;
 
+pub use analyzer::{Read, Reader, Tap};
 pub use effect::{Block, Description, Effect, Key, Stereo, Values};
+pub use eq::Eq;
 pub use hosted::{
     Cost, FAILED_AFTER_FRAMES, Guard, Hosted, HostedInstrument, MOST_FRAMES, MOST_POINTS,
     MOST_QUEUES, Mark, Outcome, ParamBlock, Refused, Reply, Status,
@@ -47,7 +51,7 @@ pub fn instrument_params(name: &str) -> Option<&'static [ParamInfo]> {
 /// Every built-in effect this build knows, in the order they were added.
 /// Each one has a personality in the interface (`lumen-app`'s
 /// `builtin::identity`), which a test keeps in step with this list.
-pub static EFFECTS: &[&Description] = &[&utility::DESCRIPTION];
+pub static EFFECTS: &[&Description] = &[&utility::DESCRIPTION, &eq::DESCRIPTION];
 
 /// The description of the built-in effect called `name`, or `None` when no
 /// device has that name: the one table the card, the lanes and the engine's
@@ -81,10 +85,22 @@ pub fn effect_tail(name: &str, values: Values<'_>) -> Option<u32> {
 /// A built-in effect by the name a project saves. The constructor allocates:
 /// call it on the interface side, then hand the device to the audio thread.
 pub fn effect(name: &str) -> Option<Box<dyn Effect>> {
+    effect_tapped(name, None)
+}
+
+/// As [`effect`], with the spectrum tap a device that analyses its own audio
+/// writes into (M8 slice B1). A device that has no analyser ignores it.
+pub fn effect_tapped(name: &str, tap: Option<Tap>) -> Option<Box<dyn Effect>> {
     match name {
         utility::NAME => Some(Box::new(Utility::new())),
+        eq::NAME => Some(Box::new(Eq::with_tap(tap))),
         _ => None,
     }
+}
+
+/// Whether the built-in effect called `name` fills a spectrum tap it is given.
+pub fn watches_spectrum(name: &str) -> bool {
+    name == eq::NAME
 }
 
 #[cfg(test)]
@@ -93,9 +109,16 @@ mod tests {
 
     #[test]
     fn every_built_in_effect_is_in_both_tables() {
-        let name = utility::NAME;
-        assert!(effect_params(name).is_some(), "{name} has a table");
-        assert!(effect(name).is_some(), "{name} is built");
+        assert_eq!(EFFECTS.len(), 2, "Prism and Iris");
+        for (name, watched) in [(utility::NAME, false), (eq::NAME, true)] {
+            assert!(effect_params(name).is_some(), "{name} has a table");
+            assert!(effect(name).is_some(), "{name} is built");
+            assert!(
+                effect_tapped(name, None).is_some(),
+                "{name} builds untapped"
+            );
+            assert_eq!(watches_spectrum(name), watched, "{name}");
+        }
         assert!(effect_params("nothing").is_none());
         assert!(effect("nothing").is_none());
     }

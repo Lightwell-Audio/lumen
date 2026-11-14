@@ -14,6 +14,9 @@
 //! * `controls`: the dials and pills, in the order they shrink away.
 //! * `handles`: on-screen handles, where the picture is the idea (drag Prism's
 //!   beams apart for Width): each moves one parameter, as its dial does.
+//! * [`Parts`], for a drawing made of repeated pickable parts (Iris's eight
+//!   bands): a point on the screen and a numbered pill for each, with the
+//!   card's dials aimed at the picked one.
 //!
 //! # Steps
 //!
@@ -76,10 +79,18 @@ use lumen_devices::params::ParamInfo;
 use super::geometry::Step;
 use super::strip::Slot;
 
+pub(crate) mod eq;
 pub(crate) mod prism;
 
 /// Every device with a drawing, by its stable saved name: add a line here.
-const DRAWINGS: &[(&str, &Drawing)] = &[(lumen_devices::utility::NAME, &prism::DRAWING)];
+const DRAWINGS: &[(&str, &Drawing)] = &[
+    (lumen_devices::utility::NAME, &prism::DRAWING),
+    (lumen_devices::eq::NAME, &eq::DRAWING),
+];
+
+/// The devices whose drawings are made of picked parts (Iris's bands), beside
+/// their line in [`DRAWINGS`].
+const PARTED: &[(&str, &Parts)] = &[(lumen_devices::eq::NAME, &eq::PARTS)];
 
 /// The drawing of the device saved as `name`, if it has one.
 pub(crate) fn drawing_of(name: &str) -> Option<&'static Drawing> {
@@ -87,6 +98,14 @@ pub(crate) fn drawing_of(name: &str) -> Option<&'static Drawing> {
         .iter()
         .find(|(known, _)| *known == name)
         .map(|(_, drawing)| *drawing)
+}
+
+/// The parts of the drawing of the device saved as `name`, if it has some.
+pub(crate) fn parts_of(name: &str) -> Option<&'static Parts> {
+    PARTED
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map(|(_, parts)| *parts)
 }
 
 /// What a device declares about its card.
@@ -228,6 +247,73 @@ pub(crate) struct Handle {
     pub cursor: CursorIcon,
 }
 
+/// A drawing made of repeated parts, one of them picked: Iris's eight bands.
+/// Each part has a point on the screen (dragged, wheeled, double-clicked, kept
+/// by the keys, a Tab stop), a numbered pill on the card, and the card's dials
+/// aim at the picked part: the same three dials are every band's Freq, Gain and
+/// Q, in the picked band's colour (M8 slice B1, the owner's round 2).
+///
+/// A device with parts adds one line to [`PARTED`], beside its [`DRAWINGS`]
+/// line; its [`Control`]s name a part's field through a parameter of the first
+/// part, and [`Parts::aim`] says which parameter that is on the picked one. A
+/// part's edits are the same `Output`s a dial's are: a drag is one undo step.
+pub(crate) struct Parts {
+    pub count: usize,
+    /// Every parameter the parts read or move beyond the controls' own: the
+    /// slots a row builds for them.
+    pub reads: &'static [u32],
+    /// The part the card starts on, from the device's values.
+    pub first: fn(&Values<'_>) -> usize,
+    /// The part's own colour: its point, its pill, the dials while it is picked.
+    pub colour: fn(usize) -> Color32,
+    /// Whether the part is on, for how its point and pill read.
+    pub is_on: fn(&Values<'_>, usize) -> bool,
+    /// The parameter and idea name control `control` (an index into
+    /// `controls`) stands for on `part`, or `None` when the part has nothing
+    /// for it (a notch has no gain).
+    pub aim: fn(&Values<'_>, usize, usize) -> Option<Aim>,
+    /// Where the part's point is on the picture, and the room it is pressed
+    /// in, or `None` when it has no point.
+    pub at: fn(&Values<'_>, usize, Rect) -> Option<Pos2>,
+    /// What the part's parameters become when its point is dragged to a place
+    /// (a part switched off is switched on by the drag).
+    pub drag: fn(&Values<'_>, usize, Pos2, Rect) -> Writes,
+    /// What an arrow key does: steps across and up, finer when `fine`.
+    pub nudge: fn(&Values<'_>, usize, Vec2, bool) -> Writes,
+    /// What the wheel (or Page Up and Down) does over the point, in notches.
+    pub wheel: fn(&Values<'_>, usize, f32, bool) -> Option<Write>,
+    /// What a double-click on the point puts back, and what the menu's reset
+    /// puts back (the whole part).
+    pub reset_point: fn(&Values<'_>, usize) -> Writes,
+    pub reset_all: fn(&Values<'_>, usize) -> Writes,
+    /// The part's on/off switch.
+    pub switch: fn(usize) -> u32,
+    /// What a screen reader says of the point ("Band 3, bell, 1.20 kHz,
+    /// +3.0 dB"), and of the pill ("Band 3 (bell)").
+    pub words: fn(&Values<'_>, usize) -> String,
+    pub pill_words: fn(&Values<'_>, usize) -> String,
+    /// The pill's number on its face, and where the pill is on the whole card.
+    pub number: fn(usize) -> String,
+    pub pill: fn(Rect, usize) -> Rect,
+    /// The control (an index into `controls`) Enter on a point types into.
+    pub typed: usize,
+}
+
+/// A parameter and the value (0 to 1) a part's edit writes to it, and the
+/// writes of one edit: they are one undo step.
+pub(crate) type Write = (u32, f64);
+pub(crate) type Writes = Vec<Write>;
+
+/// What a dial or a pill stands for on the picked part.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Aim {
+    pub param: u32,
+    pub name: &'static str,
+}
+
+/// The most parts a drawing can have.
+pub(crate) const MAX_PARTS: usize = 8;
+
 /// The device's current values, for the drawing.
 #[derive(Clone, Copy)]
 pub(crate) struct Values<'a> {
@@ -253,6 +339,12 @@ impl Values<'_> {
     /// What `norm` (0 to 1) is in the parameter's own units.
     pub(crate) fn plain_at(&self, id: u32, norm: f32) -> f32 {
         lumen_devices::params::find(self.table, id).map_or(0.0, |info| info.value(norm))
+    }
+
+    /// A parameter's default, 0 to 1.
+    pub(crate) fn default_norm(&self, id: u32) -> f64 {
+        lumen_devices::params::find(self.table, id)
+            .map_or(0.0, |info| f64::from(info.normalised(info.default)))
     }
 
     /// What a plain value is, 0 to 1.
@@ -293,6 +385,18 @@ pub(crate) struct Scene<'a> {
     /// How far a changed preset's readouts have come back (0 to 1): a drawing
     /// brings its readouts in with it.
     pub settle: f32,
+    /// The picked part of a drawing with [`Parts`] (0 for one without), and
+    /// how lit each part's point is (hovered, held or focused), indexed as the
+    /// parts.
+    pub picked: usize,
+    pub parts_lit: [f32; MAX_PARTS],
+    /// The device's live analysis, the points across the picture from its low
+    /// end to its high, in decibels, and how present it is (0 to 1: it fades in
+    /// and out as audio starts and stops, and is 0 while motion is reduced).
+    pub spectrum: Option<&'a [f32]>,
+    pub mist: f32,
+    /// The rate the project runs at, for a drawing that works a response out.
+    pub rate: u32,
 }
 
 impl Scene<'_> {

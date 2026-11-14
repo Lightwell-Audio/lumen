@@ -199,18 +199,95 @@ impl App {
             return None;
         };
         let drawing = super::face::drawing_of(name)?;
+        let parts = super::face::parts_of(name);
         let table = crate::builtin::table(name)?;
         let list = self.device_parameters(d);
-        let slots = drawing
-            .params()
+        let mut ids = drawing.params();
+        for id in parts.map_or(&[][..], |p| p.reads) {
+            if !ids.contains(id) {
+                ids.push(*id);
+            }
+        }
+        // A drawing with parts reads every part's values but words only the
+        // picked part's: the rest are bare (value, default, steps), so a frame
+        // formats a handful of texts and not every parameter's.
+        let parted = parts.is_some();
+        let mut slots = ids
             .into_iter()
-            .map(|id| list.iter().find(|p| p.id == id).map(|p| self.slot_of(d, p)))
+            .map(|id| {
+                list.iter().find(|p| p.id == id).map(|p| {
+                    if parted {
+                        self.bare_slot_of(d, p)
+                    } else {
+                        self.slot_of(d, p)
+                    }
+                })
+            })
             .collect::<Option<Vec<_>>>()?;
+        let mut picked = 0;
+        if let Some(parts) = parts {
+            let values = super::face::Values {
+                slots: &slots,
+                table,
+            };
+            picked = self
+                .chain
+                .bands
+                .get(&d.id)
+                .copied()
+                .unwrap_or_else(|| (parts.first)(&values))
+                .min(parts.count - 1);
+            // The dials: each control's own parameter, and the one it is aimed
+            // at on the picked part, in words.
+            let mut wordy: Vec<u32> = Vec::new();
+            for (index, control) in drawing.controls.iter().enumerate() {
+                wordy.push(control.param);
+                if let Some(aim) = (parts.aim)(&values, picked, index) {
+                    wordy.push(aim.param);
+                }
+            }
+            for id in wordy {
+                if let (Some(at), Some(p)) = (
+                    slots.iter().position(|s| s.id == id),
+                    list.iter().find(|p| p.id == id),
+                ) {
+                    slots[at] = self.slot_of(d, p);
+                }
+            }
+        }
+        let spectrum = self
+            .chain
+            .pretend_spectrum
+            .as_ref()
+            .filter(|(id, _)| *id == d.id)
+            .map(|(_, db)| db.clone())
+            .or_else(|| self.chain.analyzers.get(&d.id).cloned());
         Some(super::view::DrawingRow {
             drawing,
+            parts,
+            picked,
+            spectrum,
             slots,
             table,
         })
+    }
+
+    /// A slot with a parameter's value and nothing to say: what a drawing reads
+    /// of a part it does not put in words.
+    fn bare_slot_of(&self, d: &Device, p: &ParamInfo) -> Slot {
+        Slot {
+            id: p.id,
+            name: String::new(),
+            text: String::new(),
+            value: self.parameter_value(d, p),
+            default: p.default,
+            steps: p.steps,
+            read_only: p.read_only(),
+            choices: Vec::new(),
+            over: false,
+            mapped: None,
+            waiting: false,
+        }
     }
 
     fn slot_of(&self, d: &Device, p: &ParamInfo) -> Slot {
@@ -370,6 +447,8 @@ impl App {
     pub(super) fn apply_strip(&mut self, device: Id, output: strip::Output) {
         match output {
             strip::Output::Set(id, value) => self.set_parameter(device, id, value, "strip"),
+            strip::Output::Moved(values) => self.move_parameters(device, &values),
+            strip::Output::Reset(values) => self.reset_parameters(device, &values),
             strip::Output::Choose(id, value) => {
                 // A click on a switch or a choice is a change of its own.
                 self.document.seal();
@@ -440,11 +519,7 @@ impl App {
     /// Sets a parameter as one undo step per drag. `from` keeps the strip's
     /// drag and the panel's apart.
     fn set_parameter(&mut self, device: Id, id: u32, value: f64, from: &str) {
-        let title = self
-            .device_parameters_of(device)
-            .iter()
-            .find(|p| p.id == id)
-            .map_or_else(|| "parameter".to_owned(), |p| p.title.clone());
+        let title = self.parameter_title(device, id);
         // Moving a control a lane drives takes the lane over (M7 slice A4a).
         self.document.override_param(device, id);
         let _ = self.document.set_device_params(
@@ -453,6 +528,48 @@ impl App {
             &format!("Change {title}"),
             Some(&format!("{from}:{}:{id}", device.0)),
         );
+    }
+
+    /// Several parameters moved together by a face (M8 slice B1): a point
+    /// drags its band's frequency and gain at once, and the whole drag is one
+    /// undo step.
+    fn move_parameters(&mut self, device: Id, values: &[(u32, f64)]) {
+        let Some(&(first, _)) = values.first() else {
+            return;
+        };
+        let title = self.parameter_title(device, first);
+        for &(id, _) in values {
+            self.document.override_param(device, id);
+        }
+        let _ = self.document.set_device_params(
+            device,
+            values,
+            &format!("Change {title}"),
+            Some(&format!("face:{}", device.0)),
+        );
+    }
+
+    /// A face put a band back to its defaults: one undo step of its own.
+    fn reset_parameters(&mut self, device: Id, values: &[(u32, f64)]) {
+        let Some(&(first, _)) = values.first() else {
+            return;
+        };
+        let title = self.parameter_title(device, first);
+        self.document.seal();
+        for &(id, _) in values {
+            self.document.override_param(device, id);
+        }
+        let _ = self
+            .document
+            .set_device_params(device, values, &format!("Reset {title}"), None);
+    }
+
+    /// What a parameter is called, for a step's label.
+    fn parameter_title(&self, device: Id, id: u32) -> String {
+        self.device_parameters_of(device)
+            .iter()
+            .find(|p| p.id == id)
+            .map_or_else(|| "parameter".to_owned(), |p| p.title.clone())
     }
 
     /// Puts a parameter on the strip, or takes it off. Says why when it

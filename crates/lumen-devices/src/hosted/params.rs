@@ -23,8 +23,11 @@ pub struct Mark {
 /// The parameter changes of one block. Allocates once, in [`ParamBlock::new`].
 #[derive(Debug)]
 pub struct ParamBlock {
-    /// Each queue's parameter id and where its points end in `points`.
-    queues: Vec<(u32, u32)>,
+    /// Each queue's parameter id, where its points end in `points`, and
+    /// whether it is a lane's points rather than the value the project holds
+    /// (M8 slice B1: a device that has to tell them apart cannot count
+    /// queues).
+    queues: Vec<(u32, u32, bool)>,
     points: Vec<(u32, f64)>,
     /// The block's frames: points are placed inside it.
     frames: u32,
@@ -86,11 +89,17 @@ impl ParamBlock {
 
     /// The `i`th parameter's id and its points.
     pub fn queue(&self, i: usize) -> (u32, &[(u32, f64)]) {
-        let (id, end) = self.queues[i];
+        let (id, end, _) = self.queues[i];
         let start = i
             .checked_sub(1)
             .map_or(0, |before| self.queues[before].1 as usize);
         (id, &self.points[start..end as usize])
+    }
+
+    /// Whether the `i`th queue is a lane's points (a parameter's automation),
+    /// rather than the one value the project holds (M8 slice B1, ADR-0146).
+    pub fn is_lane(&self, i: usize) -> bool {
+        self.queues.get(i).is_some_and(|queue| queue.2)
     }
 
     /// Where the block stands, to take back what is added after it.
@@ -107,13 +116,25 @@ impl ParamBlock {
         self.points.truncate(mark.points);
     }
 
-    /// Starts a queue for parameter `id`. False when the block holds as many
-    /// as it may.
+    /// Starts a queue for parameter `id`: the value the project holds. False
+    /// when the block holds as many queues as it may.
     pub fn open(&mut self, id: u32) -> bool {
+        self.push(id, false)
+    }
+
+    /// Starts a queue for parameter `id` that carries a lane's points: what a
+    /// parameter's automation plays in this block (M8 slice B1, ADR-0146), so
+    /// a device can tell a lane from the value at rest without counting
+    /// queues.
+    pub fn open_lane(&mut self, id: u32) -> bool {
+        self.push(id, true)
+    }
+
+    fn push(&mut self, id: u32, lane: bool) -> bool {
         if self.queues.len() >= MOST_QUEUES {
             return false;
         }
-        self.queues.push((id, self.points.len() as u32));
+        self.queues.push((id, self.points.len() as u32, lane));
         true
     }
 
@@ -187,7 +208,8 @@ impl ParamBlock {
                 self.dropped = self.dropped.saturating_add((queues - i) as u32);
                 break;
             }
-            self.queues.push((id, 0));
+            let lane = other.is_lane(i);
+            self.queues.push((id, 0, lane));
             self.points.extend_from_slice(list);
             let end = self.points.len() as u32;
             if let Some(last) = self.queues.last_mut() {
@@ -212,7 +234,7 @@ mod tests {
         p.start(128);
         assert!(p.open(7));
         assert!(p.point(0, 0.25) && p.point(64, 0.5));
-        assert!(p.open(9));
+        assert!(p.open_lane(9));
         assert!(p.point(10, 1.0));
         p
     }
@@ -223,6 +245,9 @@ mod tests {
         assert_eq!(p.len(), 2);
         assert_eq!(p.queue(0), (7, &[(0, 0.25), (64, 0.5)][..]));
         assert_eq!(p.queue(1), (9, &[(10, 1.0)][..]));
+        assert!(!p.is_lane(0), "the first queue is a value at rest");
+        assert!(p.is_lane(1), "the second is a lane's");
+        assert!(!p.is_lane(2));
     }
 
     #[test]

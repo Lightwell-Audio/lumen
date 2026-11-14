@@ -476,6 +476,7 @@ impl App {
                     self.document.set_sound_solo(map, input, !solo);
                 }
             }
+            Command::AddEq => self.add_eq(),
             Command::TransposeClipUp => self.transpose_clips_command(1),
             Command::TransposeClipDown => self.transpose_clips_command(-1),
             Command::AddAudioTrack => self.arrangement.add_track(doc, TrackKind::Audio),

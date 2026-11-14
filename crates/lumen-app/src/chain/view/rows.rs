@@ -42,6 +42,11 @@ pub(super) struct Row {
 /// has a control or handle for, in [`face::Drawing::params`] order.
 pub(in crate::chain) struct DrawingRow {
     pub(in crate::chain) drawing: &'static crate::chain::face::Drawing,
+    /// Its parts, the one picked, and the live analysis it is shown (M8 slice B1:
+    /// Iris's bands and its mist).
+    pub(in crate::chain) parts: Option<&'static crate::chain::face::Parts>,
+    pub(in crate::chain) picked: usize,
+    pub(in crate::chain) spectrum: Option<Vec<f32>>,
     pub(in crate::chain) slots: Vec<strip::Slot>,
     pub(in crate::chain) table: &'static [lumen_devices::params::ParamInfo],
 }
@@ -88,6 +93,68 @@ impl App {
                 row
             })
             .collect()
+    }
+
+    /// Stops every built-in's analyser (M8 slice B1): the Devices tab is the
+    /// one place they are read, so a tab that is not drawn silences them
+    /// rather than leaving them writing a window nothing looks at.
+    pub(super) fn silence_spectra(&mut self) {
+        for id in self.builtin.spectrum_ids() {
+            if let Some(reader) = self.builtin.spectrum(id) {
+                reader.set_on(false);
+            }
+            self.chain.analyzers.remove(&id);
+        }
+    }
+
+    /// Reads the analyser of every built-in whose card is drawn this frame and
+    /// silences every other (M8 slice B1): the mist runs only while its card is
+    /// on the shown track and not folded, only while something plays through it
+    /// (a stopped transport with a silent meter leaves no mist), and never while
+    /// motion is reduced. It asks for the next frame only while it runs, so an
+    /// idle card costs nothing.
+    pub(super) fn pump_spectra(&mut self, ctx: &egui::Context, track: Id, rate: u32) {
+        let heard = mist_runs(
+            crate::motion::reduced(),
+            self.transport.state().playing || self.chain.pretend_spectrum.is_some(),
+            crate::chain::card::level_of(self.arrangement.meters.reading(track.0).peak),
+        );
+        let mut live: std::collections::BTreeSet<Id> = std::collections::BTreeSet::new();
+        if heard && let Some(showing) = all_tracks(self.document.project()).find(|t| t.id == track)
+        {
+            for device in &showing.devices {
+                if lumen_devices::watches_spectrum(crate::builtin::name_of(device))
+                    && !self.chain.folded.contains(&device.id)
+                {
+                    live.insert(device.id);
+                }
+            }
+        }
+        let App { builtin, chain, .. } = self;
+        for id in builtin.spectrum_ids() {
+            let on = live.contains(&id);
+            let Some(reader) = builtin.spectrum(id) else {
+                continue;
+            };
+            reader.set_on(on);
+            if !on {
+                chain.analyzers.remove(&id);
+                continue;
+            }
+            let picture = chain.analyzers.entry(id).or_insert_with(|| {
+                vec![lumen_devices::analyzer::MIN_DB; crate::chain::face::eq::POINTS]
+            });
+            if reader.read() == lumen_devices::Read::Window {
+                reader.points(
+                    rate.max(1),
+                    (crate::chain::face::eq::LOW, crate::chain::face::eq::HIGH),
+                    picture,
+                );
+            }
+        }
+        if !live.is_empty() && self.chain.pretend_spectrum.is_none() {
+            ctx.request_repaint_after(crate::motion::METER_FRAME);
+        }
     }
 
     fn row_of(&self, d: &Device, rate: u32) -> Row {
@@ -210,12 +277,20 @@ pub(super) fn ago(age: std::time::Duration) -> String {
     }
 }
 
+/// Whether the analyser runs: never while motion is reduced (the screen is
+/// then still), and otherwise only while the transport plays or the track's
+/// meter reads something, so a stopped, silent track costs nothing.
+pub(super) fn mist_runs(reduced: bool, playing: bool, level: f32) -> bool {
+    !reduced && (playing || level > 0.0)
+}
+
 /// What a built-in's card adds to a plain one: its hue, its drawing with the
 /// values it reads, the step its card is at and what it hears (M8).
 pub(super) fn personal_of(
     row: &Row,
     step: crate::chain::geometry::Step,
     level: f32,
+    rate: u32,
 ) -> Option<card::Personal<'_>> {
     let identity = crate::builtin::identity(&row.identity).filter(|_| row.builtin)?;
     let drawing = row.drawing.as_ref()?;
@@ -226,5 +301,9 @@ pub(super) fn personal_of(
         table: drawing.table,
         step,
         level,
+        parts: drawing.parts,
+        picked: drawing.picked,
+        spectrum: drawing.spectrum.as_deref(),
+        rate,
     })
 }

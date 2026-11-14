@@ -381,8 +381,8 @@ impl App {
             Command::AddWarpMarker | Command::ClearWarpMarkers => self.markers_unavailable(),
             Command::FixWarpHit => self.fix_warp_hit_unavailable(),
             // Prism can always go somewhere: on the selected track, or on a
-            // new audio track (M8 slice B0).
-            Command::AddUtility => Ok(()),
+            // new audio track (M8 slice B0). Iris likewise (B1).
+            Command::AddUtility | Command::AddEq => Ok(()),
             // Shutter goes on a MIDI track or a new one, as Prism does
             // (M8 slice B5); its own commands need its card chosen.
             Command::AddSampler => Ok(()),

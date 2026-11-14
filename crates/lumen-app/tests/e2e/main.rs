@@ -54,6 +54,7 @@ mod drum_lanes_bench;
 mod drums;
 mod editing;
 mod editors;
+mod eq;
 mod fades;
 mod files;
 mod first_run;
