@@ -79,13 +79,17 @@ use lumen_devices::params::ParamInfo;
 use super::geometry::Step;
 use super::strip::Slot;
 
+pub(crate) mod afterglow;
 pub(crate) mod eq;
+pub(crate) mod parallax;
 pub(crate) mod prism;
 
 /// Every device with a drawing, by its stable saved name: add a line here.
 const DRAWINGS: &[(&str, &Drawing)] = &[
     (lumen_devices::utility::NAME, &prism::DRAWING),
     (lumen_devices::eq::NAME, &eq::DRAWING),
+    (lumen_devices::delay::NAME, &parallax::DRAWING),
+    (lumen_devices::reverb::NAME, &afterglow::DRAWING),
 ];
 
 /// The devices whose drawings are made of picked parts (Iris's bands), beside
@@ -134,7 +138,8 @@ impl Drawing {
         let more = self
             .handles
             .iter()
-            .map(|h| h.param)
+            .flat_map(|h| [Some(h.param), h.also.as_ref().map(|a| a.param)])
+            .flatten()
             .chain(self.reads.iter().copied());
         for id in more {
             if !ids.contains(&id) {
@@ -170,6 +175,22 @@ pub(crate) struct Control {
     /// A shorter idea name for the short and compact cards, where a column
     /// is about 50 pt wide; the tooltip and accessible name keep `name`.
     pub short: Option<&'static str>,
+    /// A dial that stands for another parameter while the values say so
+    /// (Parallax's Time is the note while the delay follows the tempo, and the
+    /// milliseconds while it does not): the parameter and the name it has now.
+    /// The tooltip and the accessible name say both.
+    pub follows: Option<fn(&Values<'_>) -> Aim>,
+    /// A pill over a parameter that is not simply off and on (Parallax's Sync is
+    /// a note other than Free).
+    pub switch: Option<Switch>,
+}
+
+/// A pill over a parameter whose value is not 0 or 1: what reads as on, and
+/// the value turning it on writes (turning it off writes 0).
+#[derive(Clone, Copy)]
+pub(crate) struct Switch {
+    pub on: fn(f64) -> bool,
+    pub turn_on: fn(&Values<'_>) -> f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,6 +211,8 @@ impl Control {
             lit: None,
             shown: whole,
             short: None,
+            follows: None,
+            switch: None,
         }
     }
 
@@ -202,6 +225,8 @@ impl Control {
             lit: None,
             shown: whole,
             short: None,
+            follows: None,
+            switch: None,
         }
     }
 
@@ -220,6 +245,18 @@ impl Control {
     /// Words its value with `shown` under a dial.
     pub(crate) const fn showing(mut self, shown: fn(&str) -> String) -> Self {
         self.shown = shown;
+        self
+    }
+
+    /// Makes it stand for the parameter `follows` names from the values.
+    pub(crate) const fn follows(mut self, follows: fn(&Values<'_>) -> Aim) -> Self {
+        self.follows = Some(follows);
+        self
+    }
+
+    /// Makes a pill read and write its parameter as `switch` says.
+    pub(crate) const fn switch(mut self, switch: Switch) -> Self {
+        self.switch = Some(switch);
         self
     }
 }
@@ -245,6 +282,22 @@ pub(crate) struct Handle {
     pub chip: fn(&Values<'_>, f64) -> String,
     /// The cursor over it.
     pub cursor: CursorIcon,
+    /// The parameter it moves while the values say so, instead of `param`
+    /// (the echo trail's Time is the note while the delay is synced).
+    pub follows: Option<fn(&Values<'_>) -> u32>,
+    /// A second parameter the same grab moves by the other axis of the pointer
+    /// (the echo trail's depth is Feedback while its spacing is Time): one
+    /// gesture, one undo step. The arrow keys then move `param` across and this
+    /// one up and down.
+    pub also: Option<Also>,
+}
+
+/// What a two-way [`Handle`] moves besides its own parameter.
+pub(crate) struct Also {
+    /// The second parameter's id.
+    pub param: u32,
+    /// The value (0 to 1) the pointer's place stands for.
+    pub value_at: fn(&Values<'_>, Pos2, Rect) -> f64,
 }
 
 /// A drawing made of repeated parts, one of them picked: Iris's eight bands.
@@ -363,10 +416,6 @@ pub(crate) struct Scene<'a> {
     pub rect: Rect,
     pub step: Step,
     /// The device's hue (greyed as the screen's power fades).
-    #[allow(
-        dead_code,
-        reason = "Prism draws its own colours; the next devices tint with it"
-    )]
     pub hue: Color32,
     pub values: Values<'a>,
     /// How lit the screen is: 1 running, 0 bypassed, between while it fades.
@@ -374,10 +423,6 @@ pub(crate) struct Scene<'a> {
     /// What the device is hearing, 0 to 1; 0 while motion is reduced.
     pub level: f32,
     /// Motion is reduced: nothing but the values moves.
-    #[allow(
-        dead_code,
-        reason = "Prism has no motion of its own; a drifting picture reads it"
-    )]
     pub still: bool,
     /// How lit each handle is (0 to 1): the pointer is on it, or it is held or
     /// focused. Indexed as `Drawing::handles`.
@@ -397,6 +442,12 @@ pub(crate) struct Scene<'a> {
     pub mist: f32,
     /// The rate the project runs at, for a drawing that works a response out.
     pub rate: u32,
+    /// The tempo at the playhead, for a drawing that keeps time with the song
+    /// (a delay whose time is a note).
+    pub bpm: f32,
+    /// The card's own id, for a drawing that keeps a little state between
+    /// frames (a reverb's swell fading with its decay).
+    pub id: eframe::egui::Id,
 }
 
 impl Scene<'_> {

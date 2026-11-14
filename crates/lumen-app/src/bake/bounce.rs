@@ -43,9 +43,6 @@ const LOAD_WAIT: Duration = Duration::from_secs(60);
 /// How often the wait for a plugin's host looks again.
 const LOAD_POLL: Duration = Duration::from_millis(5);
 
-/// The longest tail a bounce adds after its span.
-const MOST_TAIL_SECONDS: u32 = 10;
-
 /// How much of the track's processing is in the file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Bake {
@@ -367,7 +364,10 @@ pub fn render_job(
             from,
             frames,
             most_tail: if tail {
-                u64::from(MOST_TAIL_SECONDS) * u64::from(rate)
+                // What this track's own devices ring on for (M8 slice B3):
+                // a bounce of a track with a reverb keeps the reverb's tail,
+                // and one of a track that rings for nothing adds nothing.
+                crate::builtin::track_tail_frames(&project, track, rate)
             } else {
                 0
             },

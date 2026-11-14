@@ -42,6 +42,9 @@ pub struct Plan {
     /// Where hosted devices work, and whether the plan has any.
     pub(super) host_scratch: Box<HostScratch>,
     pub(super) hosted: bool,
+    /// The plan names a built-in effect, so the song's tempo is read each
+    /// part for it (M8 slice B3); a project without one does no such work.
+    pub(super) builtins: bool,
     /// `(id, index)` sorted by id: where tracks find their bus.
     pub(super) by_id: Vec<(u64, u32)>,
     /// Every node's bus, `BUS` samples each: left then right, `CHUNK`
@@ -90,6 +93,7 @@ impl Plan {
             scratch: Box::new([0.0; 2 * CHUNK]),
             host_scratch: HostScratch::new(),
             hosted: false,
+            builtins: false,
             by_id: Vec::new(),
             buses: Vec::new(),
             sides: Vec::new(),
