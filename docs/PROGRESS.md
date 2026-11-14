@@ -151,7 +151,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Drum editor: lanes with audition, mute, solo, velocity, per-lane quantize, reorder, hide unused | M | 🟡 Merged (D2, PR #122, ADR-0147), MT-DRUM-2 waits for the owner | 8 |
 | Step-sequencer view: step count, resolution, toggle, velocity drag, accent | M | 🔲 | 8 |
 | Euclidean and random fill | L | 🔲 | — |
-| Per-sound routing to multi-output instrument channels | M | 🔲 | 8 |
+| Per-sound routing to multi-output instrument channels | M | 🟡 Routing, edits and commands built on `m8-sd4-routing` (D4, ADR-0149): a sound to a hosted instrument's pair track or to another instrument track, Route all with a group; the Output column and header icons wait for the UI agent; MT-DRUM-3 waits | 8 |
 
 ## §6.5 Automation and envelopes
 

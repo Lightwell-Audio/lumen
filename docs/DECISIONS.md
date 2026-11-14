@@ -13964,7 +13964,7 @@ a saved preference for the view, and auditioning a lane from a hardware pad
 (the lane's name auditions the sound; a pad plays the track already).
 
 
-## ADR-XXXX — Per-sound routing: a sound's track, its pair, and another track (M8 slice D4)
+## ADR-0149 — Per-sound routing: a sound's track, its pair, and another track (M8 slice D4)
 
 **Status.** Proposed (M8 D4, `docs/milestones/M8.md` §5 "D4 — Per-sound
 routing"; the owner's RT A, 2026-11-12; the parent's scope change of
