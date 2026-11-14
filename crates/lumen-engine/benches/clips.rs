@@ -83,6 +83,64 @@ fn routed_tracks_at_128_frames(bencher: divan::Bencher<'_, '_>, tracks: usize) {
 #[divan::bench]
 fn engine_builtin_64(bencher: divan::Bencher<'_, '_>) {
     use lumen_devices::utility::{self, Utility};
+    let values: Vec<(u32, f32)> = utility::TABLE
+        .iter()
+        .map(|p| {
+            (
+                p.id,
+                match p.id {
+                    utility::GAIN => 0.6,
+                    utility::PAN => 0.55,
+                    utility::WIDTH => 0.75,
+                    _ => p.normalised(p.default),
+                },
+            )
+        })
+        .collect();
+    builtin_64(bencher, values, || Box::new(Utility::new()));
+}
+
+/// 64 tracks, each with Parallax, the stereo delay, on it (M8 slice B3): what
+/// a tempo-synced delay with its loop filters costs the audio thread.
+#[divan::bench]
+fn engine_builtin_delay_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::delay::{self, Delay};
+    let values: Vec<(u32, f32)> = delay::TABLE
+        .iter()
+        .map(|p| {
+            (
+                p.id,
+                match p.id {
+                    delay::FEEDBACK => 0.45,
+                    delay::NOTE => 4.0 / 6.0,
+                    delay::PING => 1.0,
+                    _ => p.normalised(p.default),
+                },
+            )
+        })
+        .collect();
+    builtin_64(bencher, values, || Box::new(Delay::new()));
+}
+
+/// 64 tracks, each with Afterglow, the reverb, on it (M8 slice B3): eight
+/// feedback lines, their damping and the early reflections, a block at a time.
+#[divan::bench]
+fn engine_builtin_reverb_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::reverb::{self, Reverb};
+    let values: Vec<(u32, f32)> = reverb::TABLE
+        .iter()
+        .map(|p| (p.id, p.normalised(p.default)))
+        .collect();
+    builtin_64(bencher, values, || Box::new(Reverb::new()));
+}
+
+/// 64 tracks of steady sound, each with one built-in effect holding `values`:
+/// the body the three `engine_builtin_*` benches share (M8 slices B0 and B3).
+fn builtin_64(
+    bencher: divan::Bencher<'_, '_>,
+    values: Vec<(u32, f32)>,
+    make: impl Fn() -> Box<dyn lumen_devices::Effect>,
+) {
     use lumen_engine::{Device, Slot};
     const TRACKS: u64 = 64;
     let audio = Arc::new(ClipAudio::Memory {
@@ -115,20 +173,12 @@ fn engine_builtin_64(bencher: divan::Bencher<'_, '_>) {
             latency: 0,
             bypass: false,
         }];
-        // A gain a little under unity, and a pan off centre: the device works.
-        node.values = vec![(
-            1_000 + node.id,
-            vec![
-                (utility::GAIN, 0.6),
-                (utility::PAN, 0.55),
-                (utility::WIDTH, 0.75),
-            ],
-        )];
+        node.values = vec![(1_000 + node.id, values.clone())];
     }
     for id in 0..TRACKS {
         assert!(
             routing
-                .attach_builtin(1_000 + id, Slot::new(Box::new(Utility::new())))
+                .attach_builtin(1_000 + id, Slot::new(make()))
                 .is_ok()
         );
     }
@@ -208,6 +258,66 @@ fn sampler_64_voices_at_128_frames(bencher: divan::Bencher<'_, '_>) {
         data[1] = right[0];
         divan::black_box(&data);
     });
+}
+
+/// 64 MIDI tracks, each with Flare playing a four-note chord (M8 slice B4):
+/// what the built-in synth costs the audio thread when every one of them
+/// sounds, beside `routed_tracks_at_128_frames` without an instrument.
+#[divan::bench]
+fn engine_flare_64(bencher: divan::Bencher<'_, '_>) {
+    use lumen_devices::{Preset, Synth, synth};
+    use lumen_engine::{
+        InstrumentSpec, Layered, MidiClip, MidiNote, MidiTrack, Target, midi_player,
+    };
+    const TRACKS: u64 = 64;
+    let (_clips, players) = clip_player();
+    let (mut midi, player) = midi_player();
+    let tracks: Vec<MidiTrack> = (0..TRACKS)
+        .map(|track| {
+            // A four-note chord held for the whole second.
+            let notes: Vec<MidiNote> = [48u8, 55, 60, 64]
+                .into_iter()
+                .enumerate()
+                .map(|(k, pitch)| MidiNote {
+                    start: Ticks(k as i64 * 10),
+                    length: Ticks(1_920_000 - k as i64 * 10),
+                    pitch,
+                    velocity: 100,
+                    channel: None,
+                })
+                .collect();
+            MidiTrack::new(
+                track,
+                Target::Instrument,
+                Some(InstrumentSpec {
+                    kind: synth::KIND,
+                    preset: Preset::Poly.number(),
+                    values: Preset::Poly.values(),
+                    instrument: Box::new(Synth::new(Preset::Poly)),
+                }),
+                vec![MidiClip {
+                    id: 1_000 + track,
+                    start: Ticks::ZERO,
+                    length: Ticks(1_920_000),
+                    period: None,
+                    notes: notes.into(),
+                    controls: Default::default(),
+                    seams: Default::default(),
+                }],
+            )
+        })
+        .collect();
+    midi.set(tracks).ok().unwrap();
+    let (mut routing, source) = mixer(Layered(players, player));
+    assert!(routing.set(&routed(TRACKS, 0)).unwrap());
+    let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
+    transport.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 256];
+    // Past the start of the notes and their attacks.
+    for _ in 0..100 {
+        engine.process(48_000, &mut data, 2, 128);
+    }
+    bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
 }
 
 /// The same 64 tracks, each with Iris on it and every band on, as the worst

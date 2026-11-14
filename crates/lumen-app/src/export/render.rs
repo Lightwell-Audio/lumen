@@ -29,7 +29,6 @@ use crate::routing::{self, Cue, Devices};
 const LOAD_WAIT: Duration = Duration::from_secs(60);
 /// How often the wait for a plugin's host looks again.
 const LOAD_POLL: Duration = Duration::from_millis(5);
-const MAX_TAIL_SECONDS: u32 = 10;
 
 /// A snapshot to render. `clips` must be the engine clips translated from this
 /// project and already prepared at `rate`; the caller owns media decoding and
@@ -219,6 +218,7 @@ pub fn prepare(job: &Job, cancel: &AtomicBool) -> Result<Option<Prepared>, Strin
                 InstrumentSpec {
                     kind: HOSTED_KIND,
                     preset: 0,
+                    values: Vec::new(),
                     instrument: Box::new(HostedInstrument::new(guard)),
                 },
             );
@@ -309,7 +309,10 @@ pub fn render_job(
             from: job.from,
             frames: job.frames,
             most_tail: if job.tail {
-                u64::from(MAX_TAIL_SECONDS) * u64::from(job.rate)
+                // What the project's own devices ring on for: a built-in's
+                // tail (M8 slice B0, review N2, wired in by B3) rather than a
+                // flat ten seconds with nothing in them.
+                crate::builtin::tail_frames(&job.project, job.rate)
             } else {
                 0
             },

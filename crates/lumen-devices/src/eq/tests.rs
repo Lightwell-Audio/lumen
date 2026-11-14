@@ -159,6 +159,7 @@ fn a_fresh_iris_passes_everything_untouched() {
                 start: 0,
                 law: lumen_core::pan::PanLaw::Balance,
                 events: &events,
+                bpm: 120.0,
             },
             Stereo {
                 left: &mut left,

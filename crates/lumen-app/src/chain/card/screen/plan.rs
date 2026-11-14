@@ -5,6 +5,7 @@ use eframe::egui::{Pos2, Rect, Vec2, pos2, vec2};
 
 use crate::chain::face::{Drawing, Kind, Parts};
 use crate::chain::geometry::Step;
+use crate::theme;
 use crate::theme::personality::card as c;
 
 /// The most dials the compact card keeps.
@@ -18,6 +19,8 @@ const WHOLE_LABEL_ROOM: f32 = 56.0;
 /// The compact card's "All n" link, and the room between it and the pill.
 const COMPACT_LINK: Vec2 = Vec2::new(44.0, 16.0);
 const COMPACT_LINK_GAP: f32 = 6.0;
+/// What is left of that link when the name needs its room: the chevron.
+pub(super) const COMPACT_LINK_NARROW: Vec2 = Vec2::new(18.0, 16.0);
 /// The whole and the short card's link.
 const LINK: Vec2 = Vec2::new(60.0, 16.0);
 /// The short card's row of part pills: the gap between them, how small and
@@ -185,6 +188,25 @@ impl Plan {
                 }
             },
         }
+    }
+
+    /// The compact header with a name `name_width` wide: a set piece's name is
+    /// never cut at its normal sizes, so when it does not fit left of the full
+    /// "All n" link the link gives way to its chevron (the count is in its tooltip
+    /// and its accessible name).
+    pub(super) fn for_name(mut self, name_width: f32) -> Self {
+        if self.step != Step::Compact {
+            return self;
+        }
+        let start = self.card.left() + c::NAME_X;
+        if start + name_width + theme::space::S > self.link.left() {
+            let right = self.link.right();
+            self.link = Rect::from_min_size(
+                pos2(right - COMPACT_LINK_NARROW.x, self.link.top()),
+                COMPACT_LINK_NARROW,
+            );
+        }
+        self
     }
 
     /// The subtitle is drawn on the whole and the short card.
@@ -366,6 +388,25 @@ mod tests {
         // The header's parts do not overlap.
         assert!(plan.link.right() < plan.preset.left());
         assert!(plan.link.left() > plan.power.x + c::POWER_RADIUS);
+    }
+
+    #[test]
+    fn a_long_name_takes_the_compact_links_room_and_a_short_one_leaves_it() {
+        let plan = Plan::new(card(Step::Compact), prism(), Step::Compact);
+        let short = plan.for_name(40.0);
+        assert_eq!(short.link, plan.link, "a short name leaves the full link");
+        // A name too wide for the room left of the full link: only the chevron
+        // stays, at the same right edge, clear of the preset pill.
+        let long = plan.for_name(100.0);
+        assert!(long.link.width() < plan.link.width());
+        assert_eq!(long.link.right(), plan.link.right());
+        assert!(long.link.right() < long.preset.left());
+        assert!(long.link.left() > long.card.left() + c::NAME_X + 100.0);
+        // The other steps keep their link whatever the name.
+        for step in [Step::Whole, Step::Short] {
+            let plan = Plan::new(card(step), prism(), step);
+            assert_eq!(plan.for_name(500.0).link, plan.link);
+        }
     }
 
     #[test]

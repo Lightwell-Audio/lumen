@@ -101,7 +101,7 @@ fn device_data(device: &Device) -> Result<(), String> {
     Ok(())
 }
 
-/// What a sampler may hold (format v36): its regions in order and inside the
+/// What a sampler may hold (format v37): its regions in order and inside the
 /// files they name, its ranges inside the note range, and its pads at levels,
 /// pans, tunes and fades a person could have set. Only a sampler holds one.
 fn sampler_data(device: &Device, project: &Project) -> Result<(), &'static str> {
@@ -390,9 +390,13 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 if track.kind != TrackKind::Midi {
                     return Err(format!("{}: a synth on a track that is not MIDI", at()));
                 }
-                if !device
-                    .preset()
-                    .is_some_and(|p| !p.is_empty() && p.len() <= 32)
+                // Its sound is the values it holds (format v37); the preset's
+                // name in `state` is only the record of where it started, and
+                // a file may hold none.
+                if !device.state.is_empty()
+                    && !device
+                        .preset()
+                        .is_some_and(|p| !p.is_empty() && p.len() <= 32)
                 {
                     return Err(format!("{}: the synth's preset is unreadable", at()));
                 }

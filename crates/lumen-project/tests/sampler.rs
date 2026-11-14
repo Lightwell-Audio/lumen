@@ -1,4 +1,4 @@
-//! The built-in sampler in the model (format v36, M8 slice B5).
+//! The built-in sampler in the model (format v37, M8 slice B5).
 //!
 //! The format ones: a golden file that loads forever, an older project that
 //! opens with no sample, a project with none that writes none, and the checks
@@ -83,10 +83,10 @@ fn sampled(id: u64, sampler: Sampler, media: Vec<Media>) -> Project {
     project
 }
 
-/// The model the v36 golden file must always load as: a sampler with every
+/// The model the v37 golden file must always load as: a sampler with every
 /// field a sound may hold, so the fixture records how each is written. Never
 /// change it.
-fn golden_v36_expected() -> Project {
+fn golden_v37_expected() -> Project {
     let mut sampler = Sampler {
         face: Face::Pads,
         one_shot: OneShot {
@@ -133,8 +133,8 @@ fn golden_v36_expected() -> Project {
 }
 
 #[test]
-fn golden_v36_loads_and_round_trips() {
-    let project = common::golden("v36", golden_v36_expected);
+fn golden_v37_loads_and_round_trips() {
+    let project = common::golden("v37", golden_v37_expected);
     assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
     // Every field survives the file.
     let sampler = project.tracks[0].devices[0]
@@ -356,7 +356,7 @@ fn a_zone_answers_the_keys_and_velocities_it_covers() {
 
 #[test]
 fn the_media_pool_counts_what_the_sampler_plays_as_used() {
-    let project = golden_v36_expected();
+    let project = golden_v37_expected();
     let counts = media::counts(&project);
     for id in [0x3603, 0x3604, 0x3605] {
         assert!(counts.contains_key(&Id(id)), "{id:x} is played");

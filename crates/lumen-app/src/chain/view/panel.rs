@@ -49,6 +49,10 @@ impl App {
             return;
         };
         let rate = self.transport.state().sample_rate;
+        // The tempo under the playhead, for a card that keeps time with the song.
+        let bpm =
+            lumen_core::time::bpm_at(&self.document.project().tempo, self.transport.position())
+                as f32;
         // What arrives for the track's sidechain, for the cards' lights.
         let keyed = all_tracks(self.document.project())
             .find(|t| t.id == track_id)
@@ -177,7 +181,7 @@ impl App {
                 }),
                 sidechain: row.sidechain.as_ref(),
                 outputs: row.outputs.as_ref(),
-                personal: steps[i].and_then(|step| personal_of(row, step, level, rate)),
+                personal: steps[i].and_then(|step| personal_of(row, step, level, rate, bpm)),
                 compact,
                 message: Default::default(),
             })
@@ -285,9 +289,15 @@ impl App {
                 widgets::Menu::context(&tail).show(|ui| {
                     // The row lands on the track whose chain this is.
                     self.arrangement.selected = vec![track_id];
-                    self.menu_command(ui, Command::AddUtility, "Add Prism (utility)");
-                    self.menu_command(ui, Command::AddEq, "Add Iris (EQ)");
-                    self.menu_command(ui, Command::AddSampler, "Add Shutter (sampler)");
+                    for (command, label) in [
+                        (Command::AddUtility, "Add Prism (utility)"),
+                        (Command::AddEq, "Add Iris (EQ)"),
+                        (Command::AddDelay, "Add Parallax (delay)"),
+                        (Command::AddReverb, "Add Afterglow (reverb)"),
+                        (Command::AddSampler, "Add Shutter (sampler)"),
+                    ] {
+                        self.menu_command(ui, command, label);
+                    }
                 });
                 if rows.is_empty() {
                     // The shared empty state (the interface audit's D1, the

@@ -1,4 +1,4 @@
-//! Shutter, the built-in sampler (M8 slice B5, ADR-XXXX).
+//! Shutter, the built-in sampler (M8 slice B5, ADR-0152).
 //!
 //! One instrument with three faces (the owner's SP A): a **One shot** region
 //! played at its root key and transposed away from it, **Zones** of key and

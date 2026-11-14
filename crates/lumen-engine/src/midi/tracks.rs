@@ -51,7 +51,13 @@ pub(super) fn gather_track(
     // Only the lanes are gated on Play, because a lane taken away (or a stopped
     // song) must not go on setting its last value. B4 (Flare) reads the same
     // block for the synth's parameters, so keep this one gate.
+    // The tempo a synced part of it follows goes with it (M8 slice B4).
     if let Some(spec) = track.instrument.as_mut() {
+        let bpm = cx
+            .timeline
+            .tempo
+            .bpm_at(cx.timeline.ticks_at(cx.start, cx.sample_rate));
+        spec.instrument.set_tempo(bpm as f32);
         let playing = cx.mode == Mode::Play;
         let has_lanes = playing && !track.automation.is_empty();
         match track.params.as_deref_mut() {

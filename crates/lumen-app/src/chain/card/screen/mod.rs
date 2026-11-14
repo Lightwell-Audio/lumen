@@ -44,6 +44,8 @@ pub(in crate::chain) struct Personal<'a> {
     pub picked: usize,
     pub spectrum: Option<&'a [f32]>,
     pub rate: u32,
+    /// The tempo at the playhead, for a drawing that keeps time with the song.
+    pub bpm: f32,
 }
 
 /// A meter's peak (dB, both sides; silence is negative infinity) as a level, 0
@@ -94,6 +96,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     let painter = ui
         .painter()
         .with_clip_rect(rect.expand(theme::size::SHADOW_ROOM));
+    let plan = plan.for_name(chrome::name_width(&painter, &plan, look.name));
     let hover = motion::hover(&ctx, id.with("card hover"), body.hovered());
     let radius = c::RADIUS;
     painter.add(
@@ -163,6 +166,8 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         spectrum: personal.spectrum,
         mist,
         rate: personal.rate,
+        bpm: personal.bpm,
+        id,
     });
 
     controls::paint(

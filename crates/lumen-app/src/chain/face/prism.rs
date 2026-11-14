@@ -97,6 +97,8 @@ pub(crate) static DRAWING: Drawing = Drawing {
             value_at: |values, pointer, rect| value_at(values, pointer, rect, true),
             chip,
             cursor: CursorIcon::ResizeVertical,
+            follows: None,
+            also: None,
         },
         Handle {
             name: "Beam spread, lower",
@@ -105,6 +107,8 @@ pub(crate) static DRAWING: Drawing = Drawing {
             value_at: |values, pointer, rect| value_at(values, pointer, rect, false),
             chip,
             cursor: CursorIcon::ResizeVertical,
+            follows: None,
+            also: None,
         },
     ],
 };

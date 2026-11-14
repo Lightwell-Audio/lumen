@@ -105,6 +105,7 @@ fn probe(track: u64, log: &Log) -> Option<InstrumentSpec> {
     Some(InstrumentSpec {
         kind: 1,
         preset: 0,
+        values: Vec::new(),
         instrument: Box::new(Probe {
             track,
             log: Arc::clone(log),
@@ -415,6 +416,7 @@ fn a_preview_of_a_clip_notes_key_on_the_audition_channel_leaves_the_clip_note_so
     let synth = InstrumentSpec {
         kind: 1,
         preset: Preset::Poly.number(),
+        values: Vec::new(),
         instrument: Box::new(Counted {
             synth: Synth::new(Preset::Poly),
             voices: Arc::clone(&voices),
@@ -1153,6 +1155,7 @@ fn a_samplers_level_is_heard_on_a_note_played_while_stopped() {
             Some(InstrumentSpec {
                 kind: lumen_devices::sampler::KIND,
                 preset: 0,
+                values: Vec::new(),
                 instrument: Box::new(lumen_devices::sampler::Sampler::new(Arc::new(sound))),
             }),
             Vec::new(),

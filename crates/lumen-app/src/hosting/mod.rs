@@ -773,6 +773,7 @@ pub fn stand_in() -> InstrumentSpec {
     InstrumentSpec {
         kind: HOSTED_KIND,
         preset: 0,
+        values: Vec::new(),
         instrument: Box::new(HostedInstrument::placeholder()),
     }
 }

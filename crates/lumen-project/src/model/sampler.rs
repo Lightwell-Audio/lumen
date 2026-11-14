@@ -1,4 +1,4 @@
-//! What a sampler's device holds (M8 slice B5, format v36): the samples it
+//! What a sampler's device holds (M8 slice B5, format v37): the samples it
 //! plays, where their regions are, and how they answer notes.
 //!
 //! The device is one instrument with three faces (the owner's SP A): **One
@@ -81,7 +81,7 @@ impl Face {
     }
 }
 
-/// Where a sample plays: the file, and the part of it (format v36). `start`
+/// Where a sample plays: the file, and the part of it (format v37). `start`
 /// and `end` are frames of the file's own rate; `end` is `None` for its end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Region {
@@ -114,7 +114,7 @@ impl Region {
     }
 }
 
-/// The One shot face: one region, looped or reversed (format v36).
+/// The One shot face: one region, looped or reversed (format v37).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct OneShot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -128,7 +128,7 @@ pub struct OneShot {
 }
 
 /// A zone of the Zones face: a file that answers a range of keys and
-/// velocities, played at its own speed on `root` (format v36).
+/// velocities, played at its own speed on `root` (format v37).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Zone {
     pub media: Id,
@@ -171,7 +171,7 @@ impl Zone {
     }
 }
 
-/// A pad of the Pads face (format v36): its sample, and what the pad does to
+/// A pad of the Pads face (format v37): its sample, and what the pad does to
 /// it. A pad that names no sample is silent and stays in the list, so its
 /// settings are kept while its file is chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -250,7 +250,7 @@ impl Pad {
     }
 }
 
-/// A sampler's sound: its face and what each face plays (format v36).
+/// A sampler's sound: its face and what each face plays (format v37).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Sampler {
     #[serde(default)]

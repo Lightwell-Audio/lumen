@@ -712,6 +712,14 @@ impl<T: TrackSource> Source for Mixer<T> {
                 self.cursor = part_cx.start + n as i64;
             }
             let mut part = out.part(done, n);
+            // The song's tempo where this part plays: what a built-in device
+            // whose time is in notes follows (M8 slice B3). A project with no
+            // built-in does not read it.
+            let bpm = if self.plan.builtins {
+                part_cx.timeline.bpm_at(part_cx.start, rate)
+            } else {
+                120.0
+            };
             match self.swap.as_mut() {
                 None => {
                     let tap = Some(&mut self.loudness);
@@ -723,6 +731,7 @@ impl<T: TrackSource> Source for Mixer<T> {
                     let pass = Pass {
                         start: part_cx.start,
                         rate,
+                        bpm,
                         ramp: Ramp::Full,
                         advance,
                     };
@@ -753,6 +762,7 @@ impl<T: TrackSource> Source for Mixer<T> {
                     let pass = Pass {
                         start: part_cx.start,
                         rate,
+                        bpm,
                         ramp: ramp_in,
                         advance,
                     };

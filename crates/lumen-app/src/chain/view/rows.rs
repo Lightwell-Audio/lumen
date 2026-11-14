@@ -158,7 +158,11 @@ impl App {
     }
 
     fn row_of(&self, d: &Device, rate: u32) -> Row {
-        let builtin = crate::builtin::is_builtin_device(d);
+        let builtin = crate::builtin::is_builtin(d);
+        // Lumen's own device with a parameter table: an effect, or the synth
+        // (M8 slice B4). Its card reads the table and shows the strip; its
+        // timing is its own (an instrument reports none).
+        let controls = crate::builtin::has_table(d);
         let (name, vendor, identity) = match &d.plugin {
             PluginRef::Vst3 {
                 class_id,
@@ -213,7 +217,7 @@ impl App {
         } else {
             frames as f32 / rate as f32 * 1000.0
         };
-        let (slots, parameters) = if (d.is_vst3() || builtin) && matches!(face, OwnedFace::Ready) {
+        let (slots, parameters) = if (d.is_vst3() || controls) && matches!(face, OwnedFace::Ready) {
             self.strip_of(d)
         } else {
             (Vec::new(), 0)
@@ -223,7 +227,7 @@ impl App {
         } else {
             None
         };
-        let editor = if builtin {
+        let editor = if controls {
             // A built-in's controls are its card and All parameters: there is
             // no separate window.
             strip::Editor::Unavailable("This device's controls are on its card".to_owned())
@@ -241,7 +245,7 @@ impl App {
             vendor,
             identity,
             vst3: d.is_vst3(),
-            builtin,
+            builtin: controls,
             running: !(builtin && self.builtin.refused(d.id)),
             instrument: d.is_instrument(),
             bypass: d.bypass,
@@ -291,6 +295,7 @@ pub(super) fn personal_of(
     step: crate::chain::geometry::Step,
     level: f32,
     rate: u32,
+    bpm: f32,
 ) -> Option<card::Personal<'_>> {
     let identity = crate::builtin::identity(&row.identity).filter(|_| row.builtin)?;
     let drawing = row.drawing.as_ref()?;
@@ -305,5 +310,6 @@ pub(super) fn personal_of(
         picked: drawing.picked,
         spectrum: drawing.spectrum.as_deref(),
         rate,
+        bpm,
     })
 }

@@ -44,58 +44,143 @@ pub(super) fn interact(
         return hot;
     }
     for (index, handle) in drawing.handles.iter().enumerate().take(MAX_HANDLES) {
-        let Some(slot) = values.slots.iter().find(|s| s.id == handle.param) else {
+        // A handle may stand for another parameter while the values say so, and
+        // may move a second one by the pointer's other axis.
+        let param = handle.follows.map_or(handle.param, |f| f(values));
+        let Some(slot) = values.slots.iter().find(|s| s.id == param) else {
             continue;
         };
+        let also = handle.also.as_ref().and_then(|a| {
+            values
+                .slots
+                .iter()
+                .find(|s| s.id == a.param)
+                .map(|s| (a, s))
+        });
         let grab = (handle.grab)(values, plan.picture);
         if grab.width() <= 0.0 || grab.height() <= 0.0 {
             continue;
         }
-        let id = id.with(("handle", index));
-        let sense = if slot.read_only {
+        // A handle that follows a parameter is a new handle when the parameter
+        // changes: a drag in progress ends there.
+        let id = id.with(("handle", index, param));
+        let read_only = slot.read_only || also.is_some_and(|(_, other)| other.read_only);
+        let sense = if read_only {
             Sense::hover()
         } else {
             Sense::click_and_drag()
         };
         let response = ui.interact(grab, id, sense);
-        let name = format!("{} ({}): {}", handle.name, slot.name, slot.text);
-        response.widget_info(|| egui::WidgetInfo::slider(!slot.read_only, slot.value, &name));
+        let name = match also {
+            Some((_, other)) => format!(
+                "{} ({} and {}): {}, {}",
+                handle.name, slot.name, other.name, slot.text, other.text
+            ),
+            None => format!("{} ({}): {}", handle.name, slot.name, slot.text),
+        };
+        response.widget_info(|| egui::WidgetInfo::slider(!read_only, slot.value, &name));
         let active = response.hovered() || response.dragged() || response.has_focus();
         hot.lit[index] = motion::hover(ui.ctx(), id.with("lit"), active);
         if response.hovered() || response.dragged() {
             ui.ctx().set_cursor_icon(handle.cursor);
         }
-        if slot.read_only {
+        if read_only {
             continue;
         }
-        let next = moved(ui, &response, id, handle, slot, values, plan.picture);
-        if let Some(value) = next.filter(|v| (v - slot.value).abs() > 1e-9) {
-            out.push(Output::Set(slot.id, value));
+        let keys = if also.is_some() {
+            Keys::Across
+        } else {
+            Keys::Both
+        };
+        let next = moved(
+            ui,
+            &response,
+            id.with("drag"),
+            (handle.value_at, slot, keys),
+            values,
+            plan.picture,
+        );
+        let changed =
+            |next: Option<f64>, slot: &Slot| next.filter(|v| (v - slot.value).abs() > 1e-9);
+        match also {
+            None => {
+                if let Some(value) = changed(next, slot) {
+                    out.push(Output::Set(slot.id, value));
+                }
+            }
+            Some((other, other_slot)) => {
+                let second = moved(
+                    ui,
+                    &response,
+                    id.with("drag again"),
+                    (other.value_at, other_slot, Keys::Up),
+                    values,
+                    plan.picture,
+                );
+                if response.double_clicked() {
+                    // Both back to their defaults: a step of its own.
+                    out.push(Output::Reset(vec![
+                        (slot.id, snap(slot.default, slot.steps)),
+                        (other_slot.id, snap(other_slot.default, other_slot.steps)),
+                    ]));
+                } else if changed(next, slot).is_some() || changed(second, other_slot).is_some() {
+                    out.push(Output::Moved(vec![
+                        (slot.id, next.unwrap_or(slot.value)),
+                        (other_slot.id, second.unwrap_or(other_slot.value)),
+                    ]));
+                }
+            }
         }
         if response.dragged() {
             let shown = next.unwrap_or(slot.value);
-            hot.chip = Some((grab.center(), (handle.chip)(values, shown)));
+            // A wide grab hangs its chip from the pointer; a tip from itself.
+            let from = if also.is_some() {
+                ui.input(|i| i.pointer.interact_pos())
+                    .unwrap_or(grab.center())
+            } else {
+                grab.center()
+            };
+            hot.chip = Some((from, (handle.chip)(values, shown)));
         }
-        response.on_hover_text(format!(
-            "{} ({}). Drag, Shift for fine, double-click for the default",
-            handle.name, slot.name
-        ));
+        let tip = match also {
+            Some((_, other)) => format!(
+                "{} ({} across, {} up and down). Drag, Shift for fine, double-click for the defaults",
+                handle.name, slot.name, other.name
+            ),
+            None => format!(
+                "{} ({}). Drag, Shift for fine, double-click for the default",
+                handle.name, slot.name
+            ),
+        };
+        response.on_hover_text(tip);
     }
     hot
 }
 
-/// The value a handle's pointer and keys ask for this frame, if any.
+/// How a pointer's place becomes a value (a handle's `value_at`).
+type ValueAt = fn(&Values<'_>, Pos2, Rect) -> f64;
+
+/// Which arrow keys move a handle's parameter: both pairs (one parameter), the
+/// left and right pair (the first of two) or the up and down pair (the second).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Keys {
+    Both,
+    Across,
+    Up,
+}
+
+/// The value a handle's pointer and keys ask for this frame for one of its
+/// parameters, if any: how the pointer's place becomes its value, the
+/// parameter's slot and the keys that move it.
 fn moved(
     ui: &Ui,
     response: &egui::Response,
-    id: egui::Id,
-    handle: &crate::chain::face::Handle,
-    slot: &Slot,
+    drag: egui::Id,
+    (value_at, slot, keys): (ValueAt, &Slot, Keys),
     values: &Values<'_>,
     picture: Rect,
 ) -> Option<f64> {
     let (fine, free) = ui.input(|i| (i.modifiers.shift, i.modifiers.alt));
-    let drag = id.with("drag");
     let mut next = None;
     if response.dragged()
         && let Some(pointer) = ui.input(|i| i.pointer.interact_pos())
@@ -106,8 +191,7 @@ fn moved(
                 let origin = ui.input(|i| i.pointer.press_origin()).unwrap_or(pointer);
                 (slot.value.clamp(0.0, 1.0), origin)
             });
-        let delta =
-            (handle.value_at)(values, pointer, picture) - (handle.value_at)(values, last, picture);
+        let delta = value_at(values, pointer, picture) - value_at(values, last, picture);
         let travel = (travel + delta * if fine { 0.1 } else { 1.0 }).clamp(0.0, 1.0);
         ui.data_mut(|d| d.insert_temp(drag, (travel, pointer)));
         next = Some(if free {
@@ -123,10 +207,16 @@ fn moved(
     }
     if response.has_focus() {
         let (down, up) = ui.input(|i| {
-            (
-                i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::ArrowDown),
-                i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::ArrowUp),
-            )
+            let (left, right) = (
+                i.key_pressed(Key::ArrowLeft),
+                i.key_pressed(Key::ArrowRight),
+            );
+            let (below, above) = (i.key_pressed(Key::ArrowDown), i.key_pressed(Key::ArrowUp));
+            match keys {
+                Keys::Both => (left || below, right || above),
+                Keys::Across => (left, right),
+                Keys::Up => (below, above),
+            }
         });
         let base = next.unwrap_or(slot.value);
         if down {

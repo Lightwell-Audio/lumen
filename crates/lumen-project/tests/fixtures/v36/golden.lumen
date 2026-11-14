@@ -3,7 +3,7 @@
   "version": 36,
   "generator": "Lumen 0.0.1",
   "project": {
-    "name": "Sampler",
+    "name": "Golden v36",
     "sample_rate": 48000,
     "tempo": [
       {
@@ -22,10 +22,54 @@
     ],
     "tracks": [
       {
-        "id": "0000000000003601",
-        "name": "Drums",
+        "id": "0000000000000001",
+        "name": "Keys",
         "kind": "midi",
-        "color": "#5E8C6A",
+        "color": "#000000",
+        "gain_db": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [
+          {
+            "id": "0000000000003601",
+            "plugin": {
+              "format": "builtin",
+              "name": "synth"
+            },
+            "bypass": false,
+            "state": "cG9seQ==",
+            "params": {
+              "1": 0.666666687,
+              "6": 0.666666687,
+              "13": 0.492032528,
+              "34": 0.159999996
+            }
+          }
+        ],
+        "clips": [
+          {
+            "id": "0000000000003603",
+            "name": "Part",
+            "start": 0,
+            "length": 5644800,
+            "muted": false,
+            "content": {
+              "type": "midi",
+              "notes": [
+                [0, 1411200, 60, 100],
+                [2822400, 1411200, 67, 90]
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "0000000000003605",
+        "name": "Pad",
+        "kind": "midi",
+        "color": "#000000",
         "gain_db": 0.0,
         "pan": 0.0,
         "mute": false,
@@ -35,65 +79,19 @@
           {
             "id": "0000000000003602",
             "plugin": {
-              "format": "builtin",
-              "name": "sampler"
+              "format": "vst3",
+              "class_id": "00112233445566778899AABBCCDDEEFF",
+              "name": "Warm Synth",
+              "vendor": "Zed",
+              "kind": "instrument"
             },
             "bypass": false,
-            "sampler": {
-              "face": "pads",
-              "one_shot": {
-                "region": {
-                  "media": "0000000000003603",
-                  "start": 480,
-                  "end": 9600,
-                  "root": 60
-                },
-                "looping": true,
-                "reversed": true
-              },
-              "zones": [
-                {
-                  "media": "0000000000003604",
-                  "low": 36,
-                  "high": 47,
-                  "low_velocity": 1,
-                  "high_velocity": 127,
-                  "root": 40
-                }
-              ],
-              "pads": [
-                {
-                  "note": 36,
-                  "media": "0000000000003605",
-                  "choke_fade": 0.005
-                },
-                {
-                  "note": 38,
-                  "media": "0000000000003605",
-                  "level_db": -3.5,
-                  "pan": 0.25,
-                  "tune": -2.0,
-                  "output": 2,
-                  "choke_fade": 0.01,
-                  "root": 40
-                }
-              ]
+            "params": {
+              "3": 0.5
             }
           }
         ],
-        "clips": [
-          {
-            "id": "0000000000003603",
-            "name": "c13827",
-            "start": 0,
-            "length": 5644800,
-            "muted": false,
-            "content": {
-              "type": "midi",
-              "notes": []
-            }
-          }
-        ]
+        "clips": []
       }
     ],
     "master": {
@@ -110,32 +108,7 @@
       "clips": []
     },
     "pan_law": "constant_power",
-    "media": [
-      {
-        "id": "0000000000003603",
-        "path": "Samples/Imported/one.wav",
-        "frames": 48000,
-        "channels": 2,
-        "sample_rate": 48000,
-        "size_bytes": 384000
-      },
-      {
-        "id": "0000000000003604",
-        "path": "Samples/Imported/zones.wav",
-        "frames": 24000,
-        "channels": 2,
-        "sample_rate": 48000,
-        "size_bytes": 192000
-      },
-      {
-        "id": "0000000000003605",
-        "path": "Samples/Imported/pads.wav",
-        "frames": 12000,
-        "channels": 2,
-        "sample_rate": 48000,
-        "size_bytes": 96000
-      }
-    ],
+    "media": [],
     "markers": [],
     "transport": {
       "loop_start": 0,

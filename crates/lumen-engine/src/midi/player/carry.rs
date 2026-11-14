@@ -154,6 +154,11 @@ impl MidiPlayer {
                 && !a.instrument.hosted()
             {
                 std::mem::swap(&mut a.instrument, &mut b.instrument);
+                // A built-in the new list builds is only the settings in a
+                // fresh voice table: what plays keeps its voices and is told
+                // the values the project now holds, so a knob moved under a
+                // sounding note glides there (M8 slice B4).
+                a.instrument.configure_values(&a.values);
                 if a.preset != b.preset {
                     a.instrument.configure(a.preset);
                 }

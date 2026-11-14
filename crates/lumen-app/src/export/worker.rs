@@ -200,7 +200,11 @@ fn render(
                 from: job.from,
                 frames: job.frames,
                 keepalive: Box::new(manager),
-                most_tail: if job.tail { u64::from(rate) * 10 } else { 0 },
+                most_tail: if job.tail {
+                    crate::builtin::tail_frames(&job.project, rate)
+                } else {
+                    0
+                },
                 file: job.file,
             },
             cancel,

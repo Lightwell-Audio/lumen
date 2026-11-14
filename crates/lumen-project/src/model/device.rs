@@ -117,7 +117,7 @@ pub struct Device {
     /// from what the file holds.
     #[serde(skip)]
     pub state_rev: u32,
-    /// The built-in sampler's sound (format v36): the files it plays, the
+    /// The built-in sampler's sound (format v37): the files it plays, the
     /// regions and pads, and which face shows. Written only for a sampler.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sampler: Option<Sampler>,
@@ -186,7 +186,7 @@ impl Device {
         matches!(&self.plugin, PluginRef::Builtin { name } if name == SYNTH)
     }
 
-    /// The built-in sampler (format v36): its sound is what it plays.
+    /// The built-in sampler (format v37): its sound is what it plays.
     pub fn is_sampler(&self) -> bool {
         matches!(&self.plugin, PluginRef::Builtin { name } if name == SAMPLER)
     }

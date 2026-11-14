@@ -119,6 +119,16 @@ pub(super) fn power(
     )
 }
 
+/// How wide the name is set in the display face, letter spacing included.
+pub(super) fn name_width(painter: &Painter, plan: &Plan, name: &str) -> f32 {
+    let galley = painter.layout_no_wrap(
+        name.to_owned(),
+        fonts::display(plan.name_size),
+        Color32::WHITE,
+    );
+    galley.size().x + c::NAME_SPACING * name.chars().count() as f32
+}
+
 /// The name in the display face and, under it, what the device is and does.
 pub(super) fn titles(painter: &Painter, plan: &Plan, look: &Look<'_>, muted: bool) {
     let palette = theme::p();
@@ -138,7 +148,12 @@ pub(super) fn titles(painter: &Painter, plan: &Plan, look: &Look<'_>, muted: boo
         room
     };
     let name_font = fonts::display(plan.name_size);
-    let name = widgets::fit(painter, look.name, name_font.clone(), room);
+    let name = widgets::fit(
+        painter,
+        look.name,
+        name_font.clone(),
+        room - c::NAME_SPACING * look.name.chars().count() as f32,
+    );
     on_baseline(
         painter,
         pos2(left, plan.card.top() + plan.name_baseline),
@@ -243,15 +258,20 @@ pub(super) fn all_link(ui: &mut Ui, plan: &Plan, id: egui::Id, count: usize) -> 
     let palette = theme::p();
     let ink = palette.text_secondary.lerp_to_gamma(palette.text, hot);
     let painter = ui.painter();
-    on_baseline(
-        painter,
-        pos2(rect.right() - 8.0, rect.center().y + c::ALL_TEXT * 0.36),
-        Align::Max,
-        format!("All {}", strip::count_words(count)),
-        fonts::medium(c::ALL_TEXT),
-        ink,
-        0.0,
-    );
+    // The compact header's name may need the room: then only the chevron is
+    // drawn (the tooltip and accessible name still say "All parameters (n)").
+    let narrow = rect.width() < super::plan::COMPACT_LINK_NARROW.x + 1.0;
+    if !narrow {
+        on_baseline(
+            painter,
+            pos2(rect.right() - 8.0, rect.center().y + c::ALL_TEXT * 0.36),
+            Align::Max,
+            format!("All {}", strip::count_words(count)),
+            fonts::medium(c::ALL_TEXT),
+            ink,
+            0.0,
+        );
+    }
     // The chevron.
     let tip = pos2(rect.right() - 3.0, rect.center().y);
     painter.add(egui::Shape::line(
@@ -260,7 +280,7 @@ pub(super) fn all_link(ui: &mut Ui, plan: &Plan, id: egui::Id, count: usize) -> 
     ));
     raised::focus_ring(ui.painter(), &response, rect);
     response
-        .on_hover_text("Every parameter, with search")
+        .on_hover_text(format!("All {count} parameters, with search"))
         .clicked()
 }
 
