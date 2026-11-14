@@ -1071,7 +1071,7 @@ pub mod size {
     pub const STEP_RIM: f32 = 1.5;
     pub const STEP_FILL_LEAST: f32 = 6.0;
     pub const STEP_LIGHT: f32 = 3.0;
-    pub const STEP_MARK: f32 = 5.0;
+    pub const STEP_MARK: f32 = 9.0;
     /// The Warp popover's controls (M9.5 S5a): the mode dropdown, the tempo
     /// field and the sensitivity slider.
     pub const WARP_MODE: f32 = 120.0;

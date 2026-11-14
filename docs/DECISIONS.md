@@ -14186,7 +14186,7 @@ splits `behind` into whole frames and a fraction before touching the write index
 `a_read_does_not_depend_on_where_the_write_point_is`). The reverb's render now equals
 playback bit for bit, and Afterglow's golden pins moved by a millionth with it.
 
-## ADR-XXXX — The drum editor's steps (M8 slice D3)
+## ADR-0153 — The drum editor's steps (M8 slice D3)
 
 **Status.** Proposed (M8 D3, `docs/milestones/M8.md` §5; the owner's SQ A and
 DV A, 2026-11-12). The parent numbers it.
@@ -14200,7 +14200,7 @@ may not change what a player recorded.
 
 1. **Steps is a view of the note editor, not a second editor.** The state, the
    selection, the history, the snapping and the commands are the editor's.
-   Steps draws its own surface (`drum_editor/steps/`, `app/clip/clip_steps.rs`)
+   Steps draws its own surface (`drum_editor/steps/`, `app/clip/clip_steps/`)
    but every edit is one named `Document` method, `edit_steps`, over the pure
    model `lumen_project::edit::steps`, which uses the editor's own note
    functions (`notes::add`, `mute`, `delete`). The selection after an edit is

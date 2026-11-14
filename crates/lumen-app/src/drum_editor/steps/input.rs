@@ -3,7 +3,7 @@
 //! modifier) toggles its accent; the arrows move the keyboard's step and Space
 //! or Enter toggles it.
 //!
-//! Pure arithmetic: the app (`app/clip/clip_steps.rs`) feeds it the pointer and
+//! Pure arithmetic: the app (`app/clip/clip_steps/`) feeds it the pointer and
 //! the keys and commits what it answers through `Document::edit_steps`, one
 //! undo step each. The notes, the selection and the history stay the note
 //! editor's.

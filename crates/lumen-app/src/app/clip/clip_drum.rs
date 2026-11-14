@@ -166,13 +166,14 @@ impl App {
     ) {
         let map_id = frame.map_id;
         let sounds = frame.sounds;
+        let banded = !frame.steps;
         let DrumFrame {
             ed, view, lanes, ..
         } = &mut frame;
         ed.drum.open_map(map_id);
         let picked = self.picked_rows(ed, lanes);
         let painter = ui.painter().clone();
-        crate::drum_editor::paint::background(&painter, view, lanes, &picked);
+        crate::drum_editor::paint::background(&painter, view, lanes, &picked, banded);
         if let Some(look) = look {
             painter.add(canvas::roll_grid_shape(
                 surface,

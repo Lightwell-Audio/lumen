@@ -5724,10 +5724,25 @@ fn drum_steps() {
     use lumen_project::model::ClipContent;
     // (name, panel height, the project's notes changed to fit the state)
     type Change = fn(&mut Vec<lumen_project::model::Note>);
+    // The specimen's three accents, on steps the keyboard is not on: the
+    // kick's first, the snare's 13th and the closed hat's 9th.
+    #[allow(
+        clippy::ptr_arg,
+        reason = "the same type as every other state's change"
+    )]
+    fn accents(notes: &mut Vec<lumen_project::model::Note>) {
+        let sixteenth = lumen_core::time::PPQ / 4;
+        for note in notes.iter_mut() {
+            let step = note.0.0 / sixteenth;
+            if matches!((note.2, step), (36, 0) | (38, 12) | (42, 8)) {
+                note.3 = 127;
+            }
+        }
+    }
     let states: [(&str, f32, Change); 5] = [
-        ("kit", 560.0, |_| {}),
+        ("kit", 560.0, accents),
         ("empty", 560.0, |notes| notes.clear()),
-        ("accent", 560.0, |_| {}),
+        ("accent", 560.0, accents),
         ("off-grid", 560.0, |notes| {
             // A player's late and early hits: a third of a step off.
             for (i, note) in notes.iter_mut().enumerate() {
@@ -5782,6 +5797,10 @@ fn drum_steps() {
                 if name == "accent" {
                     // Shift-click an off step: an accent, picked, hovered.
                     let at = h.state().steps_cell_point(36, 3).expect("a step");
+                    // The modifiers the click is read with, as E2E's click_at.
+                    h.event(Event::ModifiersChanged(Modifiers::SHIFT));
+                    h.hover_at(at);
+                    h.run_steps(1);
                     for pressed in [true, false] {
                         h.event(Event::PointerButton {
                             pos: at,
@@ -5791,8 +5810,14 @@ fn drum_steps() {
                         });
                         h.run_steps(1);
                     }
+                    h.event(Event::ModifiersChanged(Modifiers::NONE));
                     h.hover_at(at);
                     h.run_steps(10);
+                    assert_eq!(
+                        h.state().steps_cell(36, 3).map(|cell| cell.velocity),
+                        Some(127),
+                        "the Shift-click made an accent"
+                    );
                 } else if name == "kit" {
                     // The keyboard on a step, as a player would leave it.
                     let at = h.state().steps_cell_point(38, 4).expect("a step");

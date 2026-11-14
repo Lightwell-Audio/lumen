@@ -232,11 +232,13 @@ pub(crate) fn overlay(painter: &Painter, scene: &Scene<'_>) {
         );
     }
     if let Some((row, column)) = scene.cursor {
+        // The keyboard's ring sits inside the cell, the accent's rim outside
+        // it, so an accented step with the focus shows both.
         painter.rect_stroke(
-            g.cell_rect(row, column).expand(theme::size::STEP_RIM),
-            rounding(theme::radius::MEDIUM),
+            g.cell_rect(row, column),
+            rounding(theme::radius::SMALL),
             Stroke::new(theme::stroke::LIT, p.accent),
-            StrokeKind::Middle,
+            StrokeKind::Inside,
         );
     }
 }

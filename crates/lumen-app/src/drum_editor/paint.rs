@@ -53,12 +53,15 @@ pub(crate) struct Scene<'a> {
 
 /// The lanes' rows behind the grid: the header's face, alternate rows a shade
 /// darker, and the lanes of picked hits washed with the accent (the
-/// specimen's picked row). Also the row separators.
+/// specimen's picked row). Also the row separators. The step grid passes
+/// `banded = false`: its rows stay the canvas so the wells read against it, as
+/// in the specimen.
 pub(crate) fn background(
     painter: &Painter,
     view: &EditorView,
     lanes: &[Lane],
     picked_rows: &[bool],
+    banded: bool,
 ) {
     let p = theme::p();
     let painter = painter.with_clip_rect(view.body.intersect(painter.clip_rect()));
@@ -71,7 +74,7 @@ pub(crate) fn background(
         let picked = picked_rows.get(row).copied().unwrap_or(false);
         let wash = if picked {
             p.accent.gamma_multiply(theme::alpha::WASH_FAINT)
-        } else if row % 2 == 1 {
+        } else if banded && row % 2 == 1 {
             p.lane_black
         } else {
             Color32::TRANSPARENT
