@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
-use lumen_project::edit::{self, note_tools as tools, notes as ops, quantize};
+use lumen_project::edit::{self, note_tools as tools, notes as ops, quantize, steps};
 use lumen_project::model::{Clip, ClipContent, Id, Note, Project};
 
 use super::{Document, plural};
@@ -106,6 +106,34 @@ impl Document {
     ) -> Vec<usize> {
         self.edit_notes("Draw note", base, merge, clip, &[], |notes, length| {
             ops::add(notes, note, length)
+        })
+    }
+
+    /// The step sequencer's edit (M8 D3): `changes` to a drum clip's steps, one
+    /// undo step however many there are (a click is one change, a paint or a
+    /// velocity drag is several). `step` is the grid's step in clip ticks. A
+    /// drag passes the project from before it as `base` and the same `merge`
+    /// key every frame. Returns the unmuted notes of the last step changed.
+    pub fn edit_steps(
+        &mut self,
+        clip: Id,
+        step: Ticks,
+        changes: &[steps::Change],
+        merge: Option<&str>,
+    ) -> Vec<usize> {
+        if changes.is_empty() {
+            return Vec::new();
+        }
+        let label = match changes {
+            [steps::Change::Toggle(..)] => "Toggle step",
+            [steps::Change::Set(..)] => "Set step velocity",
+            _ if changes.iter().all(|c| matches!(c, steps::Change::Set(..))) => {
+                "Set step velocities"
+            }
+            _ => "Edit steps",
+        };
+        self.edit_notes(label, None, merge, clip, &[], |notes, length| {
+            steps::apply(notes, step, length, changes)
         })
     }
 

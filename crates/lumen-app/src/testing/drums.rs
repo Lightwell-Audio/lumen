@@ -16,6 +16,7 @@ impl App {
         let clip = self.editor_open_clip()?;
         match self.open_drum_view(clip)? {
             crate::drum_editor::View::Lanes => Some("lanes"),
+            crate::drum_editor::View::Steps => Some("steps"),
             crate::drum_editor::View::Keys => Some("keys"),
         }
     }
@@ -139,6 +140,7 @@ impl App {
     pub fn drum_view_of_track(&self, track: Id) -> &'static str {
         match self.note_editor.drum.view(track) {
             crate::drum_editor::View::Lanes => "lanes",
+            crate::drum_editor::View::Steps => "steps",
             crate::drum_editor::View::Keys => "keys",
         }
     }
@@ -152,6 +154,16 @@ impl App {
     /// header switch does.
     pub fn show_the_keys_view(&mut self) {
         self.set_drum_view(crate::drum_editor::View::Keys);
+    }
+
+    /// Shows the open drum clip as lanes, as the header switch does.
+    pub fn show_the_lanes_view(&mut self) {
+        self.set_drum_view(crate::drum_editor::View::Lanes);
+    }
+
+    /// Shows the open drum clip as the step grid, as the header switch does.
+    pub fn show_the_steps_view(&mut self) {
+        self.set_drum_view(crate::drum_editor::View::Steps);
     }
 
     /// Gives the open clip's sound `input` its own quantize grid, as the map

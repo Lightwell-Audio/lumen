@@ -17,6 +17,7 @@
 pub(crate) mod arrangement;
 pub(crate) mod geometry;
 pub(crate) mod paint;
+pub(crate) mod steps;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -32,11 +33,13 @@ use crate::timeview::TimeView;
 use geometry::Cell;
 
 /// Which view of a drum clip the Clip tab shows (the owner's DV A): the lanes,
-/// or the piano roll, whose key column D1 made the kit's (Keys).
+/// the step grid (D3), or the piano roll, whose key column D1 made the kit's
+/// (Keys). One editor, three views one click apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum View {
     #[default]
     Lanes,
+    Steps,
     Keys,
 }
 
@@ -121,6 +124,12 @@ pub(crate) struct Reorder {
 #[derive(Debug, Default)]
 pub(crate) struct State {
     views: BTreeMap<Id, View>,
+    /// The tracks whose view the user chose: a clip of one opens in it. Another
+    /// track's clips open in Steps when they fit the grid, else in Lanes
+    /// (D3: [`State::open_view`]).
+    chosen: BTreeSet<Id>,
+    /// The step sequencer's grids and gestures.
+    pub steps: steps::State,
     hiding: BTreeSet<Id>,
     /// The lanes set to show their length, by the map they belong to.
     lengths: BTreeSet<u8>,
@@ -250,17 +259,33 @@ impl State {
         cache.cells.clone()
     }
 
-    /// The view a track's drum clips open in (Lanes unless Keys was chosen).
+    /// The view a track's drum clips show (Lanes until another is chosen or a
+    /// clip that fits the grid opens).
     pub fn view(&self, track: Id) -> View {
         self.views.get(&track).copied().unwrap_or_default()
     }
 
+    /// The user chose `view` for `track`: its clips open in it from now on.
     pub fn set_view(&mut self, track: Id, view: View) {
-        if view == View::Lanes {
+        self.views.insert(track, view);
+        self.chosen.insert(track);
+    }
+
+    /// A clip is opened on `track`: unless the user chose a view for the
+    /// track, the clip opens in Steps when it fits the grid and in Lanes when
+    /// it does not (D3). Answers whether the view changed.
+    pub fn open_view(&mut self, track: Id, fits: bool) -> bool {
+        if self.chosen.contains(&track) {
+            return false;
+        }
+        let want = if fits { View::Steps } else { View::Lanes };
+        let before = self.view(track);
+        if want == View::Lanes {
             self.views.remove(&track);
         } else {
-            self.views.insert(track, view);
+            self.views.insert(track, want);
         }
+        before != want
     }
 
     /// Whether `track` hides its unused lanes.

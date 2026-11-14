@@ -531,6 +531,16 @@ pub mod alpha {
     pub const WARN_INK: f32 = 0.88;
     /// A clip's name at nine tenths.
     pub const TEXT_BRIGHT: f32 = 0.90;
+    /// The step sequencer's cells (M8 D3, SQ A): the well under a cell, in the
+    /// groups of a beat that alternate, in each theme (the light theme's wells
+    /// are fainter); an on cell's edge; and a muted sound's fill and edge.
+    pub const STEP_WELL_DARK: [f32; 2] = [1.0, 0.75];
+    pub const STEP_WELL_LIGHT: [f32; 2] = [0.5, 0.3];
+    pub const STEP_EDGE_ON: f32 = 0.85;
+    pub const STEP_FILL_SILENT: f32 = 0.35;
+    pub const STEP_EDGE_SILENT: f32 = 0.40;
+    /// A step past the clip's end, where nothing can be turned on.
+    pub const STEP_PAST_END: f32 = 0.35;
 }
 
 /// A meter's colour at `db`: `base` (the accent, or the track's colour with
@@ -1050,6 +1060,18 @@ pub mod size {
     /// The shortest row an arrangement drum picture draws: below this a row
     /// stops being a picture.
     pub const DRUM_ROW_MIN: f32 = 6.0;
+    /// The step sequencer (M8 D3, the specimen's SQ A): a step row's height,
+    /// the gap kept round a cell inside its step, the strip above the rows,
+    /// how far the accent's rim stands off its cell, the shortest fill a
+    /// cell that is on shows, the playing step's light at the foot, and the
+    /// off-grid mark's side.
+    pub const STEP_ROW: f32 = 34.0;
+    pub const STEP_INSET: f32 = 3.0;
+    pub const STEP_STRIP: f32 = 34.0;
+    pub const STEP_RIM: f32 = 1.5;
+    pub const STEP_FILL_LEAST: f32 = 6.0;
+    pub const STEP_LIGHT: f32 = 3.0;
+    pub const STEP_MARK: f32 = 5.0;
     /// The Warp popover's controls (M9.5 S5a): the mode dropdown, the tempo
     /// field and the sensitivity slider.
     pub const WARP_MODE: f32 = 120.0;

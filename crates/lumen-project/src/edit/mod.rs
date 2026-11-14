@@ -42,6 +42,7 @@ pub mod record;
 pub mod reverse;
 pub mod seams;
 pub mod split;
+pub mod steps;
 pub mod takes;
 pub mod velocity;
 pub mod warp;

@@ -60,6 +60,7 @@ impl App {
                 // focus lets go of what sounds.
                 let ctx = ui.ctx().clone();
                 self.computer_keyboard_keys(&ctx);
+                self.steps_handle_keys(&ctx);
                 self.command_keys(&ctx);
                 egui::CentralPanel::default().show(ui, |ui| {
                     let area = ui.max_rect();

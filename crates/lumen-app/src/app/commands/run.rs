@@ -444,6 +444,11 @@ impl App {
             Command::HideUnusedLanes => {
                 self.toggle_hide_unused_lanes();
             }
+            Command::DrumStepsView => {
+                self.set_drum_view(crate::drum_editor::View::Steps);
+            }
+            Command::StepsNextPage => self.steps_turn_page(1),
+            Command::StepsPreviousPage => self.steps_turn_page(-1),
             Command::DrumMuteLane => {
                 if let Some((map, input)) = self.drum_picked_lane() {
                     let mute = self

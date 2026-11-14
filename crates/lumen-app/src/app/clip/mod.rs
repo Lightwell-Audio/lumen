@@ -18,4 +18,5 @@ mod clip_envelopes;
 pub(crate) mod clip_file;
 pub(crate) mod clip_header;
 pub(crate) mod clip_normalize;
+pub(crate) mod clip_steps;
 pub(crate) mod clip_warp;

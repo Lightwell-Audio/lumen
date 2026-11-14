@@ -59,6 +59,9 @@ fn launch(name: &str) -> (Lumen, Id) {
     lumen.frames(30);
     lumen.app_mut().set_detail_size(520.0);
     lumen.app_mut().open_clip_editor(clip);
+    // A clip that fits the step grid opens in Steps (M8 D3); these tests are
+    // about the lanes.
+    lumen.app_mut().show_the_lanes_view();
     lumen.frames(30);
     (lumen, clip)
 }
@@ -610,7 +613,7 @@ fn the_view_commands_say_whether_the_map_or_the_view_is_missing() {
     );
     assert_eq!(
         lumen.app().command_reason(&ctx, "Hide unused lanes"),
-        Some("Show the drum lanes first")
+        Some("Show the drum lanes or the steps first")
     );
     assert_eq!(
         lumen.app().command_reason(&ctx, "Show the drum lanes"),

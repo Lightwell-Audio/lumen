@@ -539,8 +539,12 @@ fn hide_unmapped_keys_folds_the_roll_to_the_maps_sounds() {
         .expect("the clip is in view");
     lumen.double_click(rect.center());
     lumen.frames(6);
-    // M8 D2: a clip on a mapped track opens in the drum editor's lanes, one
-    // lane a sound; the piano roll is the Keys view.
+    // M8 D2/D3: a clip on a mapped track opens in the drum editor, as the
+    // step grid when it fits it; the lanes and the piano roll are the other
+    // two views.
+    assert_eq!(lumen.app().drum_view_shown(), Some("steps"));
+    lumen.click("Lanes view");
+    lumen.frames(6);
     assert_eq!(lumen.app().drum_view_shown(), Some("lanes"));
     assert_eq!(
         lumen.app().note_editor_rows(),

@@ -558,6 +558,7 @@ impl eframe::App for App {
         self.refresh_chain(&ctx);
         self.take_prompt_enter(&ctx);
         self.audio_handle_keys(&ctx);
+        self.steps_handle_keys(&ctx);
         self.command_keys(&ctx);
         if std::mem::take(&mut self.arrangement.import_requested) {
             self.run(&ctx, commands::Command::Import);

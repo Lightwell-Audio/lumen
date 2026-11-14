@@ -47,6 +47,9 @@ pub(crate) struct DrumFrame<'a> {
     pub sounds: usize,
     /// The lanes' name column (beside and above the rows).
     pub keys: Rect,
+    /// The rows are the step grid's: no time grid under them, and no ruler
+    /// slot over the names (the step strip is there).
+    pub steps: bool,
 }
 
 impl App {
@@ -101,8 +104,12 @@ impl App {
             return false;
         }
         ed.drum.set_view(track, view);
-        // The rows and their height change: frame the view again.
+        // The rows and their height change: frame the view again, and a
+        // gesture of the other view means nothing here.
         ed.framed_for = None;
+        ed.gesture = None;
+        ed.drum.reorder = None;
+        ed.drum.steps.gesture = None;
         true
     }
 
@@ -137,7 +144,7 @@ impl App {
     pub(crate) fn drum_picked_lane(&self) -> Option<(Id, u8)> {
         let clip = self.note_editor.clip?;
         let track = self.track_of_clip(clip)?;
-        if self.note_editor.drum.view(track) != View::Lanes {
+        if self.note_editor.drum.view(track) == View::Keys {
             return None;
         }
         let map = self.clip_drum_map(clip)?;
@@ -154,7 +161,7 @@ impl App {
         ui: &mut Ui,
         ctx: &egui::Context,
         surface: Surface,
-        look: &GridLook,
+        look: Option<&GridLook>,
         mut frame: DrumFrame<'_>,
     ) {
         let map_id = frame.map_id;
@@ -166,13 +173,15 @@ impl App {
         let picked = self.picked_rows(ed, lanes);
         let painter = ui.painter().clone();
         crate::drum_editor::paint::background(&painter, view, lanes, &picked);
-        painter.add(canvas::roll_grid_shape(
-            surface,
-            view.body,
-            ui.pixels_per_point(),
-            view.time,
-            look,
-        ));
+        if let Some(look) = look {
+            painter.add(canvas::roll_grid_shape(
+                surface,
+                view.body,
+                ui.pixels_per_point(),
+                view.time,
+                look,
+            ));
+        }
         if lanes.is_empty() {
             // M6: a map with no sounds, or Hide unused with nothing used —
             // the second offers the way back.
@@ -214,17 +223,22 @@ impl App {
             map_id,
             map_name,
             keys,
+            steps,
             ..
         } = frame;
         let painter = ui.painter().clone();
         let p = theme::p();
         // The column's ground, and the slot over it beside the time ruler.
         painter.rect_filled(keys, 0.0, p.header);
+        // The step grid's strip sits where the ruler would; the column's slot
+        // above it carries the map's name there too.
+        let ruler_h = if steps {
+            crate::drum_editor::steps::geometry::STRIP
+        } else {
+            crate::note_editor::view::RULER_HEIGHT
+        };
         let ruler_slot = Rect::from_min_max(
-            pos2(
-                keys.left(),
-                keys.top() - crate::note_editor::view::RULER_HEIGHT,
-            ),
+            pos2(keys.left(), keys.top() - ruler_h),
             pos2(keys.right(), keys.top()),
         );
         painter.rect_filled(ruler_slot, 0.0, p.header);
@@ -448,7 +462,7 @@ impl App {
         clip: Id,
     ) -> Option<Vec<(u8, Ticks)>> {
         let track = self.track_of_clip(clip)?;
-        if editor.drum.view(track) != View::Lanes {
+        if editor.drum.view(track) == View::Keys {
             return None;
         }
         let map = self.clip_drum_map(clip)?;

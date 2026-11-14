@@ -521,17 +521,31 @@ impl App {
             ),
             // A drum clip's view rows: the reason says what is missing, so a
             // clip on a track with no map is told that (review L4).
-            Command::DrumLanesView | Command::DrumKeysView | Command::HideUnusedLanes => {
+            Command::DrumLanesView
+            | Command::DrumKeysView
+            | Command::DrumStepsView
+            | Command::HideUnusedLanes => {
+                use crate::drum_editor::View;
                 let drum = self.note_editor.clip.and_then(|clip| self.drum_view(clip));
                 match (command, drum) {
                     (_, None) => Err("Open a clip on a track with a drum map first"),
-                    (Command::DrumLanesView, Some(crate::drum_editor::View::Keys)) => Ok(()),
-                    (Command::DrumLanesView, Some(_)) => Err("The drum lanes are the view already"),
-                    (Command::DrumKeysView, Some(crate::drum_editor::View::Lanes)) => Ok(()),
-                    (Command::DrumKeysView, Some(_)) => Err("The piano roll is the view already"),
-                    (_, Some(crate::drum_editor::View::Lanes)) => Ok(()),
-                    (_, Some(_)) => Err("Show the drum lanes first"),
+                    (Command::DrumLanesView, Some(View::Lanes)) => {
+                        Err("The drum lanes are the view already")
+                    }
+                    (Command::DrumKeysView, Some(View::Keys)) => {
+                        Err("The piano roll is the view already")
+                    }
+                    (Command::DrumStepsView, Some(View::Steps)) => {
+                        Err("The step sequencer is the view already")
+                    }
+                    (Command::HideUnusedLanes, Some(View::Keys)) => {
+                        Err("Show the drum lanes or the steps first")
+                    }
+                    _ => Ok(()),
                 }
+            }
+            Command::StepsNextPage | Command::StepsPreviousPage => {
+                self.steps_page_available(command == Command::StepsNextPage)
             }
             Command::DrumMuteLane | Command::DrumSoloLane => need(
                 self.drum_picked_lane().is_some(),
