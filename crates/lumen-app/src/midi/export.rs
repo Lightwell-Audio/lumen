@@ -344,6 +344,41 @@ mod tests {
     }
 
     #[test]
+    fn a_sound_sent_to_another_track_stays_in_its_own_part() {
+        // Review L6: a mapped part writes every sound the map plays, wherever
+        // it is heard (`Dest::All`): a sound sent to another track is still
+        // part of the kit's file, and the track it plays on has no notes of
+        // its own to write.
+        let mut kit = midi(
+            10,
+            "Drums",
+            vec![clip(
+                1,
+                0,
+                8,
+                vec![
+                    Note::new(q(0), q(1), 36, 100),
+                    Note::new(q(2), q(1), 38, 100),
+                ],
+            )],
+        );
+        let mut map = lumen_project::drums::presets::Preset::EIGHT_OH_EIGHT.map(Id(50));
+        // The kick goes to the other track (id 11, below).
+        map.sounds[0].route = lumen_project::model::Route::Track(Id(11));
+        kit.drum_map = Some(map.id);
+        let other = midi(11, "Sub", Vec::new());
+        let mut p = project(vec![kit, other]);
+        p.drum_maps = vec![map];
+        let file = clips_file(&p, &[Id(1)]).unwrap();
+        assert_eq!(file.tracks.len(), 1, "only the part with clips is written");
+        assert_eq!(
+            starts(&file.tracks[0].notes),
+            [(q(0), q(1), 36), (q(2), q(1), 38)],
+            "the sent kick keeps its place in the kit's part"
+        );
+    }
+
+    #[test]
     fn a_split_loop_exports_from_its_source_phase() {
         let mut looped = (*clip(
             1,
