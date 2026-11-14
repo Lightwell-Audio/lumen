@@ -1,7 +1,12 @@
-use lumen_core::midi::Kind;
-use lumen_core::time::PPQ;
-use lumen_project::model::{Clip, ClipEvent, Color, Note, Track, TrackKind};
+use std::sync::Arc;
 
+use lumen_core::midi::Kind;
+use lumen_core::time::{PPQ, Ticks};
+use lumen_project::model::{
+    Clip, ClipEvent, Color, DrumMap, EventKind, Id, Note, Track, TrackKind,
+};
+
+use super::notes::{loop_fragment, run_notes_masked};
 use super::*;
 
 fn q(n: i64) -> Ticks {
@@ -700,8 +705,7 @@ fn a_long_mapped_clip_reads_the_map_once_and_translates_every_note() {
     // 100,000 notes through a 47-sound kit: the map is read once for the run
     // (`Voice`), so the work is per note, not per note and sound
     // (M8 D0 review L7).
-    use lumen_project::drums::presets::Preset;
-    let map = Preset::GENERAL_MIDI.map(Id(60));
+    let map = lumen_project::drums::presets::Preset::GENERAL_MIDI.map(Id(60));
     let step = q(1).0 / 4;
     let notes: Vec<Note> = (0..100_000)
         .map(|i| Note::new(Ticks(i * step), Ticks(step), 36 + (i % 4) as u8, 100))
