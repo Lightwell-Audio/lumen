@@ -251,6 +251,23 @@ const IDENTITIES: &[(&str, Identity)] = &[
     ),
 ];
 
+/// The built-in **instruments** this build knows — Lumen's own devices that
+/// make sound from MIDI — with the personality each has (M8 slice B4). They
+/// are not in [`lumen_devices::EFFECTS`]: an instrument is played by the
+/// engine's MIDI path, not by the mixer's effect chain, and its card shows
+/// the same table and strip by the same code (their `Description` carries the
+/// table; neither holds anything back and neither rings on after its input).
+const INSTRUMENTS: &[(&str, Identity)] = &[(
+    lumen_project::model::SYNTH,
+    Identity {
+        name: "Flare",
+        kind: "Polysynth",
+        subtitle: "Polysynth",
+        colour: theme::personality::SYNTH,
+        timing: &lumen_devices::synth::params::DESCRIPTION,
+    },
+)];
+
 /// A device that exists only in tests (M8 slice B0, review H1): its latency
 /// follows one of its parameters, so a latency that is a function of the
 /// values can be followed from the project to the routing and the plan.
@@ -271,23 +288,44 @@ static TEST_TIMING: Description = Description {
     tail: |_| 0,
 };
 
-/// What `name` is as a person reads it, if it is a built-in effect this build
-/// knows.
+/// What `name` is as a person reads it, if it is a built-in device this build
+/// knows: an effect or an instrument.
 pub fn identity(name: &str) -> Option<Identity> {
     IDENTITIES
         .iter()
+        .chain(INSTRUMENTS)
         .find(|(known, _)| *known == name)
         .map(|(_, identity)| *identity)
 }
 
 /// Whether `plugin` is a built-in effect this build knows how to run.
 pub fn is_builtin_effect(plugin: &PluginRef) -> bool {
-    matches!(plugin, PluginRef::Builtin { name } if identity(name).is_some())
+    matches!(plugin, PluginRef::Builtin { name } if has_effect(name))
 }
 
-/// Whether `device` is a built-in effect this build can run.
+/// Whether `name` is a built-in effect this build can put in a chain: the
+/// devices `lumen_devices` builds, and (in tests) the timing probe.
+fn has_effect(name: &str) -> bool {
+    if lumen_devices::effect_description(name).is_some() {
+        return true;
+    }
+    #[cfg(test)]
+    if name == TEST_DEVICE {
+        return true;
+    }
+    false
+}
+
+/// Whether `device` is a built-in effect this build can run in the chain.
 pub fn is_builtin(device: &Device) -> bool {
     is_builtin_effect(&device.plugin)
+}
+
+/// Whether `device` is any built-in of Lumen's with a parameter table — an
+/// effect or the synth — so its card reads a table and shows a strip (M8
+/// slice B4).
+pub fn has_table(device: &Device) -> bool {
+    identity(name_of(device)).is_some()
 }
 
 /// Whether the built-in effect called `name` has a sidechain input, so the
@@ -349,7 +387,7 @@ pub fn routing_values(project: &Project) -> Vec<(u64, Vec<(u32, f32)>)> {
     let sounding = lumen_project::edit::freeze::played(project);
     all_tracks(&sounding)
         .flat_map(|track| track.devices.iter())
-        .filter(|d| is_builtin(d))
+        .filter(|d| is_builtin(d) && !d.is_instrument())
         .map(|d| (d.id.0, values(d)))
         .collect()
 }
@@ -372,7 +410,7 @@ pub fn latencies(project: &Project) -> BTreeMap<Id, u32> {
 fn sounding_latencies(sounding: &Project) -> BTreeMap<Id, u32> {
     all_tracks(sounding)
         .flat_map(|track| track.devices.iter())
-        .filter(|d| is_builtin(d))
+        .filter(|d| is_builtin(d) && !d.is_instrument())
         .filter_map(|d| {
             let identity = identity(name_of(d))?;
             Some((d.id, (identity.timing.latency)(&values(d))))
@@ -397,7 +435,7 @@ fn revision(project: &Project) -> u64 {
         put(&mut hash, track.id.0);
         put(&mut hash, u64::from(track.frozen.is_some()));
         for device in &track.devices {
-            if !is_builtin(device) {
+            if !has_table(device) {
                 continue;
             }
             put(&mut hash, device.id.0);
@@ -595,7 +633,7 @@ impl Builtins {
         let mut wanted: Vec<(Id, String)> = Vec::new();
         for track in all_tracks(project) {
             for device in &track.devices {
-                if is_builtin(device) {
+                if has_table(device) {
                     wanted.push((device.id, name_of(device).to_owned()));
                 }
             }
@@ -648,7 +686,7 @@ impl Builtins {
             .retain(|id, _| wanted.iter().any(|(known, _)| known == id));
         for track in all_tracks(project) {
             for device in &track.devices {
-                if !is_builtin(device) {
+                if !has_table(device) {
                     continue;
                 }
                 let fresh = describe(device);
@@ -822,8 +860,15 @@ mod tests {
         let prism = identity(utility::NAME).expect("Prism");
         assert_eq!((prism.name, prism.kind), ("Prism", "Utility"));
         assert!(identity("nothing").is_none());
-        assert!(!is_builtin(&device("synth")));
+        assert!(
+            !is_builtin(&device("synth")),
+            "the synth is an instrument, not an effect"
+        );
         assert!(is_builtin(&device(utility::NAME)));
+        // But it has a table and a personality of its own (M8 slice B4).
+        let flare = identity(lumen_project::model::SYNTH).expect("Flare");
+        assert_eq!((flare.name, flare.kind), ("Flare", "Polysynth"));
+        assert!(has_table(&device(lumen_project::model::SYNTH)));
     }
 
     #[test]

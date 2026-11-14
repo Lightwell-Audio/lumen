@@ -239,6 +239,7 @@ fn run_instrument(fault: &str, offline: Option<Duration>, block: usize, frames: 
         Some(InstrumentSpec {
             kind: 2,
             preset: 0,
+            values: Vec::new(),
             instrument: Box::new(HostedInstrument::new(guard)),
         }),
         vec![MidiClip {
