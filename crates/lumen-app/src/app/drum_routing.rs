@@ -10,8 +10,10 @@
 //! [`App::sounds_on_track`] (lit while one of them sounds) and
 //! [`App::sound_output_pair_name`]. Nothing here edits and nothing is saved.
 
+use std::collections::HashMap;
+
 use lumen_core::time::Ticks;
-use lumen_project::model::{DrumIcon, Id, Project, Route, TrackKind};
+use lumen_project::model::{DrumIcon, Id, Project, Route, Sound, Track, TrackKind};
 
 use crate::App;
 use crate::document::{Document, Routed};
@@ -94,19 +96,34 @@ impl App {
     /// The sounds heard on `track` although another track's clips hold them:
     /// the sounds on its output pairs and the sounds sent to it (M8 D4).
     /// `sounding` follows the playhead — empty while the transport is
-    /// stopped, so nothing lights — and a muted sound never lights.
+    /// stopped, so nothing lights — and a muted sound never lights. A frame
+    /// asks once per header, and each kit's notes are read once for all of
+    /// them (review M4).
     pub fn sounds_on_track(&self, track: Id) -> Vec<SoundOnTrack> {
-        let at = self.transport.state().playing.then(|| self.playhead());
-        sounds_on(&self.document, track, at)
+        let at = self.playhead_while_playing();
+        let mut cache = self.drum_sounding.borrow_mut();
+        sounds_on(&self.document, &mut cache, track, at)
     }
 
-    /// The input notes of `track`'s own sounds sounding at the playhead: what
-    /// the map editor lights, wherever the sound is routed to be heard.
+    /// The input notes of `track`'s own sounds sounding now: what the map
+    /// editor lights, wherever the sound is routed to be heard. Empty while
+    /// the transport is stopped, the rule [`App::sounds_on_track`] lights by
+    /// (review L2).
     pub fn sounds_sounding(&self, track: Id) -> Vec<u8> {
-        let Some(held) = self.project().tracks.iter().find(|t| t.id == track) else {
+        let Some(at) = self.playhead_while_playing() else {
             return Vec::new();
         };
-        sounding_inputs(self.project(), held, self.playhead())
+        let Some(kit) = self.project().tracks.iter().find(|t| t.id == track) else {
+            return Vec::new();
+        };
+        let mut cache = self.drum_sounding.borrow_mut();
+        cache.held(&self.document, kit, Some(at)).to_vec()
+    }
+
+    /// Where the playhead is while the transport plays: `None` stopped, so
+    /// nothing lights.
+    fn playhead_while_playing(&self) -> Option<Ticks> {
+        self.transport.state().playing.then(|| self.playhead())
     }
 
     /// The track a routing command acts on: the first selected MIDI track
@@ -135,12 +152,18 @@ impl App {
             return;
         };
         let pairs = self.sound_output_pairs(track).len() as u32;
+        if pairs == 0 {
+            // The palette refuses this before it runs; a keymap or a future
+            // menu that does not ask reaches it, and says the same thing.
+            self.say(
+                "The instrument on this track has no separate outputs to route sounds to"
+                    .to_owned(),
+            );
+            return;
+        }
         match self.document.route_all_drum_sounds(track, map, pairs, true) {
             Some(done) => self.say(routed_words(&done)),
-            None => self.say(
-                "The sounds are where they should be: the instrument has no pair to give them"
-                    .to_owned(),
-            ),
+            None => self.say("Every sound already plays where it is routed.".to_owned()),
         }
     }
 
@@ -186,18 +209,24 @@ fn plural(count: usize, one: String, many: String) -> String {
 
 /// [`App::sound_output_choices`] without the app: the project and the pairs
 /// the instrument has.
+///
+/// The tracks it offers are the ones a sound may be sent to, by the one rule
+/// the edit applies (`midi::sends::can_send_to`, review L1): a MIDI track
+/// that plays its instrument, not one sent to a hardware port, not a group,
+/// a return or an audio track.
 pub(crate) fn choices(doc: &Document, track: Id, pairs: &[(u32, String)]) -> Vec<SoundOutput> {
     let project = doc.project();
+    let told = told_internally(project, track);
     let mut out = vec![SoundOutput::Main];
     for (bus, name) in pairs {
         out.push(SoundOutput::Pair {
             bus: *bus,
             name: name.clone(),
-            told: told_internally(project, track),
+            told,
         });
     }
     for other in &project.tracks {
-        if other.id == track || other.kind != TrackKind::Midi || other.sound_source().is_none() {
+        if !crate::midi::sends::can_send_to(project, track, other.id) {
             continue;
         }
         out.push(SoundOutput::Track {
@@ -220,9 +249,61 @@ fn told_internally(project: &Project, track: Id) -> bool {
         .is_some_and(|device| !device.is_vst3())
 }
 
-/// [`App::sounds_on_track`] without the app: `at` is where the transport
-/// is, or `None` while it is stopped.
-pub(crate) fn sounds_on(doc: &Document, track: Id, at: Option<Ticks>) -> Vec<SoundOnTrack> {
+/// The sounds sounding on each kit track at one position, kept while the
+/// project and the position hold (M8 D4 review M4). A frame asks a header per
+/// track; without this, every header read every kit's clips again, so a
+/// project of 200 tracks cost 200 reads of each kit for one frame's lights.
+#[derive(Debug, Default)]
+pub(crate) struct Sounding {
+    /// The document revision the readings are for.
+    revision: u64,
+    /// Where the transport was, or `None` when it was stopped.
+    at: Option<Ticks>,
+    /// The input notes of each kit track's sounds sounding there.
+    held: HashMap<Id, Vec<u8>>,
+    /// How many times a kit's notes were read (the test that 200 headers cost
+    /// one read a kit).
+    #[cfg(test)]
+    translations: usize,
+}
+
+impl Sounding {
+    /// The input notes of `kit`'s sounds sounding at `at`, read once for the
+    /// position and the project's state.
+    fn held<'a>(&'a mut self, doc: &Document, kit: &Track, at: Option<Ticks>) -> &'a [u8] {
+        let revision = doc.state();
+        if self.revision != revision || self.at != at {
+            self.held.clear();
+            self.revision = revision;
+            self.at = at;
+        }
+        if let std::collections::hash_map::Entry::Vacant(slot) = self.held.entry(kit.id) {
+            let notes = at.map_or_else(Vec::new, |at| sounding_inputs(doc.project(), kit, at));
+            #[cfg(test)]
+            {
+                self.translations += 1;
+            }
+            slot.insert(notes);
+        }
+        self.held.get(&kit.id).map_or(&[], |notes| notes.as_slice())
+    }
+
+    /// How many kits were read since the app started (the test of M4).
+    #[cfg(test)]
+    fn translations(&self) -> usize {
+        self.translations
+    }
+}
+
+/// [`App::sounds_on_track`] without the app: `at` is where the transport is,
+/// or `None` while it is stopped. A kit's notes are read through `sounding`,
+/// so asking for many tracks in one frame reads each kit once.
+pub(crate) fn sounds_on(
+    doc: &Document,
+    sounding: &mut Sounding,
+    track: Id,
+    at: Option<Ticks>,
+) -> Vec<SoundOnTrack> {
     let project = doc.project();
     let mut out: Vec<SoundOnTrack> = Vec::new();
     for kit in &project.tracks {
@@ -232,20 +313,29 @@ pub(crate) fn sounds_on(doc: &Document, track: Id, at: Option<Ticks>) -> Vec<Sou
         let Some(map) = project.drum_map_of(kit) else {
             continue;
         };
-        let held: Vec<u8> = at.map_or_else(Vec::new, |at| sounding_inputs(project, kit, at));
-        for sound in &map.sounds {
-            let Some(plays_on) = doc.sound_playing_track(kit.id, map.id, sound.input) else {
-                continue;
-            };
-            if plays_on != track {
-                continue;
-            }
+        // The sounds this track plays, in the map's order; nothing is read
+        // for a kit that plays none of them here.
+        let mine: Vec<&Sound> = map
+            .sounds
+            .iter()
+            .filter(|sound| doc.sound_playing_track(kit.id, map.id, sound.input) == Some(track))
+            .collect();
+        if mine.is_empty() {
+            continue;
+        }
+        let lit: Vec<bool> = {
+            let held = sounding.held(doc, kit, at);
+            mine.iter()
+                .map(|sound| held.contains(&sound.input))
+                .collect()
+        };
+        for (sound, sounding) in mine.into_iter().zip(lit) {
             out.push(SoundOnTrack {
                 map: map.id,
                 input: sound.input,
                 name: sound.name.clone(),
                 icon: sound.icon,
-                sounding: held.contains(&sound.input),
+                sounding,
             });
         }
     }
@@ -276,11 +366,12 @@ pub fn made_for_sounds(project: &Project, track: Id) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use lumen_core::time::Ticks;
     use lumen_project::drums::presets::Preset;
-    use lumen_project::model::{DeviceKind, PluginRef};
+    use lumen_project::model::{DeviceKind, Note, PluginRef, TrackKind};
 
     use super::*;
-    use crate::document::Slot;
+    use crate::document::{OutputEdit, Slot};
 
     fn plugin() -> PluginRef {
         PluginRef::Vst3 {
@@ -289,6 +380,10 @@ mod tests {
             vendor: "Vendor A".into(),
             kind: DeviceKind::Instrument,
         }
+    }
+
+    fn q(beats: i64) -> Ticks {
+        Ticks::quarters(beats)
     }
 
     /// A kit track with a plugin instrument and a map, and a second MIDI
@@ -302,6 +397,47 @@ mod tests {
             .attach_drum_map_preset(kit, Preset::EIGHT_OH_EIGHT)
             .expect("a MIDI track takes a map");
         (doc, kit, other, map)
+    }
+
+    /// Gives the kit track a one-bar clip with the first sound at beat `at`
+    /// and the second at beat `second` (clip time).
+    fn clip(doc: &mut Document, kit: Id, map: Id, at: i64, second: Option<i64>) {
+        let held = doc.drum_map(map).cloned().expect("the map");
+        let mut notes = vec![Note::new(q(at), q(1), held.sounds[0].input, 100)];
+        if let Some(second) = second {
+            notes.push(Note::new(q(second), q(1), held.sounds[1].input, 100));
+        }
+        let id = doc.fresh_id();
+        let clip = lumen_project::model::Clip {
+            id,
+            name: "Kit".into(),
+            start: Ticks::ZERO,
+            length: q(8),
+            muted: false,
+            color: None,
+            locked: false,
+            fade_in: Default::default(),
+            crossfade: false,
+            fade_out: Default::default(),
+            loop_length: None,
+            loop_phase: Ticks::ZERO,
+            audio_phase_seconds: 0.0,
+            reversed: false,
+            inverted: false,
+            envelopes: Default::default(),
+            takes: None,
+            warp: None,
+            content: lumen_project::model::ClipContent::Midi {
+                notes,
+                events: Vec::new(),
+            },
+        };
+        doc.apply("a clip", None, |project| {
+            let slot = project.tracks.iter_mut().find(|t| t.id == kit).unwrap();
+            std::sync::Arc::make_mut(slot)
+                .clips
+                .push(std::sync::Arc::new(clip));
+        });
     }
 
     #[test]
@@ -334,9 +470,98 @@ mod tests {
     }
 
     #[test]
-    fn a_sound_on_its_pairs_track_lights_its_header_while_it_sounds() {
+    fn a_track_the_edit_would_refuse_is_not_offered() {
+        // Review L1: the column offers what `route_drum_sound` takes, by the
+        // same rule (`can_send_to`). A track sent to a hardware port, an
+        // audio track and the kit itself are not offered.
+        let (mut doc, kit, other, _map) = kit();
+        let port = doc.add_track(TrackKind::Midi, None);
+        doc.apply("a port", None, |project| {
+            let slot = project.tracks.iter_mut().find(|t| t.id == port).unwrap();
+            std::sync::Arc::make_mut(slot).midi_to = Some(lumen_project::model::MidiTo {
+                port: "Synth".into(),
+                channel: 0,
+            });
+        });
+        doc.seal();
+        let offered = choices(&doc, kit, &[]);
+        assert_eq!(
+            offered,
+            vec![
+                SoundOutput::Main,
+                SoundOutput::Track {
+                    id: other,
+                    name: "MIDI 2".into()
+                }
+            ],
+            "the port is not offered, and neither is the kit itself"
+        );
+        assert!(!crate::midi::sends::can_send_to(doc.project(), kit, port));
+        // The edit refuses what the column does not offer.
+        let input = doc.drum_map(_map).map(|_| 36).unwrap();
+        assert!(
+            doc.route_drum_sound(kit, _map, input, Route::Track(port))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_hit_under_the_playhead_lights_its_sound_on_a_pairs_track_and_a_sent_one() {
+        // Review M5: `sounding` is true where a hit is under the playhead, on
+        // a pair's track and on a track a sound is sent to, and false where
+        // there is no hit.
+        let (mut doc, kit, other, map) = kit();
+        let kick = doc.drum_map(map).unwrap().sounds[0].input;
+        // The kick is the first sound: pair 1's track. The rim is the second:
+        // sent to the other track.
+        let made = doc
+            .route_all_drum_sounds(kit, map, 1, false)
+            .expect("a pair to give");
+        let pair_track = made.tracks[0];
+        let rim = doc.drum_map(map).unwrap().sounds[1].input;
+        doc.route_drum_sound(kit, map, rim, Route::Track(other))
+            .expect("the rim goes to the other track");
+        clip(&mut doc, kit, map, 0, Some(2));
+
+        let mut cache = Sounding::default();
+        // At beat 0 the kick sounds (pair 1's track) and the rim does not.
+        let on_pair = sounds_on(&doc, &mut cache, pair_track, Some(Ticks::ZERO));
+        assert_eq!(on_pair.len(), 1);
+        assert_eq!(on_pair[0].input, kick);
+        assert!(on_pair[0].sounding, "the kick's hit is under the playhead");
+        let on_other = sounds_on(&doc, &mut cache, other, Some(Ticks::ZERO));
+        assert_eq!(on_other.len(), 1);
+        assert_eq!(on_other[0].input, rim);
+        assert!(!on_other[0].sounding, "the rim's hit is not");
+        // At beat 2 it is the other way round.
+        let mut cache = Sounding::default();
+        let on_pair = sounds_on(&doc, &mut cache, pair_track, Some(q(2)));
+        assert!(!on_pair[0].sounding, "the kick's hit is over");
+        let on_other = sounds_on(&doc, &mut cache, other, Some(q(2)));
+        assert!(on_other[0].sounding, "the rim's is under the playhead");
+        // Between the hits, neither lights.
+        let mut cache = Sounding::default();
+        assert!(
+            sounds_on(&doc, &mut cache, pair_track, Some(q(1)))
+                .iter()
+                .all(|s| !s.sounding)
+        );
+        assert!(
+            sounds_on(&doc, &mut cache, other, Some(q(1)))
+                .iter()
+                .all(|s| !s.sounding)
+        );
+        // Stopped: nothing lights, and the same rule answers the map editor.
+        assert!(
+            sounds_on(&doc, &mut cache, pair_track, None)
+                .iter()
+                .all(|s| !s.sounding)
+        );
+    }
+
+    #[test]
+    fn a_sound_on_its_pairs_track_is_that_tracks_icon() {
         let (mut doc, kit, _other, map) = kit();
-        let bus = 2;
         let made = doc
             .route_all_drum_sounds(kit, map, 3, false)
             .expect("three pairs");
@@ -346,7 +571,7 @@ mod tests {
             doc.sound_playing_track(kit, map, doc.drum_map(map).unwrap().sounds[1].input),
             Some(second)
         );
-        let sounds = sounds_on(&doc, second, Some(Ticks::ZERO));
+        let sounds = sounds_on(&doc, &mut Sounding::default(), second, Some(Ticks::ZERO));
         assert_eq!(
             sounds.len(),
             1,
@@ -356,15 +581,10 @@ mod tests {
         assert_eq!(sounds[0].input, doc.drum_map(map).unwrap().sounds[1].input);
         assert!(!sounds[0].sounding, "no clip is under the playhead");
         assert!(
-            sounds_on(&doc, second, None).iter().all(|s| !s.sounding),
-            "stopped: nothing lights"
-        );
-        assert!(
-            sounds_on(&doc, kit, Some(Ticks::ZERO)).is_empty(),
+            sounds_on(&doc, &mut Sounding::default(), kit, Some(Ticks::ZERO)).is_empty(),
             "the kit track is not a track made for a sound"
         );
         assert!(made_for_sounds(&doc.project().clone(), second));
-        let _ = bus;
     }
 
     #[test]
@@ -373,11 +593,80 @@ mod tests {
         let input = doc.drum_map(map).unwrap().sounds[2].input;
         doc.route_drum_sound(kit, map, input, Route::Track(other))
             .expect("an instrument track takes a sound");
-        let sounds = sounds_on(&doc, other, None);
+        let sounds = sounds_on(&doc, &mut Sounding::default(), other, None);
         assert_eq!(sounds.len(), 1);
         assert_eq!(sounds[0].input, input);
         assert!(made_for_sounds(&doc.project().clone(), other));
         assert!(!made_for_sounds(&doc.project().clone(), kit));
-        let _ = Route::Main;
+    }
+
+    #[test]
+    fn two_hundred_headers_read_each_kit_once() {
+        // Review M4: a frame asks a header per track; the reading is per kit,
+        // position and revision, not per header.
+        let (mut doc, kit, _other, map) = kit();
+        let made = doc
+            .route_all_drum_sounds(kit, map, 2, false)
+            .expect("two pairs");
+        clip(&mut doc, kit, map, 0, Some(2));
+        // Two headers that play the kit's sounds, and 198 that play nothing:
+        // the frame asks them all.
+        let mut tracks = made.tracks.clone();
+        tracks.truncate(2);
+        for _ in 0..198 {
+            tracks.push(doc.add_track(TrackKind::Midi, None));
+        }
+        doc.seal();
+        let mut cache = Sounding::default();
+        for track in &tracks {
+            sounds_on(&doc, &mut cache, *track, Some(Ticks::ZERO));
+        }
+        assert_eq!(cache.translations(), 1, "one read of the one kit");
+        // Another frame at the same position reads nothing new.
+        for track in &tracks {
+            sounds_on(&doc, &mut cache, *track, Some(Ticks::ZERO));
+        }
+        assert_eq!(cache.translations(), 1);
+        // The playhead moves: one read again, for all of them.
+        for track in &tracks {
+            sounds_on(&doc, &mut cache, *track, Some(q(1)));
+        }
+        assert_eq!(cache.translations(), 2);
+        // An edit re-reads it once, for every header that asks.
+        doc.set_sound_mute(map, 36, true);
+        for _ in 0..2 {
+            sounds_on(&doc, &mut cache, tracks[0], Some(q(1)));
+        }
+        assert_eq!(cache.translations(), 3);
+        // A header that plays none of the kit's sounds reads nothing.
+        let quiet = *tracks.last().unwrap();
+        sounds_on(&doc, &mut cache, quiet, Some(q(1)));
+        assert_eq!(cache.translations(), 3);
+    }
+
+    #[test]
+    fn an_outputs_card_track_stays_a_track_made_for_nothing_until_a_sound_uses_it() {
+        // A pair's track the card made is not "made for sounds" until a sound
+        // is routed to it: the header shows its colour chip, not an icon.
+        let (mut doc, kit, _other, _map) = kit();
+        let device = doc
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.id == kit)
+            .and_then(|t| t.sound_source())
+            .map(|d| d.id)
+            .unwrap();
+        let made = doc
+            .set_outputs(
+                device,
+                OutputEdit {
+                    on: &[(1, "Hats".to_owned())],
+                    off: &[],
+                    leave: None,
+                },
+            )
+            .unwrap();
+        assert!(!made_for_sounds(&doc.project().clone(), made[0]));
     }
 }

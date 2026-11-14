@@ -252,8 +252,9 @@ fn the_palette_routes_a_kits_sounds_to_the_tracks_of_its_pairs() {
         Some("Route the sounds to tracks"),
         "one undo step"
     );
-    // A track for each of the instrument's pairs, named after its sound, in
-    // a group named after the map, with the kit.
+    // A track for each of the instrument's pairs, named after its sound, and
+    // those tracks in a group named after the map. The kit track keeps its
+    // own output, outside the group.
     let after = names(&lumen);
     assert_eq!(
         after.len(),
@@ -278,7 +279,7 @@ fn the_palette_routes_a_kits_sounds_to_the_tracks_of_its_pairs() {
                 .tracks
                 .iter()
                 .any(|t| t.id == id && t.parent == Some(group)),
-            "the kit and its tracks are in the group"
+            "the tracks the pairs made are in the group"
         );
     }
     assert_eq!(
@@ -289,7 +290,19 @@ fn the_palette_routes_a_kits_sounds_to_the_tracks_of_its_pairs() {
             .iter()
             .find(|t| t.id == group)
             .map(|t| t.name.as_str()),
-        Some("808 style")
+        Some("808 style"),
+        "the group is named after the map"
+    );
+    assert_eq!(
+        lumen
+            .app()
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.id == KIT)
+            .and_then(|t| t.parent),
+        None,
+        "the kit track's own output stays where it was"
     );
 
     // Each pair's track hears only its own sound: the instrument sends the
@@ -298,8 +311,7 @@ fn the_palette_routes_a_kits_sounds_to_the_tracks_of_its_pairs() {
     lumen.wait_for("playback", |app| app.is_playing());
     let deadline = lumen_testkit::Deadline::new();
     loop {
-        let heard = lumen.listen(Duration::from_millis(100), 2_400);
-        let _ = heard;
+        lumen.listen(Duration::from_millis(100), 2_400);
         if lumen.app().meter(kick).peak_db > -20.0 && lumen.app().meter(rim).peak_db > -20.0 {
             break;
         }
