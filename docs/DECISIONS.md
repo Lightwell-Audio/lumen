@@ -14936,9 +14936,25 @@ each is fixed on this branch:
 
 **What was not done.** The WSL performance gate and the macOS cross-target
 clippy cannot run here; the perf baseline's `engine_synth_64` (and any other
-scenario that plays the synth) will read higher because a voice now costs more
-per sample, and it must be regenerated with `perf-gate --update` on Linux before
-the gate is trusted. The drawn face, the browser rows and the factory presets are
+scenario that plays the synth) reads higher because a voice now costs more
+per sample, and it was regenerated with `perf-gate --update`'s counts before
+the gate was trusted (the paragraph at the end of this ADR). The drawn face,
+the browser rows and the factory presets are
 later slices (B6 and the face agent). No `.lumen` field was added beyond the
 migration's values: a synth's parameters are the `Device.params` an effect
 already had.
+
+**The performance baseline (2026-11-14).** Main (D4, #125, and B2, #126) is
+merged into this branch (merge `ad8a8c4c`: ADR-0150 follows 0151, the
+built-ins row is one, and both slices' manual tests stand). The gate then
+reported `engine_synth_64` at 29,953,410,160 instructions against the old
+8,327,442,325 (+259.70 %) — the intended cost of a voice that now shapes two
+oscillators, a noise source, a filter with its own envelope, an LFO and a
+glide, where it used to read a preset constant. Regenerated with
+`perf-gate --update`'s own counts (the gate prints them for this; no WSL
+distribution is on the development machine) in the pinned `ubuntu:26.04`
+container, run 43606401427, with this ADR as the reason. Every other scenario
+was within the 2 % threshold; the run also refreshed two that had become much
+cheaper since an earlier change (`engine_streamed_64` −24.97 %,
+`stream_plan_64` −30.70 %), so the gate measures against today's code and not
+a stale one. The macOS cross-target clippy still cannot run here.
