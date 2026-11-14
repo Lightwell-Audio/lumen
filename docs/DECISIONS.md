@@ -14186,7 +14186,7 @@ splits `behind` into whole frames and a fraction before touching the write index
 `a_read_does_not_depend_on_where_the_write_point_is`). The reverb's render now equals
 playback bit for bit, and Afterglow's golden pins moved by a millionth with it.
 
-## ADR-XXXX — Gravity and Horizon, the compressor and the limiter (M8 slice B2)
+## ADR-0151 — Gravity and Horizon, the compressor and the limiter (M8 slice B2)
 
 **Status.** Proposed (M8 slice B2, DSP and faces; the parent assigns the number). Brief:
 `docs/milestones/M8.md` §5 "B2 — Compressor and limiter"; decisions E1, E2, E6
