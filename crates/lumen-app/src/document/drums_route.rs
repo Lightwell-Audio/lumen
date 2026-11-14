@@ -21,10 +21,6 @@ use lumen_project::model::{Id, PluginOutput, Route, Track, TrackKind};
 use super::outputs::is_unused;
 use super::{Document, track_color};
 
-/// The most output pairs a sound may name (the project's own rule, which
-/// `validate` applies: pair 1 to 31).
-const MOST_BUSES: u32 = 31;
-
 /// What a routing edit leaves: the track each sound of the map plays on, in
 /// the map's order, the group the tracks were put in, and how many sounds
 /// were left on the kit track because the instrument had no output pair left
@@ -91,7 +87,7 @@ impl Document {
                 continue;
             }
             let route = if next <= pairs {
-                let bus = next.min(MOST_BUSES);
+                let bus = next.min(lumen_project::MOST_BUSES);
                 next += 1;
                 Route::Output(bus)
             } else {
@@ -152,10 +148,22 @@ impl Document {
     }
 
     /// Whether `route` can be given to a sound of `map` on `track`.
+    ///
+    /// An output pair needs an instrument that can take one now: the hosted
+    /// plugin on the track, whose buses are the pairs (review M1 — a built-in
+    /// instrument would otherwise get a silent track nothing removes). Which
+    /// buses the plugin offers is the interface's to know
+    /// (`App::sound_output_pairs`); this checks the kind and the range
+    /// `validate` allows. B5's sampler adds the built-in half here, through
+    /// `pad_outputs`.
     fn route_fits(&self, track: Id, map: Id, route: Route) -> bool {
         match route {
             Route::Main => self.drum_map(map).is_some(),
-            Route::Output(bus) => (1..=MOST_BUSES).contains(&bus) && self.is_midi_track(track),
+            Route::Output(bus) => {
+                (1..=lumen_project::MOST_BUSES).contains(&bus)
+                    && self.is_midi_track(track)
+                    && self.output_device(track).is_some()
+            }
             Route::Track(to) => crate::midi::sends::can_send_to(self.project(), track, to),
         }
     }
@@ -218,9 +226,21 @@ impl Document {
             .filter(|(bus, _)| !existing.iter().any(|(b, _)| b == bus))
             .map(|(bus, name)| (self.fresh_id(), *bus, name.clone()))
             .collect();
+        // Only a pair this map's sounds played on before and no longer do
+        // loses its track (review H1): an output the Outputs card turned on,
+        // or one a renamed track plays, is the card's and the person's, not
+        // this edit's to take away.
+        let was_needed: Vec<u32> = before
+            .sounds
+            .iter()
+            .filter_map(|sound| match sound.route {
+                Route::Output(bus) => Some(bus),
+                Route::Main | Route::Track(_) => None,
+            })
+            .collect();
         let drop: Vec<Id> = existing
             .iter()
-            .filter(|(bus, _)| !needed.iter().any(|(b, _)| b == bus))
+            .filter(|(bus, _)| was_needed.contains(bus) && !needed.iter().any(|(b, _)| b == bus))
             .filter(|(_, id)| {
                 self.project()
                     .tracks
@@ -399,7 +419,7 @@ mod tests {
     use lumen_project::model::{DeviceKind, PluginRef, TrackKind};
 
     use super::*;
-    use crate::document::Slot;
+    use crate::document::{OutputEdit, Slot};
 
     fn plugin() -> PluginRef {
         PluginRef::Vst3 {
@@ -668,6 +688,88 @@ mod tests {
     }
 
     #[test]
+    fn an_outputs_card_track_and_a_renamed_one_stay_through_a_route_edit() {
+        // Review H1: a per-sound route used to drop every empty output track
+        // of the instrument, taking the Outputs card's own tracks with it. It
+        // drops only a pair this map's sounds played on before and no longer
+        // do.
+        let (mut doc, kit, _other, map, device) = kit();
+        doc.set_outputs(
+            device,
+            OutputEdit {
+                on: &[(2, "Hats".to_owned()), (4, "Toms".to_owned())],
+                off: &[],
+                leave: None,
+            },
+        )
+        .unwrap();
+        let card_tracks = doc.output_tracks(device);
+        assert_eq!(card_tracks.len(), 2);
+        // One sound to pair 1: no card track is touched, and bus 1's is made.
+        let (input, _, _) = sound(&doc, map, 0);
+        doc.route_drum_sound(kit, map, input, Route::Output(1))
+            .expect("a pair");
+        for (_, id) in &card_tracks {
+            assert!(
+                doc.project().tracks.iter().any(|t| t.id == *id),
+                "the Outputs card's track is the card's, not this edit's"
+            );
+        }
+        // The sound leaves pair 1 for Main: pair 1's track goes (this map
+        // made it), the card's stay.
+        doc.clear_drum_routes(kit, map)
+            .expect("a route to send home");
+        assert_eq!(doc.output_tracks(device).len(), 2, "the card's two");
+        // Route all again: the card's two stay, and the pairs it makes join
+        // them.
+        let done = doc
+            .route_all_drum_sounds(kit, map, 4, false)
+            .expect("pairs to give");
+        assert_eq!(doc.output_tracks(device).len(), 4);
+        assert!(
+            done.made
+                .iter()
+                .all(|id| !card_tracks.iter().any(|(_, t)| t == id))
+        );
+        for (_, id) in &card_tracks {
+            assert!(doc.project().tracks.iter().any(|t| t.id == *id));
+        }
+        assert_eq!(
+            doc.project()
+                .tracks
+                .iter()
+                .find(|t| t.id == card_tracks[0].1)
+                .map(|t| t.name.as_str()),
+            Some("Hats")
+        );
+    }
+
+    #[test]
+    fn a_built_in_instrument_is_given_no_pair_and_no_track() {
+        // Review M1: a built-in instrument has no buses for Lumen to route a
+        // sound to, so no silent track is made for it.
+        let mut doc = Document::new(crate::empty_project());
+        let kit = doc.add_track(TrackKind::Midi, None);
+        let map = doc
+            .attach_drum_map_preset(kit, Preset::EIGHT_OH_EIGHT)
+            .unwrap();
+        let (input, _, _) = sound(&doc, map, 0);
+        let before = doc.project().tracks.len();
+        assert!(
+            doc.route_drum_sound(kit, map, input, Route::Output(1))
+                .is_none(),
+            "the synth has one output"
+        );
+        assert_eq!(doc.project().tracks.len(), before);
+        assert_eq!(route_of(&doc, map, input), Route::Main);
+        // A route a file already holds is still read (B5's seam): the pads
+        // are told, and nothing is made.
+        assert!(doc.set_sound_route(map, input, Route::Output(2)));
+        assert_eq!(doc.project().tracks.len(), before);
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+    }
+
+    #[test]
     fn a_route_that_cannot_work_changes_nothing_and_takes_no_step() {
         let (mut doc, kit, other, map, _) = kit();
         doc.seal();
@@ -699,8 +801,9 @@ mod tests {
             doc.route_drum_sound(kit, map, input, Route::Output(0))
                 .is_none()
         );
+        let over = lumen_project::MOST_BUSES + 1;
         assert!(
-            doc.route_drum_sound(kit, map, input, Route::Output(32))
+            doc.route_drum_sound(kit, map, input, Route::Output(over))
                 .is_none()
         );
         // The route it already has.

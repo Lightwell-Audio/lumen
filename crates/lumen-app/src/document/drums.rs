@@ -219,21 +219,15 @@ impl Document {
     /// Sets where a sound plays: the instrument, one of its outputs, or
     /// another instrument track. One undo step.
     ///
-    /// The map editor's Output column calls
+    /// The model edit on its own, for a test that works on a map rather than
+    /// on a track: the map editor's Output column calls
     /// [`Document::route_drum_sound`](Self::route_drum_sound), which also
-    /// makes the track that plays an output pair.
+    /// checks the route and makes the track that plays an output pair.
     #[cfg(test)]
     pub fn set_sound_route(&mut self, map: Id, input: u8, route: Route) -> bool {
-        let Some(track) = self
-            .project()
-            .tracks
-            .iter()
-            .find(|t| t.drum_map == Some(map))
-            .map(|t| t.id)
-        else {
-            return false;
-        };
-        self.route_drum_sound(track, map, input, route).is_some()
+        self.edit_sound(map, input, "Change where the drum sound plays", |sound| {
+            sound.route = route
+        })
     }
 
     /// Renames a map. One undo step; false when it is not there or the name

@@ -24,10 +24,11 @@ pub(crate) fn within(t: Ticks) -> bool {
 }
 
 /// The most audio output buses of a plugin an output track can play (the
-/// host's own limit, less the main one).
+/// host's own limit, less the main one). A drum sound's output pair is
+/// numbered the same way, so an editor offers 1 to this (M8 D4).
+pub const MOST_BUSES: u32 = 31;
 /// Device inputs a track can name: far more than any interface has.
 pub const MAX_INPUT_CHANNELS: u16 = 256;
-const MOST_BUSES: u32 = 31;
 
 /// The most parameters a plugin may list, and so the most a device holds
 /// values for (the host's own limit).

@@ -434,22 +434,29 @@ pub fn engine_midi_with(
             ),
             None => (Target::Instrument, false),
         };
-        // What the track's drum map makes of its notes, and of live input.
+        // What the track's drum map makes of its notes, and of live input. A
+        // sound sent to a track that cannot play it any more plays here
+        // (M8 D4 review M2): the map is read with those routes home.
         let map = project.drum_map_of(track);
-        let mut clips = translated(inputs, cache, track, map, silent, Dest::Own);
+        let held = crate::midi::sends::playable_map(project, track);
+        let own_map = held.as_ref().or(map);
+        let mut clips = translated(inputs, cache, track, own_map, silent, Dest::Own);
         // The sounds of another track's map this track's instrument plays
         // (M8 D4). The sending track's notes are read again for this one, and
         // a sound is read for exactly one instrument: the track's own for
         // all but the ones it sends, this one for those. A send to a track
-        // that is muted (or silenced by a solo) sounds nowhere, so it is not
+        // whose **sends** are not heard — muted, silenced by a solo, or a
+        // soloed return taking only the wet — sounds nowhere, so it is not
         // read at all; the notes the engine held for it are let go when the
         // list arrives, as any edit's are. The sending track's own mute does
         // not silence a sent sound: it plays on the track it was sent to.
-        if heard.of(track.id).output {
+        if heard.of(track.id).sends {
             for send in sends.iter().filter(|send| send.to == track.id) {
                 let Some(sender) = project.tracks.iter().find(|t| t.id == send.from) else {
                     continue;
                 };
+                // The sender reads the map it keeps its own sounds through:
+                // its sends that can be honoured are the ones in the table.
                 let sender_map = project.drum_map_of(sender);
                 clips.extend(translated(
                     inputs,
@@ -1355,6 +1362,120 @@ mod send_tests {
     }
 
     #[test]
+    fn a_send_whose_target_lost_its_instrument_plays_on_the_kits_own() {
+        // Review M2: a route outlives its target, or the target stops playing
+        // its instrument. The sound must not go silent: it plays on the kit's
+        // own instrument again (the engine hears it there; the E2E listens).
+        let (mut doc, sender, target, map) = kit();
+        let kick = input_of(&doc, map, 36);
+        doc.route_drum_sound(sender, map, kick, Route::Track(target))
+            .unwrap();
+        assert_eq!(
+            notes_of(&engine(&doc), target),
+            vec![(q(0), 36), (q(4), 36)]
+        );
+        // The target's instrument goes.
+        let device = doc
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.id == target)
+            .and_then(|t| t.sound_source())
+            .map(|d| d.id)
+            .expect("the synth");
+        doc.remove_device(target, device)
+            .expect("a device to remove");
+        let tracks = engine(&doc);
+        assert_eq!(
+            notes_of(&tracks, target),
+            Vec::new(),
+            "a track with no instrument plays nothing"
+        );
+        assert_eq!(
+            notes_of(&tracks, sender),
+            vec![(q(0), 36), (q(2), 38), (q(4), 36)],
+            "the kick is back on the kit's own"
+        );
+        // The same for a target sent to a hardware port: the map the own read
+        // uses has the sound back on Main.
+        let mut project = doc.project().clone();
+        let route = project
+            .tracks
+            .iter_mut()
+            .find(|t| t.id == target)
+            .and_then(|t| Arc::make_mut(t).devices.first_mut());
+        assert!(route.is_none(), "the instrument is still gone");
+        let held = {
+            let mut with_route = project.clone();
+            let map_held = with_route
+                .drum_maps
+                .iter_mut()
+                .find(|m| m.id == map)
+                .and_then(|m| m.sounds.iter_mut().find(|s| s.input == kick))
+                .expect("the kick");
+            map_held.route = Route::Track(target);
+            let sender = with_route.tracks.iter().find(|t| t.id == sender).unwrap();
+            crate::midi::sends::playable_map(&with_route, sender)
+        }
+        .expect("a route that cannot be honoured");
+        assert_eq!(held.sound(kick).map(|s| s.route), Some(Route::Main));
+        // A project whose sends can all be honoured reads its own map.
+        let (clean, _, _, _) = kit();
+        let first = clean.project().tracks[0].as_ref();
+        assert!(crate::midi::sends::playable_map(clean.project(), first).is_none());
+    }
+
+    #[test]
+    fn soloing_the_kit_silences_the_kick_and_soloing_the_receiver_hears_it() {
+        // Review M3: a send is heard where it plays, by the receiving track's
+        // solo and mute, and not by the kit's.
+        let (mut doc, kit, other, map) = kit();
+        let kick = input_of(&doc, map, 36);
+        doc.route_drum_sound(kit, map, kick, Route::Track(other))
+            .unwrap();
+        // Solo the kit: it plays its own, and its sent kick is not on its
+        // path, so the receiver does not play it.
+        doc.set_solo(&[kit], true, true);
+        let tracks = engine(&doc);
+        assert_eq!(notes_of(&tracks, other), Vec::new(), "the kit's solo holds");
+        assert_eq!(notes_of(&tracks, kit), vec![(q(2), 38)]);
+        // Solo the receiver instead: the kick is heard there.
+        doc.set_solo(&[other], true, true);
+        let tracks = engine(&doc);
+        assert_eq!(
+            notes_of(&tracks, other),
+            vec![(q(0), 36), (q(4), 36)],
+            "the receiving track's solo lets the kick through"
+        );
+        doc.set_solo(&[other], false, true);
+        doc.set_solo(&[kit], false, true);
+    }
+
+    #[test]
+    fn a_send_feeds_a_soloed_return_the_receiver_sends_to() {
+        // Review M3: a soloed return plays wet only, so the receiving track's
+        // output is silent while its sends are heard. The notes must still be
+        // played, or the return would have nothing to take.
+        let (mut doc, kit, other, map) = kit();
+        let kick = input_of(&doc, map, 36);
+        doc.route_drum_sound(kit, map, kick, Route::Track(other))
+            .unwrap();
+        let ret = doc.add_track(TrackKind::Return, None);
+        doc.set_send(other, ret, lumen_project::model::Level(-6.0))
+            .expect("a return takes a send");
+        doc.set_solo(&[ret], true, true);
+        let heard = lumen_project::solo::hearing(doc.project());
+        assert!(!heard.of(other).output, "a soloed return plays wet only");
+        assert!(heard.of(other).sends, "but its sends are heard");
+        let tracks = engine(&doc);
+        assert_eq!(
+            notes_of(&tracks, other),
+            vec![(q(0), 36), (q(4), 36)],
+            "the kick plays so the return has something to take"
+        );
+    }
+
+    #[test]
     fn a_sound_sent_to_another_track_keeps_its_key_channel_and_length() {
         let (mut doc, kit, other, map) = kit();
         let kick = input_of(&doc, map, 36);
@@ -1395,10 +1516,20 @@ mod send_tests {
         let track = doc.project().tracks.iter().find(|t| t.id == kit).unwrap();
         let pads = pad_outputs(doc.project(), track);
         assert_eq!(pads.pair_of(kick), 0, "everything on the track's own");
-        doc.route_drum_sound(kit, map, kick, Route::Output(3))
-            .unwrap();
-        doc.route_drum_sound(kit, map, snare, Route::Output(1))
-            .unwrap();
+        // A built-in instrument is given no pair's track (review M1: a track
+        // that plays nothing and is never removed). The routes here are the
+        // model's, which is what B5's sampler is told through `pad_outputs`.
+        let before = doc.project().tracks.len();
+        assert!(
+            doc.route_drum_sound(kit, map, kick, Route::Output(3))
+                .is_none(),
+            "the synth has no outputs to give a sound"
+        );
+        assert_eq!(doc.project().tracks.len(), before, "no track was made");
+        assert_eq!(route_of(&doc, map, kick), Route::Main);
+        assert!(doc.set_sound_route(map, kick, Route::Output(3)));
+        assert!(doc.set_sound_route(map, snare, Route::Output(1)));
+        assert_eq!(doc.project().tracks.len(), before, "still no track");
         let track = doc.project().tracks.iter().find(|t| t.id == kit).unwrap();
         let pads = pad_outputs(doc.project(), track);
         assert_eq!(pads.pair_of(kick), 3);
@@ -1408,5 +1539,12 @@ mod send_tests {
         let track = doc.project().tracks.iter().find(|t| t.id == bare).unwrap();
         let pads = pad_outputs(doc.project(), track);
         assert_eq!(pads.pair_of(kick), 0);
+    }
+
+    /// Where the sound at input note `input` of `map` plays.
+    fn route_of(doc: &Document, map: Id, input: u8) -> Route {
+        doc.drum_map(map)
+            .and_then(|m| m.sound(input))
+            .map_or(Route::Main, |sound| sound.route)
     }
 }

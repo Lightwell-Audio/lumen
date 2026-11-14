@@ -6,6 +6,11 @@
 //! plays where is tested without an engine. A sound on an output pair is not
 //! here: it stays on its own track and the instrument routes it inside
 //! itself (`midi::play::plugin_outputs`).
+//!
+//! A send whose target can no longer take the notes — the track is gone, its
+//! instrument was removed, or it plays a hardware port — is not in the table,
+//! and [`playable_map`] then reads the sending track's map with that sound
+//! back on its own instrument, so the sound is never silent.
 
 use lumen_project::model::{self, Id, TrackKind};
 
@@ -37,8 +42,8 @@ pub(crate) fn can_send_to(project: &model::Project, from: Id, to: Id) -> bool {
 
 /// The sends of `project`, in the project's track order: every track that
 /// reads a drum map and has a sound sent to another instrument track. A
-/// target that is gone, or is not an instrument track any more, is left out
-/// (the file keeps the route; nothing plays it).
+/// target that is gone, or cannot play the notes any more (`can_send_to`), is
+/// left out, and [`playable_map`] puts its sounds back on their own track.
 pub(crate) fn sends(project: &model::Project) -> Vec<Send> {
     let mut out: Vec<Send> = Vec::new();
     for track in &project.tracks {
@@ -62,6 +67,41 @@ pub(crate) fn sends(project: &model::Project) -> Vec<Send> {
         }
     }
     out
+}
+
+/// The map to read `track`'s clips through for its **own** instrument, when
+/// one of its sounds is sent somewhere that cannot take it: the map with that
+/// sound back on Main, so the notes play here rather than nowhere (M8 D4
+/// review M2). `None` when every send can be honoured — the common case, and
+/// the one where the project's own map is read as it is.
+///
+/// A copy is made per track list, not per note: only a project whose route
+/// outlived its target pays for it.
+pub(crate) fn playable_map(
+    project: &model::Project,
+    track: &model::Track,
+) -> Option<model::DrumMap> {
+    let map = project.drum_map_of(track)?;
+    let broken = map.sounds.iter().any(|sound| {
+        sound
+            .route
+            .sent_to()
+            .is_some_and(|to| !can_send_to(project, track.id, to))
+    });
+    if !broken {
+        return None;
+    }
+    let mut held = map.clone();
+    for sound in &mut held.sounds {
+        if sound
+            .route
+            .sent_to()
+            .is_some_and(|to| !can_send_to(project, track.id, to))
+        {
+            sound.route = model::Route::Main;
+        }
+    }
+    Some(held)
 }
 
 /// The input notes of `map`'s sounds heard on the track itself: the ones not
@@ -145,13 +185,21 @@ mod tests {
             doc.drum_map(map).unwrap().sounds.len(),
             "its notes stay the track's"
         );
-        // Sent to a track that is not an instrument track: refused, not
-        // quietly played nowhere.
+        // Sent to a track that is not an instrument track: the edit refuses
+        // it; a route a file holds anyway is not a send, and plays on the
+        // kit's own instrument (review M2).
         let audio = doc.add_track(TrackKind::Audio, None);
         let second = doc.drum_map(map).unwrap().sounds[1].input;
-        assert!(!doc.set_sound_route(map, second, Route::Track(audio)));
+        assert!(
+            doc.route_drum_sound(kit, map, second, Route::Track(audio))
+                .is_none()
+        );
+        assert!(doc.set_sound_route(map, second, Route::Track(audio)));
         assert!(!can_send_to(doc.project(), kit, audio));
         assert!(sends(doc.project()).is_empty());
+        let sender = doc.project().tracks.iter().find(|t| t.id == kit).unwrap();
+        let held = playable_map(doc.project(), sender).expect("a route with no track to play it");
+        assert_eq!(held.sounds[1].route, Route::Main);
         // And a track sent to a hardware port has no instrument to play it.
         let mut project = doc.project().clone();
         let slot = project.tracks.iter_mut().find(|t| t.id == other).unwrap();
