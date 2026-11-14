@@ -465,6 +465,8 @@ impl App {
                 }
             }
             Command::AddEq => self.add_eq(),
+            Command::AddDelay => self.add_builtin(lumen_devices::delay::NAME),
+            Command::AddReverb => self.add_builtin(lumen_devices::reverb::NAME),
             Command::DrumRouteAll => self.route_all_sounds_command(),
             Command::DrumRouteClear => self.clear_sound_routes_command(),
             Command::TransposeClipUp => self.transpose_clips_command(1),

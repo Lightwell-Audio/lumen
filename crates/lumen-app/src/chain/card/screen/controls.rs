@@ -98,7 +98,11 @@ pub(super) fn paint(
                 // On a drawing with parts a dial is the picked part's, in its
                 // colour: the parameter and the name are the part's, and a part
                 // with nothing for it (a notch has no gain) leaves it still.
-                let aim = parts.map(|p| (p.aim)(values, picked, index));
+                let aim = match parts {
+                    Some(p) => Some((p.aim)(values, picked, index)),
+                    // A dial that stands for another parameter by the values.
+                    None => control.follows.map(|f| Some(f(values))),
+                };
                 let colour = match parts {
                     Some(p) => live((p.colour)(picked), power),
                     None => control.lit.map_or(hue, |own| live(own, power)),
@@ -116,8 +120,15 @@ pub(super) fn paint(
                         };
                         let idea = Idea {
                             name: aim.name,
-                            short: aim.name,
+                            short: control.short.unwrap_or(aim.name),
                             shown: control.shown,
+                        };
+                        // A dial that follows a parameter is a new control when
+                        // the parameter changes: a drag in progress ends there.
+                        let id = if control.follows.is_some() {
+                            id.with(aim.param)
+                        } else {
+                            id
                         };
                         dial(ui, plan, idea, aimed, cell, id, colour, ink, out);
                     }
@@ -132,7 +143,7 @@ pub(super) fn paint(
                 }
             }
             // A pill sits on the card, under the screen, at every step.
-            Kind::Pill => pill(ui, control, slot, cell, id, hue, Ink::card(), out),
+            Kind::Pill => pill(ui, (control, values), slot, cell, id, hue, Ink::card(), out),
         }
     }
 }
@@ -241,7 +252,7 @@ fn dial(
 #[allow(clippy::too_many_arguments)]
 fn pill(
     ui: &mut Ui,
-    control: &Control,
+    (control, values): (&Control, &Values<'_>),
     slot: &Slot,
     rect: Rect,
     id: egui::Id,
@@ -249,7 +260,9 @@ fn pill(
     ink: Ink,
     out: &mut Vec<Output>,
 ) {
-    let on = slot.value >= 0.5;
+    let on = control
+        .switch
+        .map_or(slot.value >= 0.5, |s| (s.on)(slot.value));
     let response = ui.interact(rect, id, Sense::click());
     let name = said(control.name, &slot.name);
     response.widget_info(|| {
@@ -302,7 +315,8 @@ fn pill(
     raised::focus_ring(ui.painter(), &response, rect);
     let response = response.on_hover_text(format!("{name}: {}", slot.text));
     if response.clicked() && !slot.read_only {
-        out.push(Output::Choose(slot.id, if on { 0.0 } else { 1.0 }));
+        let turned_on = control.switch.map_or(1.0, |s| (s.turn_on)(values));
+        out.push(Output::Choose(slot.id, if on { 0.0 } else { turned_on }));
     }
     let (value, default, param, read_only) = (slot.value, slot.default, slot.id, slot.read_only);
     widgets::Menu::context(&response).show(|ui| {

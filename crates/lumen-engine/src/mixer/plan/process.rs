@@ -29,6 +29,7 @@ impl Plan {
         let Pass {
             start,
             rate,
+            bpm,
             ramp,
             advance,
         } = pass;
@@ -257,7 +258,7 @@ impl Plan {
                             hosting,
                             (&mut *left, &mut *right),
                             key,
-                            (rate, start, advance),
+                            (rate, start, bpm, advance),
                             law,
                         );
                         continue;

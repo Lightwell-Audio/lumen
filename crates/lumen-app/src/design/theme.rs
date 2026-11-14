@@ -621,6 +621,24 @@ pub mod personality {
         Color32::from_rgb(0xE2, 0x6F, 0xD0),
     ];
 
+    /// Parallax, the stereo delay: a cool teal, the colour of an echo
+    /// receding into the dark.
+    pub const DELAY: Color32 = Color32::from_rgb(0x3F, 0xD6, 0xC6);
+
+    /// Afterglow, the reverb: a warm pink, the colour of the light that
+    /// lingers after the sound.
+    pub const REVERB: Color32 = Color32::from_rgb(0xFF, 0x6F, 0xA8);
+
+    /// The deep colours the screens of Parallax and Afterglow fade to from
+    /// their hue (round 2's `deep`), the same in both themes.
+    pub const DELAY_DEEP: Color32 = Color32::from_rgb(0x07, 0x10, 0x0F);
+    pub const REVERB_DEEP: Color32 = Color32::from_rgb(0x12, 0x09, 0x10);
+
+    /// The light at the heart of Afterglow's glow, and the warm ring round it
+    /// (also the colour of "to silence"): content, the same in both themes.
+    pub const REVERB_CORE: Color32 = Color32::from_rgb(0xFF, 0xF1, 0xD6);
+    pub const REVERB_WARM: Color32 = Color32::from_rgb(0xFF, 0xC0, 0x8A);
+
     /// The screen behind a built-in device's picture (DESIGN.md §7k): deep, and
     /// the same in both themes, as a clip's colour is. Its top is the device's
     /// signature colour, so the band stays the personality's.

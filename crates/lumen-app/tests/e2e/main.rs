@@ -45,6 +45,7 @@ mod copies;
 mod coverage;
 mod crossfades;
 mod cue;
+mod delay_reverb;
 mod detail_tabs;
 mod device_change;
 mod devices;

@@ -7,11 +7,14 @@
 //! which run on the UI side.
 
 pub mod analyzer;
+pub mod delay;
 pub mod effect;
 pub mod eq;
 pub mod hosted;
 pub mod instrument;
+mod line;
 pub mod params;
+pub mod reverb;
 pub mod synth;
 pub mod utility;
 
@@ -30,7 +33,12 @@ pub use utility::Utility;
 /// Every built-in effect this build knows, in the order they were added.
 /// Each one has a personality in the interface (`lumen-app`'s
 /// `builtin::identity`), which a test keeps in step with this list.
-pub static EFFECTS: &[&Description] = &[&utility::DESCRIPTION, &eq::DESCRIPTION];
+pub static EFFECTS: &[&Description] = &[
+    &utility::DESCRIPTION,
+    &eq::DESCRIPTION,
+    &delay::DESCRIPTION,
+    &reverb::DESCRIPTION,
+];
 
 /// The description of the built-in effect called `name`, or `None` when no
 /// device has that name: the one table the card, the lanes and the engine's
@@ -61,6 +69,22 @@ pub fn effect_tail(name: &str, values: Values<'_>) -> Option<u32> {
     effect_description(name).map(|description| (description.tail)(values))
 }
 
+/// Frames the effect called `name` rings on after its input stops at `values`,
+/// at a tempo of `bpm` and a rate of `rate`, or `None` when no device has that
+/// name. A device whose tail is a number of seconds (a delay whose time is in
+/// notes follows the tempo) needs both; a device whose tail does not look at
+/// them gives what [`effect_tail`] gives.
+pub fn effect_tail_at(name: &str, values: Values<'_>, bpm: f32, rate: u32) -> Option<u32> {
+    match name {
+        delay::NAME => Some(delay::tail_frames(values, bpm, rate)),
+        reverb::NAME => Some(reverb::tail_frames(values, rate)),
+        _ => effect_tail(name, values)
+            // A device that reports frames at the reference rate (48 kHz, the
+            // contract `effect_tail` documents) is put on the rate in hand.
+            .map(|frames| (u64::from(frames) * u64::from(rate) / 48_000) as u32),
+    }
+}
+
 /// A built-in effect by the name a project saves. The constructor allocates:
 /// call it on the interface side, then hand the device to the audio thread.
 pub fn effect(name: &str) -> Option<Box<dyn Effect>> {
@@ -73,6 +97,8 @@ pub fn effect_tapped(name: &str, tap: Option<Tap>) -> Option<Box<dyn Effect>> {
     match name {
         utility::NAME => Some(Box::new(Utility::new())),
         eq::NAME => Some(Box::new(Eq::with_tap(tap))),
+        delay::NAME => Some(Box::new(delay::Delay::new())),
+        reverb::NAME => Some(Box::new(reverb::Reverb::new())),
         _ => None,
     }
 }
@@ -88,8 +114,13 @@ mod tests {
 
     #[test]
     fn every_built_in_effect_is_in_both_tables() {
-        assert_eq!(EFFECTS.len(), 2, "Prism and Iris");
-        for (name, watched) in [(utility::NAME, false), (eq::NAME, true)] {
+        assert_eq!(EFFECTS.len(), 4, "Prism, Iris, Parallax and Afterglow");
+        for (name, watched) in [
+            (utility::NAME, false),
+            (eq::NAME, true),
+            (delay::NAME, false),
+            (reverb::NAME, false),
+        ] {
             assert!(effect_params(name).is_some(), "{name} has a table");
             assert!(effect(name).is_some(), "{name} is built");
             assert!(

@@ -124,7 +124,7 @@ impl App {
 
     /// Adds the built-in effect `name` where a device of its kind goes, with
     /// the values its table gives it, and shows its card.
-    fn add_builtin(&mut self, name: &str) {
+    pub(crate) fn add_builtin(&mut self, name: &str) {
         let plugin = PluginRef::Builtin {
             name: name.to_owned(),
         };
