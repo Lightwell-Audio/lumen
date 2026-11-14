@@ -12,6 +12,7 @@ use lumen_project::model::{Face, Id, PluginRef};
 
 use crate::App;
 use crate::app::detail::DetailTab;
+use crate::builtin::samples;
 use crate::chain::place::{Place, place};
 
 impl App {
@@ -92,13 +93,13 @@ impl App {
             return;
         }
         let rate = self.lanes.rate();
-        let mut ids = Vec::new();
+        let mut wanted: Vec<(Id, String)> = Vec::new();
         for path in paths {
             let id = self.document.fresh_id();
-            self.lanes.samples.load(id, path, rate);
-            ids.push(id);
+            self.lanes.samples.load(id, path.clone(), rate);
+            wanted.push((id, samples::file_name(&path)));
         }
-        self.sampler_load.start(device, ids);
+        self.sampler_load.start(device, wanted);
     }
 
     /// Reads what the sample decoders answered, and joins the files to their
@@ -123,15 +124,31 @@ impl App {
         let count = arrived.files.len();
         if count > 0 {
             match self.document.add_samples(arrived.device, &arrived.files) {
-                Ok(_) => {
-                    let what = match (face, count) {
+                Ok(used) => {
+                    let what = match (face, used) {
                         (Face::OneShot, _) => "the sample".to_owned(),
                         (Face::Zones, 1) => "1 zone".to_owned(),
                         (Face::Zones, many) => format!("{many} zones"),
                         (Face::Pads, 1) => "1 pad".to_owned(),
                         (Face::Pads, many) => format!("{many} pads"),
                     };
-                    self.say(format!("Loaded {what} into Shutter."));
+                    let mut words = format!("Loaded {what} into Shutter.");
+                    // One shot plays one sample: a choice of several keeps the
+                    // first, and the person is told what was left out and how
+                    // to have it all (M8 slice B5, review M5).
+                    let skipped = count.saturating_sub(used);
+                    if skipped > 0 {
+                        words.push_str(&format!(
+                            " {skipped} {} skipped: One shot plays one sample. \
+                             Choose Zones to lay them across the keyboard.",
+                            if skipped == 1 {
+                                "file was"
+                            } else {
+                                "files were"
+                            }
+                        ));
+                    }
+                    self.say(words);
                 }
                 Err(refusal) => self.say(refusal.to_string()),
             }

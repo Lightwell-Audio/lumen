@@ -320,6 +320,11 @@ pub fn with_lanes(
 /// another by the plugin's own choice; an output with no track of its own
 /// plays on the instrument's own track.
 fn plugin_outputs(project: &Project, track: &model::Track, hosts: &dyn Hosts) -> Vec<(u32, u64)> {
+    // A sampler's pairs are its own: a pad names one, and a track of the
+    // project can play it (M8 slice B5, review H1).
+    if let Some(device) = track.sound_source().filter(|d| d.is_sampler()) {
+        return sampler_outputs(project, track, device);
+    }
     let Some(device) = track.sound_source().filter(|d| d.is_vst3()) else {
         return Vec::new();
     };
@@ -337,6 +342,46 @@ fn plugin_outputs(project: &Project, track: &model::Track, hosts: &dyn Hosts) ->
                 })
                 .map_or(track.id, |t| t.id);
             (pair, own.0)
+        })
+        .collect()
+}
+
+/// A sampler's output pairs and the track each plays on: every pair a pad of
+/// its sound uses, and every pair a track of the project was made for. A pair
+/// with no track of its own plays on the instrument's own track, so a pad
+/// routed to a pair is heard rather than lost (M8 slice B5, review H1, and the
+/// ADR's "how D4 hooks in").
+fn sampler_outputs(
+    project: &Project,
+    track: &model::Track,
+    device: &model::Device,
+) -> Vec<(u32, u64)> {
+    let mut pairs: Vec<u32> = device
+        .sampler()
+        .map(|held| held.pads.iter().map(|pad| pad.output).collect())
+        .unwrap_or_default();
+    pairs.extend(
+        project
+            .tracks
+            .iter()
+            .filter_map(|t| t.plugin_output.filter(|o| o.device == device.id))
+            .map(|o| o.bus),
+    );
+    pairs.retain(|pair| (1..=lumen_devices::sampler::PAIRS as u32).contains(pair));
+    pairs.sort_unstable();
+    pairs.dedup();
+    pairs
+        .into_iter()
+        .map(|bus| {
+            let own = project
+                .tracks
+                .iter()
+                .find(|t| {
+                    t.plugin_output
+                        .is_some_and(|o| o.device == device.id && o.bus == bus)
+                })
+                .map_or(track.id, |t| t.id);
+            (bus, own.0)
         })
         .collect()
 }

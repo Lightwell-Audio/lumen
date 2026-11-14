@@ -149,55 +149,206 @@ fn a_stereo_file_keeps_its_two_sides() {
     assert_eq!(r, right);
 }
 
+/// A tone of `frames` frames at `rate`, quiet enough to read frame by frame.
+fn tone(frames: usize, rate: u32) -> Arc<Sample> {
+    Arc::new(Sample::mono(
+        rate,
+        (0..frames)
+            .map(|k| {
+                let x = k as f64 * 0.01;
+                // A tone well under Nyquist at either pitch: it is the reading
+                // that is compared, not the aliasing above it.
+                (x.sin() * 0.5) as f32
+            })
+            .collect(),
+    ))
+}
+
+/// The reference the pitched renders are compared with: the same 4-point
+/// Catmull-Rom in `f64` over `sample`, written independently of the device's
+/// own reading. `start` and `end` are the region, `reversed` reads it
+/// backwards, and `ratio` is frames of the region per frame of output.
+struct Reference {
+    sample: Arc<Sample>,
+    start: usize,
+    end: usize,
+    reversed: bool,
+    ratio: f64,
+}
+
+impl Reference {
+    /// The value at output frame `frame`, the way a person would write it.
+    fn at(&self, frame: usize) -> f64 {
+        // A reversed region runs backwards through its own frames.
+        let at = frame as f64 * self.ratio;
+        let index = if self.reversed {
+            (self.end as f64 - 1.0) - at
+        } else {
+            self.start as f64 + at
+        };
+        let base = index.floor();
+        let into = index - base;
+        let read = |k: isize| f64::from(self.sample.at(0, k));
+        let (p0, p1, p2, p3) = (
+            read(base as isize - 1),
+            read(base as isize),
+            read(base as isize + 1),
+            read(base as isize + 2),
+        );
+        0.5 * ((2.0 * p1)
+            + (-p0 + p2) * into
+            + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * into * into
+            + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * into * into * into)
+    }
+}
+
 /// A pitched render is within the resampler's tested error of an independent
 /// `f64` reference: the same sample read at the same rate, worked out here
 /// without the device's code.
 #[test]
 fn a_pitched_render_follows_the_resampler_s_reference() {
-    let frames = 4_800;
-    let tone: Vec<f32> = (0..frames)
-        .map(|k| {
-            let x = k as f64 * 0.01;
-            // A tone well under Nyquist at either pitch: it is the reading
-            // that is compared, not the aliasing above it.
-            (x.sin() * 0.5) as f32
-        })
-        .collect();
-    let sample = Arc::new(Sample::mono(RATE, tone.clone()));
-    for semitones in [1, 5, 7, 12, -5] {
-        let mut device = Sampler::new(one_shot(sample.clone(), 60));
-        let key = (60 + semitones) as u8;
-        let (left, _) = render(&mut device, 3_000, 256, key, 100, &[]);
-        // The reference: the same 4-point Catmull-Rom in f64 over the file,
-        // written independently of the device's own reading.
-        let ratio = (f64::from(semitones) / 12.0).exp2();
-        let mut worst: f64 = 0.0;
-        for (frame, heard) in left.iter().enumerate() {
-            let at = frame as f64 * ratio;
-            let base = at.floor();
-            let into = at - base;
-            let read = |k: isize| {
-                if k < 0 || k as usize >= tone.len() {
-                    0.0
-                } else {
-                    f64::from(tone[k as usize])
-                }
+    let slices = [(4_800, RATE)];
+    for (frames, rate) in slices {
+        let sample = tone(frames, rate);
+        let end = sample.frames();
+        for semitones in [1, 5, 7, 12, -5] {
+            let mut device = Sampler::new(one_shot(sample.clone(), 60));
+            let key = (60 + semitones) as u8;
+            let (left, _) = render(&mut device, 3_000, 256, key, 100, &[]);
+            let reference = Reference {
+                sample: Arc::clone(&sample),
+                start: 0,
+                end,
+                reversed: false,
+                ratio: (f64::from(semitones) / 12.0).exp2(),
             };
-            let (p0, p1, p2, p3) = (
-                read(base as isize - 1),
-                read(base as isize),
-                read(base as isize + 1),
-                read(base as isize + 2),
+            for (frame, heard) in left.iter().enumerate() {
+                let error = (f64::from(*heard) - reference.at(frame)).abs();
+                assert!(
+                    error < 1e-6,
+                    "{semitones} st at {rate} Hz, frame {frame}: {error}"
+                );
+            }
+            // The first frame is the region's first frame itself.
+            assert_eq!(
+                left[0],
+                sample.at(0, 0),
+                "{semitones} st: the first frame is the file's"
             );
-            let reference = 0.5
-                * ((2.0 * p1)
-                    + (-p0 + p2) * into
-                    + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * into * into
-                    + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * into * into * into);
-            let error = (f64::from(*heard) - reference).abs();
-            worst = worst.max(error);
         }
-        assert!(worst < 1e-6, "{semitones} st: worst error {worst}");
+    }
+}
+
+/// The same, from a region that starts inside the file: the first frame is
+/// the region's first frame, and the rest follows it.
+#[test]
+fn a_pitched_render_of_a_region_starting_inside_the_file_follows_the_reference() {
+    let sample = tone(4_800, RATE);
+    let start = 1_001;
+    let sound = Arc::new(Sound {
+        face: Face::OneShot,
+        one_shot: Some(sampler::Region {
+            start,
+            ..sampler::Region::whole(Arc::clone(&sample), 60)
+        }),
+        ..Sound::default()
+    });
+    for semitones in [2, 7, -3] {
+        let mut device = Sampler::new(Arc::clone(&sound));
+        let key = (60 + semitones) as u8;
+        let (left, _) = render(&mut device, 2_000, 256, key, 100, &[]);
+        let reference = Reference {
+            sample: Arc::clone(&sample),
+            start,
+            end: sample.frames(),
+            reversed: false,
+            ratio: (f64::from(semitones) / 12.0).exp2(),
+        };
+        assert_eq!(
+            left[0],
+            sample.at(0, start as isize),
+            "{semitones} st: the region's first frame is the file's at {start}"
+        );
+        for (frame, heard) in left.iter().enumerate() {
+            let error = (f64::from(*heard) - reference.at(frame)).abs();
+            assert!(
+                error < 1e-6,
+                "{semitones} st from {start}, frame {frame}: {error}"
+            );
+        }
+    }
+}
+
+/// A reversed region pitched away from its root: the reference reads the
+/// region backwards from its last frame.
+#[test]
+fn a_reversed_pitched_render_follows_the_reference() {
+    let sample = tone(4_800, RATE);
+    let end = sample.frames();
+    let sound = Arc::new(Sound {
+        face: Face::OneShot,
+        one_shot: Some(sampler::Region {
+            reversed: true,
+            ..sampler::Region::whole(Arc::clone(&sample), 60)
+        }),
+        ..Sound::default()
+    });
+    for semitones in [0, 5, -5] {
+        let mut device = Sampler::new(Arc::clone(&sound));
+        let key = (60 + semitones) as u8;
+        let (left, _) = render(&mut device, 2_000, 256, key, 100, &[]);
+        let reference = Reference {
+            sample: Arc::clone(&sample),
+            start: 0,
+            end,
+            reversed: true,
+            ratio: (f64::from(semitones) / 12.0).exp2(),
+        };
+        assert_eq!(
+            left[0],
+            sample.at(0, end as isize - 1),
+            "{semitones} st: a reversed region starts at the file's last frame"
+        );
+        for (frame, heard) in left.iter().enumerate() {
+            let error = (f64::from(*heard) - reference.at(frame)).abs();
+            assert!(
+                error < 1e-6,
+                "{semitones} st reversed, frame {frame}: {error}"
+            );
+        }
+    }
+}
+
+/// A file whose rate is not the render's: the region is played at the file's
+/// speed, so the reading runs at `file rate / render rate` per frame.
+#[test]
+fn a_sample_at_another_rate_is_read_at_its_own_speed() {
+    let file_rate = 24_000;
+    let sample = tone(2_400, file_rate);
+    let end = sample.frames();
+    for semitones in [0, 7] {
+        let mut device = Sampler::new(one_shot(Arc::clone(&sample), 60));
+        let key = (60 + semitones) as u8;
+        let (left, _) = render(&mut device, 900, 256, key, 100, &[]);
+        let reference = Reference {
+            sample: Arc::clone(&sample),
+            start: 0,
+            end,
+            reversed: false,
+            ratio: f64::from(file_rate) / f64::from(RATE) * (f64::from(semitones) / 12.0).exp2(),
+        };
+        assert_eq!(
+            left[0],
+            sample.at(0, 0),
+            "{semitones} st at {file_rate} Hz: the first frame is the file's"
+        );
+        for (frame, heard) in left.iter().enumerate() {
+            let error = (f64::from(*heard) - reference.at(frame)).abs();
+            assert!(
+                error < 1e-6,
+                "{semitones} st at {file_rate} Hz, frame {frame}: {error}"
+            );
+        }
     }
 }
 
@@ -724,4 +875,28 @@ fn a_new_sound_does_not_disturb_a_note_already_sounding() {
     assert_eq!(left[20], first.at(0, 64 + 20));
     // The same handle twice is not a replacement.
     assert!(device.load_sound(Arc::clone(device.sound())).is_none());
+}
+
+/// The Level knob: −20 dB is a tenth of the sound's own level (M8 slice B5,
+/// review H3). The value glides to the knob's place over
+/// [`params::GLIDE_SECONDS`], so the last block is what is measured.
+#[test]
+fn a_level_of_minus_twenty_decibels_is_a_tenth() {
+    let peak = |db: f32| {
+        let sample = Arc::new(Sample::mono(RATE, vec![0.5; 4_800]));
+        let mut device = Sampler::new(one_shot(sample, 60));
+        let set = [(sampler::LEVEL, at(sampler::LEVEL, db))];
+        let (left, _) = render(&mut device, 2_048, MOST, 60, 100, &set);
+        let settled = 2_048 - MOST;
+        left[settled..]
+            .iter()
+            .fold(0.0f32, |most, value| most.max(value.abs()))
+    };
+    let unity = peak(0.0);
+    let quiet = peak(-20.0);
+    assert!((unity - 0.5).abs() < 1e-4, "unity is the sample: {unity}");
+    assert!(
+        (quiet / unity - 0.1).abs() < 1e-4,
+        "−20 dB is a tenth: {quiet} against {unity}"
+    );
 }

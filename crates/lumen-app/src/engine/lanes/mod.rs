@@ -136,12 +136,24 @@ impl Lanes {
     /// as it decodes its clips, off the audio thread.
     fn follow_samples(&mut self, doc: &Document, rate: u32) -> bool {
         self.samples.update(rate);
-        for media in &doc.project().media {
-            if self.samples.get(media.id).is_some() {
+        // Only the files a sampler actually plays are decoded: a project's
+        // clips are the media library's, not the sampler's (review H2).
+        for device in doc
+            .project()
+            .tracks
+            .iter()
+            .flat_map(|track| track.devices.iter())
+        {
+            let Some(held) = device.sampler() else {
                 continue;
-            }
-            if let Some(path) = doc.media_files.get(&media.id) {
-                self.samples.load(media.id, path.clone(), rate);
+            };
+            for id in held.media() {
+                if self.samples.get(id).is_some() {
+                    continue;
+                }
+                if let Some(path) = doc.media_files.get(&id) {
+                    self.samples.load(id, path.clone(), rate);
+                }
             }
         }
         // A sample that arrived is what a sampler plays, so the list that
@@ -434,6 +446,14 @@ impl Lanes {
         // project holds are decoded off the audio thread, and a sound is made
         // for the list where they are ready.
         self.midi_dirty |= self.follow_samples(doc, rate);
+        // A sample-rate change keeps the buffers it retired until nothing but
+        // the library holds one: the engine's list and every voice of it are
+        // gone by then, so the audio thread is never left to free a buffer
+        // (M8 slice B5, review M3). Asked every frame; it costs a count per
+        // buffer only while a generation waits.
+        if self.samples.has_stale() {
+            self.samples.release_stale();
+        }
         // Sent again when the project, the selection or the inputs change
         // (which tracks listen to what), never every frame.
         // The lanes of plugin instruments are baked for the device's rate.

@@ -18,8 +18,16 @@
 //! render is the same on every platform (M8 slice B1's lesson).
 
 mod sound;
+mod table;
+mod voice;
 
 pub use sound::{Face, Pad, Region, Sample, Sound, Zone};
+pub use table::{
+    ATTACK, CUTOFF, DECAY, FILTER, FINE, LEVEL, PITCH, RELEASE, RESONANCE, SUSTAIN, TABLE, VELOCITY,
+};
+
+use table::PARAMS;
+use voice::{Curves, Envelope, FrameValues, Fx, Pairs, Stage, Voice, db_to_gain};
 
 use std::sync::Arc;
 
@@ -28,7 +36,7 @@ use lumen_core::pan::PanLaw;
 
 use crate::ParamBlock;
 use crate::instrument::Instrument;
-use crate::params::{self, Glide, ParamInfo, Taper};
+use crate::params::{self, Glide};
 
 /// The device's stable name in `PluginRef::Builtin`, as a project saves it.
 /// Never the product name, and never changed.
@@ -69,710 +77,6 @@ pub static DESCRIPTION: crate::Description = crate::Description {
     latency: |_| 0,
     tail: |_| 0,
 };
-
-/// Level, in decibels.
-pub const LEVEL: u32 = 1;
-/// Pitch, in semitones.
-pub const PITCH: u32 = 2;
-/// Fine pitch, in hundredths of a semitone.
-pub const FINE: u32 = 3;
-/// Attack, in seconds.
-pub const ATTACK: u32 = 4;
-/// Decay, in seconds.
-pub const DECAY: u32 = 5;
-/// Sustain, as a share of the note's own level.
-pub const SUSTAIN: u32 = 6;
-/// Release, in seconds.
-pub const RELEASE: u32 = 7;
-/// The filter: off, low pass or high pass.
-pub const FILTER: u32 = 8;
-/// The filter's cutoff, in Hz.
-pub const CUTOFF: u32 = 9;
-/// The filter's resonance, as a share.
-pub const RESONANCE: u32 = 10;
-/// How much a note's velocity sets its level.
-pub const VELOCITY: u32 = 11;
-
-/// How many parameters the table holds.
-const PARAMS: usize = 11;
-
-/// The lowest level: under it, silence.
-const FLOOR_DB: f32 = -60.0;
-
-/// What the columns of the table are for, so a reader sees the shape of a row.
-#[allow(clippy::too_many_arguments)]
-const fn param(
-    id: u32,
-    name: &'static str,
-    unit: &'static str,
-    low: f32,
-    high: f32,
-    taper: Taper,
-    default: f32,
-    steps: i32,
-    choices: &'static [&'static str],
-    text: fn(f32) -> String,
-    parse: fn(&str) -> Option<f32>,
-) -> ParamInfo {
-    ParamInfo {
-        id,
-        name,
-        unit,
-        low,
-        high,
-        taper,
-        default,
-        steps,
-        choices,
-        text,
-        parse,
-    }
-}
-
-/// Shutter's parameters, in the order the card and All parameters show them.
-/// Ids are stable and never reused. They hold what every face shares; the
-/// regions, zones and pads are the sound's own ([`Sound`]), not parameters.
-pub static TABLE: &[ParamInfo] = &[
-    param(
-        LEVEL,
-        "Level",
-        "dB",
-        FLOOR_DB,
-        12.0,
-        Taper::Linear,
-        0.0,
-        0,
-        &[],
-        gain_text,
-        gain_parse,
-    ),
-    param(
-        PITCH,
-        "Pitch",
-        "st",
-        -24.0,
-        24.0,
-        Taper::Linear,
-        0.0,
-        0,
-        &[],
-        semitone_text,
-        semitone_parse,
-    ),
-    param(
-        FINE,
-        "Fine",
-        "ct",
-        -100.0,
-        100.0,
-        Taper::Linear,
-        0.0,
-        0,
-        &[],
-        cents_text,
-        cents_parse,
-    ),
-    param(
-        ATTACK,
-        "Attack",
-        "s",
-        0.0,
-        10.0,
-        Taper::Power(3.0),
-        0.0,
-        0,
-        &[],
-        seconds_text,
-        seconds_parse,
-    ),
-    param(
-        DECAY,
-        "Decay",
-        "s",
-        0.0,
-        10.0,
-        Taper::Power(3.0),
-        0.0,
-        0,
-        &[],
-        seconds_text,
-        seconds_parse,
-    ),
-    param(
-        SUSTAIN,
-        "Sustain",
-        "%",
-        0.0,
-        100.0,
-        Taper::Linear,
-        100.0,
-        0,
-        &[],
-        percent_text,
-        percent_parse,
-    ),
-    param(
-        RELEASE,
-        "Release",
-        "s",
-        0.0,
-        10.0,
-        Taper::Power(3.0),
-        0.05,
-        0,
-        &[],
-        seconds_text,
-        seconds_parse,
-    ),
-    param(
-        FILTER,
-        "Filter",
-        "",
-        0.0,
-        2.0,
-        Taper::Linear,
-        0.0,
-        2,
-        &["Off", "Low pass", "High pass"],
-        filter_text,
-        filter_parse,
-    ),
-    param(
-        CUTOFF,
-        "Cutoff",
-        "Hz",
-        20.0,
-        FILTER_TOP_HZ,
-        Taper::Power(3.0),
-        FILTER_TOP_HZ,
-        0,
-        &[],
-        cutoff_text,
-        cutoff_parse,
-    ),
-    param(
-        RESONANCE,
-        "Res",
-        "%",
-        0.0,
-        100.0,
-        Taper::Linear,
-        0.0,
-        0,
-        &[],
-        percent_text,
-        percent_parse,
-    ),
-    param(
-        VELOCITY,
-        "Vel>Level",
-        "%",
-        0.0,
-        100.0,
-        Taper::Linear,
-        0.0,
-        0,
-        &[],
-        percent_text,
-        percent_parse,
-    ),
-];
-
-fn gain_text(db: f32) -> String {
-    if db <= FLOOR_DB {
-        "\u{2212}\u{221E} dB".to_owned()
-    } else if db.abs() < 0.05 {
-        "0.0 dB".to_owned()
-    } else {
-        format!("{db:+.1} dB").replace('-', "\u{2212}")
-    }
-}
-
-fn gain_parse(text: &str) -> Option<f32> {
-    number_in(text, &["db"]).filter(|db| *db <= 12.0)
-}
-
-fn semitone_text(st: f32) -> String {
-    if st.abs() < 0.005 {
-        "0 st".to_owned()
-    } else {
-        format!("{st:+.2} st").replace('-', "\u{2212}")
-    }
-}
-
-fn semitone_parse(text: &str) -> Option<f32> {
-    let t = text.trim().to_lowercase();
-    let t = t.trim_end_matches("st").trim();
-    t.parse::<f32>().ok().filter(|v| v.is_finite())
-}
-
-fn cents_text(ct: f32) -> String {
-    if ct.abs() < 0.05 {
-        "0 ct".to_owned()
-    } else {
-        format!("{ct:+.0} ct").replace('-', "\u{2212}")
-    }
-}
-
-fn cents_parse(text: &str) -> Option<f32> {
-    number_in(text, &["ct", "cents"])
-}
-
-fn seconds_text(s: f32) -> String {
-    if s < 0.0005 {
-        "0 ms".to_owned()
-    } else if s < 1.0 {
-        format!("{:.0} ms", s * 1000.0)
-    } else {
-        format!("{s:.2} s")
-    }
-}
-
-fn seconds_parse(text: &str) -> Option<f32> {
-    let t = text.trim().to_lowercase();
-    if let Some(ms) = t.strip_suffix("ms") {
-        return ms.trim().parse::<f32>().ok().map(|v| v / 1000.0);
-    }
-    if let Some(s) = t.strip_suffix('s') {
-        return s.trim().parse::<f32>().ok();
-    }
-    t.parse::<f32>().ok()
-}
-
-fn percent_text(percent: f32) -> String {
-    format!("{percent:.0} %")
-}
-
-fn percent_parse(text: &str) -> Option<f32> {
-    number_in(text, &["%"])
-}
-
-fn filter_text(value: f32) -> String {
-    match value.round() as i32 {
-        1 => "Low pass",
-        2 => "High pass",
-        _ => "Off",
-    }
-    .to_owned()
-}
-
-fn filter_parse(text: &str) -> Option<f32> {
-    match text.trim().to_lowercase().as_str() {
-        "off" | "none" | "0" => Some(0.0),
-        "low" | "low pass" | "lowpass" | "lp" | "1" => Some(1.0),
-        "high" | "high pass" | "highpass" | "hp" | "2" => Some(2.0),
-        _ => None,
-    }
-}
-
-fn cutoff_text(hz: f32) -> String {
-    if hz >= 1_000.0 {
-        format!("{:.1} kHz", hz / 1_000.0)
-    } else {
-        format!("{hz:.0} Hz")
-    }
-}
-
-fn cutoff_parse(text: &str) -> Option<f32> {
-    let t = text.trim().replace('\u{2212}', "-").to_lowercase();
-    if let Some(k) = t.strip_suffix("khz") {
-        return k.trim().parse::<f32>().ok().map(|v| v * 1_000.0);
-    }
-    number_in(&t, &["hz"])
-}
-
-/// A number in `text`, with any of `units` after it and either minus.
-fn number_in(text: &str, units: &[&str]) -> Option<f32> {
-    let mut t = text.trim().replace('\u{2212}', "-").to_lowercase();
-    for unit in units {
-        if let Some(rest) = t.strip_suffix(unit) {
-            t = rest.trim_end().to_owned();
-        }
-    }
-    t.trim()
-        .parse::<f32>()
-        .ok()
-        .filter(|value| value.is_finite())
-}
-
-/// A gain in decibels, silent at the floor. Worked out in `f64`.
-fn db_to_gain(db: f32) -> f32 {
-    if db <= FLOOR_DB {
-        0.0
-    } else {
-        (10.0_f64).powf(f64::from(db) / 20.0) as f32
-    }
-}
-
-/// A tiny value becomes zero, so a decaying filter never reaches denormals.
-fn flush(value: f64) -> f64 {
-    if value.abs() < 1e-20 { 0.0 } else { value }
-}
-
-/// Which part of its envelope a voice is in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Stage {
-    Attack,
-    Decay,
-    Sustain,
-    Release,
-    Done,
-}
-
-/// The gain of the amp envelope through one voice.
-#[derive(Debug, Clone, Copy)]
-struct Envelope {
-    stage: Stage,
-    /// The level now, 0 to 1.
-    level: f32,
-    /// The level the release started from.
-    release_from: f32,
-}
-
-impl Envelope {
-    const START: Envelope = Envelope {
-        stage: Stage::Attack,
-        level: 0.0,
-        release_from: 0.0,
-    };
-
-    fn done(&self) -> bool {
-        self.stage == Stage::Done
-    }
-
-    fn release(&mut self) {
-        if self.stage != Stage::Done {
-            self.release_from = self.level;
-            self.stage = Stage::Release;
-        }
-    }
-
-    /// Moves on one frame with `times` (attack, decay, sustain, release in
-    /// seconds) at `rate`.
-    #[inline]
-    fn step(&mut self, times: [f32; 4], rate: u32) {
-        let frames = |seconds: f32| (f64::from(seconds) * f64::from(rate)).max(1.0);
-        match self.stage {
-            Stage::Attack => {
-                if times[0] <= 0.0 {
-                    self.level = 1.0;
-                } else {
-                    self.level += (1.0 / frames(times[0])) as f32;
-                }
-                if self.level >= 1.0 {
-                    self.level = 1.0;
-                    self.stage = Stage::Decay;
-                }
-            }
-            Stage::Decay => {
-                let target = times[2].clamp(0.0, 1.0);
-                if times[1] <= 0.0 {
-                    self.level = target;
-                } else {
-                    self.level -= ((1.0 - f64::from(target)) / frames(times[1])) as f32;
-                }
-                if self.level <= target {
-                    self.level = target;
-                    self.stage = Stage::Sustain;
-                }
-            }
-            Stage::Sustain => {
-                self.level = times[2].clamp(0.0, 1.0);
-            }
-            Stage::Release => {
-                if times[3] <= 0.0 {
-                    self.level = 0.0;
-                } else {
-                    self.level -= (f64::from(self.release_from) / frames(times[3])) as f32;
-                }
-                if self.level <= 0.0 {
-                    self.level = 0.0;
-                    self.stage = Stage::Done;
-                }
-            }
-            Stage::Done => {
-                self.level = 0.0;
-            }
-        }
-    }
-}
-
-/// The filter's settings at a voice's last knot.
-#[derive(Debug, Clone, Copy)]
-struct Fx {
-    /// 0 is out of the path, 1 low pass, 2 high pass.
-    mode: u8,
-    a: [f64; 3],
-    k: f64,
-}
-
-impl Fx {
-    /// No filter: the sample passes untouched, to the bit.
-    const OFF: Fx = Fx {
-        mode: 0,
-        a: [0.0; 3],
-        k: 0.0,
-    };
-
-    /// The coefficients for `mode`, `hz` and `resonance` (0 to 1) at `rate`,
-    /// worked out in `f64`.
-    fn new(mode: u8, hz: f32, resonance: f32, rate: u32) -> Self {
-        if mode == 0 || rate == 0 || hz >= FILTER_TOP_HZ {
-            return Self::OFF;
-        }
-        let nyquist = f64::from(rate) * 0.5;
-        let cutoff = f64::from(hz).clamp(10.0, nyquist * 0.98);
-        // A state-variable filter's `g` and damping: resonance takes the
-        // damping from critically damped towards ringing.
-        let g = (std::f64::consts::PI * cutoff / f64::from(rate)).tan();
-        let k = 2.0 - 1.9 * f64::from(resonance.clamp(0.0, 1.0));
-        let a = 1.0 / (1.0 + g * (g + k));
-        Self {
-            mode,
-            a: [a, g * a, g * g * a],
-            k,
-        }
-    }
-
-    /// One frame through the filter, `state` being the two integrators.
-    #[inline]
-    fn run(&self, state: &mut [f64; 2], x: f64) -> f64 {
-        if self.mode == 0 {
-            return x;
-        }
-        let [a1, a2, a3] = self.a;
-        let v3 = x - state[1];
-        let v1 = a1 * state[0] + a2 * v3;
-        let v2 = state[1] + a2 * state[0] + a3 * v3;
-        state[0] = flush(2.0 * v1 - state[0]);
-        state[1] = flush(2.0 * v2 - state[1]);
-        if self.mode == 2 {
-            x - self.k * v1 - v2
-        } else {
-            v2
-        }
-    }
-}
-
-/// What every voice of one frame reads: the block's curves, worked out once.
-#[derive(Debug, Clone, Copy)]
-struct FrameValues {
-    pitch: f32,
-    fine: f32,
-    mode: u8,
-    cutoff: f32,
-    resonance: f32,
-    /// How much a note's velocity sets its level, 0 to 1.
-    velocity: f32,
-}
-
-/// One sounding note.
-struct Voice {
-    /// The sample it plays, kept with the voice so a new sound never disturbs
-    /// a note already sounding. The interface's library holds every buffer,
-    /// so a voice letting go here never frees one on this thread.
-    sample: Option<Arc<Sample>>,
-    /// The region, in frames of `sample`.
-    start: usize,
-    length: usize,
-    reversed: bool,
-    looping: bool,
-    /// Where it is in the region, in frames, from 0 to `length`.
-    phase: f64,
-    /// Frames of the region per frame of output.
-    step: f64,
-    /// The note it answers, the note it was struck at, and the region's root.
-    key: u8,
-    note: u8,
-    root: u8,
-    /// The pad's tune, in semitones.
-    tune: f32,
-    /// The pad's level, the note's velocity, and the pan's two gains.
-    gain: f32,
-
-    sides: [f32; 2],
-    /// The output pair: 0 is the track's own.
-    output: u8,
-    /// The group that chokes it, and how long it fades when it is.
-    choke: Option<u8>,
-    choke_fade: Option<f32>,
-    env: Envelope,
-    /// Frames since the note started, and the pitch it last read.
-    age: u64,
-    semitones: f64,
-    /// The release this voice takes, when it is not the device's own (a
-    /// choke fade); 0 when the release curve says.
-    release_seconds: f32,
-    /// The filter's two integrating states, per side.
-    filter: [[f64; 2]; 2],
-    cut: Fx,
-    /// Voices sound in the order they started, so the oldest is taken first.
-    order: u64,
-}
-
-impl Voice {
-    const IDLE: Voice = Voice {
-        sample: None,
-        start: 0,
-        length: 0,
-        reversed: false,
-        looping: false,
-        phase: 0.0,
-        step: 1.0,
-        key: 0,
-        note: 0,
-        root: 60,
-        tune: 0.0,
-        gain: 0.0,
-
-        sides: [0.0; 2],
-        output: 0,
-        choke: None,
-        choke_fade: None,
-        env: Envelope {
-            stage: Stage::Done,
-            level: 0.0,
-            release_from: 0.0,
-        },
-        age: 0,
-        semitones: 0.0,
-        release_seconds: 0.0,
-        filter: [[0.0; 2]; 2],
-        cut: Fx::OFF,
-        order: 0,
-    };
-
-    fn playing(&self) -> bool {
-        self.sample.is_some() && !self.env.done()
-    }
-
-    /// Where in the file the region's frame `at` is: a reversed region runs
-    /// backwards through its frames.
-    #[inline]
-    fn index(&self, at: f64) -> f64 {
-        if self.reversed {
-            self.start as f64 + (self.length as f64 - 1.0) - at
-        } else {
-            self.start as f64 + at
-        }
-    }
-
-    /// The sample's value `at` frames into the region, on `channel`, read
-    /// through the region and interpolated between its neighbours.
-    #[inline]
-    fn read(&self, channel: usize, at: f64) -> f64 {
-        let sample = self
-            .sample
-            .as_ref()
-            .expect("a playing voice has its sample");
-        let index = self.index(at);
-        let base = index.floor();
-        let into = index - base;
-        if into <= 0.0 {
-            return f64::from(sample.at(channel, base as isize));
-        }
-        // Catmull-Rom through the neighbours on each side: smooth when a
-        // sample plays away from its root, and the frame itself when it does
-        // not (the branch above is the ratio-of-one path).
-        let at = |offset: isize| f64::from(sample.at(channel, base as isize + offset));
-        let (p0, p1, p2, p3) = (at(-1), at(0), at(1), at(2));
-        let (f, f2, f3) = (into, into * into, into * into * into);
-        0.5 * ((2.0 * p1)
-            + (-p0 + p2) * f
-            + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * f2
-            + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * f3)
-    }
-
-    /// Moves `frames` frames into the region, wrapping when it loops; false
-    /// when it has run out.
-    #[inline]
-    fn advance(&mut self, frames: f64) -> bool {
-        self.phase += frames;
-        if self.phase < self.length as f64 {
-            return true;
-        }
-        if self.looping && self.length > 0 {
-            let length = self.length as f64;
-            self.phase -= length * (self.phase / length).floor();
-            return true;
-        }
-        false
-    }
-}
-
-/// The parameters' values through one block, normalised: one curve each,
-/// filled by [`Sampler::automate`]. Made once by the constructor.
-struct Curves {
-    level: [f32; crate::MOST_FRAMES],
-    pitch: [f32; crate::MOST_FRAMES],
-    fine: [f32; crate::MOST_FRAMES],
-    attack: [f32; crate::MOST_FRAMES],
-    decay: [f32; crate::MOST_FRAMES],
-    sustain: [f32; crate::MOST_FRAMES],
-    release: [f32; crate::MOST_FRAMES],
-    filter: [f32; crate::MOST_FRAMES],
-    cutoff: [f32; crate::MOST_FRAMES],
-    resonance: [f32; crate::MOST_FRAMES],
-    velocity: [f32; crate::MOST_FRAMES],
-}
-
-impl Curves {
-    fn new() -> Box<Self> {
-        Box::new(Self {
-            level: [0.0; crate::MOST_FRAMES],
-            pitch: [0.0; crate::MOST_FRAMES],
-            fine: [0.0; crate::MOST_FRAMES],
-            attack: [0.0; crate::MOST_FRAMES],
-            decay: [0.0; crate::MOST_FRAMES],
-            sustain: [0.0; crate::MOST_FRAMES],
-            release: [0.0; crate::MOST_FRAMES],
-            filter: [0.0; crate::MOST_FRAMES],
-            cutoff: [0.0; crate::MOST_FRAMES],
-            resonance: [0.0; crate::MOST_FRAMES],
-            velocity: [0.0; crate::MOST_FRAMES],
-        })
-    }
-
-    /// The curve of the parameter at `index` of the table, `frames` long.
-    fn slot(&mut self, index: usize) -> &mut [f32] {
-        let all = [
-            &mut self.level,
-            &mut self.pitch,
-            &mut self.fine,
-            &mut self.attack,
-            &mut self.decay,
-            &mut self.sustain,
-            &mut self.release,
-            &mut self.filter,
-            &mut self.cutoff,
-            &mut self.resonance,
-            &mut self.velocity,
-        ];
-        all[index]
-    }
-}
-
-/// The auxiliary outputs of the block last rendered, per pair and side.
-struct Pairs {
-    left: [[f32; crate::MOST_FRAMES]; PAIRS],
-    right: [[f32; crate::MOST_FRAMES]; PAIRS],
-}
-
-impl Pairs {
-    fn new() -> Box<Self> {
-        Box::new(Self {
-            left: [[0.0; crate::MOST_FRAMES]; PAIRS],
-            right: [[0.0; crate::MOST_FRAMES]; PAIRS],
-        })
-    }
-
-    fn clear(&mut self, frames: usize) {
-        for pair in 0..PAIRS {
-            self.left[pair][..frames].fill(0.0);
-            self.right[pair][..frames].fill(0.0);
-        }
-    }
-}
 
 /// Shutter.
 pub struct Sampler {
@@ -972,7 +276,6 @@ impl Sampler {
             phase: 0.0,
             step: 1.0,
             key,
-            note: key,
             root,
             tune,
             gain,
@@ -997,7 +300,7 @@ impl Sampler {
     fn choke_note(&mut self, note: u8) {
         let times = self.times(0);
         for voice in &mut self.voices {
-            if !voice.playing() || voice.note != note {
+            if !voice.playing() || voice.key != note {
                 continue;
             }
             voice.env.release();
@@ -1008,8 +311,7 @@ impl Sampler {
     /// Releases every voice of `key` at `frame`: a note-off. A pad in a choke
     /// group fades over its choke fade; a pad outside one plays its sample to
     /// the end, as a drum sampler does; a melodic voice takes the release.
-    fn release(&mut self, key: u8, frame: usize) {
-        let times = self.times(frame);
+    fn release(&mut self, key: u8, _frame: usize) {
         for voice in &mut self.voices {
             if !voice.playing() || voice.key != key {
                 continue;
@@ -1026,7 +328,6 @@ impl Sampler {
                 None => {
                     voice.env.release();
                     voice.release_seconds = 0.0;
-                    let _ = times;
                 }
             }
         }
@@ -1128,7 +429,9 @@ impl Instrument for Sampler {
         }
         if frames == 0 {
             // Messages only: a note-on starts a voice that plays on the next
-            // block, at the block's first frame.
+            // block, at the block's first frame. Nothing of a pair is handed
+            // out until a block is rendered again.
+            self.frames = 0;
             for event in events {
                 match event.msg.kind() {
                     Kind::NoteOn { key, velocity } if velocity > 0 => self.start(0, key, velocity),
@@ -1210,6 +513,9 @@ impl Instrument for Sampler {
         }
         left[..frames].copy_from_slice(&self.pairs.left[pair - 1][..frames]);
         right[..frames].copy_from_slice(&self.pairs.right[pair - 1][..frames]);
+        // Past the block last rendered there is nothing of this pair.
+        left[frames..].fill(0.0);
+        right[frames..].fill(0.0);
         true
     }
 

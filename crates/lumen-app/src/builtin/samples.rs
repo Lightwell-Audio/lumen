@@ -50,23 +50,33 @@ pub struct Loaded {
 const WORKERS: usize = 4;
 
 /// Files a person asked for, on their way into a sampler (M8 slice B5): the
-/// ids asked for and the device they go to, until every one has answered.
+/// files asked for and the device they go to, until every one has answered.
+///
+/// The asks are a queue: a person who chooses a second set of files while the
+/// first is decoding gets both, the first finishing first (review M2). An
+/// arrival that belongs to a later ask waits until that ask is reached.
 #[derive(Debug, Default)]
 pub struct Loading {
-    waiting: Option<Waiting>,
+    waiting: Vec<Waiting>,
 }
 
+/// One ask: the device, and each file's id and name (a name is what a timeout
+/// or a dead worker is said by, review L6).
 #[derive(Debug)]
 struct Waiting {
     device: Id,
-    ids: Vec<Id>,
+    wanted: Vec<(Id, String)>,
     /// When the ask began: a worker that never answers is said so after a
     /// while rather than waited on for ever.
     since: std::time::Instant,
 }
 
-/// What happened to one ask: the files that arrived, and why the others did
-/// not, and the device they were for.
+/// The longest a file is waited for: after it the ask names what did not
+/// arrive, so a file that will not come never holds the person's edit open.
+const PATIENCE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// What happened to one ask: the files that arrived, why the others did not,
+/// and the device they were for.
 #[derive(Debug)]
 pub struct Arrived {
     pub device: Id,
@@ -75,53 +85,72 @@ pub struct Arrived {
 }
 
 impl Loading {
-    /// Starts waiting for `ids`, which go to `device`.
-    pub fn start(&mut self, device: Id, ids: Vec<Id>) {
-        self.waiting = Some(Waiting {
+    /// Queues an ask for `wanted` (`id`, file name), which go to `device`.
+    pub fn start(&mut self, device: Id, wanted: Vec<(Id, String)>) {
+        self.waiting.push(Waiting {
             device,
-            ids,
+            wanted,
             since: std::time::Instant::now(),
         });
     }
 
     /// Whether files are still on their way.
     pub fn is_loading(&self) -> bool {
-        self.waiting.is_some()
+        !self.waiting.is_empty()
     }
 
-    /// Takes what finished. `Some` once every file asked for has answered (or
-    /// one could not); `None` while they are still making up their minds.
+    /// Takes the next ask's files. `Some` once every file that ask named has
+    /// answered (or failed, or the ask ran out of patience); `None` while they
+    /// are still making up their minds. The asks finish in the order they were
+    /// made, and a file that arrives for a later ask waits for it.
     pub fn take_ready(&mut self, library: &mut Library) -> Option<Arrived> {
-        let waiting = self.waiting.as_ref()?;
+        let waiting = self.waiting.first()?;
         let mut files = Vec::new();
-        let mut failed = Vec::new();
+        let mut later = Vec::new();
         for loaded in library.take_ready() {
-            if waiting.ids.contains(&loaded.media) {
+            if waiting.wanted.iter().any(|(id, _)| *id == loaded.media) {
                 files.push(loaded);
+            } else {
+                later.push(loaded);
             }
         }
-        let mut left = 0;
-        for id in &waiting.ids {
+        // A file for an ask further down the queue is not dropped: it goes back
+        // for that ask to read.
+        for file in later {
+            library.ready.push(file);
+        }
+        let mut failed = Vec::new();
+        let mut left = Vec::new();
+        for (id, name) in &waiting.wanted {
             if files.iter().any(|f| f.media == *id) {
                 continue;
             }
             match library.failed(*id) {
-                Some(why) => failed.push(why.to_owned()),
-                None => left += 1,
+                Some(why) => failed.push(format!("{name}: {why}")),
+                None => left.push(name.clone()),
             }
         }
-        // A worker that never answers is given up on after a while: a sample
-        // that will not arrive never holds the person's edit open.
-        let gave_up = waiting.since.elapsed() > std::time::Duration::from_secs(30);
-        if left > 0 && !gave_up {
-            // Keep the files that did arrive for the next frame.
+        let gave_up = waiting.since.elapsed() > PATIENCE;
+        if !left.is_empty() && !gave_up {
+            // Keep what arrived for the next frame.
             for file in files {
                 library.ready.push(file);
             }
             return None;
         }
+        if !left.is_empty() {
+            failed.push(format!(
+                "{} did not arrive in time: {}.",
+                if left.len() == 1 {
+                    "This sample"
+                } else {
+                    "These samples"
+                },
+                left.join(", ")
+            ));
+        }
         let device = waiting.device;
-        self.waiting = None;
+        self.waiting.remove(0);
         Some(Arrived {
             device,
             files,
@@ -130,9 +159,13 @@ impl Loading {
     }
 }
 
-/// A decode under way.
+/// A decode under way: the path it was asked at and the rate it is for, so a
+/// device change while it runs can say so rather than hand the engine a buffer
+/// at the wrong rate.
 struct Working {
     media: Id,
+    path: PathBuf,
+    rate: u32,
     rx: Receiver<Result<Loaded, (PathBuf, String)>>,
 }
 
@@ -155,6 +188,12 @@ pub struct Library {
     /// A sample arrived since this was last read, so what the engine plays is
     /// built again (a relinked file reaches the audio through this).
     arrived: bool,
+    /// The buffers of the generation before a sample-rate change. A voice of
+    /// the old rate can still be ringing, holding a share of one, so they are
+    /// kept until the engine has given back the list that held those voices
+    /// ([`Library::release_stale`]): dropping them here would let the audio
+    /// thread free a buffer it let go of (M8 slice B5, review M3).
+    stale: Vec<BTreeMap<Id, Source>>,
 }
 
 impl Library {
@@ -208,6 +247,7 @@ impl Library {
         );
         let size_bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
         let worker_name = format!("lumen-sampler-{:x}", media.0);
+        let asked_at = path.clone();
         let tries = path.clone();
         let spawned = crate::spawn::spawn_named(&worker_name, move || {
             let result = decode(&path, rate, media)
@@ -223,7 +263,12 @@ impl Library {
             Ok(handle) => {
                 drop(handle);
                 self.asked.insert(media);
-                self.working.push(Working { media, rx });
+                self.working.push(Working {
+                    media,
+                    path: asked_at,
+                    rate,
+                    rx,
+                });
             }
             Err(error) => self.failed.push((
                 media,
@@ -236,13 +281,24 @@ impl Library {
     /// Takes the files that finished decoding: the app joins them to the
     /// project, as one undo step. Answers that arrived are read here, so call
     /// it every frame.
+    /// Reads the decoders' answers, and makes every buffer again when the
+    /// device runs at another rate. A rate change retires the buffers it had:
+    /// they are held until the caller says the engine has let go of the list
+    /// that played them ([`Library::release_stale`]).
     pub fn update(&mut self, rate: u32) {
         if rate != 0 && rate != self.rate {
-            // The device runs at another rate: every buffer is made again.
+            // The device runs at another rate: every buffer is made again, at
+            // the new rate. The old ones are kept, not dropped: a voice of the
+            // old rate may still be ringing and holding one, and letting it go
+            // here would make the audio thread free it (M8 slice B5, review
+            // M3).
             if self.rate != 0 {
-                self.loaded.clear();
+                if !self.loaded.is_empty() {
+                    self.stale.push(std::mem::take(&mut self.loaded));
+                }
                 self.asked.clear();
                 self.failed.clear();
+                self.ready.clear();
             }
             self.rate = rate;
         }
@@ -251,6 +307,16 @@ impl Library {
             match working.rx.try_recv() {
                 Ok(result) => {
                     self.asked.remove(&working.media);
+                    if working.rate != self.rate {
+                        // Made for the rate the device no longer runs at: it
+                        // is said so, rather than played at the wrong speed.
+                        self.failed.push((
+                            working.media,
+                            working.path,
+                            "the device's sample rate changed while it decoded".to_owned(),
+                        ));
+                        continue;
+                    }
                     match result {
                         Ok(loaded) => {
                             self.loaded.insert(loaded.media, loaded.source.clone());
@@ -260,15 +326,47 @@ impl Library {
                         Err((path, why)) => self.failed.push((working.media, path, why)),
                     }
                 }
-                // Still decoding. It ended without an answer only if its
-                // thread is gone, which the spawn would have refused.
+                // Still decoding.
                 Err(mpsc::TryRecvError::Empty) => still.push(working),
+                // Its thread ended without an answer (a worker that vanished):
+                // the file is named as one that did not arrive (review L6).
                 Err(mpsc::TryRecvError::Disconnected) => {
                     self.asked.remove(&working.media);
+                    self.failed.push((
+                        working.media,
+                        working.path,
+                        "its decoder stopped without an answer".to_owned(),
+                    ));
                 }
             }
         }
         self.working = still;
+    }
+
+    /// Whether a generation of buffers waits for [`Library::release_stale`].
+    pub fn has_stale(&self) -> bool {
+        !self.stale.is_empty()
+    }
+
+    /// Frees the retired generation's buffers that nothing else holds any
+    /// more, and answers the bytes freed. Called on the interface thread: a
+    /// buffer is let go only when this library is its last owner, so a voice
+    /// or a track list on the audio thread can never be left to free it
+    /// (M8 slice B5, review M3). Run every frame; a buffer waits until the
+    /// engine has given back the list that played it.
+    pub fn release_stale(&mut self) -> usize {
+        let mut freed = 0;
+        for generation in &mut self.stale {
+            generation.retain(|_, source| {
+                if Arc::strong_count(&source.sample) > 1 {
+                    return true;
+                }
+                freed += source.sample.memory();
+                false
+            });
+        }
+        self.stale.retain(|generation| !generation.is_empty());
+        freed
     }
 
     /// Whether a sample arrived since this was last asked, which is when what
@@ -388,6 +486,14 @@ impl Library {
             reversed: false,
         })
     }
+}
+
+/// A file's name without its folder or extension, as a notice names it.
+pub fn file_name(path: &std::path::Path) -> String {
+    path.file_stem().map_or_else(
+        || path.to_string_lossy().into_owned(),
+        |name| name.to_string_lossy().into_owned(),
+    )
 }
 
 /// A level in decibels as a gain.
@@ -719,6 +825,116 @@ mod tests {
         assert_eq!(
             place_by_name_or_order(&unnamed, &["x".into(), "y".into()]),
             [(36, 0), (38, 1)]
+        );
+    }
+    /// A file that finished decoding, ready to be read by [`Loading`].
+    fn arrived(media: u64, name: &str) -> Loaded {
+        Loaded {
+            media: Id(media),
+            path: PathBuf::from(format!("Samples/{name}.wav")),
+            name: name.to_owned(),
+            source: Source {
+                sample: Arc::new(Sample::mono(48_000, vec![0.1; 100])),
+                file_rate: 48_000,
+                frames: 100,
+            },
+            size_bytes: 400,
+        }
+    }
+
+    /// A second choice while the first is still decoding is not a
+    /// replacement: both asks finish, the first first, and a file that
+    /// arrives for the second waits for it (M8 slice B5, review M2).
+    #[test]
+    fn a_second_choice_while_the_first_loads_gets_both_in_order() {
+        let mut library = Library::default();
+        let mut loading = Loading::default();
+        loading.start(Id(1), vec![(Id(10), "first".into())]);
+        loading.start(Id(2), vec![(Id(20), "second".into())]);
+        assert!(loading.is_loading());
+
+        // The second ask's file arrives first: it is kept for its ask.
+        library.ready.push(arrived(20, "second"));
+        assert!(
+            loading.take_ready(&mut library).is_none(),
+            "the first ask still waits"
+        );
+        assert_eq!(library.ready.len(), 1, "the early file was not dropped");
+
+        // The first ask's file comes: that ask finishes with its own file
+        // only, and the second one reads the file that arrived early.
+        library.ready.push(arrived(10, "first"));
+        let first = loading.take_ready(&mut library).expect("the first ask");
+        assert_eq!(first.device, Id(1));
+        assert_eq!(
+            first.files.iter().map(|f| f.media).collect::<Vec<_>>(),
+            [Id(10)]
+        );
+        assert!(first.failed.is_empty());
+
+        let second = loading.take_ready(&mut library).expect("the second ask");
+        assert_eq!(second.device, Id(2));
+        assert_eq!(
+            second.files.iter().map(|f| f.media).collect::<Vec<_>>(),
+            [Id(20)]
+        );
+        assert!(!loading.is_loading(), "both asks are done");
+    }
+
+    /// A file that does not arrive is named when the ask gives up on it
+    /// (M8 slice B5, review L6).
+    #[test]
+    fn a_file_that_does_not_arrive_is_named_after_the_ask_gives_up() {
+        let mut library = Library::default();
+        let mut loading = Loading::default();
+        loading.start(
+            Id(1),
+            vec![(Id(10), "intro".into()), (Id(11), "verse".into())],
+        );
+        library.ready.push(arrived(10, "intro"));
+        // The patience runs out: rather than hold the edit open for ever, the
+        // ask ends and says which file did not come.
+        loading.waiting[0].since =
+            std::time::Instant::now() - PATIENCE - std::time::Duration::from_secs(1);
+        let arrived = loading.take_ready(&mut library).expect("the ask ends");
+        assert_eq!(arrived.files.len(), 1, "the file that came");
+        assert!(
+            arrived
+                .failed
+                .iter()
+                .any(|why| why.contains("verse") && why.contains("did not arrive")),
+            "{:?}",
+            arrived.failed
+        );
+        assert!(!loading.is_loading());
+    }
+
+    /// A decoder that ends without an answer is named by its file, not
+    /// silently forgotten (M8 slice B5, review L6).
+    #[test]
+    fn a_decoder_that_vanishes_names_its_file() {
+        let mut library = Library::default();
+        let mut loading = Loading::default();
+        // A decode whose worker is gone: its channel closed with no answer.
+        let (tx, rx) = mpsc::channel();
+        drop(tx);
+        library.working.push(Working {
+            media: Id(10),
+            path: PathBuf::from("Samples/gone.wav"),
+            rate: 48_000,
+            rx,
+        });
+        library.update(48_000);
+        loading.start(Id(1), vec![(Id(10), "gone".into())]);
+        let arrived = loading.take_ready(&mut library).expect("the ask ends");
+        assert!(arrived.files.is_empty());
+        assert!(
+            arrived
+                .failed
+                .iter()
+                .any(|why| why.contains("gone") && why.contains("stopped without an answer")),
+            "{:?}",
+            arrived.failed
         );
     }
 }

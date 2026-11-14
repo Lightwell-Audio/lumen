@@ -14085,6 +14085,77 @@ first device whose sound is data a worker has to decode.
    "route all sounds" step is the same edit for every pad of the map in one undo
    step. Nothing else in this slice needs changing for D4.
 
+**Review round.** An independent review of the slice found eleven things; each
+is fixed here with the test that pins it.
+
+1. **A pad on an output pair is heard** (H1). `midi/play.rs`'s
+   `plugin_outputs` only built a plugin's pairs; it now answers a sampler's
+   through `sampler_outputs`, which maps every pair a pad uses — and every pair
+   a track of the project was made for — to that track, or to the instrument's
+   own track when no track plays it. E2E
+   `a_pad_on_an_output_pair_is_heard_on_the_track_that_plays_it` hears the hit
+   hard right on the sampler's own track with no track for the pair, and hard
+   left on the track the pair was made for.
+2. **A project with no sampler decodes nothing into it** (H2).
+   `Lanes::follow_samples` walked `project().media`; it now decodes only the
+   media a sampler device names. E2E
+   `a_project_without_a_sampler_decodes_no_samples` drops an audio file and
+   asserts `sample_memory() == 0`.
+3. **The card's values reach the instrument while stopped** (H3).
+   `lumen-engine/src/midi/tracks.rs` gave an instrument its values only in
+   `Mode::Play`; the values are now given in every mode and only the lanes stay
+   gated on Play (B4's synth reads the same block, so the one gate carries a
+   comment for it). Tests: the engine's
+   `a_samplers_level_is_heard_on_a_note_played_while_stopped` (a live note,
+   transport stopped, −20 dB a tenth) and the device's
+   `a_level_of_minus_twenty_decibels_is_a_tenth`, plus E2E
+   `the_level_set_while_stopped_is_heard_on_a_live_note`.
+4. **Pads follow a drum map attached after the device** (M1).
+   `Document::attach_drum_map_preset_to`, the attach of a held map, detach,
+   `make_drum_map_unique` and the import each call
+   `document::sampler::follow_drum_map` inside their own edit, so the pads and
+   the map are one undo step. Test
+   `a_map_attached_after_the_sampler_gives_it_its_pads`: General MIDI gives 47
+   pads, pad 36 keeps its file, and detaching gives the sixteen back.
+5. **A second file choice no longer drops the first** (M2). `Loading` holds a
+   queue of asks, each with its files' ids **and names**; they finish in order,
+   and a file that arrives for a later ask is pushed back for it. Tests
+   `a_second_choice_while_the_first_loads_gets_both_in_order` and, for the two
+   ways a file goes missing, `a_file_that_does_not_arrive_is_named_after_the_ask_gives_up`
+   and `a_decoder_that_vanishes_names_its_file` (L6).
+6. **A rate change never frees a ringing voice's sample on the audio thread**
+   (M3). `Library` keeps the retired generation in `stale` rather than
+   `clear()`ing it; `Lanes` frees it only after a successful `midi.set` followed
+   by `collect_garbage() > 0`, which proves the engine gave back the list that
+   held the old voices. A decode that finishes for the old rate is said so
+   rather than played at the wrong speed. Test
+   `crates/lumen-app/tests/sampler_realtime.rs`: the library's rate changes
+   while a voice rings, the voice ends under the allocation guard, and only
+   then are the buffers freed.
+7. **The device is split** (M4): `mod.rs` keeps `Sampler` and its
+   `impl Instrument`; `table.rs` the ids, the table and the words and parsing;
+   `voice.rs` the envelope, filter, voice, curves, pairs and their frame values;
+   `sound.rs` was already the model, as `synth/` is shaped.
+8. **One shot keeps one file** (M5). Only the file it plays becomes media of
+   the project, the notice says how many were skipped and offers Zones, and the
+   comment matches. Test
+   `one_shot_keeps_the_first_file_and_leaves_the_rest_out_of_the_project`.
+9. **The pitched reference covers the hard cases** (L1): a region starting
+   inside the file, reversed playback, and a file whose rate is not the
+   render's — each asserting the first frame is `tone[start]` (or the last frame,
+   reversed) and the rest within 1e-6 of an independent `f64` reference.
+10. **Dead code is gone** (L2, L3): `Voice.note` (the choke matches `key`), the
+    `let _ =` no-ops, the ignored `times`, and a duplicated `SHUTTER_DEEP` doc
+    (the merge's). `Sampler::output` zeroes `frames` on an empty block and
+    silences the samples past the block it last rendered (L5).
+11. **Zones are covered** (L4): the unit test
+    `zones_share_the_keyboard_and_play_from_their_middles` pins the share and
+    root arithmetic for one, two and three files, and the E2E
+    `zones_across_the_keyboard_play_their_own_files` loads three files through
+    the command and hears each at its own level. Dropping a file onto a pad and
+    auditioning a pad are the drawn face's gestures, not this slice's
+    (`docs/milestones/M8.md`, B5).
+
 **Not here.** A drawn face (the next slice); disk streaming of large sample sets
 (risk 4: everything is loaded in memory, and the library's `memory()` reports the
 total); MIDI-triggered slice maps; presets for the sampler beyond its parameters
