@@ -593,13 +593,13 @@ pub mod personality {
 
     /// Flare, the polysynth (M8 slice B4): a warm amber, the colour of the
     /// flare its own picture burns.
-    pub const SYNTH: Color32 = Color32::from_rgb(0xFF, 0xB5, 0x47);
+    pub const SYNTH: Color32 = Color32::from_rgb(0xFF, 0xC2, 0x3D);
     /// The deep tint under Flare's picture: the screen is its own colour at
     /// night, as every built-in's is (DESIGN.md §7k), and this one carries
     /// the amber. The drawn face uses it; until then it is the record of the
     /// colour the specimens gave it.
     #[allow(dead_code)]
-    pub const SYNTH_DEEP: Color32 = Color32::from_rgb(0x12, 0x0D, 0x05);
+    pub const SYNTH_DEEP: Color32 = Color32::from_rgb(0x11, 0x0D, 0x05);
     /// Iris, the parametric EQ (M8 slice B1): a periwinkle blue, the colour of
     /// the curve it draws (`docs/specimens/m8/chosen.html`).
     pub const EQ: Color32 = Color32::from_rgb(0x7C, 0x8C, 0xFF);

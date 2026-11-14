@@ -13963,7 +13963,7 @@ no longer repeats the activation egui already reports (L9).
 a saved preference for the view, and auditioning a lane from a hardware pad
 (the lane's name auditions the sound; a pad plays the track already).
 
-## ADR-XXXX — The synth's controls (M8 slice B4)
+## ADR-0150 — The synth's controls (M8 slice B4)
 
 **Status.** Proposed (M8 slice B4; the parent assigns the number — 0146 and
 0147 are taken on main by Iris and the drum editor). Brief:
@@ -14146,7 +14146,7 @@ out of the chain, so the synth needed a path of its own.
     name the format saved first (`PluginRef::Builtin { name: "synth" }`, never
     renamed) and gains a personality in `theme::personality` and
     `builtin::IDENTITIES`'s new `INSTRUMENTS` list: the name **Flare**, the
-    subtitle **Polysynth**, the hue `#FFB547`, and the deep screen tint `#120D05`
+    subtitle **Polysynth**, the hue `#FFC23D`, and the deep screen tint `#110D05`
     beside it (`SYNTH`, `SYNTH_DEEP`). Its card is the framework's: the same
     table-driven strip and All parameters as Prism's, because
     `builtin::has_table` is what the card and the parameter panel read, and
@@ -14155,11 +14155,10 @@ out of the chain, so the synth needed a path of its own.
     "Reso", "Attack", "Release" — with the plain names in the table (`"Amp
     attack"`, `"Resonance"`) for tooltips, All parameters and the automation
     chooser; no drawing code reads them yet, by the owner's rule that the face is
-    a later agent's. The brief gives the hue as `#FFB547`/`#120D05`, while
-    `docs/specimens/m8/devices.html` draws Flare at `#FFC23D`/`#110D05`; the
-    brief's numbers are the ones recorded (they are also the amber of Prism's
-    own beam palette, so the two devices share a family), and the parent can
-    settle it when the face is drawn.
+    a later agent's. The colours are round 2's (`flare()` in
+    `docs/specimens/m8/devices.html`); the brief's first numbers,
+    `#FFB547`/`#120D05`, were a slip in the brief and were corrected to the
+    specimen at merge.
 12. **The card's footer tells the truth.** An instrument reports no latency and
     no tail (`synth::DESCRIPTION` answers 0 for both, as a pure function of the
     values), and the engine keeps rendering a voice until its own release ends, so

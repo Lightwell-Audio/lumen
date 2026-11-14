@@ -335,7 +335,7 @@ fn golden(preset: Preset) -> (Vec<f32>, Vec<f32>) {
 }
 
 /// How far the sound of a preset may be from the render this build's
-/// predecessor made of it, sample by sample (M8 slice B4, ADR-XXXX): a
+/// predecessor made of it, sample by sample (M8 slice B4, ADR-0150): a
 /// thousandth of full scale, 60 dB down. The old path worked its filter and
 /// pitch out in `f32` through the library's `tan`, `exp2`, `sin` and `cos`;
 /// this one works them out in `f64` by hand so a golden is the same on every
