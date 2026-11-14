@@ -21,6 +21,7 @@ pub(crate) mod coverage;
 mod devices;
 pub mod docs;
 mod drum_icons;
+mod drums;
 mod editor;
 mod instance;
 mod launch;
@@ -288,6 +289,11 @@ impl App {
         self.nav.set(view);
     }
 
+    /// Sets the arrangement's view to `left` beats at `zoom` points a beat, as
+    /// zooming and scrolling would (a deep zoom for a test).
+    pub fn set_view_to(&mut self, left: f64, zoom: f64) {
+        self.nav.set(TimeView { left, zoom });
+    }
     /// The height of every track row together, in points.
     pub fn tracks_height(&self, ctx: &egui::Context) -> f32 {
         self.arrangement
@@ -487,6 +493,17 @@ impl App {
             .collect()
     }
 
+    /// Why the command named `name` cannot run now, as the palette and the
+    /// menus say it; `None` when it can (the commands' own reasons, review
+    /// L4).
+    pub fn command_reason(&self, ctx: &egui::Context, name: &str) -> Option<&'static str> {
+        let info = crate::commands::ALL
+            .iter()
+            .find(|info| info.name == name)
+            .unwrap_or_else(|| panic!("no command named {name}"));
+        self.availability(ctx, info.command).err()
+    }
+
     /// The changed shortcuts the settings file will keep, by command id.
     pub fn saved_shortcuts(&self) -> std::collections::BTreeMap<String, Vec<String>> {
         self.settings.commands.shortcuts.clone()
@@ -616,6 +633,11 @@ impl App {
     /// Opens a MIDI clip in the clip editor, as a double-click does.
     pub fn open_clip_editor(&mut self, clip: Id) {
         self.open_note_editor(clip);
+    }
+
+    /// Closes the clip editor, as the clip going does.
+    pub fn close_the_clip_editor(&mut self) {
+        self.close_note_editor();
     }
 
     /// Sets a clip's gain as the properties card does (one undo step).

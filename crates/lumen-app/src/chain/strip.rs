@@ -53,6 +53,12 @@ pub(super) struct Slot {
 pub(super) enum Output {
     /// A parameter was moved.
     Set(u32, f64),
+    /// Several were moved together by a face: a point drags its band's
+    /// frequency and gain at once, as one gesture of one undo step (M8 slice
+    /// B1).
+    Moved(Vec<(u32, f64)>),
+    /// A face put a band back to its defaults: one undo step.
+    Reset(Vec<(u32, f64)>),
     /// A switch or a chooser picked a value: one undo step each.
     Choose(u32, f64),
     /// The user typed text for a parameter: the plugin reads it.

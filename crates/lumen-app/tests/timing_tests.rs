@@ -38,6 +38,9 @@ const KNOWN: &[&str] = &[
     "crates/lumen-app/tests/e2e/audio_editor_handles.rs",
     // The bench (ignored) prints frame times and fails only past a second.
     "crates/lumen-app/tests/e2e/audio_editor_hearing.rs",
+    // The drum editor's bench (ignored) prints the lanes' and the roll's
+    // frame times and asserts only that the lanes stay within reach.
+    "crates/lumen-app/tests/e2e/drum_lanes_bench.rs",
     "crates/lumen-app/tests/e2e/clips.rs",
     "crates/lumen-app/tests/e2e/cue.rs",
     "crates/lumen-app/tests/e2e/dropdown.rs",

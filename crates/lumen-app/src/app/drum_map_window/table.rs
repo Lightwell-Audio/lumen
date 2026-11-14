@@ -22,10 +22,11 @@ use super::Action;
 use crate::design::icons::{DrumGlyph, paint_drum_glyph};
 use crate::theme;
 use crate::widgets::number::{self, Number};
-use crate::widgets::{Dropdown, Menu, raised};
+use crate::widgets::{Dropdown, Menu, letter_toggle, raised};
 
 /// One row's height: the lanes' row (`DV`, 2 x space::M + space::XS).
-pub(crate) const ROW: f32 = 28.0;
+/// A sound row's height: the drum editor's lane (one constant, review L2).
+pub(crate) const ROW: f32 = crate::drum_editor::geometry::ROW;
 /// The gap between columns.
 const GAP: f32 = 6.0;
 /// The icon column: the drawing, which is also the row's drag handle.
@@ -928,56 +929,6 @@ fn colour_grid(ui: &mut Ui, current: Color) -> Option<Option<Color>> {
     picked.map(Some)
 }
 
-/// A lettered toggle the height of a row (Mute, Solo), the specimen's small
-/// square: lit in its tone when on, a raised control when off. True when it
-/// was clicked (or Space/Enter was pressed on it).
-fn letter_toggle(
-    ui: &mut Ui,
-    rect: Rect,
-    id: Id,
-    letter: &str,
-    on: bool,
-    name: &str,
-    tone: theme::Tone,
-) -> bool {
-    let response = ui.interact(rect, id, Sense::click());
-    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, name));
-    let response = response.on_hover_text(name);
-    if ui.is_rect_visible(rect) {
-        let rect = rect.round_to_pixels(ui.pixels_per_point());
-        let radius = theme::radius::for_height(rect.height());
-        let face = raised::Face::new(theme::controls(on))
-            .hover(crate::motion::hover(
-                ui.ctx(),
-                id.with("hover"),
-                response.hovered(),
-            ))
-            .lit(if on { 1.0 } else { 0.0 }, tone);
-        let body = raised::paint(ui.painter(), rect, radius, &face);
-        if !on {
-            // A hairline edge, as the lanes' M and S draw it.
-            ui.painter().rect_stroke(
-                rect,
-                f32::from(radius),
-                egui::Stroke::new(theme::stroke::HAIRLINE, theme::p().border_strong),
-                StrokeKind::Inside,
-            );
-        }
-        let galley = ui.painter().layout_no_wrap(
-            letter.to_owned(),
-            FontId::proportional(theme::size::SCALE),
-            face.text(),
-        );
-        let at = Align2::CENTER_CENTER
-            .anchor_size(body.center(), galley.size())
-            .round_to_pixels(ui.pixels_per_point())
-            .min;
-        ui.painter().galley(at, galley, face.text());
-        raised::focus_ring(ui.painter(), &response, rect);
-    }
-    response.clicked()
-}
-
 /// A small raised button with a word in it (Learn).
 fn word_button(ui: &mut Ui, rect: Rect, id: Id, label: &str, on: bool, name: &str) -> bool {
     let response = ui.interact(rect, id, Sense::click());
@@ -1033,6 +984,11 @@ fn quantize_menu(
         let mut values = vec![None];
         for feel in [Feel::Straight, Feel::Triplet, Feel::Dotted] {
             for size in Size::all() {
+                // A bar is straight only (review L8): it is not whole ticks in
+                // every meter, so no triplet or dotted bar is offered.
+                if matches!(size, Size::Bars(_)) && feel != Feel::Straight {
+                    continue;
+                }
                 labels.push(quantize_short(size, feel));
                 values.push(Some(Quantize { size, feel }));
             }
@@ -1168,11 +1124,16 @@ mod tests {
     }
 
     #[test]
-    fn the_quantize_menu_offers_no_grid_then_each_feel() {
+    fn the_quantize_menu_offers_no_grid_then_each_feel_but_no_bar_feel() {
+        // The menu's own choices, built as `quantize_menu` builds them
+        // (review L8: a bar has no triplet or dotted feel).
         let mut labels = vec!["\u{2013}".to_owned()];
         let mut values = vec![None];
         for feel in [Feel::Straight, Feel::Triplet, Feel::Dotted] {
             for size in Size::all() {
+                if matches!(size, Size::Bars(_)) && feel != Feel::Straight {
+                    continue;
+                }
                 labels.push(quantize_short(size, feel));
                 values.push(Some(Quantize { size, feel }));
             }
@@ -1180,8 +1141,24 @@ mod tests {
         assert_eq!(labels.len(), values.len());
         assert_eq!(labels[1], "8 bars");
         assert_eq!(labels[8], "16");
-        assert_eq!(labels[18], "16T");
-        assert_eq!(labels[28], "16D");
+        // Straight's ten sizes, then triplets and dots of the six note sizes.
+        assert_eq!(labels.len(), 1 + 10 + 6 + 6);
+        assert!(
+            values.iter().all(
+                |v| !matches!(v, Some(Quantize { size: Size::Bars(_), feel })
+                    if *feel != Feel::Straight)
+            ),
+            "no triplet or dotted bar is offered"
+        );
+        // 16's own place in the ladder, then its triplet and dot: the same
+        // note in the next two blocks of six.
+        let at = 1 + Size::all()
+            .iter()
+            .position(|size| *size == Size::Note(16))
+            .expect("16 is a size");
+        assert_eq!(labels[at], "16");
+        assert_eq!(labels[at + 6], "16T");
+        assert_eq!(labels[at + 12], "16D");
         assert_eq!(values[0], None);
     }
 }

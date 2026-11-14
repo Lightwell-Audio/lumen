@@ -94,6 +94,9 @@ pub(super) struct Look<'a> {
     pub sidechain: Option<&'a sidechain::Look>,
     /// The outputs row of a plugin instrument that has more than one output.
     pub outputs: Option<&'a outputs::Look>,
+    /// A built-in with a drawing (M8): its card is a set piece (`screen/`), at
+    /// the step the panel's height allows.
+    pub personal: Option<screen::Personal<'a>>,
     /// The tray is short: the card is the compact one (D2).
     pub compact: bool,
     /// What the compact card says in its knobs' place, worked out once a
@@ -125,6 +128,9 @@ pub(super) struct Out {
     pub action: Option<Action>,
     /// What the strip's knobs and button asked for.
     pub strip: Vec<strip::Output>,
+    /// A drawing's part picked this frame (0-based), so the next frame draws it
+    /// picked.
+    pub picked: Option<usize>,
     /// The sidechain row's chooser (it opens the menu).
     pub sidechain: Option<Response>,
     /// The outputs row's chooser (it opens the menu).
@@ -187,6 +193,9 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     let body = ui.interact(rect, id.with("card"), Sense::click_and_drag());
     if look.folded {
         return paint_rail(ui, rect, id, look, body);
+    }
+    if look.personal.is_some() && matches!(look.face, Face::Ready) {
+        return screen::paint(ui, rect, id, look, body);
     }
     if look.compact {
         return compact::paint(ui, rect, id, look, body);
@@ -390,6 +399,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         step,
         action,
         strip,
+        picked: None,
         sidechain: key,
         outputs: outs,
     }
@@ -413,7 +423,21 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
         }
         .as_shape(rect, CornerRadius::same(RADIUS)),
     );
-    painter.rect_filled(rect, radius, palette.header);
+    painter.rect_filled(
+        rect,
+        radius,
+        if look.personal.is_some() {
+            palette.raised
+        } else {
+            palette.header
+        },
+    );
+    if look.personal.is_some() {
+        // A built-in's rail is its card's colour: the hue's bar glows with the
+        // level, the name is in the display face set on end (M8).
+        let power = screen::rail(ui, rect, id, look);
+        return paint_rail_edge(ui, rect, look, body, hover, power);
+    }
     if look.instrument {
         painter.rect_filled(
             Rect::from_min_size(
@@ -467,6 +491,23 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
         egui::epaint::TextShape::new(at, galley, ink).with_angle(-std::f32::consts::FRAC_PI_2),
     );
 
+    paint_rail_edge(ui, rect, look, body, hover, power)
+}
+
+/// A rail's edge, Ember wash and focus ring, and what it answers.
+fn paint_rail_edge(
+    ui: &mut Ui,
+    rect: Rect,
+    look: &Look<'_>,
+    body: Response,
+    hover: f32,
+    power: Response,
+) -> Out {
+    let palette = *theme::p();
+    let radius = f32::from(RADIUS);
+    let painter = ui
+        .painter()
+        .with_clip_rect(rect.expand(theme::size::SHADOW_ROOM));
     painter.rect_filled(
         rect,
         radius,
@@ -490,6 +531,7 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
         name: None,
         step: None,
         strip: Vec::new(),
+        picked: None,
         action: None,
         sidechain: None,
         outputs: None,
@@ -532,6 +574,9 @@ fn footer_words(look: &Look<'_>) -> (String, String) {
 mod body;
 pub(super) mod compact;
 mod picture;
+mod screen;
+
+pub(in crate::chain) use screen::{Personal, level_of};
 
 use body::{paint_field, paint_strip};
 use picture::{has_window_button, paint_badge, paint_picture, paint_snapshot, power_button};

@@ -381,8 +381,8 @@ impl App {
             Command::AddWarpMarker | Command::ClearWarpMarkers => self.markers_unavailable(),
             Command::FixWarpHit => self.fix_warp_hit_unavailable(),
             // Prism can always go somewhere: on the selected track, or on a
-            // new audio track (M8 slice B0).
-            Command::AddUtility => Ok(()),
+            // new audio track (M8 slice B0). Iris likewise (B1).
+            Command::AddUtility | Command::AddEq => Ok(()),
             Command::TransposeClipUp | Command::TransposeClipDown => self.transpose_unavailable(),
             Command::SetTempoFromClip | Command::DoubleClipTempo | Command::HalveClipTempo => {
                 self.warped_unavailable()
@@ -512,8 +512,30 @@ impl App {
             ),
             Command::DrumMapImport => Ok(()),
             Command::HideUnmappedKeys => need(
-                self.editor_has_drum_map(),
-                "Open a MIDI clip on a track with a drum map first",
+                self.editor_has_drum_map()
+                    && self
+                        .note_editor
+                        .clip
+                        .is_some_and(|c| self.drum_view(c) == Some(crate::drum_editor::View::Keys)),
+                "Open a MIDI clip on a track with a drum map in the Keys view first",
+            ),
+            // A drum clip's view rows: the reason says what is missing, so a
+            // clip on a track with no map is told that (review L4).
+            Command::DrumLanesView | Command::DrumKeysView | Command::HideUnusedLanes => {
+                let drum = self.note_editor.clip.and_then(|clip| self.drum_view(clip));
+                match (command, drum) {
+                    (_, None) => Err("Open a clip on a track with a drum map first"),
+                    (Command::DrumLanesView, Some(crate::drum_editor::View::Keys)) => Ok(()),
+                    (Command::DrumLanesView, Some(_)) => Err("The drum lanes are the view already"),
+                    (Command::DrumKeysView, Some(crate::drum_editor::View::Lanes)) => Ok(()),
+                    (Command::DrumKeysView, Some(_)) => Err("The piano roll is the view already"),
+                    (_, Some(crate::drum_editor::View::Lanes)) => Ok(()),
+                    (_, Some(_)) => Err("Show the drum lanes first"),
+                }
+            }
+            Command::DrumMuteLane | Command::DrumSoloLane => need(
+                self.drum_picked_lane().is_some(),
+                "Pick hits in one lane of a drum clip first",
             ),
             Command::ClearSolos => need(
                 lumen_project::solo::any_soloed(self.document.project()),

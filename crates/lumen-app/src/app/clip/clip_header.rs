@@ -227,6 +227,23 @@ impl HeaderStrip {
     pub fn tools_width(ui: &Ui, words: bool) -> f32 {
         widgets::segmented_tool_width(ui, &tool_choices(["", ""], None, words))
     }
+
+    /// The view switch on a track with a drum map (the owner's DV A): the
+    /// clip's **Lanes** (the drum editor) and **Keys** (the piano roll with the
+    /// kit's names), 30 pt like the tool switch. Returns the view picked.
+    pub fn views(&mut self, chosen: crate::drum_editor::View) -> Option<crate::drum_editor::View> {
+        use crate::drum_editor::View;
+        let choices = [
+            Choice::new(View::Lanes, "Lanes")
+                .named("Lanes view")
+                .tip("One lane a sound: draw, move and set the velocity of each hit"),
+            Choice::new(View::Keys, "Keys")
+                .named("Keys view")
+                .tip("The piano roll, with the kit's sounds in the key column"),
+        ];
+        let id = self.row.id().with("editor view");
+        widgets::segmented_tool(&mut self.row, id, chosen, &choices, None)
+    }
 }
 
 /// The tool switch's two choices.
