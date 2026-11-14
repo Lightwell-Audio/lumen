@@ -84,6 +84,13 @@ fn a_hundred_thousand_hits_in_the_lanes_beside_the_piano_roll() {
     );
     let lanes = measure(&mut lumen, 120);
 
+    // M8 D3: the step grid on the same clip (100 pages of 16 steps; the
+    // first page is drawn, and the picked rings and cells read only it).
+    lumen.app_mut().show_the_steps_view();
+    lumen.frames(60);
+    assert_eq!(lumen.app().drum_view_shown(), Some("steps"));
+    let steps = measure(&mut lumen, 120);
+
     lumen.app_mut().show_the_keys_view();
     lumen.frames(60);
     assert_eq!(lumen.app().drum_view_shown(), Some("keys"));
@@ -92,8 +99,15 @@ fn a_hundred_thousand_hits_in_the_lanes_beside_the_piano_roll() {
     println!(
         "100,000 hits, 1280x820 at 100%:\n\
          drum lanes   p50 {:6.2} ms  p95 {:6.2}  worst {:6.2}\n\
+         step grid    p50 {:6.2} ms  p95 {:6.2}  worst {:6.2}
          piano roll   p50 {:6.2} ms  p95 {:6.2}  worst {:6.2}",
-        lanes.0, lanes.1, lanes.2, roll.0, roll.1, roll.2
+        lanes.0, lanes.1, lanes.2, steps.0, steps.1, steps.2, roll.0, roll.1, roll.2
+    );
+    assert!(
+        steps.1 <= roll.1 * 1.15 + 1.0,
+        "the step grid's p95 ({:.2} ms) within 15% of the roll's ({:.2} ms)",
+        steps.1,
+        roll.1
     );
     assert!(
         lanes.1 <= roll.1 * 1.15 + 1.0,

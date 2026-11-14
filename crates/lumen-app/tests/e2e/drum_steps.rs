@@ -7,7 +7,7 @@
 //! Points come from the grid's own geometry (`App::steps_cell_point`), so a
 //! test clicks where a person would.
 
-use eframe::egui::{Event, Key, Modifiers, Pos2, vec2};
+use eframe::egui::{Key, Modifiers, Pos2, vec2};
 use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_core::time::{PPQ, Ticks};
 use lumen_project::drums::presets::Preset;
@@ -312,8 +312,8 @@ fn the_count_the_resolution_and_the_page_are_settable() {
     assert_eq!((setup.count, setup.pages, setup.page), (8, 8, 0));
     lumen.click("16 steps a page");
 
-    // The resolution: 1/8 makes each step two sixteenths, so a page of 16
-    // covers 4 bars... the 4-bar clip is 32 steps, two pages.
+    // The resolution: 1/8 makes each step two sixteenths, so the four bars
+    // are 32 steps: two pages of 16.
     lumen.click("1/16");
     lumen.click("1/8");
     let setup = lumen.app().steps_setup().expect("a grid");
@@ -483,36 +483,36 @@ fn a_chosen_view_is_kept_for_the_track_and_the_fit_only_decides_before_a_choice(
 }
 
 #[test]
-fn a_right_click_on_a_step_with_a_hit_offers_the_notes_menu() {
+fn a_right_click_on_a_step_with_a_hit_offers_the_notes_menu_and_delete_removes_the_hit() {
     let (mut lumen, clip) = launch("menu", project_with(8, kit_notes()));
+    let before = notes_of(&lumen, clip);
     let p = at(&lumen, SNARE, 4);
     lumen.right_click(p);
     assert!(
         lumen.shows("Show the drum lanes"),
         "the view rows are there"
     );
+    assert!(
+        lumen.shows("Mute the picked lane"),
+        "the hit under the pointer is picked, so the lane's rows apply"
+    );
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
-    // Delete deletes the picked hit: a step's hit is a note like any other.
-    let before = notes_of(&lumen, clip);
-    lumen.click_at(p, Modifiers::NONE);
-    lumen.click_at(p, Modifiers::NONE);
-    assert_eq!(notes_of(&lumen, clip), before);
+    // A click picks the step's hit (it was a player's, so it is muted, not
+    // deleted), and Delete removes the picked hit like any note.
     lumen.click_at(at(&lumen, KICK, 0), Modifiers::NONE);
-    lumen.harness.event(Event::Key {
-        key: Key::Delete,
-        physical_key: None,
-        pressed: true,
-        repeat: false,
-        modifiers: Modifiers::NONE,
-    });
-    lumen.frames(4);
-    assert!(
-        notes_of(&lumen, clip)
-            .iter()
-            .all(|n| !(n.pitch() == KICK && n.start() == Ticks::ZERO && !n.muted())),
-        "Delete removed the picked hit (it was muted by the click)"
+    assert_eq!(
+        lumen.app().picked_note_count(),
+        0,
+        "a muted hit is not picked"
     );
+    lumen.click_at(at(&lumen, KICK, 0), Modifiers::NONE);
+    assert_eq!(lumen.app().picked_note_count(), 1, "unmuted, it is picked");
+    lumen.key(Modifiers::NONE, Key::Delete);
+    assert_eq!(notes_of(&lumen, clip).len(), before.len() - 1);
+    assert!(!on(&lumen, KICK, 0));
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(notes_of(&lumen, clip).len(), before.len());
 }
 
 #[test]

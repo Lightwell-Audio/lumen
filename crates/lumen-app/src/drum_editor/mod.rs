@@ -588,4 +588,25 @@ mod tests {
         assert!(!state.shows_length(Id(1), 36), "the new map took over");
         assert!(state.shows_length(Id(2), 38));
     }
+
+    #[test]
+    fn a_clip_opens_by_its_fit_until_the_user_chooses_a_view_for_the_track() {
+        let mut state = State::default();
+        let (a, b) = (Id(10), Id(11));
+        assert!(state.open_view(a, true), "a fitting clip opens in Steps");
+        assert_eq!(state.view(a), View::Steps);
+        assert!(!state.open_view(a, true), "nothing changed the second time");
+        assert!(state.open_view(a, false), "a long clip goes back to Lanes");
+        assert_eq!(state.view(a), View::Lanes);
+        // A choice, even of the view the fit would pick, is kept.
+        state.set_view(a, View::Lanes);
+        assert!(!state.open_view(a, true));
+        assert_eq!(state.view(a), View::Lanes);
+        state.set_view(a, View::Keys);
+        assert!(!state.open_view(a, true));
+        assert_eq!(state.view(a), View::Keys);
+        // Another track has chosen nothing.
+        assert!(state.open_view(b, true));
+        assert_eq!(state.view(b), View::Steps);
+    }
 }

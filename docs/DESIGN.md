@@ -1845,6 +1845,44 @@ click away; a clip opens in Lanes. The name column is 176 pt
   played sounds keep their rows (ties in the map's order) and the rest are
   left out; a clip too short for one row draws none. It is a picture only.
 
+## 7n. The drum editor's steps (M8 slice D3)
+
+The clip editor's third view for a clip on a track with a drum map: **Lanes ·
+Steps · Keys** in the header (the specimen's order). A clip that is a whole
+number of 1/16 steps and at most four bars opens in Steps; any other opens in
+Lanes; a view the user chose for the track is kept.
+
+- **The grid**: a 34 pt strip (the header's fill, hairlines above and below)
+  where the ruler is, then one 34 pt row for each sound in the map's order with
+  the lanes' 176 pt name column (colour bar, icon, name, M and S) at the left.
+  A page fills the body: a cell is its step's width minus a 3 pt inset on every
+  side, at `radius::SMALL`; the wells alternate by beat group (the `STEP_WELL_*`
+  alphas), the cell fills from its foot to its velocity (never under 6 pt) with
+  a hairline edge in the sound's colour, and an **accent** (velocity at or
+  above the clip's accent) wears a 1.5 pt `warning` rim at `radius::MEDIUM`. A
+  hit that does not start on its step shows at the step with a 5 pt triangle
+  mark at the top right; a step whose hit is kept muted draws a faint outline;
+  steps past the clip's end are quiet. While playing, the step holding the
+  playhead has a `WASH` wash and a 3 pt light at the foot of the body.
+- **The strip**: 8 · 16 · 32 · 64 steps a page, the word *steps*, the
+  resolution (1/4 to 1/32T, a raised button with a menu), *grid*, the accent
+  (127, 120, 112, 104) and, at the right, *Page* with the page numbers (up to
+  eight pages; Previous and Next with "n of N" beyond) and "of N". The grid's
+  own resolution replaces the roll's grid chip, and the velocity lane is not
+  shown (a step's velocity is its fill).
+- **The pointer**: a click toggles the step; a vertical drag sets its velocity
+  (the cell's height is 1 to 127; a chip beside the pointer reads "Velocity
+  96"); Shift-click toggles the accent. One undo step each, committed at the
+  release; Esc cancels a press. Right-click gives the editor's own menu.
+- **The keyboard**: the grid is one Tab stop with a roving step. Arrows move
+  it, Home and End run along the row, Page Up and Down turn the page, Space or
+  Enter toggles the step and Shift with either toggles its accent; none of
+  them reaches the transport while the grid has the keyboard. Its accessible
+  name says where the step is: "Step grid: Drums. Snare, step 5 of 32, on,
+  velocity 100".
+- **Not saved**: a clip's count, resolution, page and accent last while the
+  app runs, as Lanes' hidden sounds do.
+
 ## 8. Key flows
 
 ### Join crossfades (M7b E2, accepted X1)

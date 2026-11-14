@@ -5590,6 +5590,8 @@ fn drum_lanes() {
             h.state_mut().set_detail_size(560.0);
             let clip = h.state().project().tracks[0].clips[0].id;
             h.state_mut().open_clip_editor(clip);
+            // A clip that fits the step grid opens in Steps (M8 D3).
+            h.state_mut().show_the_lanes_view();
             h.run_steps(30);
             // The snare hit on beat 2 picked, as a player would leave it.
             let hit = h
@@ -5710,6 +5712,107 @@ fn drum_lanes_project() -> lumen_project::model::Project {
     let track = std::sync::Arc::make_mut(&mut project.tracks[0]);
     track.drum_map = Some(map.id);
     project
+}
+
+/// M8 D3: the step grid: an empty clip, the kit's pattern, an accented step,
+/// off-grid hits with their marks, and the smallest panel, in both themes at
+/// 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn drum_steps() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_project::model::ClipContent;
+    // (name, panel height, the project's notes changed to fit the state)
+    type Change = fn(&mut Vec<lumen_project::model::Note>);
+    let states: [(&str, f32, Change); 5] = [
+        ("kit", 560.0, |_| {}),
+        ("empty", 560.0, |notes| notes.clear()),
+        ("accent", 560.0, |_| {}),
+        ("off-grid", 560.0, |notes| {
+            // A player's late and early hits: a third of a step off.
+            for (i, note) in notes.iter_mut().enumerate() {
+                if i % 3 == 0 {
+                    note.0 = note.0 + lumen_core::time::Ticks(lumen_core::time::PPQ / 12);
+                } else if i % 5 == 0 && note.0 > lumen_core::time::Ticks::ZERO {
+                    note.0 = note.0 - lumen_core::time::Ticks(lumen_core::time::PPQ / 20);
+                }
+            }
+            notes.sort_by_key(|n| (n.start(), n.pitch()));
+        }),
+        ("smallest", 230.0, |_| {}),
+    ];
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            for (name, panel, change) in states {
+                let tag = format!("{appearance}-{}", (scale * 100.0) as u32);
+                let dir = TempDir::new(&format!("shots-steps-{name}-{tag}"));
+                let path = dir.path().join("beat.lumen");
+                let mut project = drum_lanes_project();
+                {
+                    let track = std::sync::Arc::make_mut(&mut project.tracks[0]);
+                    let clip = std::sync::Arc::make_mut(&mut track.clips[0]);
+                    if let ClipContent::Midi { notes, .. } = &mut clip.content {
+                        change(notes);
+                    }
+                }
+                lumen_project::save(&project, &path, &Default::default()).expect("save");
+                let launch = Launch::for_test(dir.path())
+                    .appearing(appearance)
+                    .opening(path);
+                let mut h = Harness::builder()
+                    .with_size(vec2(1280.0, 820.0))
+                    .with_pixels_per_point(scale)
+                    .with_theme(if appearance == "light" {
+                        eframe::egui::Theme::Light
+                    } else {
+                        eframe::egui::Theme::Dark
+                    })
+                    .with_step_dt(1.0 / 60.0)
+                    .wgpu()
+                    .build_eframe(|cc| {
+                        lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                        App::new(cc, launch)
+                    });
+                h.run_steps(30);
+                h.state_mut().set_detail_size(panel);
+                let clip = h.state().project().tracks[0].clips[0].id;
+                h.state_mut().open_clip_editor(clip);
+                h.run_steps(30);
+                assert_eq!(h.state().drum_view_shown(), Some("steps"));
+                if name == "accent" {
+                    // Shift-click an off step: an accent, picked, hovered.
+                    let at = h.state().steps_cell_point(36, 3).expect("a step");
+                    for pressed in [true, false] {
+                        h.event(Event::PointerButton {
+                            pos: at,
+                            button: eframe::egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: Modifiers::SHIFT,
+                        });
+                        h.run_steps(1);
+                    }
+                    h.hover_at(at);
+                    h.run_steps(10);
+                } else if name == "kit" {
+                    // The keyboard on a step, as a player would leave it.
+                    let at = h.state().steps_cell_point(38, 4).expect("a step");
+                    h.hover_at(at);
+                    h.run_steps(10);
+                }
+                if name != "accent" && name != "kit" {
+                    h.hover_at(Pos2::new(10.0, 10.0));
+                    h.run_steps(10);
+                }
+                save(&mut h, &format!("drum-steps-{name}-{tag}"));
+                if name == "kit" {
+                    // The resolution's menu, open.
+                    h.get_by_label("1/16").click();
+                    h.run_steps(10);
+                    save(&mut h, &format!("drum-steps-menu-{tag}"));
+                }
+            }
+        }
+    }
 }
 
 /// M8 D2: the arrangement's drum rows, a tall mapped track and a short one,

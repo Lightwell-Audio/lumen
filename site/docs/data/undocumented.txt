@@ -382,3 +382,6 @@ midi.solo_lane @m8
 devices.add_eq @m8
 devices.add_delay @m8
 devices.add_reverb @m8
+view.drum_steps @m8
+view.steps_next_page @m8
+view.steps_previous_page @m8
